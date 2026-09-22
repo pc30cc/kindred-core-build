@@ -9,12 +9,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.webyar.operator.feature.chat.ChatScreen
+import com.webyar.operator.feature.contacts.ContactDetailScreen
+import com.webyar.operator.feature.contacts.ContactsScreen
+import com.webyar.operator.feature.contacts.ContactsViewModel
 import com.webyar.operator.feature.inbox.InboxScreen
 import com.webyar.operator.feature.inbox.InboxState
 import com.webyar.operator.i18n.Language
+import com.webyar.operator.i18n.Format
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -28,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TopAppBar
 import androidx.compose.ui.platform.LocalContext
 import com.webyar.operator.feature.settings.AccountViewModel
@@ -69,6 +75,7 @@ import com.webyar.operator.ui.Session
 import com.webyar.operator.ui.AppState
 import com.webyar.operator.feature.inbox.InboxViewModel
 import com.webyar.operator.ui.components.EmptyState
+import com.webyar.operator.ui.components.bidiContent
 import com.webyar.operator.ui.components.rememberSearchState
 
 /**
@@ -372,15 +379,75 @@ fun ChatRoute(
 @Composable
 fun ContactsRoute(
     appState: AppState,
+    contacts: ContactsViewModel,
     language: Language,
+    onOpenContact: (String) -> Unit,
     bottomInset: Dp,
 ) {
-    EmptyState(
-        icon = Icons.Filled.Person,
-        title = Str.tabContacts(language),
-        body = null,
+    val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
+    val state by contacts.state.collectAsStateWithLifecycle()
+    val intel by contacts.intel.collectAsStateWithLifecycle()
+    val refreshing by contacts.refreshing.collectAsStateWithLifecycle()
+
+    val search = rememberSearchState(resetOn = workspace?.id ?: "-")
+    LaunchedEffect(search) {
+        snapshotFlow { search.text }.collect(contacts::setQuery)
+    }
+
+    LaunchedEffect(workspace?.id) {
+        workspace?.let { contacts.bind(it.id) }
+    }
+
+    ContactsScreen(
+        state = state,
+        language = language,
+        onOpen = { onOpenContact(it.id) },
         modifier = Modifier.statusBarsPadding(),
+        contentPadding = PaddingValues(bottom = bottomInset),
+        intel = intel,
+        refreshing = refreshing,
+        search = search,
+        onRefresh = contacts::refresh,
+        onRetry = contacts::retry,
     )
+}
+
+@Composable
+fun ContactDetailRoute(
+    contactId: String,
+    contacts: ContactsViewModel,
+    language: Language,
+    onBack: () -> Unit,
+) {
+    // Taken from the list the view model already holds rather than re-fetched.
+    // The address book has no by-id endpoint, so a refetch would mean pulling
+    // the whole book again to find one row of it.
+    val contact = remember(contactId) { contacts.contact(contactId) }
+    val intel by contacts.intel.collectAsStateWithLifecycle()
+
+    Scaffold(
+        topBar = {
+            BackBar(
+                title = contact?.let {
+                    Format.contactName(
+                        name = it.name,
+                        email = it.email,
+                        visitorCode = it.visitorCode,
+                        language = language,
+                    )
+                } ?: Str.tabContacts(language),
+                language = language,
+                onBack = onBack,
+            )
+        },
+    ) { padding ->
+        ContactDetailScreen(
+            contact = contact,
+            language = language,
+            modifier = Modifier.padding(padding),
+            profile = intel[contactId],
+        )
+    }
 }
 
 @Composable
@@ -531,7 +598,18 @@ fun SecurityRoute(
 @Composable
 private fun BackBar(title: String, language: Language, onBack: () -> Unit) {
     TopAppBar(
-        title = { Text(title) },
+        title = {
+            Text(
+                title,
+                // A contact's name is whatever they typed, and
+                // "Alexander Konstantinopoulos" is two words wider than the
+                // bar. One line, ellipsised, and its reading order from the
+                // name rather than from the layout.
+                style = MaterialTheme.typography.titleLarge.bidiContent(),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
         navigationIcon = {
             IconButton(onClick = onBack) {
                 Icon(

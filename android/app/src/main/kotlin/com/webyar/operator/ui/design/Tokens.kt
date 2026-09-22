@@ -121,4 +121,14 @@ object Motion {
         dampingRatio = 0.86f,
         stiffness = Spring.StiffnessMedium,
     )
+
+    /**
+     * Half a cycle of a loading placeholder's pulse.
+     *
+     * Slow on purpose. A placeholder is on screen for a second at most on a
+     * good connection and several on a bad one, and a quick pulse reads as
+     * alarm rather than patience — which is the wrong note to strike at
+     * exactly the moment the app is asking somebody to wait.
+     */
+    const val skeletonPulse = 750
 }

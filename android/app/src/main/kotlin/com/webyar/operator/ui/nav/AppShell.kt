@@ -35,6 +35,7 @@ import com.webyar.operator.i18n.Str
 import com.webyar.operator.ui.AppState
 import com.webyar.operator.core.net.WebyarApi
 import com.webyar.operator.ui.AppTab
+import com.webyar.operator.feature.contacts.ContactsViewModel
 import com.webyar.operator.feature.inbox.InboxViewModel
 import com.webyar.operator.ui.components.FloatingTabBar
 import com.webyar.operator.ui.components.TabItem
@@ -58,6 +59,7 @@ fun AppShell(
     appState: AppState,
     api: WebyarApi,
     conversations: InboxViewModel,
+    contacts: ContactsViewModel,
     language: Language,
     modifier: Modifier = Modifier,
     navController: NavHostController = rememberNavController(),
@@ -111,8 +113,18 @@ fun AppShell(
                 composable(Route.CONTACTS) {
                     ContactsRoute(
                         appState = appState,
+                        contacts = contacts,
                         language = language,
+                        onOpenContact = { navController.navigate(Route.contact(it)) },
                         bottomInset = Size.floatingBarHeight + Size.floatingBarBottomGap,
+                    )
+                }
+                composable(Route.CONTACT) { entry ->
+                    ContactDetailRoute(
+                        contactId = entry.arguments?.getString("contactId").orEmpty(),
+                        contacts = contacts,
+                        language = language,
+                        onBack = { navController.popBackStack() },
                     )
                 }
             }

@@ -289,9 +289,17 @@ enum class PillTone { NEUTRAL, SUCCESS, WARNING, BRAND }
 fun LatinText(
     text: String,
     modifier: Modifier = Modifier,
-    style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyMedium,
+    style: TextStyle = MaterialTheme.typography.bodyMedium,
     color: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Unspecified,
     maxLines: Int = Int.MAX_VALUE,
+    /**
+     * Where the run sits in the space it is given.
+     *
+     * Separate from the direction, and absolute: `End` inside a forced-LTR
+     * style would resolve to the right even in Persian, which is the wrong
+     * edge for a value column in an RTL screen.
+     */
+    align: TextAlign? = null,
 ) {
     Text(
         text = text,
@@ -299,6 +307,7 @@ fun LatinText(
         style = style.copy(textDirection = TextDirection.Ltr),
         color = color,
         maxLines = maxLines,
+        textAlign = align ?: TextAlign.Unspecified,
         overflow = TextOverflow.Ellipsis,
     )
 }
@@ -326,11 +335,22 @@ fun LatinText(
 @Composable
 fun TextStyle.bidiContent(): TextStyle = copy(
     textDirection = TextDirection.Content,
-    textAlign = when (LocalLayoutDirection.current) {
-        LayoutDirection.Rtl -> TextAlign.Right
-        LayoutDirection.Ltr -> TextAlign.Left
-    },
+    textAlign = rowTextAlign(),
 )
+
+/**
+ * The row's own leading edge, stated absolutely.
+ *
+ * `TextAlign.Start` is not the same thing: it resolves against the text's
+ * direction, so the moment a run is forced or derived to LTR inside a Persian
+ * screen it jumps to the left while its neighbours stay right. Left and Right
+ * do not resolve, so a column of mixed-language values stays a column.
+ */
+@Composable
+fun rowTextAlign(): TextAlign = when (LocalLayoutDirection.current) {
+    LayoutDirection.Rtl -> TextAlign.Right
+    LayoutDirection.Ltr -> TextAlign.Left
+}
 
 /**
  * A centred, quiet line inside a list — "nothing here yet", said without

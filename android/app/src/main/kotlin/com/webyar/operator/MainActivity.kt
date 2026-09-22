@@ -33,6 +33,7 @@ import com.webyar.operator.feature.chat.ChatState
 import com.webyar.operator.feature.inbox.InboxState
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.ui.AppState
+import com.webyar.operator.feature.contacts.ContactsViewModel
 import com.webyar.operator.feature.inbox.InboxViewModel
 import com.webyar.operator.ui.Session
 import com.webyar.operator.ui.nav.AppShell
@@ -102,11 +103,17 @@ private fun SignedInScreen(appState: AppState, api: WebyarApi, language: Languag
     // re-fetch a list the inbox already has.
     val conversations: InboxViewModel =
         viewModel(factory = factory { InboxViewModel(api) { language } })
+    // Held here rather than in the contacts route for the same reason: the
+    // detail screen reads the row out of the list the list already fetched,
+    // and a model scoped to the route would drop it on the way in.
+    val contacts: ContactsViewModel =
+        viewModel(factory = factory { ContactsViewModel(api) { language } })
 
     AppShell(
         appState = appState,
         api = api,
         conversations = conversations,
+        contacts = contacts,
         language = language,
     )
 }

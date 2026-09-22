@@ -33,6 +33,9 @@ object Route {
     const val CHAT = "chat/{conversationId}"
     fun chat(conversationId: String) = "chat/$conversationId"
 
+    const val CONTACT = "contact/{contactId}"
+    fun contact(contactId: String) = "contact/$contactId"
+
     const val PROFILE = "settings/profile"
     const val SECURITY = "settings/security"
 

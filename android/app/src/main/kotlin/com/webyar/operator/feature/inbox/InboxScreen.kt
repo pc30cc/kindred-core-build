@@ -19,7 +19,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -59,6 +58,7 @@ import com.webyar.operator.ui.components.PillTone
 import com.webyar.operator.ui.components.RowDivider
 import com.webyar.operator.ui.components.SearchField
 import com.webyar.operator.ui.components.SearchState
+import com.webyar.operator.ui.components.SkeletonList
 import com.webyar.operator.ui.components.StatusPill
 import com.webyar.operator.ui.components.UnreadBadge
 import com.webyar.operator.ui.components.bidiContent
@@ -128,9 +128,11 @@ fun InboxScreen(
             modifier = Modifier.weight(1f),
         ) {
             when (state) {
-                is InboxState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    CircularProgressIndicator()
-                }
+                // Grey rows rather than a spinner: the shape of the answer is
+                // known before the answer is, so nothing jumps when it lands.
+                is InboxState.Loading -> SkeletonList(
+                    Modifier.fillMaxSize().padding(contentPadding),
+                )
 
                 is InboxState.Failed -> ErrorState(
                     title = Str.offlineTitle(language),

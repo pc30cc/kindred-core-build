@@ -36,7 +36,13 @@ object A11y {
     const val COMPOSER_SHORTCUTS = "composer.shortcuts"
     const val SAY_NOW_VOICE = "sayNow.voice"
 
+    const val CONTACTS_LIST = "contacts.list"
+    const val CONTACTS_EMPTY = "contacts.empty"
+    const val CONTACTS_SEARCH = "contacts.search"
+    const val CONTACT_DETAIL = "contact.detail"
+
     fun conversationRow(id: String) = "conversation.$id"
+    fun contactRow(id: String) = "contact.$id"
     fun messageRow(id: String) = "message.$id"
     fun workspaceRow(id: String) = "settings.workspace.$id"
     fun shortcutRow(id: String) = "shortcut.$id"

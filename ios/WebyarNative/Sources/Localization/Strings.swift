@@ -17,20 +17,19 @@ enum Str {
         }
     }
 
-    /// The name as the wordmark draws it, which is not always how it is
-    /// written in a sentence.
+    /// The wordmark, which is the same in every language.
     ///
-    /// Latin is capitalised because the mark is letter-spaced and lowercase
-    /// letters track badly. Persian carries kashida — the elongation stroke —
-    /// rather than tracking, because the script is connected and tracking
-    /// would break its joins; the ZWNJ that `appName` uses is replaced by a
-    /// space, since at display size the two halves want air between them.
-    static func brandWordmark(_ l: Language) -> String {
-        switch l {
-        case .en, .tr: "WEBYAR"
-        case .fa: "وبــــ یــار"
-        }
-    }
+    /// `appName` is translated because it appears inside sentences — a
+    /// Persian sentence saying "Webyar" in Latin letters reads as a foreign
+    /// word dropped into it. A wordmark is not a word in a sentence: it is
+    /// the mark on the product, the same one on the icon, the website and
+    /// the invoice, and translating it would make the app look like a
+    /// different product depending on who opened it. So it is Latin,
+    /// capitalised, everywhere.
+    ///
+    /// Capitalised specifically because the mark is letter-spaced, and
+    /// lowercase letters track badly.
+    static let brandWordmark = "WEBYAR"
 
     static func cancel(_ l: Language) -> String {
         switch l {
@@ -114,21 +113,63 @@ enum Str {
         }
     }
 
-    /// Worded so it does not confirm whether the address has an account —
-    /// the endpoint deliberately answers the same either way.
-    static func resetSentBody(_ l: Language) -> String {
+    // MARK: - Password reset (its own screen)
+    //
+    // `resetSentBody` and `resetNeedsEmail` used to live here and are gone
+    // with the alert and the empty-field refusal they belonged to. The screen
+    // asks for the address instead of demanding one be already typed, and
+    // says where the link went instead of saying that one went somewhere.
+
+    static func resetTitle(_ l: Language) -> String {
         switch l {
-        case .en: "If that address has an account, a reset link is on its way."
-        case .fa: "اگر آن نشانی حسابی داشته باشد، پیوند بازنشانی برایش فرستاده می‌شود."
-        case .tr: "Bu adrese ait bir hesap varsa, sıfırlama bağlantısı yolda."
+        case .en: "Reset your password"
+        case .fa: "بازنشانی رمز عبور"
+        case .tr: "Parolanızı sıfırlayın"
         }
     }
 
-    static func resetNeedsEmail(_ l: Language) -> String {
+    static func resetSubtitle(_ l: Language) -> String {
         switch l {
-        case .en: "Enter your email address first."
-        case .fa: "نخست نشانی ایمیل خود را وارد کنید."
-        case .tr: "Önce e-posta adresinizi girin."
+        case .en: "Enter the email address you sign in with. We will send you a link to choose a new password."
+        case .fa: "نشانی ایمیلی که با آن وارد می‌شوید را بنویسید. پیوندی برایتان می‌فرستیم تا رمز تازه‌ای انتخاب کنید."
+        case .tr: "Giriş yaptığınız e-posta adresini yazın. Yeni bir parola seçmeniz için size bir bağlantı göndereceğiz."
+        }
+    }
+
+    static func sendResetLink(_ l: Language) -> String {
+        switch l {
+        case .en: "Send the link"
+        case .fa: "ارسال پیوند"
+        case .tr: "Bağlantıyı gönder"
+        }
+    }
+
+    static func backToLogin(_ l: Language) -> String {
+        switch l {
+        case .en: "Back to sign in"
+        case .fa: "بازگشت به ورود"
+        case .tr: "Girişe dön"
+        }
+    }
+
+    /// Shown once the request has gone. Still worded so it does not confirm
+    /// whether the address has an account.
+    static func resetSentDetail(_ l: Language, email: String) -> String {
+        switch l {
+        case .en: "If \(email) has an account, a link to choose a new password is on its way. It expires in 24 hours."
+        case .fa: "اگر \(email) حسابی داشته باشد، پیوندی برای انتخاب رمز تازه در راه است. این پیوند تا ۲۴ ساعت اعتبار دارد."
+        case .tr: "\(email) adresine ait bir hesap varsa, yeni parola seçmeniz için bir bağlantı yolda. Bağlantı 24 saat geçerlidir."
+        }
+    }
+
+    /// The nudge under the confirmation. People look in the inbox, find
+    /// nothing, and conclude it is broken — which is what the spam folder
+    /// usually is.
+    static func resetCheckSpam(_ l: Language) -> String {
+        switch l {
+        case .en: "Not there? Check your spam folder."
+        case .fa: "نیامد؟ پوشه‌ی هرزنامه را هم ببینید."
+        case .tr: "Gelmedi mi? Spam klasörünü de kontrol edin."
         }
     }
 
@@ -145,6 +186,383 @@ enum Str {
         case .en: "Could not sign you in. Check your email and password."
         case .fa: "ورود انجام نشد. ایمیل و رمز عبور را بررسی کنید."
         case .tr: "Giriş yapılamadı. E-posta ve parolanızı kontrol edin."
+        }
+    }
+
+    // MARK: - Notifications
+
+    static func notifications(_ l: Language) -> String {
+        switch l {
+        case .en: "Notifications"
+        case .fa: "اعلان‌ها"
+        case .tr: "Bildirimler"
+        }
+    }
+
+    // The buttons on a banner. Registered with iOS in the operator's chosen
+    // language, not the device's — this app never reads the device language.
+
+    static func pushReply(_ l: Language) -> String {
+        switch l {
+        case .en: "Reply"
+        case .fa: "پاسخ"
+        case .tr: "Yanıtla"
+        }
+    }
+
+    static func pushReplyPlaceholder(_ l: Language) -> String {
+        switch l {
+        case .en: "Reply…"
+        case .fa: "پاسخ…"
+        case .tr: "Yanıt…"
+        }
+    }
+
+    static func pushMarkRead(_ l: Language) -> String {
+        switch l {
+        case .en: "Mark as read"
+        case .fa: "خوانده شد"
+        case .tr: "Okundu işaretle"
+        }
+    }
+
+    static func pushOpen(_ l: Language) -> String {
+        switch l {
+        case .en: "Open"
+        case .fa: "باز کردن"
+        case .tr: "Aç"
+        }
+    }
+
+    // Asking for permission, in our own words, before iOS asks in its.
+
+    static func pushPrimerTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Know when a customer writes"
+        case .fa: "وقتی مشتری پیام می‌دهد باخبر شوید"
+        case .tr: "Bir müşteri yazdığında haberiniz olsun"
+        }
+    }
+
+    static func pushPrimerBody(_ l: Language) -> String {
+        switch l {
+        case .en: "Webyar can tell you about new messages, mentions and internal notes — even when the app is closed. You choose exactly which, and you can change it any time in Settings."
+        case .fa: "وب‌یار می‌تواند پیام‌های تازه، نام‌بردن‌ها و یادداشت‌های داخلی را به شما خبر دهد — حتی وقتی برنامه بسته است. خودتان انتخاب می‌کنید کدام‌ها، و هر وقت خواستید از تنظیمات عوضش می‌کنید."
+        case .tr: "Webyar yeni mesajları, bahsetmeleri ve dahili notları — uygulama kapalıyken bile — size bildirebilir. Hangilerini istediğinizi siz seçersiniz ve istediğiniz zaman Ayarlar'dan değiştirebilirsiniz."
+        }
+    }
+
+    static func pushTurnOn(_ l: Language) -> String {
+        switch l {
+        case .en: "Turn on notifications"
+        case .fa: "روشن کردن اعلان‌ها"
+        case .tr: "Bildirimleri aç"
+        }
+    }
+
+    static func pushNotNow(_ l: Language) -> String {
+        switch l {
+        case .en: "Not now"
+        case .fa: "الان نه"
+        case .tr: "Şimdi değil"
+        }
+    }
+
+    // The settings screen.
+
+    static func pushDeniedTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Notifications are off for Webyar"
+        case .fa: "اعلان‌های وب‌یار خاموش است"
+        case .tr: "Webyar için bildirimler kapalı"
+        }
+    }
+
+    /// iOS only ever asks once, so after a refusal the only way back is the
+    /// system's own settings. Saying so is better than a switch that does
+    /// nothing when tapped.
+    static func pushDeniedBody(_ l: Language) -> String {
+        switch l {
+        case .en: "iOS asks only once. Turn them back on in the Settings app to be told about new messages."
+        case .fa: "iOS فقط یک‌بار می‌پرسد. برای باخبر شدن از پیام‌های تازه، آن‌ها را در برنامه‌ی تنظیمات دوباره روشن کنید."
+        case .tr: "iOS yalnızca bir kez sorar. Yeni mesajlardan haberdar olmak için Ayarlar uygulamasından yeniden açın."
+        }
+    }
+
+    static func pushOpenSettings(_ l: Language) -> String {
+        switch l {
+        case .en: "Open Settings"
+        case .fa: "باز کردن تنظیمات"
+        case .tr: "Ayarları aç"
+        }
+    }
+
+    static func pushUnavailable(_ l: Language) -> String {
+        switch l {
+        case .en: "This workspace has no notification service configured, so nothing will arrive on this phone yet."
+        case .fa: "برای این فضای کاری سرویس اعلان تنظیم نشده، پس فعلاً چیزی به این تلفن نمی‌رسد."
+        case .tr: "Bu çalışma alanı için bildirim servisi yapılandırılmamış, bu yüzden bu telefona henüz bir şey ulaşmayacak."
+        }
+    }
+
+    static func pushMuteAll(_ l: Language) -> String {
+        switch l {
+        case .en: "Pause all notifications"
+        case .fa: "توقف همه‌ی اعلان‌ها"
+        case .tr: "Tüm bildirimleri duraklat"
+        }
+    }
+
+    static func pushMuteAllFooter(_ l: Language) -> String {
+        switch l {
+        case .en: "Nothing is sent to any of your devices while this is on."
+        case .fa: "تا وقتی این روشن است، چیزی به هیچ‌کدام از دستگاه‌های شما فرستاده نمی‌شود."
+        case .tr: "Bu açıkken hiçbir cihazınıza bir şey gönderilmez."
+        }
+    }
+
+    static func pushScopeTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Tell me about"
+        case .fa: "خبرم کن درباره‌ی"
+        case .tr: "Şunları bildir"
+        }
+    }
+
+    static func pushScopeAll(_ l: Language) -> String {
+        switch l {
+        case .en: "Every conversation"
+        case .fa: "همه‌ی گفتگوها"
+        case .tr: "Her konuşma"
+        }
+    }
+
+    static func pushScopeAssigned(_ l: Language) -> String {
+        switch l {
+        case .en: "Conversations assigned to me"
+        case .fa: "گفتگوهایی که به من سپرده شده"
+        case .tr: "Bana atanan konuşmalar"
+        }
+    }
+
+    static func pushScopeMentions(_ l: Language) -> String {
+        switch l {
+        case .en: "Only when I am mentioned"
+        case .fa: "فقط وقتی نام مرا می‌برند"
+        case .tr: "Yalnızca benden bahsedildiğinde"
+        }
+    }
+
+    static func pushScopeNone(_ l: Language) -> String {
+        switch l {
+        case .en: "Nothing"
+        case .fa: "هیچ‌کدام"
+        case .tr: "Hiçbiri"
+        }
+    }
+
+    /// An @mention always gets through the two narrower scopes; saying so
+    /// stops "assigned to me" reading as "and nothing else, ever".
+    static func pushScopeFooter(_ l: Language) -> String {
+        switch l {
+        case .en: "Someone mentioning you by name always gets through."
+        case .fa: "اگر کسی نام شما را ببرد، همیشه به شما می‌رسد."
+        case .tr: "Biri adınızı anarsa her durumda size ulaşır."
+        }
+    }
+
+    static func pushInternalNotes(_ l: Language) -> String {
+        switch l {
+        case .en: "Internal notes"
+        case .fa: "یادداشت‌های داخلی"
+        case .tr: "Dahili notlar"
+        }
+    }
+
+    static func pushShowPreview(_ l: Language) -> String {
+        switch l {
+        case .en: "Show the message"
+        case .fa: "نمایش متن پیام"
+        case .tr: "Mesajı göster"
+        }
+    }
+
+    /// The preview is withheld by the SERVER when this is off, which is the
+    /// only way it can be withheld from a locked screen.
+    static func pushShowPreviewFooter(_ l: Language) -> String {
+        switch l {
+        case .en: "When this is off, the text never leaves the server — the notification only says a message arrived."
+        case .fa: "وقتی خاموش باشد، متن پیام اصلاً از سرور بیرون نمی‌آید — اعلان فقط می‌گوید پیامی رسیده است."
+        case .tr: "Bu kapalıyken metin sunucudan hiç çıkmaz — bildirim yalnızca bir mesaj geldiğini söyler."
+        }
+    }
+
+    static func pushSound(_ l: Language) -> String {
+        switch l {
+        case .en: "Sound"
+        case .fa: "صدا"
+        case .tr: "Ses"
+        }
+    }
+
+    /// The two presence switches. Phrased as what the operator wants, not as
+    /// the state being tested: "while I am at my desk" is a thing somebody
+    /// recognises about their own day; "push when online" is a column name.
+    static func pushWhenOnline(_ l: Language) -> String {
+        switch l {
+        case .en: "While I am at my desk"
+        case .fa: "وقتی پشت میزم هستم"
+        case .tr: "Masamdayken"
+        }
+    }
+
+    static func pushWhenOffline(_ l: Language) -> String {
+        switch l {
+        case .en: "While I am away"
+        case .fa: "وقتی دور از میزم هستم"
+        case .tr: "Uzaktayken"
+        }
+    }
+
+    static func pushPresenceFooter(_ l: Language) -> String {
+        switch l {
+        case .en: "Webyar knows you are at your desk while the web console is open. Turn the first off to keep the phone quiet while you are already answering there."
+        case .fa: "وب\u{200C}یار وقتی کنسول وب باز است می\u{200C}داند پشت میزتان هستید. اولی را خاموش کنید تا وقتی همان\u{200C}جا پاسخ می\u{200C}دهید، گوشی ساکت بماند."
+        case .tr: "Web konsolu açıkken masanızda olduğunuz bilinir. Orada zaten yanıtlarken telefonun sessiz kalması için ilkini kapatın."
+        }
+    }
+
+    static func pushQuietHours(_ l: Language) -> String {
+        switch l {
+        case .en: "Quiet hours"
+        case .fa: "ساعت‌های سکوت"
+        case .tr: "Sessiz saatler"
+        }
+    }
+
+    static func pushQuietFrom(_ l: Language) -> String {
+        switch l {
+        case .en: "From"
+        case .fa: "از"
+        case .tr: "Başlangıç"
+        }
+    }
+
+    static func pushQuietTo(_ l: Language) -> String {
+        switch l {
+        case .en: "Until"
+        case .fa: "تا"
+        case .tr: "Bitiş"
+        }
+    }
+
+    static func pushQuietFooter(_ l: Language) -> String {
+        switch l {
+        case .en: "Nothing arrives inside this window, except someone mentioning you by name."
+        case .fa: "در این بازه چیزی نمی‌رسد، مگر اینکه کسی نام شما را ببرد."
+        case .tr: "Bu aralıkta, biri adınızı anmadıkça hiçbir şey ulaşmaz."
+        }
+    }
+
+    static func pushThisDevice(_ l: Language) -> String {
+        switch l {
+        case .en: "This phone"
+        case .fa: "همین تلفن"
+        case .tr: "Bu telefon"
+        }
+    }
+
+    static func pushDeviceRegistered(_ l: Language) -> String {
+        switch l {
+        case .en: "Registered and able to receive notifications."
+        case .fa: "ثبت شده و آماده‌ی دریافت اعلان است."
+        case .tr: "Kayıtlı ve bildirim alabilir durumda."
+        }
+    }
+
+    static func pushDeviceNotRegistered(_ l: Language) -> String {
+        switch l {
+        case .en: "Not registered yet."
+        case .fa: "هنوز ثبت نشده است."
+        case .tr: "Henüz kayıtlı değil."
+        }
+    }
+
+    // MARK: - Deleting the account
+
+    static func deleteAccount(_ l: Language) -> String {
+        switch l {
+        case .en: "Delete account"
+        case .fa: "حذف حساب"
+        case .tr: "Hesabı sil"
+        }
+    }
+
+    static func deleteAccountBody(_ l: Language) -> String {
+        switch l {
+        case .en: "Your profile, your password, your workspace memberships, your notification preferences and every device you have signed in on are removed. This cannot be undone."
+        case .fa: "نمایه، رمز عبور، عضویت‌هایتان در فضاهای کاری، تنظیمات اعلان و همه‌ی دستگاه‌هایی که با آن‌ها وارد شده‌اید پاک می‌شوند. این کار برگشت‌پذیر نیست."
+        case .tr: "Profiliniz, parolanız, çalışma alanı üyelikleriniz, bildirim tercihleriniz ve giriş yaptığınız her cihaz kaldırılır. Bu işlem geri alınamaz."
+        }
+    }
+
+    /// Said plainly, because it is the part people worry about and the part
+    /// that is genuinely reassuring.
+    static func deleteAccountKeeps(_ l: Language) -> String {
+        switch l {
+        case .en: "Conversations you handled stay with the workspace — they belong to the customer, not to you — but they stop being attributed to you."
+        case .fa: "گفتگوهایی که رسیدگی کرده‌اید در فضای کاری می‌مانند — آن‌ها مال مشتری‌اند، نه شما — ولی دیگر به نام شما ثبت نمی‌شوند."
+        case .tr: "İlgilendiğiniz konuşmalar çalışma alanında kalır — müşteriye aittir, size değil — ancak artık size atfedilmez."
+        }
+    }
+
+    static func deleteAccountConfirmPassword(_ l: Language) -> String {
+        switch l {
+        case .en: "Enter your password to confirm"
+        case .fa: "برای تأیید، رمز عبورتان را وارد کنید"
+        case .tr: "Onaylamak için parolanızı girin"
+        }
+    }
+
+    static func deleteAccountFinal(_ l: Language) -> String {
+        switch l {
+        case .en: "Delete my account"
+        case .fa: "حساب من را حذف کن"
+        case .tr: "Hesabımı sil"
+        }
+    }
+
+    static func deleteAccountWrongPassword(_ l: Language) -> String {
+        switch l {
+        case .en: "That password is not right."
+        case .fa: "این رمز عبور درست نیست."
+        case .tr: "Bu parola doğru değil."
+        }
+    }
+
+    /// The one case the server refuses, and the only one worth a screen of
+    /// its own: an owner's profile cascades to their workspaces.
+    static func deleteAccountOwnsTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Hand these over first"
+        case .fa: "اول این‌ها را واگذار کنید"
+        case .tr: "Önce bunları devredin"
+        }
+    }
+
+    static func deleteAccountOwnsBody(_ l: Language, workspaces: String) -> String {
+        switch l {
+        case .en: "You still own \(workspaces). Deleting your account would take the workspace and everything in it — every conversation, contact and invoice — with it, so ownership has to move to somebody else first. Support will do that for you, and then this will go through."
+        case .fa: "هنوز مالک \(workspaces) هستید. حذف حسابتان فضای کاری و هر چیزی که در آن است — هر گفتگو، مخاطب و صورتحساب — را هم با خود می‌برد، پس اول باید مالکیت به شخص دیگری منتقل شود. پشتیبانی این کار را برایتان انجام می‌دهد و بعد از آن حذف انجام می‌شود."
+        case .tr: "Hâlâ \(workspaces) alanının sahibisiniz. Hesabınızı silmek çalışma alanını ve içindeki her şeyi — her konuşmayı, kişiyi ve faturayı — birlikte götürür; bu yüzden önce sahipliğin başka birine geçmesi gerekir. Destek bunu sizin için yapar, sonra silme işlemi tamamlanır."
+        }
+    }
+
+    static func accountDeleted(_ l: Language) -> String {
+        switch l {
+        case .en: "Your account has been deleted."
+        case .fa: "حساب شما حذف شد."
+        case .tr: "Hesabınız silindi."
         }
     }
 
@@ -607,6 +1025,16 @@ enum Str {
         }
     }
 
+    /// Settings → About, and the one way forward for an owner who wants their
+    /// account removed.
+    static func support(_ l: Language) -> String {
+        switch l {
+        case .en: "Support"
+        case .fa: "پشتیبانی"
+        case .tr: "Destek"
+        }
+    }
+
     static func version(_ l: Language) -> String {
         switch l {
         case .en: "Version"
@@ -811,6 +1239,17 @@ enum Str {
         case .en: "This device"
         case .fa: "همین دستگاه"
         case .tr: "Bu cihaz"
+        }
+    }
+
+    /// The button on a device row. Short, because it sits at the end of a
+    /// line that already says which device — `revokeSession` is the swipe
+    /// action's label and says the whole sentence.
+    static func signOutDevice(_ l: Language) -> String {
+        switch l {
+        case .en: "Sign out"
+        case .fa: "خروج"
+        case .tr: "Çıkış"
         }
     }
 

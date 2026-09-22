@@ -70,6 +70,16 @@ final class InboxViewModel {
     /// All three are applied here rather than on the server because
     /// `GET /api/conversations` has no text search — the web filters its own
     /// list the same way, so the two surfaces agree on what a match is.
+    /// One conversation out of the loaded list, by id.
+    ///
+    /// The whole list, not `visible`: a notification names a conversation
+    /// without knowing which queue the operator happens to be looking at, and
+    /// refusing to open a thread because it is filtered out of the current
+    /// view would be the app disagreeing with its own banner.
+    func conversation(id: String) -> Conversation? {
+        state.value?.first { $0.id == id }
+    }
+
     var visible: [Conversation] {
         guard let all = state.value else { return [] }
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

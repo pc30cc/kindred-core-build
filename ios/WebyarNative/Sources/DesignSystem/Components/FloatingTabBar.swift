@@ -118,4 +118,11 @@ enum Haptics {
     static func success() {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
+
+    /// Something was put back the way it was — a switch that sprang back
+    /// because the save did not land.
+    @MainActor
+    static func warning() {
+        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+    }
 }

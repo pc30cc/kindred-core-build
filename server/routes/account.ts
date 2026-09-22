@@ -564,26 +564,58 @@ accountRouter.post('/resend-verification', async (req, res) => {
 //
 // `login_attempts` (already in our schema) powers the recent login history.
 
-function parseUserAgent(ua: string | null): { browser: string; os: string; device: string } {
+/**
+ * What to call a session, from the only thing it recorded about itself.
+ *
+ * This feeds one screen — Settings → Security, where an operator looks down
+ * a list of their own sessions for one they do not recognise. Getting a label
+ * wrong there is not cosmetic: "Desktop" against the phone in their hand is
+ * the row they would revoke.
+ */
+export function parseUserAgent(ua: string | null): { browser: string; os: string; device: string } {
   if (!ua) return { browser: 'Unknown', os: 'Unknown', device: 'Unknown' };
   const lower = ua.toLowerCase();
+
+  // The native app first, because it is not a browser and says so only by
+  // naming itself: `WebyarNative/1 CFNetwork/… Darwin/…` carries no
+  // "iphone", no "mobile" and no "ios", so every rule below read it as a
+  // desktop running an unknown browser. The operator's own phone was the top
+  // row of that list, labelled Desktop.
+  if (lower.includes('webyarnative')) {
+    return { browser: 'Webyar', os: 'iOS', device: 'Mobile' };
+  }
+
   let browser = 'Unknown';
-  if (lower.includes('edg/')) browser = 'Edge';
+  // The iOS builds first. Every browser on iOS is WebKit underneath and says
+  // so — Firefox for iOS ships "FxiOS/… Safari/605.1.15" — so the generic
+  // rules below answer "Safari" for all of them.
+  if (lower.includes('edgios/') || lower.includes('edg/')) browser = 'Edge';
+  else if (lower.includes('crios/')) browser = 'Chrome';
+  else if (lower.includes('fxios/')) browser = 'Firefox';
+  else if (lower.includes('opt/') || lower.includes('opr/') || lower.includes('opera')) browser = 'Opera';
   else if (lower.includes('chrome/') && !lower.includes('chromium')) browser = 'Chrome';
   else if (lower.includes('firefox/')) browser = 'Firefox';
-  else if (lower.includes('safari/') && !lower.includes('chrome')) browser = 'Safari';
-  else if (lower.includes('opera') || lower.includes('opr/')) browser = 'Opera';
+  else if (lower.includes('safari/')) browser = 'Safari';
 
   let os = 'Unknown';
-  if (lower.includes('windows nt')) os = 'Windows';
-  else if (lower.includes('mac os x') || lower.includes('macintosh')) os = 'macOS';
+  // iOS BEFORE macOS. An iPhone announces "CPU iPhone OS 18_7 like Mac OS
+  // X", which contains "mac os x" — so testing for the Mac first called
+  // every iPhone a Mac, and the list read "Mobile · macOS · Safari".
+  if (lower.includes('iphone') || lower.includes('ipad') || lower.includes('ipod')) os = 'iOS';
   else if (lower.includes('android')) os = 'Android';
-  else if (lower.includes('iphone') || lower.includes('ipad') || lower.includes('ios')) os = 'iOS';
+  else if (lower.includes('windows nt')) os = 'Windows';
+  else if (lower.includes('mac os x') || lower.includes('macintosh')) os = 'macOS';
   else if (lower.includes('linux')) os = 'Linux';
 
-  let device = 'Desktop';
-  if (lower.includes('mobile') || lower.includes('iphone') || lower.includes('android')) device = 'Mobile';
-  else if (lower.includes('tablet') || lower.includes('ipad')) device = 'Tablet';
+  // Tablet before mobile: an iPad's user agent carries "Mobile/15E148" too.
+  let device = 'Unknown';
+  if (lower.includes('ipad') || lower.includes('tablet')) device = 'Tablet';
+  else if (lower.includes('mobile') || lower.includes('iphone') || lower.includes('android')) device = 'Mobile';
+  // Only something we recognised as a computer is called one. A script, a
+  // curl, anything unrecognised used to be filed under "Desktop", which put
+  // it in the same row as any other unrecognised client — including, before
+  // the rule above, the app itself.
+  else if (os !== 'Unknown') device = 'Desktop';
 
   return { browser, os, device };
 }
@@ -956,4 +988,89 @@ accountRouter.get('/provider-defaults', async (req, res) => {
     if (typeof name === 'string' && name) defaults[match[1]] = name;
   }
   return res.json({ defaults });
+});
+
+/**
+ * DELETE /api/account — the operator removes their own account.
+ *
+ * Apple requires this to be startable from inside the app (App Store Review
+ * Guideline 5.1.1(v)); it is also simply the right thing for somebody who
+ * hands their phone back at the end of a job.
+ *
+ * Three properties, all of them load-bearing:
+ *
+ * RE-AUTHENTICATION. The current password, checked against the same Argon2id
+ * hash `change-password` checks. A signed-in phone left on a desk is not
+ * consent to destroy an account.
+ *
+ * IT REFUSES FOR AN OWNER. `workspaces.owner_id` references `profiles` with
+ * ON DELETE CASCADE, so deleting an owner's profile deletes their workspaces
+ * — and with them every conversation, contact, invoice and colleague inside.
+ * That is a company's data, not one operator's, and it is not something a
+ * phone should be able to do behind a password field. The response names the
+ * workspaces so the operator knows exactly what to hand over first.
+ *
+ * WHAT ACTUALLY GOES. One DELETE of the profile row. Everything personal
+ * cascades from it — credentials, workspace memberships, notification
+ * preferences, availability, push devices, roles, phone verifications — which
+ * is why this is one statement rather than a list that would drift from the
+ * schema. What does NOT go is the work: `conversations.assigned_to` and the
+ * AI guidance tables are ON DELETE SET NULL, so a customer's thread survives
+ * the operator who happened to answer it, unattributed.
+ */
+accountRouter.delete('/', async (req: Request, res: Response) => {
+  try {
+    const config = (req as AuthedRequest).serverConfig;
+    const user = (req as AuthedRequest).authUser;
+
+    const parsed = z.object({ password: z.string().min(1) }).safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'password is required' });
+    }
+
+    const sb = getServiceClient(config);
+
+    const { data: cred, error: credErr } = await sb
+      .from('user_credentials')
+      .select('password_hash')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (credErr) return res.status(500).json({ error: credErr.message });
+    if (!cred?.password_hash || !(await verifyPassword(cred.password_hash, parsed.data.password))) {
+      return res.status(400).json({ error: 'Password is incorrect' });
+    }
+
+    const { data: owned, error: ownedErr } = await sb
+      .from('workspaces')
+      .select('id, name')
+      .eq('owner_id', user.id);
+    if (ownedErr) return res.status(500).json({ error: ownedErr.message });
+
+    if ((owned ?? []).length) {
+      return res.status(409).json({
+        error: 'owns_workspaces',
+        workspaces: (owned as Array<{ id: string; name: string }>).map((w) => w.name),
+      });
+    }
+
+    // Sessions first. If the delete then fails, the operator is signed out of
+    // an account that still exists — recoverable. The other order can leave a
+    // deleted account with live session rows pointing at nothing.
+    await revokeAllSessions(config, user.id, 'account_deleted');
+
+    // `mobile_push_devices.user_id` carries no foreign key to `profiles`, so
+    // nothing cascades it. Left behind, the rows are an address list for an
+    // account that no longer exists — harmless, because recipients are
+    // resolved through `workspace_members` which DOES cascade, and still
+    // somebody's device tokens sitting in a table after they asked to be
+    // removed.
+    await sb.from('mobile_push_devices').delete().eq('user_id', user.id);
+
+    const { error: deleteErr } = await sb.from('profiles').delete().eq('id', user.id);
+    if (deleteErr) return res.status(500).json({ error: deleteErr.message });
+
+    return res.json({ deleted: true });
+  } catch (err) {
+    return res.status(500).json({ error: errorMessage(err, 'Failed to delete account') });
+  }
 });

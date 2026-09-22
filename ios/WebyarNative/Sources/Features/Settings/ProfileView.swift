@@ -121,6 +121,29 @@ struct ProfileView: View {
 
     private var language: Language { appState.language }
 
+    /// The photograph to draw, from whichever copy arrived first.
+    ///
+    /// Settings has already fetched the operator's profile by the time this
+    /// screen can be opened — it draws their face in the row you tapped to
+    /// get here — so asking `appState` means the picture is known from the
+    /// first frame rather than after this screen's own round trip. Without
+    /// it, the avatar drew INITIALS for a moment and then replaced them with
+    /// the photograph: initials are not a loading state, they look like the
+    /// answer, and the swap reads as the screen changing its mind.
+    private var avatarURL: String? {
+        model.account?.profile?.avatarURL ?? appState.myAvatarURL
+    }
+
+    /// Whether we genuinely do not know yet.
+    ///
+    /// Only true on the rare path where this screen is reached before the
+    /// shared profile has landed. Then the avatar shows the skeleton — the
+    /// same shape every other picture in the app shows while it is still
+    /// coming — rather than guessing.
+    private var isAvatarUnknown: Bool {
+        model.isUploadingPhoto || (model.isLoading && appState.profile == nil)
+    }
+
     private var displayName: String {
         let typed = model.name.trimmingCharacters(in: .whitespacesAndNewlines)
         if !typed.isEmpty { return typed }
@@ -133,19 +156,15 @@ struct ProfileView: View {
         List {
             Section {
                 VStack(spacing: Theme.Space.md) {
-                    ZStack {
-                        Avatar(
-                            name: displayName,
-                            imageURL: model.account?.profile?.avatarURL,
-                            size: Theme.Size.avatarLarge
-                        )
-                        if model.isUploadingPhoto {
-                            Circle()
-                                .fill(.black.opacity(0.35))
-                                .frame(width: Theme.Size.avatarLarge, height: Theme.Size.avatarLarge)
-                            ProgressView().tint(.white)
-                        }
-                    }
+                    // Drawn exactly the way the workspace logo is: the URL
+                    // is known from the first frame, so there is never a
+                    // moment of initials that turns into a photograph.
+                    Avatar(
+                        name: displayName,
+                        imageURL: avatarURL,
+                        size: Theme.Size.avatarLarge,
+                        isBusy: isAvatarUnknown
+                    )
 
                     ChangePhotoButton(
                         title: Str.changePhoto(language),
@@ -216,6 +235,7 @@ struct ProfileView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .dismissesKeyboardOnTap()
         .navigationTitle(Str.profile(language))
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load(appState: appState) }

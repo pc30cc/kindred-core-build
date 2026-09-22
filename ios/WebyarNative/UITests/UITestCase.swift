@@ -160,74 +160,96 @@ class UITestCase: XCTestCase {
         return waitForKeyboard()
     }
 
-    /// Puts the keyboard away by tapping the transcript, and says whether it
-    /// worked.
+    /// Puts the keyboard away by tapping beside a message, and says whether
+    /// it worked.
     ///
-    /// Empty space, not a bubble. A bubble has taps of its own — opening a
-    /// photo, selecting text — and swallows this one, which is exactly how
-    /// Messages behaves: you tap beside a message to dismiss, not on it. That
-    /// is easy to miss while the sample conversation is short enough to leave
-    /// the middle of the screen empty, and it stops being true the moment the
-    /// transcript fills up. So the tap goes in a gutter, up either edge, where
-    /// the space beside a bubble always is.
+    /// Beside, never on: a bubble has taps of its own — opening a photo,
+    /// selecting text — and swallows this one, which is exactly how Messages
+    /// behaves. The gutter beside a bubble is empty by construction, because
+    /// the transcript's stack is inset sixteen points and the tap goes at
+    /// twelve.
     ///
-    /// WHICH gutter, though, is the whole of this. It used to be a ladder of
-    /// coordinates counted upwards from the top of the keyboard, and the first
-    /// two rungs of that ladder were never on the transcript at all: the
-    /// composer sits between the two, and it is attached as a
-    /// `safeAreaInset`, which shrinks a scroll view's CONTENT and leaves its
-    /// FRAME running the whole way down behind it. So `transcript.frame`
-    /// agreed that 30 points above the keyboard was inside the transcript,
-    /// and the tap landed on the composer's `.bar` background, which absorbs
-    /// a tap and dismisses nothing. Both gutters at that height, three
-    /// seconds a run, every run, teaching nothing. A composer one line taller
-    /// — a two-line draft, the emoji strip open, a device with a deeper home
-    /// indicator — would have eaten the next pair as well, and a transcript
-    /// full enough to cover its gutters would have eaten the rest and
-    /// returned false.
+    /// EVERY NUMBER HERE COMES FROM THE SCREEN OR FROM THE ROWS, and none of
+    /// them from the scroll view. That is the whole of what went wrong with
+    /// this helper, three times:
     ///
-    /// A message row is the one thing on this screen that is certainly inside
-    /// the scroll view and certainly above the composer, so the rows are what
-    /// this aims between, newest first — which is also where the operator's
+    ///   * `app.scrollViews.firstMatch` is not reliably the transcript once
+    ///     the keyboard is up. The keyboard has scroll views of its own — the
+    ///     predictive bar sits directly above the keys — and which one comes
+    ///     first in the hierarchy varies between runs. Taking its frame put
+    ///     the entire search band INSIDE the keyboard, so the helper tapped
+    ///     (390, 561) twice, on the keyboard itself, and reported that
+    ///     tapping beside the messages had not worked. That is also the
+    ///     honest explanation of this test's long-standing intermittence.
+    ///   * The composer is a `textField` or a `textView` depending on the iOS
+    ///     build and on whether it has grown past one line, so asking for one
+    ///     kind found nothing on the runs where it was the other.
+    ///   * And `exists` is not proof of a usable frame: a stale snapshot
+    ///     hands back zero, which is above the ceiling.
+    ///
+    /// The message rows are the one thing on this screen that is certainly
+    /// inside the transcript and certainly above the composer. They are what
+    /// this aims between, newest first, which is also where the operator's
     /// own thumb would be.
-    ///
-    /// The floor is the composer's own top, not the keyboard's. The ceiling
-    /// is the navigation bar: a scroll view's frame reaches under the status
-    /// bar, and a tap on the status bar means "scroll to the top" to iOS — so
-    /// a candidate up there dismisses nothing and throws the transcript back
-    /// to the beginning of the conversation, which then fails the next
-    /// assertion for a reason that has nothing to do with keyboards.
     @discardableResult
-    func dismissKeyboardByTapping(_ transcript: XCUIElement, above keyboard: XCUIElement) -> Bool {
-        let bounds = transcript.frame
-        let chrome = app.navigationBars.firstMatch
-        let ceiling = max(bounds.minY, chrome.exists ? chrome.frame.maxY : 0)
-        let composer = app.textFields[A11yID.composerField].firstMatch
-        let floor = min(
-            composer.exists ? composer.frame.minY : .greatestFiniteMagnitude,
-            keyboard.frame.minY
-        )
-        guard floor > ceiling else { return false }
+    func dismissKeyboardByTapping(above keyboard: XCUIElement) -> Bool {
+        let screen = app.frame
 
-        // Rows lying wholly in the clear band, newest last on screen first.
-        var heights = visibleMessageFrames()
+        // Below the chrome: a transcript reaches under the status bar, and a
+        // tap on the status bar means "scroll to the top" to iOS — which
+        // dismisses nothing and throws the transcript back to the beginning
+        // of the conversation, failing the next assertion for a reason that
+        // has nothing to do with keyboards.
+        let chrome = app.navigationBars.firstMatch
+        let ceiling = chrome.exists ? chrome.frame.maxY : screen.minY
+
+        // Above the composer, which is where the keyboard's own top is not:
+        // the composer sits between the two, and a tap on its bar is
+        // swallowed by the bar.
+        let composerTop = composerNow?.frame.minY ?? 0
+        let floor = composerTop > ceiling
+            ? min(composerTop, keyboard.frame.minY)
+            : keyboard.frame.minY
+
+        let rows = visibleMessageFrames()
             .filter { $0.height > 0 && $0.minY >= ceiling && $0.maxY <= floor }
             .sorted { $0.midY > $1.midY }
-            .map(\.midY)
-        // A transcript can hold one message too tall to fit the band — a long
-        // note, a photo. The band itself is still scroll view and still not
-        // composer, so aim at the middle of it rather than giving up.
-        if heights.isEmpty { heights = [(ceiling + floor) / 2] }
 
-        for y in heights {
-            for x in [bounds.maxX - 12, bounds.minX + 12] {
+        guard !rows.isEmpty else {
+            XCTFail("""
+                no message row to tap beside: ceiling \(ceiling), floor \(floor),                 composer top \(composerTop), keyboard top \(keyboard.frame.minY),                 rows \(visibleMessageFrames().map(\.midY))
+                """)
+            return false
+        }
+
+        // The screen's own edges. The transcript is full width, so these are
+        // its gutters — and unlike its frame, they cannot turn out to belong
+        // to the keyboard.
+        let gutters = [screen.maxX - 12, screen.minX + 12]
+
+        for row in rows {
+            for x in gutters {
                 app.coordinate(withNormalizedOffset: .zero)
-                    .withOffset(CGVector(dx: x, dy: y))
+                    .withOffset(CGVector(dx: x, dy: row.midY))
                     .tap()
                 if waitForDisappearance(app.keyboards.element, timeout: 1.5) { return true }
             }
         }
         return false
+    }
+
+    /// The composer as it is right now, whichever element kind, without
+    /// waiting for it.
+    ///
+    /// `composerField()` polls for up to twenty-five seconds, which is right
+    /// while a screen is opening and wrong here: this is asked with the
+    /// keyboard already up, so the field is either on screen or this screen
+    /// has no composer at all.
+    private var composerNow: XCUIElement? {
+        let asField = app.textFields[A11yID.composerField].firstMatch
+        if asField.exists { return asField }
+        let asView = app.textViews[A11yID.composerField].firstMatch
+        return asView.exists ? asView : nil
     }
 
     /// Where the messages are right now, asked once.
@@ -303,4 +325,10 @@ enum A11yID {
     static let conversationMenu = "chat.menu"
     static let composerSend = "composer.send"
     static let sayNowVoice = "sayNow.voice"
+    static func conversationRow(_ id: String) -> String { "conversation.\(id)" }
+    static let deleteAccountRow = "settings.deleteAccount"
+    static let deleteAccountPassword = "deleteAccount.password"
+    static let deleteAccountSubmit = "deleteAccount.submit"
+    static let deleteAccountConfirm = "deleteAccount.confirm"
+    static let deleteAccountBlocked = "deleteAccount.blocked"
 }

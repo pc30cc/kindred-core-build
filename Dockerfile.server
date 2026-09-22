@@ -26,7 +26,7 @@ RUN npm install
 # that walk terminates successfully instead of throwing MODULE_NOT_FOUND.
 RUN ln -s /app/node_modules /node_modules
 
-# channels/providers/{gmail,yahoo}/client.ts import back into server code
+# channels/mail/{gmail,yahoo}/client.ts import back into server code
 # (e.g. `../../../server/services/channels/gmail/types.js`) using the SAME
 # sibling-layout assumption — `channels/` and `server/` sit next to each
 # other at the repo root. But this Dockerfile flattens server/'s contents
@@ -49,7 +49,7 @@ COPY shared /shared
 
 # server/services/channels/gmail/{oauth,watchRenewalTicker}.ts and
 # server/services/channels/yahoo/oauth.ts import
-# channels/providers/{gmail,yahoo}/client.ts via the same sibling-relative
+# channels/mail/{gmail,yahoo}/client.ts via the same sibling-relative
 # path convention (`../../../../channels/...`), so it must land at /channels
 # — same reasoning as /shared above. Its own npm imports (imapflow,
 # mailparser, nodemailer) resolve via the /node_modules symlink created

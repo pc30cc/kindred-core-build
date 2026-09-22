@@ -7,17 +7,20 @@ import SwiftUI
 /// it said nothing about the product to somebody opening it for the first
 /// time. The name says it.
 ///
-/// Latin and Persian are set differently on purpose, because they are
-/// different writing systems rather than the same one in two alphabets:
+/// It is WEBYAR in every language, including Persian. The app's *prose* name
+/// is translated — `Str.appName` gives "وب‌یار" inside a Persian sentence,
+/// and it should — but a wordmark is not prose. It is the same mark that is
+/// on the icon, the website, the invoice and the App Store listing, and
+/// setting it in a different script depending on who opened the app makes it
+/// look like a different product. So the mark does not translate.
 ///
-///   • WEBYAR is capitalised and letter-spaced, which is how a Latin wordmark
-///     is drawn and the only way tracking is ever used.
-///   • وب‌یار is NOT tracked. Persian is a connected script, and adding
-///     tracking to it pulls the joins apart — the letters stop touching and
-///     the word stops being a word. Its width comes from kashida inside the
-///     string instead, which is the typographically correct way to stretch
-///     Persian, and the form the brand already uses.
+/// Latin, therefore, and drawn the way a Latin wordmark is drawn: capitalised
+/// and letter-spaced. (The Persian setting this used to carry was kashida
+/// rather than tracking, which was the right call for the wrong question —
+/// the script is connected and tracking pulls its joins apart. It is gone
+/// with the Persian mark.)
 struct BrandWordmark: View {
+    /// Only for what VoiceOver says. The glyphs are the same either way.
     let language: Language
     var size: CGFloat = 34
     /// Whether the mark carries the loading sweep. Off wherever it is just a
@@ -28,19 +31,11 @@ struct BrandWordmark: View {
     @State private var phase: CGFloat = -0.4
     @State private var hasAppeared = false
 
-    private var text: String { Str.brandWordmark(language) }
+    private var tracking: CGFloat { size * 0.16 }
 
-    /// Persian gets none; see the note above.
-    private var tracking: CGFloat { language == .fa ? 0 : size * 0.16 }
-
-    /// Rounded for Latin — it is the shape of the brand and of the rest of
-    /// this app's display type. Persian is left to the system's Persian face,
-    /// which has no rounded cut and would fall back to something else.
-    private var font: Font {
-        language == .fa
-            ? .system(size: size, weight: .bold)
-            : .system(size: size, weight: .heavy, design: .rounded)
-    }
+    /// Rounded: it is the shape of the brand and of the rest of this app's
+    /// display type.
+    private var font: Font { .system(size: size, weight: .heavy, design: .rounded) }
 
     var body: some View {
         // The resting mark is legible on its own — a wordmark that all but
@@ -58,6 +53,12 @@ struct BrandWordmark: View {
             // mark cuts in from one frame to the next.
             .opacity(hasAppeared ? 1 : 0)
             .scaleEffect(hasAppeared ? 1 : 0.94)
+            // The mark is Latin on a screen that may be laid out
+            // right-to-left, so the whole component is pinned left-to-right:
+            // the glyphs, or they are reordered and WEBYAR is drawn RAYBEW,
+            // and the sweep with them, or the light travels backwards across
+            // a word that reads forwards.
+            .environment(\.layoutDirection, .leftToRight)
             .accessibilityElement()
             .accessibilityLabel(Str.appName(language))
             .onAppear {
@@ -72,7 +73,7 @@ struct BrandWordmark: View {
     }
 
     private func base(_ color: Color) -> some View {
-        Text(text)
+        Text(Str.brandWordmark)
             .font(font)
             .tracking(tracking)
             .foregroundStyle(color)
@@ -81,12 +82,13 @@ struct BrandWordmark: View {
             .padding(.trailing, tracking)
     }
 
-    /// A band of light travelling across the word.
+    /// A band of light travelling across the word, in the direction the word
+    /// is read — which is left to right, always, because the word is Latin.
     ///
-    /// Built from gradient stops rather than an offset rectangle so it
-    /// mirrors itself under right-to-left: `.leading` and `.trailing` already
-    /// mean the right thing in both directions, where an x-offset would need
-    /// its sign flipped by hand and would be wrong in Persian.
+    /// Built from gradient stops rather than an offset rectangle: the stops
+    /// are what `phase` animates, and one animatable number is easier to keep
+    /// inside 0…1 than an offset that would have to be derived from the
+    /// rendered width.
     private var sweep: some View {
         LinearGradient(
             stops: [

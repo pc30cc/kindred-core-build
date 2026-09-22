@@ -16,6 +16,9 @@ actor SampleAPI: WebyarAPI {
     private var sampleTags: [String: [String]] = [:]
     private var sampleNotes: [String: [ConversationNote]] = [:]
     private var extraMessages: [String: [Message]] = [:]
+    /// Round-tripped in memory so the notification settings screen can be
+    /// laid out and screenshotted with its switches actually working.
+    private var samplePrefs = NotificationPrefs()
 
     var hasToken: Bool { true }
 
@@ -25,7 +28,7 @@ actor SampleAPI: WebyarAPI {
     func currentUser() async throws -> User { Self.user }
     func logOut() async throws {}
     func discardSession() {}
-    func requestPasswordReset(email: String) async throws {}
+    func requestPasswordReset(email: String, locale: String) async throws {}
 
     private static let user = User(
         id: "u-1",
@@ -556,6 +559,41 @@ actor SampleAPI: WebyarAPI {
     func revokeSession(id: String) async throws {}
 
     func changePassword(current: String, new: String) async throws {}
+
+    // MARK: - Notifications
+    //
+    // Registration is a no-op: a UI test runs on a simulator that has no APNs
+    // address to give, and a sample run must never put a real device in the
+    // real registry. The preferences round-trip in memory so the settings
+    // screen can be laid out and screenshotted with the switches working.
+
+    func registerPushDevice(
+        token: String,
+        deviceID: String,
+        deviceName: String,
+        appVersion: String,
+        permission: String,
+        workspaceID: String?
+    ) async throws -> PushRegistration {
+        PushRegistration(pushEnabled: true, voipEnabled: true)
+    }
+
+    func unregisterPushDevice(deviceID: String) async throws {}
+
+    /// The sample operator owns both sample workspaces, so this is the
+    /// blocked branch — which is the one worth being able to look at.
+    func deleteAccount(password: String) async throws -> AccountDeletion {
+        .blockedByOwnedWorkspaces(["Sample Workspace", "Second Workspace"])
+    }
+
+    func notificationPrefs() async throws -> NotificationPrefs {
+        samplePrefs
+    }
+
+    func updateNotificationPrefs(_ prefs: NotificationPrefs) async throws -> NotificationPrefs {
+        samplePrefs = prefs
+        return prefs
+    }
 
     // MARK: - Fixtures
 

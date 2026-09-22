@@ -26,6 +26,7 @@ import { workspaceInvitationsRouter } from './routes/workspaceInvitations.js';
 import { widgetSettingsRouter } from './routes/widgetSettings.js';
 import { workspaceIntegrationsRouter } from './routes/workspaceIntegrations.js';
 import { notificationsRouter } from './routes/notifications.js';
+import { notificationEmailRouter } from './routes/notificationEmail.js';
 import { pushRouter } from './routes/push.js';
 import { workspaceAlertsRouter } from './routes/workspaceAlerts.js';
 import { availabilityRouter } from './routes/availability.js';
@@ -109,6 +110,7 @@ import { startEnforcementTicker } from './services/observability/enforcementTick
 import { startMaxmindUpdateTicker } from './services/geo/maxmindUpdater.js';
 import { startRankTrackingTicker } from './services/seo/rankTrackingTicker.js';
 import { startGmailWatchRenewalTicker } from './services/channels/gmail/watchRenewalTicker.js';
+import { startNotificationEmailTicker } from './services/notificationEmail/ticker.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import { isPublicWidgetApiPath, PUBLIC_WIDGET_REALTIME_ROUTES } from './lib/routePrefix.js';
@@ -426,6 +428,7 @@ app.use('/api/widget/commerce/guest-verification', widgetCorsMiddleware(), comme
 app.use('/api/widget/commerce/identity', widgetCorsMiddleware(), commerceIdentityRouter);
 
 // Self-service notification preferences
+app.use('/api/notifications/email', notificationEmailRouter);
 app.use('/api/notifications', notificationsRouter);
 
 // Native mobile push device registry (FCM → APNs/iOS + Android)
@@ -855,6 +858,12 @@ app.listen(config.port, () => {
   // GOOGLE_OAUTH_CLIENT_ID/SECRET + GMAIL_PUBSUB_TOPIC are configured. See
   // server/services/channels/gmail/watchRenewalTicker.ts.
   startGmailWatchRenewalTicker(config);
+
+  // Operator notification emails — the unread digest, the weekly summary and
+  // the queue behind both. A no-op while Super Admin → Notifications has the
+  // feature switched off, which is how it ships. See
+  // server/services/notificationEmail/ticker.ts.
+  startNotificationEmailTicker(config);
 
   // Phase 9 — Call invitation TTL sweeper (every 30s). Flips pending
   // invitations whose CALL_INVITATION_TTL_SECONDS window passed into

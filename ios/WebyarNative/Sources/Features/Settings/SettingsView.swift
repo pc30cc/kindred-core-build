@@ -26,7 +26,12 @@ enum AppearancePreference: String, CaseIterable, Identifiable, Sendable {
 /// The sub-screens Settings can push to.
 enum SettingsRoute: Hashable {
     case profile
+    case notifications
     case security
+    /// Pushed from Security rather than from here — it is the far end of the
+    /// account section, not a top-level setting — but it is on this type so
+    /// that the whole stack travels through one path.
+    case deleteAccount
 }
 
 struct SettingsView: View {
@@ -136,6 +141,13 @@ struct SettingsView: View {
             // and keeping it in the list is what lets the list end where its
             // content ends.
             Section {
+                // Above security rather than buried at the bottom: it is the
+                // setting an operator goes looking for, and the one that
+                // decides whether the app is any use when it is closed.
+                NavigationLink(value: SettingsRoute.notifications) {
+                    Label(Str.notifications(language), systemImage: "bell.badge")
+                }
+
                 NavigationLink(value: SettingsRoute.security) {
                     Label(Str.security(language), systemImage: "lock.shield")
                 }
@@ -181,7 +193,9 @@ struct SettingsView: View {
         .navigationDestination(for: SettingsRoute.self) { route in
             switch route {
             case .profile: ProfileView()
+            case .notifications: NotificationSettingsView()
             case .security: SecurityView()
+            case .deleteAccount: DeleteAccountView()
             }
         }
         .navigationTitle(Str.tabSettings(language))
@@ -202,11 +216,7 @@ struct SettingsView: View {
     }
 
     private var supportLabel: String {
-        switch language {
-        case .en: "Support"
-        case .fa: "پشتیبانی"
-        case .tr: "Destek"
-        }
+        Str.support(language)
     }
 
     /// The header needs the photo, which the session user does not carry.

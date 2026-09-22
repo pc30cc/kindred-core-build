@@ -125,6 +125,12 @@ struct SearchableList<Rows: View>: View {
             rows
         }
         .listStyle(.plain)
+        // One place, and it covers the inbox, contacts, colleagues and the
+        // email list — every screen in the app whose keyboard is opened by
+        // the magnifier. With an empty field this also closes the search, via
+        // the `focused` handler below, which is the same thing the operator
+        // meant by tapping away from it.
+        .dismissesKeyboardOnTap()
         .animation(Theme.Motion.standard, value: showsField)
         .onChange(of: isSearching) { _, wanted in
             guard wanted else {

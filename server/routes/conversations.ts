@@ -60,6 +60,7 @@ type MessageAttachment = {
   kind: string;
 };
 import { createStorageUrlResolver, hydrateUserAvatars, hydrateContactAvatars } from '../services/storage/urlResolver.js';
+import { queueTranscript } from '../services/notificationEmail/producers.js';
 
 
 export const conversationsRouter = Router();
@@ -897,6 +898,21 @@ conversationsRouter.patch('/:id', async (req, res) => {
         changes,
         updated_at: after.updated_at,
       });
+
+      // A resolved conversation is the one moment a transcript is worth
+      // sending: it is finished, so the mail is a record rather than a
+      // snapshot of something still moving. Queued, never sent inline —
+      // nobody resolving a conversation should wait on an SMTP round trip —
+      // and a no-op while the platform has the type switched off.
+      if (statusEvType === 'resolved') {
+        void queueTranscript(config, {
+          conversationId,
+          workspaceId: parsed.data.workspace_id,
+          actorId: auth.userId,
+        }).catch((err: unknown) => {
+          console.error('[conversations PATCH] transcript queue failed:', err);
+        });
+      }
     }
 
     return res.json({ ok: true, conversation: after });

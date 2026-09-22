@@ -22,26 +22,36 @@ import { AI_RUNTIME_ROUTES } from '../../../shared/ai/internalRoutes.js';
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 const CONVERSATION_ID = '22222222-2222-4222-8222-222222222222';
 
+// The double answers the SAME terminators Core actually calls. Two of them
+// are easy to get wrong and both fail as a 400 rather than a loud error:
+// `provider_configs` is read with .maybeSingle() (0 rows is the normal case,
+// so .single()'s 406 was retired), and the billing rate/FX/policy reads chain
+// .is('effective_to', null). A missing method throws inside a degrade-guard
+// and is swallowed, so the request just 400s with no config.
 vi.mock('../../../server/supabase.js', () => ({
   getServiceClient: () => ({
     from: (table: string) => {
+      const providerConfig = {
+        data: { provider_name: 'openai', config: { api_key: 'sk-key', model: 'gpt-4o-mini' } },
+        error: null,
+      };
       const chain: any = {
         select: () => chain,
         eq: () => chain,
+        is: () => chain,
         order: () => chain,
         limit: () => chain,
-        insert: async () => ({ data: null, error: null }),
+        // Chainable, not a promise: Core writes `.insert(...).select('id').maybeSingle()`
+        // and also bare `await sb.from(...).insert(...)`. `then` below serves the latter.
+        insert: () => chain,
+        update: () => chain,
         maybeSingle: async () =>
           table === 'conversations'
             ? { data: { id: CONVERSATION_ID, workspace_id: WORKSPACE_ID }, error: null }
-            : { data: null, error: null },
-        single: async () =>
-          table === 'provider_configs'
-            ? {
-                data: { provider_name: 'openai', config: { api_key: 'sk-key', model: 'gpt-4o-mini' } },
-                error: null,
-              }
-            : { data: null, error: null },
+            : table === 'provider_configs'
+              ? providerConfig
+              : { data: null, error: null },
+        single: async () => (table === 'provider_configs' ? providerConfig : { data: null, error: null }),
         then: (resolve: any) =>
           resolve(
             table === 'conversation_messages'

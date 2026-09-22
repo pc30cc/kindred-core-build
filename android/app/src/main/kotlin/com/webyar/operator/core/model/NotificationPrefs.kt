@@ -1,5 +1,6 @@
 package com.webyar.operator.core.model
 
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -55,6 +56,19 @@ data class NotificationPrefs(
     @SerialName("quiet_hours_timezone") val quietHoursTimezone: String? = null,
 ) {
     /** The four values [pushScope] can carry, and what each one means. */
+    companion object {
+        /**
+         * Which row on the server this app speaks for.
+         *
+         * Preferences are stored per surface — a browser row and a phone row —
+         * and the endpoint reads 'web' when a request does not say, because the
+         * console shipped before the column existed. A phone that stays silent
+         * is therefore not using a default: it is reading and writing the
+         * browser's settings. iOS names itself the same way.
+         */
+        const val SURFACE: String = "mobile"
+    }
+
     enum class Scope(val wire: String) {
         /** Every new message in the workspace. */
         ALL("all"),
@@ -103,6 +117,12 @@ data class NotificationPrefsResponse(
  */
 @Serializable
 data class NotificationPrefsUpdate(
+    // Every other field here is null-by-default so that `encodeDefaults = false`
+    // leaves it out and a PATCH carries only what changed. This one has to go in
+    // every time, which is what `ALWAYS` overrides that rule for: without it the
+    // write lands on the browser's row.
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val platform: String = NotificationPrefs.SURFACE,
     @SerialName("disable_all") val disableAll: Boolean? = null,
     @SerialName("push_scope") val pushScope: String? = null,
     @SerialName("push_preview") val pushPreview: Boolean? = null,

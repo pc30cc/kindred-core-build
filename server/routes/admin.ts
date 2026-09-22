@@ -37,6 +37,7 @@ import { adminRetentionRouter } from './adminRetention.js';
 import { adminBackupRouter } from './adminBackup.js';
 import { adminMobileAppRouter } from './adminMobileApp.js';
 import { adminNotificationsRouter } from './adminNotifications.js';
+import { adminNotificationEmailRouter } from './adminNotificationEmail.js';
 import { normalizePhoneToE164 } from '../services/phoneVerification/phone.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { findIdentityById } from '../services/auth/identity.js';
@@ -129,6 +130,7 @@ adminRouter.use('/mobile-app', adminMobileAppRouter);
 
 // Platform-wide push/notification policy, categories, copy and diagnostics
 adminRouter.use('/notifications', adminNotificationsRouter);
+adminRouter.use('/notification-email', adminNotificationEmailRouter);
 
 // Widget templates registry (super admin only)
 

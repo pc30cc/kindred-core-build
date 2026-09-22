@@ -12,7 +12,7 @@ protocol WebyarAPI: Sendable {
     func currentUser() async throws -> User
     func logOut() async throws
     func discardSession() async
-    func requestPasswordReset(email: String) async throws
+    func requestPasswordReset(email: String, locale: String) async throws
 
     func workspaces() async throws -> [Workspace]
     func conversations(workspaceID: String, filter: InboxFilter) async throws -> [Conversation]
@@ -101,6 +101,36 @@ protocol WebyarAPI: Sendable {
     func sessions() async throws -> AccountSessionsResponse
     func revokeSession(id: String) async throws
     func changePassword(current: String, new: String) async throws
+
+    // MARK: - Notifications
+
+    /// Hands this phone's address to the server so it can be reached.
+    ///
+    /// `token` is the raw APNs device token, hex-encoded — not a Firebase
+    /// registration token. The native app has no Firebase in it; the server
+    /// sends to Apple directly, which it already does for a ringing call.
+    /// `transport: "apns"` on the wire is what tells it which.
+    func registerPushDevice(
+        token: String,
+        deviceID: String,
+        deviceName: String,
+        appVersion: String,
+        permission: String,
+        workspaceID: String?
+    ) async throws -> PushRegistration
+
+    /// Signing out, or the operator turning this phone off in Settings. This
+    /// device only — their other phone keeps working.
+    func unregisterPushDevice(deviceID: String) async throws
+
+    /// Removes this operator's own account.
+    ///
+    /// Answers rather than throws when the account cannot go yet, because
+    /// "you still own a workspace" is something to explain, not an error.
+    func deleteAccount(password: String) async throws -> AccountDeletion
+
+    func notificationPrefs() async throws -> NotificationPrefs
+    func updateNotificationPrefs(_ prefs: NotificationPrefs) async throws -> NotificationPrefs
 }
 
 extension APIClient: WebyarAPI {}
@@ -170,6 +200,7 @@ enum LanguageOverride {
 /// to reach a screen, not to choose where its content comes from.
 enum SampleRoute: String {
     case inbox, chat, aiChat, call, videoCall, contacts, contact, settings, profile, security, email
+    case notifications
     case colleagues, colleagueThread
     /// A thread with a visitor who never gave a name — the case where a
     /// `{{contact.name}}` in a saved reply has nothing to resolve to.

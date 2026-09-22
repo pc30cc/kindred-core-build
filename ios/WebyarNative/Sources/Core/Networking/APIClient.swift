@@ -280,6 +280,7 @@ actor APIClient {
 
     private struct ResetBody: Encodable, Sendable {
         let email: String
+        let locale: String
     }
 
     /// Asks the server to email a reset link.
@@ -288,8 +289,18 @@ actor APIClient {
     /// exists: the endpoint answers the same either way so that it cannot be
     /// used to discover which addresses have accounts, and the UI must not
     /// undo that by reporting a difference.
-    func requestPasswordReset(email: String) async throws {
-        let request = try makeRequest("POST", "/api/auth-email/send-reset", body: ResetBody(email: email))
+    ///
+    /// The locale is the operator's chosen interface language, and it is sent
+    /// because this is the one message the product writes to somebody who is
+    /// not signed in: there is no stored preference to look up on the server
+    /// side, so an app that did not say arrived as English no matter what the
+    /// screen it was requested from was written in.
+    func requestPasswordReset(email: String, locale: String) async throws {
+        let request = try makeRequest(
+            "POST",
+            "/api/auth-email/send-reset",
+            body: ResetBody(email: email, locale: locale)
+        )
         try await performIgnoringBody(request)
     }
 
@@ -970,6 +981,132 @@ actor APIClient {
             body: PasswordBody(currentPassword: current, newPassword: new)
         )
         try await performIgnoringBody(request)
+    }
+
+    // MARK: - Notifications
+
+    private struct DeviceBody: Encodable, Sendable {
+        let platform = "ios"
+        /// Not "fcm". The server reads this to decide whether `push_token`
+        /// addresses Firebase or Apple, and it defaults to Firebase for every
+        /// client that predates this app.
+        let transport = "apns"
+        let push_token: String
+        let device_id: String
+        let device_name: String
+        let app_version: String
+        let permission_status: String
+        let workspace_id: String?
+    }
+
+    private struct DeviceIDBody: Encodable, Sendable {
+        let device_id: String
+    }
+
+    func registerPushDevice(
+        token: String,
+        deviceID: String,
+        deviceName: String,
+        appVersion: String,
+        permission: String,
+        workspaceID: String?
+    ) async throws -> PushRegistration {
+        let request = try makeRequest(
+            "POST",
+            "/api/push/devices",
+            body: DeviceBody(
+                push_token: token,
+                device_id: deviceID,
+                device_name: deviceName,
+                app_version: appVersion,
+                permission_status: permission,
+                workspace_id: workspaceID
+            )
+        )
+        return try await perform(request, as: PushRegistration.self)
+    }
+
+    func unregisterPushDevice(deviceID: String) async throws {
+        let request = try makeRequest(
+            "POST",
+            "/api/push/devices/unregister",
+            body: DeviceIDBody(device_id: deviceID)
+        )
+        try await performIgnoringBody(request)
+    }
+
+    private struct PasswordOnlyBody: Encodable, Sendable {
+        let password: String
+    }
+
+    private struct DeletionRefusal: Decodable, Sendable {
+        let error: String
+        let workspaces: [String]?
+    }
+
+    /// Its own response handling rather than `perform`, because the one
+    /// answer this screen most needs to show — "you still own these
+    /// workspaces" — arrives as a 409 with a list in it, and `perform` turns
+    /// every non-2xx into a thrown `APIError` with the list discarded.
+    func deleteAccount(password: String) async throws -> AccountDeletion {
+        let request = try makeRequest("DELETE", "/api/account", body: PasswordOnlyBody(password: password))
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw APIError.transport
+        }
+        guard let http = response as? HTTPURLResponse else { throw APIError.transport }
+
+        if (200..<300).contains(http.statusCode) { return .deleted }
+        if http.statusCode == 401 { throw APIError.unauthorized }
+
+        if http.statusCode == 409,
+           let refusal = try? decoder.decode(DeletionRefusal.self, from: data),
+           refusal.error == "owns_workspaces" {
+            return .blockedByOwnedWorkspaces(refusal.workspaces ?? [])
+        }
+
+        let message = (try? decoder.decode(DeletionRefusal.self, from: data))?.error
+        throw APIError.server(status: http.statusCode, message: message)
+    }
+
+    /// The phone's own preferences, named as such.
+    ///
+    /// Without the surface the server answers with the browser's row — which
+    /// is what it did when there was only one, and is why turning push off
+    /// here also turned off the operator's desk.
+    func notificationPrefs() async throws -> NotificationPrefs {
+        let request = try makeRequest(
+            "GET",
+            "/api/notifications/prefs?platform=\(NotificationPrefs.surface)"
+        )
+        return try await perform(request, as: NotificationPrefsResponse.self).prefs
+    }
+
+    func updateNotificationPrefs(_ prefs: NotificationPrefs) async throws -> NotificationPrefs {
+        let request = try makeRequest("PATCH", "/api/notifications/prefs", body: PrefsPatch(prefs: prefs))
+        return try await perform(request, as: NotificationPrefsResponse.self).prefs
+    }
+
+    /// The preference fields plus the surface they belong to, in one flat
+    /// object — which is the shape the endpoint reads.
+    ///
+    /// Encoding both into the same keyed container rather than nesting is
+    /// what keeps `NotificationPrefs` a description of the settings and
+    /// nothing else: the surface is a fact about the client, not a setting.
+    private struct PrefsPatch: Encodable {
+        let prefs: NotificationPrefs
+
+        private enum SurfaceKey: String, CodingKey { case platform }
+
+        func encode(to encoder: Encoder) throws {
+            try prefs.encode(to: encoder)
+            var container = encoder.container(keyedBy: SurfaceKey.self)
+            try container.encode(NotificationPrefs.surface, forKey: .platform)
+        }
     }
 
     // MARK: - Human guidance (operator → AI, private)

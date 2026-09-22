@@ -16,6 +16,7 @@
 import type { ServerConfig } from '../../config.js';
 import type { PushPlatformSettings } from './platformSettings.js';
 import { getServiceClient } from '../../supabase.js';
+import { getConnectedOperators } from '../widget/operatorPresenceSource.js';
 
 export type PushEventType = 'new_message' | 'internal_note' | 'mention';
 
@@ -58,6 +59,8 @@ interface PrefsRow {
   push_scope: string | null;
   push_preview: boolean | null;
   push_internal_notes: boolean | null;
+  push_when_online: boolean | null;
+  push_when_offline: boolean | null;
   quiet_hours_enabled: boolean | null;
   quiet_hours_start: string | null;
   quiet_hours_end: string | null;
@@ -70,11 +73,23 @@ const DEFAULT_PREFS = {
   push_scope: 'all',
   push_preview: true,
   push_internal_notes: true,
+  push_when_online: true,
+  push_when_offline: true,
   quiet_hours_enabled: false,
   quiet_hours_start: null as string | null,
   quiet_hours_end: null as string | null,
   quiet_hours_timezone: null as string | null,
 };
+
+/**
+ * Which row this resolver reads.
+ *
+ * Everything downstream of here sends to `mobile_push_devices` — a phone.
+ * An operator's browser preferences live under 'web' and are read by the
+ * browser itself; reading them here is what made silencing the phone silence
+ * the desk too.
+ */
+const SURFACE = 'mobile';
 
 /** Minutes since midnight for "HH:MM"; null when unusable. */
 function parseHhMm(value: string | null | undefined): number | null {
@@ -149,9 +164,10 @@ export async function resolveRecipients(
   const { data: prefRows } = await sb
     .from('user_notification_prefs')
     .select(
-      'user_id, disable_all, play_sound, push_scope, push_preview, push_internal_notes, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone',
+      'user_id, disable_all, play_sound, push_scope, push_preview, push_internal_notes, push_when_online, push_when_offline, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone',
     )
     .in('user_id', eligible)
+    .eq('platform', SURFACE)
     .is('workspace_id', null);
 
   const prefsByUser = new Map<string, PrefsRow>();
@@ -174,12 +190,27 @@ export async function resolveRecipients(
   const platformDefaults = policyDefaults(ctx.policy);
   const mentionBypassesQuietHours = ctx.policy?.mention_bypasses_quiet_hours !== false;
 
+  // "Only when I am away from my desk" and its opposite. Asked once, for
+  // everyone eligible, and only when somebody has actually turned one of the
+  // two off — a push path should not pay for a presence read nobody's
+  // settings depend on.
+  const connected = await connectedOperators(config, ctx.workspaceId, eligible, prefsByUser);
+
   const now = new Date();
   const out: Recipient[] = [];
   for (const userId of eligible) {
     const p = { ...DEFAULT_PREFS, ...platformDefaults, ...cleanPrefs(prefsByUser.get(userId)) };
     if (p.disable_all) continue;
     if (p.push_scope === 'none') continue;
+
+    // Where the operator is right now. `connected` is null when presence
+    // could not be read at all — degraded, or nobody asked for it — and a
+    // notification is never dropped on a guess: not knowing means send.
+    if (connected) {
+      const atTheirDesk = connected.has(userId);
+      if (atTheirDesk && !p.push_when_online) continue;
+      if (!atTheirDesk && !p.push_when_offline) continue;
+    }
 
     const isMentioned = mentioned.has(userId);
     const isAssignee = ctx.assignedTo === userId;
@@ -214,6 +245,43 @@ export async function resolveRecipients(
 }
 
 /**
+ * Who is connected right now, or null when the answer cannot be trusted.
+ *
+ * Both presence switches default to on, so for nearly every workspace the
+ * answer changes nothing and the read is skipped entirely — it is only
+ * needed once somebody has turned one of them off.
+ *
+ * Null is "do not decide". A degraded presence read — Centrifugo unreachable,
+ * the lease fallback in play — would otherwise report a whole workspace as
+ * disconnected, and an operator who asked not to be pushed while offline
+ * would be the one to lose the message. Silence is the expensive failure
+ * here; a redundant banner is not.
+ */
+async function connectedOperators(
+  config: ServerConfig,
+  workspaceId: string,
+  userIds: string[],
+  prefsByUser: Map<string, PrefsRow>,
+): Promise<Set<string> | null> {
+  const anyoneCares = userIds.some((id) => {
+    const row = prefsByUser.get(id);
+    return row?.push_when_online === false || row?.push_when_offline === false;
+  });
+  if (!anyoneCares) return null;
+
+  try {
+    const snapshot = await getConnectedOperators(config, workspaceId, userIds);
+    if (snapshot.degraded) return null;
+    return snapshot.connected;
+  } catch (err) {
+    console.error('[push] presence lookup failed; sending anyway', {
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+/**
  * The platform-wide defaults, shaped like a prefs row so they can be merged
  * UNDER the operator's own saved values.
  */
@@ -239,6 +307,8 @@ function cleanPrefs(row: PrefsRow | undefined): Partial<typeof DEFAULT_PREFS> {
   if (row.push_scope != null) out.push_scope = row.push_scope;
   if (row.push_preview != null) out.push_preview = row.push_preview;
   if (row.push_internal_notes != null) out.push_internal_notes = row.push_internal_notes;
+  if (row.push_when_online != null) out.push_when_online = row.push_when_online;
+  if (row.push_when_offline != null) out.push_when_offline = row.push_when_offline;
   if (row.quiet_hours_enabled != null) out.quiet_hours_enabled = row.quiet_hours_enabled;
   if (row.quiet_hours_start != null) out.quiet_hours_start = row.quiet_hours_start;
   if (row.quiet_hours_end != null) out.quiet_hours_end = row.quiet_hours_end;

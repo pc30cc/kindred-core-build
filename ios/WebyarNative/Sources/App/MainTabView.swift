@@ -94,7 +94,7 @@ struct MainTabView: View {
     var body: some View {
         TabView(selection: $selection) {
             NavigationStack(path: $inboxPath) {
-                InboxView(path: $inboxPath)
+                InboxView(path: $inboxPath, isSelectedTab: selection == .inbox)
             }
             .toolbar(.hidden, for: .tabBar)
             .tag(Tab.inbox)
@@ -258,12 +258,16 @@ struct MainTabView: View {
         case .settings:
             select(.settings)
 
-        case .profile, .security:
-            // Both live behind Settings, so the tab has to be selected before
-            // the destination is pushed onto its stack.
+        case .profile, .security, .notifications:
+            // All three live behind Settings, so the tab has to be selected
+            // before the destination is pushed onto its stack.
             select(.settings)
             guard settingsPath.isEmpty else { return }
-            settingsPath.append(SampleRoute.current == .profile ? SettingsRoute.profile : .security)
+            switch SampleRoute.current {
+            case .profile: settingsPath.append(SettingsRoute.profile)
+            case .notifications: settingsPath.append(SettingsRoute.notifications)
+            default: settingsPath.append(SettingsRoute.security)
+            }
 
         case .email:
             guard inboxPath.isEmpty, appState.emailInboxVisible else { return }

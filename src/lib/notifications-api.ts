@@ -1,9 +1,29 @@
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
+import { isNativePlatform } from '@/lib/native';
 /**
  * Notification preferences API — self-hosted Express endpoint.
  * Auth is the first-party gs_session HttpOnly cookie (credentials: 'include').
+ *
+ * These are one SURFACE's preferences. The browser and the phone keep
+ * separate sets, and every request here says which it is speaking for: they
+ * were one row, so an operator who silenced their phone at midnight silenced
+ * their desk too.
  */
 const API_BASE = RESOLVED_API_BASE;
+
+/**
+ * Which surface this runtime is.
+ *
+ * The same bundle is the browser console AND the inside of the Capacitor
+ * shell, and the shell is a phone — it is registered in
+ * `mobile_push_devices` and the dispatcher reads the phone's row before
+ * sending to it. A hardcoded 'web' here would have let an operator set
+ * preferences on their phone that the thing sending to their phone never
+ * read.
+ */
+export function notificationPlatform(): 'web' | 'mobile' {
+  return isNativePlatform() ? 'mobile' : 'web';
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
@@ -16,31 +36,28 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-/** Mirrors `DEFAULTS` in `server/routes/notifications.ts`. */
-export type PushScope = 'all' | 'assigned' | 'mentions' | 'none';
+/** Which conversations are worth telling this operator about. */
+export type NotificationScope = 'all' | 'assigned' | 'mentions' | 'none';
 
+/**
+ * Only what something actually enforces.
+ *
+ * Six email switches and a "visitor browsing" one used to be here. Nothing in
+ * the codebase read any of them — there is no unread digest, no operator
+ * transcript mail, billing mail goes to the workspace's billing contact, and
+ * nothing emits a browsing event — so they saved, answered 200, and changed
+ * nothing. Each of these is read: by `services/push/recipients.ts` before the
+ * server sends to a phone, and by this app before it draws a banner or plays
+ * the chime.
+ */
 export interface NotificationPrefs {
   disable_all: boolean;
-  /**
-   * Which conversations are worth a push. This is the one the delivery code
-   * actually branches on — see `pickRecipients` in
-   * `server/services/push/recipients.ts`.
-   */
-  push_scope: PushScope;
-  /** Whether the notification may carry the message text itself. */
+  push_scope: NotificationScope;
   push_preview: boolean;
-  /** Whether a colleague's internal note is worth interrupting someone for. */
   push_internal_notes: boolean;
   push_when_online: boolean;
   push_when_offline: boolean;
-  push_visitor_browsing: boolean;
   play_sound: boolean;
-  email_unread_messages: boolean;
-  email_transcripts: boolean;
-  email_user_ratings: boolean;
-  email_paid_invoices: boolean;
-  email_weekly_summary: boolean;
-  email_product_updates: boolean;
   quiet_hours_enabled: boolean;
   quiet_hours_start: string | null;
   quiet_hours_end: string | null;
@@ -48,11 +65,55 @@ export interface NotificationPrefs {
 }
 
 export function fetchNotificationPrefs() {
-  return request<{ prefs: NotificationPrefs }>('/api/notifications/prefs');
+  return request<{ platform: string; prefs: NotificationPrefs }>(
+    `/api/notifications/prefs?platform=${notificationPlatform()}`,
+  );
 }
 
 export function updateNotificationPrefs(updates: Partial<NotificationPrefs>) {
-  return request<{ prefs: NotificationPrefs }>('/api/notifications/prefs', {
+  return request<{ platform: string; prefs: NotificationPrefs }>('/api/notifications/prefs', {
+    method: 'PATCH',
+    body: JSON.stringify({ ...updates, platform: notificationPlatform() }),
+  });
+}
+
+// ─────────────────────────── email ───────────────────────────
+
+/**
+ * The operator's EMAIL preferences, which are not per-surface.
+ *
+ * Push is sent to a device, so it has a browser row and a phone row. An
+ * email is sent to a person, once — so it has its own endpoint, its own
+ * table and no platform in sight.
+ */
+export const NOTIFICATION_EMAIL_TYPES = [
+  'unread_messages',
+  'transcripts',
+  'paid_invoices',
+  'weekly_summary',
+  'product_updates',
+] as const;
+
+export type NotificationEmailType = (typeof NOTIFICATION_EMAIL_TYPES)[number];
+
+export type NotificationEmailPrefs = Record<NotificationEmailType, boolean>;
+
+export interface NotificationEmailState {
+  /**
+   * The types the PLATFORM currently offers. The page draws only these: a
+   * switch for something Super Admin has turned off is exactly the kind of
+   * control that used to save and change nothing.
+   */
+  available: NotificationEmailType[];
+  prefs: NotificationEmailPrefs;
+}
+
+export function fetchNotificationEmailPrefs() {
+  return request<NotificationEmailState>('/api/notifications/email');
+}
+
+export function updateNotificationEmailPrefs(updates: Partial<NotificationEmailPrefs>) {
+  return request<NotificationEmailState>('/api/notifications/email', {
     method: 'PATCH',
     body: JSON.stringify(updates),
   });

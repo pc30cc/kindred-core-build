@@ -21,6 +21,7 @@ import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import { bumpMetric } from '../rollout.js';
 import { sendEmail } from '../../email/index.js';
+import { queueInvoicePaid } from '../../notificationEmail/producers.js';
 import { sendSms } from '../../sms/index.js';
 import { toProviderFormat } from '../../phoneVerification/phone.js';
 import { resolveWorkspaceAppUrl } from '../../auth-email.js';
@@ -157,6 +158,23 @@ export async function dispatchBillingNotifications(
           p_status: 'sent',
           p_error: null,
         });
+
+        // The workspace's billing contact has now been told. The operators
+        // who ASKED to hear about payments are a different list — the owner
+        // and the workspace admins, each of whom can turn it off — and this
+        // is the moment the money is known to have arrived. A no-op unless
+        // Super Admin has the type switched on.
+        if (job.notification_type === 'payment_received') {
+          const payload = (job.payload || {}) as Record<string, unknown>;
+          void queueInvoicePaid(config, {
+            workspaceId: job.workspace_id,
+            amount: String(payload.amount_formatted ?? payload.amount ?? ''),
+            invoiceNumber: payload.invoice_number ? String(payload.invoice_number) : null,
+            invoiceId: job.invoice_id ?? null,
+          }).catch((err: unknown) => {
+            console.error('[billing] operator payment notice failed to queue:', err);
+          });
+        }
       } else {
         result.failed += 1;
         bumpMetric('billing_v2_notification_failures');

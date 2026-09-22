@@ -99,6 +99,13 @@ struct ChatView: View {
                 )
             }
             .background(Theme.Palette.background)
+            // A banner for the thread that is already on screen would cover
+            // the message it is announcing with a copy of it.
+            .onAppear { PushController.shared.viewing = conversation.id }
+            .onDisappear {
+                guard PushController.shared.viewing == conversation.id else { return }
+                PushController.shared.viewing = nil
+            }
             .navigationBarTitleDisplayMode(.inline)
             // A custom principal item rather than `navigationTitle`: the
             // header carries the visitor's avatar, which is what tells an

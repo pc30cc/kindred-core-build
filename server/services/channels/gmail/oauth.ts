@@ -31,7 +31,7 @@ import {
   type ChannelIntegration,
 } from '../../channels/integrations.js';
 import { getGmailOAuthConfig } from './oauthConfig.js';
-import { buildGmailAuthUrl, createGmailAdapter, type GmailAdapter } from '../../../../channels/providers/gmail/client.js';
+import { buildGmailAuthUrl, createGmailAdapter, type GmailAdapter } from '../../../../channels/mail/gmail/client.js';
 import { GmailError, type GmailConnectionInfo } from './types.js';
 import { GMAIL_PLUGIN_ID, GMAIL_REFRESH_TOKEN_KEY } from '../../../../shared/channels/gmailKeys.js';
 

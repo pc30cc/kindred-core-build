@@ -1,22 +1,35 @@
 /**
- * Notifications settings — Crisp-inspired layout, modern Lovable polish.
+ * Notifications settings — the browser's own, per operator.
+ *
+ * Every control on this page is read by something that acts on it. That was
+ * not true before: nine of the sixteen switches here saved, answered 200 and
+ * changed nothing at all — six email ones with no sender behind them, a
+ * "visitor is browsing" one with no such event anywhere in the product, and
+ * two presence ones the server never consulted. A switch an operator turns
+ * off and believes is worse than one that was never offered, so what remains
+ * is what is enforced, and the two presence switches moved to the phone,
+ * which is the surface they were ever about.
  *
  * Architecture:
- *   - GET /api/notifications/prefs (self-hosted)
- *   - PATCH /api/notifications/prefs (autosave on toggle)
- *   - Browser permission state is detected client-side; we surface a
- *     native "Enable notifications" CTA when blocked/default.
- *   - All toggles are theme-tokenized (no hardcoded colors).
+ *   - GET  /api/notifications/prefs?platform=web
+ *   - PATCH /api/notifications/prefs  (autosave on change, platform included)
+ *   - The browser permission is detected client-side — and now actually used:
+ *     `features/notifications/operatorBrowserNotification.ts` draws the
+ *     banner this page is describing.
  */
 
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from '@/i18n';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
+  fetchNotificationEmailPrefs,
   fetchNotificationPrefs,
+  notificationPlatform,
+  updateNotificationEmailPrefs,
   updateNotificationPrefs,
+  type NotificationEmailType,
   type NotificationPrefs,
-  type PushScope,
+  type NotificationScope,
 } from '@/lib/notifications-api';
 import { Card } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -28,11 +41,12 @@ import { cn } from '@/lib/utils';
 import {
   AlertTriangle,
   Bell,
+  Check,
   CheckCircle2,
   Loader2,
   Mail,
   Moon,
-  Volume2,
+  Smartphone,
 } from 'lucide-react';
 import { SkeletonCard } from '@/components/common/Skeletons';
 
@@ -99,61 +113,52 @@ function ToggleRow({ label, description, checked, disabled, onChange }: ToggleRo
 }
 
 /**
- * Which conversations are worth a push.
- *
- * A choice rather than a switch, because the four values are not a scale —
- * see `pickRecipients` in `server/services/push/recipients.ts`, which is the
- * only place they mean anything. "Assigned" also notifies on unassigned
- * threads on purpose, so a new customer never goes unanswered.
+ * One of a set. A radio group rather than a row of switches, because these
+ * four are exclusive — and "every conversation" plus "only mine" both on is
+ * not a state anybody means.
  */
-function ScopeChoice({
-  value,
+function ChoiceRow({
+  label,
+  description,
+  selected,
   disabled,
-  onChange,
+  onSelect,
 }: {
-  value: PushScope;
+  label: string;
+  description?: string;
+  selected: boolean;
   disabled?: boolean;
-  onChange: (next: PushScope) => void;
+  onSelect: () => void;
 }) {
-  const { t } = useTranslation();
-  const options: { value: PushScope; label: string }[] = [
-    { value: 'all', label: t('notifications.scopeAll') },
-    { value: 'assigned', label: t('notifications.scopeAssigned') },
-    { value: 'mentions', label: t('notifications.scopeMentions') },
-    { value: 'none', label: t('notifications.scopeNone') },
-  ];
-
   return (
-    <div className={cn('py-3.5', disabled && 'opacity-50')}>
-      <div className="text-sm font-medium text-foreground">
-        {t('notifications.scopeTitle')}
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      disabled={disabled}
+      onClick={onSelect}
+      className={cn(
+        'flex w-full items-start justify-between gap-6 py-3.5 text-start',
+        disabled && 'cursor-not-allowed opacity-50'
+      )}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium text-foreground">{label}</div>
+        {description && (
+          <div className="mt-0.5 text-[12.5px] leading-relaxed text-muted-foreground">
+            {description}
+          </div>
+        )}
       </div>
-      <div className="mt-2.5 grid gap-1.5">
-        {options.map((option) => (
-          <label
-            key={option.value}
-            className={cn(
-              'flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-[13px]',
-              option.value === value
-                ? 'border-primary/60 bg-primary/5 text-foreground'
-                : 'border-border/60 text-muted-foreground hover:bg-muted/40',
-              disabled && 'cursor-not-allowed'
-            )}
-          >
-            <input
-              type="radio"
-              className="h-3.5 w-3.5 accent-[hsl(var(--primary))]"
-              name="push-scope"
-              value={option.value}
-              checked={option.value === value}
-              disabled={disabled}
-              onChange={() => onChange(option.value)}
-            />
-            {option.label}
-          </label>
-        ))}
-      </div>
-    </div>
+      <span
+        className={cn(
+          'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border',
+          selected ? 'border-primary bg-primary text-primary-foreground' : 'border-border'
+        )}
+      >
+        {selected && <Check className="h-3 w-3" />}
+      </span>
+    </button>
   );
 }
 
@@ -179,10 +184,93 @@ function SectionHeader({
   );
 }
 
+/** The zone the times on this page are read in — this computer's own. */
+function localTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
+/**
+ * The email switches, drawn from what the platform offers.
+ *
+ * `available` comes from the server and decides which rows exist at all.
+ * That is the whole point: six email switches used to sit here with no
+ * sender behind any of them, and a switch an operator turns off and
+ * believes is worse than one that was never offered. Nothing renders here
+ * unless Super Admin has turned that type on.
+ */
+function EmailSection() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+
+  const { data } = useQuery({
+    queryKey: ['notification-email-prefs'],
+    queryFn: fetchNotificationEmailPrefs,
+  });
+
+  const mutation = useMutation({
+    mutationFn: updateNotificationEmailPrefs,
+    onSuccess: (resp) => qc.setQueryData(['notification-email-prefs'], resp),
+    onError: (err: Error) => {
+      qc.invalidateQueries({ queryKey: ['notification-email-prefs'] });
+      toast({ title: t('notifications.saveFailed'), description: err.message, variant: 'destructive' });
+    },
+  });
+
+  if (!data) return null;
+
+  const LABELS: Record<NotificationEmailType, { label: string; description?: string }> = {
+    unread_messages: {
+      label: t('notifications.emailUnreadMessages'),
+      description: t('notifications.emailUnreadMessagesHelp'),
+    },
+    transcripts: {
+      label: t('notifications.emailTranscripts'),
+      description: t('notifications.emailTranscriptsHelp'),
+    },
+    paid_invoices: {
+      label: t('notifications.emailPaidInvoices'),
+      description: t('notifications.emailPaidInvoicesHelp'),
+    },
+    weekly_summary: { label: t('notifications.emailWeeklySummary') },
+    product_updates: { label: t('notifications.emailProductUpdates') },
+  };
+
+  return (
+    <Card className="p-6">
+      <SectionHeader icon={Mail} title={t('notifications.emailTitle')} hint={t('notifications.emailHint')} />
+      {data.available.length === 0 ? (
+        <p className="mt-3 text-[12.5px] text-muted-foreground">{t('notifications.emailNone')}</p>
+      ) : (
+        <div className="mt-3 divide-y divide-border/60">
+          {data.available.map((type) => (
+            <ToggleRow
+              key={type}
+              label={LABELS[type].label}
+              description={LABELS[type].description}
+              checked={data.prefs[type] !== false}
+              onChange={(v) => mutation.mutate({ [type]: v })}
+            />
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export default function SettingsNotificationsPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const { permission, request: requestPermission } = useBrowserNotificationPermission();
+
+  // The same bundle is the browser console and the inside of the phone
+  // shell. Which one it is decides whose preferences this page edits — and
+  // what it can honestly say about the other surface and about a browser
+  // permission that means nothing inside a native app.
+  const isNativeShell = notificationPlatform() === 'mobile';
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['notification-prefs'],
@@ -196,19 +284,19 @@ export default function SettingsNotificationsPage() {
   }, [data?.prefs]);
 
   const [savingKey, setSavingKey] = useState<string | null>(null);
-  const [savedKey, setSavedKey] = useState<string | null>(null);
 
   const mutation = useMutation({
     mutationFn: updateNotificationPrefs,
     onSuccess: (resp) => {
       qc.setQueryData(['notification-prefs'], resp);
       setPrefs(resp.prefs);
-      setSavedKey(savingKey);
       setSavingKey(null);
-      window.setTimeout(() => setSavedKey(null), 1500);
     },
     onError: (err: Error) => {
       setSavingKey(null);
+      // Put the switch back. One that stays where it was put while the server
+      // disagrees is a lie about what will reach this browser tonight.
+      if (data?.prefs) setPrefs(data.prefs);
       toast({
         title: t('notifications.saveFailed'),
         description: err.message,
@@ -217,16 +305,15 @@ export default function SettingsNotificationsPage() {
     },
   });
 
-  const update = (key: keyof NotificationPrefs, value: NotificationPrefs[keyof NotificationPrefs]) => {
+  const save = (updates: Partial<NotificationPrefs>) => {
     if (!prefs) return;
-    setPrefs({ ...prefs, [key]: value } as NotificationPrefs);
-    setSavingKey(String(key));
-    mutation.mutate({ [key]: value } as Partial<NotificationPrefs>);
+    setPrefs({ ...prefs, ...updates });
+    setSavingKey(Object.keys(updates)[0] ?? null);
+    mutation.mutate(updates);
   };
 
   const masterDisabled = !!prefs?.disable_all;
-  const pushDisabled = masterDisabled || permission === 'denied';
-  const emailDisabled = masterDisabled;
+  const pushDisabled = masterDisabled || (!isNativeShell && permission === 'denied');
 
   const headerStatus = useMemo(() => {
     if (mutation.isPending || savingKey) {
@@ -262,6 +349,17 @@ export default function SettingsNotificationsPage() {
     );
   }
 
+  const scopes: Array<{ value: NotificationScope; label: string; description?: string }> = [
+    { value: 'all', label: t('notifications.scopeAll') },
+    { value: 'assigned', label: t('notifications.scopeAssigned') },
+    {
+      value: 'mentions',
+      label: t('notifications.scopeMentions'),
+      description: t('notifications.scopeMentionsHelp'),
+    },
+    { value: 'none', label: t('notifications.scopeNone') },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Page header */}
@@ -271,14 +369,15 @@ export default function SettingsNotificationsPage() {
             {t('notifications.title')}
           </h1>
           <p className="mt-1 text-[13.5px] text-muted-foreground">
-            {t('notifications.subtitle')}
+            {isNativeShell ? t('notifications.subtitleNative') : t('notifications.subtitle')}
           </p>
         </div>
         {headerStatus}
       </div>
 
-      {/* Browser permission banner */}
-      {permission !== 'granted' && permission !== 'unsupported' && (
+      {/* Browser permission banner. It means something now: the app draws a
+          real notification when this is granted. */}
+      {!isNativeShell && permission !== 'granted' && permission !== 'unsupported' && (
         <Card className="border-destructive/30 bg-destructive/5 p-4">
           <div className="flex items-start gap-3">
             <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-destructive/15 text-destructive">
@@ -296,12 +395,7 @@ export default function SettingsNotificationsPage() {
                   : t('notifications.permissionNeededHelp')}
               </div>
               {permission === 'default' && (
-                <Button
-                  size="sm"
-                  variant="default"
-                  className="mt-3"
-                  onClick={requestPermission}
-                >
+                <Button size="sm" variant="default" className="mt-3" onClick={requestPermission}>
                   {t('notifications.enableInBrowser')}
                 </Button>
               )}
@@ -313,11 +407,10 @@ export default function SettingsNotificationsPage() {
       {/* Master switch */}
       <Card className="overflow-hidden">
         <div className="border-b border-border/60 px-6 py-4">
-          <p className="text-[13px] text-muted-foreground">
-            {t('notifications.intro')}
-          </p>
-          <p className="mt-1 text-[12.5px] text-muted-foreground/80">
-            {t('notifications.introWarn')}
+          <p className="text-[13px] text-muted-foreground">{t('notifications.intro')}</p>
+          <p className="mt-1 flex items-center gap-1.5 text-[12.5px] text-muted-foreground/80">
+            <Smartphone className="h-3.5 w-3.5 shrink-0" />
+            {isNativeShell ? t('notifications.introWarnNative') : t('notifications.introWarn')}
           </p>
         </div>
         <div className="px-6">
@@ -325,110 +418,48 @@ export default function SettingsNotificationsPage() {
             label={t('notifications.disableAll')}
             description={t('notifications.disableAllHelp')}
             checked={prefs.disable_all}
-            onChange={(v) => update('disable_all', v)}
+            onChange={(v) => save({ disable_all: v })}
           />
         </div>
       </Card>
 
-      {/* Push notifications */}
+      {/* What to be told about, and how */}
       <Card className="p-6">
         <SectionHeader
           icon={Bell}
-          title={t('notifications.pushTitle')}
-          hint={t('notifications.pushHint')}
+          title={isNativeShell ? t('notifications.pushTitleApp') : t('notifications.pushTitle')}
+          hint={isNativeShell ? t('notifications.pushHintApp') : t('notifications.pushHint')}
         />
-        <div className="mt-3 divide-y divide-border/60">
-          <ScopeChoice
-            value={prefs.push_scope}
-            disabled={pushDisabled}
-            onChange={(v) => update('push_scope', v)}
-          />
+        <div className="mt-3 divide-y divide-border/60" role="radiogroup" aria-label={t('notifications.scopeTitle')}>
+          {scopes.map((scope) => (
+            <ChoiceRow
+              key={scope.value}
+              label={scope.label}
+              description={scope.description}
+              selected={prefs.push_scope === scope.value}
+              disabled={pushDisabled}
+              onSelect={() => save({ push_scope: scope.value })}
+            />
+          ))}
+        </div>
+        <div className="mt-1 divide-y divide-border/60 border-t border-border/60">
           <ToggleRow
-            label={t('notifications.notifyOnline')}
-            checked={prefs.push_when_online}
-            disabled={pushDisabled}
-            onChange={(v) => update('push_when_online', v)}
-          />
-          <ToggleRow
-            label={t('notifications.notifyOffline')}
-            checked={prefs.push_when_offline}
-            disabled={pushDisabled}
-            onChange={(v) => update('push_when_offline', v)}
-          />
-          <ToggleRow
-            label={t('notifications.notifyVisitorBrowsing')}
-            checked={prefs.push_visitor_browsing}
-            disabled={pushDisabled}
-            onChange={(v) => update('push_visitor_browsing', v)}
-          />
-          <ToggleRow
-            label={t('notifications.internalNotes')}
-            checked={prefs.push_internal_notes}
-            disabled={pushDisabled}
-            onChange={(v) => update('push_internal_notes', v)}
-          />
-          <ToggleRow
-            label={t('notifications.preview')}
-            description={t('notifications.previewHelp')}
+            label={t('notifications.showPreview')}
+            description={t('notifications.showPreviewHelp')}
             checked={prefs.push_preview}
             disabled={pushDisabled}
-            onChange={(v) => update('push_preview', v)}
+            onChange={(v) => save({ push_preview: v })}
           />
           <ToggleRow
             label={t('notifications.playSound')}
             checked={prefs.play_sound}
             disabled={masterDisabled}
-            onChange={(v) => update('play_sound', v)}
+            onChange={(v) => save({ play_sound: v })}
           />
         </div>
       </Card>
 
-      {/* Email notifications */}
-      <Card className="p-6">
-        <SectionHeader
-          icon={Mail}
-          title={t('notifications.emailTitle')}
-          hint={t('notifications.emailHint')}
-        />
-        <div className="mt-3 divide-y divide-border/60">
-          <ToggleRow
-            label={t('notifications.emailUnread')}
-            checked={prefs.email_unread_messages}
-            disabled={emailDisabled}
-            onChange={(v) => update('email_unread_messages', v)}
-          />
-          <ToggleRow
-            label={t('notifications.emailTranscripts')}
-            checked={prefs.email_transcripts}
-            disabled={emailDisabled}
-            onChange={(v) => update('email_transcripts', v)}
-          />
-          <ToggleRow
-            label={t('notifications.emailRatings')}
-            checked={prefs.email_user_ratings}
-            disabled={emailDisabled}
-            onChange={(v) => update('email_user_ratings', v)}
-          />
-          <ToggleRow
-            label={t('notifications.emailInvoices')}
-            checked={prefs.email_paid_invoices}
-            disabled={emailDisabled}
-            onChange={(v) => update('email_paid_invoices', v)}
-          />
-          <ToggleRow
-            label={t('notifications.emailWeekly')}
-            checked={prefs.email_weekly_summary}
-            disabled={emailDisabled}
-            onChange={(v) => update('email_weekly_summary', v)}
-          />
-          <ToggleRow
-            label={t('notifications.emailProduct')}
-            checked={prefs.email_product_updates}
-            disabled={emailDisabled}
-            onChange={(v) => update('email_product_updates', v)}
-          />
-        </div>
-      </Card>
+      <EmailSection />
 
       {/* Quiet hours */}
       <Card className="p-6">
@@ -443,7 +474,22 @@ export default function SettingsNotificationsPage() {
             description={t('notifications.quietEnableHelp')}
             checked={prefs.quiet_hours_enabled}
             disabled={masterDisabled}
-            onChange={(v) => update('quiet_hours_enabled', v)}
+            onChange={(v) =>
+              save(
+                v
+                  ? {
+                      quiet_hours_enabled: true,
+                      // A window nobody has chosen yet still has to be a
+                      // window, and it has to carry a zone: without one the
+                      // server evaluated a Tehran operator's night in UTC and
+                      // silenced them from half past one in the morning.
+                      quiet_hours_start: prefs.quiet_hours_start || '22:00',
+                      quiet_hours_end: prefs.quiet_hours_end || '08:00',
+                      quiet_hours_timezone: localTimezone(),
+                    }
+                  : { quiet_hours_enabled: false }
+              )
+            }
           />
           {prefs.quiet_hours_enabled && (
             <div className="grid grid-cols-1 gap-4 py-4 sm:grid-cols-2">
@@ -458,7 +504,10 @@ export default function SettingsNotificationsPage() {
                   disabled={masterDisabled}
                   onChange={(e) => setPrefs({ ...prefs, quiet_hours_start: e.target.value || null })}
                   onBlur={(e) =>
-                    update('quiet_hours_start', e.target.value || null)
+                    save({
+                      quiet_hours_start: e.target.value || null,
+                      quiet_hours_timezone: localTimezone(),
+                    })
                   }
                   className="mt-1.5"
                 />
@@ -474,7 +523,10 @@ export default function SettingsNotificationsPage() {
                   disabled={masterDisabled}
                   onChange={(e) => setPrefs({ ...prefs, quiet_hours_end: e.target.value || null })}
                   onBlur={(e) =>
-                    update('quiet_hours_end', e.target.value || null)
+                    save({
+                      quiet_hours_end: e.target.value || null,
+                      quiet_hours_timezone: localTimezone(),
+                    })
                   }
                   className="mt-1.5"
                 />

@@ -819,9 +819,15 @@ class ApiClient(
 
     // MARK: - Availability and promotions
 
+    // Both calls name the surface. The endpoint falls back to 'web' when a
+    // request does not, so staying silent here would read and write the
+    // browser's preferences rather than this phone's.
     override suspend fun notificationPrefs(): NotificationPrefs =
-        build(HttpMethod.Get, "/api/notifications/prefs")
-            .decode<NotificationPrefsResponse>().prefs
+        build(
+            HttpMethod.Get,
+            "/api/notifications/prefs",
+            listOf("platform" to NotificationPrefs.SURFACE),
+        ).decode<NotificationPrefsResponse>().prefs
 
     override suspend fun updateNotificationPrefs(
         update: NotificationPrefsUpdate,

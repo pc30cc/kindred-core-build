@@ -57,6 +57,7 @@ import com.webyar.operator.ui.components.ChatBubbleShape
 import com.webyar.operator.ui.components.Glyph
 import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.components.AttachmentView
+import com.webyar.operator.ui.components.StickToNewest
 import com.webyar.operator.ui.components.DayHeader
 import com.webyar.operator.ui.components.MessageBubble
 import com.webyar.operator.ui.components.bidiContent
@@ -229,11 +230,9 @@ private fun Transcript(
     val listState = rememberLazyListState()
     val rows = remember(messages) { layout(messages) }
 
-    // A transcript opens on its newest message, not its oldest. Re-run when
-    // one arrives so a sent message is visible rather than just appended.
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
-    }
+    // A transcript opens on its newest message, not its oldest, and stays
+    // there while that message settles — see [StickToNewest].
+    StickToNewest(listState, rows.size)
 
     LazyColumn(
         state = listState,

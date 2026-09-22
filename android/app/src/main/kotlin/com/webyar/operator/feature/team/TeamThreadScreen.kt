@@ -20,6 +20,7 @@ import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
 import com.webyar.operator.ui.A11y
 import com.webyar.operator.ui.components.AttachmentView
+import com.webyar.operator.ui.components.StickToNewest
 import com.webyar.operator.ui.components.DayHeader
 import com.webyar.operator.ui.components.ErrorState
 import com.webyar.operator.ui.components.MessageBubble
@@ -91,9 +92,7 @@ private fun Transcript(
     val listState = rememberLazyListState()
     val rows = remember(messages, me) { layout(messages, me) }
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
-    }
+    StickToNewest(listState, rows.size)
 
     LazyColumn(
         state = listState,

@@ -14,7 +14,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -150,6 +153,39 @@ fun MessageBubble(
  * back, and on a phone this is already most of it.
  */
 private val BUBBLE_MAX_WIDTH = 300.dp
+
+/**
+ * Keeps a transcript on its newest message while that message settles.
+ *
+ * `animateScrollToItem(last)` alone is not enough, and the reason is
+ * measurable: a photo bubble is short until its bytes arrive and decode, and
+ * then it grows by a couple of hundred pixels. The scroll ran on arrival, the
+ * bubble grew afterwards, and the bottom half of every picture sat under the
+ * composer — proved on device with a four-quadrant test image whose top half
+ * measured a full 140px and whose bottom half measured 14.
+ *
+ * So the pin is held rather than fired once. It follows the last row's
+ * measured height, and only while that row is the last one visible — which is
+ * to say only while the operator is already at the bottom. Scrolled up to read
+ * something, they are left alone.
+ */
+@Composable
+fun StickToNewest(listState: LazyListState, rowCount: Int) {
+    LaunchedEffect(listState, rowCount) {
+        if (rowCount == 0) return@LaunchedEffect
+        val last = rowCount - 1
+        listState.animateScrollToItem(last)
+        snapshotFlow {
+            listState.layoutInfo.visibleItemsInfo.lastOrNull()?.takeIf { it.index == last }?.size
+        }.collect { height ->
+            // Its own height is always enough to reach the content's end,
+            // where the list clamps. Anything smaller leaves a tall bubble
+            // half under the composer; anything larger is clamped to the
+            // same place.
+            if (height != null) listState.scrollToItem(last, height)
+        }
+    }
+}
 
 /**
  * The date above the first message of a day.

@@ -156,7 +156,11 @@ private fun ImageAttachment(
         bytes is AttachmentBytes.Ready ->
             // Bytes that are not a picture this phone can decode.
             FileCard(attachment, language, Str.attachmentFailed(language))
-        else -> FileCard(attachment, language, Str.receivingFile(language))
+        // A box roughly the size the photo will be, so the bubble does not
+        // jump when the bytes land — iOS draws the same placeholder for the
+        // same reason. The transcript re-pins itself either way
+        // ([StickToNewest]); this is what keeps it from being visible.
+        else -> PhotoPlaceholder(language)
     }
 }
 
@@ -195,6 +199,26 @@ private fun decodeBounded(bytes: ByteArray): ImageBitmap? {
     val options = BitmapFactory.Options().apply { inSampleSize = sample }
     return runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) }
         .getOrNull()?.asImageBitmap()
+}
+
+/** The footprint a photo will take, while its bytes are on the way. */
+@Composable
+private fun PhotoPlaceholder(language: Language) {
+    val tint = LocalContentColor.current
+    Box(
+        Modifier
+            .padding(vertical = Space.xxs)
+            .size(width = PHOTO_PLACEHOLDER_WIDTH, height = PHOTO_PLACEHOLDER_HEIGHT)
+            .clip(RoundedCornerShape(Space.md))
+            .background(tint.copy(alpha = 0.08f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            Str.receivingFile(language),
+            style = MaterialTheme.typography.labelSmall,
+            color = tint.copy(alpha = 0.7f),
+        )
+    }
 }
 
 /** Full screen, pinchable, closed by the button or a double tap. */
@@ -514,6 +538,10 @@ private val IMAGE_MAX_WIDTH = 240.dp
 
 /** iOS's 260pt cap, so a portrait shot is a photo and not a wall. */
 private val IMAGE_MAX_HEIGHT = 260.dp
+
+/** iOS's 180x132 placeholder, for the same reason it has one. */
+private val PHOTO_PLACEHOLDER_WIDTH = 180.dp
+private val PHOTO_PLACEHOLDER_HEIGHT = 132.dp
 
 /** The longest edge a transcript photo is decoded to. */
 private const val MAX_DECODED_EDGE = 2048

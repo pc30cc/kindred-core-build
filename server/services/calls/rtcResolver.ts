@@ -391,6 +391,59 @@ export async function getCallNetworkBundle(config: ServerConfig): Promise<CallRt
   };
 }
 
+/**
+ * An ICE server URL, which is not a URL in the everyday sense.
+ *
+ * RFC 7064/7065: a scheme, then host[:port], then at most `?transport=`.
+ * No `//`, no path. `new URL()` accepts far more than this and browsers
+ * accept far less, so the check is written out rather than delegated.
+ */
+const ICE_URL = /^(?:stun|stuns|turn|turns):[^\s/?#]+(?:\?transport=(?:udp|tcp))?$/i;
+
+/**
+ * Refuses a TURN block the browser will refuse.
+ *
+ * Both of these failures are total and silent until somebody places a call:
+ * `RTCPeerConnection` throws while it is being CONSTRUCTED, so the widget
+ * never reaches signalling and every call fails for every visitor — a far
+ * worse outcome than the "no relay configured" warning that tempts an
+ * operator to fill this in.
+ *
+ * It has happened: a hostname pasted here with no scheme took every call
+ * down with `'turn.destekly.tr' is not a valid URL`. The field took it
+ * because the only rule was "not empty".
+ */
+export function assertUsableTurn(turn: Partial<CallTurnConfig> & { shared_secret?: unknown }): void {
+  const urls = (turn.urls ?? []).map((u) => String(u).trim()).filter((u) => u.length > 0);
+
+  const malformed = urls.filter((u) => !ICE_URL.test(u));
+  if (malformed.length > 0) {
+    throw new Error(
+      `Not ICE server URLs: ${malformed.join(', ')}. Use turn:host:3478, ` +
+        'turns:host:5349?transport=tcp or stun:host:3478 — a bare hostname is ' +
+        'rejected by every browser and takes every call with it.',
+    );
+  }
+
+  // A relay you cannot authenticate to is not a spare route. Chrome throws
+  // `InvalidAccessError` on a turn: URL with no credentials, in the same
+  // constructor and with the same blast radius.
+  const needsCredentials = urls.some((u) => /^turns?:/i.test(u));
+  const hasPair =
+    typeof turn.username === 'string' && turn.username.length > 0 &&
+    typeof turn.credential === 'string' && turn.credential.length > 0;
+  const hasSecret = typeof turn.shared_secret === 'string' && turn.shared_secret.length > 0;
+  if (needsCredentials && !hasPair && !hasSecret) {
+    throw new Error(
+      'A turn: URL needs a username and credential, or a shared secret to mint ' +
+        'them from. Without either the browser refuses the ICE server and every ' +
+        'call fails. LiveKit\'s own TURN issues its credentials over signalling ' +
+        'and must NOT be listed here — record it as the LiveKit provider\'s TURN ' +
+        'domain instead.',
+    );
+  }
+}
+
 export async function saveRtcEndpoints(
   config: ServerConfig,
   next: Partial<CallRtcConfig>,
@@ -398,6 +451,10 @@ export async function saveRtcEndpoints(
   const sb = getServiceClient(config);
   const current = await loadRawRtcConfig(config);
   const merged: CallRtcConfig = { ...current, ...next, turn: { ...current.turn, ...(next.turn || {}) } };
+  // Validated on the MERGED value, not the patch: credentials already stored
+  // still count, and a patch that adds only a URL must be judged against what
+  // the row will actually hold.
+  assertUsableTurn(merged.turn as Parameters<typeof assertUsableTurn>[0]);
   const { error } = await sb
     .from('app_runtime_config')
     .upsert(

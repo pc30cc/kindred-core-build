@@ -70,20 +70,36 @@ jobs:
       # com.github.davidliu:audioswitch:039a35ae…", which reads like a wrong
       # coordinate rather than a network fault, and somebody spends an hour
       # on the wrong problem.
+      #
+      # The probe is the artifact's own directory, NOT `maven-metadata.xml`.
+      # JitPack publishes no metadata for a commit-hash version — there are no
+      # releases to list — so that URL answers 404 while everything is working,
+      # which is how the first version of this step spent four runs failing a
+      # build it had not got as far as starting. The three answers this one can
+      # get are all distinct and all were checked against the live service:
+      # 200 with a listing of commit hashes, 401 "Repo not found" when the
+      # coordinate is wrong, and nothing at all when JitPack is down.
       - name: JitPack is reachable
         run: |
           set -eu
-          code=$(curl -4 -sSL -o /dev/null -w '%{http_code}' --max-time 30 \
-            https://jitpack.io/com/github/davidliu/audioswitch/maven-metadata.xml || echo 000)
+          url=https://jitpack.io/com/github/davidliu/audioswitch/
+          code=$(curl -4 -sS -o /dev/null -w '%{http_code}' --max-time 30 "$url" || echo 000)
           echo "IPv4 -> $code"
           case "$code" in
-            200|401|403) echo "reachable" ;;
-            *) echo "JitPack unreachable"; exit 1 ;;
+            200) echo "reachable" ;;
+            000) echo "JitPack did not answer at all — network, DNS or TLS"; exit 1 ;;
+            *)   echo "JitPack answered $code for $url — the coordinate is gone"; exit 1 ;;
           esac
 
+      # `:app:` rather than a bare task name, which would run it in every
+      # module. `:baselineprofile` is a macrobenchmark module: its output is a
+      # test APK that only means anything with a device attached, and this
+      # host has no device and 2GB to spend. Building it here would download
+      # uiautomator and the benchmark runner to produce an artifact nothing
+      # on this machine can execute.
       - name: Build debug
         working-directory: android
-        run: ./gradlew assembleDebug --stacktrace
+        run: ./gradlew :app:assembleDebug --stacktrace
 
       # The JVM layer, which is where most of the suite lives: no device, no
       # KVM, no emulator (ADR-003 §5). Instrumented tests are a separate job
@@ -91,7 +107,7 @@ jobs:
       # build and Supabase at once.
       - name: Unit tests (JVM)
         working-directory: android
-        run: ./gradlew testDebugUnitTest --stacktrace
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
 
       - name: Test report
         if: ${{ !cancelled() }}
@@ -105,7 +121,7 @@ jobs:
 
       - name: Lint
         working-directory: android
-        run: ./gradlew lintDebug --stacktrace
+        run: ./gradlew :app:lintDebug --stacktrace
 
       - name: APK
         working-directory: android
@@ -129,7 +145,7 @@ jobs:
         working-directory: android
         run: |
           set -eu
-          ./gradlew assembleMinified --stacktrace
+          ./gradlew :app:assembleMinified --stacktrace
           find app/build/outputs/apk/minified -name '*.apk' -exec ls -lh {} \;
 
 # NO EMULATOR JOB YET, and that is a measurement rather than an omission.

@@ -1018,10 +1018,18 @@ callsRouter.get('/diagnostics', async (req, res) => {
   // LiveKit real readiness — uses 30s cache so polling is cheap.
   let livekitReadiness: LiveKitReadinessState | null = null;
   let livekitConfigured = false;
+  // Hoisted beside `livekitConfigured` rather than read again further down:
+  // the config is only in scope inside this try, and a load that throws has
+  // to mean "no relay" the same way it means "not configured".
+  let livekitOwnRelay = false;
   try {
     const lk = await loadLiveKitConfig(config);
     livekitConfigured = isMinimallyConfigured(lk);
-  } catch { livekitConfigured = false; }
+    livekitOwnRelay = providesOwnRelay(lk);
+  } catch {
+    livekitConfigured = false;
+    livekitOwnRelay = false;
+  }
   try {
     livekitReadiness = await getLiveKitReadinessState(config);
   } catch (err: unknown) {
@@ -1046,7 +1054,7 @@ callsRouter.get('/diagnostics', async (req, res) => {
   // Same rule as the token endpoint: LiveKit's own TURN is a relay, even
   // though this app supplies none — it mints its credentials over the
   // signalling connection instead.
-  const sfuRelay = selectedProvider === 'livekit' && providesOwnRelay(lk);
+  const sfuRelay = selectedProvider === 'livekit' && livekitOwnRelay;
   const turnMissing = turnUrlsCount === 0 && !sfuRelay;
 
   // Surface canonical error codes the caller may want to react to.

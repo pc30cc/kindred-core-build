@@ -10,6 +10,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -119,23 +120,33 @@ private fun ImageAttachment(
 
     when {
         photo != null -> {
-            Image(
-                bitmap = photo,
-                contentDescription = attachment.displayName ?: Str.photo(language),
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    // The box iOS draws a photo in. `heightIn` is what keeps
-                    // a portrait shot from filling the screen, and the
-                    // aspect ratio comes from the bitmap itself — which is
-                    // why the bytes are decoded here rather than handed to
-                    // an async loader that has no size until it has finished.
-                    .widthIn(max = IMAGE_MAX_WIDTH)
-                    .heightIn(max = IMAGE_MAX_HEIGHT)
-                    .padding(vertical = Space.xxs)
-                    .clip(RoundedCornerShape(Space.md))
-                    .clickable { open = true }
-                    .testTag(A11y.attachmentImage(attachment.id)),
-            )
+            Box(Modifier.padding(vertical = Space.xxs)) {
+                Image(
+                    bitmap = photo,
+                    contentDescription = attachment.displayName ?: Str.photo(language),
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        // The box iOS draws a photo in — at most 240dp
+                        // across, at most 260dp down, and the picture's own
+                        // proportions in between.
+                        //
+                        // The ratio is stated rather than left to the
+                        // painter. Measured on device, a 480x320 photo came
+                        // out 420x154 and then 420x84 after a scroll: the
+                        // same picture, two heights, because a painter's
+                        // intrinsic size is not a layout constraint and the
+                        // row collapsed towards its minimum whenever it was
+                        // re-measured. `aspectRatio` derives the height from
+                        // the width it is given, which is a number the
+                        // layout can actually use.
+                        .widthIn(max = IMAGE_MAX_WIDTH)
+                        .heightIn(max = IMAGE_MAX_HEIGHT)
+                        .aspectRatio(photo.width.toFloat() / photo.height.toFloat())
+                        .clip(RoundedCornerShape(Space.md))
+                        .clickable { open = true }
+                        .testTag(A11y.attachmentImage(attachment.id)),
+                )
+            }
             if (open) ImageViewer(photo, language) { open = false }
         }
         // Both the failure and the not-yet keep the card, so nothing jumps

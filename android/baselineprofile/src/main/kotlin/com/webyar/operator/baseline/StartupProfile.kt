@@ -30,6 +30,13 @@ class StartupProfile {
         // steadier list on a machine that is also running a build.
         maxIterations = 5,
         stableIterations = 3,
+        // Writes `startup-prof.txt` beside the baseline profile. That is a
+        // separate artifact with a separate job: the baseline profile tells
+        // ART what to compile ahead of time, the startup profile tells AGP
+        // which classes to pack into the primary DEX so the loader opens one
+        // file instead of several. Without this the plugin generates no
+        // startup profile at all and says so on every build.
+        includeInStartupProfile = true,
     ) {
         pressHome()
         startActivityAndWait()

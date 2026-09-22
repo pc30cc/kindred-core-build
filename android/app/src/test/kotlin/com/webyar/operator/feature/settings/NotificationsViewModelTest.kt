@@ -50,7 +50,9 @@ class NotificationsViewModelTest {
 
     @Test
     fun `the operator's saved settings are what the screen shows`() = runTest(dispatcher) {
-        val api = StubPrefsApi(initial = NotificationPrefs(playSound = false, emailTranscripts = true))
+        val api = StubPrefsApi(
+            initial = LIVE_SHAPED.copy(playSound = false, emailTranscripts = true),
+        )
         val state = model(api).state.value
 
         assertFalse(state.loading)
@@ -186,6 +188,34 @@ class NotificationsViewModelTest {
         )
     }
 
+    /**
+     * The deployed server sends no `email_*` keys at all. A screen that
+     * turned a missing key into `false` would show six switches the
+     * operator's own server has never heard of.
+     */
+    @Test
+    fun `a preference the server did not send stays absent`() = runTest(dispatcher) {
+        val api = StubPrefsApi(
+            initial = NotificationPrefs(disableAll = false, playSound = true),
+        )
+        val prefs = model(api).state.value.prefs!!
+
+        assertNull(prefs.emailUnreadMessages)
+        assertNull(prefs.pushVisitorBrowsing)
+        assertNull(prefs.pushScope)
+        assertNull("a scope that was never sent is not a scope", prefs.scope)
+    }
+
+    @Test
+    fun `the four scopes map onto the wire values the server uses`() {
+        assertEquals(NotificationPrefs.Scope.ALL, NotificationPrefs(pushScope = "all").scope)
+        assertEquals(NotificationPrefs.Scope.ASSIGNED, NotificationPrefs(pushScope = "assigned").scope)
+        assertEquals(NotificationPrefs.Scope.MENTIONS, NotificationPrefs(pushScope = "mentions").scope)
+        assertEquals(NotificationPrefs.Scope.NONE, NotificationPrefs(pushScope = "none").scope)
+        // A value this build has not met is not guessed at.
+        assertNull(NotificationPrefs(pushScope = "whatever-comes-next").scope)
+    }
+
     @Test
     fun `a later success clears an earlier failure`() = runTest(dispatcher) {
         val api = StubPrefsApi(patchError = ApiError.Server(500, null))
@@ -201,10 +231,31 @@ class NotificationsViewModelTest {
         assertNull(model.state.value.saveError)
     }
 
+    private companion object {
+        /** What `api.webyar.ai` actually answers, trimmed to what is asserted. */
+        val LIVE_SHAPED = NotificationPrefs(
+            disableAll = false,
+            pushScope = "all",
+            pushPreview = true,
+            pushInternalNotes = true,
+            pushWhenOnline = true,
+            pushWhenOffline = true,
+            playSound = true,
+            emailTranscripts = false,
+            quietHoursEnabled = false,
+        )
+    }
+
     /** The sample backend with the preferences replaced by something steerable. */
     private class StubPrefsApi(
         private val real: SampleApi = SampleApi(),
-        initial: NotificationPrefs = NotificationPrefs(),
+        /**
+         * Shaped like the deployed server's answer. Every field a test
+         * asserts on has to be non-null, because null now means "this
+         * server does not have this preference" and the screen draws
+         * nothing for it.
+         */
+        initial: NotificationPrefs = LIVE_SHAPED,
         var loadError: Throwable? = null,
         var patchError: Throwable? = null,
         /** Held open to keep a change in flight for as long as a test needs. */

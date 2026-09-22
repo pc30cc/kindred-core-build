@@ -43,6 +43,9 @@ import com.webyar.operator.core.model.VisitorProfile
 import com.webyar.operator.core.model.Workspace
 import com.webyar.operator.core.model.WorkspaceMember
 import java.time.Instant
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -421,6 +424,18 @@ class SampleApi : WebyarApi {
 
         fun ago(minutes: Long): Instant = Instant.now().minusSeconds(minutes * 60)
 
+        /**
+         * The `metadata.channel` a conversation carries when it did not come
+         * in through the widget.
+         *
+         * Without this the channel strip listed three inboxes and every one of
+         * them was empty, because nothing in the fixture was ever filed under
+         * a channel — a strip that looks broken in the one mode whose job is
+         * to show every screen working.
+         */
+        fun channel(key: String): JsonElement =
+            buildJsonObject { put("channel", JsonPrimitive(key)) }
+
         /** The keys `AppSidebar.tsx` gates a whole section on. */
         val ON = listOf("contacts", "email", "team_chat", "voice_video", "canned_responses")
 
@@ -681,6 +696,7 @@ class SampleApi : WebyarApi {
                     senderType = "contact",
                 ),
                 unreadCount = 0,
+                metadata = channel("telegram"),
             ),
             Conversation(
                 id = "c-4",
@@ -700,6 +716,7 @@ class SampleApi : WebyarApi {
                 ),
                 unreadCount = 0,
                 aiState = "ai_managed",
+                metadata = channel("whatsapp"),
             ),
             Conversation(
                 id = "c-5",

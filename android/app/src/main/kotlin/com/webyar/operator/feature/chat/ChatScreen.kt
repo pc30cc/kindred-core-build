@@ -1,48 +1,71 @@
 package com.webyar.operator.feature.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import coil3.compose.AsyncImage
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.webyar.operator.core.model.Conversation
 import com.webyar.operator.core.model.Message
+import com.webyar.operator.core.model.MessageAttachment
+import com.webyar.operator.core.model.SayNowVoice
+import com.webyar.operator.core.model.SenderType
+import com.webyar.operator.i18n.Format
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
 import com.webyar.operator.i18n.StrAndroid
+import com.webyar.operator.i18n.SystemMessage
 import com.webyar.operator.ui.A11y
+import com.webyar.operator.ui.components.Avatar
+import com.webyar.operator.ui.components.ChatBubbleShape
+import com.webyar.operator.ui.design.Size
+import com.webyar.operator.ui.design.Space
+import com.webyar.operator.ui.design.WebyarTheme
+import java.time.Instant
+import java.time.ZoneId
+
+sealed interface ChatState {
+    data object Loading : ChatState
+    data class Loaded(val messages: List<Message>) : ChatState
+    data class Failed(val message: String) : ChatState
+}
 
 /**
  * One conversation, and the field to answer it in.
@@ -50,16 +73,14 @@ import com.webyar.operator.ui.A11y
  * Two things here are the Android answers to problems the iOS app records at
  * length, and both are one line rather than the sagas they were there.
  *
- * The transcript follows the keyboard. `imePadding()` is the whole of it;
- * `PinnedScrollView.swift` needs `keyboardWillChangeFrameNotification`, a
- * settle loop and a safe-area argument because SwiftUI reports the keyboard as
- * a bottom safe area and a `GeometryReader` never shrinks.
+ * The transcript follows the keyboard: `imePadding()` is the whole of it,
+ * where `PinnedScrollView.swift` needs a frame notification, a settle loop and
+ * a safe-area argument because SwiftUI reports the keyboard as a safe area.
  *
- * And a bubble has a maximum width. On iOS that is a computed fraction of the
- * screen; here `widthIn(max = …)` against the row means a long message wraps
- * instead of pushing the timestamp off the edge, at any screen size, which
- * matters more on Android than anywhere — the same layout has to hold from a
- * 5-inch phone to a tablet.
+ * And a bubble sits on the right side for the operator in every language,
+ * because `Arrangement.End` resolves against the layout direction — so a
+ * Persian transcript mirrors with no conditional at all. The BEAK is the
+ * exception and has to be told which way to point; see [ChatBubbleShape].
  */
 @Composable
 fun ChatScreen(
@@ -67,44 +88,136 @@ fun ChatScreen(
     language: Language,
     onSend: (String) -> Unit,
     modifier: Modifier = Modifier,
-    /**
-     * Null when the transcript is not something you came into from somewhere.
-     *
-     * The system Back gesture always works — the navigation graph sees to
-     * that — so this is the visible affordance, not the mechanism. A screen
-     * with no way back ON SCREEN is still reachable by gesture; a screen that
-     * draws a back arrow which does nothing is not.
-     */
     onBack: (() -> Unit)? = null,
+    conversation: Conversation? = null,
+    draft: String = "",
+    onDraftChange: (String) -> Unit = {},
+    sending: Boolean = false,
+    capabilities: ComposerCapabilities = ComposerCapabilities.NONE,
+    canUseShortcuts: Boolean = false,
+    sayNowVoice: SayNowVoice? = null,
+    onSayNowVoiceChange: (SayNowVoice) -> Unit = {},
+    onAttachPhoto: () -> Unit = {},
+    onAttachFile: () -> Unit = {},
+    onOpenShortcuts: () -> Unit = {},
+    onStartRecording: () -> Unit = {},
+    header: (@Composable () -> Unit)? = null,
+    /**
+     * Fetches an attachment's bytes.
+     *
+     * A loader rather than a URL because the endpoint is authenticated: a
+     * plain `https://…/file` handed to an image library is a request with no
+     * Authorization header, which comes back 401 and renders as a broken
+     * picture. Passing the function also keeps this screen testable without a
+     * network.
+     */
+    loadAttachment: (suspend (String) -> ByteArray?)? = null,
 ) {
     Column(modifier.fillMaxSize().imePadding()) {
-        if (onBack != null) ChatTopBar(language = language, onBack = onBack)
+        if (onBack != null) {
+            ChatTopBar(
+                language = language,
+                title = conversation?.let {
+                    Format.contactName(
+                        name = it.contact?.name,
+                        email = it.contact?.email,
+                        visitorCode = it.contact?.visitorCode,
+                        language = language,
+                    )
+                },
+                onBack = onBack,
+                actions = header,
+            )
+        }
+
         Box(Modifier.weight(1f)) {
             when (state) {
                 is ChatState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                     CircularProgressIndicator()
                 }
 
-                is ChatState.Failed -> Box(Modifier.fillMaxSize().padding(24.dp), Alignment.Center) {
+                is ChatState.Failed -> Box(
+                    Modifier.fillMaxSize().padding(Space.xl),
+                    Alignment.Center,
+                ) {
                     Text(state.message, style = MaterialTheme.typography.bodyMedium)
                 }
 
                 is ChatState.Loaded -> if (state.messages.isEmpty()) {
-                    Box(Modifier.fillMaxSize().padding(24.dp), Alignment.Center) {
+                    Box(Modifier.fillMaxSize().padding(Space.xl), Alignment.Center) {
                         Text(Str.chatEmpty(language), style = MaterialTheme.typography.bodyMedium)
                     }
                 } else {
-                    Transcript(state.messages)
+                    Transcript(state.messages, language, loadAttachment)
                 }
             }
         }
-        Composer(language = language, onSend = onSend)
+
+        Composer(
+            language = language,
+            draft = draft,
+            onDraftChange = onDraftChange,
+            capabilities = capabilities,
+            sending = sending,
+            onSend = { onSend(draft) },
+            onAttachPhoto = onAttachPhoto,
+            onAttachFile = onAttachFile,
+            onOpenShortcuts = onOpenShortcuts,
+            onStartRecording = onStartRecording,
+            sayNowVoice = sayNowVoice,
+            onSayNowVoiceChange = onSayNowVoiceChange,
+            canUseShortcuts = canUseShortcuts,
+            modifier = Modifier.navigationBarsPadding(),
+        )
+    }
+}
+
+/**
+ * One row of the transcript, already decided.
+ *
+ * Grouping is worked out once, when the list changes, rather than per row
+ * during layout: a `LazyColumn` asks its items for content in an order nobody
+ * controls, so a row that needed to look at its neighbours would be looking at
+ * whatever happened to be composed.
+ */
+private data class TranscriptRow(
+    val message: Message,
+    /** A date header goes above this row. */
+    val dayHeader: Instant?,
+    /** The last of a run from one sender — the one that gets the beak and the face. */
+    val endsRun: Boolean,
+    /** The first of a run — the one that gets the gap above it. */
+    val startsRun: Boolean,
+)
+
+private fun layout(messages: List<Message>): List<TranscriptRow> {
+    val zone = ZoneId.systemDefault()
+    return messages.mapIndexed { index, message ->
+        val previous = messages.getOrNull(index - 1)
+        val next = messages.getOrNull(index + 1)
+
+        val sameDayAsPrevious = previous?.createdAt != null && message.createdAt != null &&
+            previous.createdAt!!.atZone(zone).toLocalDate() ==
+            message.createdAt!!.atZone(zone).toLocalDate()
+
+        TranscriptRow(
+            message = message,
+            dayHeader = if (sameDayAsPrevious) null else message.createdAt,
+            endsRun = next == null || next.senderType != message.senderType ||
+                next.senderType == SenderType.SYSTEM,
+            startsRun = previous == null || previous.senderType != message.senderType || !sameDayAsPrevious,
+        )
     }
 }
 
 @Composable
-private fun Transcript(messages: List<Message>) {
+private fun Transcript(
+    messages: List<Message>,
+    language: Language,
+    loadAttachment: (suspend (String) -> ByteArray?)?,
+) {
     val listState = rememberLazyListState()
+    val rows = remember(messages) { layout(messages) }
 
     // A transcript opens on its newest message, not its oldest. Re-run when
     // one arrives so a sent message is visible rather than just appended.
@@ -115,96 +228,233 @@ private fun Transcript(messages: List<Message>) {
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize().testTag(A11y.CHAT_TRANSCRIPT),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(Space.lg),
     ) {
-        items(messages, key = { it.id }) { message -> Bubble(message) }
-    }
-}
-
-@Composable
-private fun Bubble(message: Message) {
-    val outgoing = message.senderType.isOutgoing
-    val colors = MaterialTheme.colorScheme
-    Row(
-        modifier = Modifier.fillMaxWidth().testTag(A11y.messageRow(message.id)),
-        // Compose resolves Start and End against the layout direction, so a
-        // Persian transcript mirrors with no conditional here.
-        horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start,
-    ) {
-        Text(
-            text = message.body,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (outgoing) colors.onPrimaryContainer else colors.onSurfaceVariant,
-            modifier = Modifier
-                .widthIn(max = 280.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(if (outgoing) colors.primaryContainer else colors.surfaceVariant)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-        )
-    }
-}
-
-@Composable
-private fun Composer(language: Language, onSend: (String) -> Unit) {
-    var draft by remember { mutableStateOf("") }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.Bottom,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        OutlinedTextField(
-            value = draft,
-            onValueChange = { draft = it },
-            placeholder = { Text(Str.messagePlaceholder(language)) },
-            modifier = Modifier.weight(1f).testTag(A11y.COMPOSER_FIELD),
-            maxLines = 5,
-        )
-        IconButton(
-            onClick = {
-                val text = draft.trim()
-                if (text.isNotEmpty()) {
-                    onSend(text)
-                    draft = ""
-                }
-            },
-            enabled = draft.isNotBlank(),
-            modifier = Modifier.testTag(A11y.COMPOSER_SEND),
-        ) {
-            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = Str.send(language))
+        items(rows.size, key = { rows[it].message.id }) { index ->
+            val row = rows[index]
+            row.dayHeader?.let { DayHeader(it, language) }
+            if (row.message.senderType == SenderType.SYSTEM) {
+                SystemRow(row.message, language)
+            } else {
+                Bubble(row, language, loadAttachment)
+            }
         }
     }
 }
 
-sealed interface ChatState {
-    data object Loading : ChatState
-    data class Loaded(val messages: List<Message>) : ChatState
-    data class Failed(val message: String) : ChatState
+@Composable
+private fun DayHeader(instant: Instant, language: Language) {
+    Box(
+        Modifier.fillMaxWidth().padding(vertical = Space.md),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(Space.md),
+        ) {
+            Text(
+                Format.dayHeader(instant, language),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = Space.md, vertical = Space.xs),
+            )
+        }
+    }
+}
+
+/**
+ * A state change, said in the reader's language.
+ *
+ * The stored body is always English — the server freezes it into the row at
+ * insert time — so this rebuilds the sentence from metadata and falls back to
+ * the body only when the kind is one this build has never heard of. An English
+ * sentence beats an empty row.
+ */
+@Composable
+private fun SystemRow(message: Message, language: Language) {
+    val text = SystemMessage.text(message.metadata, language) ?: message.body
+    if (text.isBlank()) return
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = Space.sm)
+            .testTag(A11y.messageRow(message.id)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.bodySmall,
+            color = WebyarTheme.colors.labelTertiary,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+@Composable
+private fun Bubble(
+    row: TranscriptRow,
+    language: Language,
+    loadAttachment: (suspend (String) -> ByteArray?)?,
+) {
+    val message = row.message
+    val outgoing = message.senderType.isOutgoing
+    val colors = WebyarTheme.colors
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = if (row.startsRun) Space.md else Space.xxs)
+            .testTag(A11y.messageRow(message.id)),
+        // Start and End resolve against the layout direction, so a Persian
+        // transcript mirrors with no conditional here.
+        horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        if (!outgoing) {
+            // Only the last of a run carries a face, and the rest reserve its
+            // width — so a run reads as one block rather than as a column of
+            // avatars.
+            Box(Modifier.size(Size.avatarSmall)) {
+                if (row.endsRun) {
+                    Avatar(
+                        name = message.senderName.orEmpty(),
+                        imageUrl = message.senderAvatar,
+                        size = Size.avatarSmall,
+                    )
+                }
+            }
+        }
+
+        Column(
+            Modifier
+                .padding(horizontal = Space.sm)
+                .widthIn(max = 300.dp),
+            horizontalAlignment = if (outgoing) Alignment.End else Alignment.Start,
+        ) {
+            val shape = ChatBubbleShape(
+                hasBeak = row.endsRun,
+                // Physical, not reading-order: the operator sits on the right
+                // of the transcript in every language.
+                pointsRight = outgoing,
+            )
+            Surface(
+                color = if (outgoing) colors.bubbleOutgoing else colors.bubbleIncoming,
+                contentColor = if (outgoing) colors.onBubbleOutgoing else colors.onBubbleIncoming,
+                shape = shape,
+            ) {
+                Column(Modifier.padding(horizontal = Space.md, vertical = Space.sm)) {
+                    message.attachments?.forEach { Attachment(it, language, loadAttachment) }
+                    if (message.body.isNotBlank()) {
+                        Text(message.body, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+            if (row.endsRun) {
+                Text(
+                    Format.bubbleTime(message.createdAt, language),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.labelTertiary,
+                    modifier = Modifier.padding(top = Space.xxs, start = Space.xs, end = Space.xs),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * What a message carries besides its words.
+ *
+ * A picture is shown; everything else is a card with a name and a size on it,
+ * because a phone cannot usefully preview a spreadsheet and a card that says
+ * what the thing is beats a generic paperclip.
+ */
+@Composable
+private fun Attachment(
+    attachment: MessageAttachment,
+    language: Language,
+    loadAttachment: (suspend (String) -> ByteArray?)?,
+) {
+    if (attachment.resolvedKind != MessageAttachment.Kind.IMAGE || loadAttachment == null) {
+        FileCard(attachment, language)
+        return
+    }
+
+    var bytes by remember(attachment.id) { mutableStateOf<ByteArray?>(null) }
+    var failed by remember(attachment.id) { mutableStateOf(false) }
+    LaunchedEffect(attachment.id) {
+        val loaded = runCatching { loadAttachment(attachment.id) }.getOrNull()
+        if (loaded == null) failed = true else bytes = loaded
+    }
+
+    when {
+        failed -> FileCard(attachment, language)
+        bytes == null -> FileCard(attachment, language)
+        else -> AsyncImage(
+            model = bytes,
+            contentDescription = attachment.displayName,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .widthIn(max = 260.dp)
+                .padding(bottom = Space.xs)
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(Space.md)),
+        )
+    }
+}
+
+@Composable
+private fun FileCard(attachment: MessageAttachment, language: Language) {
+    Row(
+        Modifier.padding(vertical = Space.xs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.AutoMirrored.Filled.InsertDriveFile,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+        )
+        Column(Modifier.padding(start = Space.sm)) {
+            Text(
+                attachment.displayName ?: Str.attachFile(language),
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            attachment.sizeBytes?.let {
+                Text(
+                    Format.fileSize(it.toLong(), language),
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ChatTopBar(language: Language, onBack: () -> Unit) {
+private fun ChatTopBar(
+    language: Language,
+    title: String?,
+    onBack: () -> Unit,
+    actions: (@Composable () -> Unit)?,
+) {
     TopAppBar(
-        title = {},
+        title = {
+            if (title != null) {
+                Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        },
         navigationIcon = {
             IconButton(onClick = onBack) {
                 Icon(
                     // AutoMirrored: a back arrow points the way you came, and
                     // in Persian that is the other way. This is the one family
-                    // of icons that MUST mirror, as against the bubble beak
-                    // and the flag badge, which must not.
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    // of icons that MUST mirror, as against the bubble beak,
+                    // which must not.
+                    Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = StrAndroid.back(language),
                 )
             }
         },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = androidx.compose.ui.graphics.Color.Transparent,
-        ),
+        actions = { actions?.invoke() },
     )
 }

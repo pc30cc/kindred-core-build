@@ -99,6 +99,7 @@ fun AppShell(
                     ChatRoute(
                         conversationId = entry.arguments?.getString("conversationId").orEmpty(),
                         appState = appState,
+                        api = api,
                         conversations = conversations,
                         language = language,
                         onBack = { navController.popBackStack() },

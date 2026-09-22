@@ -18,6 +18,9 @@ import com.webyar.operator.i18n.Language
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,6 +34,23 @@ import com.webyar.operator.feature.settings.AccountViewModel
 import com.webyar.operator.feature.settings.ProfileScreen
 import com.webyar.operator.feature.settings.SecurityScreen
 import com.webyar.operator.i18n.StrAndroid
+import androidx.compose.material3.Snackbar
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.webyar.operator.core.model.CallChannels
+import com.webyar.operator.core.model.CannedText
+import com.webyar.operator.feature.chat.CannedResponsePicker
+import com.webyar.operator.feature.chat.ChatSheet
+import com.webyar.operator.feature.chat.ChatViewModel
+import com.webyar.operator.feature.chat.ComposerCapabilities
+import com.webyar.operator.feature.chat.ConversationMenu
+import com.webyar.operator.feature.chat.NotesSheet
+import com.webyar.operator.feature.chat.PrioritySheet
+import com.webyar.operator.feature.chat.StatusSheet
+import com.webyar.operator.feature.chat.TagsSheet
+import com.webyar.operator.feature.chat.TransferSheet
+import com.webyar.operator.ui.design.Space
 import com.webyar.operator.i18n.Str
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -73,10 +93,7 @@ fun InboxRoute(
     InboxScreen(
         state = inbox,
         language = language,
-        onOpen = { conversation ->
-            conversations.openConversation(conversation)
-            onOpenConversation(conversation.id)
-        },
+        onOpen = { onOpenConversation(it.id) },
         modifier = Modifier.statusBarsPadding(),
         contentPadding = PaddingValues(bottom = bottomInset),
     )
@@ -86,13 +103,24 @@ fun InboxRoute(
 fun ChatRoute(
     conversationId: String,
     appState: AppState,
+    api: WebyarApi,
     conversations: ConversationViewModel,
     language: Language,
     onBack: () -> Unit,
 ) {
+    val chatModel: ChatViewModel =
+        viewModel(factory = viewModelFactory { ChatViewModel(api) { language } })
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
-    val chat by conversations.chat.collectAsStateWithLifecycle()
+    val plan by appState.entitlements.collectAsStateWithLifecycle()
     val inbox by conversations.inbox.collectAsStateWithLifecycle()
+    val chat by chatModel.chat.collectAsStateWithLifecycle()
+    val draft by chatModel.draft.collectAsStateWithLifecycle()
+    val sending by chatModel.sending.collectAsStateWithLifecycle()
+    val shortcuts by chatModel.shortcuts.collectAsStateWithLifecycle()
+    val notes by chatModel.notes.collectAsStateWithLifecycle()
+    val members by chatModel.members.collectAsStateWithLifecycle()
+    val voice by chatModel.sayNowVoice.collectAsStateWithLifecycle()
+    val notice by chatModel.notice.collectAsStateWithLifecycle()
 
     // The route carries an id, not an object — which is right, because a route
     // has to survive process death and an object does not. The conversation is
@@ -102,20 +130,146 @@ fun ChatRoute(
         ?.conversations
         ?.firstOrNull { it.id == conversationId }
 
-    LaunchedEffect(conversationId, conversation?.id) {
-        conversation?.let { conversations.openConversation(it) }
+    LaunchedEffect(conversationId, conversation?.id, workspace?.id) {
+        val open = conversation ?: return@LaunchedEffect
+        val ws = workspace?.id ?: return@LaunchedEffect
+        chatModel.open(open, ws)
     }
+
+    val capabilities = remember(conversation, plan) {
+        ComposerCapabilities.resolve(conversation, plan.value)
+    }
+    val callChannels = remember(plan) { CallChannels.resolve(plan.value) }
+    val aiManaged = capabilities.isAiManaged
+
+    var sheet by remember { mutableStateOf<ChatSheet?>(null) }
+    var showShortcuts by remember { mutableStateOf(false) }
+
+    // Reading the bytes stays here rather than in the view model: a Uri is a
+    // permission grant to one Activity, and a model that outlives the screen
+    // would be holding a handle it is no longer allowed to open.
+    val context = LocalContext.current
+    val send: (android.net.Uri) -> Unit = { uri ->
+        val resolver = context.contentResolver
+        val bytes = runCatching { resolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+        if (bytes != null) {
+            chatModel.sendAttachment(
+                bytes = bytes,
+                fileName = uri.lastPathSegment?.substringAfterLast('/') ?: "file",
+                mimeType = resolver.getType(uri) ?: "application/octet-stream",
+            )
+        }
+    }
+    val photoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri -> uri?.let(send) }
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let(send) }
 
     ChatScreen(
         state = chat,
         language = language,
-        onSend = { body ->
-            val current = conversation ?: return@ChatScreen
-            workspace?.let { conversations.send(current, body, it.id) }
-        },
+        onSend = { if (aiManaged) chatModel.sayNow() else chatModel.send() },
         modifier = Modifier.statusBarsPadding(),
         onBack = onBack,
+        conversation = conversation,
+        draft = draft,
+        onDraftChange = chatModel::setDraft,
+        sending = sending,
+        capabilities = capabilities,
+        canUseShortcuts = plan.value?.featureEnabled("canned_responses") == true,
+        sayNowVoice = if (aiManaged) voice else null,
+        onSayNowVoiceChange = chatModel::setSayNowVoice,
+        onAttachPhoto = {
+            photoPicker.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+            )
+        },
+        onAttachFile = { filePicker.launch(arrayOf("*/*")) },
+        onOpenShortcuts = {
+            showShortcuts = true
+            chatModel.loadShortcuts()
+        },
+        onStartRecording = { /* the recorder arrives with the next step */ },
+        loadAttachment = { id -> runCatching { api.attachmentData(id) }.getOrNull() },
+        header = {
+            ConversationMenu(
+                language = language,
+                conversation = conversation,
+                callChannels = callChannels,
+                onOpenSheet = { wanted ->
+                    if (wanted == ChatSheet.TRANSFER) chatModel.loadMembers()
+                    sheet = wanted
+                },
+                onTakeOver = chatModel::takeOver,
+                onVoiceCall = { /* calls arrive with their own step */ },
+                onVideoCall = { },
+            )
+        },
     )
+
+    when (sheet) {
+        ChatSheet.STATUS -> StatusSheet(
+            language, conversation?.status, chatModel::setStatus,
+        ) { sheet = null }
+
+        ChatSheet.PRIORITY -> PrioritySheet(
+            language, conversation?.priority, chatModel::setPriority,
+        ) { sheet = null }
+
+        ChatSheet.TRANSFER -> TransferSheet(
+            language, members, conversation?.assignedTo, chatModel::assign,
+        ) { sheet = null }
+
+        ChatSheet.TAGS -> TagsSheet(
+            language, conversation?.tags.orEmpty(), chatModel::setTags,
+        ) { sheet = null }
+
+        ChatSheet.NOTES -> NotesSheet(
+            language, notes, chatModel::addNote, chatModel::deleteNote,
+        ) { sheet = null }
+
+        null -> Unit
+    }
+
+    if (showShortcuts) {
+        CannedResponsePicker(
+            language = language,
+            state = shortcuts,
+            onQueryChange = chatModel::loadShortcuts,
+            onPick = { reply ->
+                chatModel.insertShortcut(
+                    reply,
+                    CannedText.Context(
+                        contactName = conversation?.contact?.name,
+                        contactEmail = conversation?.contact?.email,
+                        workspaceName = workspace?.name,
+                        agentName = (appState.session.value as? Session.SignedIn)?.user?.fullName,
+                        agentEmail = (appState.session.value as? Session.SignedIn)?.user?.email,
+                    ),
+                )
+                showShortcuts = false
+            },
+            onDismiss = { showShortcuts = false },
+        )
+    }
+
+    notice?.let { message ->
+        LaunchedEffect(message) {
+            // Shown once. A notice that stays on screen after the operator has
+            // seen it becomes part of the furniture, and the next one does not
+            // register as new.
+            kotlinx.coroutines.delay(3_500)
+            chatModel.dismissNotice()
+        }
+        // The NavHost's slot stacks its children, so this floats over the
+        // transcript — but it has to be told to sit at the bottom, or it
+        // lands over the conversation's own title.
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+            Snackbar(Modifier.padding(Space.lg)) { Text(message) }
+        }
+    }
 }
 
 /**

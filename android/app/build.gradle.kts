@@ -91,6 +91,21 @@ android {
     }
 
     /**
+     * The minified build is a RELEASE build, so it gets the release sources.
+     *
+     * Which matters for exactly one file: `Backend`. There are two of them,
+     * one per source set, and the release one cannot name `SampleApi` because
+     * `SampleApi` is not on its classpath — that is what makes the sample
+     * backend impossible to reach in a shipped app rather than merely
+     * switched off in one. A minified build with the debug `Backend` would be
+     * testing the wrong app; a minified build with neither does not compile,
+     * which is how this was found.
+     */
+    sourceSets.getByName("minified") {
+        kotlin.srcDir("src/release/kotlin")
+    }
+
+    /**
      * One APK per architecture for anyone installing a file directly.
      *
      * The bundle Play serves already sends a phone only its own ABI, so this

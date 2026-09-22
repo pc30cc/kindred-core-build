@@ -147,6 +147,9 @@ class NotificationsViewModel(
             attempted: NotificationPrefs,
         ): NotificationPrefs = current.copy(
             disableAll = pick(current.disableAll, before.disableAll, attempted.disableAll),
+            pushScope = pick(current.pushScope, before.pushScope, attempted.pushScope),
+            pushPreview = pick(current.pushPreview, before.pushPreview, attempted.pushPreview),
+            pushInternalNotes = pick(current.pushInternalNotes, before.pushInternalNotes, attempted.pushInternalNotes),
             pushWhenOnline = pick(current.pushWhenOnline, before.pushWhenOnline, attempted.pushWhenOnline),
             pushWhenOffline = pick(current.pushWhenOffline, before.pushWhenOffline, attempted.pushWhenOffline),
             pushVisitorBrowsing = pick(current.pushVisitorBrowsing, before.pushVisitorBrowsing, attempted.pushVisitorBrowsing),

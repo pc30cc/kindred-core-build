@@ -6,56 +6,107 @@ import kotlinx.serialization.Serializable
 /**
  * How an operator wants to be told that something happened.
  *
- * One row per user, and the server fills in its own defaults for anything
- * missing (`DEFAULTS` in `server/routes/notifications.ts`), so a new account
- * with no row reads exactly like a saved one. Every field here is therefore
- * non-null with the server's own default behind it: a missing key means "the
- * server did not send it", not "off".
+ * **Every field is nullable, and null means "this server did not send it"** —
+ * not "off". That is not defensive style, it is the shape of the problem: the
+ * deployed API answers with `push_scope`, `push_preview` and
+ * `push_internal_notes` and no `email_*` at all, while the copy of
+ * `server/routes/notifications.ts` in this repository answers with six
+ * `email_*` keys, no scope and no preview. One of them is ahead; both are
+ * real. A screen that hard-coded either set would show an operator switches
+ * their own server has never heard of.
+ *
+ * So the screen draws a row only where the server sent the key, and a PATCH
+ * carries only the key that moved. A field this build has never heard of is
+ * left alone rather than blanked.
  */
 @Serializable
 data class NotificationPrefs(
     /** The master switch. On means everything below is silenced. */
-    @SerialName("disable_all") val disableAll: Boolean = false,
+    @SerialName("disable_all") val disableAll: Boolean? = null,
 
-    @SerialName("push_when_online") val pushWhenOnline: Boolean = true,
-    @SerialName("push_when_offline") val pushWhenOffline: Boolean = true,
-    @SerialName("push_visitor_browsing") val pushVisitorBrowsing: Boolean = false,
-    @SerialName("play_sound") val playSound: Boolean = true,
+    /**
+     * Which threads are worth a notification: `all`, `assigned`, `mentions`
+     * or `none` — see `pickRecipients` in
+     * `server/services/push/recipients.ts`, which is the only place the four
+     * actually mean anything.
+     */
+    @SerialName("push_scope") val pushScope: String? = null,
+    /** Whether the notification may carry the message text itself. */
+    @SerialName("push_preview") val pushPreview: Boolean? = null,
+    /** Whether a colleague's internal note is worth waking someone for. */
+    @SerialName("push_internal_notes") val pushInternalNotes: Boolean? = null,
 
-    @SerialName("email_unread_messages") val emailUnreadMessages: Boolean = true,
-    @SerialName("email_transcripts") val emailTranscripts: Boolean = false,
-    @SerialName("email_user_ratings") val emailUserRatings: Boolean = true,
-    @SerialName("email_paid_invoices") val emailPaidInvoices: Boolean = true,
-    @SerialName("email_weekly_summary") val emailWeeklySummary: Boolean = false,
-    @SerialName("email_product_updates") val emailProductUpdates: Boolean = false,
+    @SerialName("push_when_online") val pushWhenOnline: Boolean? = null,
+    @SerialName("push_when_offline") val pushWhenOffline: Boolean? = null,
+    @SerialName("push_visitor_browsing") val pushVisitorBrowsing: Boolean? = null,
+    @SerialName("play_sound") val playSound: Boolean? = null,
 
-    @SerialName("quiet_hours_enabled") val quietHoursEnabled: Boolean = false,
-    /** `HH:mm`, 24-hour, or null when never set. The server enforces the shape. */
+    @SerialName("email_unread_messages") val emailUnreadMessages: Boolean? = null,
+    @SerialName("email_transcripts") val emailTranscripts: Boolean? = null,
+    @SerialName("email_user_ratings") val emailUserRatings: Boolean? = null,
+    @SerialName("email_paid_invoices") val emailPaidInvoices: Boolean? = null,
+    @SerialName("email_weekly_summary") val emailWeeklySummary: Boolean? = null,
+    @SerialName("email_product_updates") val emailProductUpdates: Boolean? = null,
+
+    @SerialName("quiet_hours_enabled") val quietHoursEnabled: Boolean? = null,
+    /** `HH:mm`, 24-hour, or null. The server enforces the shape. */
     @SerialName("quiet_hours_start") val quietHoursStart: String? = null,
     @SerialName("quiet_hours_end") val quietHoursEnd: String? = null,
     @SerialName("quiet_hours_timezone") val quietHoursTimezone: String? = null,
-)
+) {
+    /** The four values [pushScope] can carry, and what each one means. */
+    enum class Scope(val wire: String) {
+        /** Every new message in the workspace. */
+        ALL("all"),
 
+        /** Threads assigned to this operator, plus anything unassigned. */
+        ASSIGNED("assigned"),
+
+        /** Only where this operator was named. */
+        MENTIONS("mentions"),
+
+        /** Nothing. Distinct from [disableAll], which also silences email. */
+        NONE("none"),
+        ;
+
+        companion object {
+            fun of(wire: String?): Scope? = entries.firstOrNull { it.wire == wire }
+        }
+    }
+
+    val scope: Scope? get() = Scope.of(pushScope)
+}
+
+/**
+ * The server's answer.
+ *
+ * `platform` is the server saying which set of defaults it applied. It is
+ * carried rather than ignored because it is the one field that explains why
+ * two clients can see two different screens.
+ */
 @Serializable
-data class NotificationPrefsResponse(val prefs: NotificationPrefs)
+data class NotificationPrefsResponse(
+    val prefs: NotificationPrefs,
+    val platform: String? = null,
+)
 
 /**
  * A change to one preference.
  *
- * The server's PATCH takes a partial object and every field is optional, so
- * this is built one key at a time rather than by sending the whole row back:
- * two phones editing different switches then do not overwrite each other, and
- * a field this app does not know about is never blanked.
+ * Built one key at a time rather than by sending the whole row back: the
+ * server reads a missing key as "leave alone", so two phones editing
+ * different switches do not overwrite each other, and a key this build does
+ * not know about is never blanked.
  *
- * `encodeDefaults = false` is kotlinx's default, which is exactly what makes
- * that work — a null here is omitted from the JSON entirely, so a field left
- * alone is never sent. Turning quiet hours off therefore leaves the two times
- * where they were, and turning them back on restores the window the operator
- * had chosen rather than an empty one.
+ * `encodeDefaults = false` is kotlinx's default, which is what makes that
+ * work — a null here is left out of the JSON entirely.
  */
 @Serializable
 data class NotificationPrefsUpdate(
     @SerialName("disable_all") val disableAll: Boolean? = null,
+    @SerialName("push_scope") val pushScope: String? = null,
+    @SerialName("push_preview") val pushPreview: Boolean? = null,
+    @SerialName("push_internal_notes") val pushInternalNotes: Boolean? = null,
     @SerialName("push_when_online") val pushWhenOnline: Boolean? = null,
     @SerialName("push_when_offline") val pushWhenOffline: Boolean? = null,
     @SerialName("push_visitor_browsing") val pushVisitorBrowsing: Boolean? = null,

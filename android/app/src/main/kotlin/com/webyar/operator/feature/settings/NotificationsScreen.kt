@@ -11,7 +11,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -85,7 +88,7 @@ fun NotificationsScreen(
     // Everything below the master switch is dead while it is on. Shown
     // rather than hidden: an operator who turned everything off should be
     // able to see what they turned off.
-    val live = !prefs.disableAll
+    val live = prefs.disableAll != true
 
     LazyColumn(
         modifier
@@ -111,191 +114,368 @@ fun NotificationsScreen(
             )
         }
 
-        item {
-            SwitchRow(
-                title = Str.notificationsDisableAll(language),
-                hint = Str.notificationsDisableAllHelp(language),
-                checked = prefs.disableAll,
-                tag = A11y.NOTIFICATIONS_DISABLE_ALL,
-                onChange = { on ->
-                    onSet({ it.copy(disableAll = on) }, NotificationPrefsUpdate(disableAll = on))
-                },
-            )
-        }
-
-        item { GroupHeader(Str.notificationsPushTitle(language), Str.notificationsPushHint(language)) }
-        item {
-            SwitchRow(
-                title = Str.notificationsNotifyOnline(language),
-                checked = prefs.pushWhenOnline,
-                enabled = live,
-                onChange = { on ->
-                    onSet({ it.copy(pushWhenOnline = on) }, NotificationPrefsUpdate(pushWhenOnline = on))
-                },
-            )
-        }
-        item {
-            SwitchRow(
-                title = Str.notificationsNotifyOffline(language),
-                checked = prefs.pushWhenOffline,
-                enabled = live,
-                onChange = { on ->
-                    onSet({ it.copy(pushWhenOffline = on) }, NotificationPrefsUpdate(pushWhenOffline = on))
-                },
-            )
-        }
-        item {
-            SwitchRow(
-                title = Str.notificationsNotifyVisitorBrowsing(language),
-                checked = prefs.pushVisitorBrowsing,
-                enabled = live,
-                onChange = { on ->
-                    onSet(
-                        { it.copy(pushVisitorBrowsing = on) },
-                        NotificationPrefsUpdate(pushVisitorBrowsing = on),
-                    )
-                },
-            )
-        }
-        item {
-            SwitchRow(
-                title = Str.notificationsPlaySound(language),
-                checked = prefs.playSound,
-                enabled = live,
-                onChange = { on ->
-                    onSet({ it.copy(playSound = on) }, NotificationPrefsUpdate(playSound = on))
-                },
-            )
-        }
-
-        item { GroupHeader(Str.notificationsEmailTitle(language), Str.notificationsEmailHint(language)) }
-        item {
-            SwitchRow(
-                title = Str.notificationsEmailUnread(language),
-                checked = prefs.emailUnreadMessages,
-                enabled = live,
-                onChange = { on ->
-                    onSet(
-                        { it.copy(emailUnreadMessages = on) },
-                        NotificationPrefsUpdate(emailUnreadMessages = on),
-                    )
-                },
-            )
-        }
-        item {
-            SwitchRow(
-                title = Str.notificationsEmailTranscripts(language),
-                checked = prefs.emailTranscripts,
-                enabled = live,
-                onChange = { on ->
-                    onSet(
-                        { it.copy(emailTranscripts = on) },
-                        NotificationPrefsUpdate(emailTranscripts = on),
-                    )
-                },
-            )
-        }
-        item {
-            SwitchRow(
-                title = Str.notificationsEmailRatings(language),
-                checked = prefs.emailUserRatings,
-                enabled = live,
-                onChange = { on ->
-                    onSet(
-                        { it.copy(emailUserRatings = on) },
-                        NotificationPrefsUpdate(emailUserRatings = on),
-                    )
-                },
-            )
-        }
-        item {
-            SwitchRow(
-                title = Str.notificationsEmailInvoices(language),
-                checked = prefs.emailPaidInvoices,
-                enabled = live,
-                onChange = { on ->
-                    onSet(
-                        { it.copy(emailPaidInvoices = on) },
-                        NotificationPrefsUpdate(emailPaidInvoices = on),
-                    )
-                },
-            )
-        }
-        item {
-            SwitchRow(
-                title = Str.notificationsEmailWeekly(language),
-                checked = prefs.emailWeeklySummary,
-                enabled = live,
-                onChange = { on ->
-                    onSet(
-                        { it.copy(emailWeeklySummary = on) },
-                        NotificationPrefsUpdate(emailWeeklySummary = on),
-                    )
-                },
-            )
-        }
-        item {
-            SwitchRow(
-                title = Str.notificationsEmailProduct(language),
-                checked = prefs.emailProductUpdates,
-                enabled = live,
-                onChange = { on ->
-                    onSet(
-                        { it.copy(emailProductUpdates = on) },
-                        NotificationPrefsUpdate(emailProductUpdates = on),
-                    )
-                },
-            )
-        }
-
-        item { GroupHeader(Str.notificationsQuietTitle(language), Str.notificationsQuietHint(language)) }
-        item {
-            SwitchRow(
-                title = Str.notificationsQuietEnable(language),
-                checked = prefs.quietHoursEnabled,
-                enabled = live,
-                tag = A11y.NOTIFICATIONS_QUIET_HOURS,
-                onChange = { on ->
-                    onSet(
-                        { it.copy(quietHoursEnabled = on) },
-                        NotificationPrefsUpdate(
-                            quietHoursEnabled = on,
-                            // The window has to exist for the flag to mean
-                            // anything, and the phone's own zone is the only
-                            // one the operator has told us about.
-                            quietHoursStart = prefs.quietHoursStart ?: DEFAULT_QUIET_START,
-                            quietHoursEnd = prefs.quietHoursEnd ?: DEFAULT_QUIET_END,
-                            quietHoursTimezone = prefs.quietHoursTimezone
-                                ?: TimeZone.getDefault().id,
-                        ),
-                    )
-                },
-            )
-        }
-        if (prefs.quietHoursEnabled) {
+        prefs.disableAll?.let { disabled ->
             item {
-                QuietWindow(
-                    language = language,
-                    start = prefs.quietHoursStart ?: DEFAULT_QUIET_START,
-                    end = prefs.quietHoursEnd ?: DEFAULT_QUIET_END,
-                    enabled = live,
-                    onStart = { value ->
-                        onSet(
-                            { it.copy(quietHoursStart = value) },
-                            NotificationPrefsUpdate(quietHoursStart = value),
-                        )
+                SwitchRow(
+                    title = Str.notificationsDisableAll(language),
+                    hint = Str.notificationsDisableAllHelp(language),
+                    checked = disabled,
+                    tag = A11y.NOTIFICATIONS_DISABLE_ALL,
+                    onChange = { on ->
+                        onSet({ it.copy(disableAll = on) }, NotificationPrefsUpdate(disableAll = on))
                     },
-                    onEnd = { value ->
+                )
+            }
+        }
+
+        // MARK: - Push
+        //
+        // The group header is drawn only when the group has something in it.
+        // Which keys that is depends on the server: see [NotificationPrefs].
+        val push = listOfNotNull(
+            prefs.pushScope, prefs.pushWhenOnline, prefs.pushWhenOffline,
+            prefs.pushVisitorBrowsing, prefs.pushPreview, prefs.pushInternalNotes,
+            prefs.playSound,
+        )
+        if (push.isNotEmpty()) {
+            item {
+                GroupHeader(
+                    Str.notificationsPushTitle(language),
+                    Str.notificationsPushHint(language),
+                )
+            }
+        }
+
+        prefs.scope?.let { scope ->
+            item {
+                ScopeChoice(
+                    language = language,
+                    selected = scope,
+                    enabled = live,
+                    onSelect = { chosen ->
                         onSet(
-                            { it.copy(quietHoursEnd = value) },
-                            NotificationPrefsUpdate(quietHoursEnd = value),
+                            { it.copy(pushScope = chosen.wire) },
+                            NotificationPrefsUpdate(pushScope = chosen.wire),
                         )
                     },
                 )
             }
         }
 
+        prefs.pushWhenOnline?.let { on ->
+            item {
+                SwitchRow(
+                    title = Str.notificationsNotifyOnline(language),
+                    checked = on,
+                    enabled = live,
+                    onChange = { value ->
+                        onSet(
+                            { it.copy(pushWhenOnline = value) },
+                            NotificationPrefsUpdate(pushWhenOnline = value),
+                        )
+                    },
+                )
+            }
+        }
+        prefs.pushWhenOffline?.let { on ->
+            item {
+                SwitchRow(
+                    title = Str.notificationsNotifyOffline(language),
+                    checked = on,
+                    enabled = live,
+                    onChange = { value ->
+                        onSet(
+                            { it.copy(pushWhenOffline = value) },
+                            NotificationPrefsUpdate(pushWhenOffline = value),
+                        )
+                    },
+                )
+            }
+        }
+        prefs.pushVisitorBrowsing?.let { on ->
+            item {
+                SwitchRow(
+                    title = Str.notificationsNotifyVisitorBrowsing(language),
+                    checked = on,
+                    enabled = live,
+                    onChange = { value ->
+                        onSet(
+                            { it.copy(pushVisitorBrowsing = value) },
+                            NotificationPrefsUpdate(pushVisitorBrowsing = value),
+                        )
+                    },
+                )
+            }
+        }
+        prefs.pushInternalNotes?.let { on ->
+            item {
+                SwitchRow(
+                    title = Str.notificationsInternalNotes(language),
+                    checked = on,
+                    enabled = live,
+                    onChange = { value ->
+                        onSet(
+                            { it.copy(pushInternalNotes = value) },
+                            NotificationPrefsUpdate(pushInternalNotes = value),
+                        )
+                    },
+                )
+            }
+        }
+        prefs.pushPreview?.let { on ->
+            item {
+                SwitchRow(
+                    title = Str.notificationsPreview(language),
+                    hint = Str.notificationsPreviewHint(language),
+                    checked = on,
+                    enabled = live,
+                    tag = A11y.NOTIFICATIONS_PREVIEW,
+                    onChange = { value ->
+                        onSet(
+                            { it.copy(pushPreview = value) },
+                            NotificationPrefsUpdate(pushPreview = value),
+                        )
+                    },
+                )
+            }
+        }
+        prefs.playSound?.let { on ->
+            item {
+                SwitchRow(
+                    title = Str.notificationsPlaySound(language),
+                    checked = on,
+                    enabled = live,
+                    onChange = { value ->
+                        onSet({ it.copy(playSound = value) }, NotificationPrefsUpdate(playSound = value))
+                    },
+                )
+            }
+        }
+
+        // MARK: - Email
+        val email = listOfNotNull(
+            prefs.emailUnreadMessages, prefs.emailTranscripts, prefs.emailUserRatings,
+            prefs.emailPaidInvoices, prefs.emailWeeklySummary, prefs.emailProductUpdates,
+        )
+        if (email.isNotEmpty()) {
+            item {
+                GroupHeader(
+                    Str.notificationsEmailTitle(language),
+                    Str.notificationsEmailHint(language),
+                )
+            }
+        }
+        prefs.emailUnreadMessages?.let { on ->
+            item {
+                SwitchRow(
+                    title = Str.notificationsEmailUnread(language),
+                    checked = on,
+                    enabled = live,
+                    onChange = { v ->
+                        onSet(
+                            { it.copy(emailUnreadMessages = v) },
+                            NotificationPrefsUpdate(emailUnreadMessages = v),
+                        )
+                    },
+                )
+            }
+        }
+        prefs.emailTranscripts?.let { on ->
+            item {
+                SwitchRow(
+                    title = Str.notificationsEmailTranscripts(language),
+                    checked = on,
+                    enabled = live,
+                    onChange = { v ->
+                        onSet(
+                            { it.copy(emailTranscripts = v) },
+                            NotificationPrefsUpdate(emailTranscripts = v),
+                        )
+                    },
+                )
+            }
+        }
+        prefs.emailUserRatings?.let { on ->
+            item {
+                SwitchRow(
+                    title = Str.notificationsEmailRatings(language),
+                    checked = on,
+                    enabled = live,
+                    onChange = { v ->
+                        onSet(
+                            { it.copy(emailUserRatings = v) },
+                            NotificationPrefsUpdate(emailUserRatings = v),
+                        )
+                    },
+                )
+            }
+        }
+        prefs.emailPaidInvoices?.let { on ->
+            item {
+                SwitchRow(
+                    title = Str.notificationsEmailInvoices(language),
+                    checked = on,
+                    enabled = live,
+                    onChange = { v ->
+                        onSet(
+                            { it.copy(emailPaidInvoices = v) },
+                            NotificationPrefsUpdate(emailPaidInvoices = v),
+                        )
+                    },
+                )
+            }
+        }
+        prefs.emailWeeklySummary?.let { on ->
+            item {
+                SwitchRow(
+                    title = Str.notificationsEmailWeekly(language),
+                    checked = on,
+                    enabled = live,
+                    onChange = { v ->
+                        onSet(
+                            { it.copy(emailWeeklySummary = v) },
+                            NotificationPrefsUpdate(emailWeeklySummary = v),
+                        )
+                    },
+                )
+            }
+        }
+        prefs.emailProductUpdates?.let { on ->
+            item {
+                SwitchRow(
+                    title = Str.notificationsEmailProduct(language),
+                    checked = on,
+                    enabled = live,
+                    onChange = { v ->
+                        onSet(
+                            { it.copy(emailProductUpdates = v) },
+                            NotificationPrefsUpdate(emailProductUpdates = v),
+                        )
+                    },
+                )
+            }
+        }
+
+        // MARK: - Quiet hours
+        prefs.quietHoursEnabled?.let { quiet ->
+            item {
+                GroupHeader(
+                    Str.notificationsQuietTitle(language),
+                    Str.notificationsQuietHint(language),
+                )
+            }
+            item {
+                SwitchRow(
+                    title = Str.notificationsQuietEnable(language),
+                    checked = quiet,
+                    enabled = live,
+                    tag = A11y.NOTIFICATIONS_QUIET_HOURS,
+                    onChange = { on ->
+                        onSet(
+                            { it.copy(quietHoursEnabled = on) },
+                            NotificationPrefsUpdate(
+                                quietHoursEnabled = on,
+                                // The window has to exist for the flag to mean
+                                // anything, and the phone's own zone is the only
+                                // one the operator has told us about.
+                                quietHoursStart = prefs.quietHoursStart ?: DEFAULT_QUIET_START,
+                                quietHoursEnd = prefs.quietHoursEnd ?: DEFAULT_QUIET_END,
+                                quietHoursTimezone = prefs.quietHoursTimezone
+                                    ?: TimeZone.getDefault().id,
+                            ),
+                        )
+                    },
+                )
+            }
+            if (quiet) {
+                item {
+                    QuietWindow(
+                        language = language,
+                        start = prefs.quietHoursStart ?: DEFAULT_QUIET_START,
+                        end = prefs.quietHoursEnd ?: DEFAULT_QUIET_END,
+                        enabled = live,
+                        onStart = { value ->
+                            onSet(
+                                { it.copy(quietHoursStart = value) },
+                                NotificationPrefsUpdate(quietHoursStart = value),
+                            )
+                        },
+                        onEnd = { value ->
+                            onSet(
+                                { it.copy(quietHoursEnd = value) },
+                                NotificationPrefsUpdate(quietHoursEnd = value),
+                            )
+                        },
+                    )
+                }
+            }
+        }
+
         item { StatusFooter(language, state) }
+    }
+}
+
+/**
+ * Which conversations are worth a notification.
+ *
+ * A choice, not a switch, so it is drawn as one — four rows with a tick, the
+ * same shape the language and appearance pickers use two screens away.
+ */
+@Composable
+private fun ScopeChoice(
+    language: Language,
+    selected: NotificationPrefs.Scope,
+    enabled: Boolean,
+    onSelect: (NotificationPrefs.Scope) -> Unit,
+) {
+    Column {
+        Text(
+            Str.notificationsScopeTitle(language),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(
+                start = Space.screenInset,
+                end = Space.screenInset,
+                top = Space.sm,
+            ),
+        )
+        NotificationPrefs.Scope.entries.forEach { option ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = Size.rowMinHeight)
+                    .clickable(enabled = enabled) { onSelect(option) }
+                    .padding(horizontal = Space.screenInset, vertical = Space.sm)
+                    .testTag(A11y.notificationsScope(option.wire)),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    when (option) {
+                        NotificationPrefs.Scope.ALL -> Str.notificationsScopeAll(language)
+                        NotificationPrefs.Scope.ASSIGNED -> Str.notificationsScopeAssigned(language)
+                        NotificationPrefs.Scope.MENTIONS -> Str.notificationsScopeMentions(language)
+                        NotificationPrefs.Scope.NONE -> Str.notificationsScopeNone(language)
+                    },
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (enabled) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+                if (option == selected) {
+                    Icon(
+                        Icons.Filled.Check,
+                        // The row already carries the Selected trait, so a
+                        // second spoken "selected" here would be a repeat.
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+            RowDivider()
+        }
     }
 }
 

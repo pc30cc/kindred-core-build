@@ -415,10 +415,21 @@ class SampleApi : WebyarApi {
     override suspend fun changePassword(current: String, new: String) {}
 
     /**
-     * Held in memory, so the switches behave the way they will against a real
-     * server: a toggle sticks, and the answer comes back as the whole row.
+     * Held in memory, and shaped like the DEPLOYED server rather than like
+     * `server/routes/notifications.ts` in this repository — the two differ,
+     * and the one the app actually meets is the one worth rehearsing
+     * against. See [NotificationPrefs].
      */
-    private var prefs = NotificationPrefs()
+    private var prefs = NotificationPrefs(
+        disableAll = false,
+        pushScope = "all",
+        pushPreview = true,
+        pushInternalNotes = true,
+        pushWhenOnline = true,
+        pushWhenOffline = true,
+        playSound = true,
+        quietHoursEnabled = false,
+    )
 
     override suspend fun notificationPrefs(): NotificationPrefs = prefs
 
@@ -427,6 +438,9 @@ class SampleApi : WebyarApi {
     ): NotificationPrefs {
         prefs = prefs.copy(
             disableAll = update.disableAll ?: prefs.disableAll,
+            pushScope = update.pushScope ?: prefs.pushScope,
+            pushPreview = update.pushPreview ?: prefs.pushPreview,
+            pushInternalNotes = update.pushInternalNotes ?: prefs.pushInternalNotes,
             pushWhenOnline = update.pushWhenOnline ?: prefs.pushWhenOnline,
             pushWhenOffline = update.pushWhenOffline ?: prefs.pushWhenOffline,
             pushVisitorBrowsing = update.pushVisitorBrowsing ?: prefs.pushVisitorBrowsing,

@@ -1278,6 +1278,63 @@ object Str {
         Language.TR -> "Ürün güncellemeleri ve duyurularını e-postayla gönder"
     }
 
+    /**
+     * The scope picker, and the two switches beside it.
+     *
+     * Written here rather than lifted from the console, because the console
+     * in this repository does not have them: the deployed API answers with
+     * `push_scope`, `push_preview` and `push_internal_notes` and the console
+     * still asks for the six `email_*` keys. The wording follows what
+     * `pickRecipients` actually does with each value.
+     */
+    fun notificationsScopeTitle(l: Language): String = when (l) {
+        Language.EN -> "Which conversations"
+        Language.FA -> "کدام گفت‌وگوها"
+        Language.TR -> "Hangi konuşmalar"
+    }
+
+    fun notificationsScopeAll(l: Language): String = when (l) {
+        Language.EN -> "Every conversation"
+        Language.FA -> "همهٔ گفت‌وگوها"
+        Language.TR -> "Tüm konuşmalar"
+    }
+
+    fun notificationsScopeAssigned(l: Language): String = when (l) {
+        Language.EN -> "Assigned to me, and unassigned"
+        Language.FA -> "آنچه به من سپرده شده، و بی‌صاحب‌ها"
+        Language.TR -> "Bana atananlar ve atanmamışlar"
+    }
+
+    fun notificationsScopeMentions(l: Language): String = when (l) {
+        Language.EN -> "Only where I am mentioned"
+        Language.FA -> "فقط جایی که نام من آمده"
+        Language.TR -> "Yalnızca adımın geçtiği yerler"
+    }
+
+    fun notificationsScopeNone(l: Language): String = when (l) {
+        Language.EN -> "None"
+        Language.FA -> "هیچ‌کدام"
+        Language.TR -> "Hiçbiri"
+    }
+
+    fun notificationsPreview(l: Language): String = when (l) {
+        Language.EN -> "Show the message in the notification"
+        Language.FA -> "متن پیام را در اعلان نشان بده"
+        Language.TR -> "Mesajı bildirimde göster"
+    }
+
+    fun notificationsPreviewHint(l: Language): String = when (l) {
+        Language.EN -> "Off keeps what a customer wrote off your lock screen."
+        Language.FA -> "خاموش، نوشتهٔ مشتری را از صفحهٔ قفل دور نگه می‌دارد."
+        Language.TR -> "Kapalıyken müşterinin yazdığı kilit ekranında görünmez."
+    }
+
+    fun notificationsInternalNotes(l: Language): String = when (l) {
+        Language.EN -> "Notify me of internal notes"
+        Language.FA -> "یادداشت‌های داخلی را هم اطلاع بده"
+        Language.TR -> "Dahili notları da bildir"
+    }
+
     fun notificationsQuietTitle(l: Language): String = when (l) {
         Language.EN -> "Quiet hours"
         Language.FA -> "ساعات سکوت"

@@ -23,6 +23,21 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            // The four ABIs that exist.
+            //
+            // WebRTC and JNA between them ship native libraries for seven,
+            // including mips, mips64 and armeabi — architectures Android
+            // stopped supporting in 2019, 2019 and 2019 respectively. Nothing
+            // this app will ever be installed on can run them, and they were
+            // 51MB of the debug APK's 74.
+            //
+            // x86 and x86_64 stay because they are what every emulator is,
+            // and a developer build that cannot run on the machine it was
+            // built on is a developer build nobody tests.
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+        }
     }
 
     buildTypes {
@@ -30,6 +45,23 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+    }
+
+    /**
+     * One APK per architecture for anyone installing a file directly.
+     *
+     * The bundle Play serves already sends a phone only its own ABI, so this
+     * is for the other route: a workspace that hands its operators an APK.
+     * Without it that APK carries all four copies of WebRTC and is four times
+     * the size it needs to be on any one phone.
+     */
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            isUniversalApk = true
         }
     }
 

@@ -45,11 +45,26 @@
         android:theme="@style/Theme.Webyar"
         android:supportsRtl="true">
 
+        <!--
+          `configChanges` handles the whole set rather than letting Android
+          recreate the Activity. Compose reads the configuration through
+          `LocalConfiguration` and recomposes from it, so nothing is lost by
+          handling these — and a great deal is gained on the call screen,
+          where a recreation would tear down the video renderer and rebuild
+          it in front of the operator. Turning a phone during a call is the
+          ordinary way that happens.
+
+          `resizeableActivity` is the default at this target, but it is said
+          out loud because a tablet in split screen and a foldable opening are
+          the two cases most likely to be forgotten.
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:theme="@style/Theme.Webyar"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|uiMode|density|fontScale|layoutDirection|navigation">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

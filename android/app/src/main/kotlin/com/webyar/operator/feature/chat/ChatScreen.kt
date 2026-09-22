@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -55,6 +54,7 @@ import com.webyar.operator.i18n.SystemMessage
 import com.webyar.operator.ui.A11y
 import com.webyar.operator.ui.components.Avatar
 import com.webyar.operator.ui.components.ChatBubbleShape
+import com.webyar.operator.ui.components.Glyph
 import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
 import com.webyar.operator.ui.design.WebyarTheme
@@ -408,7 +408,7 @@ private fun FileCard(attachment: MessageAttachment, language: Language) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            Icons.AutoMirrored.Filled.InsertDriveFile,
+            Glyph.Document,
             contentDescription = null,
             modifier = Modifier.size(20.dp),
         )

@@ -12,10 +12,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Face
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -42,6 +40,7 @@ import com.webyar.operator.core.model.SayNowVoice
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
 import com.webyar.operator.ui.A11y
+import com.webyar.operator.ui.components.Glyph
 import com.webyar.operator.ui.components.SendButton
 import com.webyar.operator.ui.design.Radius
 import com.webyar.operator.ui.design.Space
@@ -166,7 +165,7 @@ fun Composer(
                 // sitting beside it: with nothing written there is nothing to
                 // send, and two controls in one slot is one control.
                 ComposerGlyph(
-                    icon = Icons.Filled.Mic,
+                    icon = Glyph.Mic,
                     label = Str.voiceNote(language),
                     tag = "composer.record",
                     onClick = onStartRecording,
@@ -199,7 +198,7 @@ private fun AttachButton(
     var open by remember { mutableStateOf(false) }
     Box {
         ComposerGlyph(
-            icon = Icons.Filled.Add,
+            icon = Glyph.Paperclip,
             label = Str.attachFile(language),
             tag = A11y.COMPOSER_ATTACH,
             onClick = { open = true },

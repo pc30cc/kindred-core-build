@@ -88,7 +88,12 @@ class InboxViewModel(
     }
 
     fun selectChannel(key: String?) {
+        if (_channel.value == key) return
         _channel.value = key
+        // The channel is a filter laid over the list already in hand, not a
+        // query — the conversations endpoint has no `channel` parameter. So
+        // this republishes rather than reloading.
+        publish()
     }
 
     fun setQuery(value: String) {

@@ -163,6 +163,9 @@ class PromoCounters(private val prefs: SharedPreferences) {
     val todayCount: Int
         get() = if (prefs.getString(DAY, null) == today()) prefs.getInt(DAY_COUNT, 0) else 0
 
+    /** ISO-8601, so it sorts and compares as a string and needs no parser. */
+    private fun today(): String = LocalDate.now(ZoneId.systemDefault()).toString()
+
     fun recordShown() {
         prefs.edit()
             .putLong(LAST_SHOWN, Instant.now().toEpochMilli())
@@ -187,8 +190,6 @@ class PromoCounters(private val prefs: SharedPreferences) {
      */
     val isSuppressed: Boolean
         get() = BuildConfig.DEBUG && System.getProperty(SUPPRESS_FLAG) == "true"
-
-    private fun today(): LocalDate = LocalDate.now(ZoneId.systemDefault())
 
     private companion object {
         const val FILE = "webyar.promotions"

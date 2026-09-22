@@ -19,6 +19,7 @@ junit = "4.13.2"
 desugar = "2.1.5"
 coil = "3.6.3"
 navigation = "2.10.1"
+livekit = "2.29.0"
 
 [libraries]
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugar" }
@@ -57,6 +58,13 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 # is what gives each tab its own back stack and its own saved state.
 # Resolved from Google Maven 2026-09-21.
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation" }
+
+# LiveKit, for the calls. The SDK only — NOT livekit-android-compose-components,
+# which pins its own Compose BOM and drags in Molecule for what amounts to one
+# AndroidView around a renderer. That view is forty lines and is written here,
+# where its lifecycle is visible.
+# Resolved from Maven Central 2026-09-22.
+livekit-android = { group = "io.livekit", name = "livekit-android", version.ref = "livekit" }
 
 # Coil rather than a hand-rolled loader: RemoteImage.swift is 236 lines of
 # cache, placeholder and cancellation, and all three are things an image

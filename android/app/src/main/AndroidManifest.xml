@@ -17,12 +17,23 @@
       asked for anything, is how an app teaches people to say no.
     -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- The call route switches the audio device and holds focus while a call
+         is up; without these the loudspeaker toggle silently does nothing on
+         some vendors' builds. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <!--
       A phone with no microphone is a tablet, and it should still be able to
       read an inbox. required="false" keeps this app installable on one.
     -->
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <!-- Not required: an operator on a tablet with no camera can still take a
+         voice call, and a required feature would hide the app from them in
+         the store entirely. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
 
     <application
         android:allowBackup="false"

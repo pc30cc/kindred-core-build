@@ -55,6 +55,13 @@ object A11y {
     const val PROMO_FULLSCREEN = "promo.fullscreen"
     const val PROMO_DISMISS = "promo.dismiss"
 
+    const val CALL_SCREEN = "call.screen"
+    const val CALL_STATUS = "call.status"
+    const val CALL_MUTE = "call.mute"
+    const val CALL_CAMERA = "call.camera"
+    const val CALL_SPEAKER = "call.speaker"
+    const val CALL_HANG_UP = "call.hangUp"
+
     fun conversationRow(id: String) = "conversation.$id"
     fun contactRow(id: String) = "contact.$id"
     fun colleagueRow(id: String) = "colleague.$id"

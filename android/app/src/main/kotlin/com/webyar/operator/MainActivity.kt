@@ -35,6 +35,7 @@ import com.webyar.operator.i18n.Language
 import com.webyar.operator.ui.AppState
 import com.webyar.operator.feature.contacts.ContactsViewModel
 import com.webyar.operator.feature.inbox.InboxViewModel
+import com.webyar.operator.feature.email.EmailInboxViewModel
 import com.webyar.operator.feature.team.ColleaguesViewModel
 import com.webyar.operator.ui.Session
 import com.webyar.operator.ui.nav.AppShell
@@ -111,6 +112,8 @@ private fun SignedInScreen(appState: AppState, api: WebyarApi, language: Languag
         viewModel(factory = factory { ContactsViewModel(api) { language } })
     val colleagues: ColleaguesViewModel =
         viewModel(factory = factory { ColleaguesViewModel(api) { language } })
+    val email: EmailInboxViewModel =
+        viewModel(factory = factory { EmailInboxViewModel(api) { language } })
 
     AppShell(
         appState = appState,
@@ -118,6 +121,7 @@ private fun SignedInScreen(appState: AppState, api: WebyarApi, language: Languag
         conversations = conversations,
         contacts = contacts,
         colleagues = colleagues,
+        email = email,
         language = language,
     )
 }

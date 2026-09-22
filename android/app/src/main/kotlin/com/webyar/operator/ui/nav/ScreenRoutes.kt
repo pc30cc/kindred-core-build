@@ -65,6 +65,21 @@ import com.webyar.operator.feature.chat.Composer
 import com.webyar.operator.ui.components.SearchState
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.TextButton
+import com.webyar.operator.feature.email.EmailInboxScreen
+import com.webyar.operator.feature.email.EmailInboxViewModel
+import com.webyar.operator.feature.email.EmailThreadScreen
+import com.webyar.operator.feature.email.EmailThreadViewModel
+import com.webyar.operator.ui.components.LatinText
+import com.webyar.operator.ui.components.PlainComposer
+import com.webyar.operator.ui.components.rowTextAlign
+import com.webyar.operator.ui.design.WebyarTheme
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.foundation.layout.Column
 import com.webyar.operator.ui.design.Space
 import android.content.pm.PackageManager
 import androidx.compose.runtime.DisposableEffect
@@ -103,6 +118,7 @@ fun InboxRoute(
     language: Language,
     onOpenConversation: (String) -> Unit,
     onOpenColleagues: () -> Unit,
+    onOpenEmail: () -> Unit,
     bottomInset: Dp,
 ) {
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
@@ -151,6 +167,8 @@ fun InboxRoute(
         // to a screen the server will refuse is worse than no row.
         onOpenColleagues = onOpenColleagues
             .takeIf { plan.value?.moduleInPlan("team_chat") == true },
+        onOpenEmail = onOpenEmail
+            .takeIf { plan.value?.moduleInPlan("email") == true },
     )
 }
 
@@ -614,9 +632,29 @@ private fun SearchableBar(
     language: Language,
     search: SearchState,
     onBack: () -> Unit,
+    /** A second, quieter line — whose mailbox this is, when we know. */
+    subtitle: String? = null,
 ) {
     TopAppBar(
-        title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        title = {
+            Column {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (!subtitle.isNullOrEmpty()) {
+                    LatinText(
+                        subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = WebyarTheme.colors.labelTertiary,
+                        maxLines = 1,
+                        align = rowTextAlign(),
+                    )
+                }
+            }
+        },
         navigationIcon = {
             IconButton(onClick = onBack) {
                 Icon(
@@ -631,6 +669,181 @@ private fun SearchableBar(
             }
         },
     )
+}
+
+@Composable
+fun EmailInboxRoute(
+    appState: AppState,
+    email: EmailInboxViewModel,
+    language: Language,
+    onOpenThread: (String) -> Unit,
+    onBack: () -> Unit,
+) {
+    val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
+    val state by email.state.collectAsStateWithLifecycle()
+    val mailbox by email.mailbox.collectAsStateWithLifecycle()
+    val notConnected by email.notConnected.collectAsStateWithLifecycle()
+    val refreshing by email.refreshing.collectAsStateWithLifecycle()
+
+    val search = rememberSearchState(resetOn = workspace?.id ?: "-")
+    LaunchedEffect(search) {
+        snapshotFlow { search.text }.collect(email::setQuery)
+    }
+    LaunchedEffect(workspace?.id) {
+        workspace?.let { email.bind(it.id) }
+    }
+
+    Scaffold(
+        topBar = {
+            SearchableBar(
+                title = Str.emailInbox(language),
+                // Two lines, the way a mail client names the mailbox it is
+                // showing: what this screen is, and whose it is.
+                subtitle = mailbox,
+                language = language,
+                search = search,
+                onBack = onBack,
+            )
+        },
+    ) { padding ->
+        EmailInboxScreen(
+            state = state,
+            language = language,
+            onOpen = {
+                email.markReadLocally(it.id)
+                onOpenThread(it.id)
+            },
+            modifier = Modifier.padding(padding),
+            mailbox = mailbox,
+            notConnected = notConnected,
+            refreshing = refreshing,
+            search = search,
+            onRefresh = email::refresh,
+            onRetry = email::retry,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EmailThreadRoute(
+    threadId: String,
+    appState: AppState,
+    api: WebyarApi,
+    email: EmailInboxViewModel,
+    language: Language,
+    onBack: () -> Unit,
+) {
+    val model: EmailThreadViewModel =
+        viewModel(factory = viewModelFactory { EmailThreadViewModel(api) { language } })
+    val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
+    val state by model.state.collectAsStateWithLifecycle()
+    val thread by model.thread.collectAsStateWithLifecycle()
+    val draft by model.draft.collectAsStateWithLifecycle()
+    val sending by model.sending.collectAsStateWithLifecycle()
+    val sendFailed by model.sendFailed.collectAsStateWithLifecycle()
+    val mailbox by email.mailbox.collectAsStateWithLifecycle()
+    var menuOpen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(workspace?.id, threadId) {
+        workspace?.let { model.open(it.id, threadId, email.thread(threadId)) }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        Str.emailInbox(language),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = StrAndroid.back(language),
+                        )
+                    }
+                },
+                actions = {
+                    Box {
+                        IconButton(
+                            onClick = { menuOpen = true },
+                            modifier = Modifier.testTag(A11y.EMAIL_MENU),
+                        ) {
+                            Icon(
+                                Icons.Filled.MoreVert,
+                                contentDescription = StrAndroid.moreOptions(language),
+                            )
+                        }
+                        DropdownMenu(menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text(Str.emailStar(language)) },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Filled.Star,
+                                        contentDescription = null,
+                                        tint = if (model.isStarred) {
+                                            WebyarTheme.colors.warning
+                                        } else {
+                                            LocalContentColor.current
+                                        },
+                                    )
+                                },
+                                onClick = { menuOpen = false; model.toggleStar() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(Str.emailMarkUnread(language)) },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Email, contentDescription = null)
+                                },
+                                onClick = {
+                                    menuOpen = false
+                                    model.markUnread()
+                                    // And back out, because the thread you
+                                    // just marked unread is one you are done
+                                    // with — staying on it would mark it read
+                                    // again the moment anything reloaded.
+                                    onBack()
+                                },
+                            )
+                        }
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        Box(Modifier.padding(padding)) {
+            EmailThreadScreen(
+                state = state,
+                thread = thread,
+                language = language,
+                onRetry = model::retry,
+            ) {
+                PlainComposer(
+                    draft = draft,
+                    onDraftChange = model::setDraft,
+                    placeholder = Str.emailReplyPlaceholder(language),
+                    sendLabel = Str.emailSend(language),
+                    sending = sending,
+                    onSend = { model.send(mailbox) },
+                )
+            }
+
+            if (sendFailed) {
+                Snackbar(
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(Space.md),
+                    action = {
+                        TextButton(onClick = model::dismissSendError) {
+                            Text(Str.cancel(language))
+                        }
+                    },
+                ) { Text(Str.emailSendFailed(language)) }
+            }
+        }
+    }
 }
 
 @Composable

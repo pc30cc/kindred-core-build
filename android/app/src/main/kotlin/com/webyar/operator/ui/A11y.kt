@@ -45,9 +45,17 @@ object A11y {
     const val COLLEAGUES_EMPTY = "colleagues.empty"
     const val TEAM_TRANSCRIPT = "team.transcript"
 
+    const val EMAIL_LIST = "email.list"
+    const val EMAIL_EMPTY = "email.empty"
+    const val EMAIL_NOT_CONNECTED = "email.notConnected"
+    const val EMAIL_THREAD = "email.thread"
+    const val EMAIL_MENU = "email.menu"
+
     fun conversationRow(id: String) = "conversation.$id"
     fun contactRow(id: String) = "contact.$id"
     fun colleagueRow(id: String) = "colleague.$id"
+    fun emailRow(id: String) = "email.$id"
+    fun emailMessage(id: String) = "email.message.$id"
     fun messageRow(id: String) = "message.$id"
     fun workspaceRow(id: String) = "settings.workspace.$id"
     fun shortcutRow(id: String) = "shortcut.$id"

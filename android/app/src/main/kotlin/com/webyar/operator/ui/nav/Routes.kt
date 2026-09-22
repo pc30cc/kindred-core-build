@@ -40,6 +40,10 @@ object Route {
     const val TEAM_THREAD = "team/{peerId}"
     fun teamThread(peerId: String) = "team/$peerId"
 
+    const val EMAIL = "email"
+    const val EMAIL_THREAD = "email/{threadId}"
+    fun emailThread(threadId: String) = "email/$threadId"
+
     const val PROFILE = "settings/profile"
     const val SECURITY = "settings/security"
 

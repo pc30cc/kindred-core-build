@@ -37,6 +37,7 @@ import com.webyar.operator.core.net.WebyarApi
 import com.webyar.operator.ui.AppTab
 import com.webyar.operator.feature.contacts.ContactsViewModel
 import com.webyar.operator.feature.inbox.InboxViewModel
+import com.webyar.operator.feature.email.EmailInboxViewModel
 import com.webyar.operator.feature.team.ColleaguesViewModel
 import com.webyar.operator.ui.components.FloatingTabBar
 import com.webyar.operator.ui.components.TabItem
@@ -62,6 +63,7 @@ fun AppShell(
     conversations: InboxViewModel,
     contacts: ContactsViewModel,
     colleagues: ColleaguesViewModel,
+    email: EmailInboxViewModel,
     language: Language,
     modifier: Modifier = Modifier,
     navController: NavHostController = rememberNavController(),
@@ -95,6 +97,7 @@ fun AppShell(
                         language = language,
                         onOpenConversation = { navController.navigate(Route.chat(it)) },
                         onOpenColleagues = { navController.navigate(Route.COLLEAGUES) },
+                        onOpenEmail = { navController.navigate(Route.EMAIL) },
                         // The list leaves room for the bar; a pushed screen
                         // does not, because the bar is gone by then.
                         bottomInset = Size.floatingBarHeight + Size.floatingBarBottomGap,
@@ -129,6 +132,25 @@ fun AppShell(
                         appState = appState,
                         api = api,
                         colleagues = colleagues,
+                        language = language,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+                composable(Route.EMAIL) {
+                    EmailInboxRoute(
+                        appState = appState,
+                        email = email,
+                        language = language,
+                        onOpenThread = { navController.navigate(Route.emailThread(it)) },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+                composable(Route.EMAIL_THREAD) { entry ->
+                    EmailThreadRoute(
+                        threadId = entry.arguments?.getString("threadId").orEmpty(),
+                        appState = appState,
+                        api = api,
+                        email = email,
                         language = language,
                         onBack = { navController.popBackStack() },
                     )

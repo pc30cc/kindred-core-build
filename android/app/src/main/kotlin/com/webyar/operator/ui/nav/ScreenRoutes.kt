@@ -38,6 +38,7 @@ import androidx.compose.material3.Snackbar
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import com.webyar.operator.core.model.CallChannels
 import com.webyar.operator.core.model.CannedText
 import com.webyar.operator.feature.chat.CannedResponsePicker
@@ -66,8 +67,9 @@ import com.webyar.operator.feature.settings.SettingsScreen
 import com.webyar.operator.feature.settings.SettingsViewModel
 import com.webyar.operator.ui.Session
 import com.webyar.operator.ui.AppState
-import com.webyar.operator.ui.ConversationViewModel
+import com.webyar.operator.feature.inbox.InboxViewModel
 import com.webyar.operator.ui.components.EmptyState
+import com.webyar.operator.ui.components.rememberSearchState
 
 /**
  * The screens, as the navigation graph sees them.
@@ -82,16 +84,33 @@ import com.webyar.operator.ui.components.EmptyState
 @Composable
 fun InboxRoute(
     appState: AppState,
-    conversations: ConversationViewModel,
+    conversations: InboxViewModel,
     language: Language,
     onOpenConversation: (String) -> Unit,
     bottomInset: Dp,
 ) {
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
-    val inbox by conversations.inbox.collectAsStateWithLifecycle()
+    val plan by appState.entitlements.collectAsStateWithLifecycle()
+    val inbox by conversations.state.collectAsStateWithLifecycle()
+    val filter by conversations.filter.collectAsStateWithLifecycle()
+    val counts by conversations.counts.collectAsStateWithLifecycle()
+    val channels by conversations.channels.collectAsStateWithLifecycle()
+    val channel by conversations.channel.collectAsStateWithLifecycle()
+    val intel by conversations.intel.collectAsStateWithLifecycle()
+    val refreshing by conversations.refreshing.collectAsStateWithLifecycle()
+
+    // Closing the field on a queue change is the same rule the view model
+    // applies to the terms: a search box left open over a list it no longer
+    // describes is worse than no search box.
+    val search = rememberSearchState(resetOn = filter)
+    // snapshotFlow rather than reading `search.text` here: a keystroke should
+    // recompose the field and the list, not this whole route.
+    LaunchedEffect(search) {
+        snapshotFlow { search.text }.collect(conversations::setQuery)
+    }
 
     LaunchedEffect(workspace?.id) {
-        workspace?.let { conversations.loadInbox(it.id) }
+        workspace?.let { conversations.bind(it.id) }
     }
 
     InboxScreen(
@@ -100,6 +119,18 @@ fun InboxRoute(
         onOpen = { onOpenConversation(it.id) },
         modifier = Modifier.statusBarsPadding(),
         contentPadding = PaddingValues(bottom = bottomInset),
+        filter = filter,
+        allFilters = conversations.filters(plan.value),
+        chipFilters = conversations.chips(plan.value),
+        counts = counts,
+        channels = channels,
+        selectedChannel = channel,
+        intel = intel,
+        refreshing = refreshing,
+        search = search,
+        onSelectFilter = conversations::select,
+        onSelectChannel = conversations::selectChannel,
+        onRefresh = conversations::refresh,
     )
 }
 
@@ -108,7 +139,7 @@ fun ChatRoute(
     conversationId: String,
     appState: AppState,
     api: WebyarApi,
-    conversations: ConversationViewModel,
+    conversations: InboxViewModel,
     language: Language,
     onBack: () -> Unit,
 ) {
@@ -116,7 +147,7 @@ fun ChatRoute(
         viewModel(factory = viewModelFactory { ChatViewModel(api) { language } })
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
     val plan by appState.entitlements.collectAsStateWithLifecycle()
-    val inbox by conversations.inbox.collectAsStateWithLifecycle()
+    val inbox by conversations.state.collectAsStateWithLifecycle()
     val chat by chatModel.chat.collectAsStateWithLifecycle()
     val draft by chatModel.draft.collectAsStateWithLifecycle()
     val sending by chatModel.sending.collectAsStateWithLifecycle()

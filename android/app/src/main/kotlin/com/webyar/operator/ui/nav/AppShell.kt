@@ -35,7 +35,7 @@ import com.webyar.operator.i18n.Str
 import com.webyar.operator.ui.AppState
 import com.webyar.operator.core.net.WebyarApi
 import com.webyar.operator.ui.AppTab
-import com.webyar.operator.ui.ConversationViewModel
+import com.webyar.operator.feature.inbox.InboxViewModel
 import com.webyar.operator.ui.components.FloatingTabBar
 import com.webyar.operator.ui.components.TabItem
 import com.webyar.operator.ui.design.Size
@@ -57,7 +57,7 @@ import com.webyar.operator.ui.design.Size
 fun AppShell(
     appState: AppState,
     api: WebyarApi,
-    conversations: ConversationViewModel,
+    conversations: InboxViewModel,
     language: Language,
     modifier: Modifier = Modifier,
     navController: NavHostController = rememberNavController(),

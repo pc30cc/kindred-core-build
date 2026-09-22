@@ -33,7 +33,7 @@ import com.webyar.operator.feature.chat.ChatState
 import com.webyar.operator.feature.inbox.InboxState
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.ui.AppState
-import com.webyar.operator.ui.ConversationViewModel
+import com.webyar.operator.feature.inbox.InboxViewModel
 import com.webyar.operator.ui.Session
 import com.webyar.operator.ui.nav.AppShell
 import com.webyar.operator.ui.design.WebyarTheme
@@ -100,8 +100,8 @@ private fun SignedInScreen(appState: AppState, api: WebyarApi, language: Languag
     // Held here rather than inside a route: the inbox and the chat are two
     // views of the same thing, and a view model per route would make the chat
     // re-fetch a list the inbox already has.
-    val conversations: ConversationViewModel =
-        viewModel(factory = factory { ConversationViewModel(api) { language } })
+    val conversations: InboxViewModel =
+        viewModel(factory = factory { InboxViewModel(api) { language } })
 
     AppShell(
         appState = appState,

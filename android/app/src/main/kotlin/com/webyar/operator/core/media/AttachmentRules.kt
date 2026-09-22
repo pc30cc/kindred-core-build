@@ -40,8 +40,9 @@ object AttachmentRules {
      * What the document picker offers.
      *
      * The image and document types only: a voice note is recorded, not
-     * browsed for, and a picker that lists `audio/*` invites the operator to
-     * attach a ringtone. Same six iOS restricts `fileImporter` to.
+     * browsed for, and a picker that lists every audio type invites the
+     * operator to attach a ringtone. Same six iOS restricts `fileImporter`
+     * to.
      */
     val PICKABLE_MIME_TYPES: Array<String> = arrayOf(
         "image/png", "image/jpeg", "image/webp", "image/gif",

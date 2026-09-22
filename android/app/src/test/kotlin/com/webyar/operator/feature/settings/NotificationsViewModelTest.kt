@@ -61,7 +61,7 @@ class NotificationsViewModelTest {
 
     @Test
     fun `a screen that cannot be read says so rather than showing defaults`() = runTest(dispatcher) {
-        val state = model(StubPrefsApi(loadError = ApiError(503, null))).state.value
+        val state = model(StubPrefsApi(loadError = ApiError.Server(503, null))).state.value
 
         assertNull("defaults would look like real settings", state.prefs)
         assertNotNull(state.loadError)
@@ -69,7 +69,7 @@ class NotificationsViewModelTest {
 
     @Test
     fun `a retry after a failure loads`() = runTest(dispatcher) {
-        val api = StubPrefsApi(loadError = ApiError(503, null))
+        val api = StubPrefsApi(loadError = ApiError.Server(503, null))
         val model = model(api)
         assertNull(model.state.value.prefs)
 
@@ -112,7 +112,7 @@ class NotificationsViewModelTest {
 
     @Test
     fun `a refused change puts the switch back`() = runTest(dispatcher) {
-        val api = StubPrefsApi(patchError = ApiError(500, null))
+        val api = StubPrefsApi(patchError = ApiError.Server(500, null))
         val model = model(api)
         assertEquals(true, model.state.value.prefs?.playSound)
 
@@ -132,7 +132,7 @@ class NotificationsViewModelTest {
     @Test
     fun `a rollback leaves a change that landed meanwhile alone`() = runTest(dispatcher) {
         val gate = CompletableDeferred<Unit>()
-        val api = StubPrefsApi(hold = gate, patchError = ApiError(500, null))
+        val api = StubPrefsApi(hold = gate, patchError = ApiError.Server(500, null))
         val model = model(api)
 
         // One switch, held open and destined to fail.
@@ -188,7 +188,7 @@ class NotificationsViewModelTest {
 
     @Test
     fun `a later success clears an earlier failure`() = runTest(dispatcher) {
-        val api = StubPrefsApi(patchError = ApiError(500, null))
+        val api = StubPrefsApi(patchError = ApiError.Server(500, null))
         val model = model(api)
         model.set({ it.copy(playSound = false) }, NotificationPrefsUpdate(playSound = false))
         testScheduler.advanceUntilIdle()

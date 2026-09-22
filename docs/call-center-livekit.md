@@ -102,7 +102,37 @@ Common warnings:
 
 ## 7. TURN
 
-The bundled config does not provision TURN. If your visitors include
-networks that block UDP entirely, configure a TURN server in the
-admin RTC endpoints settings. Without TURN, those visitors will fail
-to negotiate media even when signaling succeeds.
+Off by default. Media then reaches LiveKit over UDP 50000-50100, or TCP
+7881 when UDP is blocked, which covers home and mobile networks. It does
+not cover a network that allows nothing outbound but 80 and 443 — most
+corporate, hotel and guest wifi. Those visitors negotiate signalling
+fine and then pass no media at all.
+
+The compose file provisions it. Set `LIVEKIT_TURN_DOMAIN` to a hostname
+that resolves to the LiveKit host and the container renders LiveKit's own
+`turn:` block at startup; the ports are already published. Behind
+Cloudflare the record must be DNS-only (grey cloud) — the proxy carries
+HTTP and WebSocket, never TURN.
+
+The port that earns its keep is the TLS one, because 443 is what those
+networks allow. Sharing 443 with the Coolify/Traefik front end needs a TCP
+router matching the TURN hostname by SNI; `docker-compose.livekit.yml`
+carries the labels in a comment. On a spare address or port, 5349 is
+conventional. Either way `LIVEKIT_TURN_EXTERNAL_TLS` must say truthfully
+whether something in front terminates TLS, or the port answers with the
+wrong protocol and fails only on the networks TURN exists for.
+
+LiveKit mints a TURN credential per participant and delivers it over the
+signalling connection. **Nothing goes in the admin RTC endpoint settings** —
+a `turn:` URL pasted there has no credentials, which is a broken ICE server
+rather than a spare route. Enter the hostname at Super Admin -> Providers ->
+Calls -> LiveKit -> TURN domain instead; that is what tells the backend a
+relay exists and stops `turn_missing` being reported about a deployment
+that has one.
+
+An external TURN service (Cloudflare, Twilio, coturn elsewhere) is the
+other way, and that one does go in the RTC endpoint settings, with its own
+credentials. `mintTurnCreds` implements coturn's `use-auth-secret` scheme:
+put the same string in `static-auth-secret` and in the config row's
+`turn.shared_secret`, and the backend issues a time-limited credential per
+call.

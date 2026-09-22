@@ -292,6 +292,10 @@ const livekitSchema = z.object({
   egress_url: z.string().url().nullable().optional(),
   region: z.string().max(64).nullable().optional(),
   webhook_secret: z.string().max(512).nullable().optional(),
+  // A hostname, never a URL: it is what LiveKit puts in the TURN
+  // credentials it mints, and what the deployment's LIVEKIT_TURN_DOMAIN
+  // must already be set to for any of it to answer.
+  turn_domain: z.string().max(253).nullable().optional(),
   recording_storage: z
     .object({
       vendor: z.enum(['s3', 's3_compatible']).nullable().optional(),

@@ -59,7 +59,7 @@ import {
   type LiveKitReadinessState,
 } from '../services/calls/providers/livekitProvider.js';
 import { getManifestDiagnostics } from '../services/widget/manifest.js';
-import { loadLiveKitConfig, isMinimallyConfigured } from '../services/calls/livekitConfig.js';
+import { loadLiveKitConfig, isMinimallyConfigured, providesOwnRelay } from '../services/calls/livekitConfig.js';
 import { endCallSession, type EndCallReason } from '../services/calls/endSession.js';
 import { requireUser as requireSessionUser, authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import { mustDb } from '../utils/mustDb.js';
@@ -673,7 +673,19 @@ callsRouter.post('/:id/token', async (req, res) => {
       ctx.session.id,
       body.ttl_seconds ?? 600,
     );
-    if (turn.urls.length === 0) {
+    // A relay can come from either side. LiveKit's built-in TURN mints its
+    // own per-participant credentials and delivers them over signalling, so
+    // a deployment with it switched on has a relay even though this response
+    // carries no TURN of its own — and must not be told otherwise. It also
+    // must not be handed one here: an ICE server pointing at LiveKit's TURN
+    // without credentials is a broken route, not a spare one.
+    const relayMissing =
+      turn.urls.length === 0 &&
+      !(
+        ctx.session.provider === 'livekit' &&
+        providesOwnRelay(await loadLiveKitConfig(config))
+      );
+    if (relayMissing) {
       emitCallMetric(config, {
         metric: 'call.turn.missing',
         workspaceId: ctx.session.workspace_id,
@@ -712,7 +724,7 @@ callsRouter.post('/:id/token', async (req, res) => {
       // Pass 1 — surface non-fatal warnings the widget can show as a hint
       // before the LiveKit SDK actually tries to connect.
       warnings: [
-        ...(turn.urls.length === 0 ? [CALL_ERROR_CODES.TURN_MISSING] : []),
+        ...(relayMissing ? [CALL_ERROR_CODES.TURN_MISSING] : []),
       ],
     });
   } catch (err) {
@@ -1031,7 +1043,11 @@ callsRouter.get('/diagnostics', async (req, res) => {
 
   // Aggregate config status without leaking secrets.
   const turnUrlsCount = network.turn?.urls?.length || 0;
-  const turnMissing = turnUrlsCount === 0;
+  // Same rule as the token endpoint: LiveKit's own TURN is a relay, even
+  // though this app supplies none — it mints its credentials over the
+  // signalling connection instead.
+  const sfuRelay = selectedProvider === 'livekit' && providesOwnRelay(lk);
+  const turnMissing = turnUrlsCount === 0 && !sfuRelay;
 
   // Surface canonical error codes the caller may want to react to.
   const errors: string[] = [];
@@ -1059,7 +1075,12 @@ callsRouter.get('/diagnostics', async (req, res) => {
     region: network.region,
     turn: {
       urls_count: turnUrlsCount,
-      present: !turnMissing,
+      // This app's own TURN, which is what `urls_count` counts. Reporting
+      // the SFU's relay here instead would read as "present" beside a count
+      // of zero and explain nothing.
+      present: turnUrlsCount > 0,
+      /** The SFU relays for itself; no TURN of ours is needed or wanted. */
+      sfu_relay: sfuRelay,
       static_secret_present: !!network.turn?.static_secret_present,
       credential_type: network.turn?.credential_type ?? 'password',
     },

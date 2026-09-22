@@ -37,6 +37,17 @@ export interface LiveKitConfig {
   egress_url: string | null;
   region: string | null;
   webhook_secret: string | null;
+  /**
+   * The hostname LiveKit's own TURN server answers on, when it is switched
+   * on in the deployment (`LIVEKIT_TURN_DOMAIN`).
+   *
+   * Set, it means the SFU relays for itself: it mints a TURN credential per
+   * participant and hands it over the signalling connection, so the client
+   * gets a relay without this app supplying one. That is why it is worth
+   * recording here even though nothing sends it to a client — the "no relay
+   * configured" warning is otherwise raised about a deployment that has one.
+   */
+  turn_domain: string | null;
   recording_storage: LiveKitRecordingStorage;
 }
 
@@ -60,6 +71,7 @@ export interface LiveKitConfigPublicView {
   egress_url: string | null;
   region: string | null;
   webhook_secret_present: boolean;
+  turn_domain: string | null;
   recording_storage: LiveKitRecordingStoragePublic;
 }
 
@@ -83,6 +95,7 @@ const DEFAULT_LIVEKIT_CONFIG: LiveKitConfig = {
   egress_url: null,
   region: null,
   webhook_secret: null,
+  turn_domain: null,
   recording_storage: DEFAULT_RECORDING_STORAGE,
 };
 
@@ -126,8 +139,23 @@ function normalizeConfig(raw: unknown): LiveKitConfig {
     egress_url: asString(r.egress_url),
     region: asString(r.region),
     webhook_secret: asString(r.webhook_secret),
+    turn_domain: asString(r.turn_domain),
     recording_storage: normalizeRecordingStorage(r.recording_storage),
   };
+}
+
+/**
+ * Whether the SFU relays for itself.
+ *
+ * LiveKit's built-in TURN server issues its own per-participant credentials
+ * over the signalling connection. So when it is on, the client already has a
+ * relay and the app must NOT also advertise one: an ICE server pointing at
+ * LiveKit's TURN with no credentials is not a spare route, it is a broken
+ * one. It is also why "no relay is configured" has to ask this before it
+ * says anything — otherwise it says it about a deployment that relays fine.
+ */
+export function providesOwnRelay(cfg: LiveKitConfig): boolean {
+  return cfg.enabled && cfg.turn_domain !== null;
 }
 
 export async function loadLiveKitConfig(
@@ -239,6 +267,7 @@ export function toPublicView(c: LiveKitConfig): LiveKitConfigPublicView {
     egress_url: c.egress_url,
     region: c.region,
     webhook_secret_present: !!c.webhook_secret,
+    turn_domain: c.turn_domain,
     recording_storage: {
       vendor: c.recording_storage.vendor,
       bucket: c.recording_storage.bucket,

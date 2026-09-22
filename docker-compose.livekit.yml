@@ -121,7 +121,50 @@ services:
             echo "  db: $${LIVEKIT_REDIS_DB:-0}"
           } >> /tmp/livekit.yaml
         fi
-        echo "[livekit-bootstrap] generated /tmp/livekit.yaml (log_level=$${LOG_LEVEL}, node_ip=$${LIVEKIT_NODE_IP}, redis=$${LIVEKIT_REDIS_ADDRESS:-none})"
+        # TURN. Off unless a domain is named, for the same reason Redis is:
+        # a relay nobody can reach is worse than none, because the client
+        # spends its ICE budget on it. Naming the domain is the operator
+        # saying "this hostname resolves to me and a TLS front end or my own
+        # certificate is in place" — LiveKit puts it in the credentials it
+        # mints, so a name that does not resolve fails every relayed call.
+        #
+        # LiveKit issues its own per-participant TURN credentials over the
+        # signalling connection. Nothing needs to be entered in the app's RTC
+        # endpoint settings, and nothing should be: an ICE server pointing
+        # here without credentials is a broken route, not a spare one. Tell
+        # the backend it exists in Super Admin -> Providers -> Calls ->
+        # LiveKit -> TURN domain, which is what stops it reporting that no
+        # relay is configured.
+        if [ -n "$${LIVEKIT_TURN_DOMAIN:-}" ]; then
+          {
+            echo "turn:"
+            echo "  enabled: true"
+            echo "  domain: $${LIVEKIT_TURN_DOMAIN}"
+            echo "  udp_port: $${LIVEKIT_TURN_UDP_PORT:-3478}"
+            echo "  tls_port: $${LIVEKIT_TURN_TLS_PORT:-5349}"
+            # Two ways to get TLS onto the TLS port, and exactly one of them
+            # must be true. With a certificate, LiveKit terminates it itself.
+            # Without, something in front must be doing it — on Coolify that
+            # is Traefik, via a TCP router matching this hostname by SNI (see
+            # the labels at the bottom of this file). external_tls tells
+            # LiveKit which of the two it is; getting it wrong gives a port
+            # that speaks the wrong protocol and fails only on the networks
+            # TURN exists to rescue, which is the worst place to find out.
+            if [ -n "$${LIVEKIT_TURN_CERT_FILE:-}" ] && [ -n "$${LIVEKIT_TURN_KEY_FILE:-}" ]; then
+              echo "  cert_file: $${LIVEKIT_TURN_CERT_FILE}"
+              echo "  key_file: $${LIVEKIT_TURN_KEY_FILE}"
+              echo "  external_tls: false"
+            else
+              echo "  external_tls: $${LIVEKIT_TURN_EXTERNAL_TLS:-true}"
+            fi
+            # Pinned next to the media range rather than left at LiveKit's
+            # 30000-40000 default, so the ports a relay allocates are a set
+            # this file publishes and an operator can find in a firewall.
+            echo "  relay_range_start: $${LIVEKIT_TURN_RELAY_PORT_START:-50101}"
+            echo "  relay_range_end: $${LIVEKIT_TURN_RELAY_PORT_END:-50200}"
+          } >> /tmp/livekit.yaml
+        fi
+        echo "[livekit-bootstrap] generated /tmp/livekit.yaml (log_level=$${LOG_LEVEL}, node_ip=$${LIVEKIT_NODE_IP}, redis=$${LIVEKIT_REDIS_ADDRESS:-none}, turn=$${LIVEKIT_TURN_DOMAIN:-off})"
         exec /livekit-server --config /tmp/livekit.yaml
 
     # Signaling reaches LiveKit via Coolify's reverse proxy on the internal
@@ -132,6 +175,14 @@ services:
     ports:
       - "7881:7881/tcp"
       - "50000-50100:50000-50100/udp"
+      # TURN. Published unconditionally — compose cannot make a port
+      # conditional, and a port with nothing listening behind it simply
+      # refuses connections. Check they are free on the host before the
+      # first deploy: a port already in use fails the whole stack, not just
+      # TURN. They are inert until LIVEKIT_TURN_DOMAIN is set.
+      - "${LIVEKIT_TURN_UDP_PORT:-3478}:${LIVEKIT_TURN_UDP_PORT:-3478}/udp"
+      - "${LIVEKIT_TURN_TLS_PORT:-5349}:${LIVEKIT_TURN_TLS_PORT:-5349}/tcp"
+      - "${LIVEKIT_TURN_RELAY_PORT_START:-50101}-${LIVEKIT_TURN_RELAY_PORT_END:-50200}:${LIVEKIT_TURN_RELAY_PORT_START:-50101}-${LIVEKIT_TURN_RELAY_PORT_END:-50200}/udp"
 
     environment:
       # --- Required: consumed by the startup wrapper above ---------------
@@ -149,8 +200,15 @@ services:
       LIVEKIT_REDIS_PASSWORD: ${LIVEKIT_REDIS_PASSWORD:-}
       LIVEKIT_REDIS_DB: ${LIVEKIT_REDIS_DB:-0}
 
-      # --- Optional: reserved for future TURN/TLS rollout ---------------
+      # --- Optional: TURN. Empty domain = off -----------------------------
       LIVEKIT_TURN_DOMAIN: ${LIVEKIT_TURN_DOMAIN:-}
+      LIVEKIT_TURN_UDP_PORT: ${LIVEKIT_TURN_UDP_PORT:-3478}
+      LIVEKIT_TURN_TLS_PORT: ${LIVEKIT_TURN_TLS_PORT:-5349}
+      LIVEKIT_TURN_EXTERNAL_TLS: ${LIVEKIT_TURN_EXTERNAL_TLS:-true}
+      LIVEKIT_TURN_CERT_FILE: ${LIVEKIT_TURN_CERT_FILE:-}
+      LIVEKIT_TURN_KEY_FILE: ${LIVEKIT_TURN_KEY_FILE:-}
+      LIVEKIT_TURN_RELAY_PORT_START: ${LIVEKIT_TURN_RELAY_PORT_START:-50101}
+      LIVEKIT_TURN_RELAY_PORT_END: ${LIVEKIT_TURN_RELAY_PORT_END:-50200}
 
     ulimits:
       nofile:
@@ -180,3 +238,26 @@ services:
       # explicit load-balancer port, some Coolify versions can produce a public
       # `503 no available server` even while the container itself is running.
       - "traefik.http.services.livekit.loadbalancer.server.port=7880"
+      #
+      # TURN over TLS on 443, which is the port a locked-down network
+      # actually allows and therefore the only one that rescues those
+      # visitors. 443 here already belongs to the HTTP front end, so TURN
+      # shares it through a TCP router that matches by SNI and hands the
+      # decrypted stream to LiveKit's tls_port. Uncomment with a real
+      # hostname, set LIVEKIT_TURN_TLS_PORT=5349 and leave
+      # LIVEKIT_TURN_EXTERNAL_TLS=true (Traefik is doing the terminating):
+      #
+      #   - "traefik.tcp.routers.livekit-turn.rule=HostSNI(`turn.example.tld`)"
+      #   - "traefik.tcp.routers.livekit-turn.entrypoints=https"
+      #   - "traefik.tcp.routers.livekit-turn.tls=true"
+      #   - "traefik.tcp.routers.livekit-turn.tls.certresolver=letsencrypt"
+      #   - "traefik.tcp.routers.livekit-turn.service=livekit-turn"
+      #   - "traefik.tcp.services.livekit-turn.loadbalancer.server.port=5349"
+      #
+      # Left commented rather than interpolated from LIVEKIT_TURN_DOMAIN on
+      # purpose: an empty variable would leave Traefik an unmatchable
+      # HostSNI rule and a certificate request for a name that does not
+      # exist, and a broken router in the shared proxy is a worse failure
+      # than no TURN. The certresolver name is whatever this Coolify
+      # install calls its issuer — check an existing router before
+      # uncommenting.

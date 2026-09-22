@@ -319,6 +319,21 @@ export function LiveKitSelfHostedProviderPanel() {
               placeholder="e.g. eu-west, us-east"
             />
           </div>
+          <div>
+            <Label>{t('admin.voiceVideo.livekit.turnDomain' as any)}</Label>
+            <Input
+              value={cfg.turn_domain ?? ''}
+              onChange={(e) => setCfg({ ...cfg, turn_domain: e.target.value })}
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (v !== (cfg.turn_domain ?? '')) save({ turn_domain: v || null });
+              }}
+              placeholder="e.g. turn.example.com"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              {t('admin.voiceVideo.livekit.turnDomainHint' as any)}
+            </p>
+          </div>
         </div>
 
         <Separator />

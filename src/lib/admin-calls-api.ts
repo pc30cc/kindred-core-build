@@ -258,6 +258,13 @@ export interface LiveKitConfigPublicView {
   egress_url: string | null;
   region: string | null;
   webhook_secret_present: boolean;
+  /**
+   * The hostname LiveKit's own TURN answers on, when the deployment has it
+   * switched on. Not a secret and not a URL — LiveKit mints the credentials
+   * itself and hands them to clients over signalling, so this is only ever
+   * a record that a relay exists.
+   */
+  turn_domain: string | null;
   recording_storage: LiveKitRecordingStoragePublic;
 }
 
@@ -286,6 +293,7 @@ export interface LiveKitConfigPatch {
   region?: string | null;
   /** Omit to preserve, send "" to clear, send value to set. */
   webhook_secret?: string | null;
+  turn_domain?: string | null;
   recording_storage?: LiveKitRecordingStoragePatch;
 }
 

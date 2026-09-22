@@ -86,11 +86,20 @@ describe('the LiveKit container renders TURN from the same variable', () => {
    * every other service on it down with it — a worse outcome than no TURN.
    */
   it('reads the TURN hostname from the environment, never from this file', () => {
-    expect(compose).toContain('HostSNI(`${LIVEKIT_TURN_DOMAIN:-');
-    // No real hostname committed here. `.invalid` is reserved by RFC 2606
-    // precisely so it can never resolve, and `.example` likewise.
-    const rule = compose.split('\n').find((l) => l.includes('HostSNI')) ?? '';
-    expect(rule).toMatch(/HostSNI\(`\$\{LIVEKIT_TURN_DOMAIN:-[a-z.]+\.(invalid|example)`\}?`?\)/);
+    // The label, not the paragraph above it that explains why — both
+    // mention HostSNI and only one of them is configuration.
+    const rule = compose
+      .split('\n')
+      .map((l) => l.trim())
+      .find((l) => l.startsWith('- "traefik.tcp.routers') && l.includes('HostSNI'));
+
+    expect(rule).toBeDefined();
+    // No real hostname committed here: the variable supplies it, and the
+    // fallback is a name that cannot resolve. `.invalid` and `.example`
+    // are reserved by RFC 2606 for exactly this.
+    expect(rule).toMatch(
+      /HostSNI\(`\$\{LIVEKIT_TURN_DOMAIN:-[a-z0-9-]+\.(invalid|example)\}`\)/,
+    );
   });
 
   /**

@@ -135,7 +135,7 @@ class ApiClient(
                 // holding the phone over adb can read. Redacting the
                 // Authorization header covers the token and does nothing at
                 // all about the password that earned it.
-                filter { request -> !request.url.encodedPath.startsWith("/api/auth") }
+                filter { request -> !request.url.buildString().contains("/api/auth") }
             }
         }
         install(HttpTimeout) {

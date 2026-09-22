@@ -909,6 +909,7 @@ fun CallRoute(
     channel: CallChannel,
     appState: AppState,
     api: WebyarApi,
+    conversations: InboxViewModel,
     language: Language,
     onDone: () -> Unit,
 ) {
@@ -929,6 +930,15 @@ fun CallRoute(
 
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
     var failed by remember { mutableStateOf(false) }
+
+    // Who we are calling, out of the list the inbox already holds. There is no
+    // by-id endpoint for a conversation — the chat reads it the same way — and
+    // a call that could not find its name is still a call.
+    val inbox by conversations.state.collectAsStateWithLifecycle()
+    val intel by conversations.intel.collectAsStateWithLifecycle()
+    val conversation = remember(inbox, conversationId) {
+        (inbox as? InboxState.Loaded)?.conversations?.firstOrNull { it.id == conversationId }
+    }
 
     // The permissions are asked for at the moment the call starts, not at
     // launch. A refusal is not fatal: the session degrades and says which
@@ -962,9 +972,14 @@ fun CallRoute(
         }
         session.begin(
             invitation = invitation,
-            contactName = Str.unknownVisitor(language),
-            contactAvatarUrl = null,
-            visitor = null,
+            contactName = Format.contactName(
+                name = conversation?.contact?.name,
+                email = conversation?.contact?.email,
+                visitorCode = conversation?.contact?.visitorCode,
+                language = language,
+            ),
+            contactAvatarUrl = conversation?.contact?.avatarUrl,
+            visitor = intel[conversationId],
         )
     }
 

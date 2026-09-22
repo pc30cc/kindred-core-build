@@ -127,6 +127,7 @@ fun AppShell(
                         channel = CallChannel.from(entry.arguments?.getString("channel")),
                         appState = appState,
                         api = api,
+                        conversations = conversations,
                         language = language,
                         onDone = { navController.popBackStack() },
                     )

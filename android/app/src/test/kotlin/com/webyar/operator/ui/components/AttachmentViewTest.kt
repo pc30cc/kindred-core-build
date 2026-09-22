@@ -141,7 +141,7 @@ class AttachmentViewTest {
         }
 
         assertEquals(null, AttachmentCache.bytes("att-2", load))
-        assertEquals(9, AttachmentCache.bytes("att-2", load)?.first())
+        assertEquals(9.toByte(), AttachmentCache.bytes("att-2", load)?.first())
         assertEquals(2, calls)
     }
 

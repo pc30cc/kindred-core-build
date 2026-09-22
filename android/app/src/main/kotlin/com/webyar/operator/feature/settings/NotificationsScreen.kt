@@ -569,8 +569,7 @@ private fun SwitchRow(
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = Size.rowMinHeight)
-                .padding(horizontal = Space.screenInset, vertical = Space.sm)
-                .then(if (tag != null) Modifier.testTag(tag) else Modifier),
+                .padding(horizontal = Space.screenInset, vertical = Space.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f).padding(end = Space.md)) {
@@ -583,10 +582,17 @@ private fun SwitchRow(
                     )
                 }
             }
-            // The Switch owns the semantics: a Row that was also toggleable
+            // The Switch owns the semantics — a Row that was also toggleable
             // would announce the whole row as a switch AND contain one, which
-            // a screen reader reads out twice.
-            Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
+            // a screen reader reads out twice — so it owns the test tag too.
+            // A tag on the Row would name a node that is never disabled and
+            // never on.
+            Switch(
+                checked = checked,
+                onCheckedChange = onChange,
+                enabled = enabled,
+                modifier = if (tag != null) Modifier.testTag(tag) else Modifier,
+            )
         }
         RowDivider()
     }

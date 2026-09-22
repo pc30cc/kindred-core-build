@@ -412,6 +412,8 @@ class SampleApi : WebyarApi {
 
     override suspend fun revokeSession(id: String) {}
 
+    override suspend fun revokeOtherSessions(): Int = 0
+
     override suspend fun changePassword(current: String, new: String) {}
 
     /**

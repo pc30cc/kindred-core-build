@@ -928,6 +928,18 @@ class ApiClient(
     }
 
     @Serializable
+    private data class RevokedCount(val revoked: Int = 0)
+
+    override suspend fun revokeOtherSessions(): Int =
+        // The id in the path is ignored when `all=1`, but the route is
+        // declared with one, so something has to be there.
+        build(
+            HttpMethod.Delete,
+            "/api/account/security/sessions/all",
+            listOf("all" to "1"),
+        ).decode<RevokedCount>().revoked
+
+    @Serializable
     private data class PasswordBody(val currentPassword: String, val newPassword: String)
 
     override suspend fun changePassword(current: String, new: String) {

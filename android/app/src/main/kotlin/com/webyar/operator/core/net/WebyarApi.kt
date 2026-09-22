@@ -227,6 +227,16 @@ interface WebyarApi {
     /** Sends only what changed; see [NotificationPrefsUpdate]. */
     suspend fun updateNotificationPrefs(update: NotificationPrefsUpdate): NotificationPrefs
     suspend fun revokeSession(id: String)
+
+    /**
+     * Ends every session except this one.
+     *
+     * The server keeps the caller's own alive deliberately
+     * (`revokeAllSessions(..., currentSessionId)`), so this is "sign out
+     * everywhere else" and never "sign myself out" — which is exactly what
+     * somebody looking at a long list of their own devices wants.
+     */
+    suspend fun revokeOtherSessions(): Int
     suspend fun changePassword(current: String, new: String)
 }
 

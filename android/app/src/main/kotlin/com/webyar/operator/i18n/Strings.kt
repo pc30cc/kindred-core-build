@@ -1165,6 +1165,19 @@ object Str {
     // wherever the operator meets it. Two places that mean the same thing and
     // say it differently is how people stop trusting either.
 
+    /** Ends every session but this one. Never signs the operator out here. */
+    fun signOutOtherDevices(l: Language): String = when (l) {
+        Language.EN -> "Sign out on all other devices"
+        Language.FA -> "خروج از همهٔ دستگاه‌های دیگر"
+        Language.TR -> "Diğer tüm cihazlardan çıkış yap"
+    }
+
+    fun signOutOtherDevicesHelp(l: Language): String = when (l) {
+        Language.EN -> "This device stays signed in."
+        Language.FA -> "همین دستگاه وارد می‌ماند."
+        Language.TR -> "Bu cihaz oturumda kalır."
+    }
+
     fun notifications(l: Language): String = when (l) {
         Language.EN -> "Notifications"
         Language.FA -> "اعلان‌ها"

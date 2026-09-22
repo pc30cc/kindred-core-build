@@ -82,6 +82,7 @@ object A11y {
     const val ATTACHMENT_VIEWER_CLOSE = "attachment.viewer.close"
 
     const val SETTINGS_NOTIFICATIONS = "settings.notifications"
+    const val SECURITY_REVOKE_OTHERS = "security.revokeOthers"
     const val NOTIFICATIONS_LIST = "notifications.list"
     const val NOTIFICATIONS_RETRY = "notifications.retry"
     const val NOTIFICATIONS_PERMISSION = "notifications.permission"

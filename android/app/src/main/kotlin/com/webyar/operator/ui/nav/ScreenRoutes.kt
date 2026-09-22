@@ -1271,6 +1271,7 @@ fun SecurityRoute(
             onNewPasswordChange = model::setNewPassword,
             onChangePassword = model::changePassword,
             onRevoke = model::revoke,
+            onRevokeOthers = model::revokeOthers,
             modifier = Modifier.padding(padding),
         )
     }

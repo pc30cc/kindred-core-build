@@ -197,6 +197,32 @@ class AccountViewModel(
         }
     }
 
+    /**
+     * Ends every session but this one.
+     *
+     * The list this sits under is honest — the server already returns only
+     * sessions that are neither revoked nor expired — but honest is not the
+     * same as short: every sign-in makes one, and a mobile session is
+     * long-lived on purpose, so an operator who has signed in from a few
+     * phones over a few months is looking at a page of their own devices
+     * with no idea which are still theirs. One button is the answer.
+     */
+    fun revokeOthers() {
+        viewModelScope.launch {
+            _security.update { it.copy(busy = true, message = null, isError = false) }
+            runCatching { api.revokeOtherSessions() }
+                .onSuccess {
+                    _security.update { it.copy(busy = false) }
+                    loadSessions()
+                }
+                .onFailure { error ->
+                    _security.update {
+                        it.copy(busy = false, message = error.displayText(language()), isError = true)
+                    }
+                }
+        }
+    }
+
     private companion object {
         /**
          * The server's own avatar cap.

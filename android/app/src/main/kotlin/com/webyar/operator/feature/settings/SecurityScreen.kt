@@ -15,11 +15,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.webyar.operator.core.model.AccountSession
 import com.webyar.operator.i18n.Format
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
+import com.webyar.operator.ui.A11y
 import com.webyar.operator.ui.components.PillTone
 import com.webyar.operator.ui.components.PrimaryButton
 import com.webyar.operator.ui.components.QuietRow
@@ -49,6 +51,7 @@ fun SecurityScreen(
     onNewPasswordChange: (String) -> Unit,
     onChangePassword: () -> Unit,
     onRevoke: (AccountSession) -> Unit,
+    onRevokeOthers: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // `imePadding` for the two password fields: the Scaffold above passes the
@@ -123,6 +126,33 @@ fun SecurityScreen(
                     isCurrent = session.isCurrent == true || session.id == currentSessionId,
                     onRevoke = { onRevoke(session) },
                 )
+            }
+            // Offered only when there is more than this device to end, so
+            // the button never promises something it would not do.
+            if (sessions.size > 1) {
+                item {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Space.screenInset, vertical = Space.lg),
+                    ) {
+                        TextButton(
+                            onClick = onRevokeOthers,
+                            enabled = !busy,
+                            modifier = Modifier.testTag(A11y.SECURITY_REVOKE_OTHERS),
+                        ) {
+                            Text(
+                                Str.signOutOtherDevices(language),
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                        Text(
+                            Str.signOutOtherDevicesHelp(language),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
     }

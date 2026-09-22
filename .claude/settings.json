@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git checkout main)",
+      "Bash(git merge --ff-only:*)",
+      "Bash(git push origin main)"
+    ]
+  }
+}

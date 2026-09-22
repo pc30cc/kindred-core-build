@@ -1,5 +1,7 @@
 package com.webyar.operator.core.net
 
+import com.webyar.operator.core.model.NotificationPrefs
+import com.webyar.operator.core.model.NotificationPrefsUpdate
 import com.webyar.operator.core.model.Account
 import com.webyar.operator.core.model.AccountProfile
 import com.webyar.operator.core.model.AccountSession
@@ -411,6 +413,37 @@ class SampleApi : WebyarApi {
     override suspend fun revokeSession(id: String) {}
 
     override suspend fun changePassword(current: String, new: String) {}
+
+    /**
+     * Held in memory, so the switches behave the way they will against a real
+     * server: a toggle sticks, and the answer comes back as the whole row.
+     */
+    private var prefs = NotificationPrefs()
+
+    override suspend fun notificationPrefs(): NotificationPrefs = prefs
+
+    override suspend fun updateNotificationPrefs(
+        update: NotificationPrefsUpdate,
+    ): NotificationPrefs {
+        prefs = prefs.copy(
+            disableAll = update.disableAll ?: prefs.disableAll,
+            pushWhenOnline = update.pushWhenOnline ?: prefs.pushWhenOnline,
+            pushWhenOffline = update.pushWhenOffline ?: prefs.pushWhenOffline,
+            pushVisitorBrowsing = update.pushVisitorBrowsing ?: prefs.pushVisitorBrowsing,
+            playSound = update.playSound ?: prefs.playSound,
+            emailUnreadMessages = update.emailUnreadMessages ?: prefs.emailUnreadMessages,
+            emailTranscripts = update.emailTranscripts ?: prefs.emailTranscripts,
+            emailUserRatings = update.emailUserRatings ?: prefs.emailUserRatings,
+            emailPaidInvoices = update.emailPaidInvoices ?: prefs.emailPaidInvoices,
+            emailWeeklySummary = update.emailWeeklySummary ?: prefs.emailWeeklySummary,
+            emailProductUpdates = update.emailProductUpdates ?: prefs.emailProductUpdates,
+            quietHoursEnabled = update.quietHoursEnabled ?: prefs.quietHoursEnabled,
+            quietHoursStart = update.quietHoursStart ?: prefs.quietHoursStart,
+            quietHoursEnd = update.quietHoursEnd ?: prefs.quietHoursEnd,
+            quietHoursTimezone = update.quietHoursTimezone ?: prefs.quietHoursTimezone,
+        )
+        return prefs
+    }
 
     private val notesByConversation = mutableMapOf<String, MutableList<ConversationNote>>()
     /**

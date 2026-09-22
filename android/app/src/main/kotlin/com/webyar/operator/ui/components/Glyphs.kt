@@ -51,6 +51,21 @@ object Glyph {
         )
     }
 
+    /**
+     * A lightning bolt, for saved replies.
+     *
+     * The control used to borrow `Icons.Filled.Face`, which is a face — next
+     * to an emoji button that is also a face, on a row where one inserts a
+     * smiley and the other opens a list of canned answers. A bolt is what the
+     * web console uses and what "quick reply" looks like everywhere else.
+     */
+    val Bolt: ImageVector by lazy {
+        vector(
+            "Bolt",
+            "M7.85 22 9.6 14H5.5l6.7-12h1.75l-1.75 8h4.1L9.6 22H7.85Z",
+        )
+    }
+
     /** A document. Any attachment that is not a picture. */
     val Document: ImageVector by lazy {
         vector(

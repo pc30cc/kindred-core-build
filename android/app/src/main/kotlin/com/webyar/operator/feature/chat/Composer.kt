@@ -139,7 +139,7 @@ fun Composer(
             }
             if (canUseShortcuts && !isSayNow) {
                 ComposerGlyph(
-                    icon = Icons.Filled.Face,
+                    icon = Glyph.Bolt,
                     label = Str.shortcuts(language),
                     tag = A11y.COMPOSER_SHORTCUTS,
                     onClick = onOpenShortcuts,

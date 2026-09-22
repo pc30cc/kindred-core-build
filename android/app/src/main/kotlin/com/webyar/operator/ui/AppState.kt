@@ -52,6 +52,18 @@ class AppState(
     private val _workspaces = MutableStateFlow<List<Workspace>>(emptyList())
     val workspaces: StateFlow<List<Workspace>> = _workspaces.asStateFlow()
 
+    /**
+     * The operator's own picture.
+     *
+     * Separate from [session] because the login response's `user` has no
+     * avatar in it — `GET /api/account/me` is the only endpoint that carries
+     * one. Settings used to be handed a hard-coded null for this, so an
+     * operator who had set a photo on the web saw their initials on the
+     * phone for ever.
+     */
+    private val _avatarUrl = MutableStateFlow<String?>(null)
+    val avatarUrl: StateFlow<String?> = _avatarUrl.asStateFlow()
+
     private val _selectedWorkspace = MutableStateFlow<Workspace?>(null)
     val selectedWorkspace: StateFlow<Workspace?> = _selectedWorkspace.asStateFlow()
 
@@ -172,9 +184,18 @@ class AppState(
         }
     }
 
+    /** Advisory: no picture is a fallback to initials, not an error to show. */
+    private fun loadAvatar() {
+        viewModelScope.launch {
+            runCatching { api.account() }
+                .onSuccess { _avatarUrl.value = it.profile?.avatarUrl }
+        }
+    }
+
     private suspend fun loadWorkspaces() {
         runCatching { api.workspaces() }.onSuccess { list ->
             _workspaces.value = list
+            loadAvatar()
             if (_selectedWorkspace.value == null) {
                 _selectedWorkspace.value = list.firstOrNull()
                 loadEntitlements()

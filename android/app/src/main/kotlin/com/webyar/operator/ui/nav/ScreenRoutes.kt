@@ -1048,6 +1048,7 @@ fun SettingsRoute(
     val saveFailed by settings.saveFailed.collectAsStateWithLifecycle()
     val session by appState.session.collectAsStateWithLifecycle()
     val user = (session as? Session.SignedIn)?.user
+    val avatarUrl by appState.avatarUrl.collectAsStateWithLifecycle()
 
     SettingsScreen(
         language = language,
@@ -1055,7 +1056,7 @@ fun SettingsRoute(
         account = AccountHeader(
             name = user?.displayName.orEmpty(),
             email = user?.email,
-            avatarUrl = null,
+            avatarUrl = avatarUrl,
         ),
         workspaces = workspaces,
         selectedWorkspace = selected,

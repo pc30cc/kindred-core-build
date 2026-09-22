@@ -51,6 +51,10 @@ import com.webyar.operator.feature.chat.StatusSheet
 import com.webyar.operator.feature.chat.TagsSheet
 import com.webyar.operator.feature.chat.TransferSheet
 import com.webyar.operator.ui.design.Space
+import android.content.pm.PackageManager
+import androidx.compose.runtime.DisposableEffect
+import androidx.core.content.ContextCompat
+import com.webyar.operator.feature.chat.VoiceRecorder
 import com.webyar.operator.i18n.Str
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -167,6 +171,41 @@ fun ChatRoute(
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let(send) }
 
+    // The recorder holds the microphone, so it is remembered against the
+    // context rather than created per recomposition, and it is stopped when
+    // the screen goes away — a recorder left running keeps the mic and the
+    // next app to ask for it is told no.
+    val recorder = remember(context) { VoiceRecorder(context) }
+    var recordingSeconds by remember { mutableStateOf<Int?>(null) }
+    DisposableEffect(recorder) { onDispose { recorder.cancel() } }
+
+    LaunchedEffect(recordingSeconds != null) {
+        if (recordingSeconds == null) return@LaunchedEffect
+        while (true) {
+            kotlinx.coroutines.delay(1_000)
+            recordingSeconds = (recordingSeconds ?: 0) + 1
+        }
+    }
+
+    fun beginRecording() {
+        when (recorder.start()) {
+            null -> recordingSeconds = 0
+            VoiceRecorder.Failure.PERMISSION_DENIED ->
+                chatModel.report(Str.microphoneDenied(language))
+            VoiceRecorder.Failure.UNAVAILABLE ->
+                chatModel.report(Str.recordingFailed(language))
+        }
+    }
+
+    // Asked at the moment the operator taps the microphone, never at launch:
+    // a permission dialog on first run, before anyone has asked for anything,
+    // is how an app teaches people to say no.
+    val micPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) beginRecording() else chatModel.report(Str.microphoneDenied(language))
+    }
+
     ChatScreen(
         state = chat,
         language = language,
@@ -191,7 +230,27 @@ fun ChatRoute(
             showShortcuts = true
             chatModel.loadShortcuts()
         },
-        onStartRecording = { /* the recorder arrives with the next step */ },
+        onStartRecording = {
+            val already = ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.RECORD_AUDIO,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (already) beginRecording() else micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+        },
+        recordingSeconds = recordingSeconds,
+        onDiscardRecording = {
+            recorder.cancel()
+            recordingSeconds = null
+        },
+        onFinishRecording = {
+            val bytes = recorder.finish()
+            recordingSeconds = null
+            if (bytes == null) {
+                // Under a second is a mis-tap, not a message.
+                chatModel.report(Str.recordingFailed(language))
+            } else {
+                chatModel.sendAttachment(bytes, recorder.fileName, recorder.mimeType)
+            }
+        },
         loadAttachment = { id -> runCatching { api.attachmentData(id) }.getOrNull() },
         header = {
             ConversationMenu(

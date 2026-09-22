@@ -101,6 +101,9 @@ fun ChatScreen(
     onAttachFile: () -> Unit = {},
     onOpenShortcuts: () -> Unit = {},
     onStartRecording: () -> Unit = {},
+    recordingSeconds: Int? = null,
+    onDiscardRecording: () -> Unit = {},
+    onFinishRecording: () -> Unit = {},
     header: (@Composable () -> Unit)? = null,
     /**
      * Fetches an attachment's bytes.
@@ -167,6 +170,9 @@ fun ChatScreen(
             sayNowVoice = sayNowVoice,
             onSayNowVoiceChange = onSayNowVoiceChange,
             canUseShortcuts = canUseShortcuts,
+            recordingSeconds = recordingSeconds,
+            onDiscardRecording = onDiscardRecording,
+            onFinishRecording = onFinishRecording,
             modifier = Modifier.navigationBarsPadding(),
         )
     }

@@ -1,6 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!--
+      The app talks to a server, which on Android has to be said out loud.
+      Its absence is silent: every request throws a SecurityException that
+      surfaces as a transport failure, so the app looks offline on a working
+      connection. It went unnoticed here because the sample backend answers
+      from memory and needs no network at all.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
+      Voice notes. Requested at the moment the operator taps the microphone,
+      never at launch: a permission dialog on first run, before anyone has
+      asked for anything, is how an app teaches people to say no.
+    -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!--
+      A phone with no microphone is a tablet, and it should still be able to
+      read an inbox. required="false" keeps this app installable on one.
+    -->
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
     <application
         android:allowBackup="false"
         android:fullBackupContent="@xml/backup_rules"

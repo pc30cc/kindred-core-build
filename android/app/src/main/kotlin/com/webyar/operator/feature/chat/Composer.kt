@@ -1,6 +1,14 @@
 package com.webyar.operator.feature.chat
 
 import androidx.compose.foundation.background
+import com.webyar.operator.i18n.Format
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -78,6 +86,10 @@ fun Composer(
     onSayNowVoiceChange: (SayNowVoice) -> Unit = {},
     /** Whether the plan offers saved replies here. */
     canUseShortcuts: Boolean = false,
+    /** Non-null while a voice note is being recorded: how long, in seconds. */
+    recordingSeconds: Int? = null,
+    onDiscardRecording: () -> Unit = {},
+    onFinishRecording: () -> Unit = {},
 ) {
     val isSayNow = sayNowVoice != null
     val canSend = draft.isNotBlank() && !sending
@@ -86,6 +98,11 @@ fun Composer(
         color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = modifier.fillMaxWidth(),
     ) {
+        if (recordingSeconds != null) {
+            RecordingBar(language, recordingSeconds, onDiscardRecording, onFinishRecording)
+            return@Surface
+        }
+
         Row(
             Modifier.padding(horizontal = Space.sm, vertical = Space.sm),
             verticalAlignment = Alignment.Bottom,
@@ -284,6 +301,77 @@ internal fun ComposerGlyph(
             contentDescription = label,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(22.dp),
+        )
+    }
+}
+
+/**
+ * What the composer becomes while a voice note is recording.
+ *
+ * It replaces the whole row, the way every messenger does: there is nothing
+ * else to do until the note is sent or thrown away, and a field you cannot
+ * type into is worse than no field.
+ *
+ * The one thing it keeps is the ROW'S HEIGHT. An earlier iOS version dropped
+ * the pill and laid out a bare row at a different height with a bigger button
+ * in it, so the composer changed shape under the thumb that had just tapped
+ * the microphone.
+ */
+@Composable
+private fun RecordingBar(
+    language: Language,
+    seconds: Int,
+    onDiscard: () -> Unit,
+    onFinish: () -> Unit,
+) {
+    val pulse = rememberInfiniteTransition(label = "recording")
+    val dot by pulse.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.3f,
+        animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
+        label = "recording-dot",
+    )
+
+    Row(
+        Modifier.padding(horizontal = Space.sm, vertical = Space.sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onDiscard) {
+            Icon(
+                Icons.Filled.Close,
+                contentDescription = Str.discard(language),
+                tint = MaterialTheme.colorScheme.error,
+            )
+        }
+
+        Row(
+            Modifier.weight(1f).padding(horizontal = Space.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .graphicsLayer { alpha = dot }
+                    .background(MaterialTheme.colorScheme.error, CircleShape)
+            )
+            Text(
+                // The reader's own digits: a phone set to Persian counts a
+                // recording in ۰:۰۷, like every other number in the app.
+                Format.voiceTime(seconds.toDouble(), language),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = Space.sm),
+            )
+            Text(
+                Str.recording(language),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        SendButton(
+            enabled = true,
+            label = Str.send(language),
+            onClick = onFinish,
         )
     }
 }

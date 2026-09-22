@@ -295,6 +295,11 @@ class ChatViewModel(
         }
     }
 
+    /** Puts something in front of the operator that did not come from the API. */
+    fun report(message: String) {
+        _notice.value = message
+    }
+
     fun dismissNotice() {
         _notice.value = null
     }

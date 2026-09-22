@@ -1,0 +1,29 @@
+appId: com.webyar.desktop
+productName: Webyar
+copyright: Copyright © Webyar
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+extraResources:
+  - from: build/icon.png
+    to: icon.png
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+  artifactName: Webyar-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Webyar
+  runAfterFinish: true
+  installerLanguages: [en_US, fa_IR, tr_TR]
+  multiLanguageInstaller: true
+  deleteAppDataOnUninstall: false

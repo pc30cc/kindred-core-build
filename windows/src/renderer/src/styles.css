@@ -1,0 +1,276 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/vazirmatn';
+
+/* The iOS app's palette, as design tokens. Brand blue is #3B7AF2 in light and
+   a lifted #5A94FF in dark; the backgrounds are the launch screen's own
+   #F4F6F9 / #0C0E14 so the window never flashes a different colour. */
+:root {
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --surface-2: #f8f9fb;
+  --elevated: #eef1f5;
+  --hover: #eef2f8;
+  --selected: #e7effe;
+  --border: #e3e7ee;
+  --border-strong: #d2d8e2;
+  --text: #0f1729;
+  --text-2: #5b6577;
+  --text-3: #98a2b3;
+  --brand: #3b7af2;
+  --brand-hover: #2f6ae0;
+  --brand-soft: rgba(59, 122, 242, 0.12);
+  --on-brand: #ffffff;
+  --danger: #e5484d;
+  --danger-soft: rgba(229, 72, 77, 0.12);
+  --success: #30a46c;
+  --success-soft: rgba(48, 164, 108, 0.14);
+  --warning: #f76b15;
+  --warning-soft: rgba(247, 107, 21, 0.14);
+  --bubble-in: #ffffff;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
+  --shadow-lg: 0 12px 32px -8px rgba(16, 24, 40, 0.22), 0 4px 10px -4px rgba(16, 24, 40, 0.1);
+  --ai-1: #7c4ddb;
+  --ai-2: #3b4bd1;
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --bg: #0c0e14;
+  --surface: #13161e;
+  --surface-2: #171b24;
+  --elevated: #1d222d;
+  --hover: #1b202a;
+  --selected: #1b2740;
+  --border: #242a36;
+  --border-strong: #313848;
+  --text: #e8ecf4;
+  --text-2: #98a2b3;
+  --text-3: #667085;
+  --brand: #5a94ff;
+  --brand-hover: #75a6ff;
+  --brand-soft: rgba(90, 148, 255, 0.16);
+  --on-brand: #ffffff;
+  --danger: #ff6369;
+  --danger-soft: rgba(255, 99, 105, 0.14);
+  --success: #3dd68c;
+  --success-soft: rgba(61, 214, 140, 0.14);
+  --warning: #ff8b3e;
+  --warning-soft: rgba(255, 139, 62, 0.16);
+  --bubble-in: #1d222d;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 16px 40px -8px rgba(0, 0, 0, 0.6), 0 4px 12px -4px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-elevated: var(--elevated);
+  --color-hover: var(--hover);
+  --color-selected: var(--selected);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-fg: var(--text);
+  --color-fg-2: var(--text-2);
+  --color-fg-3: var(--text-3);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-soft: var(--brand-soft);
+  --color-on-brand: var(--on-brand);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-bubble-in: var(--bubble-in);
+  --shadow-card: var(--shadow);
+  --shadow-pop: var(--shadow-lg);
+  --font-sans: 'Inter Variable', 'Vazirmatn Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-fa: 'Vazirmatn Variable', 'Inter Variable', 'Segoe UI', system-ui, sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Persian reads in Vazirmatn first; Latin names inside it still get Inter's shapes via fallback. */
+:root[lang='fa'] body {
+  font-family: var(--font-fa);
+}
+
+input,
+textarea,
+[contenteditable='true'],
+.selectable {
+  user-select: text;
+}
+
+::selection {
+  background: var(--brand-soft);
+}
+
+/* Slim, quiet scrollbars — the Windows default is a heavy grey slab. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 10px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*:hover::-webkit-scrollbar-thumb {
+  background-color: var(--border-strong);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.drag {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+@layer base {
+  button:focus-visible,
+  a:focus-visible,
+  [role='switch']:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 1px;
+  }
+}
+
+.latin {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--elevated) 0%, var(--hover) 50%, var(--elevated) 100%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.pop-in {
+  animation: pop-in 0.16s ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.fade-in {
+  animation: fade-in 0.22s ease-out;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+.pulse-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+@keyframes wordmark-sweep {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+.wordmark-loading {
+  background: linear-gradient(90deg, var(--brand) 40%, #a9c6ff 50%, var(--brand) 60%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: wordmark-sweep 2.2s linear infinite;
+}
+
+@keyframes travel {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+.travel {
+  animation: travel 1.25s ease-in-out infinite;
+}
+
+@keyframes ring {
+  0% {
+    box-shadow: 0 0 0 0 var(--brand-soft);
+  }
+  100% {
+    box-shadow: 0 0 0 28px transparent;
+  }
+}
+.ring {
+  animation: ring 1.6s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton,
+  .wordmark-loading,
+  .travel,
+  .ring,
+  .pulse-dot {
+    animation: none;
+  }
+}
+
+/* A single truncated line of someone else's text: its own direction decides
+   where the ellipsis goes, while the line still sits on the page's side. */
+[dir='rtl'] .bidi-line {
+  text-align: right;
+}

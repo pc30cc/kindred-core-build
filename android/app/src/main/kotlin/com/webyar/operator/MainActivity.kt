@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -21,6 +22,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.collectAsState
 import com.webyar.operator.core.net.Backend
 import com.webyar.operator.core.net.WebyarApi
+import com.webyar.operator.core.storage.Appearance
+import com.webyar.operator.core.storage.Preferences
 import com.webyar.operator.core.storage.SecureStore
 import com.webyar.operator.core.storage.SessionCache
 import com.webyar.operator.feature.auth.LoginScreen
@@ -41,11 +44,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val api = Backend.create(applicationContext)
-        val cache = SessionCache(SecureStore(applicationContext))
+        val store = SecureStore(applicationContext)
+        val cache = SessionCache(store)
+        val prefs = Preferences(store)
 
         setContent {
-            val appState: AppState = viewModel(factory = factory { AppState(api, cache) })
+            val appState: AppState = viewModel(factory = factory { AppState(api, cache, prefs) })
             val language by appState.language.collectAsState()
+            val appearance by appState.appearance.collectAsState()
 
             // The theme takes the language and sets the layout direction from
             // it — rows, stacks, alignment, which edge padding's leading side
@@ -53,7 +59,14 @@ class MainActivity : ComponentActivity() {
             // same thing needs a window-level override AND a UIKit appearance
             // proxy, because menus are drawn in a window SwiftUI's environment
             // never reaches; Compose has no such split.
-            WebyarTheme(language = language) {
+            WebyarTheme(
+                language = language,
+                dark = when (appearance) {
+                    Appearance.SYSTEM -> isSystemInDarkTheme()
+                    Appearance.LIGHT -> false
+                    Appearance.DARK -> true
+                },
+            ) {
                 Surface(Modifier.fillMaxSize()) {
                     RootScreen(appState, api, language)
                 }
@@ -92,6 +105,7 @@ private fun SignedInScreen(appState: AppState, api: WebyarApi, language: Languag
 
     AppShell(
         appState = appState,
+        api = api,
         conversations = conversations,
         language = language,
     )

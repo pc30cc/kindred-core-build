@@ -15,7 +15,32 @@ import com.webyar.operator.feature.chat.ChatScreen
 import com.webyar.operator.feature.inbox.InboxScreen
 import com.webyar.operator.feature.inbox.InboxState
 import com.webyar.operator.i18n.Language
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.ui.platform.LocalContext
+import com.webyar.operator.feature.settings.AccountViewModel
+import com.webyar.operator.feature.settings.ProfileScreen
+import com.webyar.operator.feature.settings.SecurityScreen
+import com.webyar.operator.i18n.StrAndroid
 import com.webyar.operator.i18n.Str
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.webyar.operator.BuildConfig
+import com.webyar.operator.core.net.WebyarApi
+import com.webyar.operator.feature.settings.AccountHeader
+import com.webyar.operator.feature.settings.SettingsScreen
+import com.webyar.operator.feature.settings.SettingsViewModel
+import com.webyar.operator.ui.Session
 import com.webyar.operator.ui.AppState
 import com.webyar.operator.ui.ConversationViewModel
 import com.webyar.operator.ui.components.EmptyState
@@ -114,17 +139,164 @@ fun ContactsRoute(
     )
 }
 
-/** Settings, until the settings screen exists. */
 @Composable
 fun SettingsRoute(
     appState: AppState,
+    api: WebyarApi,
     language: Language,
+    onOpenProfile: () -> Unit,
+    onOpenSecurity: () -> Unit,
     bottomInset: Dp,
 ) {
-    EmptyState(
-        icon = Icons.Filled.Settings,
-        title = Str.tabSettings(language),
-        body = null,
+    val settings: SettingsViewModel = viewModel(factory = viewModelFactory { SettingsViewModel(api) })
+    val appearance by appState.appearance.collectAsStateWithLifecycle()
+    val workspaces by appState.workspaces.collectAsStateWithLifecycle()
+    val selected by appState.selectedWorkspace.collectAsStateWithLifecycle()
+    val plan by appState.entitlements.collectAsStateWithLifecycle()
+    val availability by settings.availability.collectAsStateWithLifecycle()
+    val saveFailed by settings.saveFailed.collectAsStateWithLifecycle()
+    val session by appState.session.collectAsStateWithLifecycle()
+    val user = (session as? Session.SignedIn)?.user
+
+    SettingsScreen(
+        language = language,
+        appearance = appearance,
+        account = AccountHeader(
+            name = user?.displayName.orEmpty(),
+            email = user?.email,
+            avatarUrl = null,
+        ),
+        workspaces = workspaces,
+        selectedWorkspace = selected,
+        planName = plan.value?.plan?.name,
+        availability = availability,
+        availabilitySaveFailed = saveFailed,
+        appVersion = BuildConfig.VERSION_NAME,
+        onOpenProfile = onOpenProfile,
+        onOpenSecurity = onOpenSecurity,
+        onSelectWorkspace = appState::selectWorkspace,
+        onSelectLanguage = appState::setLanguage,
+        onSelectAppearance = appState::setAppearance,
+        onSetForceOffline = settings::setForceOffline,
+        onSetAvailableWhenUsingApp = settings::setAvailableWhenUsingApp,
+        onSetScheduleEnabled = settings::setScheduleEnabled,
+        onSignOut = appState::logOut,
         modifier = Modifier.statusBarsPadding(),
+        contentPadding = PaddingValues(bottom = bottomInset),
+    )
+}
+
+/**
+ * A one-off view-model factory.
+ *
+ * Duplicated from MainActivity deliberately rather than shared: a view model
+ * that takes its dependencies in its constructor needs one of these, and a
+ * single shared helper would have to live somewhere that both the activity and
+ * the navigation graph import — which is a module boundary this app does not
+ * have yet and does not need for six lines.
+ */
+inline fun <reified T : ViewModel> viewModelFactory(crossinline create: () -> T) =
+    object : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <V : ViewModel> create(modelClass: Class<V>): V = create() as V
+    }
+
+@Composable
+fun ProfileRoute(
+    api: WebyarApi,
+    language: Language,
+    onBack: () -> Unit,
+) {
+    val model: AccountViewModel =
+        viewModel(factory = viewModelFactory { AccountViewModel(api) { language } })
+    val form by model.profile.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    // The system Photo Picker on Android 13+, and the documents UI below it —
+    // `PickVisualMedia` chooses for us. Neither needs READ_MEDIA_IMAGES: the
+    // whole point of the picker is that the operator grants one photograph
+    // rather than the app asking to read the gallery.
+    val picker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val resolver = context.contentResolver
+        val type = resolver.getType(uri) ?: "image/jpeg"
+        val bytes = runCatching {
+            resolver.openInputStream(uri)?.use { it.readBytes() }
+        }.getOrNull()
+        if (bytes != null) model.uploadAvatar(bytes, type, null)
+    }
+
+    Scaffold(
+        topBar = { BackBar(Str.profile(language), language, onBack) },
+    ) { padding ->
+        ProfileScreen(
+            language = language,
+            name = form.name,
+            email = form.email,
+            avatarUrl = form.avatarUrl,
+            busy = form.busy,
+            error = form.error,
+            onNameChange = model::setName,
+            onPickAvatar = {
+                picker.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+            },
+            onRemoveAvatar = model::removeAvatar,
+            onSave = { model.saveProfile() },
+            modifier = Modifier.padding(padding),
+        )
+    }
+}
+
+@Composable
+fun SecurityRoute(
+    api: WebyarApi,
+    language: Language,
+    onBack: () -> Unit,
+) {
+    val model: AccountViewModel =
+        viewModel(factory = viewModelFactory { AccountViewModel(api) { language } })
+    val form by model.security.collectAsStateWithLifecycle()
+
+    Scaffold(
+        topBar = { BackBar(Str.security(language), language, onBack) },
+    ) { padding ->
+        SecurityScreen(
+            language = language,
+            currentPassword = form.currentPassword,
+            newPassword = form.newPassword,
+            sessions = form.sessions,
+            currentSessionId = form.currentSessionId,
+            busy = form.busy,
+            message = form.message,
+            isError = form.isError,
+            onCurrentPasswordChange = model::setCurrentPassword,
+            onNewPasswordChange = model::setNewPassword,
+            onChangePassword = model::changePassword,
+            onRevoke = model::revoke,
+            modifier = Modifier.padding(padding),
+        )
+    }
+}
+
+/** The bar every pushed screen wears: a title and a way back. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BackBar(title: String, language: Language, onBack: () -> Unit) {
+    TopAppBar(
+        title = { Text(title) },
+        navigationIcon = {
+            IconButton(onClick = onBack) {
+                Icon(
+                    // AutoMirrored: a back arrow points the way you came, and
+                    // in Persian that is the other way.
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = StrAndroid.back(language),
+                )
+            }
+        },
     )
 }

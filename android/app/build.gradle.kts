@@ -52,7 +52,11 @@ android {
         localeFilters += setOf("en", "fa", "tr")
     }
 
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        // For the version string the About row shows. Opt-in since AGP 8.
+        buildConfig = true
+    }
 
 
     testOptions {

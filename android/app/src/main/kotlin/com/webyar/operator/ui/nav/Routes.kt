@@ -33,6 +33,9 @@ object Route {
     const val CHAT = "chat/{conversationId}"
     fun chat(conversationId: String) = "chat/$conversationId"
 
+    const val PROFILE = "settings/profile"
+    const val SECURITY = "settings/security"
+
     fun graphFor(tab: AppTab): String = when (tab) {
         AppTab.INBOX -> INBOX_GRAPH
         AppTab.CONTACTS -> CONTACTS_GRAPH

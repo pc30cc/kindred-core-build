@@ -33,6 +33,7 @@ import androidx.navigation.navigation
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
 import com.webyar.operator.ui.AppState
+import com.webyar.operator.core.net.WebyarApi
 import com.webyar.operator.ui.AppTab
 import com.webyar.operator.ui.ConversationViewModel
 import com.webyar.operator.ui.components.FloatingTabBar
@@ -55,6 +56,7 @@ import com.webyar.operator.ui.design.Size
 @Composable
 fun AppShell(
     appState: AppState,
+    api: WebyarApi,
     conversations: ConversationViewModel,
     language: Language,
     modifier: Modifier = Modifier,
@@ -118,9 +120,18 @@ fun AppShell(
                 composable(Route.SETTINGS) {
                     SettingsRoute(
                         appState = appState,
+                        api = api,
                         language = language,
+                        onOpenProfile = { navController.navigate(Route.PROFILE) },
+                        onOpenSecurity = { navController.navigate(Route.SECURITY) },
                         bottomInset = Size.floatingBarHeight + Size.floatingBarBottomGap,
                     )
+                }
+                composable(Route.PROFILE) {
+                    ProfileRoute(api = api, language = language, onBack = { navController.popBackStack() })
+                }
+                composable(Route.SECURITY) {
+                    SecurityRoute(api = api, language = language, onBack = { navController.popBackStack() })
                 }
             }
         }

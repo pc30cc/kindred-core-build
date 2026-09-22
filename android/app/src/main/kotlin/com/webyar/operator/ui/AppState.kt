@@ -7,6 +7,8 @@ import com.webyar.operator.core.model.User
 import com.webyar.operator.core.model.Workspace
 import com.webyar.operator.core.net.ApiError
 import com.webyar.operator.core.net.WebyarApi
+import com.webyar.operator.core.storage.Appearance
+import com.webyar.operator.core.storage.Preferences
 import com.webyar.operator.core.storage.SessionCache
 import com.webyar.operator.i18n.Language
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +37,7 @@ sealed interface Session {
 class AppState(
     private val api: WebyarApi,
     private val cache: SessionCache,
+    private val prefs: Preferences,
 ) : ViewModel() {
 
     private val _session = MutableStateFlow<Session>(Session.Restoring)
@@ -42,6 +45,9 @@ class AppState(
 
     private val _language = MutableStateFlow(Language.DEFAULT)
     val language: StateFlow<Language> = _language.asStateFlow()
+
+    private val _appearance = MutableStateFlow(Appearance.SYSTEM)
+    val appearance: StateFlow<Appearance> = _appearance.asStateFlow()
 
     private val _workspaces = MutableStateFlow<List<Workspace>>(emptyList())
     val workspaces: StateFlow<List<Workspace>> = _workspaces.asStateFlow()
@@ -88,11 +94,31 @@ class AppState(
     }
 
     init {
-        viewModelScope.launch { restore() }
+        viewModelScope.launch {
+            // Before restore(), so the login screen is already in the right
+            // language and the right way round rather than flipping once the
+            // preference arrives.
+            prefs.language()?.let { _language.value = it }
+            _appearance.value = prefs.appearance()
+            restore()
+        }
     }
 
     fun setLanguage(language: Language) {
         _language.value = language
+        viewModelScope.launch {
+            prefs.setLanguage(language)
+            // Tell the server too, so the console and the emails this operator
+            // receives agree with the app in their hand. A failure here is not
+            // worth surfacing: the app is already in the new language, and the
+            // next successful save will carry it.
+            runCatching { api.updateProfile(fullName = null, preferredLocale = language.code) }
+        }
+    }
+
+    fun setAppearance(appearance: Appearance) {
+        _appearance.value = appearance
+        viewModelScope.launch { prefs.setAppearance(appearance) }
     }
 
     /**

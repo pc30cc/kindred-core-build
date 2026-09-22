@@ -35,7 +35,10 @@ import com.webyar.operator.i18n.Language
 import com.webyar.operator.ui.AppState
 import com.webyar.operator.feature.contacts.ContactsViewModel
 import com.webyar.operator.feature.inbox.InboxViewModel
+import androidx.compose.ui.platform.LocalContext
 import com.webyar.operator.feature.email.EmailInboxViewModel
+import com.webyar.operator.feature.promo.PromoCounters
+import com.webyar.operator.feature.promo.PromotionCenter
 import com.webyar.operator.feature.team.ColleaguesViewModel
 import com.webyar.operator.ui.Session
 import com.webyar.operator.ui.nav.AppShell
@@ -45,6 +48,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+
+        // Counted once per launch, here rather than in the promotion center:
+        // the app counts launches and the center does not. The shell rebuilds
+        // its center whenever the language changes, and a counter that reset
+        // with it would let a promotion in on a first run.
+        PromoCounters(applicationContext).noteLaunch()
 
         val api = Backend.create(applicationContext)
         val store = SecureStore(applicationContext)
@@ -114,6 +123,9 @@ private fun SignedInScreen(appState: AppState, api: WebyarApi, language: Languag
         viewModel(factory = factory { ColleaguesViewModel(api) { language } })
     val email: EmailInboxViewModel =
         viewModel(factory = factory { EmailInboxViewModel(api) { language } })
+    val context = LocalContext.current
+    val promotions: PromotionCenter =
+        viewModel(factory = factory { PromotionCenter(api, PromoCounters(context)) })
 
     AppShell(
         appState = appState,
@@ -122,6 +134,7 @@ private fun SignedInScreen(appState: AppState, api: WebyarApi, language: Languag
         contacts = contacts,
         colleagues = colleagues,
         email = email,
+        promotions = promotions,
         language = language,
     )
 }

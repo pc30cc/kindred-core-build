@@ -38,6 +38,8 @@ import com.webyar.operator.ui.AppTab
 import com.webyar.operator.feature.contacts.ContactsViewModel
 import com.webyar.operator.feature.inbox.InboxViewModel
 import com.webyar.operator.feature.email.EmailInboxViewModel
+import com.webyar.operator.feature.promo.PromoFullScreen
+import com.webyar.operator.feature.promo.PromotionCenter
 import com.webyar.operator.feature.team.ColleaguesViewModel
 import com.webyar.operator.ui.components.FloatingTabBar
 import com.webyar.operator.ui.components.TabItem
@@ -64,6 +66,7 @@ fun AppShell(
     contacts: ContactsViewModel,
     colleagues: ColleaguesViewModel,
     email: EmailInboxViewModel,
+    promotions: PromotionCenter,
     language: Language,
     modifier: Modifier = Modifier,
     navController: NavHostController = rememberNavController(),
@@ -98,6 +101,7 @@ fun AppShell(
                         onOpenConversation = { navController.navigate(Route.chat(it)) },
                         onOpenColleagues = { navController.navigate(Route.COLLEAGUES) },
                         onOpenEmail = { navController.navigate(Route.EMAIL) },
+                        promotions = promotions,
                         // The list leaves room for the bar; a pushed screen
                         // does not, because the bar is gone by then.
                         bottomInset = Size.floatingBarHeight + Size.floatingBarBottomGap,
@@ -219,6 +223,19 @@ fun AppShell(
                     appState.selectTab(tab)
                     navController.switchTo(tab)
                 },
+            )
+        }
+
+        // Over everything, including the bar. A full-screen promotion with a
+        // tab bar floating on top of it is a card the operator can navigate
+        // out from under without ever closing — which is exactly the pattern
+        // the stores object to.
+        val fullscreen by promotions.fullscreen.collectAsStateWithLifecycle()
+        fullscreen?.let {
+            PromoFullScreen(
+                creative = it,
+                language = language,
+                onDismiss = promotions::dismissFullScreen,
             )
         }
     }

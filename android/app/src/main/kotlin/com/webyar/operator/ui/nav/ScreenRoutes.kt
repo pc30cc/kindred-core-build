@@ -85,6 +85,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.platform.testTag
 import com.webyar.operator.ui.A11y
+import com.webyar.operator.feature.promo.PromoBanner
+import com.webyar.operator.feature.promo.PromotionCenter
 import com.webyar.operator.ui.design.Space
 import android.content.pm.PackageManager
 import androidx.compose.runtime.DisposableEffect
@@ -124,6 +126,7 @@ fun InboxRoute(
     onOpenConversation: (String) -> Unit,
     onOpenColleagues: () -> Unit,
     onOpenEmail: () -> Unit,
+    promotions: PromotionCenter,
     bottomInset: Dp,
 ) {
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
@@ -150,6 +153,21 @@ fun InboxRoute(
         workspace?.let { conversations.bind(it.id) }
     }
 
+    // Loaded here and offered here, and nowhere else in the app: the inbox is
+    // the one screen an operator is not in the middle of something on.
+    val promoted by promotions.promotions.collectAsStateWithLifecycle()
+    val dismissed by promotions.bannerDismissed.collectAsStateWithLifecycle()
+    // Both flows are collected even though only one is read below: the answer
+    // depends on both, and a value read out of a flow nobody is collecting
+    // never recomposes when it changes — the banner would refuse to go away.
+    val banner = remember(promoted, dismissed, plan) { promotions.banner(plan.value) }
+    LaunchedEffect(workspace?.id, language) {
+        promotions.load(workspace?.id, language)
+    }
+    LaunchedEffect(promoted, plan) {
+        promotions.offerFullScreen(plan.value)
+    }
+
     InboxScreen(
         state = inbox,
         language = language,
@@ -174,6 +192,15 @@ fun InboxRoute(
             .takeIf { plan.value?.moduleInPlan("team_chat") == true },
         onOpenEmail = onOpenEmail
             .takeIf { plan.value?.moduleInPlan("email") == true },
+        banner = banner?.let { creative ->
+            {
+                PromoBanner(
+                    creative = creative,
+                    language = language,
+                    onDismiss = promotions::dismissBanner,
+                )
+            }
+        },
     )
 }
 

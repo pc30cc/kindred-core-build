@@ -51,6 +51,10 @@ object A11y {
     const val EMAIL_THREAD = "email.thread"
     const val EMAIL_MENU = "email.menu"
 
+    const val PROMO_BANNER = "promo.banner"
+    const val PROMO_FULLSCREEN = "promo.fullscreen"
+    const val PROMO_DISMISS = "promo.dismiss"
+
     fun conversationRow(id: String) = "conversation.$id"
     fun contactRow(id: String) = "contact.$id"
     fun colleagueRow(id: String) = "colleague.$id"

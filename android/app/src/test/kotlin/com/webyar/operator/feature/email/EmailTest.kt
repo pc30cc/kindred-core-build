@@ -258,10 +258,12 @@ class EmailTest {
 
     @Test
     fun `a thread with no subject is named rather than left blank`() = runTest {
+        // Fetched out here: `setContent` takes a composable, not a coroutine.
+        val untitled = SampleApi().emailThreads("ws-1").first().copy(subject = "")
         compose.setContent {
             EmailThreadScreen(
                 EmailThreadState.Loaded(emptyList()),
-                thread = SampleApi().emailThreads("ws-1").first().copy(subject = ""),
+                thread = untitled,
                 language = Language.FA,
             )
         }

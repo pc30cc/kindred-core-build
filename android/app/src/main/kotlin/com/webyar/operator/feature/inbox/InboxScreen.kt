@@ -106,6 +106,11 @@ fun InboxScreen(
     onOpenColleagues: (() -> Unit)? = null,
     /** Null when the plan has no email module. */
     onOpenEmail: (() -> Unit)? = null,
+    /**
+     * A strip above the list. Null is the ordinary case — most workspaces
+     * have no promotion, and every one of them has dismissed it eventually.
+     */
+    banner: (@Composable () -> Unit)? = null,
 ) {
     Column(modifier.fillMaxSize()) {
         InboxBar(
@@ -129,6 +134,11 @@ fun InboxScreen(
         if (chipFilters.size > 1) {
             FilterStrip(language, chipFilters, filter, counts, onSelectFilter)
         }
+
+        // Above the list and below the chrome: an operator scrolling the
+        // inbox scrolls past it once, rather than having it pinned over the
+        // rows they are trying to read.
+        banner?.invoke()
 
         PullToRefreshBox(
             isRefreshing = refreshing,

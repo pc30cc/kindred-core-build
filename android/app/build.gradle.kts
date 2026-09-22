@@ -160,6 +160,21 @@ android {
     }
 }
 
+/**
+ * One profile in `src/main`, not a copy per variant.
+ *
+ * `mergeIntoMain` is a property of the CONSUMER — the module that ships the
+ * profile — not of the module that generates it. Without it the plugin writes
+ * the same 1.6MB of rules into `src/release/generated` and
+ * `src/minified/generated`: two identical files, in a repository, that a
+ * later run can update one of. `minified` exists so the R8'd build can be
+ * installed and looked at; it has no business having its own idea of what to
+ * compile ahead of time.
+ */
+baselineProfile {
+    mergeIntoMain = true
+}
+
 dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 

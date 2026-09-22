@@ -272,3 +272,53 @@ clicking around an old emulator.
 an Apple Silicon Mac and its QEMU threads hang before boot. Lint covers the
 API surface; what it cannot cover is font and vendor behaviour, which is why
 the flag badge now asks `Paint.hasGlyph` rather than assuming.
+
+### Speed, and what an emulator can and cannot tell you
+
+Cold start, `am start -W` `TotalTime`, 12 launches per filter with a
+`force-stop` between each, against the R8'd `minified` APK on the same API 36
+x86_64 emulator:
+
+| ART filter | min | median | max |
+|---|---|---|---|
+| `verify` — nothing compiled ahead of time | 993 ms | 1102 ms | 1359 ms |
+| `speed-profile` — compiled from the baseline profile | 992 ms | 1130 ms | 1461 ms |
+| `speed` — the whole app compiled ahead of time | 1004 ms | 1090 ms | 1424 ms |
+
+Read the third row first. `speed` is the ceiling: there is no profile, present
+or possible, that can do more than compiling every method in the app. It came
+out **12 ms** ahead of compiling nothing at all, inside a spread of 366 ms.
+
+That is not a result about the profile. It is a result about the instrument.
+An x86_64 emulator on an Apple Silicon Mac runs its JIT on a host core with
+the whole app in page cache, so the work AOT removes is work this machine
+barely does. Any number from here about compilation would be noise with a
+decimal point on it.
+
+So the question was put a different way: not *how long did it take*, but *what
+did ART actually compile*. That is measurable and it is not noisy — the files
+are on disk after `cmd package compile`:
+
+| ART filter | `base.odex` | `base.art` (app image) |
+|---|---|---|
+| `verify` | 66 KB | — |
+| `speed-profile` | **5.35 MB** | **753 KB** |
+| `speed` | 18.3 MB | — |
+
+The profile moves **5.35 MB** of machine code off the phone's first run — 80×
+what `verify` produces, and 29% of what compiling the entire app would. It is
+also the only filter of the three that produces an app image: 753 KB of
+pre-loaded, pre-initialised classes, which `speed` does not build because it
+has no startup rules to build one from.
+
+Cost in the APK is **12 KB**, not the 1.6 MB the rules occupy as text —
+`assets/dexopt/baseline.prof` is the compiled form, with the names already
+mapped through R8's mapping file. `androidx.profileinstaller` accepted it on
+first launch (`result=1`) and ART is holding a 12,016-byte `primary.prof` for
+the app.
+
+**What is still unmeasured: whether any of that reaches the first frame on a
+real phone.** It should — a mid-range device with slow flash and a weak little
+core is exactly where 5.35 MB of pre-compiled code and a preloaded class image
+pay — but this document does not claim a number it has not taken. That needs
+hardware.

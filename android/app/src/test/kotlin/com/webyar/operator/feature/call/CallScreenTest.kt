@@ -1,10 +1,12 @@
 package com.webyar.operator.feature.call
 
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.webyar.operator.core.model.CallChannel
 import com.webyar.operator.i18n.Language
@@ -116,47 +118,93 @@ class CallScreenTest {
         compose.onAllNodesWithTagCount(A11y.CALL_FAILURE_REASON, expected = 0)
     }
 
-    // MARK: - The one button
+    // MARK: - The one way off the screen
 
     @Test
     fun `a live call offers to end it`() {
         var hungUp = false
         screen(CallPhase.Connected, onHangUp = { hungUp = true })
 
-        compose.onNodeWithText(Str.hangUpCall(fa)).performClick()
+        compose.onNodeWithTag(A11y.CALL_HANG_UP)
+            .assertContentDescriptionEquals(Str.hangUpCall(fa))
+            .performClick()
 
         assertTrue(hungUp)
     }
 
     /**
-     * An ended call must not offer to end it again: the button is the same
-     * button, and an operator who taps "end" on a call that is already over
-     * has been told nothing by it.
+     * The same button, relabelled. An operator who taps "end" on a call that
+     * is already over has been told nothing by it.
      */
     @Test
     fun `an ended call offers only to leave`() {
         var done = 0
         screen(CallPhase.Ended(CallOutcome.Failed("x")), onDone = { done++ })
 
-        compose.onNodeWithText(Str.done(fa)).performClick()
+        compose.onNodeWithTag(A11y.CALL_HANG_UP)
+            .assertContentDescriptionEquals(Str.done(fa))
+            .performClick()
 
         assertEquals(1, done)
     }
 
-    /** A voice call has no camera to toggle, so it is not drawn. */
+    // MARK: - Which two controls
+
+    /**
+     * Two controls beside the red one, never three: a video call spends its
+     * second button on the camera, a voice call on the loudspeaker. This is
+     * what the console does and what the iOS screen does.
+     */
     @Test
-    fun `a voice call has no camera button`() {
+    fun `a voice call offers the loudspeaker and no camera`() {
         screen(CallPhase.Connected, channel = CallChannel.AUDIO)
 
-        compose.onAllNodesWithTagCount(A11y.CALL_CAMERA, expected = 0)
         compose.onNodeWithTag(A11y.CALL_MUTE).assertIsDisplayed()
+        compose.onNodeWithTag(A11y.CALL_SPEAKER).assertIsDisplayed()
+        compose.onAllNodesWithTagCount(A11y.CALL_CAMERA, expected = 0)
     }
 
     @Test
-    fun `a video call has one`() {
+    fun `a video call offers the camera and no loudspeaker`() {
         screen(CallPhase.Connected, channel = CallChannel.VIDEO)
 
+        compose.onNodeWithTag(A11y.CALL_MUTE).assertIsDisplayed()
         compose.onNodeWithTag(A11y.CALL_CAMERA).assertIsDisplayed()
+        compose.onAllNodesWithTagCount(A11y.CALL_SPEAKER, expected = 0)
+    }
+
+    /**
+     * Drawn while it rings, but dead until somebody is there — muting a call
+     * nobody has answered does nothing, and a control that silently does
+     * nothing is worse than one that shows it cannot.
+     */
+    @Test
+    fun `the controls are drawn but inert until the call connects`() {
+        screen(CallPhase.Waiting)
+
+        compose.onNodeWithTag(A11y.CALL_MUTE).assertIsDisplayed().assertIsNotEnabled()
+        compose.onNodeWithTag(A11y.CALL_SPEAKER).assertIsNotEnabled()
+        // Not the red one: hanging up a call that is still ringing is the
+        // whole point of the screen at that moment.
+        compose.onNodeWithTag(A11y.CALL_HANG_UP).assertIsEnabled()
+    }
+
+    @Test
+    fun `a connected call can be muted`() {
+        var toggled = false
+        compose.setContent {
+            CallScreen(
+                phase = CallPhase.Connected,
+                channel = CallChannel.AUDIO,
+                contactName = "مریم حسینی",
+                language = fa,
+                onToggleMute = { toggled = true },
+            )
+        }
+
+        compose.onNodeWithTag(A11y.CALL_MUTE).assertIsEnabled().performClick()
+
+        assertTrue(toggled)
     }
 
     /** Nothing to toggle on a call that is over. */
@@ -166,6 +214,7 @@ class CallScreenTest {
 
         compose.onAllNodesWithTagCount(A11y.CALL_MUTE, expected = 0)
         compose.onAllNodesWithTagCount(A11y.CALL_SPEAKER, expected = 0)
+        compose.onAllNodesWithTagCount(A11y.CALL_CAMERA, expected = 0)
     }
 }
 

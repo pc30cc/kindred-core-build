@@ -20,9 +20,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -39,6 +36,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -50,7 +49,6 @@ import com.webyar.operator.i18n.Str
 import com.webyar.operator.ui.A11y
 import com.webyar.operator.ui.components.Avatar
 import com.webyar.operator.ui.components.Glyph
-import com.webyar.operator.ui.components.PrimaryButton
 import com.webyar.operator.ui.design.Motion
 import com.webyar.operator.ui.design.Radius
 import com.webyar.operator.ui.design.Size
@@ -320,50 +318,75 @@ private fun Controls(
     onHangUp: () -> Unit,
     onDone: () -> Unit,
 ) {
-    Column(
+    Row(
         Modifier.padding(bottom = Space.xl),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(Space.lg),
+        horizontalArrangement = Arrangement.spacedBy(Space.xl),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         if (phase.isLive) {
-            Row(horizontalArrangement = Arrangement.spacedBy(Space.lg)) {
+            // Both states are drawn, never one shape lit and unlit. On a black
+            // screen with nothing beside it to compare against, "highlighted"
+            // is not a thing anyone can read, and reading the mute button
+            // wrong means talking to nobody.
+            CallToggle(
+                icon = if (muted) Glyph.MicOff else Glyph.Mic,
+                label = Str.mute(language),
+                tag = A11y.CALL_MUTE,
+                on = muted,
+                // Nothing to mute until there is somebody on the line. The
+                // controls are drawn while the invitation rings so the screen
+                // does not rearrange itself the instant it is answered.
+                enabled = phase == CallPhase.Connected,
+                onClick = onToggleMute,
+            )
+
+            // One or the other, never both — the console and the iOS screen
+            // agree on this. A video call is on the loudspeaker by its nature
+            // and spends its second button on the camera instead.
+            if (channel == CallChannel.VIDEO) {
                 CallToggle(
-                    icon = Glyph.Mic,
-                    label = Str.mute(language),
-                    tag = A11y.CALL_MUTE,
-                    // The button shows the STATE, not the action: lit means
-                    // the microphone is on. A muted call whose mute button
-                    // looks pressed is the one thing nobody misreads.
-                    on = !muted,
-                    onClick = onToggleMute,
+                    icon = if (cameraOn) Glyph.Videocam else Glyph.VideocamOff,
+                    label = Str.camera(language),
+                    tag = A11y.CALL_CAMERA,
+                    on = !cameraOn,
+                    enabled = phase == CallPhase.Connected,
+                    onClick = onToggleCamera,
                 )
-                if (channel == CallChannel.VIDEO) {
-                    CallToggle(
-                        icon = Icons.Filled.Check,
-                        label = Str.camera(language),
-                        tag = A11y.CALL_CAMERA,
-                        on = cameraOn,
-                        onClick = onToggleCamera,
-                    )
-                }
+            } else {
                 CallToggle(
-                    icon = Icons.Filled.Call,
+                    icon = if (speakerOn) Glyph.Speaker else Glyph.SpeakerOff,
                     label = Str.speaker(language),
                     tag = A11y.CALL_SPEAKER,
                     on = speakerOn,
+                    enabled = phase == CallPhase.Connected,
                     onClick = onToggleSpeaker,
                 )
             }
         }
 
-        PrimaryButton(
+        // Red, round, and the same button whether it ends a call or closes a
+        // finished one — it is the only way off this screen either way. It
+        // used to be a full-width blue bar, which is what a phone uses to
+        // ANSWER.
+        CallToggle(
+            icon = Glyph.CallEnd,
             label = if (phase.isLive) Str.hangUpCall(language) else Str.done(language),
+            tag = A11y.CALL_HANG_UP,
+            on = true,
+            tint = CALL_END_RED,
             onClick = if (phase.isLive) onHangUp else onDone,
-            modifier = Modifier.fillMaxWidth().testTag(A11y.CALL_HANG_UP),
         )
     }
 }
 
+/**
+ * One round button in the row under the call.
+ *
+ * [on] is the lit state and [tint] the colour it lights up in — white for a
+ * toggle, red for the one that ends the call. A disabled button keeps its
+ * shape and loses its contrast, so the row does not change length at the
+ * moment a call connects.
+ */
 @Composable
 private fun CallToggle(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -371,16 +394,32 @@ private fun CallToggle(
     tag: String,
     on: Boolean,
     onClick: () -> Unit,
+    enabled: Boolean = true,
+    tint: Color? = null,
 ) {
+    val lit = tint ?: Color.White
     Surface(
-        color = if (on) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f),
-        contentColor = if (on) Color.White else Color.White.copy(alpha = 0.45f),
+        color = when {
+            !enabled -> Color.White.copy(alpha = 0.06f)
+            on -> lit.copy(alpha = if (tint == null) 0.22f else 1f)
+            else -> Color.White.copy(alpha = 0.10f)
+        },
+        contentColor = when {
+            !enabled -> Color.White.copy(alpha = 0.25f)
+            tint != null -> Color.White
+            on -> Color.White
+            else -> Color.White.copy(alpha = 0.75f)
+        },
         shape = CircleShape,
+        enabled = enabled,
         onClick = onClick,
-        modifier = Modifier.size(Size.minTouchTarget + 8.dp).testTag(tag),
+        modifier = Modifier
+            .size(Size.minTouchTarget + 8.dp)
+            .semantics { if (on) selected = true }
+            .testTag(tag),
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = label, modifier = Modifier.size(22.dp))
+            Icon(icon, contentDescription = label, modifier = Modifier.size(24.dp))
         }
     }
 }
@@ -392,3 +431,11 @@ private fun CallToggle(
  * mode and dark, the way every phone's own dialler does.
  */
 private val CALL_BACKGROUND = Color(0xFF111418)
+
+/**
+ * The red under "end call", fixed for the same reason as the background.
+ *
+ * iOS uses `systemRed` here; this is its dark-mode value, which is the one
+ * that belongs on a near-black screen.
+ */
+private val CALL_END_RED = Color(0xFFFF453A)

@@ -269,12 +269,21 @@ export function Popover({
   // Keep the whole popover on screen.
   useLayoutEffect(() => {
     if (!open || !ref.current || !pos) return
-    const r = ref.current.getBoundingClientRect()
+    // Measure where the popover would sit without the current shift, so the
+    // correction converges instead of flipping between two positions.
+    const m = ref.current.getBoundingClientRect()
+    const left = m.left - shift.x
+    const right = m.right - shift.x
+    const top = m.top - shift.y
+    const bottom = m.bottom - shift.y
     let x = 0
     let y = 0
-    if (r.right > window.innerWidth - 8) x = window.innerWidth - 8 - r.right
-    if (r.left < 8) x = 8 - r.left
-    if (r.bottom > window.innerHeight - 8) y = window.innerHeight - 8 - r.bottom
+    if (right > window.innerWidth - 8) x = window.innerWidth - 8 - right
+    if (left + x < 8) x = 8 - left
+    if (bottom > window.innerHeight - 8) y = window.innerHeight - 8 - bottom
+    if (top + y < 8) y = 8 - top
+    x = Math.round(x)
+    y = Math.round(y)
     if (x !== shift.x || y !== shift.y) setShift({ x, y })
   }, [open, pos, shift.x, shift.y])
 
@@ -284,11 +293,13 @@ export function Popover({
   return createPortal(
     <div
       ref={ref}
+      // Anchored with top/bottom and left/right rather than a translate: the
+      // pop-in animation owns `transform`, and would move the popover while
+      // it is being measured.
       style={{
         position: 'fixed',
-        top: pos.top + shift.y,
-        left: pos.left + shift.x,
-        transform: `${alignLeft ? '' : 'translateX(-100%)'} ${side === 'top' ? 'translateY(-100%)' : ''}`,
+        ...(side === 'top' ? { bottom: window.innerHeight - pos.top - shift.y } : { top: pos.top + shift.y }),
+        ...(alignLeft ? { left: pos.left + shift.x } : { right: window.innerWidth - pos.left - shift.x }),
         zIndex: 60,
       }}
       className={cx('pop-in no-drag rounded-xl border border-line bg-surface p-1 shadow-pop', className)}

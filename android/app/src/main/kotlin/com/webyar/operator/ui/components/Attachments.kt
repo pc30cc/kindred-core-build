@@ -186,6 +186,50 @@ private fun decodeBounded(bytes: ByteArray): ImageBitmap? {
         .getOrNull()?.asImageBitmap()
 }
 
+/** Full screen, pinchable, closed by the button or a double tap. */
+@Composable
+private fun ImageViewer(photo: ImageBitmap, language: Language, onClose: () -> Unit) {
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        var zoom by remember { mutableFloatStateOf(1f) }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .pointerInput(Unit) {
+                    detectTransformGestures { _, _, gestureZoom, _ ->
+                        zoom = (zoom * gestureZoom).coerceIn(1f, 6f)
+                    }
+                }
+                .pointerInput(Unit) {
+                    detectTapGestures(onDoubleTap = { zoom = if (zoom > 1f) 1f else 2.5f })
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                bitmap = photo,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer(scaleX = zoom, scaleY = zoom),
+            )
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(Space.lg)
+                    .testTag(A11y.ATTACHMENT_VIEWER_CLOSE),
+            ) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = Str.close(language),
+                    tint = Color.White,
+                )
+            }
+        }
+    }
+}
+
 // MARK: - Voice note
 
 /**

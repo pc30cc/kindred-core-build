@@ -4,109 +4,118 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:Webyar.App.ViewModels"
     xmlns:views="using:Webyar.App.Views"
+    xmlns:controls="using:Webyar.App.Controls"
     Background="Transparent">
-    <Grid>
+    <Grid Padding="10" ColumnSpacing="10">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="340" MinWidth="280" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <Grid
-            Background="{ThemeResource LayerFillColorDefaultBrush}"
-            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-            BorderThickness="0,1,1,0"
-            CornerRadius="8,0,0,0">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-            </Grid.RowDefinitions>
+        <Border Style="{StaticResource PanelBorder}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
 
-            <Grid Padding="16,14,16,6">
-                <TextBlock x:Name="HeaderText" Style="{StaticResource SubtitleTextBlockStyle}" />
-                <Button x:Name="RefreshButton" HorizontalAlignment="Right" Padding="8,6" Background="Transparent" BorderThickness="0" Click="OnRefresh">
-                    <FontIcon FontSize="14" Glyph="&#xE72C;" />
-                </Button>
+                <Grid Padding="16,14,10,4">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <TextBlock x:Name="HeaderText" Style="{StaticResource PaneTitle}" />
+                        <Border x:Name="TotalChip" Style="{StaticResource ChipBorder}" Background="{ThemeResource BrandSoftBrush}" VerticalAlignment="Center" Visibility="Collapsed">
+                            <TextBlock x:Name="TotalText" Style="{StaticResource ChipText}" Foreground="{ThemeResource BrandBrush}" />
+                        </Border>
+                    </StackPanel>
+                    <Button x:Name="RefreshButton" HorizontalAlignment="Right" Style="{StaticResource IconButton}" Click="OnRefresh">
+                        <FontIcon FontSize="14" Glyph="&#xE72C;" />
+                    </Button>
+                </Grid>
+
+                <AutoSuggestBox x:Name="Search" Grid.Row="1" Margin="12,6,12,4" QueryIcon="Find" TextChanged="OnSearchChanged" />
+
+                <SelectorBar x:Name="Filters" Grid.Row="2" Margin="6,2,6,0" SelectionChanged="OnFilterChanged">
+                    <SelectorBarItem x:Name="FilterOpen" Tag="Open" IsSelected="True" />
+                    <SelectorBarItem x:Name="FilterPending" Tag="Pending" />
+                    <SelectorBarItem x:Name="FilterAi" Tag="Ai" />
+                    <SelectorBarItem x:Name="FilterResolved" Tag="Resolved" />
+                </SelectorBar>
+
+                <Grid Grid.Row="3" BorderBrush="{ThemeResource LineBrush}" BorderThickness="0,1,0,0">
+                    <ListView
+                        x:Name="List"
+                        Padding="6,6,6,8"
+                        SelectionMode="Single"
+                        SelectionChanged="OnSelectionChanged">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
+                                <Setter Property="Padding" Value="8,0" />
+                                <Setter Property="Margin" Value="0,1" />
+                                <Setter Property="CornerRadius" Value="10" />
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ConversationItem">
+                                <Grid Padding="2,10" ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <controls:Avatar Size="42" DisplayName="{x:Bind Name, Mode=OneWay}" ImageUrl="{x:Bind AvatarUrl, Mode=OneWay}" VerticalAlignment="Top" />
+                                    <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                        <Grid ColumnSpacing="8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock FontSize="14" FontWeight="{x:Bind NameWeight, Mode=OneWay}" Text="{x:Bind Name, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Grid.Column="1" FontSize="11.5" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind Stamp, Mode=OneWay}" VerticalAlignment="Center" />
+                                        </Grid>
+                                        <Grid ColumnSpacing="6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock FontSize="12.5" Foreground="{x:Bind PreviewBrush, Mode=OneWay}" Text="{x:Bind Preview, Mode=OneWay}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                            <Border Grid.Column="1" Style="{StaticResource ChipBorder}" Padding="6,0" Background="{ThemeResource AiSoftBrush}" Visibility="{x:Bind AiVisibility, Mode=OneWay}">
+                                                <FontIcon FontSize="10" Glyph="&#xE945;" Foreground="{ThemeResource AiBrush}" />
+                                            </Border>
+                                            <Border Grid.Column="2" Style="{StaticResource ChipBorder}" Padding="7,0" Background="{ThemeResource DangerSoftBrush}" Visibility="{x:Bind PriorityVisibility, Mode=OneWay}">
+                                                <TextBlock FontSize="10.5" FontWeight="SemiBold" Foreground="{ThemeResource DangerBrush}" Text="{x:Bind PriorityText, Mode=OneWay}" />
+                                            </Border>
+                                            <Border
+                                                Grid.Column="3"
+                                                MinWidth="20"
+                                                Height="20"
+                                                Padding="6,0"
+                                                Background="{ThemeResource BrandBrush}"
+                                                CornerRadius="10"
+                                                Visibility="{x:Bind UnreadVisibility, Mode=OneWay}">
+                                                <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="11" FontWeight="Bold" Foreground="White" Text="{x:Bind UnreadText, Mode=OneWay}" />
+                                            </Border>
+                                        </Grid>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <StackPanel x:Name="Empty" Margin="24" VerticalAlignment="Center" Spacing="10" Visibility="Collapsed">
+                        <Border Width="56" Height="56" CornerRadius="28" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
+                            <FontIcon FontSize="24" Foreground="{ThemeResource BrandBrush}" Glyph="&#xE8BD;" />
+                        </Border>
+                        <TextBlock x:Name="EmptyTitle" HorizontalAlignment="Center" FontWeight="SemiBold" FontSize="15" />
+                        <TextBlock x:Name="EmptyBody" HorizontalAlignment="Center" TextAlignment="Center" Style="{StaticResource MutedText}" />
+                    </StackPanel>
+                    <ProgressRing x:Name="Loading" IsActive="True" Width="28" Height="28" />
+                    <InfoBar x:Name="Error" VerticalAlignment="Bottom" Margin="8" Severity="Warning" IsClosable="False" />
+                </Grid>
             </Grid>
-
-            <AutoSuggestBox x:Name="Search" Grid.Row="1" Margin="12,4" QueryIcon="Find" TextChanged="OnSearchChanged" />
-
-            <SelectorBar x:Name="Filters" Grid.Row="2" Margin="4,2" SelectionChanged="OnFilterChanged">
-                <SelectorBarItem x:Name="FilterOpen" Tag="Open" IsSelected="True" />
-                <SelectorBarItem x:Name="FilterPending" Tag="Pending" />
-                <SelectorBarItem x:Name="FilterAi" Tag="Ai" />
-                <SelectorBarItem x:Name="FilterResolved" Tag="Resolved" />
-            </SelectorBar>
-
-            <Grid Grid.Row="3">
-                <ListView
-                    x:Name="List"
-                    Padding="4,4,4,8"
-                    SelectionMode="Single"
-                    SelectionChanged="OnSelectionChanged">
-                    <ListView.ItemTemplate>
-                        <DataTemplate x:DataType="vm:ConversationItem">
-                            <Grid Padding="4,10" ColumnSpacing="12">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <Border Width="40" Height="40" CornerRadius="20" Background="{ThemeResource AvatarBrush}" VerticalAlignment="Top">
-                                    <TextBlock
-                                        HorizontalAlignment="Center"
-                                        VerticalAlignment="Center"
-                                        FontWeight="SemiBold"
-                                        Foreground="{ThemeResource AvatarTextBrush}"
-                                        Text="{x:Bind Initials, Mode=OneWay}" />
-                                </Border>
-                                <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
-                                    <TextBlock FontWeight="{x:Bind NameWeight, Mode=OneWay}" Text="{x:Bind Name, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock
-                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                        Style="{StaticResource CaptionTextBlockStyle}"
-                                        Text="{x:Bind Preview, Mode=OneWay}"
-                                        TextTrimming="CharacterEllipsis"
-                                        TextWrapping="NoWrap" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="2" Spacing="6" HorizontalAlignment="Right">
-                                    <TextBlock
-                                        HorizontalAlignment="Right"
-                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                        Style="{StaticResource CaptionTextBlockStyle}"
-                                        Text="{x:Bind Stamp, Mode=OneWay}" />
-                                    <Border
-                                        MinWidth="20"
-                                        Height="20"
-                                        Padding="6,0"
-                                        HorizontalAlignment="Right"
-                                        Background="{StaticResource BrandBrush}"
-                                        CornerRadius="10"
-                                        Visibility="{x:Bind UnreadVisibility, Mode=OneWay}">
-                                        <TextBlock
-                                            HorizontalAlignment="Center"
-                                            VerticalAlignment="Center"
-                                            FontSize="11"
-                                            FontWeight="SemiBold"
-                                            Foreground="White"
-                                            Text="{x:Bind UnreadText, Mode=OneWay}" />
-                                    </Border>
-                                </StackPanel>
-                            </Grid>
-                        </DataTemplate>
-                    </ListView.ItemTemplate>
-                </ListView>
-
-                <StackPanel x:Name="Empty" Margin="24" VerticalAlignment="Center" Spacing="8" Visibility="Collapsed">
-                    <FontIcon FontSize="32" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Glyph="&#xE8BD;" />
-                    <TextBlock x:Name="EmptyTitle" HorizontalAlignment="Center" FontWeight="SemiBold" />
-                    <TextBlock x:Name="EmptyBody" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </StackPanel>
-                <ProgressRing x:Name="Loading" IsActive="True" Width="28" Height="28" />
-                <InfoBar x:Name="Error" VerticalAlignment="Bottom" Margin="8" Severity="Warning" IsClosable="False" />
-            </Grid>
-        </Grid>
+        </Border>
 
         <views:ChatView x:Name="Chat" Grid.Column="1" />
     </Grid>

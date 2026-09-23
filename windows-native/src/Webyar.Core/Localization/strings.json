@@ -413,7 +413,8 @@
   "updateRequiredTitle": "Update required",
   "updateRequiredBody": "This version of Webyar is no longer supported. Install the update to keep working.",
   "yesterday": "Yesterday",
-  "realtimeOff": "Live updates are off — refreshing every few seconds"
+  "realtimeOff": "Live updates are off — refreshing every few seconds",
+  "today": "Today"
  },
  "fa": {
   "about": "درباره",
@@ -829,7 +830,8 @@
   "updateRequiredTitle": "به‌روزرسانی لازم است",
   "updateRequiredBody": "این نسخه از وب‌یار دیگر پشتیبانی نمی‌شود. برای ادامه کار، به‌روزرسانی را نصب کنید.",
   "yesterday": "دیروز",
-  "realtimeOff": "به‌روزرسانی زنده خاموش است — هر چند ثانیه تازه می‌شود"
+  "realtimeOff": "به‌روزرسانی زنده خاموش است — هر چند ثانیه تازه می‌شود",
+  "today": "امروز"
  },
  "tr": {
   "about": "Hakkında",
@@ -1245,6 +1247,7 @@
   "updateRequiredTitle": "Güncelleme gerekli",
   "updateRequiredBody": "Webyar'ın bu sürümü artık desteklenmiyor. Çalışmaya devam etmek için güncellemeyi yükleyin.",
   "yesterday": "Dün",
-  "realtimeOff": "Canlı güncellemeler kapalı — birkaç saniyede bir yenileniyor"
+  "realtimeOff": "Canlı güncellemeler kapalı — birkaç saniyede bir yenileniyor",
+  "today": "Bugün"
  }
 }

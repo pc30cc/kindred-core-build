@@ -23,8 +23,13 @@ public static class Display
         var first = StringInfo.GetNextTextElementLength(words[0]) is var n && n > 0 ? words[0][..n] : words[0];
         if (words.Length == 1) return first.ToUpper(CultureInfo.CurrentCulture);
         var second = StringInfo.GetNextTextElementLength(words[1]) is var m && m > 0 ? words[1][..m] : words[1];
+        // "بازدیدکننده 4ZTK" would render as a jumbled "ب4": mixed directions keep one letter.
+        if (IsRightToLeft(first) != IsRightToLeft(second)) return first.ToUpper(CultureInfo.CurrentCulture);
         return (first + second).ToUpper(CultureInfo.CurrentCulture);
     }
+
+    private static bool IsRightToLeft(string text) =>
+        text.Length > 0 && text[0] is >= '\u0590' and <= '\u08FF' or >= '\uFB1D' and <= '\uFEFC';
 
     /// <summary>A one-line preview of the last message; attachments get a sentence instead of an empty line.</summary>
     public static string Preview(MessagePreview? last, Strings s)

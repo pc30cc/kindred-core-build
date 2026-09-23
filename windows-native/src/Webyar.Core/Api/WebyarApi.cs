@@ -95,10 +95,178 @@ public sealed class WebyarApi
     public Task<RealtimeSubscribe> RealtimeInboxSubscribeAsync(string workspaceId, CancellationToken ct = default) =>
         _client.PostAsync<RealtimeSubscribe>("/api/realtime/operator-inbox-subscribe", new Dictionary<string, object?> { ["workspace_id"] = workspaceId }, ct);
 
+    /// <summary>Tags replace the whole list; send the full set.</summary>
+    public Task SetTagsAsync(string conversationId, string workspaceId, IReadOnlyList<string> tags, CancellationToken ct = default) =>
+        _client.SendAsync(HttpMethod.Patch, $"/api/conversations/{Uri.EscapeDataString(conversationId)}", new Dictionary<string, object?> { ["workspace_id"] = workspaceId, ["tags"] = tags }, ct: ct);
+
+    /// <summary>Takes a conversation back from the AI agent, falling back to the older AI-agent route on a 404.</summary>
+    public async Task TakeOverAsync(string conversationId, string workspaceId, CancellationToken ct = default)
+    {
+        var body = new Dictionary<string, object?> { ["workspaceId"] = workspaceId, ["assign_to_me"] = true };
+        try
+        {
+            await _client.SendAsync(HttpMethod.Post, $"/api/conversations/{Uri.EscapeDataString(conversationId)}/take-over", body, ct: ct).ConfigureAwait(false);
+        }
+        catch (ApiException e) when (e.Failure == ApiFailure.Server && e.Status == 404)
+        {
+            await _client.SendAsync(HttpMethod.Post, $"/api/ai-agent/conversations/{Uri.EscapeDataString(conversationId)}/take-over", body, ct: ct).ConfigureAwait(false);
+        }
+    }
+
+    // People and notes
+
+    public async Task<IReadOnlyList<WorkspaceMember>> MembersAsync(string workspaceId, CancellationToken ct = default) =>
+        (await _client.GetAsync<MembersResponse>("/api/workspace-members", [Q("workspaceId", workspaceId)], ct).ConfigureAwait(false))?.Members ?? [];
+
+    public async Task<IReadOnlyList<ConversationNote>> NotesAsync(string conversationId, string workspaceId, CancellationToken ct = default) =>
+        (await _client.GetAsync<NotesResponse>($"/api/conversations/{Uri.EscapeDataString(conversationId)}/notes", [Q("workspace_id", workspaceId)], ct).ConfigureAwait(false))?.Notes ?? [];
+
+    public Task AddNoteAsync(string conversationId, string workspaceId, string body, CancellationToken ct = default) =>
+        _client.SendAsync(HttpMethod.Post, $"/api/conversations/{Uri.EscapeDataString(conversationId)}/notes", new Dictionary<string, object?> { ["workspace_id"] = workspaceId, ["body"] = body }, ct: ct);
+
+    public Task DeleteNoteAsync(string conversationId, string workspaceId, string noteId, CancellationToken ct = default) =>
+        _client.SendAsync(HttpMethod.Delete, $"/api/conversations/{Uri.EscapeDataString(conversationId)}/notes/{Uri.EscapeDataString(noteId)}", query: [Q("workspace_id", workspaceId)], ct: ct);
+
+    /// <summary>Where the visitor is and what they browse with. Decorative: a failure means "no detail".</summary>
+    public async Task<VisitorProfile?> VisitorProfileAsync(string workspaceId, string conversationId, CancellationToken ct = default)
+    {
+        try
+        {
+            var r = await _client.PostAsync<VisitorIntelResponse>("/api/visitor-intel/network/batch",
+                new Dictionary<string, object?> { ["workspace_id"] = workspaceId, ["conversation_ids"] = new[] { conversationId } }, ct).ConfigureAwait(false);
+            return r?.ByConversation?.GetValueOrDefault(conversationId);
+        }
+        catch (ApiException e) when (e.Failure != ApiFailure.Unauthorized)
+        {
+            return null;
+        }
+    }
+
+    // Attachments: reserve, upload, then reference — a client never learns a storage URL.
+
+    public async Task<string> UploadAttachmentAsync(string workspaceId, string? conversationId, string fileName, string mimeType, byte[] data, CancellationToken ct = default)
+    {
+        var reserve = await _client.PostAsync<AttachmentReserve>("/api/conversation-attachments/init", new Dictionary<string, object?>
+        {
+            ["workspace_id"] = workspaceId,
+            ["conversation_id"] = conversationId,
+            ["file_name"] = fileName,
+            ["mime_type"] = mimeType,
+            ["size_bytes"] = data.LongLength,
+        }, ct).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(reserve?.AttachmentId)) throw new ApiException(ApiFailure.Decoding);
+        await _client.SendAsync(HttpMethod.Post, $"/api/conversation-attachments/{Uri.EscapeDataString(reserve.AttachmentId)}/upload",
+            new Dictionary<string, object?> { ["workspace_id"] = workspaceId, ["data"] = Convert.ToBase64String(data) }, ct: ct).ConfigureAwait(false);
+        return reserve.AttachmentId;
+    }
+
+    public Task<byte[]> AttachmentDataAsync(string attachmentId, CancellationToken ct = default) =>
+        _client.GetBytesAsync($"/api/conversation-attachments/{Uri.EscapeDataString(attachmentId)}/file", ct);
+
+    public Task SendMessageWithAttachmentAsync(string conversationId, string workspaceId, string body, string clientMessageId, string attachmentId, CancellationToken ct = default) =>
+        SendMessageAsync(conversationId, workspaceId, body, clientMessageId, attachmentId, ct);
+
+    // Contacts
+
+    public async Task<IReadOnlyList<Contact>> ContactsAsync(string workspaceId, CancellationToken ct = default) =>
+        (await _client.GetAsync<ContactsResponse>("/api/contacts", [Q("workspace_id", workspaceId)], ct).ConfigureAwait(false))?.Contacts ?? [];
+
+    // Colleagues — operator-to-operator messages.
+
+    public async Task<ColleaguesResponse> ColleaguesAsync(string workspaceId, CancellationToken ct = default) =>
+        await _client.GetAsync<ColleaguesResponse>("/api/team-chat/colleagues", [Q("workspace_id", workspaceId)], ct).ConfigureAwait(false) ?? new ColleaguesResponse();
+
+    public async Task<TeamThread> TeamThreadAsync(string workspaceId, string peerId, CancellationToken ct = default) =>
+        await _client.GetAsync<TeamThread>("/api/team-chat/thread", [Q("workspace_id", workspaceId), Q("peer_id", peerId)], ct).ConfigureAwait(false) ?? new TeamThread();
+
+    public Task SendTeamMessageAsync(string workspaceId, string recipientId, string body, string? attachmentId = null, CancellationToken ct = default) =>
+        _client.SendAsync(HttpMethod.Post, "/api/team-chat/messages", new Dictionary<string, object?>
+        {
+            ["workspace_id"] = workspaceId,
+            ["recipient_id"] = recipientId,
+            ["body"] = body,
+            ["attachment_id"] = attachmentId,
+        }, ct: ct);
+
+    public Task MarkTeamReadAsync(string workspaceId, string peerId, CancellationToken ct = default) =>
+        _client.SendAsync(HttpMethod.Post, "/api/team-chat/read", new Dictionary<string, object?> { ["workspace_id"] = workspaceId, ["peer_id"] = peerId }, ct: ct);
+
+    // Saved replies
+
+    public async Task<IReadOnlyList<CannedResponse>> CannedResponsesAsync(string workspaceId, string locale, string query, CancellationToken ct = default) =>
+        (await _client.GetAsync<CannedResponsesResponse>("/api/canned-responses",
+            [Q("workspace_id", workspaceId), Q("locale", locale), Q("limit", "50"), Q("q", string.IsNullOrWhiteSpace(query) ? null : query.Trim())], ct).ConfigureAwait(false))?.Items ?? [];
+
+    public Task TrackCannedUseAsync(string id, string workspaceId, CancellationToken ct = default) =>
+        _client.SendAsync(HttpMethod.Post, $"/api/canned-responses/{Uri.EscapeDataString(id)}/track-use", new Dictionary<string, object?> { ["workspace_id"] = workspaceId }, ct: ct);
+
+    // Email inbox — a real mailbox on its own /api/email-inbox surface.
+
+    public async Task<IReadOnlyList<EmailThreadSummary>> EmailThreadsAsync(string workspaceId, string? search = null, CancellationToken ct = default) =>
+        (await _client.GetAsync<EmailThreadsResponse>($"/api/email-inbox/{Uri.EscapeDataString(workspaceId)}/threads",
+            [Q("limit", "50"), Q("q", string.IsNullOrWhiteSpace(search) ? null : search)], ct).ConfigureAwait(false))?.Threads ?? [];
+
+    public async Task<EmailThreadDetail> EmailThreadAsync(string workspaceId, string threadId, CancellationToken ct = default) =>
+        await _client.GetAsync<EmailThreadDetail>($"/api/email-inbox/{Uri.EscapeDataString(workspaceId)}/threads/{Uri.EscapeDataString(threadId)}", ct: ct).ConfigureAwait(false) ?? new EmailThreadDetail();
+
+    public Task SetEmailReadAsync(string workspaceId, string threadId, bool isRead, CancellationToken ct = default) =>
+        _client.SendAsync(HttpMethod.Post, $"/api/email-inbox/{Uri.EscapeDataString(workspaceId)}/threads/{Uri.EscapeDataString(threadId)}/read", new Dictionary<string, object?> { ["is_read"] = isRead }, ct: ct);
+
+    public Task SetEmailStarredAsync(string workspaceId, string threadId, bool starred, CancellationToken ct = default) =>
+        _client.SendAsync(HttpMethod.Post, $"/api/email-inbox/{Uri.EscapeDataString(workspaceId)}/threads/{Uri.EscapeDataString(threadId)}/star", new Dictionary<string, object?> { ["starred"] = starred }, ct: ct);
+
+    public Task SendEmailAsync(string workspaceId, string? threadId, IReadOnlyList<string> to, string subject, string body, CancellationToken ct = default) =>
+        _client.SendAsync(HttpMethod.Post, $"/api/email-inbox/{Uri.EscapeDataString(workspaceId)}/send", new Dictionary<string, object?>
+        {
+            ["thread_id"] = threadId,
+            ["to"] = to,
+            ["subject"] = subject,
+            ["text_body"] = body,
+        }, ct: ct);
+
+    public async Task<GmailConnection?> GmailConnectionAsync(string workspaceId, CancellationToken ct = default) =>
+        (await _client.GetAsync<GmailConnectionResponse>("/api/plugins/gmail/connection", [Q("workspace_id", workspaceId)], ct).ConfigureAwait(false))?.Connection;
+
+    // Calls on a conversation
+
+    public async Task<CallInvitation> InviteToCallAsync(string conversationId, string workspaceId, string channel, CancellationToken ct = default) =>
+        (await _client.PostAsync<InvitationResponse>("/api/call-invitations", new Dictionary<string, object?>
+        {
+            ["workspace_id"] = workspaceId,
+            ["conversation_id"] = conversationId,
+            ["channel"] = channel,
+        }, ct).ConfigureAwait(false))?.Invitation ?? throw new ApiException(ApiFailure.Decoding);
+
+    public async Task<CallInvitation> InvitationAsync(string id, CancellationToken ct = default) =>
+        (await _client.GetAsync<InvitationResponse>($"/api/call-invitations/{Uri.EscapeDataString(id)}", ct: ct).ConfigureAwait(false))?.Invitation ?? throw new ApiException(ApiFailure.Decoding);
+
+    public Task CancelInvitationAsync(string id, CancellationToken ct = default) =>
+        _client.SendAsync(HttpMethod.Post, $"/api/call-invitations/{Uri.EscapeDataString(id)}/cancel", ct: ct);
+
+    /// <summary>`display_name` is optional but not nullable server-side: leave it out rather than send null.</summary>
+    public Task<CallToken> CallTokenAsync(string callSessionId, string? displayName, CancellationToken ct = default)
+    {
+        var body = new Dictionary<string, object?> { ["participant_type"] = "operator" };
+        if (!string.IsNullOrWhiteSpace(displayName)) body["display_name"] = displayName;
+        return _client.PostAsync<CallToken>($"/api/calls/{Uri.EscapeDataString(callSessionId)}/token", body, ct);
+    }
+
+    public Task HangUpAsync(string callSessionId, CancellationToken ct = default) =>
+        _client.SendAsync(HttpMethod.Post, $"/api/calls/{Uri.EscapeDataString(callSessionId)}/hangup", ct: ct);
+
     private sealed record SessionResponse(User? User);
     private sealed record WorkspacesResponse(IReadOnlyList<Workspace>? Workspaces);
     private sealed record ConversationsResponse(IReadOnlyList<Conversation>? Conversations);
     private sealed record MessagesResponse(IReadOnlyList<Message>? Messages);
     private sealed record PrefsResponse(NotificationPrefs? Prefs);
+    private sealed record MembersResponse(IReadOnlyList<WorkspaceMember>? Members);
+    private sealed record NotesResponse(IReadOnlyList<ConversationNote>? Notes);
+    private sealed record ContactsResponse(IReadOnlyList<Contact>? Contacts);
+    private sealed record AttachmentReserve(string? AttachmentId);
+    private sealed record VisitorIntelResponse(Dictionary<string, VisitorProfile>? ByConversation, Dictionary<string, VisitorProfile>? ByContact);
+    private sealed record CannedResponsesResponse(IReadOnlyList<CannedResponse>? Items);
+    private sealed record EmailThreadsResponse([property: System.Text.Json.Serialization.JsonPropertyName("threads")] IReadOnlyList<EmailThreadSummary>? Threads);
+    private sealed record GmailConnectionResponse([property: System.Text.Json.Serialization.JsonPropertyName("connection")] GmailConnection? Connection);
+    private sealed record InvitationResponse(CallInvitation? Invitation);
     private sealed record SendMessageBody(string ConversationId, string WorkspaceId, string Body, string ClientMessageId, string? AttachmentId);
 }

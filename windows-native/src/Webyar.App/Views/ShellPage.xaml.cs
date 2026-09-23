@@ -14,6 +14,7 @@ namespace Webyar.App.Views;
 public sealed partial class ShellPage : Page
 {
     private BackgroundNotifier? _notifier;
+    private Helpers.Poller? _colleagues;
     private string? _pendingConversation;
 
     public ShellPage()
@@ -21,6 +22,8 @@ public sealed partial class ShellPage : Page
         InitializeComponent();
         NavigationCacheMode = NavigationCacheMode.Disabled;
         ContentFrame.Navigated += (_, _) => SyncSelection();
+        // The settings item only exists once the template is applied.
+        Nav.Loaded += (_, _) => { if (Nav.SettingsItem is NavigationViewItem settings) settings.Content = Host.Strings["tabSettings"]; };
     }
 
     private static AppHost Host => App.Current.Host;
@@ -41,8 +44,20 @@ public sealed partial class ShellPage : Page
             _notifier = new BackgroundNotifier(Host, ws.Id) { VisibleConversation = () => Inbox?.OpenConversationId };
             _notifier.UnreadChanged += SetUnread;
             _notifier.Start();
+            _colleagues = new Helpers.Poller("colleagues-badge", RefreshColleaguesBadgeAsync, () => Host.PollInterval(TimeSpan.FromSeconds(30)));
+            _colleagues.Start();
+            Host.InboxChanged += _ => _colleagues?.Kick();
         }
-        Nav.SelectedItem = InboxItem;
+        // Webyar.exe --page=colleagues|email|contacts|settings opens straight on that section.
+        var page = Environment.GetCommandLineArgs().FirstOrDefault(a => a.StartsWith("--page=", StringComparison.Ordinal))?[7..];
+        Nav.SelectedItem = page switch
+        {
+            "colleagues" => ColleaguesItem,
+            "email" => EmailItem,
+            "contacts" => ContactsItem,
+            "settings" => Nav.SettingsItem ?? InboxItem,
+            _ => InboxItem,
+        };
     }
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
@@ -58,6 +73,8 @@ public sealed partial class ShellPage : Page
         Host.Updates.PropertyChanged -= OnUpdateChanged;
         _notifier?.Dispose();
         _notifier = null;
+        _colleagues?.Dispose();
+        _colleagues = null;
         Inbox?.Teardown();
     }
 
@@ -74,32 +91,50 @@ public sealed partial class ShellPage : Page
 
     private void OnNavigate(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
-        if (args.IsSettingsSelected)
+        var page = args.IsSettingsSelected ? typeof(SettingsPage) : (args.SelectedItem as NavigationViewItem)?.Tag switch
         {
-            if (ContentFrame.Content is not SettingsPage) ContentFrame.Navigate(typeof(SettingsPage));
-            return;
-        }
-        if (args.SelectedItem == InboxItem && ContentFrame.Content is not InboxPage)
-        {
-            Inbox?.Teardown();
-            ContentFrame.Navigate(typeof(InboxPage), _pendingConversation);
-            _pendingConversation = null;
-        }
+            "colleagues" => typeof(ColleaguesPage),
+            "email" => typeof(EmailPage),
+            "contacts" => typeof(ContactsPage),
+            _ => typeof(InboxPage),
+        };
+        if (ContentFrame.Content?.GetType() == page) return;
+        Inbox?.Teardown();
+        ContentFrame.Navigate(page, page == typeof(InboxPage) ? _pendingConversation : null);
+        if (page == typeof(InboxPage)) _pendingConversation = null;
     }
 
     private void SyncSelection()
     {
-        var want = ContentFrame.Content is SettingsPage ? Nav.SettingsItem : InboxItem;
+        object want = ContentFrame.Content switch
+        {
+            SettingsPage => Nav.SettingsItem,
+            ColleaguesPage => ColleaguesItem,
+            EmailPage => EmailItem,
+            ContactsPage => ContactsItem,
+            _ => InboxItem,
+        };
         if (!ReferenceEquals(Nav.SelectedItem, want)) Nav.SelectedItem = want;
+    }
+
+    /// <summary>Unread colleague messages for the sidebar badge, refreshed with the inbox's rhythm.</summary>
+    private async Task RefreshColleaguesBadgeAsync(CancellationToken ct)
+    {
+        if (Host.Workspace is not { } ws) return;
+        var r = await Host.Api.ColleaguesAsync(ws.Id, ct);
+        var n = r.TotalUnread ?? r.Colleagues?.Sum(c => c.Unread ?? 0) ?? 0;
+        ColleaguesBadge.Value = n;
+        ColleaguesBadge.Visibility = n > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void OnLanguageChanged()
     {
         ApplyLanguage();
         // Rebuild the page on show so every word is in the new language.
-        var page = ContentFrame.Content switch { SettingsPage => typeof(SettingsPage), _ => typeof(InboxPage) };
+        var page = ContentFrame.Content?.GetType() ?? typeof(InboxPage);
+        var open = Inbox?.OpenConversationId;
         Inbox?.Teardown();
-        ContentFrame.Navigate(page, Inbox?.OpenConversationId);
+        ContentFrame.Navigate(page, page == typeof(InboxPage) ? open : null);
         ContentFrame.BackStack.Clear();
         _notifier?.Kick();
     }
@@ -108,11 +143,17 @@ public sealed partial class ShellPage : Page
     {
         var s = Host.Strings;
         InboxItem.Content = s["tabInbox"];
+        ColleaguesItem.Content = s["colleagues"];
+        EmailItem.Content = s["emailInbox"];
+        ContactsItem.Content = s["tabContacts"];
         if (Nav.SettingsItem is NavigationViewItem settings) settings.Content = s["tabSettings"];
         var name = Host.User?.FullName is { Length: > 0 } n ? n : Host.User?.Email ?? s["account"];
-        AccountItem.Content = name;
+        MeName.Text = name;
+        MeAvatar.DisplayName = name;
         ToolTipService.SetToolTip(AccountItem, Host.Workspace?.Name is { Length: > 0 } w ? $"{name} — {w}" : name);
-        Nav.PaneTitle = Host.Workspace?.Name ?? s["appName"];
+        WorkspaceName.Text = Host.Workspace?.Name is { Length: > 0 } wn ? wn : s["appName"];
+        WorkspaceLogo.ImageSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
+            Host.Workspace?.LogoUrl is { } logo && logo.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? new Uri(logo) : new Uri(AppPaths.Icon));
         UpdateButton.Content = s["updateRestart"];
         ToastsOffBar.Title = s["windowsNotificationsOff"];
         ToastsOffBar.Message = s["windowsNotificationsOffBody"];

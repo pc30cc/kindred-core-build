@@ -91,16 +91,35 @@ public sealed partial class InboxPage : Page
 
     private void OnInboxChanged(InboxEvent e) => _poller?.Kick();
 
+    private void ShowCounts(InboxCounts c)
+    {
+        var s = Host.Strings;
+        string Label(string key, int? n) => n is > 0 ? $"{s[key]}  {Digits.Localize(n.Value.ToString(System.Globalization.CultureInfo.InvariantCulture), s.Language)}" : s[key];
+        FilterOpen.Text = Label("filterOpen", c.Open);
+        FilterPending.Text = Label("filterPending", c.Pending);
+        FilterAi.Text = Label("filterAI", c.Automated);
+        FilterResolved.Text = s["filterResolved"];
+    }
+
     private async Task LoadAsync(CancellationToken ct)
     {
         if (Host.Workspace is not { } ws) return;
         var generation = _generation;
         try
         {
+            var counts = Host.Api.InboxCountsAsync(ws.Id, "mine", ct);
             var list = await Host.Api.ConversationsAsync(ws.Id, _filter, ct);
             if (generation != _generation) return; // the filter changed while this was loading
             Apply(list);
             Error.IsOpen = false;
+            try
+            {
+                ShowCounts(await counts);
+            }
+            catch (ApiException)
+            {
+                // Counts are a decoration; the list itself loaded.
+            }
         }
         catch (ApiException e) when (e.Failure != ApiFailure.Unauthorized)
         {
@@ -140,6 +159,9 @@ public sealed partial class InboxPage : Page
         }
         _syncing = false;
         Empty.Visibility = _items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var unread = _all.Values.Count(i => (i.Conversation.UnreadCount ?? 0) > 0);
+        TotalText.Text = Digits.Localize(unread.ToString(System.Globalization.CultureInfo.InvariantCulture), s.Language);
+        TotalChip.Visibility = unread > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>Moves the collection to <paramref name="wanted"/> with the fewest changes, so rows keep their state.</summary>

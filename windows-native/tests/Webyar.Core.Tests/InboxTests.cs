@@ -61,6 +61,7 @@ public class InboxTests
         Assert.StartsWith(Fa["unknownVisitor"], Display.ContactName(new ConversationContact(VisitorCode: "4ZTK"), Fa));
         Assert.Equal("مد", Display.Initials("مجتبی داودی"));
         Assert.Equal("V4", Display.Initials("Visitor 4ZTK"));
+        Assert.Equal("ب", Display.Initials("بازدیدکننده 4ZTK"));
 
         Assert.Equal("You sent a photo", Display.Preview(new MessagePreview("", SenderType: SenderTypes.Agent, AttachmentKind: "image"), En));
         Assert.Equal("Sara sent a photo", Display.Preview(new MessagePreview(null, SenderType: SenderTypes.Contact, SenderName: "Sara", AttachmentKind: "image"), En));

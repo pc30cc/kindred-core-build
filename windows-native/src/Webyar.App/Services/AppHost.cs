@@ -42,6 +42,40 @@ public sealed class AppHost : IAsyncDisposable
     public IReadOnlyList<Workspace> Workspaces { get; set; } = [];
     public Workspace? Workspace { get; set; }
 
+    private IReadOnlyList<WorkspaceMember>? _members;
+    private DateTimeOffset _membersAt;
+    private string? _membersWorkspace;
+
+    /// <summary>The workspace's people, cached for ten minutes: names for "assigned to" and the transfer menu.</summary>
+    public async Task<IReadOnlyList<WorkspaceMember>> MembersAsync()
+    {
+        if (Workspace is not { } ws) return [];
+        if (_members is not null && _membersWorkspace == ws.Id && DateTimeOffset.UtcNow - _membersAt < TimeSpan.FromMinutes(10)) return _members;
+        _members = await Api.MembersAsync(ws.Id);
+        _membersAt = DateTimeOffset.UtcNow;
+        _membersWorkspace = ws.Id;
+        return _members;
+    }
+
+    /// <summary>A colleague's name from the cache, or empty when it is not loaded yet.</summary>
+    public string MemberName(string userId)
+    {
+        if (_members is null && Workspace is not null) _ = MembersQuietlyAsync();
+        return _members?.FirstOrDefault(m => m.UserId == userId)?.DisplayName ?? string.Empty;
+    }
+
+    private async Task MembersQuietlyAsync()
+    {
+        try
+        {
+            await MembersAsync();
+        }
+        catch (Exception e)
+        {
+            Log.Error("members", e);
+        }
+    }
+
     public InboxRealtime? Realtime { get; private set; }
     public bool RealtimeConnected => Realtime?.IsConnected == true;
 

@@ -43,6 +43,21 @@ public sealed partial class ConversationItem : ObservableObject
     [ObservableProperty]
     private FontWeight _nameWeight = Microsoft.UI.Text.FontWeights.Normal;
 
+    [ObservableProperty]
+    private string? _avatarUrl;
+
+    [ObservableProperty]
+    private string _priorityText = string.Empty;
+
+    [ObservableProperty]
+    private Visibility _priorityVisibility = Visibility.Collapsed;
+
+    [ObservableProperty]
+    private Visibility _aiVisibility = Visibility.Collapsed;
+
+    [ObservableProperty]
+    private Microsoft.UI.Xaml.Media.Brush? _previewBrush;
+
     public void Update(Conversation c, Strings s, DateTimeOffset now)
     {
         Conversation = c;
@@ -53,7 +68,14 @@ public sealed partial class ConversationItem : ObservableObject
         var unread = Math.Max(0, c.UnreadCount ?? 0);
         UnreadText = Digits.Localize(unread > 99 ? "99+" : unread.ToString(System.Globalization.CultureInfo.InvariantCulture), s.Language);
         UnreadVisibility = unread > 0 ? Visibility.Visible : Visibility.Collapsed;
-        NameWeight = unread > 0 ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
+        NameWeight = unread > 0 ? Microsoft.UI.Text.FontWeights.Bold : Microsoft.UI.Text.FontWeights.SemiBold;
+        AvatarUrl = c.Contacts?.AvatarUrl;
+        var urgent = c.Priority is ConversationPriorities.High or ConversationPriorities.Urgent;
+        PriorityText = urgent ? s[c.Priority == ConversationPriorities.Urgent ? "priorityUrgent" : "priorityHigh"] : string.Empty;
+        PriorityVisibility = urgent ? Visibility.Visible : Visibility.Collapsed;
+        // The AI agent is still answering this one.
+        AiVisibility = c.AiState is "active" or "handling" or "ai" ? Visibility.Visible : Visibility.Collapsed;
+        PreviewBrush = Helpers.Palette.Resource(unread > 0 ? "TextBrush" : "Text2Brush");
     }
 
     public bool Matches(string query) =>

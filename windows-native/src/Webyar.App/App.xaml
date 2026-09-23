@@ -6,32 +6,96 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+                <ResourceDictionary Source="ms-appx:///Styles/Controls.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
+            <!--
+                The same design tokens as the iOS app and the earlier desktop client
+                (windows/src/renderer/src/styles.css): brand blue #3B7AF2, lifted to
+                #5A94FF in dark, on the launch screen's #F4F6F9 / #0C0E14.
+            -->
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
+                    <Color x:Key="SystemAccentColor">#3B7AF2</Color>
+                    <Color x:Key="SystemAccentColorLight1">#5A8FF5</Color>
+                    <Color x:Key="SystemAccentColorLight2">#7FA8F7</Color>
+                    <Color x:Key="SystemAccentColorLight3">#A9C5FA</Color>
+                    <Color x:Key="SystemAccentColorDark1">#2F6AE0</Color>
+                    <Color x:Key="SystemAccentColorDark2">#2559C4</Color>
+                    <Color x:Key="SystemAccentColorDark3">#1C47A3</Color>
+
+                    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#F4F6F9" />
+                    <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="Surface2Brush" Color="#F8F9FB" />
+                    <SolidColorBrush x:Key="ElevatedBrush" Color="#EEF1F5" />
+                    <SolidColorBrush x:Key="HoverBrush" Color="#EEF2F8" />
+                    <SolidColorBrush x:Key="SelectedBrush" Color="#E7EFFE" />
+                    <SolidColorBrush x:Key="LineBrush" Color="#E3E7EE" />
+                    <SolidColorBrush x:Key="LineStrongBrush" Color="#D2D8E2" />
+                    <SolidColorBrush x:Key="TextBrush" Color="#0F1729" />
+                    <SolidColorBrush x:Key="Text2Brush" Color="#5B6577" />
+                    <SolidColorBrush x:Key="Text3Brush" Color="#98A2B3" />
+                    <SolidColorBrush x:Key="BrandBrush" Color="#3B7AF2" />
+                    <SolidColorBrush x:Key="BrandSoftBrush" Color="#1F3B7AF2" />
+                    <SolidColorBrush x:Key="OnBrandBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="DangerBrush" Color="#E5484D" />
+                    <SolidColorBrush x:Key="DangerSoftBrush" Color="#1FE5484D" />
+                    <SolidColorBrush x:Key="SuccessBrush" Color="#30A46C" />
+                    <SolidColorBrush x:Key="SuccessSoftBrush" Color="#2430A46C" />
+                    <SolidColorBrush x:Key="WarningBrush" Color="#F76B15" />
+                    <SolidColorBrush x:Key="WarningSoftBrush" Color="#24F76B15" />
+                    <SolidColorBrush x:Key="AiBrush" Color="#7C4DDB" />
+                    <SolidColorBrush x:Key="AiSoftBrush" Color="#1F7C4DDB" />
                     <SolidColorBrush x:Key="BubbleIncomingBrush" Color="#FFFFFF" />
-                    <SolidColorBrush x:Key="BubbleOutgoingBrush" Color="#2F6BFF" />
+                    <SolidColorBrush x:Key="BubbleOutgoingBrush" Color="#3B7AF2" />
                     <SolidColorBrush x:Key="BubbleOutgoingTextBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="NoteBubbleBrush" Color="#FFF8E6" />
+                    <SolidColorBrush x:Key="NoteBorderBrush" Color="#F5D98A" />
                     <SolidColorBrush x:Key="ChatBackgroundBrush" Color="#F4F6F9" />
-                    <SolidColorBrush x:Key="AvatarBrush" Color="#E6EDFF" />
-                    <SolidColorBrush x:Key="AvatarTextBrush" Color="#2F6BFF" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
-                    <SolidColorBrush x:Key="BubbleIncomingBrush" Color="#2B2F36" />
-                    <SolidColorBrush x:Key="BubbleOutgoingBrush" Color="#3D7BFF" />
+                    <Color x:Key="SystemAccentColor">#5A94FF</Color>
+                    <Color x:Key="SystemAccentColorLight1">#75A6FF</Color>
+                    <Color x:Key="SystemAccentColorLight2">#93BAFF</Color>
+                    <Color x:Key="SystemAccentColorLight3">#B5CFFF</Color>
+                    <Color x:Key="SystemAccentColorDark1">#4A84EE</Color>
+                    <Color x:Key="SystemAccentColorDark2">#3B72D6</Color>
+                    <Color x:Key="SystemAccentColorDark3">#2E5EB8</Color>
+
+                    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#0C0E14" />
+                    <SolidColorBrush x:Key="SurfaceBrush" Color="#13161E" />
+                    <SolidColorBrush x:Key="Surface2Brush" Color="#171B24" />
+                    <SolidColorBrush x:Key="ElevatedBrush" Color="#1D222D" />
+                    <SolidColorBrush x:Key="HoverBrush" Color="#1B202A" />
+                    <SolidColorBrush x:Key="SelectedBrush" Color="#1B2740" />
+                    <SolidColorBrush x:Key="LineBrush" Color="#242A36" />
+                    <SolidColorBrush x:Key="LineStrongBrush" Color="#313848" />
+                    <SolidColorBrush x:Key="TextBrush" Color="#E8ECF4" />
+                    <SolidColorBrush x:Key="Text2Brush" Color="#98A2B3" />
+                    <SolidColorBrush x:Key="Text3Brush" Color="#667085" />
+                    <SolidColorBrush x:Key="BrandBrush" Color="#5A94FF" />
+                    <SolidColorBrush x:Key="BrandSoftBrush" Color="#295A94FF" />
+                    <SolidColorBrush x:Key="OnBrandBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="DangerBrush" Color="#FF6369" />
+                    <SolidColorBrush x:Key="DangerSoftBrush" Color="#24FF6369" />
+                    <SolidColorBrush x:Key="SuccessBrush" Color="#3DD68C" />
+                    <SolidColorBrush x:Key="SuccessSoftBrush" Color="#243DD68C" />
+                    <SolidColorBrush x:Key="WarningBrush" Color="#FF8B3E" />
+                    <SolidColorBrush x:Key="WarningSoftBrush" Color="#29FF8B3E" />
+                    <SolidColorBrush x:Key="AiBrush" Color="#A585F0" />
+                    <SolidColorBrush x:Key="AiSoftBrush" Color="#29A585F0" />
+                    <SolidColorBrush x:Key="BubbleIncomingBrush" Color="#1D222D" />
+                    <SolidColorBrush x:Key="BubbleOutgoingBrush" Color="#4A84EE" />
                     <SolidColorBrush x:Key="BubbleOutgoingTextBrush" Color="#FFFFFF" />
-                    <SolidColorBrush x:Key="ChatBackgroundBrush" Color="#1B1E23" />
-                    <SolidColorBrush x:Key="AvatarBrush" Color="#26324D" />
-                    <SolidColorBrush x:Key="AvatarTextBrush" Color="#9DB8FF" />
+                    <SolidColorBrush x:Key="NoteBubbleBrush" Color="#2A2415" />
+                    <SolidColorBrush x:Key="NoteBorderBrush" Color="#5C4A1C" />
+                    <SolidColorBrush x:Key="ChatBackgroundBrush" Color="#0C0E14" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
 
-            <!-- The brand blue, the same token the web console and the iOS app use. -->
-            <Color x:Key="BrandColor">#2F6BFF</Color>
-            <SolidColorBrush x:Key="BrandBrush" Color="{StaticResource BrandColor}" />
-            <!-- Segoe UI Variable on Windows 11, Segoe UI and Tahoma (which carries Persian) on Windows 10. -->
-            <FontFamily x:Key="AppFont">Segoe UI Variable Text, Segoe UI, Tahoma</FontFamily>
+            <!-- Vazirmatn for Persian, as in the web console and the iOS app; Segoe UI Variable for Latin UIs. -->
+            <FontFamily x:Key="PersianFont">ms-appx:///Assets/Fonts/Vazirmatn.ttf#Vazirmatn</FontFamily>
+            <FontFamily x:Key="LatinFont">Segoe UI Variable Text, Segoe UI</FontFamily>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

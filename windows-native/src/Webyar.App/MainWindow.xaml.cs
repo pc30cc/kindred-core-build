@@ -1,6 +1,5 @@
 using System.Runtime.InteropServices;
 using Microsoft.UI;
-using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -37,9 +36,6 @@ public sealed partial class MainWindow : Window
             Log.Error("window icon", e);
         }
 
-        // Mica on Windows 11; Windows 10 has no Mica, so a plain themed background.
-        if (MicaController.IsSupported()) SystemBackdrop = new MicaBackdrop();
-        else Root.Background = (Brush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"];
 
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
@@ -190,6 +186,9 @@ public sealed partial class MainWindow : Window
         TitleText.Text = s["appName"];
         SplashText.Text = s["checkingSession"];
         Root.FlowDirection = s.IsRightToLeft ? FlowDirection.RightToLeft : FlowDirection.LeftToRight;
+        var font = (FontFamily)Application.Current.Resources[s.Language == Core.Localization.Language.Fa ? "PersianFont" : "LatinFont"];
+        RootFrame.FontFamily = font;
+        TitleText.FontFamily = font;
         UpdateInsets();
     }
 

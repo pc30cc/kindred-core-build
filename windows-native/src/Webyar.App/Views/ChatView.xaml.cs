@@ -2,38 +2,55 @@ using System.Collections.ObjectModel;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Webyar.App.Helpers;
 using Webyar.App.Services;
 using Webyar.App.ViewModels;
 using Webyar.Core.Api;
 using Webyar.Core.Inbox;
+using Webyar.Core.Localization;
 using Webyar.Core.Realtime;
 using Windows.System;
 using Windows.UI.Core;
 
 namespace Webyar.App.Views;
 
-/// <summary>One thread: the messages, the reply box, and resolve / reopen.</summary>
+/// <summary>
+/// One thread: header with the conversation's actions, the messages with
+/// their files, the reply box with attachments and saved replies, and the
+/// details panel beside it.
+/// </summary>
 public sealed partial class ChatView : UserControl
 {
+    private const long MaxUpload = 20 * 1024 * 1024;
+    private static bool _detailsOpen = true;
+
     private readonly ObservableCollection<MessageItem> _messages = [];
     private readonly List<MessageItem> _outbox = [];
     private Poller? _poller;
     private string? _id;
     private Conversation? _conversation;
     private string? _lastSeenMessage;
+    private (string Name, string Mime, byte[] Data)? _pendingFile;
 
     public ChatView()
     {
         InitializeComponent();
         Messages.ItemsSource = _messages;
+        DetailsToggle.IsChecked = _detailsOpen;
+        SizeChanged += (_, _) => ApplyDetailsVisibility();
+        Details.Changed += () =>
+        {
+            _poller?.Kick();
+            StatusChanged?.Invoke();
+        };
         ApplyLanguage();
     }
 
     private static AppHost Host => App.Current.Host;
 
-    /// <summary>Raised after resolve / reopen / assign so the list can refresh at once.</summary>
+    /// <summary>Raised after an action changes the conversation, so the list can refresh at once.</summary>
     public event Action? StatusChanged;
 
     public void Show(Conversation c)
@@ -54,37 +71,61 @@ public sealed partial class ChatView : UserControl
         Start(id);
         _conversation = null;
         NameText.Text = Host.Strings["unknownVisitor"];
-        AvatarText.Text = "?";
+        HeaderAvatar.DisplayName = NameText.Text;
         SubText.Text = string.Empty;
         AssignButton.Visibility = Visibility.Collapsed;
         StatusButton.Visibility = Visibility.Collapsed;
     }
 
-    /// <summary>New list data for the open conversation: header and actions follow it.</summary>
+    /// <summary>New list data for the open conversation: header, actions and details follow it.</summary>
     public void Refresh(Conversation c)
     {
         if (c.Id != _id) return;
+        var first = _conversation is null;
         _conversation = c;
         var s = Host.Strings;
         var name = Display.ContactName(c.Contacts, s);
         NameText.Text = name;
-        AvatarText.Text = Display.Initials(name);
-        var status = c.Status switch
+        HeaderAvatar.DisplayName = name;
+        HeaderAvatar.ImageUrl = c.Contacts?.AvatarUrl;
+        // Messages can load before the conversation itself (opened from a toast).
+        foreach (var m in _messages)
         {
-            ConversationStatuses.Open => s["filterOpen"],
-            ConversationStatuses.Pending => s["filterPending"],
-            ConversationStatuses.Resolved => s["filterResolved"],
-            ConversationStatuses.Closed => s["statusClosed"],
-            _ => c.Status,
-        };
-        var assignee = c.AssignedTo is null ? s["unassigned"] : c.AssignedTo == Host.User?.Id ? s["assignedToYou"] : null;
-        SubText.Text = string.Join(" · ", new[] { status, c.Contacts?.Email, assignee }.Where(x => !string.IsNullOrWhiteSpace(x)));
+            m.AvatarName = name;
+            m.AvatarUrl = c.Contacts?.AvatarUrl;
+        }
+
+        var (fore, back) = Palette.Status(c.Status);
+        StatusChip.Background = Palette.Resource(back);
+        StatusText.Foreground = Palette.Resource(fore);
+        StatusText.Text = StatusLabel(c.Status, s);
+
+        var showPriority = c.Priority is ConversationPriorities.High or ConversationPriorities.Urgent or ConversationPriorities.Low;
+        PriorityChip.Visibility = showPriority ? Visibility.Visible : Visibility.Collapsed;
+        if (showPriority)
+        {
+            var (pf, pb) = Palette.Priority(c.Priority);
+            PriorityChip.Background = Palette.Resource(pb);
+            PriorityText.Foreground = Palette.Resource(pf);
+            PriorityText.Text = PriorityLabel(c.Priority, s);
+        }
+
+        var assignee = c.AssignedTo is null ? s["unassigned"] : c.AssignedTo == Host.User?.Id ? s["assignedToYou"] : Host.MemberName(c.AssignedTo);
+        SubText.Text = string.Join(" · ", new[] { c.Contacts?.Email, assignee }.Where(x => !string.IsNullOrWhiteSpace(x)));
 
         var resolved = c.Status is ConversationStatuses.Resolved or ConversationStatuses.Closed;
         StatusButton.Content = resolved ? s["reopen"] : s["markResolved"];
         StatusButton.Visibility = Visibility.Visible;
-        AssignButton.Content = s["assignToMe"];
-        AssignButton.Visibility = !resolved && c.AssignedTo != Host.User?.Id && Host.User is not null ? Visibility.Visible : Visibility.Collapsed;
+        var aiActive = c.AiState is "active" or "handling" or "ai";
+        AssignButton.Content = aiActive ? s["takeOver"] : s["assignToMe"];
+        AssignButton.Visibility = !resolved && (aiActive || c.AssignedTo != Host.User?.Id) && Host.User is not null ? Visibility.Visible : Visibility.Collapsed;
+
+        var calls = Host.Config.CallsEnabled && !resolved;
+        AudioCallButton.Visibility = calls ? Visibility.Visible : Visibility.Collapsed;
+        VideoCallButton.Visibility = calls ? Visibility.Visible : Visibility.Collapsed;
+
+        Details.Show(c, first);
+        ApplyDetailsVisibility();
     }
 
     public void Close()
@@ -93,6 +134,7 @@ public sealed partial class ChatView : UserControl
         _poller = null;
         Host.InboxChanged -= OnInboxChanged;
         _id = null;
+        Details.Close();
     }
 
     private void Start(string id)
@@ -102,6 +144,7 @@ public sealed partial class ChatView : UserControl
         _lastSeenMessage = null;
         _messages.Clear();
         _outbox.Clear();
+        ClearPendingFile();
         Error.IsOpen = false;
         Composer.Text = string.Empty;
         Placeholder.Visibility = Visibility.Collapsed;
@@ -126,8 +169,29 @@ public sealed partial class ChatView : UserControl
             var list = await Host.Api.MessagesAsync(id, ct);
             if (id != _id) return;
             var s = Host.Strings;
-            var wanted = list.OrderBy(m => m.CreatedAt ?? DateTimeOffset.MinValue).Select(m => new MessageItem(m, s)).ToList();
+            var contactName = _conversation is { } c ? Display.ContactName(c.Contacts, s) : s["unknownVisitor"];
+            var avatarUrl = _conversation?.Contacts?.AvatarUrl;
+
+            var wanted = new List<MessageItem>();
+            DateTime? day = null;
+            foreach (var m in list.OrderBy(m => m.CreatedAt ?? DateTimeOffset.MinValue))
+            {
+                var item = new MessageItem(m, s) { AvatarName = contactName, AvatarUrl = avatarUrl };
+                if (item.CreatedAt is { } at && at.ToLocalTime().Date != day)
+                {
+                    day = at.ToLocalTime().Date;
+                    wanted.Add(MessageItem.DaySeparator(at, s));
+                }
+                wanted.Add(item);
+            }
             wanted.AddRange(_outbox);
+            // The avatar sits beside the last bubble of a run from the visitor.
+            for (var i = 0; i < wanted.Count; i++)
+            {
+                if (wanted[i].Side != MessageSide.Incoming) continue;
+                var next = i + 1 < wanted.Count ? wanted[i + 1] : null;
+                wanted[i].AvatarVisibility = next?.Side == MessageSide.Incoming ? Visibility.Collapsed : Visibility.Visible;
+            }
             Sync(wanted);
 
             // Seen once per new message, and only while someone is actually looking.
@@ -166,10 +230,15 @@ public sealed partial class ChatView : UserControl
         var i = 0;
         for (; i < wanted.Count && i < _messages.Count; i++)
         {
-            if (_messages[i].Id != wanted[i].Id || _messages[i].Body != wanted[i].Body) break;
+            if (!_messages[i].SameAs(wanted[i])) break;
+            _messages[i].AvatarVisibility = wanted[i].AvatarVisibility;
         }
         while (_messages.Count > i) _messages.RemoveAt(_messages.Count - 1);
-        for (; i < wanted.Count; i++) _messages.Add(wanted[i]);
+        for (; i < wanted.Count; i++)
+        {
+            _messages.Add(wanted[i]);
+            foreach (var a in wanted[i].Attachments) _ = a.LoadPreviewAsync();
+        }
     }
 
     private void ApplyLanguage()
@@ -179,10 +248,46 @@ public sealed partial class ChatView : UserControl
         PlaceholderBody.Text = s["noConversationSelectedBody"];
         Composer.PlaceholderText = s["messagePlaceholder"];
         ToolTipService.SetToolTip(SendButton, s["send"]);
+        ToolTipService.SetToolTip(AttachButton, s["attachFile"]);
+        ToolTipService.SetToolTip(ShortcutsButton, s["shortcuts"]);
+        ToolTipService.SetToolTip(AudioCallButton, s["voiceCall"]);
+        ToolTipService.SetToolTip(VideoCallButton, s["videoCall"]);
+        ToolTipService.SetToolTip(MoreButton, s["conversationActions"]);
+        ToolTipService.SetToolTip(DetailsToggle, s["details"]);
+        ShortcutSearch.PlaceholderText = s["searchShortcuts"];
     }
 
-    private void OnComposerChanged(object sender, TextChangedEventArgs e) =>
-        SendButton.IsEnabled = Composer.Text.Trim().Length > 0;
+    private static string StatusLabel(string status, Strings s) => status switch
+    {
+        ConversationStatuses.Open => s["filterOpen"],
+        ConversationStatuses.Pending => s["filterPending"],
+        ConversationStatuses.Resolved => s["filterResolved"],
+        ConversationStatuses.Closed => s["statusClosed"],
+        _ => status,
+    };
+
+    public static string PriorityLabel(string? priority, Strings s) => s[priority switch
+    {
+        ConversationPriorities.Low => "priorityLow",
+        ConversationPriorities.High => "priorityHigh",
+        ConversationPriorities.Urgent => "priorityUrgent",
+        _ => "priorityNormal",
+    }];
+
+    // Composer
+
+    private void OnComposerChanged(object sender, TextChangedEventArgs e)
+    {
+        UpdateSendEnabled();
+        // A "/" at the start opens the saved replies, as in the web console.
+        if (Composer.Text.StartsWith('/') && !Composer.Text.Contains(' ') && Composer.Text.Length <= 24)
+        {
+            ShortcutSearch.Text = Composer.Text[1..];
+            OpenShortcuts();
+        }
+    }
+
+    private void UpdateSendEnabled() => SendButton.IsEnabled = Composer.Text.Trim().Length > 0 || _pendingFile is not null;
 
     /// <summary>Enter sends; Shift+Enter starts a new line, as in the web console.</summary>
     private void OnComposerKeyDown(object sender, KeyRoutedEventArgs e)
@@ -197,21 +302,27 @@ public sealed partial class ChatView : UserControl
     private async void OnSend(object sender, RoutedEventArgs e)
     {
         var body = Composer.Text.Trim();
-        if (body.Length == 0 || _id is not { } id || Host.Workspace is not { } ws) return;
+        var file = _pendingFile;
+        if ((body.Length == 0 && file is null) || _id is not { } id || Host.Workspace is not { } ws) return;
         Composer.Text = string.Empty;
-        var item = new MessageItem(Guid.NewGuid().ToString(), body, Host.Strings);
+        ClearPendingFile();
+        var local = file is { } f ? new AttachmentItem(f.Name, f.Mime, f.Data, Host.Strings) : null;
+        var item = new MessageItem(Guid.NewGuid().ToString(), body, Host.Strings, local);
+        if (local is not null) _ = local.LoadPreviewAsync();
         _outbox.Add(item);
         _messages.Add(item);
-        await SendAsync(id, ws.Id, item);
+        await SendAsync(id, ws.Id, item, file);
     }
 
-    private async Task SendAsync(string conversationId, string workspaceId, MessageItem item)
+    private async Task SendAsync(string conversationId, string workspaceId, MessageItem item, (string Name, string Mime, byte[] Data)? file)
     {
         try
         {
             item.Failed = false;
             item.Pending = true;
-            await Host.Api.SendMessageAsync(conversationId, workspaceId, item.Body, item.ClientId!);
+            string? attachmentId = null;
+            if (file is { } f) attachmentId = await Host.Api.UploadAttachmentAsync(workspaceId, conversationId, f.Name, f.Mime, f.Data);
+            await Host.Api.SendMessageAsync(conversationId, workspaceId, item.Body, item.ClientId!, attachmentId);
             _outbox.Remove(item);
             _poller?.Kick();
             StatusChanged?.Invoke();
@@ -227,7 +338,7 @@ public sealed partial class ChatView : UserControl
             Error.ActionButton = RetryButton(() =>
             {
                 Error.IsOpen = false;
-                foreach (var failed in _outbox.Where(o => o.Failed).ToList()) _ = SendAsync(conversationId, workspaceId, failed);
+                foreach (var failed in _outbox.Where(o => o.Failed).ToList()) _ = SendAsync(conversationId, workspaceId, failed, file);
             });
             Error.IsOpen = true;
         }
@@ -240,18 +351,195 @@ public sealed partial class ChatView : UserControl
         return b;
     }
 
+    // Attachments
+
+    private async void OnAttach(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var picker = new Windows.Storage.Pickers.FileOpenPicker();
+            picker.FileTypeFilter.Add("*");
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(App.Current.Window!));
+            var file = await picker.PickSingleFileAsync();
+            if (file is null) return;
+            var props = await file.GetBasicPropertiesAsync();
+            if ((long)props.Size > MaxUpload)
+            {
+                ShowError(Host.Strings["fileTooLarge"]);
+                return;
+            }
+            var buffer = await Windows.Storage.FileIO.ReadBufferAsync(file);
+            var data = new byte[buffer.Length];
+            using (var reader = Windows.Storage.Streams.DataReader.FromBuffer(buffer)) reader.ReadBytes(data);
+            _pendingFile = (file.Name, string.IsNullOrEmpty(file.ContentType) ? Mime.Of(file.Name) : file.ContentType, data);
+            PendingFileName.Text = $"{file.Name} · {AttachmentItem.FormatSize(data.LongLength, Host.Strings)}";
+            PendingFile.Visibility = Visibility.Visible;
+            UpdateSendEnabled();
+            Composer.Focus(FocusState.Programmatic);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("pick file", ex);
+            ShowError(Host.Strings["attachmentFailed"]);
+        }
+    }
+
+    private void OnClearPendingFile(object sender, RoutedEventArgs e) => ClearPendingFile();
+
+    private void ClearPendingFile()
+    {
+        _pendingFile = null;
+        PendingFile.Visibility = Visibility.Collapsed;
+        UpdateSendEnabled();
+    }
+
+    /// <summary>Opens a file with whatever Windows opens that kind of file with.</summary>
+    private async void OnOpenAttachment(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not AttachmentItem a) return;
+        try
+        {
+            var data = await a.BytesAsync();
+            var dir = Path.Combine(Path.GetTempPath(), "Webyar", a.Id.Replace(':', '_'));
+            Directory.CreateDirectory(dir);
+            var name = string.Join("_", a.FileName.Split(Path.GetInvalidFileNameChars()));
+            if (!Path.HasExtension(name)) name += Mime.Extension(a.MimeType);
+            var path = Path.Combine(dir, name);
+            await File.WriteAllBytesAsync(path, data);
+            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
+            await Launcher.LaunchFileAsync(file);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("open attachment", ex);
+            ShowError(ErrorText.For(ex, Host.Strings));
+        }
+    }
+
+    private void ShowError(string message)
+    {
+        Error.Message = message;
+        Error.ActionButton = null;
+        Error.IsOpen = true;
+    }
+
+    // Saved replies
+
+    private void OnShortcuts(object sender, RoutedEventArgs e)
+    {
+        ShortcutSearch.Text = string.Empty;
+        OpenShortcuts();
+    }
+
+    private void OpenShortcuts()
+    {
+        FlyoutBase.ShowAttachedFlyout(ShortcutsButton);
+        _ = LoadShortcutsAsync(ShortcutSearch.Text);
+    }
+
+    private void OnShortcutSearch(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput) _ = LoadShortcutsAsync(sender.Text);
+    }
+
+    private async Task LoadShortcutsAsync(string query)
+    {
+        if (Host.Workspace is not { } ws) return;
+        var s = Host.Strings;
+        try
+        {
+            var items = await Host.Api.CannedResponsesAsync(ws.Id, Strings.Code(s.Language), query);
+            ShortcutList.ItemsSource = items.Select(i => new ShortcutItem(i)).ToList();
+            ShortcutEmpty.Text = s["shortcutsEmptyTitle"];
+            ShortcutEmpty.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("saved replies", ex);
+            ShortcutList.ItemsSource = null;
+            ShortcutEmpty.Text = s["shortcutsUnavailableTitle"];
+            ShortcutEmpty.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void OnShortcutPicked(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is not ShortcutItem item) return;
+        ShortcutsFlyout.Hide();
+        Composer.Text = item.Response.Body;
+        Composer.SelectionStart = Composer.Text.Length;
+        Composer.Focus(FocusState.Programmatic);
+        if (Host.Workspace is { } ws) _ = TrackAsync(item.Response.Id, ws.Id);
+    }
+
+    private static async Task TrackAsync(string id, string workspaceId)
+    {
+        try
+        {
+            await Host.Api.TrackCannedUseAsync(id, workspaceId);
+        }
+        catch (ApiException)
+        {
+        }
+    }
+
+    // Header actions
+
     private async void OnToggleStatus(object sender, RoutedEventArgs e)
     {
         if (_conversation is not { } c || Host.Workspace is not { } ws) return;
         var resolved = c.Status is ConversationStatuses.Resolved or ConversationStatuses.Closed;
-        await RunAsync(() => Host.Api.UpdateConversationAsync(c.Id, ws.Id, status: resolved ? ConversationStatuses.Open : ConversationStatuses.Resolved),
-            () => c with { Status = resolved ? ConversationStatuses.Open : ConversationStatuses.Resolved });
+        var next = resolved ? ConversationStatuses.Open : ConversationStatuses.Resolved;
+        await RunAsync(() => Host.Api.UpdateConversationAsync(c.Id, ws.Id, status: next), () => c with { Status = next });
     }
 
     private async void OnAssignToMe(object sender, RoutedEventArgs e)
     {
         if (_conversation is not { } c || Host.Workspace is not { } ws || Host.User is not { } me) return;
-        await RunAsync(() => Host.Api.ClaimAsync(c.Id, ws.Id), () => c with { AssignedTo = me.Id });
+        if (c.AiState is "active" or "handling" or "ai")
+            await RunAsync(() => Host.Api.TakeOverAsync(c.Id, ws.Id), () => c with { AssignedTo = me.Id, AiState = "human" });
+        else
+            await RunAsync(() => Host.Api.ClaimAsync(c.Id, ws.Id), () => c with { AssignedTo = me.Id });
+    }
+
+    private async void OnMoreOpening(object? sender, object e)
+    {
+        var s = Host.Strings;
+        MoreMenu.Items.Clear();
+        if (_conversation is not { } c || Host.Workspace is not { } ws) return;
+
+        var priority = new MenuFlyoutSubItem { Text = s["changePriority"], Icon = new FontIcon { Glyph = "" } };
+        foreach (var p in ConversationPriorities.All)
+        {
+            var item = new RadioMenuFlyoutItem { Text = PriorityLabel(p, s), GroupName = "priority", IsChecked = (c.Priority ?? ConversationPriorities.Normal) == p };
+            item.Click += async (_, _) => await RunAsync(() => Host.Api.UpdateConversationAsync(c.Id, ws.Id, priority: p), () => c with { Priority = p });
+            priority.Items.Add(item);
+        }
+        MoreMenu.Items.Add(priority);
+
+        var transfer = new MenuFlyoutSubItem { Text = s["transferConversation"], Icon = new FontIcon { Glyph = "" } };
+        MoreMenu.Items.Add(transfer);
+        if (c.AssignedTo is not null)
+        {
+            var unassign = new MenuFlyoutItem { Text = s["unassigned"], Icon = new FontIcon { Glyph = "" } };
+            unassign.Click += async (_, _) => await RunAsync(() => Host.Api.UpdateConversationAsync(c.Id, ws.Id, unassign: true), () => c with { AssignedTo = null });
+            MoreMenu.Items.Add(unassign);
+        }
+
+        try
+        {
+            foreach (var m in (await Host.MembersAsync()).Where(m => m.SuspendedAt is null))
+            {
+                var item = new ToggleMenuFlyoutItem { Text = m.DisplayName, IsChecked = m.UserId == c.AssignedTo };
+                item.Click += async (_, _) => await RunAsync(() => Host.Api.UpdateConversationAsync(c.Id, ws.Id, assignTo: m.UserId), () => c with { AssignedTo = m.UserId });
+                transfer.Items.Add(item);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("members", ex);
+        }
+        if (transfer.Items.Count == 0) transfer.Items.Add(new MenuFlyoutItem { Text = s["noResults"], IsEnabled = false });
     }
 
     private async Task RunAsync(Func<Task> action, Func<Conversation> after)
@@ -267,14 +555,33 @@ public sealed partial class ChatView : UserControl
         catch (Exception ex)
         {
             Log.Error("conversation action", ex);
-            Error.Message = ErrorText.For(ex, Host.Strings);
-            Error.ActionButton = null;
-            Error.IsOpen = true;
+            ShowError(ErrorText.For(ex, Host.Strings));
         }
         finally
         {
             StatusButton.IsEnabled = true;
             AssignButton.IsEnabled = true;
         }
+    }
+
+    private void OnToggleDetails(object sender, RoutedEventArgs e)
+    {
+        _detailsOpen = DetailsToggle.IsChecked == true;
+        ApplyDetailsVisibility();
+    }
+
+    private void ApplyDetailsVisibility() =>
+        Details.Visibility = _detailsOpen && _conversation is not null && ActualWidth > 820 ? Visibility.Visible : Visibility.Collapsed;
+
+    // Calls
+
+    private void OnAudioCall(object sender, RoutedEventArgs e) => StartCall("audio");
+
+    private void OnVideoCall(object sender, RoutedEventArgs e) => StartCall("video");
+
+    private void StartCall(string channel)
+    {
+        if (_conversation is not { } c || Host.Workspace is not { } ws) return;
+        CallWindow.Start(c, ws.Id, channel, Display.ContactName(c.Contacts, Host.Strings));
     }
 }

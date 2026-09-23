@@ -1,0 +1,84 @@
+<Page
+    x:Class="Webyar.App.Views.ContactsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:Webyar.App.ViewModels"
+    xmlns:controls="using:Webyar.App.Controls"
+    Background="Transparent">
+    <Grid Padding="10" ColumnSpacing="10">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="360" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Border Style="{StaticResource PanelBorder}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="16,14,16,4">
+                    <TextBlock x:Name="HeaderText" Style="{StaticResource PaneTitle}" />
+                    <Border Style="{StaticResource ChipBorder}" VerticalAlignment="Center">
+                        <TextBlock x:Name="CountText" Style="{StaticResource ChipText}" />
+                    </Border>
+                </StackPanel>
+                <AutoSuggestBox x:Name="Search" Grid.Row="1" Margin="12,6,12,8" QueryIcon="Find" TextChanged="OnSearch" />
+                <Grid Grid.Row="2" BorderBrush="{ThemeResource LineBrush}" BorderThickness="0,1,0,0">
+                    <ListView x:Name="List" Padding="6" SelectionMode="Single" SelectionChanged="OnSelect">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
+                                <Setter Property="CornerRadius" Value="10" />
+                                <Setter Property="Margin" Value="0,1" />
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ContactItem">
+                                <Grid Padding="2,8" ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <controls:Avatar Size="36" DisplayName="{x:Bind Name}" ImageUrl="{x:Bind AvatarUrl}" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                        <TextBlock FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock FontSize="12" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind Subtitle}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                    <StackPanel x:Name="Empty" Margin="24" VerticalAlignment="Center" Spacing="8" Visibility="Collapsed">
+                        <TextBlock x:Name="EmptyTitle" HorizontalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock x:Name="EmptyBody" HorizontalAlignment="Center" TextAlignment="Center" Style="{StaticResource MutedText}" />
+                    </StackPanel>
+                    <ProgressRing x:Name="Loading" IsActive="True" Width="28" Height="28" />
+                </Grid>
+            </Grid>
+        </Border>
+
+        <Border Grid.Column="1" Style="{StaticResource PanelBorder}">
+            <Grid>
+                <StackPanel x:Name="Placeholder" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                    <Border Width="72" Height="72" CornerRadius="36" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
+                        <FontIcon FontSize="30" Foreground="{ThemeResource BrandBrush}" Glyph="&#xE779;" />
+                    </Border>
+                    <TextBlock x:Name="PlaceholderTitle" HorizontalAlignment="Center" FontSize="16" FontWeight="SemiBold" />
+                </StackPanel>
+                <ScrollViewer x:Name="Card" Visibility="Collapsed">
+                    <StackPanel MaxWidth="520" Padding="32" Spacing="20" HorizontalAlignment="Center">
+                        <StackPanel Spacing="10" HorizontalAlignment="Center">
+                            <controls:Avatar x:Name="CardAvatar" Size="88" HorizontalAlignment="Center" />
+                            <TextBlock x:Name="CardName" HorizontalAlignment="Center" FontSize="22" FontWeight="Bold" TextWrapping="Wrap" TextAlignment="Center" />
+                        </StackPanel>
+                        <Border Style="{StaticResource CardBorder}">
+                            <StackPanel x:Name="CardRows" Spacing="12" />
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+    </Grid>
+</Page>

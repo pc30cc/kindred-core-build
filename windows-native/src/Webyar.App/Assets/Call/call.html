@@ -1,0 +1,154 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Call</title>
+<!-- The media side of a call: LiveKit, the same SDK version the web console uses. The window around it
+     (invitation, token, hang-up) is native; it drives this page with postMessage. -->
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.18.7/dist/livekit-client.umd.min.js"></script>
+<style>
+  @font-face { font-family: Vazirmatn; src: url('../Fonts/Vazirmatn.ttf'); }
+  :root { --bg:#0c0e14; --surface:#13161e; --text:#e8ecf4; --text2:#98a2b3; --danger:#e5484d; --brand:#5a94ff; --success:#3dd68c; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--text); font-family: Vazirmatn, 'Segoe UI Variable Text', 'Segoe UI', sans-serif; overflow:hidden; user-select:none; }
+  #stage { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
+  #remote { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; background:#000; display:none; }
+  #local { position:absolute; width:26%; max-width:260px; aspect-ratio:16/10; object-fit:cover; bottom:96px; inset-inline-end:18px; border-radius:14px; border:2px solid rgba(255,255,255,.18); transform:scaleX(-1); display:none; background:#000; box-shadow:0 12px 32px rgba(0,0,0,.5); }
+  #who { display:flex; flex-direction:column; align-items:center; gap:14px; z-index:1; }
+  #avatar { width:112px; height:112px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:42px; font-weight:600; color:#fff; box-shadow:0 0 0 10px rgba(90,148,255,.08), 0 0 0 22px rgba(90,148,255,.04); }
+  body.waiting #avatar { animation: pulse 1.8s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { box-shadow:0 0 0 10px rgba(90,148,255,.10), 0 0 0 22px rgba(90,148,255,.05);} 50% { box-shadow:0 0 0 16px rgba(90,148,255,.16), 0 0 0 34px rgba(90,148,255,.06);} }
+  #name { font-size:22px; font-weight:700; }
+  #status { font-size:14px; color:var(--text2); font-variant-numeric: tabular-nums; }
+  body.connected #status { color:var(--success); }
+  body.video-live #who { position:absolute; top:18px; inset-inline-start:20px; flex-direction:row; gap:12px; }
+  body.video-live #avatar { width:40px; height:40px; font-size:16px; box-shadow:none; }
+  body.video-live #name { font-size:15px; text-shadow:0 1px 4px rgba(0,0,0,.6); }
+  body.video-live #status { text-shadow:0 1px 4px rgba(0,0,0,.6); }
+  #warn { position:absolute; top:14px; left:50%; transform:translateX(-50%); background:rgba(247,107,21,.16); color:#ff8b3e; padding:6px 12px; border-radius:999px; font-size:12px; display:none; z-index:2; }
+  #bar { position:absolute; bottom:22px; left:0; right:0; display:flex; justify-content:center; gap:14px; z-index:2; }
+  button { width:56px; height:56px; border-radius:50%; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.12); color:#fff; transition:background .15s, transform .1s; backdrop-filter: blur(8px); }
+  button:hover { background:rgba(255,255,255,.2); }
+  button:active { transform:scale(.95); }
+  button.off { background:#fff; color:#0c0e14; }
+  button.hang { background:var(--danger); }
+  button.hang:hover { background:#f2555a; }
+  button svg { width:24px; height:24px; }
+  body.ended #bar button:not(.hang), body.ended #bar .hang { opacity:.4; pointer-events:none; }
+</style>
+</head>
+<body class="waiting">
+  <div id="stage">
+    <video id="remote" autoplay playsinline></video>
+    <video id="local" autoplay playsinline muted></video>
+    <div id="who"><div id="avatar"></div><div><div id="name"></div><div id="status"></div></div></div>
+  </div>
+  <div id="warn"></div>
+  <div id="bar">
+    <button id="mic" title=""><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1M12 18v4"/></svg></button>
+    <button id="cam" title="" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.2 3.5a.5.5 0 0 0 .8-.4V7.9a.5.5 0 0 0-.8-.4L16 11"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg></button>
+    <button id="hang" class="hang" title=""><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(135deg)"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg></button>
+  </div>
+<script>
+(() => {
+  const host = window.chrome && window.chrome.webview;
+  const post = (m) => host && host.postMessage(JSON.stringify(m));
+  const log = (...a) => post({ type: 'log', text: a.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' ').slice(0, 800) });
+  const $ = (id) => document.getElementById(id);
+  let room = null, video = false, muted = false, camOn = false, since = 0, tick = null, leftTimer = null, ended = false;
+  const L = window.LivekitClient;
+
+  function setStatus(text, cls) {
+    $('status').textContent = text;
+    document.body.classList.remove('waiting', 'connected', 'ended');
+    if (cls) document.body.classList.add(cls);
+  }
+  function clock(sec) {
+    const s = Math.max(0, Math.floor(sec)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), r = s % 60;
+    const p = (n) => String(n).padStart(2, '0');
+    return (h ? p(h) + ':' : '') + p(m) + ':' + p(r);
+  }
+  function syncVideo() {
+    if (!room) return;
+    const remote = [...room.remoteParticipants.values()].flatMap(p => [...p.videoTrackPublications.values()]).find(p => p.isSubscribed && !p.isMuted && p.track);
+    const rv = $('remote');
+    if (remote) { remote.track.attach(rv); rv.style.display = 'block'; } else { rv.style.display = 'none'; }
+    const local = [...room.localParticipant.videoTrackPublications.values()].find(p => !p.isMuted && p.track);
+    const lv = $('local');
+    if (local) { local.track.attach(lv); lv.style.display = 'block'; } else { lv.style.display = 'none'; }
+    document.body.classList.toggle('video-live', !!remote || !!local);
+  }
+  async function finish(reason, detail) {
+    if (ended) return;
+    ended = true;
+    clearInterval(tick);
+    post({ type: 'ended', reason, detail: detail || null });
+    if (room) { try { room.removeAllListeners(); await room.disconnect(); } catch (e) {} room = null; }
+    document.querySelectorAll('audio').forEach(a => a.remove());
+  }
+
+  async function join(msg) {
+    if (!L) { finish('failed', 'livekit_not_loaded'); return; }
+    video = msg.channel === 'video';
+    camOn = video;
+    $('cam').style.display = video ? 'flex' : 'none';
+    L.setLogLevel(L.LogLevel.info);
+    L.setLogExtension((level, m, ctx) => { if (level >= L.LogLevel.info) log('lk', L.LogLevel[level], m, ctx ? JSON.stringify(ctx).slice(0, 400) : ''); });
+    const r = new L.Room({ adaptiveStream: true, dynacast: true, videoCaptureDefaults: { resolution: { width: 1280, height: 720 } } });
+    room = r;
+    r.on(L.RoomEvent.TrackSubscribed, (track) => {
+      if (track.kind === L.Track.Kind.Audio) { const el = track.attach(); el.style.display = 'none'; document.body.appendChild(el); }
+      syncVideo();
+    });
+    r.on(L.RoomEvent.TrackUnsubscribed, (track) => { track.detach().forEach(el => el.remove && el.tagName === 'AUDIO' && el.remove()); syncVideo(); });
+    ['LocalTrackPublished', 'LocalTrackUnpublished', 'TrackMuted', 'TrackUnmuted'].forEach(e => r.on(L.RoomEvent[e], syncVideo));
+    // A reconnect drops and re-adds everyone, so an empty room only means "the visitor left" after a grace period.
+    const checkLeft = () => {
+      clearTimeout(leftTimer);
+      leftTimer = setTimeout(() => { if (room === r && r.state === L.ConnectionState.Connected && r.remoteParticipants.size === 0) finish('visitorLeft'); }, 4000);
+    };
+    r.on(L.RoomEvent.ParticipantDisconnected, checkLeft);
+    r.on(L.RoomEvent.Reconnected, checkLeft);
+    r.on(L.RoomEvent.Disconnected, () => finish('visitorLeft'));
+    // Only an rtcConfig with a TURN relay: an empty iceServers list would throw away the server's own.
+    const opts = msg.ice && msg.ice.length ? { rtcConfig: { iceServers: msg.ice, iceTransportPolicy: msg.relay ? 'relay' : 'all' } } : {};
+    try {
+      await r.connect(msg.url, msg.token, opts);
+    } catch (e) { finish('failed', String(e && e.message || e)); return; }
+    try { await r.localParticipant.setMicrophoneEnabled(true); } catch (e) { muted = true; $('mic').classList.add('off'); post({ type: 'degraded', what: 'noMicrophone' }); }
+    if (video) { try { await r.localParticipant.setCameraEnabled(true); } catch (e) { camOn = false; $('cam').classList.add('off'); post({ type: 'degraded', what: 'noCamera' }); } }
+    since = Date.now();
+    setStatus(clock(0), 'connected');
+    tick = setInterval(() => { if (!ended) $('status').textContent = clock((Date.now() - since) / 1000); }, 500);
+    post({ type: 'connected' });
+    syncVideo();
+  }
+
+  $('mic').onclick = () => { if (!room) return; muted = !muted; $('mic').classList.toggle('off', muted); room.localParticipant.setMicrophoneEnabled(!muted); };
+  $('cam').onclick = () => { if (!room || !video) return; camOn = !camOn; $('cam').classList.toggle('off', !camOn); room.localParticipant.setCameraEnabled(camOn); };
+  $('hang').onclick = () => { finish('hungUp'); };
+
+  if (host) host.addEventListener('message', (e) => {
+    const msg = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+    if (msg.type === 'init') {
+      document.documentElement.dir = msg.rtl ? 'rtl' : 'ltr';
+      $('name').textContent = msg.name;
+      $('avatar').textContent = msg.initials;
+      $('avatar').style.background = `linear-gradient(135deg, ${msg.color}, ${msg.color}cc)`;
+      $('mic').title = msg.strings.mute; $('cam').title = msg.strings.camera; $('hang').title = msg.strings.hangUp;
+      $('cam').style.display = msg.channel === 'video' ? 'flex' : 'none';
+      setStatus(msg.status, 'waiting');
+    } else if (msg.type === 'status') {
+      setStatus(msg.text, msg.ended ? 'ended' : (msg.waiting ? 'waiting' : null));
+    } else if (msg.type === 'warn') {
+      $('warn').textContent = msg.text; $('warn').style.display = 'block';
+    } else if (msg.type === 'join') {
+      join(msg);
+    } else if (msg.type === 'hangup') {
+      finish('hungUp');
+    }
+  });
+  post({ type: 'ready' });
+})();
+</script>
+</body>
+</html>

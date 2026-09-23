@@ -361,10 +361,19 @@ jobs:
           supabase --version
           docker version
 
+      # ghcr.io rate-limits shared runners ("toomanyrequests") before a single
+      # migration runs. The same official images are mirrored on
+      # public.ecr.aws, so a failed pull falls back there instead of failing
+      # the proof on registry load.
       - name: Start Supabase (database stack)
         run: |
           set -euo pipefail
-          supabase start -x realtime,storage-api,imgproxy,studio,edge-runtime,logflare,vector,supavisor,mailpit,postgres-meta
+          EXCLUDE=realtime,storage-api,imgproxy,studio,edge-runtime,logflare,vector,supavisor,mailpit,postgres-meta
+          if ! supabase start -x "$EXCLUDE"; then
+            echo '::warning::supabase start failed on the default registry; retrying from public.ecr.aws'
+            supabase stop --no-backup || true
+            SUPABASE_INTERNAL_IMAGE_REGISTRY=public.ecr.aws supabase start -x "$EXCLUDE"
+          fi
 
       - name: Reset database and apply every migration in timestamp order
         run: supabase db reset --debug

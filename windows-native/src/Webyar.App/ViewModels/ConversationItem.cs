@@ -96,7 +96,7 @@ public sealed partial class ConversationItem : ObservableObject
         PriorityText = urgent ? s[c.Priority == ConversationPriorities.Urgent ? "priorityUrgent" : "priorityHigh"] : string.Empty;
         PriorityVisibility = urgent ? Visibility.Visible : Visibility.Collapsed;
         // The AI agent is still answering this one.
-        AiVisibility = c.AiState is "active" or "handling" or "ai" ? Visibility.Visible : Visibility.Collapsed;
+        AiVisibility = c.IsAiManaged ? Visibility.Visible : Visibility.Collapsed;
         PreviewBrush = Helpers.Palette.Resource(unread > 0 ? "TextBrush" : "Text2Brush");
     }
 

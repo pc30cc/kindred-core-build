@@ -34,6 +34,12 @@ public sealed partial class ChatView : UserControl
     private string? _lastSeenMessage;
     private (string Name, string Mime, byte[] Data)? _pendingFile;
 
+    /// <summary>The AI answers this thread; the composer sends through it (say-now).</summary>
+    private bool _aiMode;
+
+    /// <summary>"specialist" or "assistant", kept for the session as on iOS.</summary>
+    private static string _voice = "specialist";
+
     public ChatView()
     {
         InitializeComponent();
@@ -129,13 +135,17 @@ public sealed partial class ChatView : UserControl
         var resolved = c.Status is ConversationStatuses.Resolved or ConversationStatuses.Closed;
         StatusButton.Content = resolved ? s["reopen"] : s["markResolved"];
         StatusButton.Visibility = Visibility.Visible;
-        var aiActive = c.AiState is "active" or "handling" or "ai";
+        var aiActive = c.IsAiManaged;
         AssignButton.Content = aiActive ? s["takeOver"] : s["assignToMe"];
         AssignButton.Visibility = !resolved && (aiActive || c.AssignedTo != Host.User?.Id) && Host.User is not null ? Visibility.Visible : Visibility.Collapsed;
+        AiChip.Visibility = aiActive ? Visibility.Visible : Visibility.Collapsed;
 
-        var calls = Host.Config.CallsEnabled && !resolved;
-        AudioCallButton.Visibility = calls ? Visibility.Visible : Visibility.Collapsed;
-        VideoCallButton.Visibility = calls ? Visibility.Visible : Visibility.Collapsed;
+        // No calls while the AI has the visitor, and only what the plan allows.
+        var calls = Host.Config.CallsEnabled && !resolved && !aiActive;
+        AudioCallButton.Visibility = calls && Host.Plan.VoiceCalls ? Visibility.Visible : Visibility.Collapsed;
+        VideoCallButton.Visibility = calls && Host.Plan.VideoCalls ? Visibility.Visible : Visibility.Collapsed;
+
+        SetComposerMode(aiActive);
 
         Details.Show(c, first);
         ApplyDetailsVisibility();
@@ -146,6 +156,7 @@ public sealed partial class ChatView : UserControl
         _poller?.Dispose();
         _poller = null;
         Host.InboxChanged -= OnInboxChanged;
+        Host.PlanChanged -= OnPlanChanged;
         _id = null;
         Details.Close();
     }
@@ -159,6 +170,8 @@ public sealed partial class ChatView : UserControl
         _outbox.Clear();
         if (_recorder is not null) _ = StopRecordingAsync(keep: false);
         ClearPendingFile();
+        SetComposerMode(false);
+        AiChip.Visibility = Visibility.Collapsed;
         Error.IsOpen = false;
         Composer.Text = string.Empty;
         Placeholder.Visibility = Visibility.Collapsed;
@@ -166,9 +179,15 @@ public sealed partial class ChatView : UserControl
         Loading.IsActive = true;
         Loading.Visibility = Visibility.Visible;
         Host.InboxChanged += OnInboxChanged;
+        Host.PlanChanged += OnPlanChanged;
         _poller = new Poller("thread", ct => LoadAsync(id, ct), () => Host.PollInterval(TimeSpan.FromSeconds(Math.Min(5, Host.Config.PollIntervalSeconds))));
         _poller.Start();
         Composer.Focus(FocusState.Programmatic);
+    }
+
+    private void OnPlanChanged()
+    {
+        if (_conversation is { } c) Refresh(c);
     }
 
     private void OnInboxChanged(InboxEvent e)
@@ -281,8 +300,6 @@ public sealed partial class ChatView : UserControl
         var s = Host.Strings;
         PlaceholderTitle.Text = s["noConversationSelected"];
         PlaceholderBody.Text = s["noConversationSelectedBody"];
-        Composer.PlaceholderText = s["messagePlaceholder"];
-        ToolTipService.SetToolTip(SendButton, s["send"]);
         ToolTipService.SetToolTip(AttachButton, s["attachFile"]);
         ToolTipService.SetToolTip(ShortcutsButton, s["shortcuts"]);
         ToolTipService.SetToolTip(AudioCallButton, s["voiceCall"]);
@@ -294,6 +311,12 @@ public sealed partial class ChatView : UserControl
         ToolTipService.SetToolTip(MicButton, s["voiceRecord"]);
         ToolTipService.SetToolTip(RecordCancelButton, s["voiceDiscard"]);
         ComposerHint.Text = s["composerHint"];
+        AiChipText.Text = s["navInboxAi"];
+        VoiceSpecialist.Text = s["sayNowVoiceSpecialist"];
+        VoiceAssistant.Text = s["sayNowVoiceAssistant"];
+        ToolTipService.SetToolTip(VoicePicker, s["sayNowVoice"]);
+        VoiceMenu.Placement = s.IsRightToLeft ? FlyoutPlacementMode.TopEdgeAlignedRight : FlyoutPlacementMode.TopEdgeAlignedLeft;
+        SetComposerMode(_aiMode);
         EmojiGrid.ItemsSource ??= Emojis;
         // The tool buttons sit at the start edge; the pickers open towards the
         // text (leftwards in Persian) rather than off the side of the window.
@@ -345,11 +368,88 @@ public sealed partial class ChatView : UserControl
 
     // Composer
 
+    /// <summary>
+    /// Normal replies, or — on a thread the AI is answering — one field whose
+    /// text the AI tells the visitor, with only the voice picker beside it
+    /// (no files, voice notes, emoji or saved replies), exactly as on iOS.
+    /// Plan features decide the tools otherwise.
+    /// </summary>
+    private void SetComposerMode(bool ai)
+    {
+        var s = Host.Strings;
+        if (ai && !_aiMode)
+        {
+            if (_recorder is not null) _ = StopRecordingAsync(keep: false);
+            ClearPendingFile();
+        }
+        _aiMode = ai;
+        var plan = Host.Plan;
+        AttachButton.Visibility = !ai && plan.Attachments ? Visibility.Visible : Visibility.Collapsed;
+        MicButton.Visibility = !ai && plan.VoiceNotes ? Visibility.Visible : Visibility.Collapsed;
+        EmojiButton.Visibility = !ai && plan.Emoji ? Visibility.Visible : Visibility.Collapsed;
+        ShortcutsButton.Visibility = ai ? Visibility.Collapsed : Visibility.Visible;
+        VoicePicker.Visibility = ai ? Visibility.Visible : Visibility.Collapsed;
+        Composer.PlaceholderText = s[ai ? "sayNowPlaceholder" : "messagePlaceholder"];
+        ToolTipService.SetToolTip(SendButton, s[ai ? "sayNowAction" : "send"]);
+        ComposerHint.Text = ai ? s["sayNowHint"] : s["composerHint"];
+        ShowVoice();
+        UpdateSendEnabled();
+    }
+
+    private void ShowVoice()
+    {
+        var s = Host.Strings;
+        var assistant = _voice == "assistant";
+        VoiceGlyph.Glyph = assistant ? "\uE945" : "\uE77B";
+        VoiceText.Text = s[assistant ? "sayNowVoiceAssistant" : "sayNowVoiceSpecialist"];
+        VoiceSpecialist.IsChecked = !assistant;
+        VoiceAssistant.IsChecked = assistant;
+    }
+
+    private void OnVoicePicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string voice }) _voice = voice;
+        ShowVoice();
+        Composer.Focus(FocusState.Programmatic);
+    }
+
+    /// <summary>The AI says it; the draft stays until that worked, as on iOS.</summary>
+    private async Task SayNowAsync(string conversationId, string body)
+    {
+        var s = Host.Strings;
+        SendButton.IsEnabled = false;
+        try
+        {
+            await Host.Api.AiSayNowAsync(conversationId, body, _voice);
+            if (conversationId != _id) return;
+            Composer.Text = string.Empty;
+            Error.Severity = InfoBarSeverity.Success;
+            Error.Message = s["sayNowSent"];
+            Error.ActionButton = null;
+            Error.IsOpen = true;
+            _poller?.Kick();
+            StatusChanged?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("say now", ex);
+            if (conversationId != _id) return;
+            Error.Severity = InfoBarSeverity.Error;
+            Error.Message = $"{s["sayNowFailed"]} — {ErrorText.For(ex, s)}";
+            Error.ActionButton = null;
+            Error.IsOpen = true;
+        }
+        finally
+        {
+            UpdateSendEnabled();
+        }
+    }
+
     private void OnComposerChanged(object sender, TextChangedEventArgs e)
     {
         UpdateSendEnabled();
         // A "/" at the start opens the saved replies, as in the web console.
-        if (Composer.Text.StartsWith('/') && !Composer.Text.Contains(' ') && Composer.Text.Length <= 24)
+        if (!_aiMode && Composer.Text.StartsWith('/') && !Composer.Text.Contains(' ') && Composer.Text.Length <= 24)
         {
             ShortcutSearch.Text = Composer.Text[1..];
             OpenShortcuts();
@@ -373,6 +473,11 @@ public sealed partial class ChatView : UserControl
         var body = Composer.Text.Trim();
         var file = _pendingFile;
         if ((body.Length == 0 && file is null) || _id is not { } id || Host.Workspace is not { } ws) return;
+        if (_aiMode)
+        {
+            if (body.Length > 0) await SayNowAsync(id, body);
+            return;
+        }
         Composer.Text = string.Empty;
         ClearPendingFile();
         var local = file is { } f ? new AttachmentItem(f.Name, f.Mime, f.Data, Host.Strings) : null;
@@ -413,6 +518,7 @@ public sealed partial class ChatView : UserControl
             item.Pending = false;
             item.Failed = true;
             item.Meta = $"{Host.Strings["sendFailed"]} · {item.Time}";
+            Error.Severity = InfoBarSeverity.Error;
             Error.Message = ErrorText.For(ex, Host.Strings);
             Error.ActionButton = RetryButton(() =>
             {
@@ -527,6 +633,7 @@ public sealed partial class ChatView : UserControl
             await _recorder.DisposeAsync();
             _recorder = null;
             // Windows keeps desktop apps off the microphone until allowed in Privacy settings.
+            Error.Severity = InfoBarSeverity.Error;
             Error.Message = ex is UnauthorizedAccessException || (uint)ex.HResult == 0x80070005 ? s["micBlocked"] : s["micFailed"];
             var open = new Button { Content = s["openWindowsSettings"] };
             open.Click += async (_, _) => await Windows.System.Launcher.LaunchUriAsync(new Uri("ms-settings:privacy-microphone"));
@@ -623,6 +730,7 @@ public sealed partial class ChatView : UserControl
 
     private void ShowError(string message)
     {
+        Error.Severity = InfoBarSeverity.Error;
         Error.Message = message;
         Error.ActionButton = null;
         Error.IsOpen = true;
@@ -701,8 +809,8 @@ public sealed partial class ChatView : UserControl
     private async void OnAssignToMe(object sender, RoutedEventArgs e)
     {
         if (_conversation is not { } c || Host.Workspace is not { } ws || Host.User is not { } me) return;
-        if (c.AiState is "active" or "handling" or "ai")
-            await RunAsync(() => Host.Api.TakeOverAsync(c.Id, ws.Id), () => c with { AssignedTo = me.Id, AiState = "human" });
+        if (c.IsAiManaged)
+            await RunAsync(() => Host.Api.TakeOverAsync(c.Id, ws.Id), () => c with { AssignedTo = me.Id, AiState = "human_active", Metadata = null });
         else
             await RunAsync(() => Host.Api.ClaimAsync(c.Id, ws.Id), () => c with { AssignedTo = me.Id });
     }

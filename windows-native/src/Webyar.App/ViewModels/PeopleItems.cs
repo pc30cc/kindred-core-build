@@ -46,20 +46,36 @@ public sealed partial class ColleagueItem : ObservableObject
     }
 }
 
-public sealed class ContactItem(Contact c, Strings s)
+/// <summary>
+/// A contact row, as the web contacts table draws it: the display name
+/// ("Visitor from Tehran · AB12" for the anonymous) seeds the avatar, which
+/// shows the visitor's OS and country from the network profile.
+/// </summary>
+public sealed class ContactItem(Contact c, VisitorProfile? profile, Strings s)
 {
     public Contact Contact { get; } = c;
+    public VisitorProfile? Profile { get; } = profile;
     public string Id => Contact.Id;
-    public string Name { get; } = Display.ContactName(new ConversationContact(c.Name, c.Email, c.AvatarUrl, c.VisitorCode), s, c.Id);
-    public string? RawName => Contact.Name;
+    public string Name { get; } = Display.VisitorName(c.Name, c.VisitorCode ?? c.MetaString("anon_code"), c.Id,
+        profile?.Geo?.City, profile?.Geo?.Region, profile?.Geo?.CountryCode, s);
     public string? Email => Contact.Email;
     public string? AvatarUrl => Contact.AvatarUrl;
-    public string Subtitle => Contact.Email ?? Contact.Phone ?? Contact.VisitorCode ?? string.Empty;
+    public string? Os => Profile?.Device?.Os;
+    public string? CountryCode => Profile?.Geo?.CountryCode;
+    public string Subtitle => Contact.Email ?? Contact.Phone ?? Contact.Company ?? string.Empty;
+
+    /// <summary>"Tehran, Iran" — the web's location column.</summary>
+    public string Location { get; } = string.Join(s.IsRightToLeft ? "، " : ", ",
+        new[] { profile?.Geo?.City, profile?.Geo?.Country }.Where(x => !string.IsNullOrWhiteSpace(x)));
+
+    public Visibility LocationVisibility => Location.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
 
     public bool Matches(string q) => q.Length == 0 ||
         Name.Contains(q, StringComparison.CurrentCultureIgnoreCase) ||
         (Contact.Email?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
-        (Contact.Phone?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false);
+        (Contact.Phone?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        (Contact.VisitorCode?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        (Contact.Company?.Contains(q, StringComparison.CurrentCultureIgnoreCase) ?? false);
 }
 
 public sealed partial class EmailThreadItem : ObservableObject

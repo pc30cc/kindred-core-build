@@ -249,6 +249,13 @@
                                 <Border x:Name="PriorityChip" Style="{StaticResource ChipBorder}" VerticalAlignment="Center" Visibility="Collapsed">
                                     <TextBlock x:Name="PriorityText" Style="{StaticResource ChipText}" />
                                 </Border>
+                                <!-- The AI is answering: as the sparkles beside the name on iOS. -->
+                                <Border x:Name="AiChip" Style="{StaticResource ChipBorder}" VerticalAlignment="Center" Background="{ThemeResource AiSoftBrush}" Visibility="Collapsed">
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <FontIcon Glyph="&#xE945;" FontSize="10" Foreground="{ThemeResource AiBrush}" />
+                                        <TextBlock x:Name="AiChipText" Style="{StaticResource ChipText}" Foreground="{ThemeResource AiBrush}" />
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
                             <TextBlock x:Name="SubText" FontSize="12" Foreground="{ThemeResource Text2Brush}" TextTrimming="CharacterEllipsis" />
                         </StackPanel>
@@ -381,6 +388,31 @@
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
+                                    <!--
+                                        On a thread the AI is answering, the operator does not write to
+                                        the visitor directly: the AI says it, in the specialist's voice or
+                                        its own — the iOS say-now. This picks the voice.
+                                    -->
+                                    <DropDownButton x:Name="VoicePicker" Visibility="Collapsed" Padding="10,5" CornerRadius="16" BorderThickness="0" Background="{ThemeResource AiSoftBrush}">
+                                        <StackPanel Orientation="Horizontal" Spacing="7">
+                                            <FontIcon x:Name="VoiceGlyph" Glyph="&#xE77B;" FontSize="14" Foreground="{ThemeResource AiBrush}" />
+                                            <TextBlock x:Name="VoiceText" FontSize="12.5" FontWeight="SemiBold" Foreground="{ThemeResource AiBrush}" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                        <DropDownButton.Flyout>
+                                            <MenuFlyout x:Name="VoiceMenu" Placement="TopEdgeAlignedLeft">
+                                                <RadioMenuFlyoutItem x:Name="VoiceSpecialist" GroupName="voice" IsChecked="True" Tag="specialist" Click="OnVoicePicked">
+                                                    <RadioMenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xE77B;" />
+                                                    </RadioMenuFlyoutItem.Icon>
+                                                </RadioMenuFlyoutItem>
+                                                <RadioMenuFlyoutItem x:Name="VoiceAssistant" GroupName="voice" Tag="assistant" Click="OnVoicePicked">
+                                                    <RadioMenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xE945;" />
+                                                    </RadioMenuFlyoutItem.Icon>
+                                                </RadioMenuFlyoutItem>
+                                            </MenuFlyout>
+                                        </DropDownButton.Flyout>
+                                    </DropDownButton>
                                     <Button x:Name="AttachButton" Style="{StaticResource IconButton}" Click="OnAttach">
                                         <FontIcon Glyph="&#xE723;" FontSize="16" />
                                     </Button>

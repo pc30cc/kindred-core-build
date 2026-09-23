@@ -65,6 +65,47 @@ public sealed class WebyarApi
     /// Installed channel plugins that bring an inbox ("Other inboxes" in the web
     /// sidebar). An owner/admin surface: other roles get 403 and see none.
     /// </summary>
+    /// <summary>
+    /// The plan snapshot the web console gates on, plus the operator's role and
+    /// the AI and call-center switches. Only the snapshot itself is required.
+    /// </summary>
+    public async Task<WorkspacePlan> PlanAsync(string workspaceId, CancellationToken ct = default)
+    {
+        var id = Uri.EscapeDataString(workspaceId);
+        var effective = _client.GetAsync<JsonElement>($"/api/plans/workspace/{id}/effective", ct: ct);
+        var role = Optional(() => _client.GetAsync<JsonElement>($"/api/workspaces/{id}/role", ct: ct));
+        var ai = Optional(() => _client.GetAsync<JsonElement>("/api/ai-agent/capabilities", [Q("workspaceId", workspaceId)], ct));
+        var calls = Optional(() => _client.GetAsync<JsonElement>("/api/call-center/capabilities", [Q("workspaceId", workspaceId)], ct));
+        var plan = WorkspacePlan.Parse(await effective.ConfigureAwait(false));
+        var r = await role.ConfigureAwait(false);
+        var a = await ai.ConfigureAwait(false);
+        var caps = a is { ValueKind: JsonValueKind.Object } av && av.TryGetProperty("capabilities", out var inner) ? inner : a;
+        var c = await calls.ConfigureAwait(false);
+        return plan.With(
+            role: StrOf(r, "role"),
+            aiAgent: BoolOf(caps, "ai_agent_enabled"),
+            aiAuto: BoolOf(caps, "auto_answer_enabled"),
+            callCenter: BoolOf(c, "workspace_call_center_visible"));
+    }
+
+    private static async Task<JsonElement?> Optional(Func<Task<JsonElement>> call)
+    {
+        try
+        {
+            return await call().ConfigureAwait(false);
+        }
+        catch (ApiException e) when (e.Failure != ApiFailure.Unauthorized)
+        {
+            return null;
+        }
+    }
+
+    private static string? StrOf(JsonElement? e, string name) =>
+        e is { ValueKind: JsonValueKind.Object } o && o.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    private static bool? BoolOf(JsonElement? e, string name) =>
+        e is { ValueKind: JsonValueKind.Object } o && o.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False ? v.GetBoolean() : null;
+
     public async Task<IReadOnlyList<string>> PluginInboxesAsync(string workspaceId, CancellationToken ct = default)
     {
         var doc = await _client.GetAsync<JsonElement>("/api/plugins/catalog", [Q("workspace_id", workspaceId)], ct).ConfigureAwait(false);
@@ -223,6 +264,17 @@ public sealed class WebyarApi
         }
     }
 
+    /// <summary>
+    /// The AI tells the visitor what the operator wrote, in the specialist's
+    /// voice or its own ("specialist" | "assistant") — the iOS say-now.
+    /// </summary>
+    public Task AiSayNowAsync(string conversationId, string body, string attribution, string? locale = null, CancellationToken ct = default)
+    {
+        var payload = new Dictionary<string, object?> { ["body"] = body, ["attribution"] = attribution };
+        if (!string.IsNullOrEmpty(locale)) payload["locale"] = locale;
+        return _client.SendAsync(HttpMethod.Post, $"/api/ai-agent/conversations/{Uri.EscapeDataString(conversationId)}/ai-say-now", payload, ct: ct);
+    }
+
     // People and notes
 
     public async Task<IReadOnlyList<WorkspaceMember>> MembersAsync(string workspaceId, CancellationToken ct = default) =>
@@ -297,6 +349,44 @@ public sealed class WebyarApi
         SendMessageAsync(conversationId, workspaceId, body, clientMessageId, attachmentId, ct);
 
     // Contacts
+
+    public async Task<Contact?> ContactAsync(string contactId, CancellationToken ct = default) =>
+        (await _client.GetAsync<ContactResponse>($"/api/contacts/{Uri.EscapeDataString(contactId)}", ct: ct).ConfigureAwait(false))?.Contact;
+
+    public async Task<IReadOnlyList<ContactConversation>> ContactConversationsAsync(string contactId, CancellationToken ct = default) =>
+        (await _client.GetAsync<ContactConversationsResponse>($"/api/contacts/{Uri.EscapeDataString(contactId)}/conversations", ct: ct).ConfigureAwait(false))?.Conversations ?? [];
+
+    /// <summary>Calls with the contact; none when the workspace has no call center (a failure is not an error here).</summary>
+    public async Task<IReadOnlyList<ContactCall>> ContactCallsAsync(string workspaceId, string contactId, CancellationToken ct = default)
+    {
+        try
+        {
+            return (await _client.GetAsync<ContactCallsResponse>($"/api/workspace-integrations/{Uri.EscapeDataString(workspaceId)}/contacts/{Uri.EscapeDataString(contactId)}/calls", ct: ct).ConfigureAwait(false))?.Calls ?? [];
+        }
+        catch (ApiException e) when (e.Failure != ApiFailure.Unauthorized)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>The contacts page's enrichment: OS and country per contact, for the avatar and the name.</summary>
+    public async Task<IReadOnlyDictionary<string, VisitorProfile>> ContactProfilesAsync(string workspaceId, IReadOnlyList<string> contactIds, CancellationToken ct = default)
+    {
+        var all = new Dictionary<string, VisitorProfile>();
+        try
+        {
+            foreach (var part in contactIds.Chunk(500))
+            {
+                var r = await _client.PostAsync<VisitorIntelResponse>("/api/visitor-intel/network/batch",
+                    new Dictionary<string, object?> { ["workspace_id"] = workspaceId, ["contact_ids"] = part }, ct).ConfigureAwait(false);
+                foreach (var (id, p) in r?.ByContact ?? []) all[id] = p;
+            }
+        }
+        catch (ApiException e) when (e.Failure != ApiFailure.Unauthorized)
+        {
+        }
+        return all;
+    }
 
     public async Task<IReadOnlyList<Contact>> ContactsAsync(string workspaceId, CancellationToken ct = default) =>
         (await _client.GetAsync<ContactsResponse>("/api/contacts", [Q("workspace_id", workspaceId)], ct).ConfigureAwait(false))?.Contacts ?? [];
@@ -399,6 +489,9 @@ public sealed class WebyarApi
     private sealed record NotesResponse(IReadOnlyList<ConversationNote>? Notes);
     private sealed record ContactsResponse(IReadOnlyList<Contact>? Contacts);
     private sealed record AttachmentReserve(string? AttachmentId);
+    private sealed record ContactResponse(Contact? Contact);
+    private sealed record ContactConversationsResponse(IReadOnlyList<ContactConversation>? Conversations);
+    private sealed record ContactCallsResponse(IReadOnlyList<ContactCall>? Calls);
     private sealed record VisitorIntelResponse(Dictionary<string, VisitorProfile>? ByConversation, Dictionary<string, VisitorProfile>? ByContact);
     private sealed record CannedResponsesResponse(IReadOnlyList<CannedResponse>? Items);
     private sealed record EmailThreadsResponse([property: System.Text.Json.Serialization.JsonPropertyName("threads")] IReadOnlyList<EmailThreadSummary>? Threads);

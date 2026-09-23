@@ -128,15 +128,41 @@ public sealed partial class MainWindow : Window
             Host.Settings.WorkspaceId = Host.Workspace.Id;
             Host.Settings.Save();
         }
-        await Host.StartRealtimeAsync();
-        await Host.StartPresenceAsync();
-        Splash.Visibility = Visibility.Collapsed;
-        RootFrame.Navigate(typeof(ShellPage));
+        await OpenWorkspaceAsync();
         if (_pendingOpen is { } open)
         {
             _pendingOpen = null;
             OpenFromNotification(open);
         }
+    }
+
+    /// <summary>
+    /// Starts the chosen workspace: its plan first (briefly, so the rail does
+    /// not show and then hide sections), then realtime, presence and the shell.
+    /// </summary>
+    private async Task OpenWorkspaceAsync()
+    {
+        Host.ResetPlan();
+        await Task.WhenAny(Host.LoadPlanAsync(), Task.Delay(TimeSpan.FromSeconds(5)));
+        await Host.StartRealtimeAsync();
+        await Host.StartPresenceAsync();
+        Splash.Visibility = Visibility.Collapsed;
+        RootFrame.Navigate(typeof(ShellPage));
+    }
+
+    /// <summary>Moves to another of the operator's workspaces, as the web's workspace menu does.</summary>
+    public async Task SwitchWorkspaceAsync(Workspace workspace)
+    {
+        if (workspace.Id == Host.Workspace?.Id) return;
+        Shell?.Teardown();
+        Host.StopPresence();
+        Host.Workspace = workspace;
+        Host.Settings.WorkspaceId = workspace.Id;
+        Host.Settings.Save();
+        App.Current.SetUnread(0);
+        Splash.Visibility = Visibility.Visible;
+        await OpenWorkspaceAsync();
+        RootFrame.BackStack.Clear();
     }
 
     public void ShowLogin()

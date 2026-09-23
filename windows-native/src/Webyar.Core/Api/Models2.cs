@@ -29,7 +29,48 @@ public sealed record Contact(
     string? Phone = null,
     string? AvatarUrl = null,
     string? VisitorCode = null,
-    DateTimeOffset? CreatedAt = null);
+    DateTimeOffset? CreatedAt = null,
+    DateTimeOffset? UpdatedAt = null,
+    string? Notes = null,
+    IReadOnlyList<string>? Tags = null,
+    System.Text.Json.JsonElement? Metadata = null)
+{
+    /// <summary>metadata.company | org | organization, as the web contacts table reads it.</summary>
+    public string? Company => MetaString("company") ?? MetaString("org") ?? MetaString("organization");
+
+    public string? MetaString(string key) =>
+        Metadata is { ValueKind: System.Text.Json.JsonValueKind.Object } m && m.TryGetProperty(key, out var v)
+            && v.ValueKind == System.Text.Json.JsonValueKind.String && v.GetString() is { Length: > 0 } text ? text : null;
+}
+
+/// <summary>One of a contact's conversations, from /api/contacts/:id/conversations.</summary>
+public sealed record ContactConversation(
+    string Id,
+    string? Status = null,
+    string? Subject = null,
+    string? AiState = null,
+    DateTimeOffset? CreatedAt = null,
+    DateTimeOffset? UpdatedAt = null,
+    bool? HandledByAi = null,
+    bool? HandledByOperator = null,
+    string? OperatorName = null,
+    string? OperatorAvatar = null,
+    string? LastMessageBody = null,
+    int? MessageCount = null);
+
+/// <summary>A call with the contact, from /api/workspace-integrations/:ws/contacts/:id/calls.</summary>
+public sealed record ContactCall(
+    string Id,
+    string? CallType = null,
+    string? Direction = null,
+    string? State = null,
+    int? DurationSeconds = null,
+    int? WaitSeconds = null,
+    DateTimeOffset? CreatedAt = null,
+    string? AgentName = null,
+    string? AgentAvatar = null,
+    bool? RecordingAvailable = null,
+    string? ConversationId = null);
 
 public sealed record VisitorGeo(string? CountryCode = null, string? Country = null, string? City = null, string? Region = null);
 

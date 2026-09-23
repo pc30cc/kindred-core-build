@@ -54,6 +54,8 @@ public sealed partial class ShellPage : Page
         ShowUpdate();
         CheckWindowsNotifications();
 
+        Host.PlanChanged += ApplyPlan;
+        ApplyPlan();
         StartInboxSidebar();
         if (Host.Workspace is { } ws)
         {
@@ -81,6 +83,9 @@ public sealed partial class ShellPage : Page
         _notifier = null;
         _countsPoller?.Dispose();
         _countsPoller = null;
+        _planPoller?.Dispose();
+        _planPoller = null;
+        Host.PlanChanged -= ApplyPlan;
         Host.MeChanged -= RenderMe;
         if (Host.CallQueue is { } q)
         {
@@ -208,15 +213,91 @@ public sealed partial class ShellPage : Page
         if (Host.Workspace is not { } ws) return;
         _countsPoller = new Poller("sidebar counts", ct => LoadSidebarAsync(ws.Id, ct), () => TimeSpan.FromSeconds(15));
         _countsPoller.Start();
+        // The super admin can change the plan at any time; pick it up without a restart.
+        _planPoller = new Poller("plan", async ct =>
+        {
+            await Task.Delay(TimeSpan.FromMinutes(3), ct);
+            await Host.LoadPlanAsync(ct);
+        }, () => TimeSpan.Zero);
+        _planPoller.Start();
+    }
+
+    private Poller? _planPoller;
+    private int? _automated;
+    private IReadOnlyList<string> _channels = [];
+
+    /// <summary>
+    /// Shows exactly the sections the plan (and role) allows, as the web
+    /// sidebar does; if the page on show just went away, back to the inbox.
+    /// </summary>
+    private void ApplyPlan()
+    {
+        var plan = Host.Plan;
+        static Visibility V(bool on) => on ? Visibility.Visible : Visibility.Collapsed;
+        ContactsItem.Visibility = V(plan.Contacts);
+        VisitorsItem.Visibility = V(plan.Visitors);
+        CallCenterItem.Visibility = V(plan.CallCenter);
+        InboxAiItem.Visibility = V(plan.AiQueue(_automated));
+        InboxNeedsHumanItem.Visibility = V(plan.NeedsHumanQueue);
+        InternalInboxItem.Visibility = V(plan.TeamChat);
+        OtherInboxesItem.Visibility = V(plan.IsAdmin && _channels.Count > 0);
+        if (Nav.SelectedItem is NavigationViewItem selected)
+        {
+            var tag = selected.Tag as string ?? string.Empty;
+            var gone = selected.Visibility == Visibility.Collapsed
+                || (tag == "colleagues" && !plan.TeamChat)
+                || (tag.StartsWith("channel/", StringComparison.Ordinal) && !plan.IsAdmin);
+            if (gone) Nav.SelectedItem = InboxOpenItem;
+        }
+        RenderWorkspaces();
+    }
+
+    /// <summary>The workspace header: name and logo, and the others to switch to.</summary>
+    private void RenderWorkspaces()
+    {
+        var s = Host.Strings;
+        var current = Host.Workspace;
+        WorkspaceName.Text = current?.Name is { Length: > 0 } wn ? wn : s["appName"];
+        WorkspaceLogo.ImageSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
+            current?.LogoUrl is { } logo && logo.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? new Uri(logo) : new Uri(AppPaths.Icon));
+        var many = Host.Workspaces.Count > 1;
+        WorkspaceButton.IsEnabled = many;
+        WorkspaceChevron.Visibility = many ? Visibility.Visible : Visibility.Collapsed;
+        ToolTipService.SetToolTip(WorkspaceButton, many ? s["switchWorkspace"] : null);
+        WorkspaceMenu.Items.Clear();
+        if (!many) return;
+        WorkspaceMenu.Items.Add(new MenuFlyoutItem { Text = s["switchWorkspace"], IsEnabled = false });
+        foreach (var w in Host.Workspaces)
+        {
+            var item = new RadioMenuFlyoutItem
+            {
+                Text = w.Name is { Length: > 0 } n ? n : w.Slug ?? w.Id,
+                GroupName = "workspace",
+                IsChecked = w.Id == current?.Id,
+            };
+            var target = w;
+            item.Click += async (_, _) =>
+            {
+                if (target.Id == Host.Workspace?.Id || App.Current.Window is not { } window) return;
+                await window.SwitchWorkspaceAsync(target);
+            };
+            WorkspaceMenu.Items.Add(item);
+        }
     }
 
     private async Task LoadSidebarAsync(string workspaceId, CancellationToken ct)
     {
         var counts = await Host.Api.SidebarCountsAsync(workspaceId, "mine", ct);
+        if (_automated != counts.Automated)
+        {
+            _automated = counts.Automated;
+            InboxAiItem.Visibility = Host.Plan.AiQueue(_automated) ? Visibility.Visible : Visibility.Collapsed;
+        }
         Badge(AiBadge, counts.Automated);
         Badge(NeedsHumanBadge, counts.NeedsHuman);
         Badge(SpamBadge, counts.Spam);
-        if (_channelsLoaded) return;
+        // "Other inboxes" is for owners and admins only, as on the web.
+        if (_channelsLoaded || !Host.Plan.IsAdmin) return;
         _channelsLoaded = true;
         try
         {
@@ -247,7 +328,8 @@ public sealed partial class ShellPage : Page
                 Icon = new FontIcon { Glyph = ChannelGlyph(key) },
             });
         }
-        OtherInboxesItem.Visibility = keys.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        _channels = keys;
+        OtherInboxesItem.Visibility = keys.Count > 0 && Host.Plan.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void SyncSelection()
@@ -432,9 +514,7 @@ public sealed partial class ShellPage : Page
         var name = Host.User?.FullName is { Length: > 0 } n ? n : Host.User?.Email ?? s["account"];
         ToolTipService.SetToolTip(AccountItem, Host.Workspace?.Name is { Length: > 0 } w ? $"{name} — {w}" : name);
         RenderMe();
-        WorkspaceName.Text = Host.Workspace?.Name is { Length: > 0 } wn ? wn : s["appName"];
-        WorkspaceLogo.ImageSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
-            Host.Workspace?.LogoUrl is { } logo && logo.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? new Uri(logo) : new Uri(AppPaths.Icon));
+        RenderWorkspaces();
         UpdateButton.Content = s["updateRestart"];
         ToastsOffBar.Title = s["windowsNotificationsOff"];
         ToastsOffBar.Message = s["windowsNotificationsOffBody"];

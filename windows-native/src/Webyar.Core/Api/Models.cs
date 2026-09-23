@@ -53,6 +53,23 @@ public sealed record Conversation(
     /// <summary>When anything last happened, for sorting and "5m ago".</summary>
     public DateTimeOffset? LastActivity => LastMessage?.CreatedAt ?? UpdatedAt ?? CreatedAt;
 
+    /// <summary>
+    /// ai_managed, needs_human or human_active — metadata.ai_state first, as
+    /// the iOS app and the web read it, then the column.
+    /// </summary>
+    public string? AiStateValue
+    {
+        get
+        {
+            if (Metadata is { ValueKind: JsonValueKind.Object } m && m.TryGetProperty("ai_state", out var v) && v.ValueKind == JsonValueKind.String)
+                return v.GetString();
+            return AiState;
+        }
+    }
+
+    /// <summary>The AI is answering this visitor: the operator steers it instead of writing directly.</summary>
+    public bool IsAiManaged => AiStateValue == "ai_managed";
+
     private static readonly string[] Channels = ["telegram", "bale", "whatsapp", "instagram", "x", "email", "phone", "widget"];
 
     /// <summary>

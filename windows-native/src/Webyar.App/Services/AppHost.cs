@@ -114,6 +114,47 @@ public sealed class AppHost : IAsyncDisposable
     }
     public Workspace? Workspace { get; set; }
 
+    /// <summary>What the workspace's plan shows; Loading until the first fetch after choosing a workspace.</summary>
+    public WorkspacePlan Plan { get; private set; } = WorkspacePlan.Loading;
+
+    /// <summary>Raised on the UI thread whenever the plan snapshot changes.</summary>
+    public event Action? PlanChanged;
+
+    /// <summary>
+    /// Fetches the plan again. The super admin can switch a feature at any
+    /// time, so the shell calls this every few minutes; a failure keeps the
+    /// last good snapshot, and only a first failure falls back to "show all".
+    /// </summary>
+    public async Task LoadPlanAsync(CancellationToken ct = default)
+    {
+        if (Workspace is not { } ws) return;
+        WorkspacePlan next;
+        try
+        {
+            next = await Api.PlanAsync(ws.Id, ct).ConfigureAwait(false);
+        }
+        catch (ApiException e) when (e.Failure != ApiFailure.Unauthorized)
+        {
+            Log.Error("plan", e);
+            if (Plan.State == PlanState.Loaded) return;
+            next = WorkspacePlan.Failed;
+        }
+        if (Workspace?.Id != ws.Id) return;
+        RunOnUi(() =>
+        {
+            Plan = next;
+            PlanChanged?.Invoke();
+        });
+    }
+
+    /// <summary>Forgets the plan when the workspace changes, so nothing from the old one shows.</summary>
+    public void ResetPlan()
+    {
+        Plan = WorkspacePlan.Loading;
+        _members = null;
+        _profiles.Clear();
+    }
+
     private IReadOnlyList<WorkspaceMember>? _members;
     private DateTimeOffset _membersAt;
     private string? _membersWorkspace;

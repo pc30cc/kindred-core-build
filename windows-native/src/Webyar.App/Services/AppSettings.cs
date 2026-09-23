@@ -25,7 +25,7 @@ public sealed class AppSettings
     public WindowBounds? Window { get; set; }
 
     public Language ResolvedLanguage =>
-        Strings.Parse(Language) ?? Strings.FromSystem(System.Globalization.CultureInfo.CurrentUICulture);
+        Strings.Parse(Language) ?? Core.Localization.Language.Fa;
 
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 

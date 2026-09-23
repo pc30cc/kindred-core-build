@@ -33,7 +33,7 @@ public sealed partial class MainWindow : Window
             SystemBackdrop = new MicaBackdrop();
             Root.Background = new SolidColorBrush(Colors.Transparent);
         }
-        TitleIcon.Source = new BitmapImage(new Uri(AppPaths.Icon));
+        TitleIcon.ImageSource = new BitmapImage(new Uri(AppPaths.Icon));
         try
         {
             AppWindow.SetIcon(AppPaths.WindowIcon);
@@ -248,7 +248,7 @@ public sealed partial class MainWindow : Window
 
     /// <summary>
     /// Keeps our title-bar content clear of the system caption buttons, which
-    /// stay on the physical right even when the layout runs right to left.
+    /// stay on the physical right even when the rest of the layout runs right to left.
     /// </summary>
     private void UpdateInsets()
     {
@@ -259,9 +259,9 @@ public sealed partial class MainWindow : Window
         static double Safe(double v) => double.IsFinite(v) && v > 0 ? v : 0;
         var left = Safe(bar.LeftInset / scale);
         var right = Safe(bar.RightInset / scale);
-        var rtl = Root.FlowDirection == FlowDirection.RightToLeft;
-        StartInset.Width = new GridLength(rtl ? right : left);
-        EndInset.Width = new GridLength(rtl ? left : right);
+        // The title bar itself never flips (see MainWindow.xaml), so the insets are physical.
+        StartInset.Width = new GridLength(left);
+        EndInset.Width = new GridLength(right);
     }
 
     private static void Guard(string what, Action action)

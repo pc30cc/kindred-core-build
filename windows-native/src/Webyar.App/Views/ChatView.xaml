@@ -74,7 +74,7 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <Border Width="42" Height="42" CornerRadius="11" Background="{ThemeResource BrandSoftBrush}">
+                        <Border Width="42" Height="42" CornerRadius="21" Background="{ThemeResource BrandSoftBrush}">
                             <FontIcon Glyph="{x:Bind Glyph}" FontSize="18" Foreground="{ThemeResource BrandBrush}" />
                         </Border>
                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
@@ -107,7 +107,7 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <Border Width="42" Height="42" CornerRadius="11" Background="#33FFFFFF">
+                        <Border Width="42" Height="42" CornerRadius="21" Background="#33FFFFFF">
                             <FontIcon Glyph="{x:Bind Glyph}" FontSize="18" Foreground="White" />
                         </Border>
                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
@@ -274,7 +274,7 @@
                                     <MenuFlyout x:Name="MoreMenu" Opening="OnMoreOpening" />
                                 </Button.Flyout>
                             </Button>
-                            <ToggleButton x:Name="DetailsToggle" Padding="8" MinWidth="34" MinHeight="34" CornerRadius="8" BorderThickness="0" Background="Transparent" IsChecked="True" Click="OnToggleDetails">
+                            <ToggleButton x:Name="DetailsToggle" Padding="8" MinWidth="34" MinHeight="34" CornerRadius="17" BorderThickness="0" Background="Transparent" IsChecked="True" Click="OnToggleDetails">
                                 <FontIcon Glyph="&#xE8A0;" FontSize="15" />
                             </ToggleButton>
                         </StackPanel>
@@ -327,7 +327,7 @@
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <Border Width="44" Height="44" CornerRadius="9" Background="{ThemeResource BrandSoftBrush}">
+                                        <Border Width="44" Height="44" CornerRadius="22" Background="{ThemeResource BrandSoftBrush}">
                                             <Grid>
                                                 <FontIcon x:Name="PendingGlyph" Glyph="&#xE8A5;" FontSize="18" Foreground="{ThemeResource BrandBrush}" />
                                                 <Image x:Name="PendingThumb" Stretch="UniformToFill" Visibility="Collapsed" />

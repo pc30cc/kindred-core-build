@@ -218,7 +218,11 @@
     "callInbound": "Incoming",
     "callOutbound": "Outgoing",
     "callStateEnded": "Completed",
-    "callRecorded": "Recorded"
+    "callRecorded": "Recorded",
+    "rememberMe": "Remember me",
+    "loginFeatureInbox": "Every channel in one inbox: chat, Telegram, Bale, email",
+    "loginFeatureAi": "An AI assistant that answers visitors around the clock",
+    "loginFeatureCalls": "Voice and video calls right from the desktop"
   },
   "fa": {
     "trayOpen": "باز کردن وب‌یار",
@@ -439,7 +443,11 @@
     "callInbound": "ورودی",
     "callOutbound": "خروجی",
     "callStateEnded": "انجام‌شده",
-    "callRecorded": "ضبط‌شده"
+    "callRecorded": "ضبط‌شده",
+    "rememberMe": "مرا به خاطر بسپار",
+    "loginFeatureInbox": "همهٔ کانال‌ها در یک صندوق: چت، تلگرام، بله و ایمیل",
+    "loginFeatureAi": "دستیار هوش مصنوعی که شبانه‌روز به بازدیدکنندگان پاسخ می‌دهد",
+    "loginFeatureCalls": "تماس صوتی و تصویری مستقیم از دسکتاپ"
   },
   "tr": {
     "trayOpen": "Webyar'ı aç",
@@ -660,6 +668,10 @@
     "callInbound": "Gelen",
     "callOutbound": "Giden",
     "callStateEnded": "Tamamlandı",
-    "callRecorded": "Kaydedildi"
+    "callRecorded": "Kaydedildi",
+    "rememberMe": "Beni hatırla",
+    "loginFeatureInbox": "Tüm kanallar tek kutuda: sohbet, Telegram, Bale, e-posta",
+    "loginFeatureAi": "Ziyaretçilere gece gündüz yanıt veren yapay zekâ asistanı",
+    "loginFeatureCalls": "Masaüstünden sesli ve görüntülü arama"
   }
 }

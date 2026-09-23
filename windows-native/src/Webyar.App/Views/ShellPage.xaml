@@ -47,14 +47,14 @@
                 The workspace, as at the top of the web sidebar. With more than one,
                 it opens the list to switch between them.
             -->
-            <Button x:Name="WorkspaceButton" Margin="0,0,4,0" Padding="4,3,8,3" MinHeight="36" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Background="Transparent" BorderThickness="0" CornerRadius="8" IsEnabled="False">
+            <Button x:Name="WorkspaceButton" Margin="0,0,4,0" Padding="4,3,8,3" MinHeight="36" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Background="Transparent" BorderThickness="0" CornerRadius="18" IsEnabled="False">
                 <Grid ColumnSpacing="10">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <Border Width="28" Height="28" CornerRadius="8">
+                    <Border Width="28" Height="28" CornerRadius="14">
                         <Border.Background>
                             <ImageBrush x:Name="WorkspaceLogo" Stretch="UniformToFill" />
                         </Border.Background>

@@ -10,7 +10,8 @@
         </Grid.RowDefinitions>
 
         <!-- Our own title bar: the window's content runs up under it, as in the Windows 11 apps. -->
-        <Grid x:Name="TitleBarArea" Height="40">
+        <!-- Always laid out left to right: the logo and name sit on the left, as in every Windows app, with the caption buttons on the right. -->
+        <Grid x:Name="TitleBarArea" Height="40" FlowDirection="LeftToRight">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="StartInset" Width="0" />
                 <ColumnDefinition Width="Auto" />
@@ -18,7 +19,11 @@
                 <ColumnDefinition x:Name="EndInset" Width="0" />
             </Grid.ColumnDefinitions>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" Margin="14,0" VerticalAlignment="Center">
-                <Image x:Name="TitleIcon" Width="18" Height="18" />
+                <Border Width="20" Height="20" CornerRadius="10">
+                    <Border.Background>
+                        <ImageBrush x:Name="TitleIcon" Stretch="UniformToFill" />
+                    </Border.Background>
+                </Border>
                 <TextBlock x:Name="TitleText" FontSize="12.5" FontWeight="SemiBold" Foreground="{ThemeResource Text2Brush}" VerticalAlignment="Center" />
             </StackPanel>
         </Grid>

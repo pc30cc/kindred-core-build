@@ -96,7 +96,7 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock x:Name="SubjectText" FontSize="17" FontWeight="Bold" TextWrapping="Wrap" VerticalAlignment="Center" />
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
-                            <ToggleButton x:Name="StarButton" Padding="8" MinWidth="34" MinHeight="34" CornerRadius="8" BorderThickness="0" Background="Transparent" Click="OnStar">
+                            <ToggleButton x:Name="StarButton" Padding="8" MinWidth="34" MinHeight="34" CornerRadius="17" BorderThickness="0" Background="Transparent" Click="OnStar">
                                 <FontIcon Glyph="&#xE734;" FontSize="15" />
                             </ToggleButton>
                             <Button x:Name="UnreadButton" Style="{StaticResource IconButton}" Click="OnMarkUnread">

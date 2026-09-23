@@ -128,7 +128,7 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <TextBox x:Name="Composer" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="140" BorderThickness="0" Background="Transparent" TextChanged="OnComposerChanged" PreviewKeyDown="OnComposerKeyDown" />
-                            <Button x:Name="SendButton" Grid.Column="1" VerticalAlignment="Bottom" Width="38" Height="34" Padding="0" CornerRadius="9" Style="{StaticResource AccentButtonStyle}" IsEnabled="False" Click="OnSend">
+                            <Button x:Name="SendButton" Grid.Column="1" VerticalAlignment="Bottom" Width="36" Height="36" Padding="0" CornerRadius="18" Style="{StaticResource AccentButtonStyle}" IsEnabled="False" Click="OnSend">
                                 <FontIcon FontSize="14" Glyph="&#xE724;" />
                             </Button>
                         </Grid>

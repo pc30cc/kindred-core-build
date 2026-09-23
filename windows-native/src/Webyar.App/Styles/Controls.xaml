@@ -51,24 +51,24 @@
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
 
-    <!-- A quiet square icon button for toolbars. -->
+    <!-- A quiet round icon button for toolbars: every icon in the app sits in a circle. -->
     <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Padding" Value="8" />
         <Setter Property="MinWidth" Value="34" />
         <Setter Property="MinHeight" Value="34" />
-        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="CornerRadius" Value="999" />
         <Setter Property="Foreground" Value="{ThemeResource Text2Brush}" />
     </Style>
 
     <Style x:Key="PillButton" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
-        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="CornerRadius" Value="999" />
         <Setter Property="Padding" Value="12,6" />
     </Style>
 
     <Style x:Key="PillAccentButton" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}">
-        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="CornerRadius" Value="999" />
         <Setter Property="Padding" Value="12,6" />
     </Style>
 

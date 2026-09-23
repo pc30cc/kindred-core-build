@@ -212,7 +212,7 @@ public sealed partial class ContactsPage : Page
         {
             Width = 32,
             Height = 32,
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = new CornerRadius(16),
             Background = Palette.Resource("BrandSoftBrush"),
             Child = new FontIcon { Glyph = glyph, FontSize = 14, Foreground = Palette.Resource("BrandBrush") },
         });

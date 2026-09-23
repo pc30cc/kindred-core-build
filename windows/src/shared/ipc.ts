@@ -87,6 +87,9 @@ export interface WebyarBridge {
     getSettings(): Promise<DesktopSettings>
     setSettings(patch: Partial<DesktopSettings>): Promise<DesktopSettings>
     openExternal(url: string): Promise<void>
+    /** Whether Windows itself lets apps show notifications (Settings → System → Notifications). */
+    windowsNotificationsEnabled(): Promise<boolean>
+    openWindowsNotificationSettings(): Promise<void>
     notify(req: NotifyRequest): Promise<void>
     setBadge(count: number, overlayDataUrl: string | null): Promise<void>
     setTitleBarTheme(theme: TitleBarTheme): Promise<void>

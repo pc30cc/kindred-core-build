@@ -15,6 +15,7 @@ import { writeFile } from 'node:fs/promises'
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { execFile } from 'node:child_process'
 import type { ApiRequest, DesktopSettings, NotifyRequest, SaveFileRequest, TitleBarTheme } from '../shared/ipc'
 import * as api from './api'
 import { publicSettings, readSettings, writeSettings } from './settings'
@@ -230,6 +231,23 @@ function registerIpc(): void {
   })
   ipcMain.handle('app:isFocused', () => win?.isFocused() ?? false)
   ipcMain.handle('app:focus', () => showWindow())
+
+  // The global "Get notifications from apps and other senders" switch. When it
+  // is off Windows drops every toast without a word, which looks exactly like
+  // the app not sending any, so the settings page reads it and says so.
+  ipcMain.handle(
+    'app:windowsNotificationsEnabled',
+    () =>
+      new Promise<boolean>((resolve) => {
+        if (process.platform !== 'win32') return resolve(true)
+        execFile('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\PushNotifications', '/v', 'ToastEnabled'], (err, stdout) => {
+          // No value at all is the Windows default, which is "on".
+          if (err) return resolve(true)
+          resolve(!/ToastEnabled\s+REG_DWORD\s+0x0\b/i.test(stdout))
+        })
+      }),
+  )
+  ipcMain.handle('app:openWindowsNotificationSettings', () => shell.openExternal('ms-settings:notifications'))
 
   ipcMain.handle('app:notify', (_e, req: NotifyRequest) => {
     if (!Notification.isSupported()) return

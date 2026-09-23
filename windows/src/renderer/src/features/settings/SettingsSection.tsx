@@ -247,6 +247,7 @@ function GeneralPage() {
           />
         </Row>
       </Card>
+      <WindowsNotificationsWarning />
       <Card title={t('desktop')}>
         <Row label={t('startWithWindows')} hint={t('startWithWindowsHint')}>
           <Switch checked={!!desktop?.openAtLogin} disabled={!desktop} onChange={(v) => change({ openAtLogin: v })} />
@@ -354,6 +355,7 @@ function NotificationsPage() {
   return (
     <>
       <PageTitle>{t('notifications')}</PageTitle>
+      <WindowsNotificationsWarning />
       <Card title={t('desktop')}>
         <Row label={t('desktopNotifications')} hint={t('desktopNotificationsHint')} icon={Laptop}>
           <Switch
@@ -630,5 +632,30 @@ function AboutPage() {
         )}
       </Card>
     </>
+  )
+}
+
+/** Shown while Windows' own notification switch is off, which silently swallows every toast. */
+function WindowsNotificationsWarning() {
+  const t = useT()
+  const [enabled, setEnabled] = useState(true)
+  useEffect(() => {
+    const check = () => void window.webyar.app.windowsNotificationsEnabled().then(setEnabled)
+    check()
+    // Coming back from the Windows settings page is the moment it may have changed.
+    return window.webyar.app.onFocusChange((focused) => focused && check())
+  }, [])
+  if (enabled) return null
+  return (
+    <div className="mb-4 flex items-start gap-3 rounded-xl border border-warning/30 bg-warning-soft px-4 py-3">
+      <AlertTriangle className="mt-0.5 size-[18px] shrink-0 text-warning" strokeWidth={1.8} />
+      <div className="min-w-0 flex-1">
+        <div className="text-[13.5px] font-semibold text-fg">{t('windowsNotificationsOff')}</div>
+        <div className="mt-0.5 text-[12.5px] text-fg-2">{t('windowsNotificationsOffBody')}</div>
+      </div>
+      <Button size="sm" variant="secondary" icon={ExternalLink} onClick={() => void window.webyar.app.openWindowsNotificationSettings()}>
+        {t('openWindowsSettings')}
+      </Button>
+    </div>
   )
 }

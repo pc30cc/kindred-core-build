@@ -13,7 +13,7 @@
  * always what was stored.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Monitor, Download, SlidersHorizontal, Loader2 } from 'lucide-react';
+import { Monitor, Download, SlidersHorizontal, Loader2, Megaphone, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -27,10 +27,14 @@ import {
 } from '@/hooks/useDesktopApp';
 import { DesktopUpdatesTab } from '@/components/admin/desktop/DesktopUpdatesTab';
 import { DesktopBehaviourTab } from '@/components/admin/desktop/DesktopBehaviourTab';
+import { DesktopCampaignsTab } from '@/components/admin/desktop/DesktopCampaignsTab';
+import { DesktopLiveTab } from '@/components/admin/desktop/DesktopLiveTab';
 
 const TABS = [
   { value: 'updates', icon: Download },
   { value: 'behaviour', icon: SlidersHorizontal },
+  { value: 'campaigns', icon: Megaphone },
+  { value: 'live', icon: Activity },
 ] as const;
 
 export default function DesktopAppPage() {
@@ -132,6 +136,13 @@ export default function DesktopAppPage() {
         </TabsContent>
         <TabsContent value="behaviour" className="space-y-4">
           <DesktopBehaviourTab draft={draft} set={set} />
+        </TabsContent>
+        {/* These two save on their own (each row / each broadcast), not through the draft bar. */}
+        <TabsContent value="campaigns" className="space-y-4">
+          <DesktopCampaignsTab />
+        </TabsContent>
+        <TabsContent value="live" className="space-y-4">
+          <DesktopLiveTab />
         </TabsContent>
       </Tabs>
 

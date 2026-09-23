@@ -20,6 +20,7 @@ const technicalCopy = new Set([
   'https://s3.example.com',
   'https://your-host/api/calls/agora/webhook',
   'e.g. eu-west, us-east',
+  'e.g. turn.example.com',
   'e.g. us-east-1',
   'agora_cloud',
 ]);

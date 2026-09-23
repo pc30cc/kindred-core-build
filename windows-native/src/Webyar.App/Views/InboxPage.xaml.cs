@@ -84,6 +84,34 @@ public sealed partial class InboxPage : Page
         else
         {
             Chat.ShowById(id);
+            _ = FindAsync(id);
+        }
+    }
+
+    /// <summary>
+    /// A conversation outside the list on show (a toast, another queue):
+    /// the queues are searched for it so the header, the AI state and the
+    /// actions are right, not just the messages.
+    /// </summary>
+    private async Task FindAsync(string id)
+    {
+        if (Host.Workspace is not { } ws) return;
+        foreach (var filter in new[] { InboxFilter.Ai, InboxFilter.Open, InboxFilter.Pending, InboxFilter.Resolved, InboxFilter.Spam })
+        {
+            try
+            {
+                var list = await Host.Api.ConversationsAsync(ws.Id, filter);
+                if (list.FirstOrDefault(c => c.Id == id) is not { } hit) continue;
+                if (_openId != id) return;
+                var enriched = await Host.WithVisitorProfilesAsync([hit]);
+                if (_openId == id) Chat.Show(enriched[0]);
+                return;
+            }
+            catch (Exception e)
+            {
+                Log.Error("find conversation", e);
+                return;
+            }
         }
     }
 

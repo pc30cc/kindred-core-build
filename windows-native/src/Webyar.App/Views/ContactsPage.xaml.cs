@@ -68,6 +68,9 @@ public sealed partial class ContactsPage : Page
                 .ToList();
             CountText.Text = Digits.Localize(_all.Count.ToString(CultureInfo.InvariantCulture), s.Language);
             Filter();
+            // Webyar.exe --page=contacts --contact=<id> opens straight on that profile.
+            var wanted = Environment.GetCommandLineArgs().FirstOrDefault(a => a.StartsWith("--contact=", StringComparison.Ordinal))?[10..];
+            if (wanted is not null && _items.FirstOrDefault(c => c.Id == wanted) is { } hit) List.SelectedItem = hit;
         }
         catch (Exception ex)
         {
@@ -183,14 +186,13 @@ public sealed partial class ContactsPage : Page
         OverviewRows.Children.Clear();
         var geo = item.Profile?.Geo;
         var device = item.Profile?.Device;
-        var flag = Flag(geo?.CountryCode);
         var place = string.Join(s.IsRightToLeft ? "، " : ", ", new[] { geo?.City, geo?.Region != geo?.City ? geo?.Region : null, geo?.Country }.Where(x => !string.IsNullOrWhiteSpace(x)));
         var deviceText = string.Join(" · ", new[] { device?.Browser, device?.Os, DeviceLabel(device?.Device, s) }.Where(x => !string.IsNullOrWhiteSpace(x)));
 
         Row("", s["emailLabel"], contact.Email, copy: true, ltr: true);
         Row("", s["phoneLabel"], contact.Phone, copy: true, ltr: true);
         Row("", s["contactCompany"], contact.Company);
-        Row("", s["visitorLocation"], place.Length > 0 ? (flag.Length > 0 ? $"{flag}  {place}" : place) : null);
+        Row("\uE81D", s["visitorLocation"], place.Length > 0 ? place : null);
         Row("", s["visitorDevice"], deviceText.Length > 0 ? deviceText : null, ltr: true);
         Row("", s["contactVisitorCode"], contact.VisitorCode ?? contact.MetaString("anon_code"), copy: true, ltr: true);
         Row("", s["firstSeen"], contact.CreatedAt is { } at ? LongDate(at, s) : null);
@@ -225,7 +227,7 @@ public sealed partial class ContactsPage : Page
             IsTextSelectionEnabled = true,
             TextWrapping = TextWrapping.Wrap,
             VerticalAlignment = VerticalAlignment.Center,
-            TextAlignment = TextAlignment.DetectFromContent,
+            TextReadingOrder = TextReadingOrder.DetectFromContent,
         };
         if (ltr)
         {
@@ -304,7 +306,7 @@ public sealed partial class ContactsPage : Page
             FontSize = 13,
             Foreground = Palette.Resource("Text2Brush"),
             TextTrimming = TextTrimming.CharacterEllipsis,
-            TextAlignment = TextAlignment.DetectFromContent,
+            TextReadingOrder = TextReadingOrder.DetectFromContent,
             MaxLines = 1,
         });
         Grid.SetColumn(body, 1);
@@ -378,8 +380,8 @@ public sealed partial class ContactsPage : Page
         var details = new[]
         {
             call.AgentName,
-            call.DurationSeconds is > 0 and var d ? $"{s["ccHeaderDuration"]} {Duration(d.Value, s)}" : null,
-            call.WaitSeconds is > 0 and var w ? $"{s["ccWaitingLabel"]} {Duration(w.Value, s)}" : null,
+            call.DurationSeconds is > 0 and var d ? $"{s["ccHeaderDuration"]} {Duration(d, s)}" : null,
+            call.WaitSeconds is > 0 and var w ? $"{s["ccWaitingLabel"]} {Duration(w, s)}" : null,
         }.Where(x => !string.IsNullOrWhiteSpace(x));
         body.Children.Add(new TextBlock { Text = string.Join(" · ", details), FontSize = 12.5, Foreground = Palette.Resource("Text2Brush"), TextTrimming = TextTrimming.CharacterEllipsis });
         Grid.SetColumn(body, 1);
@@ -473,13 +475,5 @@ public sealed partial class ContactsPage : Page
         var t = TimeSpan.FromSeconds(seconds);
         var text = t.TotalHours >= 1 ? t.ToString(@"h\:mm\:ss", CultureInfo.InvariantCulture) : t.ToString(@"m\:ss", CultureInfo.InvariantCulture);
         return Digits.Localize(text, s.Language);
-    }
-
-    /// <summary>ISO-2 country code to its flag emoji, as the web's badge.</summary>
-    private static string Flag(string? code)
-    {
-        if (code is not { Length: 2 } || !code.All(char.IsAsciiLetter)) return string.Empty;
-        var up = code.ToUpperInvariant();
-        return char.ConvertFromUtf32(0x1F1E6 + up[0] - 'A') + char.ConvertFromUtf32(0x1F1E6 + up[1] - 'A');
     }
 }

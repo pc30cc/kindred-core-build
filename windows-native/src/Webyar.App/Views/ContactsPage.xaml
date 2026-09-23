@@ -50,6 +50,7 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <StackPanel Orientation="Horizontal" Spacing="8" Margin="16,14,16,4">
                     <TextBlock x:Name="HeaderText" Style="{StaticResource PaneTitle}" />
@@ -93,6 +94,8 @@
                     </StackPanel>
                     <ProgressRing x:Name="Loading" IsActive="True" Width="28" Height="28" />
                 </Grid>
+                <!-- Super Admin's ad for this place (Desktop app -> Ads & announcements). -->
+                <controls:CampaignCard Grid.Row="3" Margin="8,4,8,8" Placement="contacts_list" />
             </Grid>
         </Border>
 

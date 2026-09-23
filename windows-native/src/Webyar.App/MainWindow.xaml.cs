@@ -148,6 +148,8 @@ public sealed partial class MainWindow : Window
         await Host.StartPresenceAsync();
         Splash.Visibility = Visibility.Collapsed;
         RootFrame.Navigate(typeof(ShellPage));
+        Host.Engagement.Start();
+        Host.Engagement.Refresh();
     }
 
     /// <summary>Moves to another of the operator's workspaces, as the web's workspace menu does.</summary>

@@ -7,47 +7,6 @@
     xmlns:controls="using:Webyar.App.Controls"
     xmlns:views="using:Webyar.App.Views">
     <UserControl.Resources>
-        <!--
-            Attachment cards are buttons, but the stock Button swaps its
-            background for a grey one on hover, which left the white text of an
-            operator file invisible. This template keeps the card's own colour
-            and only lays a faint tint over it.
-        -->
-        <Style x:Key="BubbleButtonStyle" TargetType="Button">
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-            <Setter Property="VerticalContentAlignment" Value="Stretch" />
-            <Setter Property="UseSystemFocusVisuals" Value="True" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Grid x:Name="Root" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}">
-                            <ContentPresenter Padding="{TemplateBinding Padding}" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
-                            <Border x:Name="Tint" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="{TemplateBinding CornerRadius}" Opacity="0" IsHitTestVisible="False" />
-                            <VisualStateManager.VisualStateGroups>
-                                <VisualStateGroup x:Name="CommonStates">
-                                    <VisualState x:Name="Normal" />
-                                    <VisualState x:Name="PointerOver">
-                                        <VisualState.Setters>
-                                            <Setter Target="Tint.Opacity" Value="1" />
-                                        </VisualState.Setters>
-                                    </VisualState>
-                                    <VisualState x:Name="Pressed">
-                                        <VisualState.Setters>
-                                            <Setter Target="Tint.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
-                                            <Setter Target="Tint.Opacity" Value="1" />
-                                        </VisualState.Setters>
-                                    </VisualState>
-                                    <VisualState x:Name="Disabled" />
-                                </VisualStateGroup>
-                            </VisualStateManager.VisualStateGroups>
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
 
         <!--
             Files stand on their own, outside the text bubble, as in Telegram and
@@ -222,6 +181,7 @@
                     </Border>
                     <TextBlock x:Name="PlaceholderTitle" HorizontalAlignment="Center" FontSize="16" FontWeight="SemiBold" />
                     <TextBlock x:Name="PlaceholderBody" HorizontalAlignment="Center" Style="{StaticResource MutedText}" />
+                    <controls:CampaignCard Width="420" Margin="0,18,0,0" Placement="chat_empty" />
                 </StackPanel>
 
                 <Grid x:Name="ThreadPanel" Visibility="Collapsed">

@@ -30,9 +30,18 @@ public sealed partial class ColleagueItem : ObservableObject
     [ObservableProperty]
     private Visibility _unreadVisibility = Visibility.Collapsed;
 
+    /// <summary>active, away, disconnected or offline — the team presence the shell already follows.</summary>
+    [ObservableProperty]
+    private string? _presence;
+
+    public string? Role { get; private set; }
+    public string? Email { get; private set; }
+
     public void Update(Colleague c, Strings s)
     {
         Id = c.UserId;
+        Role = c.Role;
+        Email = c.Email;
         Name = c.DisplayName;
         AvatarUrl = c.AvatarUrl;
         var last = c.LastMessage;
@@ -121,24 +130,73 @@ public sealed partial class EmailThreadItem : ObservableObject
 }
 
 /// <summary>A message between two colleagues.</summary>
-public sealed class TeamMessageItem
+/// <summary>
+/// One line of a colleague chat: a message (text and/or a file), or a day
+/// separator. Runs from one sender are grouped: only the last bubble of a
+/// run shows the avatar and time, like the visitor thread.
+/// </summary>
+public sealed partial class TeamMessageItem : ObservableObject
 {
     public TeamMessageItem(TeamMessage m, string? me, Strings s)
     {
         Id = m.Id;
+        SenderId = m.SenderId;
+        CreatedAt = m.CreatedAt;
         Side = m.SenderId == me ? MessageSide.Outgoing : MessageSide.Incoming;
         Body = m.Body ?? string.Empty;
-        Meta = m.CreatedAt is { } at ? Display.ClockTime(at, s.Language) : string.Empty;
+        _meta = m.CreatedAt is { } at ? Display.ClockTime(at, s.Language) : string.Empty;
+        if (Side == MessageSide.Outgoing && m.ReadAt is not null) _meta += " · " + s["seen"];
         if (m.Attachment is { } a) Attachments.Add(new AttachmentItem(a, s));
         BodyVisibility = Body.Trim().Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         AttachmentsVisibility = Attachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// <summary>A message the operator is sending now, shown at once.</summary>
+    public TeamMessageItem(string body, AttachmentItem? file, Strings s)
+    {
+        Id = "local:" + Guid.NewGuid();
+        Side = MessageSide.Outgoing;
+        Body = body;
+        CreatedAt = DateTimeOffset.Now;
+        if (file is not null) Attachments.Add(file);
+        BodyVisibility = Body.Trim().Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        AttachmentsVisibility = Attachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        _meta = s["sending"];
+        _opacity = 0.6;
+    }
+
+    /// <summary>A day separator.</summary>
+    public TeamMessageItem(string dayLabel)
+    {
+        Id = "day:" + dayLabel;
+        Side = MessageSide.Day;
+        Body = dayLabel;
+    }
+
     public string Id { get; }
+    public string? SenderId { get; }
+    public DateTimeOffset? CreatedAt { get; }
     public MessageSide Side { get; }
     public string Body { get; }
-    public string Meta { get; }
     public System.Collections.ObjectModel.ObservableCollection<AttachmentItem> Attachments { get; } = [];
     public Visibility BodyVisibility { get; }
     public Visibility AttachmentsVisibility { get; }
+
+    [ObservableProperty]
+    private string _meta = string.Empty;
+
+    [ObservableProperty]
+    private Visibility _metaVisibility = Visibility.Visible;
+
+    [ObservableProperty]
+    private string _avatarName = string.Empty;
+
+    [ObservableProperty]
+    private string? _avatarUrl;
+
+    [ObservableProperty]
+    private Visibility _avatarVisibility = Visibility.Visible;
+
+    [ObservableProperty]
+    private double _opacity = 1;
 }

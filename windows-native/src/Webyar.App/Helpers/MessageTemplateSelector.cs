@@ -24,9 +24,10 @@ public sealed partial class TeamMessageTemplateSelector : DataTemplateSelector
 {
     public DataTemplate? Incoming { get; set; }
     public DataTemplate? Outgoing { get; set; }
+    public DataTemplate? Day { get; set; }
 
     protected override DataTemplate? SelectTemplateCore(object item) =>
-        item is TeamMessageItem { Side: MessageSide.Outgoing } ? Outgoing : Incoming;
+        item is TeamMessageItem t ? t.Side switch { MessageSide.Outgoing => Outgoing, MessageSide.Day => Day, _ => Incoming } : Incoming;
 
     protected override DataTemplate? SelectTemplateCore(object item, DependencyObject container) => SelectTemplateCore(item);
 }

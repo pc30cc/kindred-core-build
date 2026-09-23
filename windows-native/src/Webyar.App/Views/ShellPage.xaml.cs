@@ -56,6 +56,9 @@ public sealed partial class ShellPage : Page
 
         Host.PlanChanged += ApplyPlan;
         ApplyPlan();
+        Host.Engagement.Changed += RenderAnnouncements;
+        Host.Engagement.Broadcast += OnBroadcast;
+        RenderAnnouncements();
         StartInboxSidebar();
         if (Host.Workspace is { } ws)
         {
@@ -86,6 +89,8 @@ public sealed partial class ShellPage : Page
         _planPoller?.Dispose();
         _planPoller = null;
         Host.PlanChanged -= ApplyPlan;
+        Host.Engagement.Changed -= RenderAnnouncements;
+        Host.Engagement.Broadcast -= OnBroadcast;
         Host.MeChanged -= RenderMe;
         if (Host.CallQueue is { } q)
         {
@@ -250,6 +255,77 @@ public sealed partial class ShellPage : Page
             if (gone) Nav.SelectedItem = InboxOpenItem;
         }
         RenderWorkspaces();
+    }
+
+    // ── Super Admin announcements and broadcasts ──
+
+    private readonly List<InfoBar> _broadcastBars = [];
+
+    private static InfoBarSeverity SeverityOf(string? s) => s switch
+    {
+        "success" => InfoBarSeverity.Success,
+        "warning" => InfoBarSeverity.Warning,
+        "critical" => InfoBarSeverity.Error,
+        _ => InfoBarSeverity.Informational,
+    };
+
+    private static Button? LinkButton(string? url, string? label, string fallback)
+    {
+        if (url is not { Length: > 0 } || !Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps) return null;
+        var b = new Button { Content = label is { Length: > 0 } ? label : fallback, CornerRadius = new CornerRadius(999) };
+        b.Click += async (_, _) => await Windows.System.Launcher.LaunchUriAsync(uri);
+        return b;
+    }
+
+    /// <summary>Announcements for this workspace's plan, in the strip under the title bar.</summary>
+    private void RenderAnnouncements()
+    {
+        var s = Host.Strings;
+        Announcements.Children.Clear();
+        foreach (var a in Host.Engagement.Announcements)
+        {
+            var bar = new InfoBar
+            {
+                Title = a.Title ?? string.Empty,
+                Message = a.Body ?? string.Empty,
+                Severity = SeverityOf(a.Severity),
+                IsClosable = a.Dismissible,
+                IsOpen = true,
+                CornerRadius = new CornerRadius(12),
+            };
+            if (LinkButton(a.CtaUrl, a.CtaLabel, s["adLearnMore"]) is { } link) bar.ActionButton = link;
+            var campaign = a;
+            bar.Closed += (_, _) => Host.Engagement.Dismiss(campaign);
+            Announcements.Children.Add(bar);
+        }
+        foreach (var b in _broadcastBars) Announcements.Children.Add(b);
+        Announcements.Visibility = Announcements.Children.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>A notice Super Admin sent to every open app: a Windows toast and a banner.</summary>
+    private void OnBroadcast(Core.Api.DesktopBroadcast b)
+    {
+        var s = Host.Strings;
+        var bar = new InfoBar
+        {
+            Title = b.Title,
+            Message = b.Body ?? string.Empty,
+            Severity = SeverityOf(b.Severity),
+            IsClosable = true,
+            IsOpen = true,
+            CornerRadius = new CornerRadius(12),
+        };
+        if (LinkButton(b.Url, null, s["adLearnMore"]) is { } link) bar.ActionButton = link;
+        bar.Closed += (_, _) =>
+        {
+            _broadcastBars.Remove(bar);
+            RenderAnnouncements();
+        };
+        _broadcastBars.Add(bar);
+        if (_broadcastBars.Count > 3) _broadcastBars.RemoveAt(0);
+        RenderAnnouncements();
+        if (Host.Settings.Notifications)
+            Host.Notifier.Show(b.Title, b.Body ?? string.Empty, s.IsRightToLeft, silent: !Host.Settings.NotificationSound, new Dictionary<string, string>());
     }
 
     /// <summary>The workspace header: name and logo, and the others to switch to.</summary>

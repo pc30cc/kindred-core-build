@@ -326,7 +326,7 @@ public sealed partial class ChatView : UserControl
     }
 
     /// <summary>The replies an operator reaches for most, in the order a support desk uses them.</summary>
-    private static readonly string[] Emojis =
+    internal static readonly string[] Emojis =
     [
         "😊", "🙂", "😀", "😁", "😂", "🤣", "😉", "😍", "🥰", "😘",
         "🤗", "🤔", "😅", "😇", "😎", "🥳", "😢", "😔", "😮", "🙏",

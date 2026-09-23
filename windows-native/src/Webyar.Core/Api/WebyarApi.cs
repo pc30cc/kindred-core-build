@@ -391,6 +391,38 @@ public sealed class WebyarApi
     public async Task<IReadOnlyList<Contact>> ContactsAsync(string workspaceId, CancellationToken ct = default) =>
         (await _client.GetAsync<ContactsResponse>("/api/contacts", [Q("workspace_id", workspaceId)], ct).ConfigureAwait(false))?.Contacts ?? [];
 
+    // Desktop app: ads, announcements, check-ins.
+
+    /// <summary>Ads and announcements for this workspace's plan, in one locale. Never throws: none is fine.</summary>
+    public async Task<IReadOnlyList<DesktopCampaign>> DesktopCampaignsAsync(string workspaceId, string locale, CancellationToken ct = default)
+    {
+        try
+        {
+            return (await _client.GetAsync<DesktopCampaignsResponse>("/api/desktop-app/campaigns", [Q("workspace_id", workspaceId), Q("locale", locale)], ct).ConfigureAwait(false))?.Campaigns ?? [];
+        }
+        catch (ApiException e) when (e.Failure != ApiFailure.Unauthorized)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>"This copy is running" — counted in the server's memory only — and any new Super Admin broadcast.</summary>
+    public Task<DesktopHeartbeat> DesktopHeartbeatAsync(string sessionId, string? workspaceId, string? version, long? afterSeq, CancellationToken ct = default)
+    {
+        var body = new Dictionary<string, object?>
+        {
+            ["session_id"] = sessionId,
+            ["version"] = version,
+            ["os"] = Environment.OSVersion.VersionString,
+        };
+        if (workspaceId is not null) body["workspace_id"] = workspaceId;
+        if (afterSeq is not null) body["after_seq"] = afterSeq;
+        return _client.PostAsync<DesktopHeartbeat>("/api/desktop-app/heartbeat", body, ct);
+    }
+
+    public Task DesktopGoodbyeAsync(string sessionId, CancellationToken ct = default) =>
+        _client.SendAsync(HttpMethod.Post, "/api/desktop-app/goodbye", new Dictionary<string, object?> { ["session_id"] = sessionId }, ct: ct);
+
     // Colleagues — operator-to-operator messages.
 
     public async Task<ColleaguesResponse> ColleaguesAsync(string workspaceId, CancellationToken ct = default) =>
@@ -489,6 +521,7 @@ public sealed class WebyarApi
     private sealed record NotesResponse(IReadOnlyList<ConversationNote>? Notes);
     private sealed record ContactsResponse(IReadOnlyList<Contact>? Contacts);
     private sealed record AttachmentReserve(string? AttachmentId);
+    private sealed record DesktopCampaignsResponse(IReadOnlyList<DesktopCampaign>? Campaigns);
     private sealed record ContactResponse(Contact? Contact);
     private sealed record ContactConversationsResponse(IReadOnlyList<ContactConversation>? Conversations);
     private sealed record ContactCallsResponse(IReadOnlyList<ContactCall>? Calls);

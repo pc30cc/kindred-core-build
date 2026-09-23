@@ -54,6 +54,8 @@
                     </Grid>
                 </Border>
 
+                <controls:CampaignCard Margin="0,10,0,0" Placement="settings" />
+
                 <!-- General -->
                 <TextBlock x:Name="GeneralHeader" Style="{StaticResource Section}" />
                 <toolkit:SettingsCard>

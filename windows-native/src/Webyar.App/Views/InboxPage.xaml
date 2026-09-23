@@ -19,6 +19,7 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <Grid Padding="16,14,10,4">
@@ -115,6 +116,8 @@
                     <ProgressRing x:Name="Loading" IsActive="True" Width="28" Height="28" />
                     <InfoBar x:Name="Error" VerticalAlignment="Bottom" Margin="8" Severity="Warning" IsClosable="False" />
                 </Grid>
+                <!-- Super Admin's ad for this place (Desktop app -> Ads & announcements). -->
+                <controls:CampaignCard Grid.Row="4" Margin="8,4,8,8" Placement="inbox_list" />
             </Grid>
         </Border>
 

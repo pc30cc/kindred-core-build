@@ -184,6 +184,8 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
             <StackPanel x:Name="Banners" Spacing="4" Margin="12,0,12,4">
+                <!-- Super Admin: announcements (Desktop app -> Ads & announcements) and live broadcasts. -->
+                <StackPanel x:Name="Announcements" Spacing="4" Margin="0,8,0,0" Visibility="Collapsed" />
                 <Border x:Name="CallBar" Visibility="Collapsed" Margin="0,8,0,0" Padding="14,10" CornerRadius="10"
                         Background="{ThemeResource SuccessSoftBrush}" BorderBrush="{ThemeResource SuccessBrush}" BorderThickness="1">
                     <Grid ColumnSpacing="12">

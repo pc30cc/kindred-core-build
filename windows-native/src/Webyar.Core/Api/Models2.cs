@@ -180,3 +180,26 @@ public static class ConversationPriorities
     public const string Urgent = "urgent";
     public static readonly string[] All = [Low, Normal, High, Urgent];
 }
+
+/// <summary>An ad or announcement from Super Admin → Desktop app, already in one locale.</summary>
+public sealed record DesktopCampaign(
+    string Id,
+    string Kind,
+    IReadOnlyList<string>? Placements = null,
+    string? Title = null,
+    string? Body = null,
+    [property: System.Text.Json.Serialization.JsonPropertyName("ctaLabel")] string? CtaLabel = null,
+    [property: System.Text.Json.Serialization.JsonPropertyName("ctaUrl")] string? CtaUrl = null,
+    [property: System.Text.Json.Serialization.JsonPropertyName("imageUrl")] string? ImageUrl = null,
+    string? Severity = null,
+    bool Dismissible = true,
+    int Priority = 0,
+    [property: System.Text.Json.Serialization.JsonPropertyName("endsAt")] DateTimeOffset? EndsAt = null)
+{
+    public bool IsAnnouncement => Kind == "announcement";
+    public bool Shows(string placement) => Placements?.Contains(placement) == true;
+}
+
+public sealed record DesktopBroadcast(string Id, long Seq, string Title, string? Body = null, string? Severity = null, string? Url = null, DateTimeOffset? CreatedAt = null);
+
+public sealed record DesktopHeartbeat(int? IntervalSeconds = null, long? LatestSeq = null, IReadOnlyList<DesktopBroadcast>? Broadcasts = null);

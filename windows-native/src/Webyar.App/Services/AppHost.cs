@@ -27,7 +27,11 @@ public sealed class AppHost : IAsyncDisposable
         Api = new WebyarApi(Client);
         Notifier = new Notifier();
         Updates = new UpdateService(RunOnUi);
+        Engagement = new EngagementService(this);
     }
+
+    /// <summary>Super Admin's ads, announcements and broadcasts.</summary>
+    public EngagementService Engagement { get; }
 
     public DispatcherQueue Ui { get; }
     public AppSettings Settings { get; }
@@ -208,6 +212,7 @@ public sealed class AppHost : IAsyncDisposable
         Settings.Save();
         Strings = new Strings(language);
         LanguageChanged?.Invoke();
+        Engagement.Refresh();
     }
 
     /// <summary>Asks the platform where it lives and what it wants of desktop apps; keeps the last good answers.</summary>
@@ -246,6 +251,7 @@ public sealed class AppHost : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         if (Realtime is not null) await Realtime.DisposeAsync().ConfigureAwait(false);
+        Engagement.Dispose();
         Notifier.Dispose();
         Client.Dispose();
     }

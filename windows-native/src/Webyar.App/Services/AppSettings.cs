@@ -24,6 +24,12 @@ public sealed class AppSettings
     public string? WorkspaceId { get; set; }
     public WindowBounds? Window { get; set; }
 
+    /// <summary>Ads and announcements the operator closed with ✕.</summary>
+    public List<string> DismissedCampaigns { get; set; } = [];
+
+    /// <summary>The last Super Admin broadcast shown, so a restart does not replay it.</summary>
+    public long? LastBroadcastSeq { get; set; }
+
     public Language ResolvedLanguage =>
         Strings.Parse(Language) ?? Core.Localization.Language.Fa;
 

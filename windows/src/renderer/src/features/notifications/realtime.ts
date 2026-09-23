@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { api } from '@/api/client'
 import type { InboxRealtimeEvent } from '@/api/types'
+import { realtimeAllowed, setRealtimeConnected } from './pollBudget'
 
 /**
  * Fired on `window` for every message or operator event in the workspace, so
@@ -41,6 +42,10 @@ export function useInboxRealtime(workspaceId: string | null): void {
 
     const open = async (intent: 'initial' | 'refresh' | 'reconnect') => {
       if (cancelled) return
+      if (!realtimeAllowed()) {
+        later(POLICY_RETRY_MS, 'reconnect')
+        return
+      }
       let url: string, connectToken: string, channel: string, subToken: string, expiresAt: number
       try {
         const conn = await api.realtimeConnect(workspaceId, intent)
@@ -96,6 +101,7 @@ export function useInboxRealtime(workspaceId: string | null): void {
           }
           if (frame.id === 2 && frame.subscribe) {
             attempt = 0
+            setRealtimeConnected(true)
             console.warn('[realtime] subscribed', channel)
             if (Number.isFinite(expiresAt)) later(Math.max(10_000, expiresAt - Date.now() - REFRESH_LEAD_MS), 'refresh')
             continue
@@ -119,6 +125,7 @@ export function useInboxRealtime(workspaceId: string | null): void {
       socket.onclose = () => {
         if (ws !== socket || cancelled) return
         ws = null
+        setRealtimeConnected(false)
         console.warn('[realtime] closed')
         retry()
       }
@@ -128,6 +135,7 @@ export function useInboxRealtime(workspaceId: string | null): void {
     return () => {
       cancelled = true
       clearTimeout(timer)
+      setRealtimeConnected(false)
       ws?.close()
       ws = null
     }

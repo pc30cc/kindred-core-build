@@ -26,6 +26,7 @@ import { useApp, currentUser, planValue } from '@/store/app'
 import { useT } from '@/hooks/useT'
 import { usePoll } from '@/hooks/usePoll'
 import { INBOX_EVENT } from '@/features/notifications/realtime'
+import { pollInterval } from '@/features/notifications/pollBudget'
 import { inboxChips, inboxFilters } from '@/lib/entitlements'
 import { channelTitle, contactName, errorText, listTimestamp } from '@/lib/format'
 import { Avatar } from '@/components/Avatar'
@@ -78,7 +79,7 @@ export function InboxSection() {
     async () => {
       if (workspaceId) await load(workspaceId, { quiet: true })
     },
-    10_000,
+    pollInterval(10_000),
     [workspaceId, filter, channel],
     { wakeOn: INBOX_EVENT },
   )

@@ -8,10 +8,13 @@ import { useEffect, useRef } from 'react'
  */
 export function usePoll(
   task: () => Promise<void> | void,
-  intervalMs: number,
+  /** A number, or a function read before every wait so the cadence can change without a restart. */
+  intervalMs: number | (() => number),
   deps: unknown[],
-  { backgroundMs = intervalMs * 3, immediate = true, wakeOn }: { backgroundMs?: number; immediate?: boolean; wakeOn?: string } = {},
+  { backgroundMs, immediate = true, wakeOn }: { backgroundMs?: number | (() => number); immediate?: boolean; wakeOn?: string } = {},
 ) {
+  const every = typeof intervalMs === 'function' ? intervalMs : () => intervalMs
+  const inBackground = backgroundMs === undefined ? () => every() * 3 : typeof backgroundMs === 'function' ? backgroundMs : () => backgroundMs
   const ref = useRef(task)
   ref.current = task
 
@@ -45,7 +48,7 @@ export function usePoll(
     const schedule = () => {
       if (cancelled) return
       clearTimeout(timer)
-      timer = setTimeout(run, document.hasFocus() ? intervalMs : backgroundMs)
+      timer = setTimeout(run, document.hasFocus() ? every() : Math.max(every(), inBackground()))
     }
     const onFocus = () => {
       clearTimeout(timer)

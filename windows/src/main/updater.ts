@@ -1,18 +1,21 @@
 import { app, BrowserWindow } from 'electron'
 import { autoUpdater } from 'electron-updater'
-import type { UpdateState } from '../shared/ipc'
+import type { DesktopConfig, UpdateState } from '../shared/ipc'
 
-// Updates come from the public GitHub releases feed named in
-// electron-builder.yml (`publish`). electron-updater reads `latest.yml` there,
+// Updates come from the feed Super Admin → Windows app names (`update.feedUrl`),
+// falling back to the GitHub releases feed baked in by electron-builder.yml
+// (`publish`) when it names none. electron-updater reads `latest.yml` there,
 // downloads the new installer in the background and verifies its sha512
 // before anything runs. The installer then replaces the app on the next quit,
 // or straight away when the operator chooses "Restart to update".
 
-const CHECK_EVERY_MS = 4 * 60 * 60 * 1000
 const FIRST_CHECK_MS = 15_000
 
 let state: UpdateState = { kind: 'idle' }
 let onChange: (s: UpdateState) => void = () => undefined
+let enabled = true
+let timer: ReturnType<typeof setInterval> | undefined
+let appliedFeed: string | null = null
 
 function set(next: UpdateState): void {
   state = next
@@ -26,7 +29,7 @@ export function updateState(): UpdateState {
 
 export async function checkForUpdates(): Promise<UpdateState> {
   // A build run from source has no feed to compare against.
-  if (!app.isPackaged) return state
+  if (!app.isPackaged || !enabled) return state
   if (state.kind === 'checking' || state.kind === 'downloading' || state.kind === 'ready') return state
   try {
     await autoUpdater.checkForUpdates()
@@ -44,9 +47,24 @@ export function installUpdate(beforeQuit: () => void): void {
   autoUpdater.quitAndInstall(true, true)
 }
 
-export function startUpdater(changed: (s: UpdateState) => void): void {
+/** Applies the platform's update settings; safe to call again whenever they are re-read. */
+export function configureUpdater(config: DesktopConfig['update']): void {
+  if (!app.isPackaged) return
+  enabled = config.autoUpdate
+  if (config.feedUrl && config.feedUrl !== appliedFeed) {
+    autoUpdater.setFeedURL({ provider: 'generic', url: config.feedUrl })
+    appliedFeed = config.feedUrl
+  }
+  autoUpdater.channel = config.channel === 'beta' ? 'beta' : 'latest'
+  autoUpdater.allowPrerelease = config.channel === 'beta'
+  clearInterval(timer)
+  if (enabled) timer = setInterval(() => void checkForUpdates(), config.checkIntervalMinutes * 60_000)
+}
+
+export function startUpdater(changed: (s: UpdateState) => void, config: DesktopConfig['update']): void {
   onChange = changed
   if (!app.isPackaged) return
+  configureUpdater(config)
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
   autoUpdater.on('checking-for-update', () => set({ kind: 'checking' }))
@@ -58,5 +76,4 @@ export function startUpdater(changed: (s: UpdateState) => void): void {
   autoUpdater.on('update-downloaded', (info) => set({ kind: 'ready', version: info.version }))
   autoUpdater.on('error', (e) => set({ kind: 'error', message: e?.message ?? String(e) }))
   setTimeout(() => void checkForUpdates(), FIRST_CHECK_MS)
-  setInterval(() => void checkForUpdates(), CHECK_EVERY_MS)
 }

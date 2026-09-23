@@ -1,7 +1,7 @@
 import { app, safeStorage } from 'electron'
 import { existsSync, readFileSync, unlinkSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ApiRequest, ApiResult } from '../shared/ipc'
+import type { ApiRequest, ApiResult, DesktopConfig } from '../shared/ipc'
 import { readSettings, writeSettings } from './settings'
 import { sampleRequest } from './sample'
 
@@ -169,6 +169,24 @@ export function discardSession(): void {
  * thing the iOS app does at launch, including forgetting a stored origin that has
  * stopped answering so one bad edit in Super Admin cannot brick every install.
  */
+/**
+ * Super Admin → Windows app. Asked on launch and again every few hours, so a
+ * new feed URL or polling budget reaches every installed copy without a release.
+ */
+export async function fetchDesktopConfig(): Promise<Partial<DesktopConfig> | null> {
+  if (isSample) return null
+  try {
+    const r = await fetch(new URL('/api/platform/desktop-app', currentOrigin() + '/'), {
+      headers: { Accept: 'application/json', 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!r.ok) return null
+    return (await r.json()) as Partial<DesktopConfig>
+  } catch {
+    return null
+  }
+}
+
 export async function refreshOrigin(): Promise<void> {
   if (isSample) return
   const ask = async (origin: string): Promise<{ apiBaseUrl?: string; supportUrl?: string; helpCenterUrl?: string; publicBaseUrl?: string } | null> => {

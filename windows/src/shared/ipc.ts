@@ -28,6 +28,26 @@ export interface LoginResult {
   user: unknown
 }
 
+/**
+ * `GET /api/platform/desktop-app`: what Super Admin → Windows app decides for
+ * every installed copy — where updates come from and how hard to poll.
+ */
+export interface DesktopConfig {
+  update: {
+    feedUrl: string | null
+    channel: 'stable' | 'beta'
+    latestVersion: string | null
+    minimumSupportedVersion: string | null
+    downloadUrl: string | null
+    releaseNotes: string | null
+    autoUpdate: boolean
+    checkIntervalMinutes: number
+  }
+  realtime: { enabled: boolean }
+  polling: { intervalSeconds: number; withRealtimeSeconds: number }
+  features: { calls: boolean }
+}
+
 /** Where the self-update stands. `current` means the last check found nothing newer. */
 export type UpdateState =
   | { kind: 'idle' }
@@ -102,6 +122,8 @@ export interface WebyarBridge {
     windowsNotificationsEnabled(): Promise<boolean>
     openWindowsNotificationSettings(): Promise<void>
     updateState(): Promise<UpdateState>
+    /** The platform's desktop settings, or the built-in defaults when the server has none. */
+    desktopConfig(): Promise<DesktopConfig>
     checkForUpdates(): Promise<UpdateState>
     /** Quits, installs the downloaded update and relaunches. */
     installUpdate(): Promise<void>

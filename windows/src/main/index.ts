@@ -19,7 +19,8 @@ import { tmpdir } from 'node:os'
 import { execFile } from 'node:child_process'
 import type { ApiRequest, DesktopSettings, NotifyRequest, SaveFileRequest, TitleBarTheme } from '../shared/ipc'
 import * as api from './api'
-import { checkForUpdates, installUpdate, startUpdater, updateState } from './updater'
+import { checkForUpdates, configureUpdater, installUpdate, startUpdater, updateState } from './updater'
+import { desktopConfig, refreshDesktopConfig } from './desktopConfig'
 import { publicSettings, readSettings, writeSettings } from './settings'
 
 const APP_ID = 'com.webyar.desktop'
@@ -71,8 +72,8 @@ const xmlEscape = (s: string) => s.replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>
 /**
  * Windows lays toast text out left-aligned whatever the script, and ignores
  * `hint-align` on the top-level lines. Adaptive group text does honour it, so
- * a Persian toast carries its title and body in a right-aligned group. The
- * header line is a lone RLM: it keeps Windows from printing its own "New
+ * a Persian toast carries its title and body in a right-aligned group with the
+ * logo in a column on its right. The header line is a lone RLM: it keeps Windows from printing its own "New
  * notification" placeholder there.
  */
 function rtlToastXml(req: NotifyRequest): string {
@@ -80,11 +81,14 @@ function rtlToastXml(req: NotifyRequest): string {
   return (
     `<toast><visual><binding template="ToastGeneric">` +
     `<text>&#x200F;</text>` +
-    `<group><subgroup>` +
+    `<group><subgroup hint-weight="80">` +
     `<text hint-style="base" hint-align="right">${xmlEscape(req.title)}</text>` +
     `<text hint-style="bodySubtle" hint-align="right" hint-wrap="true" hint-maxLines="3">${xmlEscape(req.body)}</text>` +
-    `</subgroup></group>` +
-    `<image placement="appLogoOverride" src="${xmlEscape(icon)}"/>` +
+    `</subgroup>` +
+    // The logo as the group's last column rather than appLogoOverride, which
+    // Windows always pins to the left: in a right-to-left toast it belongs on the right.
+    `<subgroup hint-weight="20" hint-textStacking="center"><image src="${xmlEscape(icon)}" hint-removeMargin="true"/></subgroup>` +
+    `</group>` +
     `</binding></visual>` +
     (req.silent ? `<audio silent="true"/>` : '') +
     `</toast>`
@@ -279,6 +283,7 @@ function registerIpc(): void {
       }),
   )
   ipcMain.handle('app:updateState', () => updateState())
+  ipcMain.handle('app:desktopConfig', () => desktopConfig())
   ipcMain.handle('app:checkForUpdates', () => checkForUpdates())
   ipcMain.handle('app:installUpdate', () => installUpdate(() => (quitting = true)))
   ipcMain.handle('app:openWindowsNotificationSettings', () => shell.openExternal('ms-settings:notifications'))
@@ -381,7 +386,9 @@ app.whenReady().then(() => {
   createWindow()
   createTray()
   // The tray menu grows a "Restart to update" item once an update is downloaded.
-  startUpdater(() => tray?.setContextMenu(trayMenu()))
+  // The feed and schedule come from Super Admin; the first check waits for them.
+  void refreshDesktopConfig().then((config) => startUpdater(() => tray?.setContextMenu(trayMenu()), config.update))
+  setInterval(() => void refreshDesktopConfig().then((config) => configureUpdater(config.update)), 60 * 60_000)
   if (app.isPackaged) {
     app.setLoginItemSettings({ openAtLogin: readSettings().openAtLogin, args: ['--hidden'] })
   }

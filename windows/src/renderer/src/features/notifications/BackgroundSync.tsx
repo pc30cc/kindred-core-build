@@ -9,6 +9,7 @@ import { viewing } from '@/features/chat/status'
 import { colleagueName, refreshColleagues, useColleagues } from '@/features/colleagues/colleaguesStore'
 import { reloadAvailability } from '@/features/settings/useAvailability'
 import { INBOX_EVENT, useInboxRealtime } from './realtime'
+import { pollInterval, setDesktopConfig } from './pollBudget'
 
 // On a phone the server pushes. On Windows there is no APNs to push through, so
 // the app listens on the workspace's realtime inbox channel instead and checks
@@ -57,6 +58,7 @@ export function BackgroundSync() {
   const prefs = useRef<NotificationPrefs | null>(null)
   const prefsAt = useRef(0)
 
+  useEffect(() => void window.webyar.app.desktopConfig().then(setDesktopConfig), [])
   useInboxRealtime(workspaceId)
 
   // A new workspace starts from a fresh baseline: nothing already there is "new".
@@ -155,10 +157,10 @@ export function BackgroundSync() {
         })
       }
     },
-    12_000,
+    pollInterval(12_000),
     [workspaceId],
-    // In the background too: a minimised window is exactly when a notification matters.
-    { backgroundMs: 12_000, wakeOn: INBOX_EVENT },
+    // No slower in the background: a minimised window is exactly when a notification matters.
+    { backgroundMs: pollInterval(12_000), wakeOn: INBOX_EVENT },
   )
 
   usePoll(

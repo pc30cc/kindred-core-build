@@ -19,6 +19,7 @@ const bridge: WebyarBridge = {
     windowsNotificationsEnabled: () => ipcRenderer.invoke('app:windowsNotificationsEnabled'),
     openWindowsNotificationSettings: () => ipcRenderer.invoke('app:openWindowsNotificationSettings'),
     updateState: () => ipcRenderer.invoke('app:updateState'),
+    desktopConfig: () => ipcRenderer.invoke('app:desktopConfig'),
     checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
     installUpdate: () => ipcRenderer.invoke('app:installUpdate'),
     notify: (req) => ipcRenderer.invoke('app:notify', req),

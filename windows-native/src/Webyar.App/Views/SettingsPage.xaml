@@ -2,164 +2,198 @@
     x:Class="Webyar.App.Views.SettingsPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Webyar.App.Controls"
+    xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
     Background="Transparent">
+    <!--
+        Laid out like the Windows 11 Settings app and the WinUI Gallery: a title,
+        then section headers over SettingsCards, 4 px apart, filling the width up
+        to 1000 px from the navigation edge — no island floating in empty space.
+    -->
     <Page.Resources>
-        <Style x:Key="Card" TargetType="Border">
-            <Setter Property="Padding" Value="18,14" />
-            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
-            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="8" />
-        </Style>
+        <x:Double x:Key="SettingsCardSpacing">4</x:Double>
         <Style x:Key="Section" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
-            <Setter Property="Margin" Value="2,18,0,6" />
-        </Style>
-        <Style x:Key="Hint" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
-            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
-            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="1,26,0,6" />
         </Style>
     </Page.Resources>
 
-    <ScrollViewer Padding="28,8,28,28" VerticalScrollBarVisibility="Auto">
-        <StackPanel MaxWidth="760" HorizontalAlignment="Stretch" Spacing="4">
-            <TextBlock x:Name="PageTitle" Margin="2,8,0,4" Style="{StaticResource TitleTextBlockStyle}" />
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <TextBlock x:Name="PageTitle" Margin="36,26,36,4" Style="{StaticResource TitleTextBlockStyle}" />
 
-            <!-- General -->
-            <TextBlock x:Name="GeneralHeader" Style="{StaticResource Section}" />
-            <Border Style="{StaticResource Card}">
-                <Grid ColumnSpacing="16">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock x:Name="LanguageLabel" VerticalAlignment="Center" />
-                    <ComboBox x:Name="LanguagePicker" Grid.Column="1" MinWidth="180" SelectionChanged="OnLanguageChanged">
+        <ScrollViewer Grid.Row="1" Padding="36,0,36,36" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
+            <!-- Up to 1000 px wide, anchored at the navigation edge; any extra width stays on the far side. -->
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MaxWidth="1000" />
+                    <ColumnDefinition Width="0.001*" />
+                </Grid.ColumnDefinitions>
+            <StackPanel Spacing="{StaticResource SettingsCardSpacing}">
+                <StackPanel.ChildrenTransitions>
+                    <RepositionThemeTransition />
+                </StackPanel.ChildrenTransitions>
+
+                <!-- Account first: who is signed in, as Windows Settings opens with the user. -->
+                <Border Margin="0,14,0,0" Padding="20,18" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <controls:Avatar x:Name="AccountAvatar" Size="60" Kind="operator" />
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                            <TextBlock x:Name="AccountName" Style="{StaticResource SubtitleTextBlockStyle}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="AccountEmail" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="AccountWorkspace" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <Button x:Name="SignOutButton" Grid.Column="2" MinWidth="120" VerticalAlignment="Center" Click="OnSignOut" />
+                    </Grid>
+                </Border>
+
+                <!-- General -->
+                <TextBlock x:Name="GeneralHeader" Style="{StaticResource Section}" />
+                <toolkit:SettingsCard>
+                    <toolkit:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xF2B7;" />
+                    </toolkit:SettingsCard.HeaderIcon>
+                    <toolkit:SettingsCard.Header>
+                        <TextBlock x:Name="LanguageLabel" />
+                    </toolkit:SettingsCard.Header>
+                    <ComboBox x:Name="LanguagePicker" MinWidth="200" SelectionChanged="OnLanguageChanged">
                         <ComboBoxItem Content="فارسی" Tag="fa" />
                         <ComboBoxItem Content="English" Tag="en" />
                         <ComboBoxItem Content="Türkçe" Tag="tr" />
                     </ComboBox>
-                </Grid>
-            </Border>
-            <Border Style="{StaticResource Card}">
-                <Grid ColumnSpacing="16">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel VerticalAlignment="Center">
+                </toolkit:SettingsCard>
+                <toolkit:SettingsCard>
+                    <toolkit:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE790;" />
+                    </toolkit:SettingsCard.HeaderIcon>
+                    <toolkit:SettingsCard.Header>
                         <TextBlock x:Name="AppearanceLabel" />
-                        <TextBlock x:Name="AppearanceHint" Style="{StaticResource Hint}" />
-                    </StackPanel>
-                    <ComboBox x:Name="AppearancePicker" Grid.Column="1" MinWidth="180" SelectionChanged="OnAppearanceChanged" />
-                </Grid>
-            </Border>
+                    </toolkit:SettingsCard.Header>
+                    <toolkit:SettingsCard.Description>
+                        <TextBlock x:Name="AppearanceHint" TextWrapping="Wrap" />
+                    </toolkit:SettingsCard.Description>
+                    <ComboBox x:Name="AppearancePicker" MinWidth="200" SelectionChanged="OnAppearanceChanged" />
+                </toolkit:SettingsCard>
 
-            <!-- Notifications -->
-            <TextBlock x:Name="NotificationsHeader" Style="{StaticResource Section}" />
-            <Border Style="{StaticResource Card}">
-                <StackPanel Spacing="10">
-                    <Grid ColumnSpacing="16">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel VerticalAlignment="Center">
-                            <TextBlock x:Name="ToastsLabel" />
-                            <TextBlock x:Name="ToastsHint" Style="{StaticResource Hint}" />
-                        </StackPanel>
-                        <ToggleSwitch x:Name="ToastsToggle" Grid.Column="1" MinWidth="0" OnContent="" OffContent="" Toggled="OnToastsToggled" />
-                    </Grid>
-                    <Grid ColumnSpacing="16">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="SoundLabel" VerticalAlignment="Center" />
-                        <ToggleSwitch x:Name="SoundToggle" Grid.Column="1" MinWidth="0" OnContent="" OffContent="" Toggled="OnSoundToggled" />
-                    </Grid>
-                    <TextBlock x:Name="ServerPrefsHint" Style="{StaticResource Hint}" />
-                    <HyperlinkButton x:Name="WindowsSettingsLink" Padding="0" Click="OnOpenWindowsSettings" />
-                </StackPanel>
-            </Border>
+                <!-- Notifications -->
+                <TextBlock x:Name="NotificationsHeader" Style="{StaticResource Section}" />
+                <toolkit:SettingsExpander IsExpanded="True">
+                    <toolkit:SettingsExpander.HeaderIcon>
+                        <FontIcon Glyph="&#xEA8F;" />
+                    </toolkit:SettingsExpander.HeaderIcon>
+                    <toolkit:SettingsExpander.Header>
+                        <TextBlock x:Name="ToastsLabel" />
+                    </toolkit:SettingsExpander.Header>
+                    <toolkit:SettingsExpander.Description>
+                        <TextBlock x:Name="ToastsHint" TextWrapping="Wrap" />
+                    </toolkit:SettingsExpander.Description>
+                    <ToggleSwitch x:Name="ToastsToggle" OnContent="" OffContent="" MinWidth="0" Toggled="OnToastsToggled" />
+                    <toolkit:SettingsExpander.Items>
+                        <toolkit:SettingsCard>
+                            <toolkit:SettingsCard.HeaderIcon>
+                                <FontIcon Glyph="&#xE767;" />
+                            </toolkit:SettingsCard.HeaderIcon>
+                            <toolkit:SettingsCard.Header>
+                                <TextBlock x:Name="SoundLabel" />
+                            </toolkit:SettingsCard.Header>
+                            <ToggleSwitch x:Name="SoundToggle" OnContent="" OffContent="" MinWidth="0" Toggled="OnSoundToggled" />
+                        </toolkit:SettingsCard>
+                        <toolkit:SettingsCard x:Name="WindowsSettingsCard" IsClickEnabled="True" Click="OnOpenWindowsSettings">
+                            <toolkit:SettingsCard.Header>
+                                <TextBlock x:Name="WindowsSettingsLink" />
+                            </toolkit:SettingsCard.Header>
+                            <toolkit:SettingsCard.Description>
+                                <TextBlock x:Name="ServerPrefsHint" TextWrapping="Wrap" />
+                            </toolkit:SettingsCard.Description>
+                            <toolkit:SettingsCard.ActionIcon>
+                                <FontIcon Glyph="&#xE8A7;" />
+                            </toolkit:SettingsCard.ActionIcon>
+                        </toolkit:SettingsCard>
+                    </toolkit:SettingsExpander.Items>
+                </toolkit:SettingsExpander>
 
-            <!-- Desktop -->
-            <TextBlock x:Name="DesktopHeader" Style="{StaticResource Section}" />
-            <Border Style="{StaticResource Card}">
-                <StackPanel Spacing="10">
-                    <Grid ColumnSpacing="16">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel VerticalAlignment="Center">
-                            <TextBlock x:Name="StartupLabel" />
-                            <TextBlock x:Name="StartupHint" Style="{StaticResource Hint}" />
-                        </StackPanel>
-                        <ToggleSwitch x:Name="StartupToggle" Grid.Column="1" MinWidth="0" OnContent="" OffContent="" Toggled="OnStartupToggled" />
-                    </Grid>
-                    <Grid ColumnSpacing="16">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel VerticalAlignment="Center">
-                            <TextBlock x:Name="TrayLabel" />
-                            <TextBlock x:Name="TrayHint" Style="{StaticResource Hint}" />
-                        </StackPanel>
-                        <ToggleSwitch x:Name="TrayToggle" Grid.Column="1" MinWidth="0" OnContent="" OffContent="" Toggled="OnTrayToggled" />
-                    </Grid>
-                </StackPanel>
-            </Border>
+                <!-- Desktop -->
+                <TextBlock x:Name="DesktopHeader" Style="{StaticResource Section}" />
+                <toolkit:SettingsCard>
+                    <toolkit:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE7E8;" />
+                    </toolkit:SettingsCard.HeaderIcon>
+                    <toolkit:SettingsCard.Header>
+                        <TextBlock x:Name="StartupLabel" />
+                    </toolkit:SettingsCard.Header>
+                    <toolkit:SettingsCard.Description>
+                        <TextBlock x:Name="StartupHint" TextWrapping="Wrap" />
+                    </toolkit:SettingsCard.Description>
+                    <ToggleSwitch x:Name="StartupToggle" OnContent="" OffContent="" MinWidth="0" Toggled="OnStartupToggled" />
+                </toolkit:SettingsCard>
+                <toolkit:SettingsCard>
+                    <toolkit:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE73F;" />
+                    </toolkit:SettingsCard.HeaderIcon>
+                    <toolkit:SettingsCard.Header>
+                        <TextBlock x:Name="TrayLabel" />
+                    </toolkit:SettingsCard.Header>
+                    <toolkit:SettingsCard.Description>
+                        <TextBlock x:Name="TrayHint" TextWrapping="Wrap" />
+                    </toolkit:SettingsCard.Description>
+                    <ToggleSwitch x:Name="TrayToggle" OnContent="" OffContent="" MinWidth="0" Toggled="OnTrayToggled" />
+                </toolkit:SettingsCard>
 
-            <!-- Updates -->
-            <TextBlock x:Name="UpdatesHeader" Style="{StaticResource Section}" />
-            <Border Style="{StaticResource Card}">
-                <Grid ColumnSpacing="16">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel VerticalAlignment="Center" Spacing="2">
+                <!-- Updates -->
+                <TextBlock x:Name="UpdatesHeader" Style="{StaticResource Section}" />
+                <toolkit:SettingsCard>
+                    <toolkit:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE895;" />
+                    </toolkit:SettingsCard.HeaderIcon>
+                    <toolkit:SettingsCard.Header>
                         <TextBlock x:Name="VersionText" />
-                        <TextBlock x:Name="UpdateStatusText" Style="{StaticResource Hint}" />
-                        <ProgressBar x:Name="UpdateProgress" Margin="0,6,0,0" Maximum="100" Visibility="Collapsed" />
-                    </StackPanel>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                        <Button x:Name="CheckButton" Click="OnCheckUpdates" />
-                        <Button x:Name="RestartButton" Style="{StaticResource AccentButtonStyle}" Visibility="Collapsed" Click="OnRestart" />
-                    </StackPanel>
-                </Grid>
-            </Border>
-
-            <!-- Account -->
-            <TextBlock x:Name="AccountHeader" Style="{StaticResource Section}" />
-            <Border Style="{StaticResource Card}">
-                <StackPanel Spacing="12">
-                    <Grid ColumnSpacing="16">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel VerticalAlignment="Center">
-                            <TextBlock x:Name="AccountName" />
-                            <TextBlock x:Name="AccountEmail" Style="{StaticResource Hint}" />
+                    </toolkit:SettingsCard.Header>
+                    <toolkit:SettingsCard.Description>
+                        <StackPanel Spacing="6">
+                            <TextBlock x:Name="UpdateStatusText" TextWrapping="Wrap" />
+                            <ProgressBar x:Name="UpdateProgress" Width="220" HorizontalAlignment="Left" Maximum="100" Visibility="Collapsed" />
                         </StackPanel>
-                        <Button x:Name="SignOutButton" Grid.Column="1" Click="OnSignOut" />
-                    </Grid>
-                    <StackPanel Spacing="6">
-                        <TextBlock x:Name="ServerLabel" />
-                        <Grid ColumnSpacing="8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBox x:Name="ServerBox" FlowDirection="LeftToRight" IsSpellCheckEnabled="False" />
-                            <Button x:Name="ServerSave" Grid.Column="1" Click="OnSaveServer" />
-                        </Grid>
-                        <TextBlock x:Name="ServerHint" Style="{StaticResource Hint}" />
+                    </toolkit:SettingsCard.Description>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="CheckButton" MinWidth="120" Click="OnCheckUpdates" />
+                        <Button x:Name="RestartButton" MinWidth="120" Style="{StaticResource AccentButtonStyle}" Visibility="Collapsed" Click="OnRestart" />
                     </StackPanel>
-                </StackPanel>
-            </Border>
-        </StackPanel>
-    </ScrollViewer>
+                </toolkit:SettingsCard>
+
+                <!-- Advanced: the server, folded away as Windows does with rarely-touched settings. -->
+                <TextBlock x:Name="AccountHeader" Style="{StaticResource Section}" />
+                <toolkit:SettingsExpander>
+                    <toolkit:SettingsExpander.HeaderIcon>
+                        <FontIcon Glyph="&#xE968;" />
+                    </toolkit:SettingsExpander.HeaderIcon>
+                    <toolkit:SettingsExpander.Header>
+                        <TextBlock x:Name="ServerLabel" />
+                    </toolkit:SettingsExpander.Header>
+                    <toolkit:SettingsExpander.Description>
+                        <TextBlock x:Name="ServerHint" TextWrapping="Wrap" />
+                    </toolkit:SettingsExpander.Description>
+                    <toolkit:SettingsExpander.Items>
+                        <toolkit:SettingsCard HorizontalContentAlignment="Stretch" ContentAlignment="Vertical">
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="ServerBox" FlowDirection="LeftToRight" IsSpellCheckEnabled="False" PlaceholderText="https://api.webyar.ai" />
+                                <Button x:Name="ServerSave" Grid.Column="1" MinWidth="96" Style="{StaticResource AccentButtonStyle}" Click="OnSaveServer" />
+                            </Grid>
+                        </toolkit:SettingsCard>
+                    </toolkit:SettingsExpander.Items>
+                </toolkit:SettingsExpander>
+            </StackPanel>
+            </Grid>
+        </ScrollViewer>
+    </Grid>
 </Page>

@@ -63,7 +63,7 @@ public sealed partial class SettingsPage : Page
         ToastsHint.Text = s["desktopNotificationsHint"];
         SoundLabel.Text = s["notificationSoundLocal"];
         ServerPrefsHint.Text = s["notificationsServerFooter"];
-        WindowsSettingsLink.Content = s["openWindowsSettings"];
+        WindowsSettingsLink.Text = s["openWindowsSettings"];
 
         DesktopHeader.Text = s["desktop"];
         StartupLabel.Text = s["startWithWindows"];
@@ -75,9 +75,12 @@ public sealed partial class SettingsPage : Page
         CheckButton.Content = s["checkForUpdates"];
         RestartButton.Content = s["updateRestart"];
 
-        AccountHeader.Text = s["account"];
+        AccountHeader.Text = s["advanced"];
         AccountName.Text = Host.User?.FullName ?? string.Empty;
         AccountEmail.Text = Host.User?.Email ?? string.Empty;
+        AccountWorkspace.Text = Host.Workspace?.Name ?? string.Empty;
+        AccountAvatar.DisplayName = AccountName.Text.Length > 0 ? AccountName.Text : AccountEmail.Text;
+        AccountAvatar.ImageUrl = Host.Account?.AvatarUrl;
         SignOutButton.Content = s["signOut"];
         ServerLabel.Text = s["serverAddress"];
         ServerBox.PlaceholderText = ApiClient.DefaultOrigin.ToString().TrimEnd('/');

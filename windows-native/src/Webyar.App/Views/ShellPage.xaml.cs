@@ -102,6 +102,12 @@ public sealed partial class ShellPage : Page
     /// <summary>Shows a section by its tag: inbox, contacts, visitors, calls or settings.</summary>
     public void OpenPage(string? tag)
     {
+        // The settings item only exists once the pane's template is applied.
+        if (tag == "settings" && Nav.SettingsItem is null)
+        {
+            Nav.Loaded += OpenSettingsWhenLoaded;
+            return;
+        }
         Nav.SelectedItem = tag switch
         {
             "contacts" => ContactsItem,
@@ -110,6 +116,12 @@ public sealed partial class ShellPage : Page
             "settings" => Nav.SettingsItem ?? InboxItem,
             _ => InboxItem,
         };
+    }
+
+    private void OpenSettingsWhenLoaded(object sender, RoutedEventArgs e)
+    {
+        Nav.Loaded -= OpenSettingsWhenLoaded;
+        DispatcherQueue.TryEnqueue(() => OpenPage("settings"));
     }
 
     private void OnNavigate(NavigationView sender, NavigationViewSelectionChangedEventArgs args)

@@ -7,42 +7,90 @@
     xmlns:controls="using:Webyar.App.Controls"
     xmlns:views="using:Webyar.App.Views">
     <UserControl.Resources>
-        <!-- Files on a message: a photo preview, or a chip with the name and size. -->
-        <DataTemplate x:Key="AttachmentTemplate" x:DataType="vm:AttachmentItem">
-            <Grid Margin="0,2">
-                <Button Padding="0" BorderThickness="0" Background="Transparent" CornerRadius="10" Visibility="{x:Bind ImageVisibility}" Click="OnOpenAttachment" Tag="{x:Bind}">
-                    <Grid MinWidth="160" MinHeight="100" MaxWidth="280" MaxHeight="260" CornerRadius="10" Background="{ThemeResource ElevatedBrush}">
-                        <FontIcon Glyph="&#xEB9F;" FontSize="22" Foreground="{ThemeResource Text3Brush}" />
-                        <Image Source="{x:Bind Preview, Mode=OneWay}" Stretch="Uniform" />
-                    </Grid>
+        <!--
+            Files stand on their own, outside the text bubble, as in Telegram and
+            WhatsApp: a photo is a rounded card, a voice note a pill in the
+            sender's colour, any other file a card with a type tile.
+        -->
+        <DataTemplate x:Key="IncomingAttachmentTemplate" x:DataType="vm:AttachmentItem">
+            <Grid HorizontalAlignment="Left">
+                <Button Padding="0" BorderThickness="0" Background="Transparent" CornerRadius="16" Visibility="{x:Bind ImageVisibility}" Click="OnOpenAttachment" Tag="{x:Bind}">
+                    <Border CornerRadius="16" BorderBrush="{ThemeResource BubbleIncomingBorderBrush}" BorderThickness="1" Background="{ThemeResource ElevatedBrush}">
+                        <Grid MinWidth="180" MinHeight="120" MaxWidth="320" MaxHeight="300">
+                            <FontIcon Glyph="&#xEB9F;" FontSize="24" Foreground="{ThemeResource Text3Brush}" />
+                            <Image Source="{x:Bind Preview, Mode=OneWay}" Stretch="UniformToFill" />
+                        </Grid>
+                    </Border>
                 </Button>
-                <!-- Voice notes play right here. -->
-                <Border Visibility="{x:Bind AudioVisibility}" CornerRadius="999" Background="{ThemeResource Surface2Brush}" BorderBrush="{ThemeResource LineBrush}" BorderThickness="1">
+                <Border Visibility="{x:Bind AudioVisibility}" CornerRadius="27" Background="{ThemeResource BubbleIncomingBrush}" BorderBrush="{ThemeResource BubbleIncomingBorderBrush}" BorderThickness="1">
                     <controls:AudioPlayer Source="{x:Bind}" />
                 </Border>
-                <Button Padding="10,8" CornerRadius="10" Background="{ThemeResource Surface2Brush}" BorderBrush="{ThemeResource LineBrush}" Visibility="{x:Bind FileVisibility}" Click="OnOpenAttachment" Tag="{x:Bind}">
-                    <StackPanel Orientation="Horizontal" Spacing="10">
-                        <Border Width="34" Height="34" CornerRadius="8" Background="{ThemeResource BrandSoftBrush}">
-                            <FontIcon Glyph="{x:Bind Glyph}" FontSize="15" Foreground="{ThemeResource BrandBrush}" />
+                <Button Padding="0" CornerRadius="14" BorderThickness="1" BorderBrush="{ThemeResource BubbleIncomingBorderBrush}" Background="{ThemeResource BubbleIncomingBrush}" Visibility="{x:Bind FileVisibility}" Click="OnOpenAttachment" Tag="{x:Bind}">
+                    <Grid Width="272" Padding="10" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Border Width="42" Height="42" CornerRadius="11" Background="{ThemeResource BrandSoftBrush}">
+                            <FontIcon Glyph="{x:Bind Glyph}" FontSize="18" Foreground="{ThemeResource BrandBrush}" />
                         </Border>
-                        <StackPanel VerticalAlignment="Center" MaxWidth="200">
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
                             <TextBlock Text="{x:Bind FileName}" FontSize="13" FontWeight="SemiBold" Foreground="{ThemeResource TextBrush}" TextTrimming="CharacterEllipsis" />
                             <TextBlock Text="{x:Bind SizeText}" FontSize="11.5" Foreground="{ThemeResource Text3Brush}" />
                         </StackPanel>
-                    </StackPanel>
+                        <FontIcon Grid.Column="2" Glyph="&#xE896;" FontSize="14" Foreground="{ThemeResource Text2Brush}" VerticalAlignment="Center" />
+                    </Grid>
                 </Button>
             </Grid>
         </DataTemplate>
 
-        <!-- Visitor: on the left, with their avatar under the last bubble of a run (the web thread). -->
+        <DataTemplate x:Key="OutgoingAttachmentTemplate" x:DataType="vm:AttachmentItem">
+            <Grid HorizontalAlignment="Right">
+                <Button Padding="0" BorderThickness="0" Background="Transparent" CornerRadius="16" Visibility="{x:Bind ImageVisibility}" Click="OnOpenAttachment" Tag="{x:Bind}">
+                    <Border CornerRadius="16" BorderBrush="{ThemeResource BubbleIncomingBorderBrush}" BorderThickness="1" Background="{ThemeResource ElevatedBrush}">
+                        <Grid MinWidth="180" MinHeight="120" MaxWidth="320" MaxHeight="300">
+                            <FontIcon Glyph="&#xEB9F;" FontSize="24" Foreground="{ThemeResource Text3Brush}" />
+                            <Image Source="{x:Bind Preview, Mode=OneWay}" Stretch="UniformToFill" />
+                        </Grid>
+                    </Border>
+                </Button>
+                <Border Visibility="{x:Bind AudioVisibility}" CornerRadius="27" Background="{ThemeResource BubbleOutgoingBrush}">
+                    <controls:AudioPlayer Source="{x:Bind}" Outgoing="True" />
+                </Border>
+                <Button Padding="0" CornerRadius="14" BorderThickness="0" Background="{ThemeResource BubbleOutgoingBrush}" Visibility="{x:Bind FileVisibility}" Click="OnOpenAttachment" Tag="{x:Bind}">
+                    <Grid Width="272" Padding="10" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Border Width="42" Height="42" CornerRadius="11" Background="#33FFFFFF">
+                            <FontIcon Glyph="{x:Bind Glyph}" FontSize="18" Foreground="White" />
+                        </Border>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="{x:Bind FileName}" FontSize="13" FontWeight="SemiBold" Foreground="White" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{x:Bind SizeText}" FontSize="11.5" Foreground="{ThemeResource BubbleOutgoingMetaBrush}" />
+                        </StackPanel>
+                        <FontIcon Grid.Column="2" Glyph="&#xE896;" FontSize="14" Foreground="White" VerticalAlignment="Center" />
+                    </Grid>
+                </Button>
+            </Grid>
+        </DataTemplate>
+
+        <ItemsPanelTemplate x:Key="AttachmentPanel">
+            <StackPanel Spacing="4" />
+        </ItemsPanelTemplate>
+
+        <!-- Visitor: on the left, with their avatar beside the last bubble of a run (the web thread). -->
         <DataTemplate x:Key="IncomingTemplate" x:DataType="vm:MessageItem">
-            <Grid Margin="0,2" HorizontalAlignment="Left" ColumnSpacing="10">
+            <Grid Margin="0,1" HorizontalAlignment="Left" ColumnSpacing="10">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="34" />
+                    <ColumnDefinition Width="32" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <controls:Avatar
-                    Size="34"
+                    Size="32"
                     VerticalAlignment="Bottom"
                     Margin="0,0,0,20"
                     DisplayName="{x:Bind AvatarName, Mode=OneWay}"
@@ -50,41 +98,37 @@
                     Os="{x:Bind AvatarOs, Mode=OneWay}"
                     ImageUrl="{x:Bind AvatarUrl, Mode=OneWay}"
                     Visibility="{x:Bind AvatarVisibility, Mode=OneWay}" />
-                <StackPanel Grid.Column="1" MaxWidth="560" Spacing="3">
-                    <Border Padding="14,10" Background="{ThemeResource BubbleIncomingBrush}" BorderBrush="{ThemeResource LineBrush}" BorderThickness="1" CornerRadius="18,18,18,5">
-                        <StackPanel Spacing="6">
-                            <ItemsControl ItemsSource="{x:Bind Attachments}" ItemTemplate="{StaticResource AttachmentTemplate}" Visibility="{x:Bind AttachmentsVisibility}" />
-                            <TextBlock FontSize="14" LineHeight="24" IsTextSelectionEnabled="True" Text="{x:Bind Body}" TextWrapping="Wrap" TextReadingOrder="DetectFromContent" TextAlignment="DetectFromContent" Foreground="{ThemeResource TextBrush}" Visibility="{x:Bind BodyVisibility}" />
-                        </StackPanel>
+                <StackPanel Grid.Column="1" MaxWidth="540" Spacing="4" HorizontalAlignment="Left">
+                    <ItemsControl ItemsSource="{x:Bind Attachments}" ItemTemplate="{StaticResource IncomingAttachmentTemplate}" ItemsPanel="{StaticResource AttachmentPanel}" Visibility="{x:Bind AttachmentsVisibility}" />
+                    <Border Padding="14,9,14,10" HorizontalAlignment="Left" Background="{ThemeResource BubbleIncomingBrush}" BorderBrush="{ThemeResource BubbleIncomingBorderBrush}" BorderThickness="1" CornerRadius="18,18,18,6" Visibility="{x:Bind BodyVisibility}">
+                        <TextBlock FontSize="14" LineHeight="23" IsTextSelectionEnabled="True" Text="{x:Bind Body}" TextWrapping="Wrap" TextReadingOrder="DetectFromContent" TextAlignment="DetectFromContent" Foreground="{ThemeResource TextBrush}" />
                     </Border>
-                    <TextBlock Margin="6,0" FontSize="11" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind Meta, Mode=OneWay}" Visibility="{x:Bind MetaVisibility, Mode=OneWay}" />
+                    <TextBlock Margin="8,0,8,4" FontSize="11" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind Meta, Mode=OneWay}" Visibility="{x:Bind MetaVisibility, Mode=OneWay}" />
                 </StackPanel>
             </Grid>
         </DataTemplate>
 
-        <!-- Operator or AI: on the right, with their photo under the last bubble of a run. -->
+        <!-- Operator or AI: on the right, with their photo beside the last bubble of a run. -->
         <DataTemplate x:Key="OutgoingTemplate" x:DataType="vm:MessageItem">
-            <Grid Margin="0,2" HorizontalAlignment="Right" ColumnSpacing="10" Opacity="{x:Bind Opacity, Mode=OneWay}">
+            <Grid Margin="0,1" HorizontalAlignment="Right" ColumnSpacing="10" Opacity="{x:Bind Opacity, Mode=OneWay}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="34" />
+                    <ColumnDefinition Width="32" />
                 </Grid.ColumnDefinitions>
-                <StackPanel MaxWidth="560" Spacing="3">
-                    <StackPanel Orientation="Horizontal" Spacing="5" HorizontalAlignment="Right" Visibility="{x:Bind SenderVisibility}">
+                <StackPanel MaxWidth="540" Spacing="4" HorizontalAlignment="Right">
+                    <StackPanel Orientation="Horizontal" Spacing="5" HorizontalAlignment="Right" Margin="8,0" Visibility="{x:Bind SenderVisibility}">
                         <FontIcon Glyph="&#xE945;" FontSize="11" Foreground="{ThemeResource AiBrush}" />
                         <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource AiBrush}" Text="{x:Bind SenderName}" />
                     </StackPanel>
-                    <Border Padding="14,10" Background="{ThemeResource BubbleOutgoingBrush}" CornerRadius="18,18,5,18" HorizontalAlignment="Right">
-                        <StackPanel Spacing="6">
-                            <ItemsControl ItemsSource="{x:Bind Attachments}" ItemTemplate="{StaticResource AttachmentTemplate}" Visibility="{x:Bind AttachmentsVisibility}" />
-                            <TextBlock FontSize="14" LineHeight="24" Foreground="{ThemeResource BubbleOutgoingTextBrush}" IsTextSelectionEnabled="True" Text="{x:Bind Body}" TextWrapping="Wrap" TextReadingOrder="DetectFromContent" TextAlignment="DetectFromContent" Visibility="{x:Bind BodyVisibility}" />
-                        </StackPanel>
+                    <ItemsControl ItemsSource="{x:Bind Attachments}" ItemTemplate="{StaticResource OutgoingAttachmentTemplate}" ItemsPanel="{StaticResource AttachmentPanel}" HorizontalAlignment="Right" Visibility="{x:Bind AttachmentsVisibility}" />
+                    <Border Padding="14,9,14,10" HorizontalAlignment="Right" Background="{ThemeResource BubbleOutgoingBrush}" CornerRadius="18,18,6,18" Visibility="{x:Bind BodyVisibility}">
+                        <TextBlock FontSize="14" LineHeight="23" Foreground="{ThemeResource BubbleOutgoingTextBrush}" IsTextSelectionEnabled="True" Text="{x:Bind Body}" TextWrapping="Wrap" TextReadingOrder="DetectFromContent" TextAlignment="DetectFromContent" />
                     </Border>
-                    <TextBlock Margin="6,0" HorizontalAlignment="Right" FontSize="11" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind Meta, Mode=OneWay}" Visibility="{x:Bind MetaVisibility, Mode=OneWay}" />
+                    <TextBlock Margin="8,0,8,4" HorizontalAlignment="Right" FontSize="11" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind Meta, Mode=OneWay}" Visibility="{x:Bind MetaVisibility, Mode=OneWay}" />
                 </StackPanel>
                 <controls:Avatar
                     Grid.Column="1"
-                    Size="34"
+                    Size="32"
                     VerticalAlignment="Bottom"
                     Margin="0,0,0,20"
                     Kind="{x:Bind AvatarKind}"
@@ -213,67 +257,108 @@
                         <ProgressRing x:Name="Loading" Width="28" Height="28" IsActive="False" />
                     </Grid>
 
-                    <!-- Composer -->
-                    <StackPanel Grid.Row="3" Padding="14,10,14,14" Spacing="8" BorderBrush="{ThemeResource LineBrush}" BorderThickness="0,1,0,0">
-                        <Border x:Name="PendingFile" Visibility="Collapsed" HorizontalAlignment="Left" Padding="10,6" CornerRadius="10" Background="{ThemeResource Surface2Brush}" BorderBrush="{ThemeResource LineBrush}" BorderThickness="1">
+                    <!--
+                        Composer: one rounded card that lights up in the brand colour
+                        while typing — text on top, tools and the send button below,
+                        as in Teams and the web console.
+                    -->
+                    <StackPanel Grid.Row="3" Padding="16,4,16,16" Spacing="8" Background="{ThemeResource ChatBackgroundBrush}">
+                        <Border x:Name="PendingFile" Visibility="Collapsed" HorizontalAlignment="Left" Padding="8,6,6,6" CornerRadius="12" Background="{ThemeResource SurfaceBrush}" BorderBrush="{ThemeResource ComposerBorderBrush}" BorderThickness="1">
                             <StackPanel Orientation="Horizontal" Spacing="10">
-                                <FontIcon Glyph="&#xE8A5;" FontSize="14" Foreground="{ThemeResource BrandBrush}" />
-                                <TextBlock x:Name="PendingFileName" VerticalAlignment="Center" FontSize="12.5" MaxWidth="320" TextTrimming="CharacterEllipsis" />
-                                <Button Style="{StaticResource IconButton}" MinWidth="24" MinHeight="24" Padding="4" Click="OnClearPendingFile">
+                                <Border Width="30" Height="30" CornerRadius="8" Background="{ThemeResource BrandSoftBrush}">
+                                    <FontIcon Glyph="&#xE8A5;" FontSize="14" Foreground="{ThemeResource BrandBrush}" />
+                                </Border>
+                                <TextBlock x:Name="PendingFileName" VerticalAlignment="Center" FontSize="12.5" FontWeight="SemiBold" MaxWidth="320" TextTrimming="CharacterEllipsis" />
+                                <Button Style="{StaticResource IconButton}" MinWidth="26" MinHeight="26" Padding="4" CornerRadius="13" Click="OnClearPendingFile">
                                     <FontIcon Glyph="&#xE711;" FontSize="10" />
                                 </Button>
                             </StackPanel>
                         </Border>
-                        <Border CornerRadius="12" BorderBrush="{ThemeResource LineStrongBrush}" BorderThickness="1" Background="{ThemeResource SurfaceBrush}" Padding="6,4">
-                            <Grid ColumnSpacing="4">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <Button x:Name="AttachButton" Style="{StaticResource IconButton}" VerticalAlignment="Bottom" Click="OnAttach">
-                                    <FontIcon Glyph="&#xE723;" FontSize="15" />
-                                </Button>
-                                <Button x:Name="ShortcutsButton" Grid.Column="1" Style="{StaticResource IconButton}" VerticalAlignment="Bottom" Click="OnShortcuts">
-                                    <FontIcon Glyph="&#xE8FD;" FontSize="15" />
-                                    <FlyoutBase.AttachedFlyout>
-                                        <Flyout x:Name="ShortcutsFlyout" Placement="TopEdgeAlignedLeft">
-                                            <StackPanel Width="340" Spacing="8">
-                                                <AutoSuggestBox x:Name="ShortcutSearch" QueryIcon="Find" TextChanged="OnShortcutSearch" />
-                                                <ListView x:Name="ShortcutList" MaxHeight="300" SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnShortcutPicked">
-                                                    <ListView.ItemTemplate>
-                                                        <DataTemplate x:DataType="vm:ShortcutItem">
-                                                            <StackPanel Padding="0,6" Spacing="2">
-                                                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                                                    <TextBlock FontWeight="SemiBold" Text="{x:Bind Title}" />
-                                                                    <TextBlock Foreground="{ThemeResource BrandBrush}" FontSize="12" Text="{x:Bind Shortcut}" VerticalAlignment="Center" />
-                                                                </StackPanel>
-                                                                <TextBlock FontSize="12" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind Preview}" TextTrimming="CharacterEllipsis" />
-                                                            </StackPanel>
-                                                        </DataTemplate>
-                                                    </ListView.ItemTemplate>
-                                                </ListView>
-                                                <TextBlock x:Name="ShortcutEmpty" Style="{StaticResource MutedText}" Visibility="Collapsed" />
-                                            </StackPanel>
-                                        </Flyout>
-                                    </FlyoutBase.AttachedFlyout>
-                                </Button>
+                        <Border x:Name="ComposerCard" CornerRadius="14" BorderBrush="{ThemeResource ComposerBorderBrush}" BorderThickness="1" Background="{ThemeResource ComposerBrush}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
                                 <TextBox
                                     x:Name="Composer"
-                                    Grid.Column="2"
-                                    MaxHeight="160"
+                                    MinHeight="46"
+                                    MaxHeight="180"
+                                    Padding="16,13,16,6"
+                                    FontSize="14"
                                     AcceptsReturn="True"
                                     TextWrapping="Wrap"
                                     BorderThickness="0"
                                     Background="Transparent"
-                                    VerticalAlignment="Center"
                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                    GotFocus="OnComposerFocus"
+                                    LostFocus="OnComposerFocus"
                                     TextChanged="OnComposerChanged"
-                                    PreviewKeyDown="OnComposerKeyDown" />
-                                <Button x:Name="SendButton" Grid.Column="3" VerticalAlignment="Bottom" Width="38" Height="34" Padding="0" CornerRadius="9" Style="{StaticResource AccentButtonStyle}" IsEnabled="False" Click="OnSend">
-                                    <FontIcon FontSize="14" Glyph="&#xE724;" />
-                                </Button>
+                                    PreviewKeyDown="OnComposerKeyDown">
+                                    <TextBox.Resources>
+                                        <!-- No box inside the box: the card itself shows focus. -->
+                                        <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="Transparent" />
+                                        <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="Transparent" />
+                                        <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent" />
+                                        <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent" />
+                                        <Thickness x:Key="TextControlBorderThemeThicknessFocused">0</Thickness>
+                                    </TextBox.Resources>
+                                </TextBox>
+                                <Grid Grid.Row="1" Padding="8,2,8,8" ColumnSpacing="2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Button x:Name="AttachButton" Style="{StaticResource IconButton}" Click="OnAttach">
+                                        <FontIcon Glyph="&#xE723;" FontSize="16" />
+                                    </Button>
+                                    <Button x:Name="EmojiButton" Grid.Column="1" Style="{StaticResource IconButton}">
+                                        <FontIcon Glyph="&#xE76E;" FontSize="16" />
+                                        <Button.Flyout>
+                                            <Flyout x:Name="EmojiFlyout" Placement="TopEdgeAlignedLeft">
+                                                <GridView x:Name="EmojiGrid" Width="316" MaxHeight="248" SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnEmojiPicked">
+                                                    <GridView.ItemTemplate>
+                                                        <DataTemplate x:DataType="x:String">
+                                                            <TextBlock Width="30" Height="30" FontSize="20" Text="{x:Bind}" TextAlignment="Center" FontFamily="Segoe UI Emoji" />
+                                                        </DataTemplate>
+                                                    </GridView.ItemTemplate>
+                                                </GridView>
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                    <Button x:Name="ShortcutsButton" Grid.Column="2" Style="{StaticResource IconButton}" Click="OnShortcuts">
+                                        <FontIcon Glyph="&#xE8FD;" FontSize="16" />
+                                        <FlyoutBase.AttachedFlyout>
+                                            <Flyout x:Name="ShortcutsFlyout" Placement="TopEdgeAlignedLeft">
+                                                <StackPanel Width="340" Spacing="8">
+                                                    <AutoSuggestBox x:Name="ShortcutSearch" QueryIcon="Find" TextChanged="OnShortcutSearch" />
+                                                    <ListView x:Name="ShortcutList" MaxHeight="300" SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnShortcutPicked">
+                                                        <ListView.ItemTemplate>
+                                                            <DataTemplate x:DataType="vm:ShortcutItem">
+                                                                <StackPanel Padding="0,6" Spacing="2">
+                                                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                                                        <TextBlock FontWeight="SemiBold" Text="{x:Bind Title}" />
+                                                                        <TextBlock Foreground="{ThemeResource BrandBrush}" FontSize="12" Text="{x:Bind Shortcut}" VerticalAlignment="Center" />
+                                                                    </StackPanel>
+                                                                    <TextBlock FontSize="12" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind Preview}" TextTrimming="CharacterEllipsis" />
+                                                                </StackPanel>
+                                                            </DataTemplate>
+                                                        </ListView.ItemTemplate>
+                                                    </ListView>
+                                                    <TextBlock x:Name="ShortcutEmpty" Style="{StaticResource MutedText}" Visibility="Collapsed" />
+                                                </StackPanel>
+                                            </Flyout>
+                                        </FlyoutBase.AttachedFlyout>
+                                    </Button>
+                                    <TextBlock x:Name="ComposerHint" Grid.Column="3" Margin="10,0" VerticalAlignment="Center" HorizontalAlignment="Right" FontSize="11.5" Foreground="{ThemeResource Text3Brush}" TextTrimming="CharacterEllipsis" />
+                                    <Button x:Name="SendButton" Grid.Column="4" Width="36" Height="36" Padding="0" CornerRadius="18" Style="{StaticResource AccentButtonStyle}" IsEnabled="False" Click="OnSend">
+                                        <!-- The paper plane points the way text runs. -->
+                                        <FontIcon x:Name="SendGlyph" FontSize="14" Glyph="&#xE724;" MirroredWhenRightToLeft="True" />
+                                    </Button>
+                                </Grid>
                             </Grid>
                         </Border>
                     </StackPanel>

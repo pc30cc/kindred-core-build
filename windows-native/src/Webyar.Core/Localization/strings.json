@@ -574,7 +574,9 @@
   "incomingVideoCall": "Incoming video call",
   "callAnswer": "Answer",
   "callOpenDesk": "Open call center",
-  "callTakenElsewhere": "The call was answered or ended before you picked up"
+  "callTakenElsewhere": "The call was answered or ended before you picked up",
+  "advanced": "Advanced",
+  "composerHint": "Enter to send · Shift+Enter for a new line"
  },
  "fa": {
   "about": "درباره",
@@ -666,7 +668,7 @@
   "emailSend": "ارسال",
   "emailSendFailed": "پاسخ فرستاده نشد. دوباره تلاش کنید.",
   "emailStar": "ستاره",
-  "emoji": "شکلک",
+  "emoji": "ایموجی",
   "errorConflict": "این مورد در این فاصله تغییر کرده است. دوباره تلاش کنید.",
   "errorInvalidInput": "اطلاعات واردشده درست نیست.",
   "errorNotAllowed": "برای این کار دسترسی ندارید.",
@@ -1151,7 +1153,9 @@
   "incomingVideoCall": "تماس تصویری ورودی",
   "callAnswer": "پاسخ",
   "callOpenDesk": "باز کردن کال سنتر",
-  "callTakenElsewhere": "پیش از پاسخ شما، تماس پاسخ داده شد یا پایان یافت"
+  "callTakenElsewhere": "پیش از پاسخ شما، تماس پاسخ داده شد یا پایان یافت",
+  "advanced": "پیشرفته",
+  "composerHint": "Enter برای ارسال · Shift+Enter خط جدید"
  },
  "tr": {
   "about": "Hakkında",
@@ -1728,6 +1732,8 @@
   "incomingVideoCall": "Gelen görüntülü arama",
   "callAnswer": "Yanıtla",
   "callOpenDesk": "Çağrı merkezini aç",
-  "callTakenElsewhere": "Siz açmadan önce arama yanıtlandı veya sona erdi"
+  "callTakenElsewhere": "Siz açmadan önce arama yanıtlandı veya sona erdi",
+  "advanced": "Gelişmiş",
+  "composerHint": "Göndermek için Enter · Yeni satır için Shift+Enter"
  }
 }

@@ -168,7 +168,10 @@
     "incomingVideoCall": "Incoming video call",
     "callAnswer": "Answer",
     "callOpenDesk": "Open call center",
-    "callTakenElsewhere": "The call was answered or ended before you picked up"
+    "callTakenElsewhere": "The call was answered or ended before you picked up",
+    "advanced": "Advanced",
+    "emoji": "Emoji",
+    "composerHint": "Enter to send · Shift+Enter for a new line"
   },
   "fa": {
     "trayOpen": "باز کردن وب‌یار",
@@ -339,7 +342,10 @@
     "incomingVideoCall": "تماس تصویری ورودی",
     "callAnswer": "پاسخ",
     "callOpenDesk": "باز کردن کال سنتر",
-    "callTakenElsewhere": "پیش از پاسخ شما، تماس پاسخ داده شد یا پایان یافت"
+    "callTakenElsewhere": "پیش از پاسخ شما، تماس پاسخ داده شد یا پایان یافت",
+    "advanced": "پیشرفته",
+    "emoji": "ایموجی",
+    "composerHint": "Enter برای ارسال · Shift+Enter خط جدید"
   },
   "tr": {
     "trayOpen": "Webyar'ı aç",
@@ -510,6 +516,9 @@
     "incomingVideoCall": "Gelen görüntülü arama",
     "callAnswer": "Yanıtla",
     "callOpenDesk": "Çağrı merkezini aç",
-    "callTakenElsewhere": "Siz açmadan önce arama yanıtlandı veya sona erdi"
+    "callTakenElsewhere": "Siz açmadan önce arama yanıtlandı veya sona erdi",
+    "advanced": "Gelişmiş",
+    "emoji": "Emoji",
+    "composerHint": "Göndermek için Enter · Yeni satır için Shift+Enter"
   }
 }

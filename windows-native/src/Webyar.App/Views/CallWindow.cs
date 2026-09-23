@@ -294,6 +294,10 @@ public sealed partial class CallWindow : Window
             else if (_sessionId is not null) await Host.Api.HangUpAsync(_sessionId);
             else if (_invitation is not null) await Host.Api.CancelInvitationAsync(_invitation.Id);
         }
+        catch (ApiException e) when (e.ServerMessage is "call_not_active" || e.Body?.Contains("call_not_active") == true)
+        {
+            // The visitor hung up first: the call is already over, nothing to end.
+        }
         catch (Exception e)
         {
             Log.Error("call hang up", e);

@@ -289,7 +289,34 @@ public sealed partial class ChatView : UserControl
         ToolTipService.SetToolTip(MoreButton, s["conversationActions"]);
         ToolTipService.SetToolTip(DetailsToggle, s["details"]);
         ShortcutSearch.PlaceholderText = s["searchShortcuts"];
+        ToolTipService.SetToolTip(EmojiButton, s["emoji"]);
+        ComposerHint.Text = s["composerHint"];
+        EmojiGrid.ItemsSource ??= Emojis;
     }
+
+    /// <summary>The replies an operator reaches for most, in the order a support desk uses them.</summary>
+    private static readonly string[] Emojis =
+    [
+        "😊", "🙂", "😀", "😁", "😂", "🤣", "😉", "😍", "🥰", "😘",
+        "🤗", "🤔", "😅", "😇", "😎", "🥳", "😢", "😔", "😮", "🙏",
+        "👍", "👎", "👌", "👏", "🙌", "💪", "🤝", "✌️", "👋", "✅",
+        "❌", "⭐", "🔥", "🎉", "❤️", "💙", "💯", "📦", "📞", "📧",
+        "⏰", "📍", "💳", "🛒", "🚚", "🎁", "📌", "📝", "⚠️", "ℹ️",
+    ];
+
+    private void OnEmojiPicked(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is not string emoji) return;
+        var at = Composer.SelectionStart;
+        Composer.Text = Composer.Text.Remove(at, Composer.SelectionLength).Insert(at, emoji);
+        Composer.SelectionStart = at + emoji.Length;
+        EmojiFlyout.Hide();
+        Composer.Focus(FocusState.Programmatic);
+    }
+
+    /// <summary>The composer card takes the brand colour while it has focus.</summary>
+    private void OnComposerFocus(object sender, RoutedEventArgs e) =>
+        ComposerCard.BorderBrush = Palette.Resource(Composer.FocusState != FocusState.Unfocused ? "ComposerFocusBrush" : "ComposerBorderBrush");
 
     private static string StatusLabel(string status, Strings s) => status switch
     {

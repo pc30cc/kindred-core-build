@@ -26,6 +26,13 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(TitleBarArea);
+        // Windows 11: Mica behind the title bar and the navigation pane, as in
+        // the inbox apps and the WinUI Gallery. Windows 10 keeps the flat grey.
+        if (Microsoft.UI.Composition.SystemBackdrops.MicaController.IsSupported())
+        {
+            SystemBackdrop = new MicaBackdrop();
+            Root.Background = new SolidColorBrush(Colors.Transparent);
+        }
         TitleIcon.Source = new BitmapImage(new Uri(AppPaths.Icon));
         try
         {

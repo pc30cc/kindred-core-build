@@ -7,22 +7,23 @@
     <Page.Resources>
         <ResourceDictionary>
             <!--
-                The sidebar is a card-coloured column, as in the web console. Per
-                theme, not StaticResource aliases: those resolve once against the
-                system theme and left a white pane in dark mode.
+                The pane sits straight on the window's Mica (Windows 11) and the
+                content is a raised layer with a rounded corner, as in the WinUI
+                Gallery. Per theme, not StaticResource aliases: those resolve once
+                against the system theme and left a white pane in dark mode.
             -->
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
-                    <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="#FFFFFF" />
-                    <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="#FFFFFF" />
-                    <SolidColorBrush x:Key="NavigationViewTopPaneBackground" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="NavigationViewTopPaneBackground" Color="Transparent" />
                     <SolidColorBrush x:Key="NavigationViewContentBackground" Color="#F4F6F9" />
                     <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="#E3E7EE" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
-                    <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="#13161E" />
-                    <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="#13161E" />
-                    <SolidColorBrush x:Key="NavigationViewTopPaneBackground" Color="#13161E" />
+                    <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="NavigationViewTopPaneBackground" Color="Transparent" />
                     <SolidColorBrush x:Key="NavigationViewContentBackground" Color="#0C0E14" />
                     <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="#242A36" />
                 </ResourceDictionary>

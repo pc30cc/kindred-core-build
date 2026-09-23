@@ -7,12 +7,42 @@ namespace Webyar.Core.Inbox;
 /// <summary>How conversations and messages read in lists and notifications — the same rules as the other clients.</summary>
 public static class Display
 {
-    public static string ContactName(ConversationContact? contact, Strings s)
+    public static string ContactName(ConversationContact? contact, Strings s, string? fallbackId = null) =>
+        VisitorName(contact?.Name, contact?.VisitorCode, fallbackId, null, null, null, s);
+
+    /// <summary>The name the web inbox shows: with the visitor's city once the network profile is known.</summary>
+    public static string ConversationName(Conversation c, Strings s) =>
+        VisitorName(c.Contacts?.Name, c.Contacts?.VisitorCode, c.ContactId ?? c.Id, c.VisitorCity, c.VisitorRegion, c.VisitorCountryCode, s);
+
+    /// <summary>
+    /// The web console's contactDisplayName: the contact's own name, else
+    /// "Visitor from {city} · {code}" (the province for Iran), else
+    /// "Visitor · {code}". The code is the widget's, else a hash of the id,
+    /// exactly as the server derives it.
+    /// </summary>
+    public static string VisitorName(string? name, string? code, string? fallbackId, string? city, string? region, string? countryCode, Strings s)
     {
-        if (!string.IsNullOrWhiteSpace(contact?.Name)) return contact!.Name!.Trim();
-        if (!string.IsNullOrWhiteSpace(contact?.Email)) return contact!.Email!.Trim();
-        if (!string.IsNullOrWhiteSpace(contact?.VisitorCode)) return $"{s["unknownVisitor"]} {contact!.VisitorCode}";
-        return s["unknownVisitor"];
+        var n = (name ?? string.Empty).Trim();
+        if (n.Length > 0 && !n.Equals("visitor", StringComparison.OrdinalIgnoreCase)) return n;
+        var c = code is { Length: > 0 } ? code.Trim() : fallbackId is { Length: > 0 } ? LegacyCode(fallbackId) : "----";
+        var isolated = "\u2068" + c + "\u2069";
+        var iran = string.Equals(countryCode?.Trim(), "IR", StringComparison.OrdinalIgnoreCase);
+        var place = (iran ? region : city)?.Trim();
+        if (string.IsNullOrEmpty(place)) return s.Get("visitorAnonymous", "code", isolated);
+        var vars = new Dictionary<string, object> { ["code"] = isolated, [iran ? "region" : "city"] = "\u2068" + place + "\u2069" };
+        return s.Get(iran ? "visitorAnonymousFromRegion" : "visitorAnonymousFromCity", vars);
+    }
+
+    /// <summary>server/services/widget/anonymousContact.ts anonCodeFrom: base-36 of a ×31 hash, last four.</summary>
+    public static string LegacyCode(string seed)
+    {
+        uint h = 0;
+        foreach (var ch in seed) h = unchecked(h * 31 + ch);
+        const string digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        var sb = new System.Text.StringBuilder();
+        do { sb.Insert(0, digits[(int)(h % 36)]); h /= 36; } while (h > 0);
+        var text = sb.ToString().PadLeft(4, '0');
+        return text[^4..];
     }
 
     /// <summary>Up to two letters for an avatar, from the first two words.</summary>
@@ -23,8 +53,13 @@ public static class Display
         var first = StringInfo.GetNextTextElementLength(words[0]) is var n && n > 0 ? words[0][..n] : words[0];
         if (words.Length == 1) return first.ToUpper(CultureInfo.CurrentCulture);
         var second = StringInfo.GetNextTextElementLength(words[1]) is var m && m > 0 ? words[1][..m] : words[1];
+        // "بازدیدکننده 4ZTK" would render as a jumbled "ب4": mixed directions keep one letter.
+        if (IsRightToLeft(first) != IsRightToLeft(second)) return first.ToUpper(CultureInfo.CurrentCulture);
         return (first + second).ToUpper(CultureInfo.CurrentCulture);
     }
+
+    private static bool IsRightToLeft(string text) =>
+        text.Length > 0 && text[0] is >= '\u0590' and <= '\u08FF' or >= '\uFB1D' and <= '\uFEFC';
 
     /// <summary>A one-line preview of the last message; attachments get a sentence instead of an empty line.</summary>
     public static string Preview(MessagePreview? last, Strings s)

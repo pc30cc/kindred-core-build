@@ -1,6 +1,5 @@
 using System.Runtime.InteropServices;
 using Microsoft.UI;
-using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -27,7 +26,14 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(TitleBarArea);
-        TitleIcon.Source = new BitmapImage(new Uri(AppPaths.Icon));
+        // Windows 11: Mica behind the title bar and the navigation pane, as in
+        // the inbox apps and the WinUI Gallery. Windows 10 keeps the flat grey.
+        if (Microsoft.UI.Composition.SystemBackdrops.MicaController.IsSupported())
+        {
+            SystemBackdrop = new MicaBackdrop();
+            Root.Background = new SolidColorBrush(Colors.Transparent);
+        }
+        TitleIcon.ImageSource = new BitmapImage(new Uri(AppPaths.Icon));
         try
         {
             AppWindow.SetIcon(AppPaths.WindowIcon);
@@ -37,9 +43,6 @@ public sealed partial class MainWindow : Window
             Log.Error("window icon", e);
         }
 
-        // Mica on Windows 11; Windows 10 has no Mica, so a plain themed background.
-        if (MicaController.IsSupported()) SystemBackdrop = new MicaBackdrop();
-        else Root.Background = (Brush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"];
 
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
@@ -56,7 +59,14 @@ public sealed partial class MainWindow : Window
             if (e.DidSizeChange || e.DidPresenterChange) Guard("insets", UpdateInsets);
         };
         Root.ActualThemeChanged += (_, _) => Guard("theme", ApplyTheme);
-        Activated += (_, e) => IsForeground = e.WindowActivationState != WindowActivationState.Deactivated;
+        Activated += (_, e) =>
+        {
+            IsForeground = e.WindowActivationState != WindowActivationState.Deactivated;
+            if (IsForeground) Host.Presence?.NoteInteraction();
+        };
+        // Any key or click counts as being at the desk (active rather than away), as on the web.
+        Root.AddHandler(UIElement.KeyDownEvent, new Microsoft.UI.Xaml.Input.KeyEventHandler((_, _) => Host.Presence?.NoteInteraction()), true);
+        Root.AddHandler(UIElement.PointerPressedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler((_, _) => Host.Presence?.NoteInteraction()), true);
         Host.LanguageChanged += ApplyLanguage;
         Host.Client.Unauthorized += (_, _) => Host.RunOnUi(SignedOut);
         _platformTimer.Tick += async (_, _) => await RefreshPlatformQuietlyAsync();
@@ -106,6 +116,7 @@ public sealed partial class MainWindow : Window
         try
         {
             Host.Workspaces = await Host.Api.WorkspacesAsync();
+            Log.Write($"workspaces: {Host.Workspaces.Count}");
         }
         catch (ApiException e) when (e.Failure != ApiFailure.Unauthorized)
         {
@@ -118,14 +129,43 @@ public sealed partial class MainWindow : Window
             Host.Settings.WorkspaceId = Host.Workspace.Id;
             Host.Settings.Save();
         }
-        await Host.StartRealtimeAsync();
-        Splash.Visibility = Visibility.Collapsed;
-        RootFrame.Navigate(typeof(ShellPage));
+        await OpenWorkspaceAsync();
         if (_pendingOpen is { } open)
         {
             _pendingOpen = null;
             OpenFromNotification(open);
         }
+    }
+
+    /// <summary>
+    /// Starts the chosen workspace: its plan first (briefly, so the rail does
+    /// not show and then hide sections), then realtime, presence and the shell.
+    /// </summary>
+    private async Task OpenWorkspaceAsync()
+    {
+        Host.ResetPlan();
+        await Task.WhenAny(Host.LoadPlanAsync(), Task.Delay(TimeSpan.FromSeconds(5)));
+        await Host.StartRealtimeAsync();
+        await Host.StartPresenceAsync();
+        Splash.Visibility = Visibility.Collapsed;
+        RootFrame.Navigate(typeof(ShellPage));
+        Host.Engagement.Start();
+        Host.Engagement.Refresh();
+    }
+
+    /// <summary>Moves to another of the operator's workspaces, as the web's workspace menu does.</summary>
+    public async Task SwitchWorkspaceAsync(Workspace workspace)
+    {
+        if (workspace.Id == Host.Workspace?.Id) return;
+        Shell?.Teardown();
+        Host.StopPresence();
+        Host.Workspace = workspace;
+        Host.Settings.WorkspaceId = workspace.Id;
+        Host.Settings.Save();
+        App.Current.SetUnread(0);
+        Splash.Visibility = Visibility.Visible;
+        await OpenWorkspaceAsync();
+        RootFrame.BackStack.Clear();
     }
 
     public void ShowLogin()
@@ -142,12 +182,21 @@ public sealed partial class MainWindow : Window
         if (RootFrame.Content is LoginPage) return;
         Shell?.Teardown();
         Host.User = null;
+        Host.Account = null;
+        Host.StopPresence();
         await Host.StartRealtimeAsync(); // with no workspace this only stops the old one
         ShowLogin();
     }
 
     public void OpenFromNotification(IReadOnlyDictionary<string, string> args)
     {
+        if (args.TryGetValue("page", out var page) && !args.ContainsKey("conversation"))
+        {
+            if (Shell is not { } sh) _pendingOpen = args;
+            else if (page == "calls" && args.TryGetValue("call", out var call)) sh.OpenCall(call);
+            else sh.OpenPage(page);
+            return;
+        }
         if (!args.TryGetValue("conversation", out var id)) return;
         if (Shell is { } shell) shell.OpenConversation(id);
         else _pendingOpen = args;
@@ -175,6 +224,7 @@ public sealed partial class MainWindow : Window
             _ => ElementTheme.Default,
         };
         var dark = Root.ActualTheme == ElementTheme.Dark;
+        Helpers.Palette.SetTheme(Root.ActualTheme);
         var bar = AppWindow.TitleBar;
         bar.ButtonBackgroundColor = Colors.Transparent;
         bar.ButtonInactiveBackgroundColor = Colors.Transparent;
@@ -190,12 +240,18 @@ public sealed partial class MainWindow : Window
         TitleText.Text = s["appName"];
         SplashText.Text = s["checkingSession"];
         Root.FlowDirection = s.IsRightToLeft ? FlowDirection.RightToLeft : FlowDirection.LeftToRight;
+        var font = (FontFamily)Application.Current.Resources[s.Language == Core.Localization.Language.Fa ? "PersianFont" : "LatinFont"];
+        RootFrame.FontFamily = font;
+        TitleText.FontFamily = font;
+        // Menus, flyouts and tooltips live outside the frame's tree; the theme
+        // font resource reaches them (and every control created from now on).
+        Application.Current.Resources["ContentControlThemeFontFamily"] = font;
         UpdateInsets();
     }
 
     /// <summary>
     /// Keeps our title-bar content clear of the system caption buttons, which
-    /// stay on the physical right even when the layout runs right to left.
+    /// stay on the physical right even when the rest of the layout runs right to left.
     /// </summary>
     private void UpdateInsets()
     {
@@ -206,9 +262,9 @@ public sealed partial class MainWindow : Window
         static double Safe(double v) => double.IsFinite(v) && v > 0 ? v : 0;
         var left = Safe(bar.LeftInset / scale);
         var right = Safe(bar.RightInset / scale);
-        var rtl = Root.FlowDirection == FlowDirection.RightToLeft;
-        StartInset.Width = new GridLength(rtl ? right : left);
-        EndInset.Width = new GridLength(rtl ? left : right);
+        // The title bar itself never flips (see MainWindow.xaml), so the insets are physical.
+        StartInset.Width = new GridLength(left);
+        EndInset.Width = new GridLength(right);
     }
 
     private static void Guard(string what, Action action)

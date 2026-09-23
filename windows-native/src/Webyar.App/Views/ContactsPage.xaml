@@ -1,0 +1,211 @@
+<Page
+    x:Class="Webyar.App.Views.ContactsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:Webyar.App.ViewModels"
+    xmlns:controls="using:Webyar.App.Controls"
+    Background="Transparent">
+    <!--
+        The web's contacts (ContactsPage + ContactDetailPage) in one window:
+        the list on the start side, and the chosen contact as a profile —
+        a header with the numbers that matter, then Overview, Conversations,
+        Calls and Notes.
+    -->
+    <Page.Resources>
+        <Style x:Key="ContactCard" TargetType="Border">
+            <Setter Property="Padding" Value="18,16" />
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style x:Key="CardRowButton" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+            <Setter Property="Padding" Value="16,12" />
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style x:Key="StatValue" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+        <Style x:Key="StatLabel" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="Foreground" Value="{ThemeResource Text3Brush}" />
+        </Style>
+    </Page.Resources>
+
+    <Grid Padding="10" ColumnSpacing="10">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="360" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Border Style="{StaticResource PanelBorder}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="16,14,16,4">
+                    <TextBlock x:Name="HeaderText" Style="{StaticResource PaneTitle}" />
+                    <Border Style="{StaticResource ChipBorder}" VerticalAlignment="Center">
+                        <TextBlock x:Name="CountText" Style="{StaticResource ChipText}" />
+                    </Border>
+                </StackPanel>
+                <AutoSuggestBox x:Name="Search" Grid.Row="1" Margin="12,6,12,8" QueryIcon="Find" TextChanged="OnSearch" />
+                <Grid Grid.Row="2" BorderBrush="{ThemeResource LineBrush}" BorderThickness="0,1,0,0">
+                    <ListView x:Name="List" Padding="6" SelectionMode="Single" SelectionChanged="OnSelect">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
+                                <Setter Property="CornerRadius" Value="10" />
+                                <Setter Property="Margin" Value="0,1" />
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ContactItem">
+                                <Grid Padding="2,8" ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <controls:Avatar Size="40" DisplayName="{x:Bind Name}" Email="{x:Bind Email}" Os="{x:Bind Os}" CountryCode="{x:Bind CountryCode}" ImageUrl="{x:Bind AvatarUrl}" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                        <TextBlock FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock FontSize="12" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind Subtitle}" TextTrimming="CharacterEllipsis" TextReadingOrder="DetectFromContent" />
+                                        <StackPanel Orientation="Horizontal" Spacing="4" Visibility="{x:Bind LocationVisibility}">
+                                            <FontIcon Glyph="&#xE81D;" FontSize="10" Foreground="{ThemeResource Text3Brush}" />
+                                            <TextBlock FontSize="11.5" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind Location}" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                    <StackPanel x:Name="Empty" Margin="24" VerticalAlignment="Center" Spacing="8" Visibility="Collapsed">
+                        <TextBlock x:Name="EmptyTitle" HorizontalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock x:Name="EmptyBody" HorizontalAlignment="Center" TextAlignment="Center" Style="{StaticResource MutedText}" />
+                    </StackPanel>
+                    <ProgressRing x:Name="Loading" IsActive="True" Width="28" Height="28" />
+                </Grid>
+                <!-- Super Admin's ad for this place (Desktop app -> Ads & announcements). -->
+                <controls:CampaignCard Grid.Row="3" Margin="8,4,8,8" Placement="contacts_list" />
+            </Grid>
+        </Border>
+
+        <Border Grid.Column="1" Style="{StaticResource PanelBorder}">
+            <Grid>
+                <StackPanel x:Name="Placeholder" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                    <Border Width="72" Height="72" CornerRadius="19" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
+                        <FontIcon FontSize="30" Foreground="{ThemeResource BrandBrush}" Glyph="&#xE779;" />
+                    </Border>
+                    <TextBlock x:Name="PlaceholderTitle" HorizontalAlignment="Center" FontSize="16" FontWeight="SemiBold" />
+                </StackPanel>
+
+                <ScrollViewer x:Name="Card" Visibility="Collapsed" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Padding="20,18,20,24" Spacing="14">
+                        <!-- Header: who, how to reach them, and the numbers. -->
+                        <Border Style="{StaticResource ContactCard}" Padding="22,20">
+                            <Grid RowSpacing="18">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid ColumnSpacing="18">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <controls:Avatar x:Name="CardAvatar" Size="76" VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
+                                        <TextBlock x:Name="CardName" FontSize="22" FontWeight="Bold" TextWrapping="Wrap" />
+                                        <TextBlock x:Name="CardSub" FontSize="13" Foreground="{ThemeResource Text2Brush}" TextWrapping="Wrap" TextReadingOrder="DetectFromContent" />
+                                        <StackPanel x:Name="CardTags" Orientation="Horizontal" Spacing="6" Margin="0,4,0,0" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <Button x:Name="EmailButton" Click="OnSendEmail">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <FontIcon Glyph="&#xE715;" FontSize="14" />
+                                                <TextBlock x:Name="EmailButtonText" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Button x:Name="OpenChatButton" Style="{StaticResource AccentButtonStyle}" Click="OnOpenLatest">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <FontIcon Glyph="&#xE8BD;" FontSize="14" />
+                                                <TextBlock x:Name="OpenChatText" />
+                                            </StackPanel>
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                                <Grid Grid.Row="1" ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Padding="14,10" CornerRadius="10" Background="{ThemeResource BrandSoftBrush}">
+                                        <StackPanel Spacing="2">
+                                            <TextBlock x:Name="StatChats" Style="{StaticResource StatValue}" Foreground="{ThemeResource BrandBrush}" />
+                                            <TextBlock x:Name="StatChatsLabel" Style="{StaticResource StatLabel}" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Grid.Column="1" Padding="14,10" CornerRadius="10" Background="{ThemeResource SuccessSoftBrush}">
+                                        <StackPanel Spacing="2">
+                                            <TextBlock x:Name="StatCalls" Style="{StaticResource StatValue}" Foreground="{ThemeResource SuccessBrush}" />
+                                            <TextBlock x:Name="StatCallsLabel" Style="{StaticResource StatLabel}" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Grid.Column="2" Padding="14,10" CornerRadius="10" Background="{ThemeResource AiSoftBrush}">
+                                        <StackPanel Spacing="2">
+                                            <TextBlock x:Name="StatFirst" Style="{StaticResource StatValue}" FontSize="14" Foreground="{ThemeResource AiBrush}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock x:Name="StatFirstLabel" Style="{StaticResource StatLabel}" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Grid.Column="3" Padding="14,10" CornerRadius="10" Background="{ThemeResource ElevatedBrush}">
+                                        <StackPanel Spacing="2">
+                                            <TextBlock x:Name="StatUpdated" Style="{StaticResource StatValue}" FontSize="14" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock x:Name="StatUpdatedLabel" Style="{StaticResource StatLabel}" />
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </Grid>
+                        </Border>
+
+                        <SelectorBar x:Name="Tabs" SelectionChanged="OnTabChanged">
+                            <SelectorBarItem x:Name="TabOverview" Tag="overview" IsSelected="True" />
+                            <SelectorBarItem x:Name="TabChats" Tag="chats" />
+                            <SelectorBarItem x:Name="TabCalls" Tag="calls" />
+                            <SelectorBarItem x:Name="TabNotes" Tag="notes" />
+                        </SelectorBar>
+
+                        <Grid>
+                            <ProgressRing x:Name="DetailLoading" Width="28" Height="28" Margin="0,24" IsActive="False" HorizontalAlignment="Center" VerticalAlignment="Top" />
+                            <Border x:Name="OverviewPanel" Style="{StaticResource ContactCard}" Padding="8">
+                                <StackPanel x:Name="OverviewRows" />
+                            </Border>
+                            <StackPanel x:Name="ChatsPanel" Spacing="8" Visibility="Collapsed" />
+                            <StackPanel x:Name="CallsPanel" Spacing="8" Visibility="Collapsed" />
+                            <Border x:Name="NotesPanel" Style="{StaticResource ContactCard}" Visibility="Collapsed">
+                                <StackPanel Spacing="16">
+                                    <TextBlock x:Name="NotesText" FontSize="14" LineHeight="24" TextWrapping="Wrap" IsTextSelectionEnabled="True" TextAlignment="DetectFromContent" />
+                                    <StackPanel Spacing="8">
+                                        <TextBlock x:Name="TagsLabel" FontWeight="SemiBold" />
+                                        <controls:WrapPanel x:Name="TagsWrap" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+    </Grid>
+</Page>

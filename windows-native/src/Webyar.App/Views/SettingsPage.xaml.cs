@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 using Webyar.App.Services;
+using Webyar.App.ViewModels;
 using Webyar.Core.Api;
 using Webyar.Core.Localization;
 
@@ -35,7 +36,7 @@ public sealed partial class SettingsPage : Page
         SoundToggle.IsOn = settings.NotificationSound;
         StartupToggle.IsOn = settings.StartWithWindows;
         TrayToggle.IsOn = settings.CloseToTray;
-        ServerBox.Text = settings.ApiOrigin == ApiClient.DefaultOrigin.ToString().TrimEnd('/') ? string.Empty : settings.ApiOrigin ?? string.Empty;
+        _ = ShowCacheAsync();
         Host.Updates.PropertyChanged += OnUpdateChanged;
         ShowUpdate();
         _ready = true;
@@ -63,7 +64,7 @@ public sealed partial class SettingsPage : Page
         ToastsHint.Text = s["desktopNotificationsHint"];
         SoundLabel.Text = s["notificationSoundLocal"];
         ServerPrefsHint.Text = s["notificationsServerFooter"];
-        WindowsSettingsLink.Content = s["openWindowsSettings"];
+        WindowsSettingsLink.Text = s["openWindowsSettings"];
 
         DesktopHeader.Text = s["desktop"];
         StartupLabel.Text = s["startWithWindows"];
@@ -75,14 +76,23 @@ public sealed partial class SettingsPage : Page
         CheckButton.Content = s["checkForUpdates"];
         RestartButton.Content = s["updateRestart"];
 
-        AccountHeader.Text = s["account"];
         AccountName.Text = Host.User?.FullName ?? string.Empty;
         AccountEmail.Text = Host.User?.Email ?? string.Empty;
+        AccountWorkspace.Text = Host.Workspace?.Name ?? string.Empty;
+        AccountAvatar.DisplayName = AccountName.Text.Length > 0 ? AccountName.Text : AccountEmail.Text;
+        AccountAvatar.ImageUrl = Host.Account?.AvatarUrl;
         SignOutButton.Content = s["signOut"];
-        ServerLabel.Text = s["serverAddress"];
-        ServerBox.PlaceholderText = ApiClient.DefaultOrigin.ToString().TrimEnd('/');
-        ServerHint.Text = s["serverAddressHint"];
-        ServerSave.Content = s["save"];
+
+        StorageHeader.Text = s["storage"];
+        CacheLabel.Text = s["fileCache"];
+        CacheHint.Text = s["fileCacheHint"];
+        CacheFolderLabel.Text = s["fileCacheFolder"];
+        CachePath.Text = FileCache.Folder;
+        OpenCacheButton.Content = s["openFolder"];
+        ToolTipService.SetToolTip(CopyPathButton, s["copyPath"]);
+        ClearCacheLabel.Text = s["clearCache"];
+        ClearCacheHint.Text = s["clearCacheHint"];
+        ClearCacheButton.Content = s["clearCache"];
     }
 
     private void OnLanguageChanged(object sender, SelectionChangedEventArgs e)
@@ -161,22 +171,51 @@ public sealed partial class SettingsPage : Page
         if (App.Current.Window?.Shell is { } shell) await shell.SignOutAsync();
     }
 
-    private async void OnSaveServer(object sender, RoutedEventArgs e)
+    private async Task ShowCacheAsync()
     {
-        var text = ServerBox.Text.Trim().TrimEnd('/');
-        Uri origin;
-        if (text.Length == 0) origin = ApiClient.DefaultOrigin;
-        else if (!Uri.TryCreate(text.Contains("://", StringComparison.Ordinal) ? text : $"https://{text}", UriKind.Absolute, out var parsed) || parsed.Scheme != Uri.UriSchemeHttps)
-        {
-            ServerHint.Text = Host.Strings["serverInvalid"];
-            return;
-        }
-        else origin = parsed;
+        var (bytes, count) = await Task.Run(FileCache.Measure);
+        var s = Host.Strings;
+        CacheSize.Text = AttachmentItem.FormatSize(bytes, s);
+        ClearCacheButton.IsEnabled = count > 0;
+    }
 
-        Host.Client.Origin = origin;
-        Host.Settings.ApiOrigin = origin.ToString().TrimEnd('/');
-        Host.Settings.Save();
-        ServerHint.Text = Host.Strings["saved"];
-        await Host.RefreshPlatformAsync();
+    private void OnOpenCache(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{FileCache.Folder}\"") { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Log.Error("open cache folder", ex);
+        }
+    }
+
+    private void OnCopyCachePath(object sender, RoutedEventArgs e)
+    {
+        var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        package.SetText(FileCache.Folder);
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+    }
+
+    private async void OnClearCache(object sender, RoutedEventArgs e)
+    {
+        var s = Host.Strings;
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = s["clearCache"],
+            Content = s["clearCacheConfirm"],
+            PrimaryButtonText = s["clearCache"],
+            CloseButtonText = s["cancel"],
+            DefaultButton = ContentDialogButton.Close,
+            FlowDirection = s.IsRightToLeft ? FlowDirection.RightToLeft : FlowDirection.LeftToRight,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        ClearCacheButton.IsEnabled = false;
+        await Task.Run(FileCache.Clear);
+        AttachmentItem.ClearMemory();
+        await ShowCacheAsync();
+        ClearCacheHint.Text = s["cacheCleared"];
     }
 }

@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Webyar-Setup.exe: the installer people download. A small WPF window in the
+    app's own look (Fluent, as in the WinUI Gallery) around the Velopack setup,
+    which stays the engine: it installs per user, registers the uninstaller and
+    keeps updates working. .NET Framework 4.8 ships with every supported
+    Windows 10 and 11, so this runs with nothing installed first and stays one
+    file: the Velopack setup rides inside it as an embedded resource.
+
+    Build it after `vpk pack` with the setup it should carry:
+      dotnet build -c Release -p:PayloadPath=..\..\releases\WebyarWindows-win-Setup.exe -p:PayloadBytes=<size of the publish folder>
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>Webyar-Setup</AssemblyName>
+    <RootNamespace>Webyar.Setup</RootNamespace>
+    <ApplicationIcon>..\Webyar.App\Assets\Webyar.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <PayloadBytes Condition="'$(PayloadBytes)' == ''">0</PayloadBytes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Builds for .NET Framework on any machine, with or without the targeting pack. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="..\Webyar.App\Assets\icon.png" Link="Assets\icon.png" />
+    <Resource Include="..\Webyar.App\Assets\Fonts\IRANSans.ttc" Link="Fonts\IRANSans.ttc" />
+    <Resource Include="..\Webyar.App\Assets\Fonts\Vazirmatn.ttf" Link="Fonts\Vazirmatn.ttf" />
+    <EmbeddedResource Include="$(PayloadPath)" LogicalName="payload.exe" Condition="'$(PayloadPath)' != '' And Exists('$(PayloadPath)')" />
+    <AssemblyMetadata Include="PayloadBytes" Value="$(PayloadBytes)" />
+  </ItemGroup>
+</Project>

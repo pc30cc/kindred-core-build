@@ -3,51 +3,147 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Background="Transparent">
-    <Grid>
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <Border
-                Width="400"
-                Margin="24,48"
-                Padding="36"
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                BorderThickness="1"
-                CornerRadius="12">
-                <StackPanel Spacing="16">
-                    <Image x:Name="Logo" Width="56" Height="56" HorizontalAlignment="Center" />
-                    <StackPanel Spacing="4">
-                        <TextBlock x:Name="TitleText" HorizontalAlignment="Center" Style="{StaticResource SubtitleTextBlockStyle}" />
-                        <TextBlock x:Name="SubtitleText" HorizontalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+    <!--
+        Sign-in: the brand on a deep blue panel with what the app does, and
+        the form on a card beside it. Below 900 px the panel folds away and
+        the card stands alone.
+    -->
+    <Page.Resources>
+        <LinearGradientBrush x:Key="BrandPanelBrush" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#2F6BFF" Offset="0" />
+            <GradientStop Color="#1C47C9" Offset="0.55" />
+            <GradientStop Color="#122E8A" Offset="1" />
+        </LinearGradientBrush>
+        <Style x:Key="FeatureText" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="Foreground" Value="#EAF0FF" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+    </Page.Resources>
+
+    <Grid x:Name="Layout" Padding="16,4,16,16" ColumnSpacing="16" SizeChanged="OnSizeChanged">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition x:Name="BrandColumn" Width="*" MaxWidth="560" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Brand panel -->
+        <Border x:Name="BrandPanel" CornerRadius="20" Background="{StaticResource BrandPanelBrush}">
+            <Grid>
+                <!-- Soft light circles, as on the web landing page. -->
+                <Ellipse Width="420" Height="420" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-160,-160,0" Fill="#18FFFFFF" />
+                <Ellipse Width="300" Height="300" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="-120,0,0,-110" Fill="#12FFFFFF" />
+                <Viewbox Stretch="Uniform" StretchDirection="DownOnly" VerticalAlignment="Center" HorizontalAlignment="Stretch">
+                <StackPanel Width="460" Padding="44" VerticalAlignment="Center" Spacing="28">
+                    <Border Width="72" Height="72" CornerRadius="22" Background="#FFFFFF" HorizontalAlignment="Left">
+                        <Image x:Name="BrandLogo" Width="48" Height="48" />
+                    </Border>
+                    <StackPanel Spacing="10">
+                        <TextBlock x:Name="BrandName" FontSize="34" FontWeight="Bold" Foreground="White" />
+                        <TextBlock x:Name="BrandTagline" FontSize="16" Foreground="#D6E1FF" TextWrapping="Wrap" />
                     </StackPanel>
-
-                    <InfoBar x:Name="Error" IsClosable="False" Severity="Error" />
-
-                    <TextBox x:Name="Email" InputScope="EmailSmtpAddress" IsSpellCheckEnabled="False" FlowDirection="LeftToRight" />
-                    <PasswordBox x:Name="Password" FlowDirection="LeftToRight" />
-
-                    <Button x:Name="SignIn" HorizontalAlignment="Stretch" Style="{StaticResource AccentButtonStyle}" Click="OnSignIn">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <ProgressRing x:Name="Busy" Width="16" Height="16" IsActive="False" Visibility="Collapsed" Foreground="White" />
-                            <TextBlock x:Name="SignInText" />
+                    <StackPanel Spacing="14">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Border Width="34" Height="34" CornerRadius="9" Background="#26FFFFFF">
+                                <FontIcon Glyph="&#xE8BD;" FontSize="15" Foreground="White" />
+                            </Border>
+                            <TextBlock x:Name="Feature1" Style="{StaticResource FeatureText}" />
                         </StackPanel>
-                    </Button>
-
-                    <Grid ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <HyperlinkButton x:Name="ForgotPassword" Padding="0" Click="OnForgotPassword" />
-                        <ComboBox x:Name="LanguagePicker" Grid.Column="1" MinWidth="120" SelectionChanged="OnLanguageChanged">
-                            <ComboBoxItem Content="فارسی" Tag="fa" />
-                            <ComboBoxItem Content="English" Tag="en" />
-                            <ComboBoxItem Content="Türkçe" Tag="tr" />
-                        </ComboBox>
-                    </Grid>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Border Width="34" Height="34" CornerRadius="9" Background="#26FFFFFF">
+                                <FontIcon Glyph="&#xE945;" FontSize="15" Foreground="White" />
+                            </Border>
+                            <TextBlock x:Name="Feature2" Style="{StaticResource FeatureText}" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Border Width="34" Height="34" CornerRadius="9" Background="#26FFFFFF">
+                                <FontIcon Glyph="&#xE717;" FontSize="15" Foreground="White" />
+                            </Border>
+                            <TextBlock x:Name="Feature3" Style="{StaticResource FeatureText}" />
+                        </StackPanel>
+                    </StackPanel>
                 </StackPanel>
-            </Border>
-        </ScrollViewer>
+                </Viewbox>
+            </Grid>
+        </Border>
+
+        <!-- Form -->
+        <!--
+            The page never scrolls: in a short window the card scales down as a
+            whole instead, so everything stays on screen and in place.
+        -->
+        <Viewbox Grid.Column="1" Stretch="Uniform" StretchDirection="DownOnly" VerticalAlignment="Center" HorizontalAlignment="Center">
+                <Border
+                    Width="420"
+                    Margin="0,16"
+                    Padding="36,34"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="20">
+                    <StackPanel Spacing="18">
+                        <Border x:Name="SmallLogo" Width="60" Height="60" CornerRadius="18" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center" Visibility="Collapsed">
+                            <Image x:Name="Logo" Width="38" Height="38" />
+                        </Border>
+                        <StackPanel Spacing="6">
+                            <TextBlock x:Name="TitleText" FontSize="26" FontWeight="Bold" />
+                            <TextBlock x:Name="SubtitleText" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                        </StackPanel>
+
+                        <InfoBar x:Name="Error" IsClosable="False" Severity="Error" />
+
+                        <StackPanel Spacing="6">
+                            <TextBlock x:Name="EmailLabel" FontSize="13" FontWeight="SemiBold" />
+                            <Grid FlowDirection="LeftToRight">
+                                <TextBox x:Name="Email" Height="44" Padding="42,11,12,0" CornerRadius="12" InputScope="EmailSmtpAddress" IsSpellCheckEnabled="False" FlowDirection="LeftToRight" PlaceholderText="name@company.com" />
+                                <FontIcon Glyph="&#xE715;" FontSize="15" Margin="14,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="{ThemeResource Text3Brush}" IsHitTestVisible="False" FlowDirection="LeftToRight" />
+                            </Grid>
+                        </StackPanel>
+                        <StackPanel Spacing="6">
+                            <TextBlock x:Name="PasswordLabel" FontSize="13" FontWeight="SemiBold" />
+                            <Grid FlowDirection="LeftToRight">
+                                <PasswordBox x:Name="Password" Height="44" Padding="42,11,12,0" CornerRadius="12" FlowDirection="LeftToRight" PasswordRevealMode="Peek" />
+                                <FontIcon Glyph="&#xE72E;" FontSize="15" Margin="14,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="{ThemeResource Text3Brush}" IsHitTestVisible="False" FlowDirection="LeftToRight" />
+                            </Grid>
+                        </StackPanel>
+
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <CheckBox x:Name="Remember" MinWidth="0" />
+                            <HyperlinkButton x:Name="ForgotPassword" Grid.Column="1" Padding="4,2" VerticalAlignment="Center" Click="OnForgotPassword" />
+                        </Grid>
+
+                        <Button x:Name="SignIn" Height="46" CornerRadius="10" HorizontalAlignment="Stretch" Style="{StaticResource AccentButtonStyle}" Click="OnSignIn">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <ProgressRing x:Name="Busy" Width="16" Height="16" IsActive="False" Visibility="Collapsed" Foreground="White" />
+                                <TextBlock x:Name="SignInText" FontSize="15" FontWeight="SemiBold" />
+                            </StackPanel>
+                        </Button>
+
+                        <Rectangle Height="1" Fill="{ThemeResource LineBrush}" Margin="0,4,0,0" />
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE774;" FontSize="13" Foreground="{ThemeResource Text3Brush}" />
+                                <TextBlock x:Name="LanguageLabel" FontSize="12.5" Foreground="{ThemeResource Text2Brush}" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <ComboBox x:Name="LanguagePicker" Grid.Column="1" MinWidth="130" CornerRadius="10" SelectionChanged="OnLanguageChanged">
+                                <ComboBoxItem Content="فارسی" Tag="fa" />
+                                <ComboBoxItem Content="English" Tag="en" />
+                                <ComboBoxItem Content="Türkçe" Tag="tr" />
+                            </ComboBox>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+        </Viewbox>
     </Grid>
 </Page>

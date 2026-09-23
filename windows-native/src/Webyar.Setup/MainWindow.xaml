@@ -1,0 +1,245 @@
+<Window
+    x:Class="Webyar.Setup.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Webyar Setup"
+    Width="860"
+    Height="560"
+    ResizeMode="CanMinimize"
+    WindowStyle="None"
+    AllowsTransparency="True"
+    Background="Transparent"
+    WindowStartupLocation="CenterScreen"
+    UseLayoutRounding="True"
+    TextOptions.TextFormattingMode="Ideal"
+    TextOptions.TextRenderingMode="ClearType"
+    SnapsToDevicePixels="True">
+    <!--
+        One card with a soft shadow: the brand on a deep blue panel (as on the
+        app's sign-in page), and the steps beside it — choose, install, done.
+    -->
+    <Grid Margin="20">
+        <Border x:Name="Shadow" CornerRadius="14" Background="{DynamicResource SurfaceBrush}">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="30" ShadowDepth="6" Direction="270" Opacity="0.28" Color="#0B1A40" />
+            </Border.Effect>
+        </Border>
+        <Grid x:Name="Card" ClipToBounds="True" SizeChanged="OnCardSizeChanged">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="320" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Brand panel -->
+            <Grid x:Name="Brand" MouseLeftButtonDown="OnDrag">
+                <Grid.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#2F6BFF" Offset="0" />
+                        <GradientStop Color="#1C47C9" Offset="0.55" />
+                        <GradientStop Color="#122E8A" Offset="1" />
+                    </LinearGradientBrush>
+                </Grid.Background>
+                <Ellipse Width="380" Height="380" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-170,-170,0" Fill="#18FFFFFF" />
+                <Ellipse Width="260" Height="260" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="-110,0,0,-100" Fill="#12FFFFFF" />
+                <Ellipse x:Name="Glow" Width="180" Height="180" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,40,0,0" Opacity="0.55">
+                    <Ellipse.Fill>
+                        <RadialGradientBrush>
+                            <GradientStop Color="#66FFFFFF" Offset="0" />
+                            <GradientStop Color="#00FFFFFF" Offset="1" />
+                        </RadialGradientBrush>
+                    </Ellipse.Fill>
+                </Ellipse>
+                <DockPanel Margin="36,44,36,30" LastChildFill="False">
+                    <StackPanel DockPanel.Dock="Top">
+                        <Border x:Name="LogoTile" Width="88" Height="88" CornerRadius="22" Background="White" HorizontalAlignment="Left" RenderTransformOrigin="0.5,0.5">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="24" ShadowDepth="6" Direction="270" Opacity="0.35" Color="#081A5C" />
+                            </Border.Effect>
+                            <Border.RenderTransform>
+                                <ScaleTransform x:Name="LogoScale" ScaleX="1" ScaleY="1" />
+                            </Border.RenderTransform>
+                            <Image Source="pack://application:,,,/Assets/icon.png" Width="64" Height="64" RenderOptions.BitmapScalingMode="HighQuality" />
+                        </Border>
+                        <TextBlock x:Name="BrandName" Margin="0,22,0,0" FontSize="32" FontWeight="Bold" Foreground="White" />
+                        <TextBlock x:Name="BrandTagline" Margin="0,8,0,0" FontSize="14" Foreground="#D6E1FF" TextWrapping="Wrap" LineHeight="23" />
+                    </StackPanel>
+                    <StackPanel DockPanel.Dock="Top" Margin="0,26,0,0">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <Border Width="30" Height="30" CornerRadius="8" Background="#26FFFFFF">
+                                <TextBlock Text="&#xE8BD;" FontFamily="{StaticResource IconFont}" FontSize="13" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock x:Name="Feature1" Margin="12,0,0,0" FontSize="13" Foreground="#EAF0FF" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <Border Width="30" Height="30" CornerRadius="8" Background="#26FFFFFF">
+                                <TextBlock Text="&#xE945;" FontFamily="{StaticResource IconFont}" FontSize="13" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock x:Name="Feature2" Margin="12,0,0,0" FontSize="13" Foreground="#EAF0FF" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <Border Width="30" Height="30" CornerRadius="8" Background="#26FFFFFF">
+                                <TextBlock Text="&#xE717;" FontFamily="{StaticResource IconFont}" FontSize="13" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock x:Name="Feature3" Margin="12,0,0,0" FontSize="13" Foreground="#EAF0FF" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </StackPanel>
+                    <Grid DockPanel.Dock="Bottom">
+                        <Border HorizontalAlignment="Left" CornerRadius="6" Background="#26FFFFFF" Padding="10,4">
+                            <TextBlock x:Name="VersionText" FontSize="12" Foreground="White" />
+                        </Border>
+                        <TextBlock x:Name="FooterText" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="12" Foreground="#B9C9F5" />
+                    </Grid>
+                </DockPanel>
+            </Grid>
+
+            <!-- Steps -->
+            <Grid Grid.Column="1" Background="{DynamicResource SurfaceBrush}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- Title bar: drag area, language, minimize, close. -->
+                <Grid Background="Transparent" MouseLeftButtonDown="OnDrag" Margin="0,8,8,0">
+                    <Border x:Name="LanguageBar" HorizontalAlignment="Left" Margin="36,6,0,0" Padding="3" CornerRadius="8" Background="{DynamicResource Surface2Brush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton x:Name="LangFa" Style="{StaticResource SegmentButton}" GroupName="lang" Content="فا" Tag="fa" Checked="OnLanguage" />
+                            <RadioButton x:Name="LangEn" Style="{StaticResource SegmentButton}" GroupName="lang" Content="EN" Tag="en" Checked="OnLanguage" />
+                            <RadioButton x:Name="LangTr" Style="{StaticResource SegmentButton}" GroupName="lang" Content="TR" Tag="tr" Checked="OnLanguage" />
+                        </StackPanel>
+                    </Border>
+                    <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" VerticalAlignment="Top" FlowDirection="LeftToRight">
+                        <Button x:Name="MinimizeButton" Style="{StaticResource CaptionButton}" Content="&#xE921;" Click="OnMinimize" />
+                        <Button x:Name="CloseButton" Style="{StaticResource CloseCaptionButton}" Content="&#xE8BB;" Click="OnClose" />
+                    </StackPanel>
+                </Grid>
+
+                <Grid Grid.Row="1" Margin="36,14,36,30">
+                    <!-- 1. Choose -->
+                    <DockPanel x:Name="WelcomePage">
+                        <StackPanel DockPanel.Dock="Top">
+                            <TextBlock x:Name="WelcomeTitle" FontSize="26" FontWeight="Bold" Foreground="{DynamicResource TextBrush}" />
+                            <TextBlock x:Name="WelcomeBody" Margin="0,8,0,0" FontSize="13.5" Foreground="{DynamicResource Text2Brush}" TextWrapping="Wrap" LineHeight="22" />
+                        </StackPanel>
+                        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+                            <Button x:Name="CancelButton" Style="{StaticResource SecondaryButton}" Click="OnClose" Margin="0,0,10,0" />
+                            <Button x:Name="InstallButton" Style="{StaticResource AccentButton}" Click="OnInstall" IsDefault="True">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE896;" FontFamily="{StaticResource IconFont}" FontSize="14" VerticalAlignment="Center" Margin="0,1,9,0" />
+                                    <TextBlock x:Name="InstallText" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="2,14,0,0">
+                            <TextBlock Text="&#xE8B7;" FontFamily="{StaticResource IconFont}" FontSize="12" Foreground="{DynamicResource Text3Brush}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="InstallToLabel" Margin="8,0,6,0" FontSize="12" Foreground="{DynamicResource Text3Brush}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="InstallToPath" FontSize="12" Foreground="{DynamicResource Text2Brush}" VerticalAlignment="Center" FlowDirection="LeftToRight" TextTrimming="CharacterEllipsis" MaxWidth="330" />
+                        </StackPanel>
+                        <StackPanel Margin="0,22,0,0">
+                            <Border Style="{StaticResource OptionCard}" Margin="0,0,0,10">
+                                <DockPanel>
+                                    <Border Style="{StaticResource IconTile}" DockPanel.Dock="Left">
+                                        <TextBlock Text="&#xE7F4;" Style="{StaticResource TileGlyph}" />
+                                    </Border>
+                                    <CheckBox x:Name="OptDesktop" Style="{StaticResource ToggleSwitch}" DockPanel.Dock="Right" VerticalAlignment="Center" IsChecked="True" />
+                                    <StackPanel Margin="12,0,12,0" VerticalAlignment="Center">
+                                        <TextBlock x:Name="OptDesktopTitle" FontSize="13.5" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" />
+                                        <TextBlock x:Name="OptDesktopHint" Margin="0,2,0,0" FontSize="12" Foreground="{DynamicResource Text3Brush}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                            <Border Style="{StaticResource OptionCard}" Margin="0,0,0,10">
+                                <DockPanel>
+                                    <Border Style="{StaticResource IconTile}" DockPanel.Dock="Left">
+                                        <TextBlock Text="&#xE7E8;" Style="{StaticResource TileGlyph}" />
+                                    </Border>
+                                    <CheckBox x:Name="OptStartup" Style="{StaticResource ToggleSwitch}" DockPanel.Dock="Right" VerticalAlignment="Center" IsChecked="True" />
+                                    <StackPanel Margin="12,0,12,0" VerticalAlignment="Center">
+                                        <TextBlock x:Name="OptStartupTitle" FontSize="13.5" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" />
+                                        <TextBlock x:Name="OptStartupHint" Margin="0,2,0,0" FontSize="12" Foreground="{DynamicResource Text3Brush}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                            <Border Style="{StaticResource OptionCard}">
+                                <DockPanel>
+                                    <Border Style="{StaticResource IconTile}" DockPanel.Dock="Left">
+                                        <TextBlock Text="&#xE768;" Style="{StaticResource TileGlyph}" />
+                                    </Border>
+                                    <CheckBox x:Name="OptLaunch" Style="{StaticResource ToggleSwitch}" DockPanel.Dock="Right" VerticalAlignment="Center" IsChecked="True" />
+                                    <StackPanel Margin="12,0,12,0" VerticalAlignment="Center">
+                                        <TextBlock x:Name="OptLaunchTitle" FontSize="13.5" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" />
+                                        <TextBlock x:Name="OptLaunchHint" Margin="0,2,0,0" FontSize="12" Foreground="{DynamicResource Text3Brush}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                        </StackPanel>
+                    </DockPanel>
+
+                    <!-- 2. Installing -->
+                    <DockPanel x:Name="ProgressPage" Visibility="Collapsed">
+                        <StackPanel DockPanel.Dock="Top">
+                            <TextBlock x:Name="ProgressTitle" FontSize="26" FontWeight="Bold" Foreground="{DynamicResource TextBrush}" />
+                            <TextBlock x:Name="ProgressBody" Margin="0,8,0,0" FontSize="13.5" Foreground="{DynamicResource Text2Brush}" />
+                        </StackPanel>
+                        <StackPanel DockPanel.Dock="Top" Margin="0,34,0,0">
+                            <Grid>
+                                <TextBlock x:Name="PercentText" FontSize="40" FontWeight="Bold" Foreground="{DynamicResource BrandBrush}" Text="0%" />
+                                <TextBlock x:Name="StageText" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,0,8" FontSize="13" Foreground="{DynamicResource Text2Brush}" />
+                            </Grid>
+                            <ProgressBar x:Name="Bar" Style="{StaticResource FluentProgress}" Margin="0,8,0,0" Minimum="0" Maximum="1" Value="0" />
+                        </StackPanel>
+                        <StackPanel x:Name="StepList" DockPanel.Dock="Top" Margin="0,30,0,0" />
+                    </DockPanel>
+
+                    <!-- 3. Done -->
+                    <DockPanel x:Name="DonePage" Visibility="Collapsed">
+                        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button x:Name="FinishCloseButton" Style="{StaticResource SecondaryButton}" Click="OnClose" Margin="0,0,10,0" />
+                            <Button x:Name="OpenButton" Style="{StaticResource AccentButton}" Click="OnOpen" IsDefault="True">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE8A7;" FontFamily="{StaticResource IconFont}" FontSize="14" VerticalAlignment="Center" Margin="0,1,9,0" />
+                                    <TextBlock x:Name="OpenText" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,0,0,20">
+                            <Grid Width="96" Height="96" HorizontalAlignment="Center" RenderTransformOrigin="0.5,0.5">
+                                <Grid.RenderTransform>
+                                    <ScaleTransform x:Name="DoneScale" ScaleX="0.6" ScaleY="0.6" />
+                                </Grid.RenderTransform>
+                                <Ellipse Fill="{DynamicResource SuccessSoftBrush}" />
+                                <Ellipse Width="64" Height="64" Fill="{DynamicResource SuccessBrush}" />
+                                <TextBlock Text="&#xE73E;" FontFamily="{StaticResource IconFont}" FontSize="30" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Grid>
+                            <TextBlock x:Name="DoneTitle" Margin="0,22,0,0" HorizontalAlignment="Center" FontSize="26" FontWeight="Bold" Foreground="{DynamicResource TextBrush}" />
+                            <TextBlock x:Name="DoneBody" Margin="0,10,0,0" MaxWidth="400" HorizontalAlignment="Center" TextAlignment="Center" FontSize="13.5" Foreground="{DynamicResource Text2Brush}" TextWrapping="Wrap" LineHeight="22" />
+                        </StackPanel>
+                    </DockPanel>
+
+                    <!-- Error -->
+                    <DockPanel x:Name="ErrorPage" Visibility="Collapsed">
+                        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button x:Name="ErrorCloseButton" Style="{StaticResource SecondaryButton}" Click="OnClose" Margin="0,0,10,0" />
+                            <Button x:Name="RetryButton" Style="{StaticResource AccentButton}" Click="OnInstall" IsDefault="True">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE72C;" FontFamily="{StaticResource IconFont}" FontSize="14" VerticalAlignment="Center" Margin="0,1,9,0" />
+                                    <TextBlock x:Name="RetryText" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,0,0,20">
+                            <Grid Width="96" Height="96" HorizontalAlignment="Center">
+                                <Ellipse Fill="{DynamicResource DangerSoftBrush}" />
+                                <Ellipse Width="64" Height="64" Fill="{DynamicResource DangerBrush}" />
+                                <TextBlock Text="&#xE783;" FontFamily="{StaticResource IconFont}" FontSize="28" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Grid>
+                            <TextBlock x:Name="ErrorTitle" Margin="0,22,0,0" HorizontalAlignment="Center" FontSize="24" FontWeight="Bold" Foreground="{DynamicResource TextBrush}" />
+                            <TextBlock x:Name="ErrorBody" Margin="0,10,0,0" MaxWidth="400" HorizontalAlignment="Center" TextAlignment="Center" FontSize="13.5" Foreground="{DynamicResource Text2Brush}" TextWrapping="Wrap" LineHeight="22" />
+                            <TextBlock x:Name="ErrorDetail" Margin="0,10,0,0" MaxWidth="420" HorizontalAlignment="Center" TextAlignment="Center" FontSize="11.5" Foreground="{DynamicResource Text3Brush}" TextWrapping="Wrap" FlowDirection="LeftToRight" />
+                        </StackPanel>
+                    </DockPanel>
+                </Grid>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

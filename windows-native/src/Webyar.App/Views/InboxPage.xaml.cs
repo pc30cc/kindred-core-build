@@ -19,6 +19,8 @@ public sealed partial class InboxPage : Page
     private readonly Dictionary<string, ConversationItem> _all = [];
     private Poller? _poller;
     private InboxFilter _filter = InboxFilter.Open;
+    private string? _channel;
+    private string? _title;
     private string? _openId;
     private bool _syncing;
     private int _generation;
@@ -39,6 +41,7 @@ public sealed partial class InboxPage : Page
         base.OnNavigatedTo(e);
         ApplyLanguage();
         Host.InboxChanged += OnInboxChanged;
+        Palette.ThemeChanged += OnThemeChanged;
         _poller = new Poller("inbox", LoadAsync, () => Host.PollInterval(TimeSpan.FromSeconds(Host.Config.PollIntervalSeconds)));
         _poller.Start();
         if (e.Parameter is string id) Open(id);
@@ -53,9 +56,18 @@ public sealed partial class InboxPage : Page
     public void Teardown()
     {
         Host.InboxChanged -= OnInboxChanged;
+        Palette.ThemeChanged -= OnThemeChanged;
         _poller?.Dispose();
         _poller = null;
         Chat.Close();
+    }
+
+    /// <summary>Brushes chosen in code follow a theme switch.</summary>
+    private void OnThemeChanged()
+    {
+        var now = DateTimeOffset.Now;
+        foreach (var item in _items) item.Update(item.Conversation, Host.Strings, now);
+        Chat.RefreshTheme();
     }
 
     /// <summary>Opens a conversation, e.g. from a toast, even when it is not in the current filter.</summary>
@@ -72,13 +84,41 @@ public sealed partial class InboxPage : Page
         else
         {
             Chat.ShowById(id);
+            _ = FindAsync(id);
+        }
+    }
+
+    /// <summary>
+    /// A conversation outside the list on show (a toast, another queue):
+    /// the queues are searched for it so the header, the AI state and the
+    /// actions are right, not just the messages.
+    /// </summary>
+    private async Task FindAsync(string id)
+    {
+        if (Host.Workspace is not { } ws) return;
+        foreach (var filter in new[] { InboxFilter.Ai, InboxFilter.Open, InboxFilter.Pending, InboxFilter.Resolved, InboxFilter.Spam })
+        {
+            try
+            {
+                var list = await Host.Api.ConversationsAsync(ws.Id, filter);
+                if (list.FirstOrDefault(c => c.Id == id) is not { } hit) continue;
+                if (_openId != id) return;
+                var enriched = await Host.WithVisitorProfilesAsync([hit]);
+                if (_openId == id) Chat.Show(enriched[0]);
+                return;
+            }
+            catch (Exception e)
+            {
+                Log.Error("find conversation", e);
+                return;
+            }
         }
     }
 
     private void ApplyLanguage()
     {
         var s = Host.Strings;
-        HeaderText.Text = s["tabInbox"];
+        HeaderText.Text = _title ?? s["navInboxOpen"];
         Search.PlaceholderText = s["search"];
         ToolTipService.SetToolTip(RefreshButton, s["refresh"]);
         FilterOpen.Text = s["filterOpen"];
@@ -91,16 +131,37 @@ public sealed partial class InboxPage : Page
 
     private void OnInboxChanged(InboxEvent e) => _poller?.Kick();
 
+    private void ShowCounts(InboxCounts c)
+    {
+        var s = Host.Strings;
+        string Label(string key, int? n) => n is > 0 ? $"{s[key]}  {Digits.Localize(n.Value.ToString(System.Globalization.CultureInfo.InvariantCulture), s.Language)}" : s[key];
+        FilterOpen.Text = Label("filterOpen", c.Open);
+        FilterPending.Text = Label("filterPending", c.Pending);
+        FilterAi.Text = Label("filterAI", c.Automated);
+        FilterResolved.Text = s["filterResolved"];
+    }
+
     private async Task LoadAsync(CancellationToken ct)
     {
         if (Host.Workspace is not { } ws) return;
         var generation = _generation;
         try
         {
+            var counts = Host.Api.InboxCountsAsync(ws.Id, "mine", ct);
             var list = await Host.Api.ConversationsAsync(ws.Id, _filter, ct);
             if (generation != _generation) return; // the filter changed while this was loading
+            list = await Host.WithVisitorProfilesAsync(list, ct);
+            if (generation != _generation) return;
             Apply(list);
             Error.IsOpen = false;
+            try
+            {
+                ShowCounts(await counts);
+            }
+            catch (ApiException)
+            {
+                // Counts are a decoration; the list itself loaded.
+            }
         }
         catch (ApiException e) when (e.Failure != ApiFailure.Unauthorized)
         {
@@ -119,7 +180,9 @@ public sealed partial class InboxPage : Page
     {
         var s = Host.Strings;
         var now = DateTimeOffset.Now;
-        var sorted = list.OrderByDescending(c => c.LastActivity ?? DateTimeOffset.MinValue).ToList();
+        var sorted = list
+            .Where(c => _channel is null || c.ChannelKey == _channel)
+            .OrderByDescending(c => c.LastActivity ?? DateTimeOffset.MinValue).ToList();
         var seen = new HashSet<string>();
         foreach (var c in sorted)
         {
@@ -140,6 +203,9 @@ public sealed partial class InboxPage : Page
         }
         _syncing = false;
         Empty.Visibility = _items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var unread = _all.Values.Count(i => (i.Conversation.UnreadCount ?? 0) > 0);
+        TotalText.Text = Digits.Localize(unread.ToString(System.Globalization.CultureInfo.InvariantCulture), s.Language);
+        TotalChip.Visibility = unread > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>Moves the collection to <paramref name="wanted"/> with the fewest changes, so rows keep their state.</summary>
@@ -170,6 +236,26 @@ public sealed partial class InboxPage : Page
     {
         if (sender.SelectedItem?.Tag is not string tag || !Enum.TryParse<InboxFilter>(tag, out var filter) || filter == _filter) return;
         _filter = filter;
+        _generation++;
+        _items.Clear();
+        _all.Clear();
+        Loading.Visibility = Visibility.Visible;
+        Loading.IsActive = true;
+        Empty.Visibility = Visibility.Collapsed;
+        _poller?.Kick();
+    }
+
+    /// <summary>
+    /// Switches to one of the inboxes in the navigation pane: a queue/status,
+    /// optionally narrowed to one channel ("Other inboxes"), as the web does.
+    /// </summary>
+    public void ShowInbox(InboxFilter filter, string? channel, string title)
+    {
+        _title = title;
+        HeaderText.Text = title;
+        if (filter == _filter && channel == _channel) return;
+        _filter = filter;
+        _channel = channel;
         _generation++;
         _items.Clear();
         _all.Clear();

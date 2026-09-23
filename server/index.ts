@@ -33,6 +33,7 @@ import { availabilityRouter } from './routes/availability.js';
 import { mobilePromotionsRouter } from './routes/mobilePromotions.js';
 import { platformOriginsPublicRouter } from './routes/platformOriginsPublic.js';
 import { desktopAppPublicRouter } from './routes/desktopAppPublic.js';
+import { desktopAppClientRouter } from './routes/desktopAppClient.js';
 import { operatorActivityRouter } from './routes/operatorActivity.js';
 import { billingRouter, billingWebhookRouter } from './routes/billing.js';
 import { commercePairingRouter } from './routes/commerce/pairing.js';
@@ -444,6 +445,7 @@ app.use('/api/platform', platformOriginsPublicRouter);
 // What the desktop (Windows) app should do on launch: update feed + tuning.
 // Public, cached, read-only.
 app.use('/api/platform', desktopAppPublicRouter);
+app.use('/api/desktop-app', desktopAppClientRouter);
 
 // What the native app may show as a promotion. Read-only, workspace-scoped.
 app.use('/api/mobile-app', mobilePromotionsRouter);

@@ -23,6 +23,13 @@ import {
   DESKTOP_APP_BOUNDS,
 } from '../services/desktopApp/settings.js';
 import { invalidateDesktopAppPublicCache } from './desktopAppPublic.js';
+import {
+  CAMPAIGN_LOCALES,
+  CAMPAIGN_SEVERITIES,
+  DESKTOP_PLACEMENTS,
+  invalidateCampaignCache,
+} from '../services/desktopApp/campaigns.js';
+import { addBroadcast, listBroadcasts, removeBroadcast, summary } from '../services/desktopApp/live.js';
 
 export const adminDesktopAppRouter = Router();
 
@@ -116,4 +123,137 @@ adminDesktopAppRouter.put('/settings', async (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
   }
+});
+
+// ── Ads & announcements ─────────────────────────────────────────────────
+
+const localeText = z
+  .object({
+    title: z.string().trim().max(120).optional(),
+    body: z.string().trim().max(600).optional(),
+    cta_label: z.string().trim().max(40).optional(),
+  })
+  .partial();
+
+const OPTIONAL_HTTPS = z
+  .string()
+  .trim()
+  .max(2000)
+  .refine((v) => v === '' || /^https:\/\//i.test(v), 'https required')
+  .transform((v) => (v === '' ? null : v))
+  .nullable();
+
+const WHEN = z
+  .string()
+  .trim()
+  .refine((v) => v === '' || !Number.isNaN(Date.parse(v)), 'date required')
+  .transform((v) => (v === '' ? null : new Date(v).toISOString()))
+  .nullable();
+
+export const campaignSchema = z.object({
+  kind: z.enum(['ad', 'announcement']),
+  name: z.string().trim().max(120).default(''),
+  placements: z.array(z.enum(DESKTOP_PLACEMENTS)).min(1),
+  target_plans: z.array(z.string().trim().min(1).max(80)).max(50).default([]),
+  text: z.object(Object.fromEntries(CAMPAIGN_LOCALES.map((l) => [l, localeText.optional()])) as Record<(typeof CAMPAIGN_LOCALES)[number], z.ZodOptional<typeof localeText>>),
+  image_url: OPTIONAL_HTTPS.optional(),
+  cta_url: OPTIONAL_HTTPS.optional(),
+  severity: z.enum(CAMPAIGN_SEVERITIES).default('info'),
+  dismissible: z.boolean().default(true),
+  priority: z.coerce.number().int().min(-100).max(100).default(0),
+  active: z.boolean().default(true),
+  starts_at: WHEN.optional(),
+  ends_at: WHEN.optional(),
+});
+
+adminDesktopAppRouter.get('/campaigns', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const sb = getServiceClient(serverConfigOf(req));
+  const { data, error } = await sb
+    .from('desktop_app_campaigns')
+    .select('*')
+    .order('priority', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ campaigns: data ?? [], placements: DESKTOP_PLACEMENTS });
+});
+
+adminDesktopAppRouter.post('/campaigns', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const parsed = campaignSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid input', issues: parsed.error.issues.map((i) => i.path.join('.')) });
+  }
+  const sb = getServiceClient(serverConfigOf(req));
+  const { data, error } = await sb.from('desktop_app_campaigns').insert(parsed.data).select('*').single();
+  if (error) return res.status(500).json({ error: error.message });
+  invalidateCampaignCache();
+  return res.json({ success: true, campaign: data });
+});
+
+adminDesktopAppRouter.put('/campaigns/:id', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  if (!z.string().uuid().safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid id' });
+  const parsed = campaignSchema.partial().safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid input', issues: parsed.error.issues.map((i) => i.path.join('.')) });
+  }
+  const sb = getServiceClient(serverConfigOf(req));
+  const { data, error } = await sb
+    .from('desktop_app_campaigns')
+    .update({ ...parsed.data, updated_at: new Date().toISOString() })
+    .eq('id', req.params.id)
+    .select('*')
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: 'Not found' });
+  invalidateCampaignCache();
+  return res.json({ success: true, campaign: data });
+});
+
+adminDesktopAppRouter.delete('/campaigns/:id', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  if (!z.string().uuid().safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid id' });
+  const sb = getServiceClient(serverConfigOf(req));
+  const { error } = await sb.from('desktop_app_campaigns').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  invalidateCampaignCache();
+  return res.json({ success: true });
+});
+
+// ── Live usage and broadcasts (memory only, see services/desktopApp/live.ts) ──
+
+adminDesktopAppRouter.get('/live', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  return res.json({ live: summary(), broadcasts: listBroadcasts() });
+});
+
+const broadcastSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  body: z.string().trim().max(600).default(''),
+  severity: z.enum(CAMPAIGN_SEVERITIES).default('info'),
+  url: OPTIONAL_HTTPS.optional(),
+});
+
+adminDesktopAppRouter.post('/broadcasts', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  const parsed = broadcastSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid input', issues: parsed.error.issues.map((i) => i.path.join('.')) });
+  }
+  const d = parsed.data;
+  const b = addBroadcast({
+    title: d.title ?? '',
+    body: d.body ?? '',
+    severity: d.severity ?? 'info',
+    url: d.url ?? null,
+    createdBy: actorId,
+  });
+  return res.json({ success: true, broadcast: b, live: summary() });
+});
+
+adminDesktopAppRouter.delete('/broadcasts/:id', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  return res.json({ success: removeBroadcast(String(req.params.id)) });
 });

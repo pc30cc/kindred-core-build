@@ -58,6 +58,9 @@ public sealed class Notifier : IDisposable
             if (activated.Kind == Microsoft.Windows.AppLifecycle.ExtendedActivationKind.AppNotification &&
                 activated.Data is AppNotificationActivatedEventArgs toast)
                 return ParseLaunch(toast.Argument);
+            // A shortcut or script can open one conversation: Webyar.exe --conversation=<id>
+            var open = Environment.GetCommandLineArgs().FirstOrDefault(a => a.StartsWith("--conversation=", StringComparison.Ordinal));
+            if (open is { Length: > 15 }) return new Dictionary<string, string> { ["conversation"] = open[15..] };
         }
         catch (Exception e)
         {

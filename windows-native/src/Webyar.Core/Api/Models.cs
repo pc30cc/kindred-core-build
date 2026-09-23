@@ -41,10 +41,56 @@ public sealed record Conversation(
     ConversationContact? Contacts = null,
     MessagePreview? LastMessage = null,
     int? UnreadCount = null,
-    string? AiState = null)
+    string? AiState = null,
+    string? VisitorOs = null,
+    string? VisitorDevice = null,
+    string? VisitorCountryCode = null,
+    string? VisitorCountryName = null,
+    string? VisitorCity = null,
+    string? VisitorRegion = null,
+    JsonElement? Metadata = null)
 {
     /// <summary>When anything last happened, for sorting and "5m ago".</summary>
     public DateTimeOffset? LastActivity => LastMessage?.CreatedAt ?? UpdatedAt ?? CreatedAt;
+
+    /// <summary>
+    /// ai_managed, needs_human or human_active — metadata.ai_state first, as
+    /// the iOS app and the web read it, then the column.
+    /// </summary>
+    public string? AiStateValue
+    {
+        get
+        {
+            if (Metadata is { ValueKind: JsonValueKind.Object } m && m.TryGetProperty("ai_state", out var v) && v.ValueKind == JsonValueKind.String)
+                return v.GetString();
+            return AiState;
+        }
+    }
+
+    /// <summary>The AI is answering this visitor: the operator steers it instead of writing directly.</summary>
+    public bool IsAiManaged => AiStateValue == "ai_managed";
+
+    private static readonly string[] Channels = ["telegram", "bale", "whatsapp", "instagram", "x", "email", "phone", "widget"];
+
+    /// <summary>
+    /// Where the visitor wrote from, as the web's resolveChannelKey reads it:
+    /// metadata.channel, else metadata.source, else the chat widget.
+    /// </summary>
+    public string ChannelKey
+    {
+        get
+        {
+            if (Metadata is { ValueKind: JsonValueKind.Object } m)
+            {
+                foreach (var key in new[] { "channel", "source" })
+                {
+                    if (m.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String
+                        && v.GetString()?.ToLowerInvariant() is { } raw && Array.IndexOf(Channels, raw) >= 0) return raw;
+                }
+            }
+            return "widget";
+        }
+    }
 }
 
 public sealed record MessageAttachment(string Id, string? FileName = null, string? MimeType = null, long? SizeBytes = null, string? Kind = null);
@@ -82,6 +128,8 @@ public static class ConversationStatuses
     public const string Resolved = "resolved";
     public const string Closed = "closed";
 }
+
+public sealed record SidebarCounts(int? Main = null, int? Automated = null, int? NeedsHuman = null, int? Spam = null);
 
 public sealed record InboxCounts(int? Open = null, int? Pending = null, int? Resolved = null, int? All = null, int? NeedsHuman = null, int? Automated = null);
 

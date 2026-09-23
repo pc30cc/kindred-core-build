@@ -1,0 +1,54 @@
+<UserControl
+    x:Class="Webyar.App.Controls.Avatar"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Drawn like the web console's ContactAvatar: see Avatar.xaml.cs. -->
+    <Grid x:Name="Root" FlowDirection="LeftToRight">
+        <Ellipse x:Name="Disc" />
+        <!-- The soft top gloss of the OS avatars. -->
+        <Ellipse x:Name="Gloss" Opacity="0.7" Visibility="Collapsed">
+            <Ellipse.Fill>
+                <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                    <GradientStop Color="#47FFFFFF" Offset="0" />
+                    <GradientStop Color="#00FFFFFF" Offset="0.55" />
+                </LinearGradientBrush>
+            </Ellipse.Fill>
+        </Ellipse>
+        <Viewbox x:Name="GlyphBox" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Canvas x:Name="GlyphCanvas" Width="24" Height="24" />
+        </Viewbox>
+        <FontIcon x:Name="IconGlyph" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        <TextBlock
+            x:Name="InitialsText"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            FontWeight="SemiBold"
+            Foreground="White"
+            TextLineBounds="Tight" />
+        <Ellipse x:Name="Photo" Visibility="Collapsed">
+            <Ellipse.Fill>
+                <ImageBrush x:Name="PhotoBrush" Stretch="UniformToFill" ImageFailed="OnImageFailed" />
+            </Ellipse.Fill>
+        </Ellipse>
+        <Ellipse x:Name="Ring" StrokeThickness="1" Stroke="{ThemeResource LineBrush}" />
+
+        <!-- Country, bottom-start, like the flag badge on the web (Windows has no flag emoji, so the letters). -->
+        <Border
+            x:Name="CountryBadge"
+            Visibility="Collapsed"
+            HorizontalAlignment="Left"
+            VerticalAlignment="Bottom"
+            Background="{ThemeResource SurfaceBrush}"
+            BorderBrush="{ThemeResource LineStrongBrush}"
+            BorderThickness="1"
+            CornerRadius="999">
+            <TextBlock x:Name="CountryText" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold" Foreground="{ThemeResource Text2Brush}" TextLineBounds="Tight" />
+        </Border>
+
+        <!-- Status / presence, bottom-end. -->
+        <Grid x:Name="DotHost" Visibility="Collapsed" HorizontalAlignment="Right" VerticalAlignment="Bottom">
+            <Ellipse x:Name="DotHalo" Opacity="0" />
+            <Ellipse x:Name="Dot" StrokeThickness="2" Stroke="{ThemeResource SurfaceBrush}" />
+        </Grid>
+    </Grid>
+</UserControl>

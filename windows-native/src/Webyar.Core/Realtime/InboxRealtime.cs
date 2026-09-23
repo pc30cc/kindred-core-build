@@ -93,6 +93,9 @@ public sealed class InboxRealtime : IAsyncDisposable
     /// <summary>Raised on a background thread; marshal to the UI thread before touching controls.</summary>
     public event Action<InboxEvent>? EventReceived;
     public event Action<bool>? ConnectionChanged;
+
+    /// <summary>The operator is now a member of the workspace's operators channel.</summary>
+    public event Action? PresenceJoined;
     /// <summary>One line per state change, for the app's log file.</summary>
     public event Action<string>? Log;
 
@@ -160,7 +163,21 @@ public sealed class InboxRealtime : IAsyncDisposable
         var sub = await _api.RealtimeInboxSubscribeAsync(_workspaceId, ct).ConfigureAwait(false);
         if (sub.Vendor != "centrifugo" || sub.Channel is null || sub.Token is null) return new Outcome(false, false, PolicyRetry);
 
+        // Joining the operators channel is what makes this operator "connected"
+        // for teammates, as in the web console. Optional: the inbox works without it.
+        RealtimeSubscribe? presence = null;
+        try
+        {
+            presence = await _api.RealtimePresenceSubscribeAsync(_workspaceId, ct).ConfigureAwait(false);
+            if (presence.Vendor != "centrifugo" || presence.Channel is null || presence.Token is null) presence = null;
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            Log?.Invoke($"[realtime] presence token: {e.GetType().Name}");
+        }
+
         var expiresAt = Math.Min(conn.ExpiresAt ?? long.MaxValue, sub.ExpiresAt ?? long.MaxValue);
+        if (presence?.ExpiresAt is { } pe) expiresAt = Math.Min(expiresAt, pe);
         var refreshAt = expiresAt == long.MaxValue
             ? DateTimeOffset.MaxValue
             : DateTimeOffset.FromUnixTimeMilliseconds(expiresAt) - RefreshLead;
@@ -197,6 +214,13 @@ public sealed class InboxRealtime : IAsyncDisposable
                         case CentrifugoFrame.Ping:
                             await socket.SendAsync(CentrifugoProtocol.Pong, ct).ConfigureAwait(false);
                             break;
+                        case CentrifugoFrame.Reply { Id: 3, Error: { } presenceError }:
+                            Log?.Invoke($"[realtime] presence error {presenceError}");
+                            break;
+                        case CentrifugoFrame.Reply { Id: 3 }:
+                            Log?.Invoke($"[realtime] joined {presence?.Channel}");
+                            PresenceJoined?.Invoke();
+                            break;
                         case CentrifugoFrame.Reply { Error: { } error }:
                             Log?.Invoke($"[realtime] error {error}");
                             return new Outcome(subscribed, false, null);
@@ -207,6 +231,8 @@ public sealed class InboxRealtime : IAsyncDisposable
                             subscribed = true;
                             SetConnected(true);
                             Log?.Invoke($"[realtime] subscribed {sub.Channel}");
+                            if (presence is { Channel: { } pc, Token: { } pt })
+                                await socket.SendAsync(CentrifugoProtocol.Subscribe(3, pc, pt), ct).ConfigureAwait(false);
                             break;
                         case CentrifugoFrame.Disconnect:
                             Log?.Invoke("[realtime] server disconnect");

@@ -1,0 +1,77 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  html, body, #map { margin: 0; height: 100%; background: transparent; }
+  body.dark .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.9) contrast(.9); }
+  .dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+  .dot.online { background: #30a46c; box-shadow: 0 0 0 6px rgba(48,164,108,.22), 0 1px 4px rgba(0,0,0,.35); }
+  .dot.idle { background: #f5a524; }
+  .dot.offline, .dot.unknown { background: #98a2b3; }
+  .dot.selected { transform: scale(1.35); border-color: #3b7af2; }
+  .leaflet-container { font: 12px/1.4 "Segoe UI Variable Text", "Segoe UI", Vazirmatn, sans-serif; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+// The web Visitors page's map, in the native app: markers from
+// /api/visitor-intel/map on the tiles /map-config names. The host posts
+// {type:'config'|'markers'|'select'|'theme'} and hears {type:'select', id}.
+const host = window.chrome && window.chrome.webview;
+const map = L.map('map', { zoomControl: true, attributionControl: true, worldCopyJump: true }).setView([32, 53], 3);
+let tiles = null;
+const layer = L.layerGroup().addTo(map);
+let selected = null;
+let fitted = false;
+
+function icon(status, id) {
+  return L.divIcon({ className: '', iconSize: [14, 14], html: `<div class="dot ${status || 'unknown'} ${id === selected ? 'selected' : ''}"></div>` });
+}
+
+function config(c) {
+  const url = c && c.tile_url || 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+  if (tiles) tiles.remove();
+  tiles = L.tileLayer(url, { attribution: (c && c.attribution) || '&copy; OpenStreetMap', maxZoom: (c && c.max_zoom) || 18, minZoom: (c && c.min_zoom) || 1 }).addTo(map);
+  const d = c && c.default_center;
+  if (d && typeof d.lat === 'number' && typeof d.lng === 'number') map.setView([d.lat, d.lng], d.zoom || 3);
+}
+
+function markers(list) {
+  layer.clearLayers();
+  const pts = [];
+  for (const m of list || []) {
+    if (typeof m.lat !== 'number' || typeof m.lng !== 'number') continue;
+    const mk = L.marker([m.lat, m.lng], { icon: icon(m.status, m.id), riseOnHover: true });
+    const place = [m.city, m.country].filter(Boolean).join(', ');
+    mk.bindTooltip(`${place || ''}${m.current_page ? '<br>' + String(m.current_page).replace(/</g, '&lt;') : ''}`, { direction: 'top', offset: [0, -8] });
+    mk.on('click', () => host && host.postMessage({ type: 'select', id: m.id }));
+    mk.addTo(layer);
+    pts.push([m.lat, m.lng]);
+  }
+  if (!fitted && pts.length) {
+    fitted = true;
+    map.fitBounds(pts, { padding: [60, 60], maxZoom: 6 });
+  }
+}
+
+if (host) {
+  host.addEventListener('message', (e) => {
+    const m = e.data || {};
+    if (m.type === 'config') config(m.config);
+    else if (m.type === 'markers') { selected = m.selected || selected; markers(m.markers); }
+    else if (m.type === 'theme') document.body.classList.toggle('dark', !!m.dark);
+    else if (m.type === 'select') {
+      selected = m.id;
+      if (typeof m.lat === 'number' && typeof m.lng === 'number') map.flyTo([m.lat, m.lng], Math.max(map.getZoom(), 6), { duration: 0.6 });
+    }
+  });
+  host.postMessage({ type: 'ready' });
+}
+</script>
+</body>
+</html>

@@ -2,35 +2,182 @@
     x:Class="Webyar.App.Views.ShellPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Webyar.App.Controls"
     Background="Transparent">
+    <Page.Resources>
+        <ResourceDictionary>
+            <!--
+                The pane sits straight on the window's Mica (Windows 11) and the
+                content is a raised layer with a rounded corner, as in the WinUI
+                Gallery. Per theme, not StaticResource aliases: those resolve once
+                against the system theme and left a white pane in dark mode.
+            -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="NavigationViewTopPaneBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="NavigationViewContentBackground" Color="#F4F6F9" />
+                    <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="#E3E7EE" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="NavigationViewTopPaneBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="NavigationViewContentBackground" Color="#0C0E14" />
+                    <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="#242A36" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+            <Thickness x:Key="NavigationViewContentGridBorderThickness">1,1,0,0</Thickness>
+            <CornerRadius x:Key="NavigationViewContentGridCornerRadius">10,0,0,0</CornerRadius>
+        </ResourceDictionary>
+    </Page.Resources>
     <NavigationView
         x:Name="Nav"
         IsBackButtonVisible="Collapsed"
         IsSettingsVisible="True"
-        PaneDisplayMode="LeftCompact"
+        PaneDisplayMode="Left"
         IsPaneToggleButtonVisible="True"
-        OpenPaneLength="240"
+        OpenPaneLength="232"
+        CompactModeThresholdWidth="900"
+        ExpandedModeThresholdWidth="1180"
         SelectionChanged="OnNavigate">
+        <NavigationView.PaneHeader>
+            <!--
+                The workspace, as at the top of the web sidebar. With more than one,
+                it opens the list to switch between them.
+            -->
+            <Button x:Name="WorkspaceButton" Margin="0,0,4,0" Padding="4,3,8,3" MinHeight="36" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Background="Transparent" BorderThickness="0" CornerRadius="8">
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Border Width="28" Height="28" CornerRadius="8">
+                        <Border.Background>
+                            <ImageBrush x:Name="WorkspaceLogo" Stretch="UniformToFill" />
+                        </Border.Background>
+                    </Border>
+                    <TextBlock x:Name="WorkspaceName" Grid.Column="1" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis" MaxWidth="130" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                    <FontIcon x:Name="WorkspaceChevron" Grid.Column="2" Glyph="&#xE70D;" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="Collapsed" />
+                </Grid>
+                <Button.Flyout>
+                    <MenuFlyout x:Name="WorkspaceMenu" Placement="BottomEdgeAlignedLeft" Opening="OnWorkspaceMenuOpening" />
+                </Button.Flyout>
+            </Button>
+        </NavigationView.PaneHeader>
         <NavigationView.MenuItems>
-            <NavigationViewItem x:Name="InboxItem" Tag="inbox">
+            <!-- The inboxes, as in the web sidebar (AppSidebar.tsx): queues, then the internal and channel groups. -->
+            <NavigationViewItem x:Name="InboxItem" Tag="inbox" IsExpanded="True" SelectsOnInvoked="True">
                 <NavigationViewItem.Icon>
                     <FontIcon Glyph="&#xE8BD;" />
                 </NavigationViewItem.Icon>
                 <NavigationViewItem.InfoBadge>
                     <InfoBadge x:Name="UnreadBadge" Visibility="Collapsed" />
                 </NavigationViewItem.InfoBadge>
+                <NavigationViewItem.MenuItems>
+                    <NavigationViewItem x:Name="InboxOpenItem" Tag="inbox/Open">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE8F2;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItem x:Name="InboxAiItem" Tag="inbox/Ai">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE99A;" />
+                        </NavigationViewItem.Icon>
+                        <NavigationViewItem.InfoBadge>
+                            <InfoBadge x:Name="AiBadge" Visibility="Collapsed" Style="{ThemeResource InformationalValueInfoBadgeStyle}" />
+                        </NavigationViewItem.InfoBadge>
+                    </NavigationViewItem>
+                    <NavigationViewItem x:Name="InboxNeedsHumanItem" Tag="inbox/NeedsHuman">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE7BA;" />
+                        </NavigationViewItem.Icon>
+                        <NavigationViewItem.InfoBadge>
+                            <InfoBadge x:Name="NeedsHumanBadge" Visibility="Collapsed" Style="{ThemeResource CriticalValueInfoBadgeStyle}" />
+                        </NavigationViewItem.InfoBadge>
+                    </NavigationViewItem>
+                    <NavigationViewItem x:Name="InboxPendingItem" Tag="inbox/Pending">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE823;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItem x:Name="InboxResolvedItem" Tag="inbox/Resolved">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE73E;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItem x:Name="InboxSpamItem" Tag="inbox/Spam">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE733;" />
+                        </NavigationViewItem.Icon>
+                        <NavigationViewItem.InfoBadge>
+                            <InfoBadge x:Name="SpamBadge" Visibility="Collapsed" Style="{ThemeResource InformationalValueInfoBadgeStyle}" />
+                        </NavigationViewItem.InfoBadge>
+                    </NavigationViewItem>
+                    <NavigationViewItem x:Name="InternalInboxItem" SelectsOnInvoked="False" IsExpanded="True">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE902;" />
+                        </NavigationViewItem.Icon>
+                        <NavigationViewItem.MenuItems>
+                            <NavigationViewItem x:Name="ColleaguesItem" Tag="colleagues">
+                                <NavigationViewItem.Icon>
+                                    <FontIcon Glyph="&#xE716;" />
+                                </NavigationViewItem.Icon>
+                            </NavigationViewItem>
+                        </NavigationViewItem.MenuItems>
+                    </NavigationViewItem>
+                    <NavigationViewItem x:Name="OtherInboxesItem" SelectsOnInvoked="False" IsExpanded="True" Visibility="Collapsed">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE8B7;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                </NavigationViewItem.MenuItems>
+            </NavigationViewItem>
+            <NavigationViewItem x:Name="ContactsItem" Tag="contacts">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE779;" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem x:Name="VisitorsItem" Tag="visitors">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE909;" />
+                </NavigationViewItem.Icon>
+                <NavigationViewItem.InfoBadge>
+                    <InfoBadge x:Name="VisitorsBadge" Visibility="Collapsed" Style="{ThemeResource SuccessValueInfoBadgeStyle}" />
+                </NavigationViewItem.InfoBadge>
+            </NavigationViewItem>
+            <NavigationViewItem x:Name="CallCenterItem" Tag="calls">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE717;" />
+                </NavigationViewItem.Icon>
+                <NavigationViewItem.InfoBadge>
+                    <InfoBadge x:Name="CallsBadge" Visibility="Collapsed" Style="{ThemeResource CriticalValueInfoBadgeStyle}" />
+                </NavigationViewItem.InfoBadge>
             </NavigationViewItem>
         </NavigationView.MenuItems>
 
         <NavigationView.PaneFooter>
-            <NavigationViewItem x:Name="AccountItem" SelectsOnInvoked="False" Tapped="OnAccountTapped">
-                <NavigationViewItem.Icon>
-                    <FontIcon Glyph="&#xE77B;" />
-                </NavigationViewItem.Icon>
-                <FlyoutBase.AttachedFlyout>
+            <!--
+                The account: the photo alone, where an icon would be. A plain
+                button rather than a menu item, so the photo sits centred in the
+                compact rail (48 px: 4 margin + 5 padding + 30 photo + 9) instead
+                of being cut in half, and the name and status follow when the
+                pane is open.
+            -->
+            <Button x:Name="AccountItem" Style="{StaticResource BubbleButtonStyle}" Margin="4,2" Padding="5,6,8,6" CornerRadius="6" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <controls:Avatar x:Name="MeAvatar" Size="30" Kind="operator" />
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock x:Name="MeName" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="150" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                        <TextBlock x:Name="MeStatus" FontSize="11.5" Foreground="{ThemeResource Text2Brush}" TextTrimming="CharacterEllipsis" MaxWidth="150" />
+                    </StackPanel>
+                </StackPanel>
+                <Button.Flyout>
                     <MenuFlyout x:Name="AccountMenu" Placement="RightEdgeAlignedBottom" />
-                </FlyoutBase.AttachedFlyout>
-            </NavigationViewItem>
+                </Button.Flyout>
+            </Button>
         </NavigationView.PaneFooter>
 
         <Grid>
@@ -39,6 +186,42 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
             <StackPanel x:Name="Banners" Spacing="4" Margin="12,0,12,4">
+                <!-- Super Admin: announcements (Desktop app -> Ads & announcements) and live broadcasts. -->
+                <StackPanel x:Name="Announcements" Spacing="4" Margin="0,8,0,0" Visibility="Collapsed" />
+                <Border x:Name="CallBar" Visibility="Collapsed" Margin="0,8,0,0" Padding="14,10" CornerRadius="10"
+                        Background="{ThemeResource SuccessSoftBrush}" BorderBrush="{ThemeResource SuccessBrush}" BorderThickness="1">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <controls:Avatar x:Name="CallBarAvatar" Size="40" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon x:Name="CallBarGlyph" Glyph="&#xE717;" FontSize="14" Foreground="{ThemeResource SuccessBrush}" />
+                                <TextBlock x:Name="CallBarTitle" FontSize="12.5" FontWeight="SemiBold" Foreground="{ThemeResource SuccessBrush}" />
+                            </StackPanel>
+                            <TextBlock x:Name="CallBarName" FontSize="14.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="CallBarMeta" FontSize="12" Foreground="{ThemeResource Text2Brush}" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <Button x:Name="CallBarOpen" Click="OnCallBarOpen" />
+                            <Button x:Name="CallBarReject" Click="OnCallBarReject" Foreground="White" Background="{ThemeResource DangerBrush}" BorderThickness="0">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE778;" FontSize="14" />
+                                    <TextBlock x:Name="CallBarRejectText" />
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="CallBarAnswer" Click="OnCallBarAnswer" Foreground="White" Background="{ThemeResource SuccessBrush}" BorderThickness="0">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE717;" FontSize="14" />
+                                    <TextBlock x:Name="CallBarAnswerText" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Border>
                 <InfoBar x:Name="UpdateBar" IsClosable="True">
                     <InfoBar.ActionButton>
                         <Button x:Name="UpdateButton" Click="OnRestartToUpdate" />

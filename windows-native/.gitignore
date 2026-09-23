@@ -4,3 +4,6 @@ publish/
 releases/
 *.user
 .vs/
+setup-out/
+setup-uninstaller/
+setup-payload.zip

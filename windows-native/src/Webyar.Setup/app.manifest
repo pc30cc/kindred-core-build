@@ -4,8 +4,8 @@
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>
       <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
-        <!-- Installs for the current user only: no administrator prompt. -->
-        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+        <!-- Installs for every user under Program Files, so Windows asks once for administrator rights. -->
+        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
       </requestedPrivileges>
     </security>
   </trustInfo>

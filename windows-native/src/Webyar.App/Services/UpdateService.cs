@@ -52,15 +52,16 @@ public sealed partial class UpdateService : ObservableObject
     public const string DefaultFeed = "https://github.com/pc30cc/webyar-desktop-releases";
 
     /// <summary>
-    /// A bare GitHub repository is read through its releases, picking the newest
+    /// A GitHub repository (or any URL inside it) is read through its releases, picking the newest
     /// one that carries a Velopack feed (the repository may hold other apps'
     /// releases too); anything else is a plain folder of Velopack files.
     /// </summary>
     internal static IUpdateSource SourceFor(string feed, bool prerelease)
     {
+        // https://github.com/<owner>/<repo>, or any page under it such as …/releases/latest/download.
         if (Uri.TryCreate(feed, UriKind.Absolute, out var uri) && uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
-            uri.AbsolutePath.Trim('/').Split('/') is { Length: 2 })
-            return new GithubSource(feed.TrimEnd('/'), null, prerelease);
+            uri.AbsolutePath.Trim('/').Split('/') is { Length: >= 2 } parts)
+            return new GithubSource($"https://github.com/{parts[0]}/{parts[1]}", null, prerelease);
         return new SimpleWebSource(feed);
     }
 

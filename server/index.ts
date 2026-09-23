@@ -32,6 +32,7 @@ import { workspaceAlertsRouter } from './routes/workspaceAlerts.js';
 import { availabilityRouter } from './routes/availability.js';
 import { mobilePromotionsRouter } from './routes/mobilePromotions.js';
 import { platformOriginsPublicRouter } from './routes/platformOriginsPublic.js';
+import { desktopAppPublicRouter } from './routes/desktopAppPublic.js';
 import { operatorActivityRouter } from './routes/operatorActivity.js';
 import { billingRouter, billingWebhookRouter } from './routes/billing.js';
 import { commercePairingRouter } from './routes/commerce/pairing.js';
@@ -440,6 +441,9 @@ app.use('/api/workspace-alerts', workspaceAlertsRouter);
 // Where the platform actually lives, for clients that must ask before they
 // can authenticate. Public, cached, read-only.
 app.use('/api/platform', platformOriginsPublicRouter);
+// What the desktop (Windows) app should do on launch: update feed + tuning.
+// Public, cached, read-only.
+app.use('/api/platform', desktopAppPublicRouter);
 
 // What the native app may show as a promotion. Read-only, workspace-scoped.
 app.use('/api/mobile-app', mobilePromotionsRouter);

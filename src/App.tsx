@@ -138,6 +138,7 @@ import AdminCallCenterPage from "@/pages/admin/CallCenterPage";
 import AdminSeoIntegrationsPage from "@/pages/admin/SeoIntegrationsPage";
 import AdminFinancePage from "@/pages/admin/FinancePage";
 import AdminMobileAppPage from "@/pages/admin/MobileAppPage";
+import AdminDesktopAppPage from "@/pages/admin/DesktopAppPage";
 import AdminNotificationsPage from "@/pages/admin/NotificationsPage";
 
 import { CallCenterLayout } from "@/components/layout/CallCenterLayout";
@@ -259,6 +260,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   element={<Navigate to="/admin/widget-settings" replace />}
                 />
                 <Route path="/admin/mobile-app" element={<AdminMobileAppPage />} />
+                <Route path="/admin/desktop-app" element={<AdminDesktopAppPage />} />
                 <Route path="/admin/notifications" element={<AdminNotificationsPage />} />
                 <Route path="/admin/system" element={<AdminSystemPage />} />
                 <Route path="/admin/observability" element={<AdminObservabilityPage />} />

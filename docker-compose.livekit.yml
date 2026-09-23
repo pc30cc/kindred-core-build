@@ -68,11 +68,17 @@ services:
     # CC-2H — Image tag is configurable via LIVEKIT_IMAGE_TAG.
     # MUST be compatible with the bundled livekit-client UMD shipped at
     # public/call-widget/vendor/livekit-client.umd.min.js. Modern clients
-    # call /rtc/v1/validate on connect, so the server (and any reverse
-    # proxy in front of it) MUST support the /rtc/v1 path. Older
-    # 1.7.x server tags answered /rtc only and return 404 on /rtc/v1,
-    # which surfaces as "v1 RTC path not found" in the browser.
-    # Default pins a release that supports /rtc/v1.
+    # call /rtc/v1/validate on connect; a server without that path answers
+    # 404, the browser reports "v1 RTC path not found", and the client then
+    # retries on the old /rtc path and connects. The call works; it costs a
+    # dead WebSocket, a dead request and a retry every time.
+    #
+    # The default below does NOT have that path, despite what this comment
+    # used to say. Probed against the containers directly: v1.8.4 gives 404
+    # on /rtc/v1/validate, v1.13.7 gives 401 — the path exists, it just
+    # wants a token. Raising the default is a media-server upgrade across
+    # five minor versions and belongs to whoever owns the deployment, so it
+    # is left where it was with the truth written down.
     image: livekit/livekit-server:${LIVEKIT_IMAGE_TAG:-v1.8.4}
     restart: unless-stopped
 
@@ -250,31 +256,39 @@ services:
       # `503 no available server` even while the container itself is running.
       - "traefik.http.services.livekit.loadbalancer.server.port=7880"
       #
-      # TURN over TLS on 443, which is the port a locked-down network
-      # actually allows and therefore the only one that rescues those
-      # visitors. 443 here already belongs to the HTTP front end, so TURN
-      # shares it through a TCP router that matches by SNI and hands the
-      # decrypted stream to LiveKit. Set LIVEKIT_TURN_TLS_PORT=443 — that
-      # is both what LiveKit advertises and what it listens on inside its
-      # own namespace, where nothing else holds the port — leave
-      # LIVEKIT_TURN_EXTERNAL_TLS=true, and uncomment with the real
-      # hostname:
+      # TURN over TLS is NOT configured here. It needs a TCP router on the
+      # proxy that matches the TURN hostname by SNI, terminates TLS, and
+      # forwards the plain stream to this container — and a Traefik label is
+      # the wrong place for it under Coolify, which passes environment
+      # variables to the container but not to the compose-level
+      # interpolation labels use. `${LIVEKIT_TURN_DOMAIN}` reaches Traefik
+      # as that literal string, which is not a hostname, so the router is
+      # never created and the only sign is an "EntryPoint doesn't exist"
+      # every ten seconds.
       #
-      #   - "traefik.tcp.routers.livekit-turn.rule=HostSNI(`turn.example.tld`)"
-      #   - "traefik.tcp.routers.livekit-turn.entrypoints=https"
-      #   - "traefik.tcp.routers.livekit-turn.tls=true"
-      #   - "traefik.tcp.routers.livekit-turn.tls.certresolver=letsencrypt"
-      #   - "traefik.tcp.routers.livekit-turn.service=livekit-turn"
-      #   - "traefik.tcp.services.livekit-turn.loadbalancer.server.port=443"
+      # Put it in the proxy's own watched config instead. Traefik runs with
+      # `--providers.file.directory` and `--providers.file.watch=true`, so a
+      # file dropped there is picked up in seconds with no redeploy, and the
+      # hostname lives on the server rather than in this repository:
       #
-      # `letsencrypt` is the resolver Coolify's Traefik is started with;
-      # confirm against an existing router if this install differs. It
-      # solves the HTTP-01 challenge on port 80, so the TURN hostname must
-      # resolve to this host and reach the proxy there — which it already
-      # must, for TURN to work at all.
+      #   # /data/coolify/proxy/dynamic/livekit-turn.yaml
+      #   tcp:
+      #     routers:
+      #       livekit-turn:
+      #         entryPoints: [https]
+      #         rule: "HostSNI(`turn.your-domain.tld`)"
+      #         tls:
+      #           certResolver: letsencrypt
+      #         service: livekit-turn
+      #     services:
+      #       livekit-turn:
+      #         loadBalancer:
+      #           servers:
+      #             - address: "livekit:443"
       #
-      # Left commented rather than interpolated from LIVEKIT_TURN_DOMAIN on
-      # purpose: an empty variable would leave Traefik an unmatchable
-      # HostSNI rule and a certificate request for a name that does not
-      # exist, and a broken router in the shared proxy is a worse failure
-      # than no TURN.
+      # `livekit` is the container's network alias, which survives a
+      # redeploy where its name — carrying a timestamp — does not. 443 is
+      # LIVEKIT_TURN_TLS_PORT: the port LiveKit advertises AND listens on
+      # inside its own namespace, where nothing else holds it. The proxy
+      # must share a Docker network with this container, which under Coolify
+      # it already does.

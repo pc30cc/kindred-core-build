@@ -52,12 +52,17 @@ export function LiveKitSelfHostedProviderPanel() {
   const [cfg, setCfg] = useState<LiveKitConfigPublicView | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<LiveKitTestResult | null>(null);
-  // Tracks the last value the server confirmed it persisted, so we can detect
-  // unsaved edits in URL/region fields before running a connection test.
-  const [savedRtcUrl, setSavedRtcUrl] = useState<string | null>(null);
-  const [savedWsUrl, setSavedWsUrl] = useState<string | null>(null);
-  const [savedRegion, setSavedRegion] = useState<string | null>(null);
-  const [savedEgressUrl, setSavedEgressUrl] = useState<string | null>(null);
+  /**
+   * The last config the server confirmed it persisted.
+   *
+   * Every blur-to-save compares against THIS, never against `cfg`. `cfg`
+   * already holds the keystroke that just happened — `onChange` put it
+   * there — so a guard of the form `if (typed !== cfg.field)` is false on
+   * every blur and the field silently never saves. That was true of all
+   * eight fields on this card; the auto-flush in `runTest` below was
+   * written to paper over it for the Test button rather than fix it.
+   */
+  const [saved, setSaved] = useState<LiveKitConfigPublicView | null>(null);
 
   // Local-only secret edit buffers — never seeded from the server.
   const [apiKeyEdit, setApiKeyEdit] = useState('');
@@ -71,10 +76,7 @@ export function LiveKitSelfHostedProviderPanel() {
     try {
       const r = await fetchLiveKitConfig();
       setCfg(r.livekit);
-      setSavedRtcUrl(r.livekit.rtc_url);
-      setSavedWsUrl(r.livekit.ws_url);
-      setSavedRegion(r.livekit.region);
-      setSavedEgressUrl(r.livekit.egress_url);
+      setSaved(r.livekit);
     } catch (e: any) {
       toast({
         title: t('admin.voiceVideo.livekit.loadFailed' as any),
@@ -95,10 +97,7 @@ export function LiveKitSelfHostedProviderPanel() {
     try {
       const r = await updateLiveKitConfig(patch);
       setCfg(r.livekit);
-      setSavedRtcUrl(r.livekit.rtc_url);
-      setSavedWsUrl(r.livekit.ws_url);
-      setSavedRegion(r.livekit.region);
-      setSavedEgressUrl(r.livekit.egress_url);
+      setSaved(r.livekit);
       if ('api_key' in patch) setApiKeyEdit('');
       if ('api_secret' in patch) setApiSecretEdit('');
       if ('webhook_secret' in patch) setWebhookSecretEdit('');
@@ -125,10 +124,10 @@ export function LiveKitSelfHostedProviderPanel() {
     const currentWs = (cfg.ws_url ?? '').trim();
     const currentRegion = (cfg.region ?? '').trim();
     const currentEgress = (cfg.egress_url ?? '').trim();
-    if (currentRtc !== (savedRtcUrl ?? '')) pendingPatch.rtc_url = currentRtc || null;
-    if (currentWs !== (savedWsUrl ?? '')) pendingPatch.ws_url = currentWs || null;
-    if (currentRegion !== (savedRegion ?? '')) pendingPatch.region = currentRegion || null;
-    if (cfg.egress_enabled && currentEgress !== (savedEgressUrl ?? '')) {
+    if (currentRtc !== (saved?.rtc_url ?? '')) pendingPatch.rtc_url = currentRtc || null;
+    if (currentWs !== (saved?.ws_url ?? '')) pendingPatch.ws_url = currentWs || null;
+    if (currentRegion !== (saved?.region ?? '')) pendingPatch.region = currentRegion || null;
+    if (cfg.egress_enabled && currentEgress !== (saved?.egress_url ?? '')) {
       pendingPatch.egress_url = currentEgress || null;
     }
     if (Object.keys(pendingPatch).length > 0) {
@@ -286,7 +285,7 @@ export function LiveKitSelfHostedProviderPanel() {
               onChange={(e) => setCfg({ ...cfg, rtc_url: e.target.value })}
               onBlur={(e) => {
                 const v = e.target.value.trim();
-                if (v !== (cfg.rtc_url ?? '')) save({ rtc_url: v || null });
+                if (v !== (saved?.rtc_url ?? '')) save({ rtc_url: v || null });
               }}
               placeholder="wss://livekit.example.com"
             />
@@ -299,7 +298,7 @@ export function LiveKitSelfHostedProviderPanel() {
               onChange={(e) => setCfg({ ...cfg, ws_url: e.target.value })}
               onBlur={(e) => {
                 const v = e.target.value.trim();
-                if (v !== (cfg.ws_url ?? '')) save({ ws_url: v || null });
+                if (v !== (saved?.ws_url ?? '')) save({ ws_url: v || null });
               }}
               placeholder="wss://livekit.example.com"
             />
@@ -314,7 +313,7 @@ export function LiveKitSelfHostedProviderPanel() {
               onChange={(e) => setCfg({ ...cfg, region: e.target.value })}
               onBlur={(e) => {
                 const v = e.target.value.trim();
-                if (v !== (cfg.region ?? '')) save({ region: v || null });
+                if (v !== (saved?.region ?? '')) save({ region: v || null });
               }}
               placeholder="e.g. eu-west, us-east"
             />
@@ -326,7 +325,7 @@ export function LiveKitSelfHostedProviderPanel() {
               onChange={(e) => setCfg({ ...cfg, turn_domain: e.target.value })}
               onBlur={(e) => {
                 const v = e.target.value.trim();
-                if (v !== (cfg.turn_domain ?? '')) save({ turn_domain: v || null });
+                if (v !== (saved?.turn_domain ?? '')) save({ turn_domain: v || null });
               }}
               placeholder="e.g. turn.example.com"
             />
@@ -472,7 +471,7 @@ export function LiveKitSelfHostedProviderPanel() {
               onChange={(e) => setCfg({ ...cfg, egress_url: e.target.value })}
               onBlur={(e) => {
                 const v = e.target.value.trim();
-                if (v !== (cfg.egress_url ?? '')) save({ egress_url: v || null });
+                if (v !== (saved?.egress_url ?? '')) save({ egress_url: v || null });
               }}
               placeholder="https://egress.example.com"
             />
@@ -517,7 +516,7 @@ export function LiveKitSelfHostedProviderPanel() {
                     }
                     onBlur={(e) => {
                       const v = e.target.value.trim();
-                      if (v !== (cfg.recording_storage.bucket ?? '')) {
+                      if (v !== (saved?.recording_storage.bucket ?? '')) {
                         save({ recording_storage: { bucket: v || null } });
                       }
                     }}
@@ -536,7 +535,7 @@ export function LiveKitSelfHostedProviderPanel() {
                     }
                     onBlur={(e) => {
                       const v = e.target.value.trim();
-                      if (v !== (cfg.recording_storage.region ?? '')) {
+                      if (v !== (saved?.recording_storage.region ?? '')) {
                         save({ recording_storage: { region: v || null } });
                       }
                     }}
@@ -555,7 +554,7 @@ export function LiveKitSelfHostedProviderPanel() {
                     }
                     onBlur={(e) => {
                       const v = e.target.value.trim();
-                      if (v !== (cfg.recording_storage.endpoint ?? '')) {
+                      if (v !== (saved?.recording_storage.endpoint ?? '')) {
                         save({ recording_storage: { endpoint: v || null } });
                       }
                     }}

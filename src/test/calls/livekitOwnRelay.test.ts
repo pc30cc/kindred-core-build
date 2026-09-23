@@ -79,16 +79,40 @@ describe('the LiveKit container renders TURN from the same variable', () => {
   });
 
   /**
-   * An unmatchable `HostSNI()` and a certificate request for a name that
-   * does not exist would break the shared proxy for every other service on
-   * it, which is a worse outcome than no TURN.
+   * TURN's TLS termination is NOT a label here.
+   *
+   * Under Coolify the environment reaches the container but not the
+   * compose-level interpolation labels use, so `${LIVEKIT_TURN_DOMAIN}`
+   * arrives at Traefik as that literal string. The router is never created
+   * and the only symptom is an "EntryPoint doesn't exist" in the proxy log
+   * every ten seconds. It belongs in the proxy's own watched config, which
+   * the comment block spells out.
    */
-  it('does not interpolate the domain into a Traefik rule', () => {
-    const live = compose
+  it('does not try to build a Traefik rule out of an interpolated label', () => {
+    const labels = compose
       .split('\n')
-      .filter((l) => !l.trim().startsWith('#'))
-      .join('\n');
-    expect(live).not.toContain('HostSNI');
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith('- "traefik.'));
+
+    expect(labels.some((l) => l.includes('HostSNI'))).toBe(false);
+    expect(labels.some((l) => l.includes('traefik.tcp.'))).toBe(false);
+  });
+
+  it('documents where the TCP router does belong', () => {
+    expect(compose).toContain('providers.file.directory');
+    expect(compose).toContain('HostSNI(`turn.your-domain.tld`)');
+    // The alias, not the container name: the name carries a deploy timestamp.
+    expect(compose).toContain('address: "livekit:443"');
+  });
+
+  /**
+   * One variable, two jobs: the port LiveKit advertises in the credentials
+   * it mints, and the port the proxy forwards to. They cannot disagree if
+   * they are the same value, which is why the documented router hard-codes
+   * the 443 this renders.
+   */
+  it('advertises and listens on the same TLS port', () => {
+    expect(compose).toContain('echo "  tls_port: $${LIVEKIT_TURN_TLS_PORT:-5349}"');
   });
 });
 

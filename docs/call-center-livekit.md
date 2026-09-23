@@ -12,21 +12,28 @@ The standalone Call Center widget loads a self-hosted LiveKit JS SDK from:
 /call-widget/vendor/livekit-client.umd.min.js
 ```
 
-Modern LiveKit clients call `/rtc/v1/validate` on connect. The server
-(and any reverse proxy in front of it) **MUST** answer that path. Older
-LiveKit server tags (e.g. `v1.7.x`) only serve `/rtc/...` and return
-**404** on `/rtc/v1/*` — the browser then reports:
+Modern LiveKit clients call `/rtc/v1/validate` on connect. A server
+without that path answers **404** and the browser reports:
 
 > Initial connection failed: v1 RTC path not found. Consider upgrading
 > your LiveKit server version
 
-Pin the image tag via `LIVEKIT_IMAGE_TAG` in the LiveKit Coolify service:
+The client then retries on the old `/rtc` path and connects, so the call
+works. What it costs is a dead WebSocket, a dead request and a retry on
+every single call — setup latency, and a console full of red on a call
+that succeeded.
 
-```
-LIVEKIT_IMAGE_TAG=v1.8.4
-```
+**`v1.8.4`, the default, does not have the path.** Probed against the
+containers directly, bypassing every proxy:
 
-`docker-compose.livekit.yml` defaults to a tag that supports `/rtc/v1`.
+| tag | `/rtc/v1/validate` | `/rtc/validate` |
+|---|---|---|
+| `v1.8.4` | `404` — no such path | `401` |
+| `v1.13.7` | `401` | `401` |
+
+`401` means the path exists and wants a token. Pin a newer tag via
+`LIVEKIT_IMAGE_TAG` to clear the error; that is a media-server upgrade
+across several minor versions, so test it before rolling it out.
 If you must pin an older server, you must also pin a compatible client
 SDK. Upgrading the server is preferred.
 
@@ -115,12 +122,19 @@ Cloudflare the record must be DNS-only (grey cloud) — the proxy carries
 HTTP and WebSocket, never TURN.
 
 The port that earns its keep is the TLS one, because 443 is what those
-networks allow. Sharing 443 with the Coolify/Traefik front end needs a TCP
-router matching the TURN hostname by SNI; `docker-compose.livekit.yml`
-carries the labels in a comment. On a spare address or port, 5349 is
-conventional. Either way `LIVEKIT_TURN_EXTERNAL_TLS` must say truthfully
-whether something in front terminates TLS, or the port answers with the
-wrong protocol and fails only on the networks TURN exists for.
+networks allow. `docker-compose.livekit.yml` carries a Traefik TCP router
+that shares the proxy's own 443, matching the TURN hostname by SNI — it
+reads that hostname from `LIVEKIT_TURN_DOMAIN`, so nothing is written into
+the file. Set `LIVEKIT_TURN_CERTRESOLVER` to the proxy's resolver
+(`letsencrypt` on Coolify) and `LIVEKIT_TURN_TLS_PORT=443`, which is both
+what LiveKit advertises and where the router forwards.
+
+`LIVEKIT_TURN_EXTERNAL_TLS` must say truthfully whether something in front
+terminates TLS. Get it wrong and the port answers with the wrong protocol,
+which fails only on the networks TURN exists for — the worst place to find
+out. The quick check is `openssl s_client -connect <host>:<port>`: a
+certificate means LiveKit is terminating, "no peer certificate available"
+means it is expecting a proxy to.
 
 LiveKit mints a TURN credential per participant and delivers it over the
 signalling connection. **Nothing goes in the admin RTC endpoint settings** —

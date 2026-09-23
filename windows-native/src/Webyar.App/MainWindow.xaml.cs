@@ -156,8 +156,9 @@ public sealed partial class MainWindow : Window
     {
         if (args.TryGetValue("page", out var page) && !args.ContainsKey("conversation"))
         {
-            if (Shell is { } sh) sh.OpenPage(page);
-            else _pendingOpen = args;
+            if (Shell is not { } sh) _pendingOpen = args;
+            else if (page == "calls" && args.TryGetValue("call", out var call)) sh.OpenCall(call);
+            else sh.OpenPage(page);
             return;
         }
         if (!args.TryGetValue("conversation", out var id)) return;

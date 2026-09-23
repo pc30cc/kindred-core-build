@@ -5,7 +5,9 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Navigation;
 using Microsoft.Windows.AppNotifications;
+using Webyar.App.Helpers;
 using Webyar.App.Services;
+using Webyar.Core.Api;
 using Webyar.Core.Inbox;
 using Webyar.Core.Localization;
 
@@ -16,6 +18,12 @@ public sealed partial class ShellPage : Page
 {
     private BackgroundNotifier? _notifier;
     private string? _pendingConversation;
+    private QueueEntry? _ringing;
+    private DateTimeOffset _ringSince;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _ringTimer;
+
+    /// <summary>How long the banner keeps chiming; the server treats a 45 s ring as missed.</summary>
+    private static readonly TimeSpan RingFor = TimeSpan.FromSeconds(45);
 
     public ShellPage()
     {
@@ -36,7 +44,11 @@ public sealed partial class ShellPage : Page
         Host.LanguageChanged += OnLanguageChanged;
         Host.Updates.PropertyChanged += OnUpdateChanged;
         Host.MeChanged += RenderMe;
-        if (Host.CallQueue is { } q) q.Changed += ShowCallsBadge;
+        if (Host.CallQueue is { } q)
+        {
+            q.Changed += ShowCallsBadge;
+            q.Ringing += OnRinging;
+        }
         ApplyLanguage();
         ShowCallsBadge();
         ShowUpdate();
@@ -67,7 +79,12 @@ public sealed partial class ShellPage : Page
         _notifier?.Dispose();
         _notifier = null;
         Host.MeChanged -= RenderMe;
-        if (Host.CallQueue is { } q) q.Changed -= ShowCallsBadge;
+        if (Host.CallQueue is { } q)
+        {
+            q.Changed -= ShowCallsBadge;
+            q.Ringing -= OnRinging;
+        }
+        StopRinging();
         Inbox?.Teardown();
     }
 
@@ -128,6 +145,123 @@ public sealed partial class ShellPage : Page
         var n = Host.CallQueue?.Queue.Count ?? 0;
         CallsBadge.Value = n;
         CallsBadge.Visibility = n > 0 ? Visibility.Visible : Visibility.Collapsed;
+        // The caller hung up, or a colleague answered: the banner goes with the call.
+        if (_ringing is { } r && Host.CallQueue?.Queue.Any(e => e.CallSessionId == r.CallSessionId) != true)
+        {
+            StopRinging();
+            RingNext();
+        }
+    }
+
+    // ── Incoming call banner ──
+
+    private void OnRinging(QueueEntry entry)
+    {
+        if (_ringing is not null) return;
+        Ring(entry);
+    }
+
+    /// <summary>After one call leaves the line, rings the next one that is still new enough to ring.</summary>
+    private void RingNext()
+    {
+        var now = DateTimeOffset.Now;
+        var next = Host.CallQueue?.Queue.FirstOrDefault(e => e.CreatedAt is { } at && now - at < RingFor);
+        if (next is not null) Ring(next);
+    }
+
+    private void Ring(QueueEntry entry)
+    {
+        var s = Host.Strings;
+        _ringing = entry;
+        _ringSince = DateTimeOffset.Now;
+        var c = entry.CallSession;
+        CallBarTitle.Text = s[entry.IsVideo ? "incomingVideoCall" : "incomingVoiceCall"];
+        CallBarGlyph.Glyph = entry.IsVideo ? "\uE714" : "\uE717";
+        CallBarName.Text = CallNames.Caller(entry, s);
+        var meta = new[] { c?.VisitorPhone, c?.VisitorEmail, c?.PageTitle }.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct();
+        CallBarMeta.Text = string.Join(" · ", meta);
+        CallBarMeta.Visibility = CallBarMeta.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        CallBarAvatar.DisplayName = c?.VisitorName;
+        CallBarAvatar.Email = c?.VisitorEmail;
+        CallBarAnswerText.Text = s["callAnswer"];
+        CallBarRejectText.Text = s["ccReject"];
+        CallBarOpen.Content = s["callOpenDesk"];
+        CallBarAnswer.IsEnabled = CallBarReject.IsEnabled = true;
+        CallBar.Visibility = Visibility.Visible;
+
+        if (Host.Settings.NotificationSound) Chime.Play();
+        _ringTimer ??= CreateRingTimer();
+        _ringTimer.Start();
+    }
+
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer CreateRingTimer()
+    {
+        var t = DispatcherQueue.CreateTimer();
+        t.Interval = TimeSpan.FromSeconds(2.5);
+        t.Tick += (_, _) =>
+        {
+            // Keep ringing like a phone until someone acts, then fall silent but leave the banner up.
+            if (_ringing is null || DateTimeOffset.Now - _ringSince > RingFor) { t.Stop(); return; }
+            if (Host.Settings.NotificationSound && !CallWindow.IsBusy) Chime.Play();
+        };
+        return t;
+    }
+
+    private void StopRinging()
+    {
+        _ringTimer?.Stop();
+        _ringing = null;
+        CallBar.Visibility = Visibility.Collapsed;
+    }
+
+    private void OnCallBarAnswer(object sender, RoutedEventArgs e)
+    {
+        if (_ringing is not { } entry) return;
+        StopRinging();
+        OpenCallCenter(page => page.Answer(entry.CallSessionId));
+    }
+
+    private void OnCallBarOpen(object sender, RoutedEventArgs e)
+    {
+        if (_ringing is not { } entry) return;
+        StopRinging();
+        OpenCallCenter(page => page.Select(entry.CallSessionId));
+    }
+
+    private async void OnCallBarReject(object sender, RoutedEventArgs e)
+    {
+        if (_ringing is not { } entry || Host.Workspace is not { } ws) return;
+        CallBarAnswer.IsEnabled = CallBarReject.IsEnabled = false;
+        _ringTimer?.Stop();
+        try
+        {
+            await Host.Api.RejectCallAsync(ws.Id, entry.CallSessionId);
+        }
+        catch (ApiException ex)
+        {
+            Log.Error("reject call", ex);
+        }
+        StopRinging();
+        Host.CallQueue?.Kick();
+    }
+
+    /// <summary>Shows the call center and hands it the call once the page is up.</summary>
+    private void OpenCallCenter(Action<CallCenterPage> then)
+    {
+        if (ContentFrame.Content is CallCenterPage open)
+        {
+            then(open);
+            return;
+        }
+        OpenPage("calls");
+        DispatcherQueue.TryEnqueue(() => { if (ContentFrame.Content is CallCenterPage page) then(page); });
+    }
+
+    /// <summary>A toast for a call was clicked: open the desk on that call.</summary>
+    public void OpenCall(string callId)
+    {
+        if (_ringing?.CallSessionId == callId) StopRinging();
+        OpenCallCenter(page => page.Select(callId));
     }
 
     /// <summary>Online visitors on the sidebar, reported by the visitors page while it is open.</summary>

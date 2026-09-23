@@ -109,6 +109,40 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
             <StackPanel x:Name="Banners" Spacing="4" Margin="12,0,12,4">
+                <Border x:Name="CallBar" Visibility="Collapsed" Margin="0,8,0,0" Padding="14,10" CornerRadius="10"
+                        Background="{ThemeResource SuccessSoftBrush}" BorderBrush="{ThemeResource SuccessBrush}" BorderThickness="1">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <controls:Avatar x:Name="CallBarAvatar" Size="40" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon x:Name="CallBarGlyph" Glyph="&#xE717;" FontSize="14" Foreground="{ThemeResource SuccessBrush}" />
+                                <TextBlock x:Name="CallBarTitle" FontSize="12.5" FontWeight="SemiBold" Foreground="{ThemeResource SuccessBrush}" />
+                            </StackPanel>
+                            <TextBlock x:Name="CallBarName" FontSize="14.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="CallBarMeta" FontSize="12" Foreground="{ThemeResource Text2Brush}" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <Button x:Name="CallBarOpen" Click="OnCallBarOpen" />
+                            <Button x:Name="CallBarReject" Click="OnCallBarReject" Foreground="White" Background="{ThemeResource DangerBrush}" BorderThickness="0">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE778;" FontSize="14" />
+                                    <TextBlock x:Name="CallBarRejectText" />
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="CallBarAnswer" Click="OnCallBarAnswer" Foreground="White" Background="{ThemeResource SuccessBrush}" BorderThickness="0">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE717;" FontSize="14" />
+                                    <TextBlock x:Name="CallBarAnswerText" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Border>
                 <InfoBar x:Name="UpdateBar" IsClosable="True">
                     <InfoBar.ActionButton>
                         <Button x:Name="UpdateButton" Click="OnRestartToUpdate" />

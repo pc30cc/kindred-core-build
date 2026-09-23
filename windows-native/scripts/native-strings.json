@@ -163,7 +163,12 @@
     "visitorDeviceLabel": "Device",
     "visitorInChat": "In chat",
     "visitorCameFrom": "Came from {source}",
-    "visitorLandedAt": "Landed {when}"
+    "visitorLandedAt": "Landed {when}",
+    "incomingVoiceCall": "Incoming voice call",
+    "incomingVideoCall": "Incoming video call",
+    "callAnswer": "Answer",
+    "callOpenDesk": "Open call center",
+    "callTakenElsewhere": "The call was answered or ended before you picked up"
   },
   "fa": {
     "trayOpen": "باز کردن وب‌یار",
@@ -329,7 +334,12 @@
     "visitorDeviceLabel": "دستگاه",
     "visitorInChat": "در گفتگو",
     "visitorCameFrom": "از طریق {source}",
-    "visitorLandedAt": "ورود {when}"
+    "visitorLandedAt": "ورود {when}",
+    "incomingVoiceCall": "تماس صوتی ورودی",
+    "incomingVideoCall": "تماس تصویری ورودی",
+    "callAnswer": "پاسخ",
+    "callOpenDesk": "باز کردن کال سنتر",
+    "callTakenElsewhere": "پیش از پاسخ شما، تماس پاسخ داده شد یا پایان یافت"
   },
   "tr": {
     "trayOpen": "Webyar'ı aç",
@@ -495,6 +505,11 @@
     "visitorDeviceLabel": "Cihaz",
     "visitorInChat": "Sohbette",
     "visitorCameFrom": "{source} üzerinden geldi",
-    "visitorLandedAt": "{when} geldi"
+    "visitorLandedAt": "{when} geldi",
+    "incomingVoiceCall": "Gelen sesli arama",
+    "incomingVideoCall": "Gelen görüntülü arama",
+    "callAnswer": "Yanıtla",
+    "callOpenDesk": "Çağrı merkezini aç",
+    "callTakenElsewhere": "Siz açmadan önce arama yanıtlandı veya sona erdi"
   }
 }

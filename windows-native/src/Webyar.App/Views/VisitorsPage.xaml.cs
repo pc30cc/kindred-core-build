@@ -44,7 +44,7 @@ public sealed partial class VisitorsPage : Page
     {
         base.OnNavigatedTo(e);
         ApplyLanguage();
-        _poller = new Poller("visitors", LoadAsync, () => Host.PollInterval(TimeSpan.FromSeconds(5)));
+        _poller = new Poller("visitors", LoadAsync, () => TimeSpan.FromSeconds(5)); // no realtime feed for visitors
         _poller.Start();
         Palette.ThemeChanged += SendTheme;
         _ = StartMapAsync();
@@ -407,7 +407,7 @@ public sealed partial class VisitorsPage : Page
             {
                 _mapReady = true;
                 SendTheme();
-                _mapPoller = new Poller("visitors map", LoadMapAsync, () => Host.PollInterval(TimeSpan.FromSeconds(10)));
+                _mapPoller = new Poller("visitors map", LoadMapAsync, () => TimeSpan.FromSeconds(10));
                 _mapPoller.Start();
             }
             else if (type == "select" && doc.RootElement.TryGetProperty("id", out var id) && _all.FirstOrDefault(i => i.Id == id.GetString()) is { } item)

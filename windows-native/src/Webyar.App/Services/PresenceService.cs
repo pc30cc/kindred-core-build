@@ -49,7 +49,7 @@ public sealed class PresenceService : IDisposable
     {
         _heartbeat = new Poller("heartbeat", BeatAsync, () => HeartbeatEvery);
         _heartbeat.Start();
-        _team = new Poller("team presence", RefreshAsync, () => _host.PollInterval(TeamEvery));
+        _team = new Poller("team presence", RefreshAsync, () => TeamEvery);
         _team.Start();
         if (_host.Realtime is { } rt) rt.PresenceJoined += () => _host.RunOnUi(() => _team?.Kick());
     }

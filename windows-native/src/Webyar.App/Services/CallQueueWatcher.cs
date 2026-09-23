@@ -5,8 +5,10 @@ namespace Webyar.App.Services;
 
 /// <summary>
 /// Keeps an eye on the call center's waiting line while the app runs, so a
-/// call is never missed on another page: the sidebar badge, the web desk's
-/// chime, and a toast when the window is not in front.
+/// call is never missed on another page: the sidebar badge, the in-app
+/// ringing banner with the web desk's chime, and a toast when the window is
+/// not in front. Realtime carries no call-center events to the app, so this
+/// polls at the web desk's own pace whether or not realtime is connected.
 /// </summary>
 public sealed class CallQueueWatcher : IDisposable
 {
@@ -28,9 +30,15 @@ public sealed class CallQueueWatcher : IDisposable
 
     public event Action? Changed;
 
+    /// <summary>Raised on the UI thread for each call that newly joins the line.</summary>
+    public event Action<QueueEntry>? Ringing;
+
+    /// <summary>The web desk refetches the queue every 5 s; a ring lasts at most 45 s.</summary>
+    private static readonly TimeSpan Every = TimeSpan.FromSeconds(4);
+
     public void Start()
     {
-        _poller = new Poller("call queue", PollAsync, () => _host.PollInterval(TimeSpan.FromSeconds(6)));
+        _poller = new Poller("call queue", PollAsync, () => Every);
         _poller.Start();
     }
 
@@ -47,6 +55,7 @@ public sealed class CallQueueWatcher : IDisposable
         catch (ApiException e) when (e.Status is 403 or 404)
         {
             // No call center on this plan or for this role: stop asking.
+            Log.Write($"[calls] queue unavailable ({e.Status}), watcher off");
             _disabled = true;
             Queue = [];
             Changed?.Invoke();
@@ -58,13 +67,24 @@ public sealed class CallQueueWatcher : IDisposable
         Queue = queue;
         Changed?.Invoke();
         // The first poll only learns what is already waiting, as the web desk does.
-        if (_primed && fresh.Count > 0) Announce(fresh[0]);
+        if (_primed)
+        {
+            foreach (var f in fresh)
+            {
+                Log.Write($"[calls] ringing {f.CallSessionId}");
+                Ringing?.Invoke(f);
+            }
+            if (fresh.Count > 0) Announce(fresh[0]);
+        }
+        else
+        {
+            Log.Write($"[calls] watching queue, {queue.Count} waiting");
+        }
         _primed = true;
     }
 
     private void Announce(QueueEntry entry)
     {
-        if (_host.Settings.NotificationSound) Chime.Play();
         if (!_host.Settings.Notifications || App.Current.Window?.IsForeground == true) return;
         var s = _host.Strings;
         var name = CallNames.Caller(entry, s);

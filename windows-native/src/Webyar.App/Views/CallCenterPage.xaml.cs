@@ -57,7 +57,8 @@ public sealed partial class CallCenterPage : Page
             q.Kick();
         }
         CallWindow.DeskCallEnded += OnDeskCallEnded;
-        _overview = new Poller("call overview", LoadOverviewAsync, () => Host.PollInterval(TimeSpan.FromSeconds(5)));
+        // Call-center state has no realtime feed to the app, so poll at the web desk's pace always.
+        _overview = new Poller("call overview", LoadOverviewAsync, () => TimeSpan.FromSeconds(5));
         _overview.Start();
         _clock.Start();
         ShowQueue();
@@ -321,6 +322,35 @@ public sealed partial class CallCenterPage : Page
         ShowEmpty();
     }
 
+    // ── Opened from the ringing banner or a toast ──
+
+    /// <summary>Shows that call on the live desk; false when it has already left the line.</summary>
+    public bool Select(string callId)
+    {
+        if (_showHistory) OnTab(DeskTab, new RoutedEventArgs());
+        ShowQueue();
+        if (!_byId.TryGetValue(callId, out var item))
+        {
+            ShowDeskError(Host.Strings["callTakenElsewhere"], InfoBarSeverity.Informational);
+            return false;
+        }
+        if (!_queue.Contains(item))
+        {
+            Search.Text = string.Empty;
+            OnChannel(AllFilter, new RoutedEventArgs());
+        }
+        if (ReferenceEquals(QueueList.SelectedItem, item)) OnSelectQueue(QueueList, null!);
+        else QueueList.SelectedItem = item;
+        QueueList.ScrollIntoView(item);
+        return true;
+    }
+
+    /// <summary>Answers straight from the banner, through the same path as the Accept button.</summary>
+    public void Answer(string callId)
+    {
+        if (Select(callId)) OnAccept(AcceptButton, new RoutedEventArgs());
+    }
+
     // ── Detail ──
 
     private void OnSelectQueue(object sender, SelectionChangedEventArgs e)
@@ -387,7 +417,7 @@ public sealed partial class CallCenterPage : Page
     private void StartDetailPolling(string callId)
     {
         _detailPoller?.Dispose();
-        _detailPoller = new Poller("call detail", ct => LoadDetailAsync(callId, ct), () => Host.PollInterval(TimeSpan.FromSeconds(4)));
+        _detailPoller = new Poller("call detail", ct => LoadDetailAsync(callId, ct), () => TimeSpan.FromSeconds(4));
         _detailPoller.Start();
     }
 

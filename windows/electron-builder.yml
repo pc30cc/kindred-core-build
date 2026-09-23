@@ -27,3 +27,11 @@ nsis:
   installerLanguages: [en_US, tr_TR]
   multiLanguageInstaller: true
   deleteAppDataOnUninstall: false
+# Auto-update feed. The app reads latest.yml from the newest release of this
+# public, binaries-only repo; the source stays private. Releases are made by
+# .github/workflows/desktop-release.yml.
+publish:
+  provider: github
+  owner: pc30cc
+  repo: webyar-desktop-releases
+  releaseType: release

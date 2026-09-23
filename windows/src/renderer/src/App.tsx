@@ -6,6 +6,7 @@ import { Wordmark } from '@/components/Brand'
 import { LoginScreen } from '@/features/auth/LoginScreen'
 import { Shell } from '@/features/shell/Shell'
 import { useT } from '@/hooks/useT'
+import { UpdateNotice } from '@/features/updates/UpdateNotice'
 
 function useSystemDark(): boolean {
   const [dark, setDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
@@ -58,6 +59,7 @@ export function App() {
       {session.kind === 'restoring' && <LaunchScreen />}
       {session.kind === 'signedOut' && <LoginScreen />}
       {session.kind === 'signedIn' && <Shell />}
+      <UpdateNotice />
       <Toaster
         position={isRTL(language) ? 'bottom-left' : 'bottom-right'}
         theme={dark ? 'dark' : 'light'}

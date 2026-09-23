@@ -24,6 +24,8 @@ import type {
   Message,
   NotificationPrefs,
   Promotions,
+  RealtimeConnect,
+  RealtimeSubscribe,
   TeamMessage,
   User,
   VisitorProfile,
@@ -207,6 +209,11 @@ export const api = {
     // up the moment the visitor answered. Leave it out instead.
     post<CallToken>(`/api/calls/${callSessionId}/token`, { participant_type: 'operator', ...(displayName ? { display_name: displayName } : {}) }),
   hangUp: (callSessionId: string) => send('POST', `/api/calls/${callSessionId}/hangup`),
+
+  // Realtime: the same Centrifugo negotiation the web console makes.
+  realtimeConnect: (workspaceId: string, intent: 'initial' | 'refresh' | 'reconnect' = 'initial') =>
+    post<RealtimeConnect>('/api/realtime/operator-connect', { workspace_id: workspaceId, intent }),
+  realtimeInboxSubscribe: (workspaceId: string) => post<RealtimeSubscribe>('/api/realtime/operator-inbox-subscribe', { workspace_id: workspaceId }),
 
   // Email inbox — a real mailbox on its own `/api/email-inbox` surface.
   emailThreads: async (workspaceId: string, search?: string) =>

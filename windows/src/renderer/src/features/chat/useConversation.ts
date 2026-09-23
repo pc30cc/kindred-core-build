@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { api, ApiError, newClientMessageId } from '@/api/client'
 import type { CallChannel, Conversation, ConversationNote, ConversationPriority, ConversationStatus, Message, VisitorProfile, WorkspaceMember } from '@/api/types'
 import { usePoll } from '@/hooks/usePoll'
+import { INBOX_EVENT } from '@/features/notifications/realtime'
 import { useApp } from '@/store/app'
 import { translate } from '@/i18n'
 import { contactName } from '@/lib/format'
@@ -49,7 +50,7 @@ export function useTranscript(conversation: Conversation) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversation.id])
 
-  usePoll(() => load(true), 4000, [conversation.id], { immediate: false, backgroundMs: 12_000 })
+  usePoll(() => load(true), 4000, [conversation.id], { immediate: false, backgroundMs: 12_000, wakeOn: INBOX_EVENT })
 
   /** Returns false when the text should go back into the composer. */
   const send = useCallback(

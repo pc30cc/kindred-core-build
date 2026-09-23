@@ -320,3 +320,25 @@ export interface Promotions {
 }
 
 export type AccountDeletion = { kind: 'deleted' } | { kind: 'blocked'; workspaces: string[] }
+
+/** `POST /api/realtime/operator-connect`. Anything but Centrifugo means "keep polling". */
+export interface RealtimeConnect {
+  vendor: 'centrifugo' | 'polling_builtin' | string
+  ws_url?: string
+  token?: string
+  /** Epoch milliseconds. */
+  expires_at?: number
+}
+
+/** `POST /api/realtime/operator-inbox-subscribe`. */
+export interface RealtimeSubscribe {
+  vendor: 'centrifugo' | 'polling_builtin' | string
+  channel?: string
+  token?: string
+  expires_at?: number
+}
+
+/** What arrives on `ws:<workspace>:inbox` — every message and operator event in the workspace. */
+export type InboxRealtimeEvent =
+  | { type: 'message'; payload: { id: string; conversation_id: string; sender_type?: string; body?: string | null } }
+  | { type: 'event'; payload: { kind: string; conversation_id?: string } }

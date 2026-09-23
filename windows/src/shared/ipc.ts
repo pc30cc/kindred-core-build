@@ -28,6 +28,15 @@ export interface LoginResult {
   user: unknown
 }
 
+/** Where the self-update stands. `current` means the last check found nothing newer. */
+export type UpdateState =
+  | { kind: 'idle' }
+  | { kind: 'checking' }
+  | { kind: 'current'; checkedAt: number }
+  | { kind: 'downloading'; version: string; percent: number }
+  | { kind: 'ready'; version: string }
+  | { kind: 'error'; message: string }
+
 export interface AppInfo {
   version: string
   platform: string
@@ -51,6 +60,8 @@ export interface NotifyRequest {
   title: string
   body: string
   silent?: boolean
+  /** Right-to-left copy (Persian): laid out right-aligned instead of Windows' left-aligned default. */
+  rtl?: boolean
   /** Handed back to the renderer when the notification is clicked. */
   payload?: { kind: 'conversation' | 'colleague' | 'email'; id: string; workspaceId?: string }
 }
@@ -90,6 +101,11 @@ export interface WebyarBridge {
     /** Whether Windows itself lets apps show notifications (Settings → System → Notifications). */
     windowsNotificationsEnabled(): Promise<boolean>
     openWindowsNotificationSettings(): Promise<void>
+    updateState(): Promise<UpdateState>
+    checkForUpdates(): Promise<UpdateState>
+    /** Quits, installs the downloaded update and relaunches. */
+    installUpdate(): Promise<void>
+    onUpdateState(cb: (state: UpdateState) => void): () => void
     notify(req: NotifyRequest): Promise<void>
     setBadge(count: number, overlayDataUrl: string | null): Promise<void>
     setTitleBarTheme(theme: TitleBarTheme): Promise<void>

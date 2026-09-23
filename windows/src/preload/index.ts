@@ -18,6 +18,9 @@ const bridge: WebyarBridge = {
     openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
     windowsNotificationsEnabled: () => ipcRenderer.invoke('app:windowsNotificationsEnabled'),
     openWindowsNotificationSettings: () => ipcRenderer.invoke('app:openWindowsNotificationSettings'),
+    updateState: () => ipcRenderer.invoke('app:updateState'),
+    checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
+    installUpdate: () => ipcRenderer.invoke('app:installUpdate'),
     notify: (req) => ipcRenderer.invoke('app:notify', req),
     setBadge: (count, overlay) => ipcRenderer.invoke('app:setBadge', count, overlay),
     setTitleBarTheme: (theme) => ipcRenderer.invoke('app:setTitleBarTheme', theme),
@@ -35,6 +38,11 @@ const bridge: WebyarBridge = {
       const listener = (_e: unknown, focused: boolean) => cb(focused)
       ipcRenderer.on('app:focus', listener)
       return () => ipcRenderer.removeListener('app:focus', listener)
+    },
+    onUpdateState: (cb) => {
+      const listener = (_e: unknown, state: Parameters<typeof cb>[0]) => cb(state)
+      ipcRenderer.on('app:update-state', listener)
+      return () => ipcRenderer.removeListener('app:update-state', listener)
     },
   },
 }

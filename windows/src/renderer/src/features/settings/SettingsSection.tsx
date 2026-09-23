@@ -30,6 +30,7 @@ import { BrandMark } from '@/components/Brand'
 import { Button, Card, Confirm, Pill, Row, Select, Skeleton, Switch, TextField } from '@/components/ui'
 import { cx } from '@/lib/cx'
 import { useAvailability } from './useAvailability'
+import { useUpdateLabel, useUpdateState } from '@/features/updates/useUpdateState'
 
 type Page = 'account' | 'general' | 'availability' | 'notifications' | 'security' | 'about'
 
@@ -622,6 +623,7 @@ function AboutPage() {
             {info?.version ?? '—'} · Windows
           </span>
         </Row>
+        <UpdateRow />
         <Row label={t('serverAddress')}>
           <span className="text-[13px] text-fg-2" dir="ltr">{info?.apiOrigin.replace(/^https:\/\//, '') ?? '—'}</span>
         </Row>
@@ -657,5 +659,25 @@ function WindowsNotificationsWarning() {
         {t('openWindowsSettings')}
       </Button>
     </div>
+  )
+}
+
+function UpdateRow() {
+  const t = useT()
+  const state = useUpdateState()
+  const label = useUpdateLabel(state)
+  const busy = state.kind === 'checking' || state.kind === 'downloading'
+  return (
+    <Row label={t('updates')} hint={label ?? undefined}>
+      {state.kind === 'ready' ? (
+        <Button size="sm" variant="primary" onClick={() => void window.webyar.app.installUpdate()}>
+          {t('updateRestart')}
+        </Button>
+      ) : (
+        <Button size="sm" variant="secondary" loading={busy} onClick={() => void window.webyar.app.checkForUpdates()}>
+          {t('checkForUpdates')}
+        </Button>
+      )}
+    </Row>
   )
 }

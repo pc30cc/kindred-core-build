@@ -1,7 +1,7 @@
 {
   "name": "webyar-desktop",
   "productName": "Webyar",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Webyar for Windows — the operator inbox, chat, calls and team messaging on the desktop.",
   "author": "Webyar",
   "private": true,
@@ -15,6 +15,7 @@
     "dist:dir": "electron-vite build && electron-builder --win --x64 --dir --publish never"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "livekit-client": "^2.22.3"
   },
   "devDependencies": {

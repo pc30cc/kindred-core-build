@@ -1,17 +1,19 @@
 import { useEffect, useRef } from 'react'
 import { api } from '@/api/client'
 import type { Conversation, NotificationPrefs } from '@/api/types'
-import { translate } from '@/i18n'
+import { isRTL, translate } from '@/i18n'
 import { useApp, colleaguesVisible } from '@/store/app'
 import { usePoll } from '@/hooks/usePoll'
 import { attachmentPreview, contactName, parseDate, preview } from '@/lib/format'
 import { viewing } from '@/features/chat/status'
 import { colleagueName, refreshColleagues, useColleagues } from '@/features/colleagues/colleaguesStore'
 import { reloadAvailability } from '@/features/settings/useAvailability'
+import { INBOX_EVENT, useInboxRealtime } from './realtime'
 
 // On a phone the server pushes. On Windows there is no APNs to push through, so
-// the app watches instead: the main queue and the colleagues list are polled in
-// the background, a Windows notification is raised for each new visitor message,
+// the app listens on the workspace's realtime inbox channel instead and checks
+// the main queue the moment anything happens there, with polling underneath in
+// case the socket is down. A Windows notification is raised for each new visitor message,
 // and the unread count is kept on the taskbar button and the tray icon. The
 // operator's own notification preferences — the same row the web console reads —
 // decide what is worth interrupting them for.
@@ -54,6 +56,8 @@ export function BackgroundSync() {
   const seenTeam = useRef<Map<string, number> | null>(null)
   const prefs = useRef<NotificationPrefs | null>(null)
   const prefsAt = useRef(0)
+
+  useInboxRealtime(workspaceId)
 
   // A new workspace starts from a fresh baseline: nothing already there is "new".
   useEffect(() => {
@@ -146,13 +150,15 @@ export function BackgroundSync() {
           title: translate(language, 'newMessageFrom', { name }),
           body,
           silent: gate.silent,
+          rtl: isRTL(language),
           payload: { kind: 'conversation', id: c.id, workspaceId },
         })
       }
     },
     12_000,
     [workspaceId],
-    { backgroundMs: 20_000 },
+    // In the background too: a minimised window is exactly when a notification matters.
+    { backgroundMs: 12_000, wakeOn: INBOX_EVENT },
   )
 
   usePoll(
@@ -182,6 +188,7 @@ export function BackgroundSync() {
           title: translate(s.language, 'newColleagueMessage', { name: colleagueName(c) }),
           body: gate.showPreview ? preview(c.last_message?.body).slice(0, 180) || translate(s.language, 'newMessage') : translate(s.language, 'newMessage'),
           silent: gate.silent,
+          rtl: isRTL(s.language),
           payload: { kind: 'colleague', id: c.user_id, workspaceId },
         })
       }

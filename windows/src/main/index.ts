@@ -14,10 +14,12 @@ import {
 import { writeFile } from 'node:fs/promises'
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { tmpdir } from 'node:os'
 import { execFile } from 'node:child_process'
 import type { ApiRequest, DesktopSettings, NotifyRequest, SaveFileRequest, TitleBarTheme } from '../shared/ipc'
 import * as api from './api'
+import { checkForUpdates, installUpdate, startUpdater, updateState } from './updater'
 import { publicSettings, readSettings, writeSettings } from './settings'
 
 const APP_ID = 'com.webyar.desktop'
@@ -62,6 +64,31 @@ function restoredBounds(): Electron.Rectangle & { maximized?: boolean } {
       saved.y >= a.y - 10 && saved.y < a.y + a.height - 100
   })
   return (visible ? saved : { ...fallback, maximized: saved.maximized }) as Electron.Rectangle & { maximized?: boolean }
+}
+
+const xmlEscape = (s: string) => s.replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' })[c]!)
+
+/**
+ * Windows lays toast text out left-aligned whatever the script, and ignores
+ * `hint-align` on the top-level lines. Adaptive group text does honour it, so
+ * a Persian toast carries its title and body in a right-aligned group. The
+ * header line is a lone RLM: it keeps Windows from printing its own "New
+ * notification" placeholder there.
+ */
+function rtlToastXml(req: NotifyRequest): string {
+  const icon = pathToFileURL(iconPath()).href
+  return (
+    `<toast><visual><binding template="ToastGeneric">` +
+    `<text>&#x200F;</text>` +
+    `<group><subgroup>` +
+    `<text hint-style="base" hint-align="right">${xmlEscape(req.title)}</text>` +
+    `<text hint-style="bodySubtle" hint-align="right" hint-wrap="true" hint-maxLines="3">${xmlEscape(req.body)}</text>` +
+    `</subgroup></group>` +
+    `<image placement="appLogoOverride" src="${xmlEscape(icon)}"/>` +
+    `</binding></visual>` +
+    (req.silent ? `<audio silent="true"/>` : '') +
+    `</toast>`
+  )
 }
 
 const LOG_LIMIT = 2 * 1024 * 1024
@@ -171,8 +198,12 @@ function showWindow(): void {
 
 function trayMenu(): Electron.Menu {
   const fa = app.getLocale().startsWith('fa')
+  const update = updateState()
   return Menu.buildFromTemplate([
     { label: fa ? 'باز کردن وب‌یار' : 'Open Webyar', click: showWindow },
+    ...(update.kind === 'ready'
+      ? [{ label: fa ? `نصب نسخه ${update.version} و اجرای دوباره` : `Restart to update to ${update.version}`, click: () => installUpdate(() => (quitting = true)) }]
+      : []),
     { type: 'separator' },
     {
       label: fa ? 'اجرا هنگام روشن شدن ویندوز' : 'Start with Windows',
@@ -247,11 +278,20 @@ function registerIpc(): void {
         })
       }),
   )
+  ipcMain.handle('app:updateState', () => updateState())
+  ipcMain.handle('app:checkForUpdates', () => checkForUpdates())
+  ipcMain.handle('app:installUpdate', () => installUpdate(() => (quitting = true)))
   ipcMain.handle('app:openWindowsNotificationSettings', () => shell.openExternal('ms-settings:notifications'))
 
   ipcMain.handle('app:notify', (_e, req: NotifyRequest) => {
     if (!Notification.isSupported()) return
-    const n = new Notification({ title: req.title, body: req.body, silent: req.silent ?? false, icon: appIcon() })
+    const n = new Notification({
+      title: req.title,
+      body: req.body,
+      silent: req.silent ?? false,
+      icon: appIcon(),
+      ...(req.rtl && process.platform === 'win32' ? { toastXml: rtlToastXml(req) } : {}),
+    })
     n.on('click', () => {
       showWindow()
       if (req.payload) win?.webContents.send('app:notification-click', req.payload)
@@ -340,6 +380,8 @@ app.whenReady().then(() => {
   registerIpc()
   createWindow()
   createTray()
+  // The tray menu grows a "Restart to update" item once an update is downloaded.
+  startUpdater(() => tray?.setContextMenu(trayMenu()))
   if (app.isPackaged) {
     app.setLoginItemSettings({ openAtLogin: readSettings().openAtLogin, args: ['--hidden'] })
   }

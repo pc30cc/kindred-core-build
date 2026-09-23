@@ -121,7 +121,10 @@ function useCallSession(call: ActiveCall | null) {
       r.on(RoomEvent.ParticipantDisconnected, () => {
         if (r.remoteParticipants.size === 0) void finish('visitorLeft')
       })
-      r.on(RoomEvent.Disconnected, () => void finish('visitorLeft'))
+      r.on(RoomEvent.Disconnected, (reason) => {
+        console.warn('[call] room disconnected', { reason })
+        void finish('visitorLeft')
+      })
 
       await r.connect(url, token.token, {
         rtcConfig: { iceServers: iceServers(token), iceTransportPolicy: token.ice_policy === 'relay' ? 'relay' : 'all' },
@@ -142,9 +145,12 @@ function useCallSession(call: ActiveCall | null) {
         }
       }
       setPhase({ kind: 'connected', since: Date.now() })
+      console.warn('[call] connected', { callSessionId, url })
       sync()
     } catch (e) {
-      await finish('failed', e instanceof Error ? e.message : String(e))
+      const detail = e instanceof Error ? e.message : String(e)
+      console.error('[call] join failed', { callSessionId, detail })
+      await finish('failed', detail)
     }
   }
 

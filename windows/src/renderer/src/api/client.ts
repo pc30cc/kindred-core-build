@@ -202,7 +202,10 @@ export const api = {
   cancelInvitation: (id: string) => send('POST', `/api/call-invitations/${id}/cancel`),
   invitation: async (id: string) => (await get<{ invitation: CallInvitation }>(`/api/call-invitations/${id}`)).invitation,
   callToken: (callSessionId: string, displayName?: string | null) =>
-    post<CallToken>(`/api/calls/${callSessionId}/token`, { participant_type: 'operator', display_name: displayName ?? null }),
+    // `display_name` is optional but not nullable server-side: sending `null`
+    // fails validation with a 500, which is what made every desktop call hang
+    // up the moment the visitor answered. Leave it out instead.
+    post<CallToken>(`/api/calls/${callSessionId}/token`, { participant_type: 'operator', ...(displayName ? { display_name: displayName } : {}) }),
   hangUp: (callSessionId: string) => send('POST', `/api/calls/${callSessionId}/hangup`),
 
   // Email inbox — a real mailbox on its own `/api/email-inbox` surface.

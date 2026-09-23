@@ -12,7 +12,7 @@ import {
   Tray,
 } from 'electron'
 import { writeFile } from 'node:fs/promises'
-import { readFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { ApiRequest, DesktopSettings, NotifyRequest, SaveFileRequest, TitleBarTheme } from '../shared/ipc'
@@ -63,6 +63,25 @@ function restoredBounds(): Electron.Rectangle & { maximized?: boolean } {
   return (visible ? saved : { ...fallback, maximized: saved.maximized }) as Electron.Rectangle & { maximized?: boolean }
 }
 
+const LOG_LIMIT = 2 * 1024 * 1024
+
+/** `%APPDATA%\\Webyar\\logs\\renderer.log`, with one previous file kept once it grows past 2 MB. */
+function writeLog(line: string): void {
+  try {
+    const dir = join(app.getPath('userData'), 'logs')
+    const file = join(dir, 'renderer.log')
+    mkdirSync(dir, { recursive: true })
+    try {
+      if (statSync(file).size > LOG_LIMIT) renameSync(file, join(dir, 'renderer.old.log'))
+    } catch {
+      // No file yet.
+    }
+    appendFileSync(file, `${new Date().toISOString()} ${line}\n`)
+  } catch {
+    // Logging must never be the thing that breaks the app.
+  }
+}
+
 function createWindow(): void {
   const bounds = restoredBounds()
   const startHidden = process.argv.includes('--hidden')
@@ -90,6 +109,15 @@ function createWindow(): void {
   win.once('ready-to-show', () => {
     if (!startHidden) win?.show()
   })
+
+  // Warnings and errors from the page go to a file, so a failed call or a
+  // blank screen on someone's machine leaves a trail without DevTools.
+  win.webContents.on('console-message', (e) => {
+    const { level, message, sourceId, lineNumber } = e as unknown as { level: string; message: string; sourceId: string; lineNumber: number }
+    if (level === 'warning' || level === 'error' || message.startsWith('[call]'))
+      writeLog(`${level} ${message}${sourceId ? ` (${basename(sourceId)}:${lineNumber})` : ''}`)
+  })
+  win.webContents.on('render-process-gone', (_e, details) => writeLog(`renderer gone: ${details.reason} (${details.exitCode})`))
 
   const persist = () => {
     if (!win || win.isDestroyed() || win.isMinimized()) return

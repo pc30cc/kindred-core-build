@@ -29,7 +29,7 @@ public sealed partial class SettingsPage : Page
         base.OnNavigatedTo(e);
         var settings = Host.Settings;
         ApplyLanguage();
-        LanguagePicker.SelectedIndex = Host.Strings.Language switch { Language.En => 1, Language.Tr => 2, _ => 0 };
+        LanguagePicker.SelectedIndex = Host.Strings.Language switch { Core.Localization.Language.En => 1, Core.Localization.Language.Tr => 2, _ => 0 };
         AppearancePicker.SelectedIndex = (int)settings.Appearance;
         ToastsToggle.IsOn = settings.Notifications;
         SoundToggle.IsOn = settings.NotificationSound;

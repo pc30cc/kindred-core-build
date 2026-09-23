@@ -8,10 +8,6 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- The brand blue, the same token the web console and the iOS app use. -->
-            <Color x:Key="BrandColor">#2F6BFF</Color>
-            <SolidColorBrush x:Key="BrandBrush" Color="{StaticResource BrandColor}" />
-
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
                     <SolidColorBrush x:Key="BubbleIncomingBrush" Color="#FFFFFF" />
@@ -31,6 +27,9 @@
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
 
+            <!-- The brand blue, the same token the web console and the iOS app use. -->
+            <Color x:Key="BrandColor">#2F6BFF</Color>
+            <SolidColorBrush x:Key="BrandBrush" Color="{StaticResource BrandColor}" />
             <!-- Segoe UI Variable on Windows 11, Segoe UI and Tahoma (which carries Persian) on Windows 10. -->
             <FontFamily x:Key="AppFont">Segoe UI Variable Text, Segoe UI, Tahoma</FontFamily>
         </ResourceDictionary>

@@ -108,7 +108,8 @@ public partial class App : Application
         _tray = new TaskbarIcon
         {
             ToolTipText = s["appName"],
-            IconSource = new BitmapImage(new Uri(AppPaths.Icon)),
+            // The tray needs a real .ico (BMP frames); H.NotifyIcon cannot turn a PNG into one.
+            IconSource = new BitmapImage(new Uri(AppPaths.WindowIcon)),
             ContextFlyout = menu,
             ContextMenuMode = ContextMenuMode.SecondWindow,
             LeftClickCommand = new RelayCommand(ShowWindow),

@@ -20,7 +20,7 @@ public sealed partial class LoginPage : Page
         {
             if (e.Key == Windows.System.VirtualKey.Enter) OnSignIn(this, new RoutedEventArgs());
         };
-        LanguagePicker.SelectedIndex = Host.Strings.Language switch { Language.En => 1, Language.Tr => 2, _ => 0 };
+        LanguagePicker.SelectedIndex = Host.Strings.Language switch { Core.Localization.Language.En => 1, Core.Localization.Language.Tr => 2, _ => 0 };
         ApplyLanguage();
         _ready = true;
         Loaded += (_, _) => Email.Focus(FocusState.Programmatic);

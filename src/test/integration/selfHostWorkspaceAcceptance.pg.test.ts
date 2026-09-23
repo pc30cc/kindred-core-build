@@ -27,6 +27,7 @@
  */
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import { ensureAuthChainInstalled } from './authStubSchema';
@@ -36,6 +37,44 @@ const DSN = process.env.TEST_DATABASE_URL || process.env.CLEAN_INSTALL_DATABASE_
 const suite = DSN ? describe : describe.skip;
 
 type PgTestClient = PgQueryable & { connect(): Promise<void>; end(): Promise<void> };
+
+type AdapterError = { message: string; code?: string };
+type AdapterResult = { data: unknown; error: AdapterError | null };
+type AdapterResolve = (value: AdapterResult) => unknown;
+interface QueryBuilder {
+  select(cols?: string): QueryBuilder;
+  eq(col: string, val: unknown): QueryBuilder;
+  neq(col: string, val: unknown): QueryBuilder;
+  is(col: string, val: null): QueryBuilder;
+  in(col: string, vals: unknown[]): QueryBuilder;
+  gt(col: string, val: unknown): QueryBuilder;
+  order(col: string, opts?: { ascending?: boolean }): QueryBuilder;
+  limit(n: number): QueryBuilder;
+  insert(payload: Record<string, unknown> | Record<string, unknown>[]): {
+    select(cols?: string): { single(): Promise<AdapterResult> };
+    then(resolve: AdapterResolve): Promise<unknown>;
+  };
+  update(patch: Record<string, unknown>): QueryBuilder;
+  maybeSingle(): Promise<AdapterResult>;
+  single(): Promise<AdapterResult>;
+  then(resolve: AdapterResolve): Promise<unknown>;
+}
+/** The response-body fields this file reads from the routes under test. */
+interface RouteJson {
+  ok?: boolean;
+  error?: string;
+  workspaceId?: string;
+  account?: { id: string };
+  workspaces?: Array<{ id: string }>;
+  raw?: string;
+}
+interface CapturedEmailRequest { to: string; templateSlug: string; templateData?: { action_url?: string } }
+
+function adapterError(e: unknown): AdapterError {
+  const err = e as { message?: unknown; code?: unknown } | null;
+  const message = String(err?.message ?? e);
+  return typeof err?.code === 'string' ? { message, code: err.code } : { message };
+}
 
 let db: PgTestClient;
 let capturedEmails: Array<{ to: string; templateSlug: string; actionUrl: string | null }> = [];
@@ -52,7 +91,7 @@ vi.mock('../../../server/middleware/security.js', async (importOriginal) => {
 });
 
 vi.mock('../../../server/services/email/index.js', () => ({
-  sendEmail: async (_config: unknown, req: any) => {
+  sendEmail: async (_config: unknown, req: CapturedEmailRequest) => {
     capturedEmails.push({ to: req.to, templateSlug: req.templateSlug, actionUrl: req.templateData?.action_url ?? null });
     return { success: true };
   },
@@ -86,7 +125,7 @@ function makePgServiceClient(pg: PgTestClient) {
     }
     async function runUpdate() {
       const setCols = Object.keys(state.patch!);
-      const setParams = setCols.map((c) => (state.patch as any)[c]);
+      const setParams = setCols.map((c) => (state.patch as Record<string, unknown>)[c]);
       const baseLen = setParams.length;
       const setSql = setCols.map((c, i) => `${c} = $${i + 1}`).join(', ');
       const whereShifted = state.wheres.map((w) => w.replace(/\$(\d+)/g, (_, n) => `$${Number(n) + baseLen}`));
@@ -99,14 +138,14 @@ function makePgServiceClient(pg: PgTestClient) {
       const values: string[] = [];
       const params: unknown[] = [];
       for (const row of rows) {
-        const placeholders = cols.map((c) => { params.push((row as any)[c]); return `$${params.length}`; });
+        const placeholders = cols.map((c) => { params.push(row[c]); return `$${params.length}`; });
         values.push(`(${placeholders.join(', ')})`);
       }
       const sql = `INSERT INTO public.${table} (${cols.join(', ')}) VALUES ${values.join(', ')} RETURNING *`;
       return pg.query(sql, params);
     }
 
-    const builder: any = {
+    const builder: QueryBuilder = {
       select(cols?: string) { state.cols = cols || '*'; return builder; },
       eq(col: string, val: unknown) { state.wheres.push(`${col} = $${addParam(val)}`); return builder; },
       neq(col: string, val: unknown) { state.wheres.push(`${col} <> $${addParam(val)}`); return builder; },
@@ -124,12 +163,12 @@ function makePgServiceClient(pg: PgTestClient) {
           select: (cols?: string) => ({
             single: async () => {
               try { const r = await runInsert(rows); state.cols = cols || '*'; return { data: r.rows[0] ?? null, error: null }; }
-              catch (e: any) { return { data: null, error: { message: e.message, code: e.code } }; }
+              catch (e) { return { data: null, error: adapterError(e) }; }
             },
           }),
-          then: (resolve: any) => runInsert(rows)
+          then: (resolve: AdapterResolve) => runInsert(rows)
             .then((r) => resolve({ data: r.rows, error: null }))
-            .catch((e: any) => resolve({ data: null, error: { message: e.message, code: e.code } })),
+            .catch((e: unknown) => resolve({ data: null, error: adapterError(e) })),
         };
       },
       update(patch: Record<string, unknown>) {
@@ -138,20 +177,20 @@ function makePgServiceClient(pg: PgTestClient) {
       },
       maybeSingle: async () => {
         try { const r = await runSelect(); return { data: r.rows[0] ?? null, error: null }; }
-        catch (e: any) { return { data: null, error: { message: e.message } }; }
+        catch (e) { return { data: null, error: adapterError(e) }; }
       },
       single: async () => {
         try {
           const r = state.patch ? await runUpdate() : await runSelect();
           if (!r.rows[0]) return { data: null, error: { message: 'no rows' } };
           return { data: r.rows[0], error: null };
-        } catch (e: any) { return { data: null, error: { message: e.message } }; }
+        } catch (e) { return { data: null, error: adapterError(e) }; }
       },
-      then(resolve: any, reject: any) {
+      then(resolve: AdapterResolve) {
         const p = state.patch ? runUpdate() : runSelect();
         return p
-          .then((r: any) => resolve({ data: r.rows, error: null }))
-          .catch((e: any) => resolve({ data: null, error: { message: e.message, code: e.code } }));
+          .then((r) => resolve({ data: r.rows, error: null }))
+          .catch((e: unknown) => resolve({ data: null, error: adapterError(e) }));
       },
     };
     return builder;
@@ -183,8 +222,8 @@ function makePgServiceClient(pg: PgTestClient) {
         return { data: r.rows[0].result, error: null };
       }
       return { data: null, error: { message: `unhandled rpc in test adapter: ${name}` } };
-    } catch (e: any) {
-      return { data: null, error: { message: e.message, code: e.code } };
+    } catch (e) {
+      return { data: null, error: adapterError(e) };
     }
   }
 
@@ -202,9 +241,13 @@ const { workspacesRouter } = await import('../../../server/routes/workspaces.js'
 
 const app = express();
 app.use((req, _res, next) => {
-  (req as any).serverConfig = {
-    supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'],
+  (req as express.Request & { serverConfig?: unknown }).serverConfig = {
+    // supabaseUrl is this test server itself (see the entitlement RPC
+    // route below); selfHostBillingUnlimited mirrors a self-host install
+    // started with SELF_HOST_BILLING_MODE=unlimited.
+    supabaseUrl: baseUrl, supabaseServiceRoleKey: 'k', corsOrigins: ['*'],
     port: 0, supabaseAnonKey: 'k', rateLimitWindowMs: 60000, rateLimitMax: 10000,
+    selfHostBillingUnlimited: true,
   };
   next();
 });
@@ -214,10 +257,39 @@ app.use('/api/auth', authSecurityRouter);
 app.use('/api/auth-email', authEmailRouter);
 app.use('/api/workspaces', workspacesRouter);
 
+// ── Entitlement RPC: answered exactly as PostgREST would for THIS database ──
+// POST /api/workspaces enforces the account-level max_workspaces plan cap
+// (added in 819b5dcbf, after this file was written) via
+// featureGating.checkEntitlementFromDB, which talks to PostgREST through its
+// own createClient(config.supabaseUrl) — NOT through getServiceClient — so
+// the pg adapter above never sees that call. With the old unreachable
+// supabaseUrl ('http://x') the lookup failed with "fetch failed", which is
+// (correctly) treated as unreadable and fails closed to the registry
+// default cap of 1, so a second workspace was refused with 403
+// workspace_limit_reached. That modelled no real deployment. A real
+// self-host install runs this chain (which ships no billing subsystem, so no
+// check_workspace_entitlement) with SELF_HOST_BILLING_MODE=unlimited; its
+// PostgREST answers the RPC with PGRST202, which together with that flag is
+// the documented self-host-unlimited path. This route is that PostgREST
+// answer, derived from the live database rather than hard-coded.
+app.post('/rest/v1/rpc/check_workspace_entitlement', async (req, res) => {
+  const fn = await db.query(`SELECT to_regprocedure('public.check_workspace_entitlement(uuid,text)') IS NOT NULL AS present`);
+  if (!fn.rows[0].present) {
+    return res.status(404).json({
+      code: 'PGRST202',
+      details: 'Searched for the function public.check_workspace_entitlement with parameters _feature, _workspace_id or with a single unnamed json/jsonb parameter, but no matches were found in the schema cache.',
+      hint: null,
+      message: 'Could not find the function public.check_workspace_entitlement(_feature, _workspace_id) in the schema cache',
+    });
+  }
+  const r = await db.query(`SELECT public.check_workspace_entitlement($1::uuid, $2::text) AS result`, [req.body._workspace_id, req.body._feature]);
+  return res.json(r.rows[0].result);
+});
+
 let server: http.Server;
 let baseUrl: string;
 
-function call(method: string, path: string, opts: { body?: unknown; cookie?: string } = {}): Promise<{ status: number; json: any; setCookie: string[] }> {
+function call(method: string, path: string, opts: { body?: unknown; cookie?: string } = {}): Promise<{ status: number; json: RouteJson; setCookie: string[] }> {
   const payload = opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
   return new Promise((resolve, reject) => {
     const req = http.request(
@@ -233,7 +305,7 @@ function call(method: string, path: string, opts: { body?: unknown; cookie?: str
         let d = '';
         res.on('data', (c) => (d += c));
         res.on('end', () => {
-          let json: any = {};
+          let json: RouteJson = {};
           try { json = JSON.parse(d || '{}'); } catch { json = { raw: d }; }
           resolve({ status: res.statusCode || 0, json, setCookie: (res.headers['set-cookie'] as string[]) || [] });
         });
@@ -297,7 +369,7 @@ suite('Fresh self-host acceptance: signup -> verify -> session -> workspace boot
   beforeAll(async () => {
     server = http.createServer(app).listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
-    baseUrl = `http://127.0.0.1:${(server.address() as any).port}`;
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
 
   it('1. POST /api/auth/signup creates profile + user_credentials with ZERO auth.users rows required', async () => {
@@ -376,12 +448,12 @@ suite('Fresh self-host acceptance: signup -> verify -> session -> workspace boot
     // 8. GET /api/workspaces/account now returns the newly provisioned account
     const accountRes = await call('GET', '/api/workspaces/account', { cookie });
     expect(accountRes.status).toBe(200);
-    expect(accountRes.json.account.id).toBe(accountId);
+    expect(accountRes.json.account?.id).toBe(accountId);
 
     // 7 (cont). GET /api/workspaces returns the newly provisioned workspace
     const wsRes = await call('GET', '/api/workspaces', { cookie });
     expect(wsRes.status).toBe(200);
-    expect(wsRes.json.workspaces.map((w: any) => w.id)).toEqual([workspaceId]);
+    expect(wsRes.json.workspaces?.map((w) => w.id)).toEqual([workspaceId]);
 
     // 9. POST /api/workspaces creates a SECOND workspace via create_workspace_atomic
     const secondRes = await call('POST', '/api/workspaces', {

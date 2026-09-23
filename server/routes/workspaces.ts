@@ -286,6 +286,26 @@ workspacesRouter.post('/', async (req, res) => {
     return res.status(403).json({ error: 'email_verification_required' });
   }
 
+  const sb = getServiceClient(config);
+
+  // Membership BEFORE the plan cap: resolveWorkspaceCapacity reads the
+  // target account's workspace count and plan, and its 403 body reports
+  // them (limit/used/plan). Evaluating it for an arbitrary client-supplied
+  // accountId would let a non-member probe another tenant's plan/usage and
+  // would mask the real rejection reason. create_workspace_atomic still
+  // performs its own is_account_member check (the authoritative, race-free
+  // one); this early check only keeps the cap from running for strangers,
+  // and answers exactly as that RPC would.
+  const { data: membership, error: memberErr } = await sb
+    .from('account_members')
+    .select('account_id')
+    .eq('account_id', parsed.data.accountId)
+    .eq('user_id', userId)
+    .limit(1)
+    .maybeSingle();
+  if (memberErr) return res.status(500).json({ error: memberErr.message });
+  if (!membership) return res.status(400).json({ error: 'Not an account member' });
+
   // Plan cap — enforced server-side so the UI gate can never be the only
   // thing standing between a client and an over-quota workspace.
   const capacity = await resolveWorkspaceCapacity(config, parsed.data.accountId);
@@ -300,7 +320,6 @@ workspacesRouter.post('/', async (req, res) => {
     });
   }
 
-  const sb = getServiceClient(config);
   // `create_workspace_atomic` is SECURITY DEFINER but takes `_user_id`
   // explicitly rather than reading auth.uid() — it does its own
   // is_account_member(_account_id, _user_id) check internally, so a caller

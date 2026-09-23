@@ -702,8 +702,6 @@ public sealed partial class ShellPage : Page
         }
     }
 
-    private void OnAccountTapped(object sender, TappedRoutedEventArgs e) => FlyoutBase.ShowAttachedFlyout(AccountItem);
-
     private async Task SwitchWorkspaceAsync(Core.Api.Workspace ws)
     {
         if (ws.Id == Host.Workspace?.Id) return;

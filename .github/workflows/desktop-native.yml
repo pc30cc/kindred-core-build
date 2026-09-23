@@ -69,6 +69,16 @@ jobs:
           dotnet tool install -g vpk --version $vpkVersion
           vpk pack --packId $env:PACK_ID --packVersion ${{ steps.version.outputs.version }} --packDir publish --mainExe Webyar.exe --packTitle Webyar --packAuthors Webyar --icon src/Webyar.App/Assets/Webyar.ico --outputDir releases
 
+      # The installer people download: our own window around the Velopack setup
+      # (src/Webyar.Setup). It carries the setup inside it and the unpacked size
+      # of the app, which drives its progress bar.
+      - name: Build installer
+        run: |
+          $bytes = (Get-ChildItem publish -Recurse -File | Measure-Object -Property Length -Sum).Sum
+          $payload = (Resolve-Path releases/WebyarWindows-win-Setup.exe).Path
+          dotnet build src/Webyar.Setup/Webyar.Setup.csproj -c Release "-p:PayloadPath=$payload" "-p:PayloadBytes=$bytes" -o setup-out
+          Copy-Item setup-out/Webyar-Setup.exe releases/Webyar-Setup.exe
+
       - uses: actions/upload-artifact@v4
         with:
           name: webyar-windows-${{ steps.version.outputs.version }}
@@ -82,3 +92,4 @@ jobs:
         run: |
           if (-not $env:GH_TOKEN) { throw "DESKTOP_RELEASES_TOKEN is not set" }
           vpk upload github --repoUrl https://github.com/pc30cc/webyar-desktop-releases --token $env:GH_TOKEN --publish --releaseName "Webyar ${{ steps.version.outputs.version }}" --tag ${{ github.ref_name }} --outputDir releases
+          gh release upload ${{ github.ref_name }} releases/Webyar-Setup.exe --repo pc30cc/webyar-desktop-releases --clobber

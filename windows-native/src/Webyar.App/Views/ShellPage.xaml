@@ -159,21 +159,25 @@
         </NavigationView.MenuItems>
 
         <NavigationView.PaneFooter>
-            <!-- The photo alone stands for the account: it sits where an icon would, so it also shows in the compact rail. -->
-            <NavigationViewItem x:Name="AccountItem" SelectsOnInvoked="False" Tapped="OnAccountTapped">
-                <NavigationViewItem.Content>
-                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="-4,0,0,0">
-                        <controls:Avatar x:Name="MeAvatar" Size="30" Kind="operator" />
-                        <StackPanel VerticalAlignment="Center">
-                            <TextBlock x:Name="MeName" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="150" />
-                            <TextBlock x:Name="MeStatus" FontSize="11.5" Foreground="{ThemeResource Text2Brush}" TextTrimming="CharacterEllipsis" MaxWidth="150" />
-                        </StackPanel>
+            <!--
+                The account: the photo alone, where an icon would be. A plain
+                button rather than a menu item, so the photo sits centred in the
+                compact rail (48 px: 4 margin + 5 padding + 30 photo + 9) instead
+                of being cut in half, and the name and status follow when the
+                pane is open.
+            -->
+            <Button x:Name="AccountItem" Style="{StaticResource BubbleButtonStyle}" Margin="4,2" Padding="5,6,8,6" CornerRadius="6" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <controls:Avatar x:Name="MeAvatar" Size="30" Kind="operator" />
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock x:Name="MeName" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="150" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                        <TextBlock x:Name="MeStatus" FontSize="11.5" Foreground="{ThemeResource Text2Brush}" TextTrimming="CharacterEllipsis" MaxWidth="150" />
                     </StackPanel>
-                </NavigationViewItem.Content>
-                <FlyoutBase.AttachedFlyout>
+                </StackPanel>
+                <Button.Flyout>
                     <MenuFlyout x:Name="AccountMenu" Placement="RightEdgeAlignedBottom" />
-                </FlyoutBase.AttachedFlyout>
-            </NavigationViewItem>
+                </Button.Flyout>
+            </Button>
         </NavigationView.PaneFooter>
 
         <Grid>

@@ -1,0 +1,38 @@
+<Application
+    x:Class="Webyar.App.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- The brand blue, the same token the web console and the iOS app use. -->
+            <Color x:Key="BrandColor">#2F6BFF</Color>
+            <SolidColorBrush x:Key="BrandBrush" Color="{StaticResource BrandColor}" />
+
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="BubbleIncomingBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="BubbleOutgoingBrush" Color="#2F6BFF" />
+                    <SolidColorBrush x:Key="BubbleOutgoingTextBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ChatBackgroundBrush" Color="#F4F6F9" />
+                    <SolidColorBrush x:Key="AvatarBrush" Color="#E6EDFF" />
+                    <SolidColorBrush x:Key="AvatarTextBrush" Color="#2F6BFF" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="BubbleIncomingBrush" Color="#2B2F36" />
+                    <SolidColorBrush x:Key="BubbleOutgoingBrush" Color="#3D7BFF" />
+                    <SolidColorBrush x:Key="BubbleOutgoingTextBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ChatBackgroundBrush" Color="#1B1E23" />
+                    <SolidColorBrush x:Key="AvatarBrush" Color="#26324D" />
+                    <SolidColorBrush x:Key="AvatarTextBrush" Color="#9DB8FF" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <!-- Segoe UI Variable on Windows 11, Segoe UI and Tahoma (which carries Persian) on Windows 10. -->
+            <FontFamily x:Key="AppFont">Segoe UI Variable Text, Segoe UI, Tahoma</FontFamily>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

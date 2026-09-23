@@ -1,0 +1,56 @@
+<Page
+    x:Class="Webyar.App.Views.ShellPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="Transparent">
+    <NavigationView
+        x:Name="Nav"
+        IsBackButtonVisible="Collapsed"
+        IsSettingsVisible="True"
+        PaneDisplayMode="LeftCompact"
+        IsPaneToggleButtonVisible="True"
+        OpenPaneLength="240"
+        SelectionChanged="OnNavigate">
+        <NavigationView.MenuItems>
+            <NavigationViewItem x:Name="InboxItem" Tag="inbox">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE8BD;" />
+                </NavigationViewItem.Icon>
+                <NavigationViewItem.InfoBadge>
+                    <InfoBadge x:Name="UnreadBadge" Visibility="Collapsed" />
+                </NavigationViewItem.InfoBadge>
+            </NavigationViewItem>
+        </NavigationView.MenuItems>
+
+        <NavigationView.PaneFooter>
+            <NavigationViewItem x:Name="AccountItem" SelectsOnInvoked="False" Tapped="OnAccountTapped">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE77B;" />
+                </NavigationViewItem.Icon>
+                <FlyoutBase.AttachedFlyout>
+                    <MenuFlyout x:Name="AccountMenu" Placement="RightEdgeAlignedBottom" />
+                </FlyoutBase.AttachedFlyout>
+            </NavigationViewItem>
+        </NavigationView.PaneFooter>
+
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <StackPanel x:Name="Banners" Spacing="4" Margin="12,0,12,4">
+                <InfoBar x:Name="UpdateBar" IsClosable="True">
+                    <InfoBar.ActionButton>
+                        <Button x:Name="UpdateButton" Click="OnRestartToUpdate" />
+                    </InfoBar.ActionButton>
+                </InfoBar>
+                <InfoBar x:Name="ToastsOffBar" Severity="Warning" IsClosable="True">
+                    <InfoBar.ActionButton>
+                        <Button x:Name="ToastsOffButton" Click="OnOpenWindowsSettings" />
+                    </InfoBar.ActionButton>
+                </InfoBar>
+            </StackPanel>
+            <Frame x:Name="ContentFrame" Grid.Row="1" />
+        </Grid>
+    </NavigationView>
+</Page>

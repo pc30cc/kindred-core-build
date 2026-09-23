@@ -103,7 +103,8 @@ export function useInboxRealtime(workspaceId: string | null): void {
             attempt = 0
             setRealtimeConnected(true)
             console.warn('[realtime] subscribed', channel)
-            if (Number.isFinite(expiresAt)) later(Math.max(10_000, expiresAt - Date.now() - REFRESH_LEAD_MS), 'refresh')
+            // setTimeout fires at once past ~24.8 days, so a long-lived token is renewed daily instead.
+            if (Number.isFinite(expiresAt)) later(Math.min(86_400_000, Math.max(10_000, expiresAt - Date.now() - REFRESH_LEAD_MS)), 'refresh')
             continue
           }
           const push = frame.push as { channel?: string; pub?: { data?: InboxRealtimeEvent }; disconnect?: unknown } | undefined

@@ -1,0 +1,59 @@
+using System.Text.Json;
+using Webyar.Core.Localization;
+
+namespace Webyar.App.Services;
+
+public enum Appearance
+{
+    System,
+    Light,
+    Dark,
+}
+
+/// <summary>This machine's preferences. The operator's account settings live on the server.</summary>
+public sealed class AppSettings
+{
+    public string? Language { get; set; }
+    public Appearance Appearance { get; set; } = Appearance.System;
+    public bool Notifications { get; set; } = true;
+    public bool NotificationSound { get; set; } = true;
+    /// <summary>Closing the window keeps the app in the tray, so notifications still arrive.</summary>
+    public bool CloseToTray { get; set; } = true;
+    public bool StartWithWindows { get; set; }
+    public string? ApiOrigin { get; set; }
+    public string? WorkspaceId { get; set; }
+    public WindowBounds? Window { get; set; }
+
+    public Language ResolvedLanguage =>
+        Strings.Parse(Language) ?? Strings.FromSystem(System.Globalization.CultureInfo.CurrentUICulture);
+
+    private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
+
+    public static AppSettings Load()
+    {
+        try
+        {
+            if (File.Exists(AppPaths.Settings))
+                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(AppPaths.Settings), Options) ?? new AppSettings();
+        }
+        catch (Exception e) when (e is JsonException or IOException)
+        {
+            Log.Error("load settings", e);
+        }
+        return new AppSettings();
+    }
+
+    public void Save()
+    {
+        try
+        {
+            File.WriteAllText(AppPaths.Settings, JsonSerializer.Serialize(this, Options));
+        }
+        catch (IOException e)
+        {
+            Log.Error("save settings", e);
+        }
+    }
+}
+
+public sealed record WindowBounds(int X, int Y, int Width, int Height, bool Maximized);

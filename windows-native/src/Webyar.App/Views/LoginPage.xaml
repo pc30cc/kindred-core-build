@@ -1,0 +1,53 @@
+<Page
+    x:Class="Webyar.App.Views.LoginPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="Transparent">
+    <Grid>
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <Border
+                Width="400"
+                Margin="24,48"
+                Padding="36"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="12">
+                <StackPanel Spacing="16">
+                    <Image x:Name="Logo" Width="56" Height="56" HorizontalAlignment="Center" />
+                    <StackPanel Spacing="4">
+                        <TextBlock x:Name="TitleText" HorizontalAlignment="Center" Style="{StaticResource SubtitleTextBlockStyle}" />
+                        <TextBlock x:Name="SubtitleText" HorizontalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+
+                    <InfoBar x:Name="Error" IsClosable="False" Severity="Error" />
+
+                    <TextBox x:Name="Email" InputScope="EmailSmtpAddress" IsSpellCheckEnabled="False" FlowDirection="LeftToRight" />
+                    <PasswordBox x:Name="Password" FlowDirection="LeftToRight" />
+
+                    <Button x:Name="SignIn" HorizontalAlignment="Stretch" Style="{StaticResource AccentButtonStyle}" Click="OnSignIn">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ProgressRing x:Name="Busy" Width="16" Height="16" IsActive="False" Visibility="Collapsed" Foreground="White" />
+                            <TextBlock x:Name="SignInText" />
+                        </StackPanel>
+                    </Button>
+
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <HyperlinkButton x:Name="ForgotPassword" Padding="0" Click="OnForgotPassword" />
+                        <ComboBox x:Name="LanguagePicker" Grid.Column="1" MinWidth="120" SelectionChanged="OnLanguageChanged">
+                            <ComboBoxItem Content="فارسی" Tag="fa" />
+                            <ComboBoxItem Content="English" Tag="en" />
+                            <ComboBoxItem Content="Türkçe" Tag="tr" />
+                        </ComboBox>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </ScrollViewer>
+    </Grid>
+</Page>

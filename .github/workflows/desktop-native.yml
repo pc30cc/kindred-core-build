@@ -1,0 +1,84 @@
+name: Windows app (native)
+
+# Builds the native Windows app (windows-native/, WinUI 3 + Velopack) on a
+# Windows runner — its UI cannot compile anywhere else. Every push that
+# touches it runs the Core tests and produces an installer as a build
+# artifact. A tag named native-v<version> also publishes that installer and
+# its update feed to the public releases repo the installed apps update from.
+#
+#   1. Bump <Version> in windows-native/Directory.Build.props.
+#   2. Push a tag native-v<that version>, e.g. native-v2.0.0.
+#
+# Publishing needs the DESKTOP_RELEASES_TOKEN secret: a fine-grained token
+# with "Contents: Read and write" on pc30cc/webyar-desktop-releases only.
+on:
+  push:
+    paths:
+      - 'windows-native/**'
+      - '.github/workflows/desktop-native.yml'
+    tags:
+      - 'native-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-native-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  PACK_ID: WebyarWindows
+
+jobs:
+  build:
+    name: Build, test and package
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: windows-native
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Version
+        id: version
+        run: |
+          $version = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $tag = "${{ github.ref_name }}".Substring("native-v".Length)
+            if ($tag -ne $version) { throw "Tag $tag does not match <Version> $version in Directory.Build.props" }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Test Core
+        run: dotnet test tests/Webyar.Core.Tests -c Release
+
+      - name: Publish app
+        run: dotnet publish src/Webyar.App/Webyar.App.csproj -c Release -r win-x64 --self-contained -p:Platform=x64 -o publish
+
+      - name: Package installer
+        run: |
+          $vpkVersion = ([xml](Get-Content src/Webyar.App/Webyar.App.csproj)).Project.ItemGroup.PackageReference | Where-Object { $_.Include -eq 'Velopack' } | ForEach-Object { $_.Version }
+          dotnet tool install -g vpk --version $vpkVersion
+          vpk pack --packId $env:PACK_ID --packVersion ${{ steps.version.outputs.version }} --packDir publish --mainExe Webyar.exe --packTitle Webyar --packAuthors Webyar --icon src/Webyar.App/Assets/Webyar.ico --outputDir releases
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webyar-windows-${{ steps.version.outputs.version }}
+          path: windows-native/releases/
+          if-no-files-found: error
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.DESKTOP_RELEASES_TOKEN }}
+        run: |
+          if (-not $env:GH_TOKEN) { throw "DESKTOP_RELEASES_TOKEN is not set" }
+          vpk upload github --repoUrl https://github.com/pc30cc/webyar-desktop-releases --token $env:GH_TOKEN --publish --releaseName "Webyar ${{ steps.version.outputs.version }}" --tag ${{ github.ref_name }} --outputDir releases

@@ -11,10 +11,24 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
 
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
+type StubResult = { data: unknown; error: null };
+interface StubBuilder {
+  select(): StubBuilder;
+  eq(col: string, val: unknown): StubBuilder;
+  order(col: string, opts?: { ascending?: boolean }): StubBuilder;
+  limit(n: number): StubBuilder;
+  insert(payload: Row): { select(): { single(): Promise<StubResult> } };
+  maybeSingle(): Promise<StubResult>;
+  then<T1 = StubResult, T2 = never>(
+    onOk?: ((value: StubResult) => T1 | PromiseLike<T1>) | null,
+    onErr?: ((reason: unknown) => T2 | PromiseLike<T2>) | null,
+  ): Promise<T1 | T2>;
+}
 const db: Record<string, Row[]> = {};
 
 vi.mock('../../../server/supabase.js', () => ({
@@ -34,13 +48,13 @@ vi.mock('../../../server/supabase.js', () => ({
         if (sortBy) {
           const { col, asc } = sortBy;
           matched = [...matched].sort((a, b) =>
-            a[col] === b[col] ? 0 : (a[col] > b[col] ? 1 : -1) * (asc ? 1 : -1));
+            a[col] === b[col] ? 0 : (String(a[col]) > String(b[col]) ? 1 : -1) * (asc ? 1 : -1));
         }
         return cap === null ? matched : matched.slice(0, cap);
       };
-      const builder: any = {
+      const builder: StubBuilder = {
         select: () => builder,
-        eq(col: string, val: any) { filters.push((r: Row) => r[col] === val); return builder; },
+        eq(col: string, val: unknown) { filters.push((r: Row) => r[col] === val); return builder; },
         order(col: string, opts?: { ascending?: boolean }) {
           sortBy = { col, asc: opts?.ascending !== false };
           return builder;
@@ -53,12 +67,12 @@ vi.mock('../../../server/supabase.js', () => ({
         },
         maybeSingle: async () => ({ data: matching()[0] ?? null, error: null }),
         // Awaitable at any point, like the real builder.
-        then: (onOk: any, onErr: any) =>
+        then: (onOk, onErr) =>
           Promise.resolve({ data: matching(), error: null }).then(onOk, onErr),
       };
       return builder;
     },
-    rpc: async (name: string, args: any) => {
+    rpc: async (name: string, args: Record<string, unknown>) => {
       if (name === 'is_workspace_member') {
         const member = (db.workspace_members || []).find(
           (m) => m.workspace_id === args._workspace_id && m.user_id === args._user_id,
@@ -97,7 +111,7 @@ const { workspaceInvitationsRouter } = await import('../../../server/routes/work
 
 const app = express();
 app.use((req, _res, next) => {
-  (req as any).serverConfig = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'] };
+  (req as express.Request & { serverConfig?: unknown }).serverConfig = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'] };
   next();
 });
 app.use(cookieParser());
@@ -107,9 +121,12 @@ app.use('/api/workspace-members', workspaceMembersRouter);
 app.use('/api/workspace-invitations', workspaceInvitationsRouter);
 
 const server = http.createServer(app).listen(0);
-const port = () => (server.address() as any).port;
+const port = () => (server.address() as AddressInfo).port;
 
-function call(method: string, path: string, token: string, body?: unknown): Promise<{ status: number; json: any }> {
+/** The response-body fields this file reads. */
+interface CallJson { error?: string; ok?: boolean; workspaceId?: string; raw?: string }
+
+function call(method: string, path: string, token: string, body?: unknown): Promise<{ status: number; json: CallJson }> {
   const payload = body === undefined ? null : JSON.stringify(body);
   const headers: Record<string, string> = { cookie: `gs_session=${token}` };
   if (payload) {
@@ -121,7 +138,7 @@ function call(method: string, path: string, token: string, body?: unknown): Prom
       let d = '';
       res.on('data', (c) => (d += c));
       res.on('end', () => {
-        let json: any = {};
+        let json: CallJson = {};
         try { json = JSON.parse(d || '{}'); } catch { json = { raw: d }; }
         resolve({ status: res.statusCode || 0, json });
       });
@@ -158,6 +175,15 @@ beforeEach(() => {
     // 029_backfill_legacy_email_verification.sql, proving the backfill
     // (not a special-case) is what makes a legacy user pass this gate.
     { user_id: LEGACY_BACKFILLED_USER, email_verified_at: '2019-06-01T00:00:00Z' },
+  ];
+  // Every test user is a member of ACCOUNT, so a POST /api/workspaces into it
+  // is refused (or allowed) purely on email verification — the route checks
+  // account membership (as create_workspace_atomic itself does) before the
+  // plan cap, and a non-member would be rejected for that reason instead.
+  db.account_members = [
+    { account_id: ACCOUNT, user_id: VERIFIED_USER, role: 'owner' },
+    { account_id: ACCOUNT, user_id: UNVERIFIED_USER, role: 'member' },
+    { account_id: ACCOUNT, user_id: LEGACY_BACKFILLED_USER, role: 'member' },
   ];
   db.workspaces = [{ id: WS, owner_id: VERIFIED_USER, name: 'Existing WS' }];
   db.workspace_members = [

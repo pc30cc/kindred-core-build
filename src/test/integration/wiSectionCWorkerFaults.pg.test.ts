@@ -36,9 +36,20 @@ vi.mock('../../../server/middleware/security.js', async (importOriginal) => {
   return { ...actual, authRateLimiter: passthrough };
 });
 
+/**
+ * Provider fault point for C.5n: a callback run INSIDE the provider submission,
+ * i.e. while the worker genuinely has the job claimed and in flight.
+ */
+const providerHooks = vi.hoisted(() => ({ onSubmit: null as null | (() => void) }));
+
 vi.mock('../../../server/services/email/index.js', async () => {
   const { captureEmail } = await import('./invitationHarness.js');
-  return { sendEmail: async (_config: unknown, req: any) => captureEmail(req) };
+  return {
+    sendEmail: async (_config: unknown, req: unknown) => {
+      providerHooks.onSubmit?.();
+      return captureEmail(req);
+    },
+  };
 });
 
 vi.mock('../../../server/supabase.js', async (importOriginal) => {
@@ -281,14 +292,50 @@ suite('Workspace Invitations v5.1 §C.5 residual — controlled worker fault poi
     const queued = await queueOtpJob(owner);
     const jobId = String(queued.job.id);
 
-    const { drainInvitationJobs, startInvitationWorker, stopInvitationWorker } =
+    const { drainInvitationJobs, startInvitationWorker, stopInvitationWorker, getInvitationWorkerStatus } =
       await import('../../../server/services/invitations/worker.js');
 
+    // (1) Shutdown arrives before the drain has claimed anything: the Section G
+    // lifecycle (worker.ts, "claims NOTHING new" once shutdown has begun) means
+    // the job is not picked up — and, crucially, not left claimed either.
     startInvitationWorker(WORKER_CONFIG);
-    const inFlight = drainInvitationJobs(WORKER_CONFIG);
-    stopInvitationWorker();   // shutdown signal while the job is being processed
-    await inFlight;
+    const unclaimed = drainInvitationJobs(WORKER_CONFIG);
+    stopInvitationWorker();
+    await unclaimed;
+    const untouched = await jobRow(jobId);
+    expect(untouched.status).toBe('queued');
+    expect(untouched.locked_by).toBeNull();
+    expect(otpMailsFor(queued.email)).toHaveLength(0);
+
+    // (2) Shutdown arrives while the job IS in flight (claimed, provider
+    // submission under way): the submission and its completion write are
+    // never aborted, and the drain claims nothing after the signal.
+    let signalledInFlight = false;
+    providerHooks.onSubmit = () => {
+      providerHooks.onSubmit = null;
+      stopInvitationWorker();   // shutdown signal while the job is being processed
+      signalledInFlight = true;
+    };
+    try {
+      startInvitationWorker(WORKER_CONFIG);
+      await drainInvitationJobs(WORKER_CONFIG);
+    } finally {
+      providerHooks.onSubmit = null;
+    }
     stopInvitationWorker();   // idempotent
+    expect(signalledInFlight, 'the shutdown signal must land during provider submission').toBe(true);
+    expect(getInvitationWorkerStatus().acceptingClaims).toBe(false);
+    // The invitation e-mail job queued by the same create belongs to the
+    // email/sms round, which runs after the signal: it is never claimed.
+    const inviteJobs = await h.rows(
+      `SELECT status, locked_by FROM public.workspace_invitation_jobs WHERE invitation_id = $1 AND channel = 'email'`,
+      [queued.invitationId],
+    );
+    expect(inviteJobs.length).toBeGreaterThan(0);
+    for (const j of inviteJobs) {
+      expect(j.status).toBe('queued');
+      expect(j.locked_by).toBeNull();
+    }
 
     const done = await jobRow(jobId);
     expect(done.status).toBe('provider_accepted');

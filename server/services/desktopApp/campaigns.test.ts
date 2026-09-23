@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { isLive, targetsPlan, toClient, type CampaignRow } from './campaigns.js';
 import { addBroadcast, broadcastsAfter, heartbeat, summary, __resetLive } from './live.js';
-import { campaignSchema } from '../../routes/adminDesktopApp.js';
+import { campaignPatchSchema, campaignSchema, invalidInput } from '../../routes/adminDesktopApp.js';
 
 const row = (patch: Partial<CampaignRow> = {}): CampaignRow => ({
   id: '00000000-0000-0000-0000-000000000001',
@@ -54,6 +54,54 @@ describe('desktop campaigns', () => {
     expect(campaignSchema.safeParse({ kind: 'ad', placements: ['nowhere'], text: {} }).success).toBe(false);
     const ok = campaignSchema.safeParse({ kind: 'announcement', placements: ['banner'], text: { fa: { title: 'x' } }, cta_url: '' });
     expect(ok.success).toBe(true);
+  });
+});
+
+describe('campaign form input', () => {
+  const base = { kind: 'ad', placements: ['inbox_list'] } as const;
+
+  it('accepts what the admin form sends for a new ad', () => {
+    const parsed = campaignSchema.safeParse({
+      ...base,
+      name: '',
+      target_plans: [],
+      text: { fa: { title: 'تخفیف', body: 'x'.repeat(900), cta_label: '' }, en: {}, tr: {} },
+      image_url: null,
+      cta_url: null,
+      severity: 'info',
+      dismissible: true,
+      priority: 0,
+      active: true,
+      starts_at: null,
+      ends_at: null,
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('adds https:// to a bare domain and refuses other schemes', () => {
+    const ok = campaignSchema.parse({ ...base, text: {}, cta_url: ' webyar.ai/pricing ', image_url: 'https://cdn.webyar.ai/a.png' });
+    expect(ok.cta_url).toBe('https://webyar.ai/pricing');
+    expect(ok.image_url).toBe('https://cdn.webyar.ai/a.png');
+    expect(campaignSchema.safeParse({ ...base, text: {}, cta_url: 'http://webyar.ai' }).success).toBe(false);
+    expect(campaignSchema.safeParse({ ...base, text: {}, cta_url: 'javascript:alert(1)' }).success).toBe(false);
+  });
+
+  it('treats null copy as unset', () => {
+    const ok = campaignSchema.parse({ ...base, name: null, text: { fa: { title: null, body: 'b' }, en: null } });
+    expect(ok.name).toBe('');
+    expect(ok.text).toEqual({ fa: { body: 'b' } });
+  });
+
+  it('names the rejected field in the error', () => {
+    const bad = campaignSchema.safeParse({ ...base, text: { fa: { title: 'x'.repeat(201) } } });
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(invalidInput(bad.error).error).toContain('text.fa.title');
+    const order = campaignSchema.safeParse({ ...base, text: {}, starts_at: '2026-10-02T10:00', ends_at: '2026-10-01T10:00' });
+    expect(order.success).toBe(false);
+  });
+
+  it('lets the list switch toggle only `active`', () => {
+    expect(campaignPatchSchema.parse({ active: false })).toEqual({ active: false });
   });
 });
 

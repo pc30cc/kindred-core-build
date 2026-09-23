@@ -1,4 +1,4 @@
-CREATE FUNCTION public.retention_validate_protected_policy() RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
+CREATE OR REPLACE FUNCTION public.retention_validate_protected_policy() RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
 BEGIN
  IF TG_OP = 'UPDATE' THEN
   IF OLD.retention_mode = 'permanent' OR OLD.category IN ('financial','core') THEN
@@ -15,4 +15,5 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.retention_validate_protected_policy() FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.retention_validate_protected_policy() TO service_role;
+DROP TRIGGER IF EXISTS retention_validate_protected_policy ON public.data_retention_policies;
 CREATE TRIGGER retention_validate_protected_policy BEFORE INSERT OR UPDATE ON public.data_retention_policies FOR EACH ROW EXECUTE FUNCTION public.retention_validate_protected_policy();

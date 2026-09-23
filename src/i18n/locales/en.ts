@@ -4465,6 +4465,8 @@ const en = {
         imageUrlHint: "Square works best. HTTPS only.",
         placements: "Where it shows",
         placementRequired: "Pick at least one place.",
+        invalidUrl: "The address must start with https:// (e.g. https://webyar.ai).",
+        scheduleOrder: "The end time must be after the start time.",
         targetPlans: "Plans",
         targetPlansHint: "Leave all unticked to show it to every plan.",
         startsAt: "Starts",

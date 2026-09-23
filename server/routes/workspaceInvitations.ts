@@ -12,6 +12,7 @@
  */
 
 import { Router } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import crypto from 'node:crypto';
@@ -65,8 +66,32 @@ type Purpose = (typeof PURPOSES)[number];
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-function cfg(req: any): ServerConfig {
-  return req.serverConfig as ServerConfig;
+/**
+ * What the app-level middleware (server/index.ts) and `requireUser` below
+ * attach to every request this router handles.
+ */
+type InvitationRequest = Request & {
+  serverConfig: ServerConfig;
+  authUser?: { id: string };
+};
+
+/** A secret-free RPC projection (jsonb) as the service client returns it. */
+type RpcRecord = Record<string, unknown>;
+
+function cfg(req: Request): ServerConfig {
+  return (req as InvitationRequest).serverConfig;
+}
+
+/** Only valid behind `requireUser`, which guarantees the identity is set. */
+function authUserOf(req: Request): { id: string } {
+  const user = (req as InvitationRequest).authUser;
+  if (!user) throw new Error('authUserOf() used on a route without requireUser');
+  return user;
+}
+
+/** Reads one field of an RPC projection that may be null. */
+function field(record: unknown, key: string): unknown {
+  return record && typeof record === 'object' ? (record as RpcRecord)[key] : undefined;
 }
 
 function isProd(): boolean {
@@ -74,7 +99,7 @@ function isProd(): boolean {
 }
 
 /** Strict same-origin enforcement for every mutating invitation route. */
-function requireOrigin(req: any, res: any, next: any) {
+function requireOrigin(req: Request, res: Response, next: NextFunction) {
   const config = cfg(req);
   if (!verifyOriginForMutation(req, allowedOrigins(config))) {
     return res.status(403).json({ error: 'FORBIDDEN_ORIGIN' });
@@ -86,7 +111,7 @@ function requireOrigin(req: any, res: any, next: any) {
 }
 
 /** Any token passed as a query/path parameter is a protocol violation. */
-function rejectTokenInUrl(req: any, res: any, next: any) {
+function rejectTokenInUrl(req: Request, res: Response, next: NextFunction) {
   const q = req.query || {};
   if (q.token || q.proof || q.otp || q.code || q.handle) {
     return res.status(404).json(PUBLIC_ERROR);
@@ -94,10 +119,10 @@ function rejectTokenInUrl(req: any, res: any, next: any) {
   next();
 }
 
-async function requireUser(req: any, res: any, next: any) {
+async function requireUser(req: Request, res: Response, next: NextFunction) {
   const userId = await requireSessionUser(req, res);
   if (!userId) return;
-  req.authUser = { id: userId };
+  (req as InvitationRequest).authUser = { id: userId };
   next();
 }
 
@@ -142,7 +167,7 @@ function mapRpcError(message: string | undefined): { status: number; code: strin
  */
 const requestIdSchema = z.string().trim().uuid();
 
-function readRequestId(req: any): string | null {
+function readRequestId(req: Request): string | null {
   const parsed = requestIdSchema.safeParse(req.body?.requestId);
   return parsed.success ? parsed.data : null;
 }
@@ -182,12 +207,21 @@ async function resolveEffectiveLocale(
       .eq('id', workspaceId)
       .maybeSingle();
     const siteDefault =
-      normalizeLocale((data as any)?.panel_locale) || normalizeLocale((data as any)?.default_locale);
+      normalizeLocale(field(data, 'panel_locale')) || normalizeLocale(field(data, 'default_locale'));
     if (siteDefault) return siteDefault;
   }
 
   // 3. the existing resolver's own last resort
   return LAST_RESORT_LOCALE;
+}
+
+interface PolicyVersionRow {
+  id: string;
+  policy_type: string;
+  version: string;
+  locale: string;
+  document_url: string | null;
+  effective_from: string;
 }
 
 async function activePolicyVersions(config: ServerConfig, locale: string) {
@@ -199,10 +233,11 @@ async function activePolicyVersions(config: ServerConfig, locale: string) {
     .lte('effective_from', new Date().toISOString())
     .order('effective_from', { ascending: false });
 
+  const rows: PolicyVersionRow[] = data || [];
   const pick = (type: string) =>
-    (data || []).find((r: any) => r.policy_type === type && r.locale === locale)
-    || (data || []).find((r: any) => r.policy_type === type && r.locale === LAST_RESORT_LOCALE)
-    || (data || []).find((r: any) => r.policy_type === type)
+    rows.find((r) => r.policy_type === type && r.locale === locale)
+    || rows.find((r) => r.policy_type === type && r.locale === LAST_RESORT_LOCALE)
+    || rows.find((r) => r.policy_type === type)
     || null;
 
   return { terms: pick('terms'), privacy: pick('privacy') };
@@ -294,7 +329,7 @@ function invalidFields(parsed: { error?: z.ZodError }): string[] {
   return (parsed.error?.issues || []).map((i) => i.path.join('.')).filter(Boolean);
 }
 
-workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUser, async (req: any, res) => {
+workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUser, async (req, res) => {
   // NEW-signup policy: an unverified account cannot pull other people into a
   // workspace it controls. This gate used to live on
   // POST /api/workspace-members/invitations and did not come across when that
@@ -307,7 +342,7 @@ workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUse
   // Ahead of the body parse on purpose: whether the caller may invite at all
   // does not depend on the shape of what they sent, and an account that may
   // not invite has no business learning which of its fields were malformed.
-  if (!(await isEmailVerified(cfg(req), req.authUser.id))) {
+  if (!(await isEmailVerified(cfg(req), authUserOf(req).id))) {
     return res.status(403).json({ error: 'email_verification_required' });
   }
 
@@ -336,7 +371,7 @@ workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUse
     operation: 'create',
     scopeKind: 'workspace',
     requestId: body.requestId,
-    actorId: req.authUser.id,
+    actorId: authUserOf(req).id,
     workspaceId: body.workspaceId,
     fingerprintInput: {
       workspaceId: body.workspaceId,
@@ -392,7 +427,7 @@ workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUse
   // Persist the resolved locale snapshot for the notification worker. The
   // create RPC's signature is unchanged; this is a backend-only follow-up
   // restricted to pending invitations.
-  const createdId = (outcome.result as any)?.invitation_id || (outcome.result as any)?.id;
+  const createdId = field(outcome.result, 'invitation_id') || field(outcome.result, 'id');
   if (createdId) {
     await getServiceClient(config).rpc('wi_set_invitation_locale', {
       _invitation_id: createdId,
@@ -409,7 +444,7 @@ workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUse
   });
 });
 
-workspaceInvitationsRouter.get('/', rejectTokenInUrl, requireUser, async (req: any, res) => {
+workspaceInvitationsRouter.get('/', rejectTokenInUrl, requireUser, async (req, res) => {
   const workspaceId = String(req.query.workspaceId || '');
   if (!/^[0-9a-f-]{36}$/i.test(workspaceId)) return res.status(400).json({ error: 'invalid_workspace' });
   const includeArchived = String(req.query.archived || '') === '1';
@@ -420,7 +455,7 @@ workspaceInvitationsRouter.get('/', rejectTokenInUrl, requireUser, async (req: a
     .from('workspace_members')
     .select('role')
     .eq('workspace_id', workspaceId)
-    .eq('user_id', req.authUser.id)
+    .eq('user_id', authUserOf(req).id)
     .maybeSingle();
   if (!member || !['owner', 'admin'].includes(String(member.role))) {
     return res.status(403).json({ error: 'FORBIDDEN' });
@@ -444,7 +479,7 @@ workspaceInvitationsRouter.get('/', rejectTokenInUrl, requireUser, async (req: a
   return res.json({ invitations: data || [] });
 });
 
-workspaceInvitationsRouter.get('/:id', rejectTokenInUrl, requireUser, async (req: any, res) => {
+workspaceInvitationsRouter.get('/:id', rejectTokenInUrl, requireUser, async (req, res) => {
   const config = cfg(req);
   const sb = getServiceClient(config);
   const id = String(req.params.id);
@@ -461,7 +496,7 @@ workspaceInvitationsRouter.get('/:id', rejectTokenInUrl, requireUser, async (req
     .from('workspace_members')
     .select('role')
     .eq('workspace_id', inv.workspace_id)
-    .eq('user_id', req.authUser.id)
+    .eq('user_id', authUserOf(req).id)
     .maybeSingle();
   if (!member || !['owner', 'admin'].includes(String(member.role))) {
     return res.status(403).json({ error: 'FORBIDDEN' });
@@ -480,13 +515,13 @@ workspaceInvitationsRouter.get('/:id', rejectTokenInUrl, requireUser, async (req
   return res.json({
     invitation: safe,
     deliveries: deliveries || [],
-    departmentIds: (departments || []).map((d: any) => d.department_id),
+    departmentIds: ((departments || []) as Array<{ department_id: string }>).map((d) => d.department_id),
   });
 });
 
 const editSchema = createSchema.omit({ workspaceId: true });
 
-workspaceInvitationsRouter.patch('/:id', requireOrigin, rejectTokenInUrl, requireUser, async (req: any, res) => {
+workspaceInvitationsRouter.patch('/:id', requireOrigin, rejectTokenInUrl, requireUser, async (req, res) => {
   const parsed = editSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: req.body?.requestId ? 'invalid_body' : 'REQUEST_ID_REQUIRED' });
@@ -501,7 +536,7 @@ workspaceInvitationsRouter.patch('/:id', requireOrigin, rejectTokenInUrl, requir
     operation: 'edit',
     scopeKind: 'invitation',
     requestId: body.requestId,
-    actorId: req.authUser.id,
+    actorId: authUserOf(req).id,
     invitationId: id,
     fingerprintInput: {
       invitationId: id,
@@ -543,7 +578,7 @@ workspaceInvitationsRouter.patch('/:id', requireOrigin, rejectTokenInUrl, requir
   return res.json({ invitation: outcome.result, replayed: false });
 });
 
-workspaceInvitationsRouter.post('/:id/resend', requireOrigin, rejectTokenInUrl, requireUser, async (req: any, res) => {
+workspaceInvitationsRouter.post('/:id/resend', requireOrigin, rejectTokenInUrl, requireUser, async (req, res) => {
   const config = cfg(req);
   const sb = getServiceClient(config);
   const id = String(req.params.id);
@@ -561,7 +596,7 @@ workspaceInvitationsRouter.post('/:id/resend', requireOrigin, rejectTokenInUrl, 
     operation: 'resend',
     scopeKind: 'invitation',
     requestId,
-    actorId: req.authUser.id,
+    actorId: authUserOf(req).id,
     invitationId: id,
     fingerprintInput: { invitationId: id },
     args: {
@@ -575,10 +610,10 @@ workspaceInvitationsRouter.post('/:id/resend', requireOrigin, rejectTokenInUrl, 
     return res.status(mapped.status).json({ error: mapped.code });
   }
   if (outcome.replayed) return res.json({ ...outcome.safeResult, replayed: true });
-  return res.json({ ...(outcome.result as any), replayed: false });
+  return res.json({ ...(outcome.result as RpcRecord | null), replayed: false });
 });
 
-workspaceInvitationsRouter.post('/:id/rotate-link', requireOrigin, rejectTokenInUrl, requireUser, async (req: any, res) => {
+workspaceInvitationsRouter.post('/:id/rotate-link', requireOrigin, rejectTokenInUrl, requireUser, async (req, res) => {
   const config = cfg(req);
   const id = String(req.params.id);
   const manualToken = randomToken();
@@ -589,7 +624,7 @@ workspaceInvitationsRouter.post('/:id/rotate-link', requireOrigin, rejectTokenIn
     operation: 'rotate',
     scopeKind: 'invitation',
     requestId,
-    actorId: req.authUser.id,
+    actorId: authUserOf(req).id,
     invitationId: id,
     fingerprintInput: { invitationId: id },
     args: {
@@ -613,13 +648,13 @@ workspaceInvitationsRouter.post('/:id/rotate-link', requireOrigin, rejectTokenIn
 
   const appBase = await resolveAppBaseUrl(config);
   return res.json({
-    ...(outcome.result as any),
+    ...(outcome.result as RpcRecord | null),
     manualLink: buildInviteUrl(appBase, manualToken, 'manual_handoff'),
     replayed: false,
   });
 });
 
-workspaceInvitationsRouter.post('/:id/revoke', requireOrigin, rejectTokenInUrl, requireUser, async (req: any, res) => {
+workspaceInvitationsRouter.post('/:id/revoke', requireOrigin, rejectTokenInUrl, requireUser, async (req, res) => {
   const config = cfg(req);
   const reason = String(req.body?.reason || '').trim();
   if (!reason) return res.status(400).json({ error: 'REVOKE_REASON_REQUIRED' });
@@ -630,7 +665,7 @@ workspaceInvitationsRouter.post('/:id/revoke', requireOrigin, rejectTokenInUrl, 
     operation: 'revoke',
     scopeKind: 'invitation',
     requestId,
-    actorId: req.authUser.id,
+    actorId: authUserOf(req).id,
     invitationId: String(req.params.id),
     fingerprintInput: { invitationId: String(req.params.id), reason },
     args: { reason },
@@ -644,7 +679,7 @@ workspaceInvitationsRouter.post('/:id/revoke', requireOrigin, rejectTokenInUrl, 
   return res.json({ invitation: outcome.result, replayed: false });
 });
 
-workspaceInvitationsRouter.post('/:id/archive', requireOrigin, rejectTokenInUrl, requireUser, async (req: any, res) => {
+workspaceInvitationsRouter.post('/:id/archive', requireOrigin, rejectTokenInUrl, requireUser, async (req, res) => {
   const requestId = readRequestId(req);
   if (!requestId) return res.status(400).json({ error: 'REQUEST_ID_REQUIRED' });
   const config = cfg(req);
@@ -653,7 +688,7 @@ workspaceInvitationsRouter.post('/:id/archive', requireOrigin, rejectTokenInUrl,
     operation: 'archive',
     scopeKind: 'invitation',
     requestId,
-    actorId: req.authUser.id,
+    actorId: authUserOf(req).id,
     invitationId: String(req.params.id),
     fingerprintInput: { invitationId: String(req.params.id) },
     args: {},
@@ -673,55 +708,39 @@ workspaceInvitationsRouter.post('/:id/archive', requireOrigin, rejectTokenInUrl,
  * Archiving only hid a row: its tokens, OTPs, jobs, deliveries and
  * idempotency records survived, so a later invitation to the same address kept
  * colliding with leftover state. Owners asked for real deletion, so this route
- * removes the invitation and every dependent record (the invitation-scoped
- * child tables cascade; consents and the idempotency book are cleared first).
+ * removes the invitation and every dependent record.
+ *
+ * The whole removal is ONE service_role RPC, `wi_delete_invitation`, in one
+ * transaction and the canonical lock order: authorisation, the accepted-
+ * invitation guard, the consent and idempotency-ledger cleanup, the delete
+ * itself (the invitation-scoped child tables cascade) and the audit row. The
+ * router never touches the ledger or the consent evidence directly.
  *
  * An ACCEPTED invitation is never deleted — the membership it produced
  * references it, and deleting it would rewrite the workspace's staff history.
  */
-workspaceInvitationsRouter.delete('/:id', requireOrigin, rejectTokenInUrl, requireUser, async (req: any, res) => {
+const DELETE_ERRORS: Record<string, { status: number; code: string }> = {
+  INVITATION_NOT_FOUND: { status: 404, code: 'INVITATION_NOT_FOUND' },
+  FORBIDDEN: { status: 403, code: 'FORBIDDEN' },
+  INVITATION_ALREADY_ACCEPTED: { status: 409, code: 'INVITATION_ALREADY_ACCEPTED' },
+};
+
+workspaceInvitationsRouter.delete('/:id', requireOrigin, rejectTokenInUrl, requireUser, async (req, res) => {
   const config = cfg(req);
-  const sb = getServiceClient(config);
   const id = String(req.params.id);
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'INVITATION_NOT_FOUND' });
 
-  const { data: inv } = await sb
-    .from('workspace_invitations')
-    .select('id, workspace_id, status')
-    .eq('id', id)
-    .maybeSingle();
-  if (!inv) return res.status(404).json({ error: 'INVITATION_NOT_FOUND' });
-
-  const { data: member } = await sb
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', inv.workspace_id)
-    .eq('user_id', req.authUser.id)
-    .maybeSingle();
-  if (!member || !['owner', 'admin'].includes(String(member.role))) {
-    return res.status(403).json({ error: 'FORBIDDEN' });
-  }
-
-  if (String(inv.status) === 'accepted') {
-    return res.status(409).json({ error: 'INVITATION_ALREADY_ACCEPTED' });
-  }
-
-  await sb.from('workspace_invitation_consents').delete().eq('invitation_id', id);
-  await sb.from('workspace_invitation_idempotency').delete().eq('invitation_id', id);
-
-  const { error } = await sb.from('workspace_invitations').delete().eq('id', id);
+  const { error } = await getServiceClient(config).rpc('wi_delete_invitation', {
+    _invitation_id: id,
+    _actor_id: authUserOf(req).id,
+  });
   if (error) {
-    console.error('[invitations] hard delete failed:', error.message);
+    const raw = String(error.message || '');
+    const known = Object.keys(DELETE_ERRORS).find((k) => raw.includes(k));
+    if (known) return res.status(DELETE_ERRORS[known].status).json({ error: DELETE_ERRORS[known].code });
+    console.error('[invitations] hard delete failed:', raw);
     return res.status(500).json({ error: 'INTERNAL_ERROR' });
   }
-
-  await sb.rpc('wi_audit', {
-    _workspace_id: inv.workspace_id,
-    _actor_id: req.authUser.id,
-    _action: 'invitation.deleted',
-    _invitation_id: null,
-    _metadata: { status: inv.status },
-  }).then(() => undefined, () => undefined);
 
   return res.json({ deleted: true });
 });
@@ -737,11 +756,17 @@ const tokenBody = z.object({
   purpose: z.enum(PURPOSES),
 });
 
+/** The workspace a preview projection belongs to, when there is one. */
+function workspaceIdOf(preview: unknown): string | null {
+  const id = field(preview, 'workspace_id');
+  return typeof id === 'string' ? id : null;
+}
+
 function tokenHashOf(token: string): string {
   return sha256Hex(token);
 }
 
-workspaceInvitationsRouter.post('/preview', requireOrigin, rejectTokenInUrl, publicLimiter, async (req: any, res) => {
+workspaceInvitationsRouter.post('/preview', requireOrigin, rejectTokenInUrl, publicLimiter, async (req, res) => {
   const parsed = tokenBody.safeParse(req.body);
   if (!parsed.success) return res.status(404).json(PUBLIC_ERROR);
   const config = cfg(req);
@@ -752,14 +777,14 @@ workspaceInvitationsRouter.post('/preview', requireOrigin, rejectTokenInUrl, pub
   });
   if (error || !data) return res.status(404).json(PUBLIC_ERROR);
 
-  const locale = await resolveEffectiveLocale(config, (data as any)?.workspace_id, req.body?.locale);
+  const locale = await resolveEffectiveLocale(config, workspaceIdOf(data), req.body?.locale);
   const policies = await activePolicyVersions(config, locale);
 
 
   return res.json({ preview: data, policies });
 });
 
-workspaceInvitationsRouter.post('/login-context', requireOrigin, rejectTokenInUrl, publicLimiter, async (req: any, res) => {
+workspaceInvitationsRouter.post('/login-context', requireOrigin, rejectTokenInUrl, publicLimiter, async (req, res) => {
   const parsed = tokenBody.safeParse(req.body);
   const requestId = readRequestId(req);
   if (!parsed.success || !requestId) return res.status(404).json(PUBLIC_ERROR);
@@ -794,14 +819,14 @@ workspaceInvitationsRouter.post('/login-context', requireOrigin, rejectTokenInUr
   });
 
   const invitationId = outcome.replayed
-    ? (outcome.safeResult as any).invitation_id
-    : (outcome.result as any)?.invitation_id;
+    ? field(outcome.safeResult, 'invitation_id')
+    : field(outcome.result, 'invitation_id');
 
   // The redirect URL carries NO token and no invitation secret.
   return res.json({ invitationId, loginPath: '/auth/login?invited=1', replayed: outcome.replayed });
 });
 
-workspaceInvitationsRouter.post('/context-preview', requireOrigin, rejectTokenInUrl, publicLimiter, async (req: any, res) => {
+workspaceInvitationsRouter.post('/context-preview', requireOrigin, rejectTokenInUrl, publicLimiter, async (req, res) => {
   const handle = req.cookies?.[CONTEXT_COOKIE_NAME];
   if (!handle) return res.status(404).json(PUBLIC_ERROR);
   const config = cfg(req);
@@ -809,13 +834,13 @@ workspaceInvitationsRouter.post('/context-preview', requireOrigin, rejectTokenIn
     _handle_hash: sha256Hex(String(handle)),
   });
   if (error || !data) return res.status(404).json(PUBLIC_ERROR);
-  const contextLocale = await resolveEffectiveLocale(config, (data as any)?.workspace_id, req.body?.locale);
+  const contextLocale = await resolveEffectiveLocale(config, workspaceIdOf(data), req.body?.locale);
   const policies = await activePolicyVersions(config, contextLocale);
 
   return res.json({ preview: data, policies });
 });
 
-workspaceInvitationsRouter.post('/otp/request', requireOrigin, rejectTokenInUrl, otpLimiter, async (req: any, res) => {
+workspaceInvitationsRouter.post('/otp/request', requireOrigin, rejectTokenInUrl, otpLimiter, async (req, res) => {
   const parsed = tokenBody.safeParse(req.body);
   const requestId = readRequestId(req);
   if (!parsed.success || !requestId || parsed.data.purpose !== 'manual_handoff') return res.status(404).json(PUBLIC_ERROR);
@@ -832,7 +857,7 @@ workspaceInvitationsRouter.post('/otp/request', requireOrigin, rejectTokenInUrl,
   });
   if (probeError || !probe) return res.status(404).json(PUBLIC_ERROR);
 
-  const invitationId = String((probe as any).invitation_id);
+  const invitationId = String(field(probe, 'invitation_id'));
   // Deterministic OTP identity + code (v5.1 B.5): the code is NEVER stored and
   // NEVER sent inline. It is re-derivable by the delivery worker from the OTP
   // id plus the process-local pepper, so a crash between commit and delivery
@@ -871,7 +896,7 @@ workspaceInvitationsRouter.post('/otp/request', requireOrigin, rejectTokenInUrl,
 
 const otpVerifySchema = tokenBody.extend({ code: z.string().trim().regex(/^\d{6}$/) });
 
-workspaceInvitationsRouter.post('/otp/verify', requireOrigin, rejectTokenInUrl, otpLimiter, async (req: any, res) => {
+workspaceInvitationsRouter.post('/otp/verify', requireOrigin, rejectTokenInUrl, otpLimiter, async (req, res) => {
   const parsed = otpVerifySchema.safeParse(req.body);
   const requestId = readRequestId(req);
   if (!parsed.success || !requestId || parsed.data.purpose !== 'manual_handoff') return res.status(404).json(PUBLIC_ERROR);
@@ -893,11 +918,11 @@ workspaceInvitationsRouter.post('/otp/verify', requireOrigin, rejectTokenInUrl, 
     operation: 'otp_verify' as const,
     scopeKind: 'public' as const,
     requestId,
-    invitationId: String((probe as any).invitation_id),
+    invitationId: String(field(probe, 'invitation_id')),
     // Keyed digest: an unkeyed hash of a six-digit code is brute-forceable.
     fingerprintInput: {
       tokenHash: invitationHash,
-      codeDigest: deriveIntentDigest('otp_code', `${String((probe as any).invitation_id)}|${parsed.data.code}`),
+      codeDigest: deriveIntentDigest('otp_code', `${String(field(probe, 'invitation_id'))}|${parsed.data.code}`),
     },
   };
 
@@ -932,7 +957,7 @@ workspaceInvitationsRouter.post('/otp/verify', requireOrigin, rejectTokenInUrl, 
     ...idempotentCall,
     args: {
       token_hash: invitationHash,
-      code_digest: otpDigest(String((probe as any).invitation_id), parsed.data.code, verifyKeyVersion),
+      code_digest: otpDigest(String(field(probe, 'invitation_id')), parsed.data.code, verifyKeyVersion),
       proof_hash: sha256Hex(proof),
       proof_expires_at: new Date(Date.now() + PROOF_TTL_MS).toISOString(),
     },
@@ -968,7 +993,7 @@ const acceptNewSchema = tokenBody.extend({
   requestId: z.string().trim().uuid(),
 });
 
-async function issueSessionFor(config: ServerConfig, req: any, res: any, userId: string): Promise<boolean> {
+async function issueSessionFor(config: ServerConfig, req: Request, res: Response, userId: string): Promise<boolean> {
   try {
     const sb = getServiceClient(config);
     const { data: profile } = await sb.from('profiles').select('email').eq('id', userId).maybeSingle();
@@ -985,7 +1010,7 @@ async function issueSessionFor(config: ServerConfig, req: any, res: any, userId:
   }
 }
 
-workspaceInvitationsRouter.post('/accept-new', requireOrigin, rejectTokenInUrl, acceptLimiter, async (req: any, res) => {
+workspaceInvitationsRouter.post('/accept-new', requireOrigin, rejectTokenInUrl, acceptLimiter, async (req, res) => {
   const parsed = acceptNewSchema.safeParse(req.body);
   if (!parsed.success) {
     const consentMissing = req.body?.consent !== true;
@@ -1015,7 +1040,7 @@ workspaceInvitationsRouter.post('/accept-new', requireOrigin, rejectTokenInUrl, 
   });
   const persistedLocale = await resolveEffectiveLocale(
     config,
-    (localeProbe as any)?.workspace_id,
+    workspaceIdOf(localeProbe),
     body.locale,
   );
 
@@ -1063,9 +1088,9 @@ workspaceInvitationsRouter.post('/accept-new', requireOrigin, rejectTokenInUrl, 
   // Replay of a committed acceptance: the membership/consent already exist, so
   // recover the logical result and mint a FRESH session for the same user
   // instead of failing with INVITATION_NOT_FOUND.
-  const safe = outcome.safeResult as any;
-  const result = (outcome.replayed ? safe : outcome.result) as any;
-  const recoveredUserId = String(result?.user_id || safe?.user_id || userId);
+  const safe: RpcRecord = outcome.safeResult;
+  const result = (outcome.replayed ? safe : outcome.result) as RpcRecord | null;
+  const recoveredUserId = String(field(result, 'user_id') || field(safe, 'user_id') || userId);
 
   const created = await issueSessionFor(config, req, res, recoveredUserId);
   if (!created) {
@@ -1086,7 +1111,7 @@ const acceptExistingSchema = z.object({
   requestId: z.string().trim().uuid(),
 });
 
-workspaceInvitationsRouter.post('/accept-existing', requireOrigin, rejectTokenInUrl, acceptLimiter, async (req: any, res) => {
+workspaceInvitationsRouter.post('/accept-existing', requireOrigin, rejectTokenInUrl, acceptLimiter, async (req, res) => {
   const parsed = acceptExistingSchema.safeParse(req.body);
   if (!parsed.success) {
     const consentMissing = req.body?.consent !== true;
@@ -1110,7 +1135,7 @@ workspaceInvitationsRouter.post('/accept-existing', requireOrigin, rejectTokenIn
   });
   const persistedLocale = await resolveEffectiveLocale(
     config,
-    (ctxProbe as any)?.workspace_id,
+    workspaceIdOf(ctxProbe),
     body.locale,
   );
 
@@ -1147,6 +1172,6 @@ workspaceInvitationsRouter.post('/accept-existing', requireOrigin, rejectTokenIn
   }
 
   res.clearCookie(CONTEXT_COOKIE_NAME, { path: '/' });
-  const payload = outcome.replayed ? outcome.safeResult : (outcome.result as any);
+  const payload = outcome.replayed ? outcome.safeResult : (outcome.result as RpcRecord | null);
   return res.json({ ...payload, replayed: outcome.replayed, session: 'existing' });
 });

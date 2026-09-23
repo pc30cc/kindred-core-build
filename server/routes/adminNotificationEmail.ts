@@ -89,8 +89,8 @@ adminNotificationEmailRouter.get('/', async (req, res) => {
         audience: NOTIFICATION_EMAILS[type].audience,
       })),
     });
-  } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Failed to load settings' });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: err instanceof Error && err.message ? err.message : 'Failed to load settings' });
   }
 });
 
@@ -121,8 +121,8 @@ adminNotificationEmailRouter.patch('/', async (req, res) => {
 
     invalidateNotificationEmailSettingsCache();
     return res.json({ settings: normalizeNotificationEmailSettings(data) });
-  } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Failed to update settings' });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: err instanceof Error && err.message ? err.message : 'Failed to update settings' });
   }
 });
 
@@ -163,15 +163,18 @@ adminNotificationEmailRouter.post('/announce', announceLimiter, async (req, res)
     // same body, same hour, same key, and the queue's index refuses the
     // second.
     const announcementId = `${Math.floor(Date.now() / 3_600_000)}:${hash(parsed.data.title + parsed.data.body)}`;
-    const queued = await queueProductUpdate(config, { ...parsed.data, announcementId });
+    // Spelled out: without strictNullChecks zod infers both fields as
+    // optional, though the schema requires them.
+    const { title, body } = parsed.data as { title: string; body: string };
+    const queued = await queueProductUpdate(config, { title, body, announcementId });
 
     // Straight into a dispatch pass rather than waiting for the ticker: an
     // admin who pressed send is watching.
     const sent = await dispatchNotificationEmails(config);
 
     return res.json({ queued, dispatched: sent });
-  } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Failed to send the announcement' });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: err instanceof Error && err.message ? err.message : 'Failed to send the announcement' });
   }
 });
 

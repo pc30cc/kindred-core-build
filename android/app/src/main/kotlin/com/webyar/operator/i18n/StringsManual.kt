@@ -215,4 +215,20 @@ object StrManual {
         Language.FA -> "به‌صورت خودکار ذخیره می‌شود"
         Language.TR -> "Otomatik kaydedilir"
     }
+
+    // Account: the password-reset confirmation and the delete-account block,
+    // hand-written because each takes a value as well as the language. The
+    // text is the iOS app's (Strings.swift), word for word.
+
+    fun resetSentDetail(l: Language, email: String): String = when (l) {
+        Language.EN -> "If {email} has an account, a link to choose a new password is on its way. It expires in 24 hours."
+        Language.FA -> "اگر {email} حسابی داشته باشد، پیوندی برای انتخاب رمز تازه در راه است. این پیوند تا ۲۴ ساعت اعتبار دارد."
+        Language.TR -> "{email} adresine ait bir hesap varsa, yeni parola seçmeniz için bir bağlantı yolda. Bağlantı 24 saat geçerlidir."
+    }.replace("{email}", email)
+
+    fun deleteAccountOwnsBody(l: Language, workspaces: String): String = when (l) {
+        Language.EN -> "You still own {workspaces}. Deleting your account would take the workspace and everything in it — every conversation, contact and invoice — with it, so ownership has to move to somebody else first. Support will do that for you, and then this will go through."
+        Language.FA -> "هنوز مالک {workspaces} هستید. حذف حسابتان فضای کاری و هر چیزی که در آن است — هر گفتگو، مخاطب و صورتحساب — را هم با خود می‌برد، پس اول باید مالکیت به شخص دیگری منتقل شود. پشتیبانی این کار را برایتان انجام می‌دهد و بعد از آن حذف انجام می‌شود."
+        Language.TR -> "Hâlâ {workspaces} alanının sahibisiniz. Hesabınızı silmek çalışma alanını ve içindeki her şeyi — her konuşmayı, kişiyi ve faturayı — birlikte götürür; bu yüzden önce sahipliğin başka birine geçmesi gerekir. Destek bunu sizin için yapar, sonra silme işlemi tamamlanır."
+    }.replace("{workspaces}", workspaces)
 }

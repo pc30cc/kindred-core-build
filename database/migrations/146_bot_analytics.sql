@@ -41,6 +41,7 @@ ALTER TABLE public.bot_log_imports ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.bot_log_imports FROM anon, authenticated;
 GRANT SELECT, INSERT, DELETE ON public.bot_log_imports TO service_role;
 
+DROP POLICY IF EXISTS "service role only" ON public.bot_log_imports;
 CREATE POLICY "service role only"
   ON public.bot_log_imports
   FOR ALL TO service_role USING (true) WITH CHECK (true);
@@ -76,6 +77,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+DROP POLICY IF EXISTS "service role only" ON public.bot_visits;
 CREATE POLICY "service role only"
   ON public.bot_visits
   FOR ALL TO service_role USING (true) WITH CHECK (true);

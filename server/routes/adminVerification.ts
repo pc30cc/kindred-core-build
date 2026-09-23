@@ -26,7 +26,7 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getClientIp } from '../utils/clientIp.js';
 import { hashIpForRateLimit } from '../services/verification/crypto.js';
-import { ALL_VERIFICATION_PURPOSES, PLATFORM_MAXIMUMS } from '../services/verification/types.js';
+import { ADMIN_MANAGED_VERIFICATION_PURPOSES, PLATFORM_MAXIMUMS } from '../services/verification/types.js';
 import {
   getAllPurposeOverviews,
   getPurposeOverview,
@@ -57,7 +57,6 @@ function adminIdOf(req: Request): string {
 function fail(res: Response, err: unknown) {
   if (err instanceof VerificationAdminError) return res.status(err.status).json({ error: err.code });
   if (err instanceof z.ZodError) return res.status(400).json({ error: 'VALIDATION_FAILED', details: err.flatten() });
-  // eslint-disable-next-line no-console
   console.error('[admin-verification] unexpected error:', err instanceof Error ? err.message : err);
   return res.status(500).json({ error: 'VERIFICATION_ADMIN_UNAVAILABLE' });
 }
@@ -70,7 +69,7 @@ const mutationLimiter = rateLimit({
   keyGenerator: (req) => `gv-admin:${(req as AdminRequest).adminUser?.id || ipKeyGenerator(req.ip || '')}`,
 });
 
-const purposeParamSchema = z.enum(ALL_VERIFICATION_PURPOSES as unknown as [string, ...string[]]);
+const purposeParamSchema = z.enum(ADMIN_MANAGED_VERIFICATION_PURPOSES as unknown as [string, ...string[]]);
 
 const settingsBodySchema = z.object({
   requestId: z.string().min(8).max(200),
@@ -100,7 +99,7 @@ const resetBodySchema = z.object({
 });
 
 const auditQuerySchema = z.object({
-  purpose: z.enum(ALL_VERIFICATION_PURPOSES as unknown as [string, ...string[]]).optional(),
+  purpose: z.enum(ADMIN_MANAGED_VERIFICATION_PURPOSES as unknown as [string, ...string[]]).optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
   before: z.string().datetime().optional(),
 });

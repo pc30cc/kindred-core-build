@@ -24,6 +24,8 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import { ensureAuthChainInstalled } from './authStubSchema';
 import type { PgQueryable } from './pgMigrationChain';
+import type { ServerConfig } from '../../../server/config.js';
+import { SUPPORTED_NOTIFICATION_LOCALES, renderOtpEmail } from '../../../server/services/invitations/notificationTemplates.js';
 
 const DSN = process.env.TEST_DATABASE_URL || process.env.CLEAN_INSTALL_DATABASE_URL;
 if (!DSN && process.env.REQUIRE_WI_DB === '1') {
@@ -50,8 +52,17 @@ vi.mock('../../../server/middleware/security.js', async (importOriginal) => {
   return { ...actual, authRateLimiter: passthrough };
 });
 
+/** The slice of an outbound e-mail request this suite asserts on. */
+interface SentEmailRequest {
+  to: string;
+  subject?: string;
+  text?: string;
+  templateSlug?: string;
+  templateData?: { action_url?: string };
+}
+
 vi.mock('../../../server/services/email/index.js', () => ({
-  sendEmail: async (_config: unknown, req: any) => {
+  sendEmail: async (_config: unknown, req: SentEmailRequest) => {
     capturedEmails.push({
       to: req.to,
       subject: req.subject,
@@ -62,6 +73,38 @@ vi.mock('../../../server/services/email/index.js', () => ({
     return { success: true };
   },
 }));
+
+type QueryError = { message: string; code?: string };
+type QueryResult = { data: unknown; error: QueryError | null };
+type QueryResolve = (value: QueryResult) => unknown;
+
+function queryFailure(e: unknown): QueryResult {
+  const err = e as { message?: string; code?: string };
+  return { data: null, error: { message: String(err?.message), code: err?.code } };
+}
+
+/** The chainable, awaitable PostgREST query builder surface the routes use. */
+interface QueryBuilder {
+  select(cols?: string): QueryBuilder;
+  eq(c: string, v: unknown): QueryBuilder;
+  neq(c: string, v: unknown): QueryBuilder;
+  is(c: string): QueryBuilder;
+  not(c: string, op: string): QueryBuilder;
+  in(c: string, v: unknown[]): QueryBuilder;
+  gt(c: string, v: unknown): QueryBuilder;
+  lte(c: string, v: unknown): QueryBuilder;
+  order(c: string, o?: { ascending?: boolean }): QueryBuilder;
+  limit(n: number): QueryBuilder;
+  insert(payload: Record<string, unknown> | Record<string, unknown>[]): {
+    select: () => { single: () => Promise<QueryResult> };
+    then: (resolve: QueryResolve) => Promise<unknown>;
+  };
+  update(patch: Record<string, unknown>): QueryBuilder;
+  delete(): QueryBuilder;
+  maybeSingle(): Promise<QueryResult>;
+  single(): Promise<QueryResult>;
+  then(resolve: QueryResolve): Promise<unknown>;
+}
 
 /**
  * PostgREST-shaped facade over the real connection. Only the transport is
@@ -87,7 +130,8 @@ function makePgServiceClient(pg: PgTestClient) {
     );
     const runUpdate = () => {
       const cols = Object.keys(state.patch!);
-      const setParams = cols.map((c) => (state.patch as any)[c]);
+      const patch = state.patch!;
+      const setParams = cols.map((c) => patch[c]);
       const setSql = cols.map((c, i) => `${c} = $${i + 1}`).join(', ');
       const shifted = state.wheres.map((w) => w.replace(/\$(\d+)/g, (_, n) => `$${Number(n) + setParams.length}`));
       return pg.query(
@@ -102,11 +146,11 @@ function makePgServiceClient(pg: PgTestClient) {
     const runInsert = (rows: Record<string, unknown>[]) => {
       const cols = Object.keys(rows[0]);
       const params: unknown[] = [];
-      const values = rows.map((row) => `(${cols.map((c) => { params.push((row as any)[c]); return `$${params.length}`; }).join(', ')})`);
+      const values = rows.map((row) => `(${cols.map((c) => { params.push(row[c]); return `$${params.length}`; }).join(', ')})`);
       return pg.query(`INSERT INTO public.${table} (${cols.join(', ')}) VALUES ${values.join(', ')} RETURNING *`, params);
     };
 
-    const builder: any = {
+    const builder: QueryBuilder = {
       select(cols?: string) { state.cols = cols || '*'; return builder; },
       eq(c: string, v: unknown) { state.wheres.push(`${c} = $${addParam(v)}`); return builder; },
       neq(c: string, v: unknown) { state.wheres.push(`${c} <> $${addParam(v)}`); return builder; },
@@ -124,32 +168,36 @@ function makePgServiceClient(pg: PgTestClient) {
           select: () => ({
             single: async () => {
               try { const r = await exec(); return { data: r.rows[0] ?? null, error: null }; }
-              catch (e: any) { return { data: null, error: { message: e.message, code: e.code } }; }
+              catch (e) { return queryFailure(e); }
             },
           }),
-          then: (resolve: any) => exec()
-            .then((r: any) => resolve({ data: r.rows, error: null }))
-            .catch((e: any) => { if (process.env.WI_TEST_DEBUG) console.error('[insert]', table, e.message); return resolve({ data: null, error: { message: e.message, code: e.code } }); }),
+          then: (resolve: QueryResolve) => exec()
+            .then((r) => resolve({ data: r.rows, error: null }))
+            .catch((e: unknown) => {
+              const failure = queryFailure(e);
+              if (process.env.WI_TEST_DEBUG) console.error('[insert]', table, failure.error?.message);
+              return resolve(failure);
+            }),
         };
       },
       update(patch: Record<string, unknown>) { state.patch = patch; return builder; },
       delete() { state.doDelete = true; return builder; },
       maybeSingle: async () => {
         try { const r = await runSelect(); return { data: r.rows[0] ?? null, error: null }; }
-        catch (e: any) { return { data: null, error: { message: e.message, code: e.code } }; }
+        catch (e) { return queryFailure(e); }
       },
       single: async () => {
         try {
           const r = state.patch ? await runUpdate() : state.doDelete ? await runDelete() : await runSelect();
           if (!r.rows[0]) return { data: null, error: { message: 'no rows' } };
           return { data: r.rows[0], error: null };
-        } catch (e: any) { return { data: null, error: { message: e.message, code: e.code } }; }
+        } catch (e) { return queryFailure(e); }
       },
-      then(resolve: any) {
+      then(resolve: QueryResolve) {
         const p = state.patch ? runUpdate() : state.doDelete ? runDelete() : runSelect();
         return p
-          .then((r: any) => resolve({ data: r.rows, error: null }))
-          .catch((e: any) => resolve({ data: null, error: { message: e.message, code: e.code } }));
+          .then((r) => resolve({ data: r.rows, error: null }))
+          .catch((e: unknown) => resolve(queryFailure(e)));
       },
     };
     return builder;
@@ -180,9 +228,10 @@ function makePgServiceClient(pg: PgTestClient) {
       }
       const r = await pg.query(`SELECT public.${name}(${argList}) AS result`, values);
       return { data: r.rows[0]?.result ?? null, error: null };
-    } catch (e: any) {
-      if (process.env.WI_TEST_DEBUG) console.error('[rpc]', name, e.message);
-      return { data: null, error: { message: e.message, code: e.code } };
+    } catch (e) {
+      const failure = queryFailure(e);
+      if (process.env.WI_TEST_DEBUG) console.error('[rpc]', name, failure.error?.message);
+      return failure;
     }
 
   }
@@ -202,11 +251,11 @@ const { workspacesRouter } = await import('../../../server/routes/workspaces.js'
 const { workspaceMembersRouter } = await import('../../../server/routes/workspaceMembers.js');
 const { workspaceInvitationsRouter } = await import('../../../server/routes/workspaceInvitations.js');
 
-const WORKER_CONFIG: any = {
+const WORKER_CONFIG = {
   supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', supabaseAnonKey: 'k',
   corsOrigins: [], port: 0, rateLimitWindowMs: 60_000, rateLimitMax: 100_000,
   selfHostBillingUnlimited: true,
-};
+} as unknown as ServerConfig;
 
 /**
  * v5.1 B.5: OTP codes are no longer e-mailed inline by the request path — the
@@ -221,7 +270,7 @@ async function drainOutbox(): Promise<void> {
     const { rows } = await db.query(
       `SELECT count(*)::int AS n FROM public.workspace_invitation_jobs WHERE status IN ('queued','retrying') AND available_at <= now()`,
     );
-    if (!Number((rows[0] as any).n)) return;
+    if (!Number((rows[0] as { n: number }).n)) return;
     await drainInvitationJobs(WORKER_CONFIG);
   }
 }
@@ -230,7 +279,7 @@ const ORIGIN = 'http://127.0.0.1';
 
 const app = express();
 app.use((req, _res, next) => {
-  (req as any).serverConfig = {
+  (req as express.Request & { serverConfig: unknown }).serverConfig = {
     supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', supabaseAnonKey: 'k',
     corsOrigins: [baseUrl], port: 0, rateLimitWindowMs: 60_000, rateLimitMax: 100_000,
     selfHostBillingUnlimited: true,
@@ -248,7 +297,11 @@ app.use('/api/workspace-invitations', workspaceInvitationsRouter);
 let server: http.Server;
 let baseUrl: string;
 
-type Res = { status: number; json: any; setCookie: string[] };
+/** Response JSON. Assertions reach into arbitrary shapes, so this stays
+ *  deliberately loose — but `unknown`-loose, not `any`-loose. */
+type JsonBody = Record<string, unknown>;
+
+type Res = { status: number; json: JsonBody; setCookie: string[] };
 
 function call(method: string, path: string, opts: { body?: unknown; cookie?: string; headers?: Record<string, string> } = {}): Promise<Res> {
   const payload = opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
@@ -269,7 +322,7 @@ function call(method: string, path: string, opts: { body?: unknown; cookie?: str
         let d = '';
         res.on('data', (c) => (d += c));
         res.on('end', () => {
-          let json: any = {};
+          let json: JsonBody = {};
           try { json = JSON.parse(d || '{}'); } catch { json = { raw: d }; }
           resolve({ status: res.statusCode || 0, json, setCookie: (res.headers['set-cookie'] as string[]) || [] });
         });
@@ -349,7 +402,7 @@ async function activePolicies() {
   const { rows } = await db.query(
     `SELECT policy_type, id FROM public.legal_policy_versions WHERE is_active = true AND effective_from <= now()`,
   );
-  const pick = (t: string) => rows.find((r: any) => r.policy_type === t)?.id;
+  const pick = (t: string) => rows.find((r) => r.policy_type === t)?.id as string | undefined;
   return { termsVersionId: pick('terms'), privacyVersionId: pick('privacy') };
 }
 
@@ -363,7 +416,7 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
     await db.query(`SELECT public.set_workspace_seat_entitlement_mode(_mode := 'self_host_unlimited', _source := 'test_bootstrap')`);
     server = http.createServer(app).listen(0);
     await new Promise<void>((r) => server.once('listening', () => r()));
-    baseUrl = `http://127.0.0.1:${(server.address() as any).port}`;
+    baseUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
     void ORIGIN;
   }, 180_000);
 
@@ -622,10 +675,10 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
 
     const list = await call('GET', `/api/workspace-invitations?workspaceId=${owner.workspaceId}`, { cookie: owner.cookie });
     expect(list.status).toBe(200);
-    expect(list.json.invitations.some((i: any) => i.id === id)).toBe(false);
+    expect((list.json.invitations as Array<{ id: string }>).some((i) => i.id === id)).toBe(false);
 
     const withArchived = await call('GET', `/api/workspace-invitations?workspaceId=${owner.workspaceId}&archived=1`, { cookie: owner.cookie });
-    expect(withArchived.json.invitations.some((i: any) => i.id === id)).toBe(true);
+    expect((withArchived.json.invitations as Array<{ id: string }>).some((i) => i.id === id)).toBe(true);
   }, 90_000);
 
   it('CASE 9 — an expired invitation cannot be previewed or accepted', async () => {
@@ -714,7 +767,7 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
   async function acceptWithLocale(
     ownerRec: { cookie: string; workspaceId: string },
     email: string,
-    extra: { locale?: string; acceptLanguage?: string },
+    extra: { locale?: string; acceptLanguage?: string; otpLocale: string },
   ): Promise<string | null> {
     capturedEmails = [];
     const body = invitePayload(ownerRec.workspaceId, { email });
@@ -726,7 +779,16 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
     capturedEmails = [];
     expect((await call('POST', '/api/workspace-invitations/otp/request', { body: { requestId: rid(), token, purpose: 'manual_handoff' } })).status).toBe(200);
     await drainOutbox();
-    const otpMail = capturedEmails.find((e) => /verification code/i.test(String(e.text)));
+    // The OTP mail is localized (fa/tr/en, notificationTemplates.ts) in the
+    // locale persisted for the invitation — which follows the same resolver:
+    // the configured site default, never the browser. Find it by its
+    // localized subject and check it went out in the expected language.
+    const otpSubjects = new Map(
+      SUPPORTED_NOTIFICATION_LOCALES.map((l) => [renderOtpEmail(l, '000000').subject, l] as const),
+    );
+    const otpMail = capturedEmails.find((e) => e.to?.toLowerCase() === email.toLowerCase() && otpSubjects.has(String(e.subject)));
+    expect(otpMail, `no OTP mail captured for ${email}`).toBeTruthy();
+    expect(otpSubjects.get(String(otpMail!.subject))).toBe(extra.otpLocale);
     const code = String(otpMail!.text).match(/(\d{6})/)![1];
     const verify = await call('POST', '/api/workspace-invitations/otp/verify', { body: { requestId: rid(), token, purpose: 'manual_handoff', code } });
     expect(verify.status).toBe(200);
@@ -759,6 +821,7 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
 
     const inherited = await acceptWithLocale(owner, `loc.fa.${Date.now()}@example.test`, {
       acceptLanguage: 'tr-TR,tr;q=0.9,en;q=0.8',
+      otpLocale: 'fa',
     });
     expect(inherited).toBe('fa');
   }, 120_000);
@@ -770,6 +833,9 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
     const chosen = await acceptWithLocale(owner, `loc.tr.${Date.now()}@example.test`, {
       locale: 'tr',
       acceptLanguage: 'fa-IR,fa;q=0.9',
+      // The OTP is requested before the explicit selection is made, so it
+      // still follows the fa site default.
+      otpLocale: 'fa',
     });
     expect(chosen).toBe('tr');
   }, 120_000);
@@ -825,5 +891,66 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
     // Privacy has no fa row: the resolver falls back within the SAME mechanism.
     expect(preview.json.policies.privacy.locale).toBe('en');
   }, 90_000);
+
+  /**
+   * Hard delete is ONE database transaction (wi_delete_invitation): the
+   * invitation, every cascading secret/job, its consent evidence and its
+   * idempotency-ledger rows go together, and the refusals leave everything
+   * in place.
+   */
+  it('DELETE — hard delete is atomic, owner/admin-only, and never removes an accepted invitation', async () => {
+    const owner = await makeOwner(`ownerDel.${Date.now()}@example.test`);
+    const stranger = await makeOwner(`strangerDel.${Date.now()}@example.test`);
+    await db.query(`UPDATE public.workspaces SET panel_locale = 'en', default_locale = 'en' WHERE id = $1`, [owner.workspaceId]);
+
+    const created = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: invitePayload(owner.workspaceId) });
+    expect(created.status).toBe(201);
+    const id = String((created.json.invitation as { id: string }).id);
+    // A second ledger-backed mutation, scoped to this invitation.
+    expect((await call('POST', `/api/workspace-invitations/${id}/resend`, { cookie: owner.cookie, body: { requestId: rid() } })).status).toBe(200);
+
+    const count = async (sql: string) => Number(((await db.query(sql, [id])).rows[0] as { n: number }).n);
+    const ledgerRows = () => count('SELECT count(*)::int AS n FROM public.workspace_invitation_idempotency WHERE invitation_id = $1');
+    const invitationRows = () => count('SELECT count(*)::int AS n FROM public.workspace_invitations WHERE id = $1');
+    expect(await ledgerRows()).toBeGreaterThan(0);
+    expect(await count('SELECT count(*)::int AS n FROM public.workspace_invitation_tokens WHERE invitation_id = $1')).toBeGreaterThan(0);
+
+    // Another workspace's owner is refused and nothing moves.
+    const foreign = await call('DELETE', `/api/workspace-invitations/${id}`, { cookie: stranger.cookie, body: {} });
+    expect(foreign.status).toBe(403);
+    expect(await invitationRows()).toBe(1);
+    expect(await ledgerRows()).toBeGreaterThan(0);
+
+    const deleted = await call('DELETE', `/api/workspace-invitations/${id}`, { cookie: owner.cookie, body: {} });
+    expect(deleted.status).toBe(200);
+    expect(deleted.json.deleted).toBe(true);
+    expect(await invitationRows()).toBe(0);
+    expect(await ledgerRows()).toBe(0);
+    for (const table of ['workspace_invitation_tokens', 'workspace_invitation_otps', 'workspace_invitation_jobs']) {
+      expect(await count(`SELECT count(*)::int AS n FROM public.${table} WHERE invitation_id = $1`), table).toBe(0);
+    }
+    expect(await count(
+      `SELECT count(*)::int AS n FROM public.audit_logs WHERE entity_id = $1 AND action = 'invitation.deleted'`,
+    )).toBe(1);
+
+    expect((await call('DELETE', `/api/workspace-invitations/${id}`, { cookie: owner.cookie, body: {} })).status).toBe(404);
+
+    // An accepted invitation is never deleted. (Marked accepted directly: the
+    // public accept flow is covered by CASE 5 and the LOCALE cases, and its
+    // per-IP OTP limiter is already spent by this point of the suite.)
+    const second = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: invitePayload(owner.workspaceId) });
+    expect(second.status).toBe(201);
+    const acceptedId = String((second.json.invitation as { id: string }).id);
+    await db.query(
+      `UPDATE public.workspace_invitations SET status = 'accepted', accepted_at = now(), accepted_by = $2 WHERE id = $1`,
+      [acceptedId, owner.userId],
+    );
+    const refused = await call('DELETE', `/api/workspace-invitations/${acceptedId}`, { cookie: owner.cookie, body: {} });
+    expect(refused.status).toBe(409);
+    expect(refused.json.error).toBe('INVITATION_ALREADY_ACCEPTED');
+    expect(Number(((await db.query(
+      'SELECT count(*)::int AS n FROM public.workspace_invitations WHERE id = $1', [acceptedId],
+    )).rows[0] as { n: number }).n)).toBe(1);
+  }, 180_000);
 });
 

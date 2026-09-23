@@ -46,6 +46,7 @@ ALTER TABLE public.email_threads ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.email_threads FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.email_threads TO service_role;
 
+DROP TRIGGER IF EXISTS email_threads_updated_at ON public.email_threads;
 CREATE TRIGGER email_threads_updated_at
   BEFORE UPDATE ON public.email_threads
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();

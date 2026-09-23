@@ -316,11 +316,8 @@ export async function resolveRealtimeBaseUrl(
     .eq('key', 'realtime_endpoint')
     .maybeSingle();
 
-  const url =
-    typeof (data?.value as any)?.url === 'string'
-      ? stripTrailingSlash((data!.value as any).url)
-      : null;
-  return url;
+  const raw = (data?.value as { url?: unknown } | null | undefined)?.url;
+  return typeof raw === 'string' ? stripTrailingSlash(raw) : null;
 }
 
 /**
@@ -410,7 +407,7 @@ const ICE_URL = /^(?:stun|stuns|turn|turns):[^\s/?#]+(?:\?transport=(?:udp|tcp))
  * operator to fill this in.
  *
  * It has happened: a hostname pasted here with no scheme took every call
- * down with `'turn.destekly.tr' is not a valid URL`. The field took it
+ * down with `'turn.example.com' is not a valid URL`. The field took it
  * because the only rule was "not empty".
  */
 export function assertUsableTurn(turn: Partial<CallTurnConfig> & { shared_secret?: unknown }): void {
@@ -458,7 +455,7 @@ export async function saveRtcEndpoints(
   const { error } = await sb
     .from('app_runtime_config')
     .upsert(
-      { key: RUNTIME_KEY, value: merged as any, updated_at: new Date().toISOString() },
+      { key: RUNTIME_KEY, value: merged as unknown as Record<string, unknown>, updated_at: new Date().toISOString() },
       { onConflict: 'key' },
     );
   if (error) throw new Error(error.message);

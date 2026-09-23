@@ -18,7 +18,8 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import {
-  ALL_VERIFICATION_PURPOSES, PLATFORM_MAXIMUMS, findPolicyWeakeningViolations, getAdminPolicyBaseline,
+  ADMIN_MANAGED_VERIFICATION_PURPOSES, PLATFORM_MAXIMUMS, findPolicyWeakeningViolations, getAdminPolicyBaseline,
+  isAdminManagedVerificationPurpose,
   type VerificationPurpose, type AdminPolicyBaseline,
 } from './types.js';
 
@@ -110,7 +111,7 @@ function mapRow(row: Record<string, unknown>): PurposeSettings {
 }
 
 function assertKnownPurpose(purpose: string): asserts purpose is VerificationPurpose {
-  if (!ALL_VERIFICATION_PURPOSES.includes(purpose as VerificationPurpose)) {
+  if (!isAdminManagedVerificationPurpose(purpose)) {
     throw new VerificationAdminError('PURPOSE_UNKNOWN', 404);
   }
 }
@@ -162,7 +163,7 @@ export async function getPurposeOverview(config: ServerConfig, purpose: string):
 }
 
 export async function getAllPurposeOverviews(config: ServerConfig): Promise<PurposeOverview[]> {
-  return Promise.all(ALL_VERIFICATION_PURPOSES.map((p) => getPurposeOverview(config, p)));
+  return Promise.all(ADMIN_MANAGED_VERIFICATION_PURPOSES.map((p) => getPurposeOverview(config, p)));
 }
 
 export interface UpdatePurposeSettingsInput {

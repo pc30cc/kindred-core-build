@@ -141,11 +141,16 @@ jobs:
       # backfill on top of billingEngineV2's own test mutations and trip its
       # data-integrity check. Both get a dedicated fresh database in the
       # ai-billing-db job below instead.
+      # billingEngineV2 / billingV2PhaseC / billingV2PhaseD0 replay the V2
+      # chain from 113 as well, and 113's CHECK constraints predate source
+      # values that later suites now write into billing_subscription_periods
+      # on the shared database. Each already runs on its own database in
+      # ai-billing-db, so they are excluded here rather than skipped.
       - name: Integration tests
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/app
-        run: bunx vitest run src/test/integration --exclude '**/aiKbTailMigrationCompatibility.pg.test.ts' --exclude '**/internalTestGatewayE2E.pg.test.ts' --exclude '**/billingProviderCredentialsMigration.pg.test.ts' --no-file-parallelism
+        run: bunx vitest run src/test/integration --exclude '**/aiKbTailMigrationCompatibility.pg.test.ts' --exclude '**/internalTestGatewayE2E.pg.test.ts' --exclude '**/billingProviderCredentialsMigration.pg.test.ts' --exclude '**/billingEngineV2.pg.test.ts' --exclude '**/billingV2PhaseC.pg.test.ts' --exclude '**/billingV2PhaseD0.pg.test.ts' --no-file-parallelism
 
   # MANDATORY financial gate. AI money invariants (advisory locks, immutable
   # usage ingestion, lot allocation, refunds, recovery lease, ACL) are proven
@@ -356,10 +361,19 @@ jobs:
           supabase --version
           docker version
 
+      # ghcr.io rate-limits shared runners ("toomanyrequests") before a single
+      # migration runs. The same official images are mirrored on
+      # public.ecr.aws, so a failed pull falls back there instead of failing
+      # the proof on registry load.
       - name: Start Supabase (database stack)
         run: |
           set -euo pipefail
-          supabase start -x realtime,storage-api,imgproxy,studio,edge-runtime,logflare,vector,supavisor,mailpit,postgres-meta
+          EXCLUDE=realtime,storage-api,imgproxy,studio,edge-runtime,logflare,vector,supavisor,mailpit,postgres-meta
+          if ! supabase start -x "$EXCLUDE"; then
+            echo '::warning::supabase start failed on the default registry; retrying from public.ecr.aws'
+            supabase stop --no-backup || true
+            SUPABASE_INTERNAL_IMAGE_REGISTRY=public.ecr.aws supabase start -x "$EXCLUDE"
+          fi
 
       - name: Reset database and apply every migration in timestamp order
         run: supabase db reset --debug

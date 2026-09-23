@@ -258,6 +258,16 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/190_storage_key_ownership.sql',
     hosted: 'supabase/migrations/20260916093000_storage_key_ownership.sql',
   },
+  {
+    label: '209 — invitation previews share wi_account_exists; atomic wi_delete_invitation',
+    selfHost: 'database/migrations/209_workspace_invitations_v51_account_exists_and_delete.sql',
+    hosted: 'supabase/migrations/20260923180000_workspace_invitations_v51_account_exists_and_delete.sql',
+  },
+  {
+    label: '210 — admin inventory RPCs executable by service_role only',
+    selfHost: 'database/migrations/210_admin_inventory_rpc_service_role_only.sql',
+    hosted: 'supabase/migrations/20260923190000_admin_inventory_rpc_service_role_only.sql',
+  },
 
   // intentionally asymmetric, not a drift bug.
 

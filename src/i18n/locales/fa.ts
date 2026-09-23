@@ -4450,6 +4450,8 @@ const fa: TranslationKeys = {
         imageUrlHint: "تصویر مربعی بهتر است. فقط HTTPS.",
         placements: "محل نمایش",
         placementRequired: "دست‌کم یک محل را انتخاب کنید.",
+        invalidUrl: "آدرس باید با https:// شروع شود (مثلاً https://webyar.ai).",
+        scheduleOrder: "زمان پایان باید بعد از زمان شروع باشد.",
         targetPlans: "پلن‌ها",
         targetPlansHint: "اگر هیچ پلنی را انتخاب نکنید، برای همهٔ پلن‌ها نمایش داده می‌شود.",
         startsAt: "شروع نمایش",

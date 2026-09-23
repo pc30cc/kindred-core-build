@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Globalization;
 using System.Text;
 
 namespace Webyar.Setup
@@ -38,12 +37,8 @@ namespace Webyar.Setup
             }
         }
 
-        /// <summary>The Windows display language when it is one of ours, Persian otherwise.</summary>
-        public static string SystemDefault()
-        {
-            var two = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
-            return two == "en" || two == "tr" ? two : "fa";
-        }
+        /// <summary>Persian, as the app itself starts; the picker in the corner switches.</summary>
+        public static string SystemDefault() => "fa";
 
         private static readonly Dictionary<string, string> Fa = new Dictionary<string, string>
         {

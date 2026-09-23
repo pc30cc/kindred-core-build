@@ -410,7 +410,7 @@ const ICE_URL = /^(?:stun|stuns|turn|turns):[^\s/?#]+(?:\?transport=(?:udp|tcp))
  * operator to fill this in.
  *
  * It has happened: a hostname pasted here with no scheme took every call
- * down with `'turn.destekly.tr' is not a valid URL`. The field took it
+ * down with `'turn.example.com' is not a valid URL`. The field took it
  * because the only rule was "not empty".
  */
 export function assertUsableTurn(turn: Partial<CallTurnConfig> & { shared_secret?: unknown }): void {

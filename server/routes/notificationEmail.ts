@@ -11,21 +11,28 @@
  * for a type Super Admin has turned off is the exact thing this whole piece
  * of work exists to stop.
  */
-import { Router } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
+import { requireUser as requireSessionUser, serverConfigOf } from '../lib/workspaceAuth.js';
 import { NOTIFICATION_EMAIL_TYPES } from '../services/notificationEmail/types.js';
 import { enabledTypes, loadNotificationEmailSettings } from '../services/notificationEmail/settings.js';
 
 export const notificationEmailRouter = Router();
 
-async function requireUser(req: any, res: any, next: any) {
+/** A request once `requireUser` has let it through. */
+type AuthedRequest = Request & { authUser?: { id: string } };
+
+async function requireUser(req: Request, res: Response, next: NextFunction) {
   const userId = await requireSessionUser(req, res);
   if (!userId) return;
-  req.authUser = { id: userId };
+  (req as AuthedRequest).authUser = { id: userId };
   next();
+}
+
+function messageOf(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback;
 }
 
 notificationEmailRouter.use(requireUser);
@@ -46,8 +53,8 @@ const updateSchema = z.object(
 // GET /api/notifications/email
 notificationEmailRouter.get('/', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const user = (req as any).authUser;
+    const config: ServerConfig = serverConfigOf(req);
+    const user = (req as AuthedRequest).authUser!;
     const sb = getServiceClient(config);
 
     const [settings, row] = await Promise.all([
@@ -63,18 +70,18 @@ notificationEmailRouter.get('/', async (req, res) => {
 
     return res.json({
       available: enabledTypes(settings),
-      prefs: { ...DEFAULTS, ...((row.data as Record<string, unknown>) || {}) },
+      prefs: { ...DEFAULTS, ...((row.data as unknown as Record<string, unknown> | null) || {}) },
     });
-  } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Failed to load email preferences' });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: messageOf(err, 'Failed to load email preferences') });
   }
 });
 
 // PATCH /api/notifications/email
 notificationEmailRouter.patch('/', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const user = (req as any).authUser;
+    const config: ServerConfig = serverConfigOf(req);
+    const user = (req as AuthedRequest).authUser!;
 
     const parsed = updateSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
@@ -106,9 +113,9 @@ notificationEmailRouter.patch('/', async (req, res) => {
 
     return res.json({
       available: enabledTypes(settings),
-      prefs: { ...DEFAULTS, ...((row.data as Record<string, unknown>) || {}) },
+      prefs: { ...DEFAULTS, ...((row.data as unknown as Record<string, unknown> | null) || {}) },
     });
-  } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Failed to update email preferences' });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: messageOf(err, 'Failed to update email preferences') });
   }
 });

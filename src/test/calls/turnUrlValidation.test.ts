@@ -10,7 +10,7 @@ const creds = { username: 'u', credential: 'p' };
  * entry here does not degrade a call — it throws before the widget reaches
  * signalling, and every visitor gets nothing. This has happened in
  * production: a hostname pasted with no scheme produced
- * `'turn.destekly.tr' is not a valid URL` on every attempt, because the only
+ * `'turn.example.com' is not a valid URL` on every attempt, because the only
  * rule the field had was "not empty".
  */
 describe('assertUsableTurn', () => {
@@ -36,7 +36,7 @@ describe('assertUsableTurn', () => {
 
   /** The exact value that took production down. */
   it('rejects a bare hostname', () => {
-    expect(() => assertUsableTurn({ urls: ['turn.destekly.tr'], ...creds })).toThrow(
+    expect(() => assertUsableTurn({ urls: ['turn.example.com'], ...creds })).toThrow(
       /not ice server urls/i,
     );
   });

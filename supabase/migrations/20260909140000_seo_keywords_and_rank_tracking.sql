@@ -38,10 +38,12 @@ CREATE TABLE IF NOT EXISTS public.platform_keywords_provider_config (
 GRANT ALL ON public.platform_keywords_provider_config TO service_role;
 ALTER TABLE public.platform_keywords_provider_config ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "service role only" ON public.platform_keywords_provider_config;
 CREATE POLICY "service role only"
   ON public.platform_keywords_provider_config
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 
+DROP TRIGGER IF EXISTS platform_keywords_provider_config_updated_at ON public.platform_keywords_provider_config;
 CREATE TRIGGER platform_keywords_provider_config_updated_at
   BEFORE UPDATE ON public.platform_keywords_provider_config
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
@@ -80,6 +82,7 @@ ALTER TABLE public.seo_keyword_research_runs ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.seo_keyword_research_runs FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.seo_keyword_research_runs TO service_role;
 
+DROP TRIGGER IF EXISTS seo_keyword_research_runs_updated_at ON public.seo_keyword_research_runs;
 CREATE TRIGGER seo_keyword_research_runs_updated_at
   BEFORE UPDATE ON public.seo_keyword_research_runs
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
@@ -130,10 +133,12 @@ CREATE TABLE IF NOT EXISTS public.platform_rank_tracking_provider_config (
 GRANT ALL ON public.platform_rank_tracking_provider_config TO service_role;
 ALTER TABLE public.platform_rank_tracking_provider_config ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "service role only" ON public.platform_rank_tracking_provider_config;
 CREATE POLICY "service role only"
   ON public.platform_rank_tracking_provider_config
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 
+DROP TRIGGER IF EXISTS platform_rank_tracking_provider_config_updated_at ON public.platform_rank_tracking_provider_config;
 CREATE TRIGGER platform_rank_tracking_provider_config_updated_at
   BEFORE UPDATE ON public.platform_rank_tracking_provider_config
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
@@ -169,6 +174,7 @@ ALTER TABLE public.seo_tracked_keywords ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.seo_tracked_keywords FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.seo_tracked_keywords TO service_role;
 
+DROP TRIGGER IF EXISTS seo_tracked_keywords_updated_at ON public.seo_tracked_keywords;
 CREATE TRIGGER seo_tracked_keywords_updated_at
   BEFORE UPDATE ON public.seo_tracked_keywords
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();

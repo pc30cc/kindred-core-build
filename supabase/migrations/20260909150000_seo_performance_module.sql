@@ -39,10 +39,12 @@ CREATE TABLE IF NOT EXISTS public.platform_performance_provider_config (
 GRANT ALL ON public.platform_performance_provider_config TO service_role;
 ALTER TABLE public.platform_performance_provider_config ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "service role only" ON public.platform_performance_provider_config;
 CREATE POLICY "service role only"
   ON public.platform_performance_provider_config
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 
+DROP TRIGGER IF EXISTS platform_performance_provider_config_updated_at ON public.platform_performance_provider_config;
 CREATE TRIGGER platform_performance_provider_config_updated_at
   BEFORE UPDATE ON public.platform_performance_provider_config
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
@@ -81,6 +83,7 @@ ALTER TABLE public.seo_performance_audits ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.seo_performance_audits FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.seo_performance_audits TO service_role;
 
+DROP TRIGGER IF EXISTS seo_performance_audits_updated_at ON public.seo_performance_audits;
 CREATE TRIGGER seo_performance_audits_updated_at
   BEFORE UPDATE ON public.seo_performance_audits
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();

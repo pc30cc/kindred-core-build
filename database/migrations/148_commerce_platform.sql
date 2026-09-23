@@ -77,6 +77,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS commerce_connections_store_unique
 ALTER TABLE public.commerce_connections ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.commerce_connections FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.commerce_connections TO service_role;
+DROP POLICY IF EXISTS "service role only" ON public.commerce_connections;
 CREATE POLICY "service role only" ON public.commerce_connections FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ── Pairing (authorization-code + PKCE state) ──────────────────────────
@@ -105,6 +106,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS commerce_pairing_requests_code_unique
 ALTER TABLE public.commerce_pairing_requests ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.commerce_pairing_requests FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.commerce_pairing_requests TO service_role;
+DROP POLICY IF EXISTS "service role only" ON public.commerce_pairing_requests;
 CREATE POLICY "service role only" ON public.commerce_pairing_requests FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ── Signed-request replay guard ────────────────────────────────────────
@@ -120,6 +122,7 @@ CREATE INDEX IF NOT EXISTS commerce_nonce_cache_seen_idx ON public.commerce_nonc
 ALTER TABLE public.commerce_nonce_cache ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.commerce_nonce_cache FROM anon, authenticated;
 GRANT SELECT, INSERT, DELETE ON public.commerce_nonce_cache TO service_role;
+DROP POLICY IF EXISTS "service role only" ON public.commerce_nonce_cache;
 CREATE POLICY "service role only" ON public.commerce_nonce_cache FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ── Canonical product index ────────────────────────────────────────────
@@ -187,6 +190,7 @@ CREATE TRIGGER commerce_products_search_text
 ALTER TABLE public.commerce_products ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.commerce_products FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.commerce_products TO service_role;
+DROP POLICY IF EXISTS "service role only" ON public.commerce_products;
 CREATE POLICY "service role only" ON public.commerce_products FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- Version-aware, single-statement, race-free upsert. An incoming write
@@ -324,6 +328,7 @@ CREATE INDEX IF NOT EXISTS commerce_variants_workspace_idx ON public.commerce_pr
 ALTER TABLE public.commerce_product_variants ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.commerce_product_variants FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.commerce_product_variants TO service_role;
+DROP POLICY IF EXISTS "service role only" ON public.commerce_product_variants;
 CREATE POLICY "service role only" ON public.commerce_product_variants FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- Same version-aware race-free upsert pattern as commerce_upsert_product.
@@ -430,6 +435,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS commerce_sync_jobs_one_active
 ALTER TABLE public.commerce_sync_jobs ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.commerce_sync_jobs FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.commerce_sync_jobs TO service_role;
+DROP POLICY IF EXISTS "service role only" ON public.commerce_sync_jobs;
 CREATE POLICY "service role only" ON public.commerce_sync_jobs FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- Atomic lease claim: FOR UPDATE SKIP LOCKED means two worker processes
@@ -482,6 +488,7 @@ CREATE TABLE IF NOT EXISTS public.commerce_sync_cursors (
 ALTER TABLE public.commerce_sync_cursors ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.commerce_sync_cursors FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.commerce_sync_cursors TO service_role;
+DROP POLICY IF EXISTS "service role only" ON public.commerce_sync_cursors;
 CREATE POLICY "service role only" ON public.commerce_sync_cursors FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ── Event idempotency ledger ────────────────────────────────────────────
@@ -505,6 +512,7 @@ CREATE INDEX IF NOT EXISTS commerce_event_receipts_connection_idx
 ALTER TABLE public.commerce_event_receipts ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.commerce_event_receipts FROM anon, authenticated;
 GRANT SELECT, INSERT ON public.commerce_event_receipts TO service_role;
+DROP POLICY IF EXISTS "service role only" ON public.commerce_event_receipts;
 CREATE POLICY "service role only" ON public.commerce_event_receipts FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ── Customer identity bridge ────────────────────────────────────────────
@@ -529,6 +537,7 @@ CREATE INDEX IF NOT EXISTS commerce_customer_links_expiry_idx
 ALTER TABLE public.commerce_customer_links ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.commerce_customer_links FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.commerce_customer_links TO service_role;
+DROP POLICY IF EXISTS "service role only" ON public.commerce_customer_links;
 CREATE POLICY "service role only" ON public.commerce_customer_links FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ── AI tool execution audit (safe metadata only — see SECURITY.md) ─────
@@ -556,4 +565,5 @@ CREATE INDEX IF NOT EXISTS commerce_tool_audit_conversation_idx
 ALTER TABLE public.commerce_tool_audit ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.commerce_tool_audit FROM anon, authenticated;
 GRANT SELECT, INSERT ON public.commerce_tool_audit TO service_role;
+DROP POLICY IF EXISTS "service role only" ON public.commerce_tool_audit;
 CREATE POLICY "service role only" ON public.commerce_tool_audit FOR ALL TO service_role USING (true) WITH CHECK (true);

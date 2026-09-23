@@ -76,11 +76,18 @@ CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$ SE
 -- Authorization helpers used by the chain's RLS policies. In the test scaffold
 -- they are deliberately deny-by-default: the suites exercise money invariants
 -- through service-role RPCs, never through an end-user session.
-CREATE OR REPLACE FUNCTION public.get_workspace_role(p_workspace_id uuid, p_user_id uuid)
-RETURNS text LANGUAGE sql STABLE AS $$
-  SELECT role FROM public.workspace_members
-   WHERE workspace_id = p_workspace_id AND user_id = p_user_id LIMIT 1
-$$;
+-- Only when missing: on a database that already carries the real chain (the
+-- shared integration database) the real helper returns workspace_role, and
+-- redefining it as text would fail with "cannot change return type".
+DO $bootstrap$ BEGIN
+  IF to_regprocedure('public.get_workspace_role(uuid,uuid)') IS NULL THEN
+    CREATE FUNCTION public.get_workspace_role(p_workspace_id uuid, p_user_id uuid)
+    RETURNS text LANGUAGE sql STABLE AS $fn$
+      SELECT role FROM public.workspace_members
+       WHERE workspace_id = p_workspace_id AND user_id = p_user_id LIMIT 1
+    $fn$;
+  END IF;
+END $bootstrap$;
 
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'app_role') THEN

@@ -43,6 +43,7 @@ ALTER TABLE public.seo_explorer_competitor_scans ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.seo_explorer_competitor_scans FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.seo_explorer_competitor_scans TO service_role;
 
+DROP TRIGGER IF EXISTS seo_explorer_competitor_scans_updated_at ON public.seo_explorer_competitor_scans;
 CREATE TRIGGER seo_explorer_competitor_scans_updated_at
   BEFORE UPDATE ON public.seo_explorer_competitor_scans
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();

@@ -37,6 +37,7 @@ GRANT ALL ON public.platform_backlinks_provider_config TO service_role;
 
 ALTER TABLE public.platform_backlinks_provider_config ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "service role only" ON public.platform_backlinks_provider_config;
 CREATE POLICY "service role only"
   ON public.platform_backlinks_provider_config
   FOR ALL
@@ -44,6 +45,7 @@ CREATE POLICY "service role only"
   USING (true)
   WITH CHECK (true);
 
+DROP TRIGGER IF EXISTS platform_backlinks_provider_config_updated_at ON public.platform_backlinks_provider_config;
 CREATE TRIGGER platform_backlinks_provider_config_updated_at
   BEFORE UPDATE ON public.platform_backlinks_provider_config
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
@@ -87,6 +89,7 @@ ALTER TABLE public.seo_backlink_scans ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.seo_backlink_scans FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.seo_backlink_scans TO service_role;
 
+DROP TRIGGER IF EXISTS seo_backlink_scans_updated_at ON public.seo_backlink_scans;
 CREATE TRIGGER seo_backlink_scans_updated_at
   BEFORE UPDATE ON public.seo_backlink_scans
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();

@@ -55,6 +55,7 @@ ALTER TABLE public.seo_gsc_oauth_states ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.seo_gsc_oauth_states FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.seo_gsc_oauth_states TO service_role;
 
+DROP POLICY IF EXISTS "service role only" ON public.seo_gsc_oauth_states;
 CREATE POLICY "service role only"
   ON public.seo_gsc_oauth_states
   FOR ALL TO service_role USING (true) WITH CHECK (true);
@@ -82,10 +83,12 @@ ALTER TABLE public.seo_gsc_connections ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.seo_gsc_connections FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.seo_gsc_connections TO service_role;
 
+DROP POLICY IF EXISTS "service role only" ON public.seo_gsc_connections;
 CREATE POLICY "service role only"
   ON public.seo_gsc_connections
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 
+DROP TRIGGER IF EXISTS seo_gsc_connections_updated_at ON public.seo_gsc_connections;
 CREATE TRIGGER seo_gsc_connections_updated_at
   BEFORE UPDATE ON public.seo_gsc_connections
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
@@ -117,6 +120,7 @@ ALTER TABLE public.seo_gsc_properties ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.seo_gsc_properties FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.seo_gsc_properties TO service_role;
 
+DROP POLICY IF EXISTS "service role only" ON public.seo_gsc_properties;
 CREATE POLICY "service role only"
   ON public.seo_gsc_properties
   FOR ALL TO service_role USING (true) WITH CHECK (true);
@@ -146,6 +150,7 @@ ALTER TABLE public.seo_gsc_query_cache ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.seo_gsc_query_cache FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.seo_gsc_query_cache TO service_role;
 
+DROP POLICY IF EXISTS "service role only" ON public.seo_gsc_query_cache;
 CREATE POLICY "service role only"
   ON public.seo_gsc_query_cache
   FOR ALL TO service_role USING (true) WITH CHECK (true);

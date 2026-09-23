@@ -88,6 +88,7 @@ ALTER TABLE public.web_analytics_events ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.web_analytics_events FROM anon, authenticated;
 GRANT SELECT, INSERT ON public.web_analytics_events TO service_role;
 
+DROP POLICY IF EXISTS "service role only" ON public.web_analytics_events;
 CREATE POLICY "service role only"
   ON public.web_analytics_events
   FOR ALL TO service_role USING (true) WITH CHECK (true);
@@ -116,10 +117,12 @@ ALTER TABLE public.web_analytics_funnels ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.web_analytics_funnels FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.web_analytics_funnels TO service_role;
 
+DROP POLICY IF EXISTS "service role only" ON public.web_analytics_funnels;
 CREATE POLICY "service role only"
   ON public.web_analytics_funnels
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 
+DROP TRIGGER IF EXISTS web_analytics_funnels_updated_at ON public.web_analytics_funnels;
 CREATE TRIGGER web_analytics_funnels_updated_at
   BEFORE UPDATE ON public.web_analytics_funnels
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();

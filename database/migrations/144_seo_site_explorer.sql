@@ -64,6 +64,7 @@ ALTER TABLE public.seo_explorer_backlink_scans ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.seo_explorer_backlink_scans FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.seo_explorer_backlink_scans TO service_role;
 
+DROP TRIGGER IF EXISTS seo_explorer_backlink_scans_updated_at ON public.seo_explorer_backlink_scans;
 CREATE TRIGGER seo_explorer_backlink_scans_updated_at
   BEFORE UPDATE ON public.seo_explorer_backlink_scans
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
@@ -135,6 +136,7 @@ ALTER TABLE public.seo_explorer_keyword_scans ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.seo_explorer_keyword_scans FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.seo_explorer_keyword_scans TO service_role;
 
+DROP TRIGGER IF EXISTS seo_explorer_keyword_scans_updated_at ON public.seo_explorer_keyword_scans;
 CREATE TRIGGER seo_explorer_keyword_scans_updated_at
   BEFORE UPDATE ON public.seo_explorer_keyword_scans
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();

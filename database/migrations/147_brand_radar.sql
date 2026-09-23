@@ -37,10 +37,12 @@ ALTER TABLE public.brand_radar_settings ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.brand_radar_settings FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.brand_radar_settings TO service_role;
 
+DROP POLICY IF EXISTS "service role only" ON public.brand_radar_settings;
 CREATE POLICY "service role only"
   ON public.brand_radar_settings
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 
+DROP TRIGGER IF EXISTS brand_radar_settings_updated_at ON public.brand_radar_settings;
 CREATE TRIGGER brand_radar_settings_updated_at
   BEFORE UPDATE ON public.brand_radar_settings
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
@@ -63,6 +65,7 @@ ALTER TABLE public.brand_radar_topics ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.brand_radar_topics FROM anon, authenticated;
 GRANT SELECT, INSERT, DELETE ON public.brand_radar_topics TO service_role;
 
+DROP POLICY IF EXISTS "service role only" ON public.brand_radar_topics;
 CREATE POLICY "service role only"
   ON public.brand_radar_topics
   FOR ALL TO service_role USING (true) WITH CHECK (true);
@@ -93,6 +96,7 @@ ALTER TABLE public.brand_radar_ai_checks ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.brand_radar_ai_checks FROM anon, authenticated;
 GRANT SELECT, INSERT, DELETE ON public.brand_radar_ai_checks TO service_role;
 
+DROP POLICY IF EXISTS "service role only" ON public.brand_radar_ai_checks;
 CREATE POLICY "service role only"
   ON public.brand_radar_ai_checks
   FOR ALL TO service_role USING (true) WITH CHECK (true);
@@ -118,6 +122,7 @@ ALTER TABLE public.brand_radar_web_checks ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.brand_radar_web_checks FROM anon, authenticated;
 GRANT SELECT, INSERT, DELETE ON public.brand_radar_web_checks TO service_role;
 
+DROP POLICY IF EXISTS "service role only" ON public.brand_radar_web_checks;
 CREATE POLICY "service role only"
   ON public.brand_radar_web_checks
   FOR ALL TO service_role USING (true) WITH CHECK (true);

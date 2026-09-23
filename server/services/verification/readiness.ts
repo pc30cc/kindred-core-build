@@ -11,7 +11,7 @@ import { getServiceClient } from '../../supabase.js';
 import { getVerificationCryptoReadiness } from './crypto.js';
 import { getSmsProviderInfo } from '../sms/index.js';
 import type { SmsProviderInfo } from '../sms/types.js';
-import { ALL_VERIFICATION_PURPOSES, type VerificationPurpose } from './types.js';
+import { ADMIN_MANAGED_VERIFICATION_PURPOSES, type VerificationPurpose } from './types.js';
 import { getAllPurposeOverviews, type PurposeOverview } from './adminSettings.js';
 
 /**
@@ -158,7 +158,7 @@ export async function getReadinessSnapshot(config: ServerConfig): Promise<Readin
   ]);
 
   const purposeMap = new Map(overviews.map((o) => [o.purpose, o]));
-  const purposes = ALL_VERIFICATION_PURPOSES.map((purpose) => {
+  const purposes = ADMIN_MANAGED_VERIFICATION_PURPOSES.map((purpose) => {
     const overview = purposeMap.get(purpose);
     return {
       purpose,

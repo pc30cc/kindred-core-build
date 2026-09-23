@@ -40,7 +40,9 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } 
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { ensureAuthChainInstalled } from './authStubSchema';
+import type { PoolClient } from 'pg';
 import type { PgQueryable } from './pgMigrationChain';
+import type { ServerConfig } from '../../../server/config';
 
 const DSN = process.env.TEST_DATABASE_URL || process.env.CLEAN_INSTALL_DATABASE_URL;
 if (!DSN && process.env.REQUIRE_GV_DB === '1') {
@@ -54,19 +56,37 @@ const suite = DSN ? describe : describe.skip;
 /**
  * `pg` cannot infer a row shape from a SQL string. The shared migration helper
  * deliberately exposes rows as `unknown`, while this acceptance suite reads
- * many ad-hoc scalar/JSON projections. Keep the permissive default local to
- * this test client (callers can still supply an explicit row type) instead of
- * weakening `PgQueryable` for every integration suite.
+ * many ad-hoc scalar/JSON projections. Callers that read a row's fields as
+ * concrete types supply an explicit row type (e.g. `db.query<ChallengeKeyRow>`);
+ * the default stays `unknown`-valued, like `PgQueryable`.
  */
 type PgTestClient = Omit<PgQueryable, 'query'> & {
-  query<Row extends Record<string, any> = Record<string, any>>(
+  query<Row extends object = Record<string, unknown>>(
     text: string,
     values?: unknown[],
   ): Promise<{ rows: Row[]; rowCount: number | null }>;
   end(): Promise<void>;
-  connect?(): Promise<any>;
+  connect(): Promise<PoolClient>;
 };
 let db: PgTestClient;
+
+/** A thrown `pg` error: only the fields the test adapter forwards. */
+interface PgErrorLike { message: string; code?: string }
+function pgErrorOf(e: unknown): PgErrorLike {
+  const err = e as Partial<PgErrorLike>;
+  return { message: String(err?.message ?? e), code: err?.code };
+}
+
+interface QueryBuilder {
+  select(cols?: string): QueryBuilder;
+  eq(col: string, val: unknown): QueryBuilder;
+  maybeSingle(): Promise<{ data: Record<string, unknown> | null; error: PgErrorLike | null }>;
+}
+
+/** The key-derivation inputs a challenge row records (what deriveOtpCode/candidateOtpDigest take). */
+interface ChallengeKeyRow { id: string; generation: number; key_version: number; destination_hash: string }
+/** The jsonb envelope returned by gv_prepare_/gv_finalize_verification_delivery. */
+interface DeliveryRpcRow { result: { attemptToken?: string; status?: string; applied?: boolean; reason?: string } }
 
 process.env.GENERIC_VERIFICATION_PEPPER ||= 'test-gv-pepper-value-at-least-32-bytes!!';
 
@@ -104,7 +124,7 @@ function makePgServiceClient(pg: PgTestClient) {
   function from(table: string) {
     const state: { cols: string; wheres: string[]; params: unknown[] } = { cols: '*', wheres: [], params: [] };
     function addParam(v: unknown): number { state.params.push(v); return state.params.length; }
-    const builder: any = {
+    const builder: QueryBuilder = {
       select(cols?: string) { state.cols = cols || '*'; return builder; },
       eq(col: string, val: unknown) { state.wheres.push(`${col} = $${addParam(val)}`); return builder; },
       maybeSingle: async () => {
@@ -112,8 +132,8 @@ function makePgServiceClient(pg: PgTestClient) {
         try {
           const r = await pg.query(`SELECT ${state.cols} FROM public.${table}${where}`, state.params);
           return { data: r.rows[0] ?? null, error: null };
-        } catch (e: any) {
-          return { data: null, error: { message: e.message, code: e.code } };
+        } catch (e) {
+          return { data: null, error: pgErrorOf(e) };
         }
       },
     };
@@ -170,8 +190,8 @@ function makePgServiceClient(pg: PgTestClient) {
         default:
           return { data: null, error: { message: `unhandled rpc in test adapter: ${name}` } };
       }
-    } catch (e: any) {
-      return { data: null, error: { message: e.message, code: e.code } };
+    } catch (e) {
+      return { data: null, error: pgErrorOf(e) };
     }
   }
 
@@ -189,10 +209,10 @@ const {
   __clearAllPurposePolicyOverridesForTests,
 } = await import('../../../server/services/verification/types');
 
-const config: any = {
+const config = {
   supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'], port: 0,
   supabaseAnonKey: 'k', rateLimitWindowMs: 60000, rateLimitMax: 10000, selfHostBillingUnlimited: false,
-};
+} as unknown as ServerConfig;
 
 function newIdempotencyKey(): string { return randomUUID(); }
 function newRequestId(): string { return randomUUID(); }
@@ -300,11 +320,14 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
   });
 
   // ── A. disabled-purpose fail-closed with zero writes (TypeScript layer) ──
+  // Uses signup_phone: it still ships `enabled: false` in the registry.
+  // (signup_email, which this test originally used, is now a LIVE purpose —
+  // the self-hosted signup email OTP, server/services/auth/emailOtp.ts.)
   it('A: a disabled purpose writes zero challenge rows, zero delivery-attempt rows, and contacts no provider', async () => {
     const before = await db.query(`SELECT count(*)::int AS n FROM public.verification_challenges`);
     await expect(
       svc.requestVerificationChallenge(config, {
-        purpose: 'signup_email', channel: 'email', destination: 'nobody@example.test', subjectKind: 'pending_account',
+        purpose: 'signup_phone', channel: 'sms', destination: '09121230001', subjectKind: 'pending_account',
         idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.1' },
       }),
     ).rejects.toThrow(/disabled/i);
@@ -350,14 +373,37 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
   });
 
   it('X2: internal functions are unreachable directly, even by service_role — only their public wrappers can invoke them', async () => {
-    const client = await (db as unknown as { connect(): Promise<any> }).connect();
+    const client = await db.connect();
     try {
       await client.query('SET ROLE service_role');
       await expect(client.query(`SELECT public._gv_do_request($1)`, [{}])).rejects.toThrow(/permission denied/i);
       await expect(client.query(`SELECT public._gv_do_resend($1)`, [{}])).rejects.toThrow(/permission denied/i);
       await expect(client.query(`SELECT public._gv_do_verify($1)`, [{}])).rejects.toThrow(/permission denied/i);
       await expect(client.query(`SELECT public._gv_do_revoke($1)`, [{}])).rejects.toThrow(/permission denied/i);
-      await expect(client.query(`SELECT public.gv_is_purpose_enabled($1)`, ['x'])).rejects.toThrow(/permission denied/i);
+    } finally {
+      await client.query('RESET ROLE');
+      client.release();
+    }
+  });
+
+  // gv_is_purpose_enabled is NOT an internal function: it is the read-only
+  // dormancy gate the backend's readiness/admin-gate probes call over RPC
+  // (server/services/verification/{readiness,adminSettings}.ts).
+  // database/migrations/102_gv_is_purpose_enabled_service_role_grant.sql
+  // deliberately grants service_role EXECUTE on it (the ACL lockdown had
+  // broken the Super Admin "Verification & OTP" page) while keeping it
+  // revoked from PUBLIC, anon and authenticated.
+  it('X2b: gv_is_purpose_enabled is executable by service_role only — never by anon or authenticated', async () => {
+    const client = await db.connect();
+    try {
+      await client.query('SET ROLE service_role');
+      const res = await client.query<{ enabled: boolean }>(`SELECT public.gv_is_purpose_enabled($1) AS enabled`, ['x']);
+      expect(res.rows[0].enabled).toBe(false);
+      for (const role of ['anon', 'authenticated']) {
+        await client.query('RESET ROLE');
+        await client.query(`SET ROLE ${role}`);
+        await expect(client.query(`SELECT public.gv_is_purpose_enabled($1)`, ['x'])).rejects.toThrow(/permission denied/i);
+      }
     } finally {
       await client.query('RESET ROLE');
       client.release();
@@ -469,7 +515,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
     });
     expect(req.deliveryOutcome).toBe('provider_accepted');
 
-    const row = await db.query(`SELECT generation, key_version, destination_hash FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
+    const row = await db.query<ChallengeKeyRow>(`SELECT generation, key_version, destination_hash FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
     const { deriveOtpCode } = await import('../../../server/services/verification/crypto');
     const code = deriveOtpCode(
       { purpose: 'signup_phone', channel: 'sms', challengeHandle: req.handle, generation: row.rows[0].generation, destinationHash: row.rows[0].destination_hash },
@@ -553,7 +599,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       purpose: 'signup_phone', channel: 'sms', destination: '09121230107', subjectKind: 'pending_account',
       idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.8' },
     });
-    const row = await db.query(`SELECT generation, key_version, destination_hash FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
+    const row = await db.query<ChallengeKeyRow>(`SELECT generation, key_version, destination_hash FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
     const { deriveOtpCode } = await import('../../../server/services/verification/crypto');
     const code = deriveOtpCode({ purpose: 'signup_phone', channel: 'sms', challengeHandle: req.handle, generation: row.rows[0].generation, destinationHash: row.rows[0].destination_hash }, row.rows[0].key_version, 6);
     const verified = await svc.verifyVerificationChallenge(config, { handle: req.handle, code, purpose: 'signup_phone', channel: 'sms', requestId: newRequestId(), requester: { ipAddress: '203.0.113.8' } });
@@ -579,7 +625,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       purpose: 'login_step_up', channel: 'email', destination: 'tenant-iso@example.test', subjectKind: 'user',
       subjectRef: ownerId, workspaceId: wsA, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.9', authenticatedUserId: ownerId },
     });
-    const row = await db.query(`SELECT generation, key_version, destination_hash FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
+    const row = await db.query<ChallengeKeyRow>(`SELECT generation, key_version, destination_hash FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
     const { deriveOtpCode } = await import('../../../server/services/verification/crypto');
     const code = deriveOtpCode({ purpose: 'login_step_up', channel: 'email', challengeHandle: req.handle, generation: row.rows[0].generation, destinationHash: row.rows[0].destination_hash }, row.rows[0].key_version, 6);
 
@@ -863,7 +909,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       invalidatePrevious: true, requestIpHash: null,
     };
 
-    const prep1 = await db.query(
+    const prep1 = await db.query<DeliveryRpcRow>(
       `SELECT public.gv_prepare_verification_delivery($1,$2,$3,$4,$5,$6,$7,$8) AS result`,
       [idempotencyKey, 'signup_phone', 'request', fingerprint, 'signup_phone', null, null, rpcArgs],
     );
@@ -873,7 +919,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
     // Simulate the "stale" heuristic firing: backdate prepared_at and
     // resume — this rotates the token.
     await db.query(`UPDATE public.verification_idempotency SET prepared_at = now() - interval '60 seconds' WHERE key = $1`, [idempotencyKey]);
-    const prep2 = await db.query(
+    const prep2 = await db.query<DeliveryRpcRow>(
       `SELECT public.gv_prepare_verification_delivery($1,$2,$3,$4,$5,$6,$7,$8) AS result`,
       [idempotencyKey, 'signup_phone', 'request', fingerprint, 'signup_phone', null, null, rpcArgs],
     );
@@ -883,7 +929,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
 
     // The FIRST (stale) attempt's provider call finally "completes" and
     // tries to finalize with its OLD token — rejected softly, never applied.
-    const staleFinalize = await db.query(
+    const staleFinalize = await db.query<DeliveryRpcRow>(
       `SELECT public.gv_finalize_verification_delivery($1,$2,$3,$4,$5,$6,$7) AS result`,
       [idempotencyKey, token1, 'provider_accepted', 'kavenegar', 'stale-msg', null, null],
     );
@@ -892,7 +938,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
 
     // The NEWER (resumed) attempt's finalize call, using the CURRENT
     // token, succeeds and is the one whose outcome is actually recorded.
-    const realFinalize = await db.query(
+    const realFinalize = await db.query<DeliveryRpcRow>(
       `SELECT public.gv_finalize_verification_delivery($1,$2,$3,$4,$5,$6,$7) AS result`,
       [idempotencyKey, token2, 'provider_accepted', 'kavenegar', 'resumed-msg', null, null],
     );
@@ -920,7 +966,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       purpose: 'signup_phone', channel: 'sms', destination: '09121230115', subjectKind: 'pending_account',
       idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.16' },
     });
-    const row = await db.query(`SELECT generation, key_version, destination_hash FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
+    const row = await db.query<ChallengeKeyRow>(`SELECT generation, key_version, destination_hash FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
     expect(row.rows[0].key_version).toBe(1);
 
     process.env.GENERIC_VERIFICATION_KEY_VERSION = '2';
@@ -942,16 +988,16 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       purpose: 'signup_phone', channel: 'sms', destination: '09121230116', subjectKind: 'pending_account',
       idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.17' },
     });
-    const row = await db.query(`SELECT generation, key_version, destination_hash FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
+    const row = await db.query<ChallengeKeyRow>(`SELECT generation, key_version, destination_hash FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
     const { deriveOtpCode } = await import('../../../server/services/verification/crypto');
     const code = deriveOtpCode({ purpose: 'signup_phone', channel: 'sms', challengeHandle: req.handle, generation: row.rows[0].generation, destinationHash: row.rows[0].destination_hash }, row.rows[0].key_version, 6);
     const verified = await svc.verifyVerificationChallenge(config, { handle: req.handle, code, purpose: 'signup_phone', channel: 'sms', requestId: newRequestId(), requester: { ipAddress: '203.0.113.17' } });
 
-    const challengeRow = await db.query(`SELECT code_digest FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
+    const challengeRow = await db.query<{ code_digest: string }>(`SELECT code_digest FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
     expect(challengeRow.rows[0].code_digest.includes(code)).toBe(false);
 
     if (verified.proofToken) {
-      const proofRow = await db.query(`SELECT proof_hash FROM public.verification_proofs WHERE challenge_id = (SELECT id FROM public.verification_challenges WHERE handle = $1)`, [req.handle]);
+      const proofRow = await db.query<{ proof_hash: string }>(`SELECT proof_hash FROM public.verification_proofs WHERE challenge_id = (SELECT id FROM public.verification_challenges WHERE handle = $1)`, [req.handle]);
       expect(proofRow.rows[0].proof_hash.includes(verified.proofToken)).toBe(false);
     }
 
@@ -966,7 +1012,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
 
   // ── S. service-role-only ACL (real SET ROLE proof) ─────────────────────
   it('S: SET ROLE service_role can reach every verification table/RPC; anon/authenticated cannot touch the tables', async () => {
-    const client = await (db as unknown as { connect(): Promise<any> }).connect();
+    const client = await db.connect();
     try {
       await client.query('SET ROLE service_role');
       await expect(client.query('SELECT id FROM public.verification_challenges LIMIT 1')).resolves.toBeDefined();
@@ -1168,7 +1214,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       svc.requestVerificationChallenge(config, {
         purpose: 'login_step_up', channel: 'email', destination: 'w2b@example.test', subjectKind: 'user',
         idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.41', authenticatedUserId: authedUserId },
-      } as any),
+      }),
     ).rejects.toThrow(/subject binding/i);
   });
 
@@ -1182,24 +1228,33 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       }),
     ).rejects.toThrow(/tenant binding/i);
 
-    __setPurposePolicyOverrideForTests('signup_email', { enabled: true }); // tenantBinding: 'none'
+    // signup_email: tenantBinding 'none'; a live, user-bound, requiresAuth
+    // purpose — so the requester is the signed-in account itself, and the
+    // ONLY thing wrong with this request is the supplied workspaceId.
     const { workspaceId } = await insertWorkspace();
     await expect(
       svc.requestVerificationChallenge(config, {
-        purpose: 'signup_email', channel: 'email', destination: 'w3b@example.test', subjectKind: 'pending_account',
-        workspaceId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.42' },
+        purpose: 'signup_email', channel: 'email', destination: 'w3b@example.test', subjectKind: 'user',
+        subjectRef: authedUserId, workspaceId, idempotencyKey: newIdempotencyKey(),
+        requester: { ipAddress: '203.0.113.42', authenticatedUserId: authedUserId },
       }),
     ).rejects.toThrow(/tenant binding/i);
   });
 
   it('W4: a subjectKind that does not match the purpose policy is rejected', async () => {
-    __setPurposePolicyOverrideForTests('signup_email', { enabled: true }); // subjectBinding: 'pending_account'
-    await expect(
-      svc.requestVerificationChallenge(config, {
-        purpose: 'signup_email', channel: 'email', destination: 'w4@example.test', subjectKind: 'anonymous',
-        idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.43' },
-      }),
-    ).rejects.toThrow(/subject binding/i);
+    // signup_email binds to subjectBinding 'user' (the signed-in account the
+    // code is for). Its PREVIOUS binding, 'pending_account', must now be
+    // rejected even from an authenticated requester — as must 'anonymous'.
+    const authedUserId = randomUUID();
+    for (const subjectKind of ['pending_account', 'anonymous'] as const) {
+      await expect(
+        svc.requestVerificationChallenge(config, {
+          purpose: 'signup_email', channel: 'email', destination: 'w4@example.test', subjectKind,
+          subjectRef: authedUserId, idempotencyKey: newIdempotencyKey(),
+          requester: { ipAddress: '203.0.113.43', authenticatedUserId: authedUserId },
+        }),
+      ).rejects.toThrow(/subject binding/i);
+    }
   });
 
   // ── Y. resend cross-tenant / cross-subject isolation (item 4) ──────────
@@ -1487,11 +1542,12 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
 
   // ── CC. workspace-less (pre-account) email support (item 8) ────────────
   it('CC1a: a workspace-less email send uses the platform-level provider abstraction and actually succeeds when one is configured', async () => {
-    __setPurposePolicyOverrideForTests('signup_email', { enabled: true }); // tenantBinding: 'none'
+    // signup_email (tenantBinding: 'none') — shipped live, user-bound, requiresAuth.
+    const userId = randomUUID();
     platformEmailSendMock.mockResolvedValueOnce({ success: true, provider: 'resend', id: 'cc1a-msg' });
     const req = await svc.requestVerificationChallenge(config, {
-      purpose: 'signup_email', channel: 'email', destination: 'cc1a@example.test', subjectKind: 'pending_account',
-      idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.110' },
+      purpose: 'signup_email', channel: 'email', destination: 'cc1a@example.test', subjectKind: 'user',
+      subjectRef: userId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.110', authenticatedUserId: userId },
     });
     expect(req.deliveryOutcome).toBe('provider_accepted');
     expect(platformEmailSendMock).toHaveBeenCalledTimes(1);
@@ -1501,11 +1557,11 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
   });
 
   it('CC1b: a workspace-less email send with no platform provider configured is reported unconfigured, matching the real production default', async () => {
-    __setPurposePolicyOverrideForTests('signup_email', { enabled: true });
+    const userId = randomUUID();
     platformEmailSendMock.mockResolvedValueOnce({ success: false, provider: 'stub', error: 'Email provider is not configured' });
     const req = await svc.requestVerificationChallenge(config, {
-      purpose: 'signup_email', channel: 'email', destination: 'cc1b@example.test', subjectKind: 'pending_account',
-      idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.111' },
+      purpose: 'signup_email', channel: 'email', destination: 'cc1b@example.test', subjectKind: 'user',
+      subjectRef: userId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.111', authenticatedUserId: userId },
     });
     expect(req.deliveryOutcome).toBe('unconfigured');
   });
@@ -1772,21 +1828,25 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
 
   // ── DB. proofs are bound to the verified destination (P0 item 2) ───────
   it('DB1 (signup_email): a proof returns EXACTLY the destination it was verified for — never a different one — and consume takes no destination input at all', async () => {
-    __setPurposePolicyOverrideForTests('signup_email', { enabled: true });
+    // signup_email is shipped live as user-bound + requiresAuth (the
+    // signed-in account verifies its own address), so every step carries
+    // that account as both subjectRef and authenticated requester.
+    const userId = randomUUID();
     platformEmailSendMock.mockResolvedValueOnce({ success: true, provider: 'resend', id: 'db1-msg' });
     const req = await svc.requestVerificationChallenge(config, {
-      purpose: 'signup_email', channel: 'email', destination: 'db1-real@example.test', subjectKind: 'pending_account',
-      idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.180' },
+      purpose: 'signup_email', channel: 'email', destination: 'db1-real@example.test', subjectKind: 'user',
+      subjectRef: userId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.180', authenticatedUserId: userId },
     });
     const capturedCode = extractCode(String(platformEmailSendMock.mock.calls.at(-1)?.[1]?.text ?? ''));
     const verified = await svc.verifyVerificationChallenge(config, {
-      handle: req.handle, code: capturedCode, purpose: 'signup_email', channel: 'email',
-      requestId: newRequestId(), requester: { ipAddress: '203.0.113.180' },
+      handle: req.handle, code: capturedCode, purpose: 'signup_email', channel: 'email', subjectRef: userId,
+      requestId: newRequestId(), requester: { ipAddress: '203.0.113.180', authenticatedUserId: userId },
     });
     expect(verified.ok).toBe(true);
 
     const consumed = await svc.consumeVerificationProof(config, {
-      proofToken: verified.proofToken!, purpose: 'signup_email', channel: 'email', consumedByContext: 'test',
+      proofToken: verified.proofToken!, purpose: 'signup_email', channel: 'email', subjectRef: userId,
+      authenticatedUserId: userId, consumedByContext: 'test',
     });
     expect(consumed.ok).toBe(true);
     expect(consumed.destinationNormalized).toBe('db1-real@example.test');
@@ -2097,7 +2157,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
     });
     const code = String(smsSendMock.mock.calls.at(-1)?.[1]?.code ?? '');
 
-    const chalRow = await db.query(
+    const chalRow = await db.query<ChallengeKeyRow>(
       `SELECT id, generation, key_version, destination_hash FROM public.verification_challenges WHERE handle = $1`,
       [req.handle],
     );

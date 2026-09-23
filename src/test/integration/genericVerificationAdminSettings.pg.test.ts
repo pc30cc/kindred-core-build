@@ -18,8 +18,12 @@ import http from 'node:http';
 import cookieParser from 'cookie-parser';
 import { randomUUID } from 'node:crypto';
 import { ensureAuthChainInstalled } from './authStubSchema';
+import type { PoolClient } from 'pg';
 import type { PgQueryable } from './pgMigrationChain';
-import { ALL_VERIFICATION_PURPOSES, getAdminPolicyBaseline } from '../../../server/services/verification/types';
+import {
+  ADMIN_MANAGED_VERIFICATION_PURPOSES, getAdminPolicyBaseline,
+  type AdminPolicyBaseline, type VerificationPurpose,
+} from '../../../server/services/verification/types';
 
 const DSN = process.env.TEST_DATABASE_URL || process.env.CLEAN_INSTALL_DATABASE_URL;
 if (!DSN && process.env.REQUIRE_GV_DB === '1') {
@@ -27,7 +31,59 @@ if (!DSN && process.env.REQUIRE_GV_DB === '1') {
 }
 const suite = DSN ? describe : describe.skip;
 
-type PgTestClient = PgQueryable & { end(): Promise<void>; connect?(): Promise<any> };
+type PgTestClient = PgQueryable & { end(): Promise<void>; connect(): Promise<PoolClient> };
+
+/** A thrown `pg` error: only the fields the test adapter forwards. */
+interface PgErrorLike { message: string; code?: string }
+function pgErrorOf(e: unknown): PgErrorLike {
+  const err = e as Partial<PgErrorLike>;
+  return { message: String(err?.message ?? e), code: err?.code };
+}
+
+type PgResult = Awaited<ReturnType<PgQueryable['query']>>;
+interface SelectResult { data: Array<Record<string, unknown>> | null; error: PgErrorLike | null }
+interface QueryBuilder extends PromiseLike<SelectResult> {
+  select(cols?: string): QueryBuilder;
+  eq(col: string, val: unknown): QueryBuilder;
+  lt(col: string, val: unknown): QueryBuilder;
+  order(col: string, opts?: { ascending?: boolean }): QueryBuilder;
+  limit(n: number): QueryBuilder;
+  maybeSingle(): Promise<{ data: Record<string, unknown> | null; error: PgErrorLike | null }>;
+}
+
+/** The JSON a gv_admin_update_purpose_settings call returns (the fields these tests read). */
+interface AdminRpcResult {
+  replayed: boolean;
+  result: { settings: { revision: number; otpTtlSeconds: number } };
+}
+function rpcResultOf(r: PgResult): AdminRpcResult {
+  return r.rows[0].result as AdminRpcResult;
+}
+
+interface PurposeGatesJson {
+  adminEnabled: boolean;
+  consumerImplemented: boolean;
+  deploymentAllowlisted: boolean;
+  databaseEnabled: boolean;
+  effectiveEnabled: boolean;
+}
+interface PurposeOverviewJson { purpose: VerificationPurpose; gates: PurposeGatesJson; baseline: AdminPolicyBaseline }
+/**
+ * The union of every admin verification route's response body; each test
+ * reads only the fields the route it calls actually returns.
+ */
+interface AdminApiJson {
+  error?: string;
+  raw?: string;
+  settings?: { revision: number; adminEnabled: boolean; otpTtlSeconds: number };
+  purposes?: PurposeOverviewJson[];
+  readiness?: { databaseAvailable: boolean };
+  gates?: PurposeGatesJson;
+  baseline?: AdminPolicyBaseline;
+  rows?: Array<{ purpose: string }>;
+  email?: { text: string };
+  sms?: { text: string };
+}
 let db: PgTestClient;
 
 const emailSendMock = vi.fn();
@@ -52,7 +108,7 @@ function makePgServiceClient(pg: PgTestClient) {
       const lim = state.lim ? ` LIMIT ${state.lim}` : '';
       return pg.query(`SELECT ${state.cols} FROM public.${table}${where}${order}${lim}`, state.params);
     };
-    const builder: any = {
+    const builder: QueryBuilder = {
       select(cols?: string) { state.cols = cols || '*'; return builder; },
       eq(col: string, val: unknown) { state.wheres.push(`${col} = $${addParam(val)}`); return builder; },
       lt(col: string, val: unknown) { state.wheres.push(`${col} < $${addParam(val)}`); return builder; },
@@ -60,9 +116,17 @@ function makePgServiceClient(pg: PgTestClient) {
       limit(n: number) { state.lim = n; return builder; },
       maybeSingle: async () => {
         try { const r = await run(); return { data: r.rows[0] ?? null, error: null }; }
-        catch (e: any) { return { data: null, error: { message: e.message, code: e.code } }; }
+        catch (e) { return { data: null, error: pgErrorOf(e) }; }
       },
-      then: (resolve: any) => run().then((r) => resolve({ data: r.rows, error: null })).catch((e: any) => resolve({ data: null, error: { message: e.message } })),
+      then<T1 = SelectResult, T2 = never>(
+        onfulfilled?: ((value: SelectResult) => T1 | PromiseLike<T1>) | null,
+        onrejected?: ((reason: unknown) => T2 | PromiseLike<T2>) | null,
+      ): PromiseLike<T1 | T2> {
+        return run()
+          .then((r): SelectResult => ({ data: r.rows, error: null }))
+          .catch((e): SelectResult => ({ data: null, error: { message: pgErrorOf(e).message } }))
+          .then(onfulfilled, onrejected);
+      },
     };
     return builder;
   }
@@ -93,8 +157,8 @@ function makePgServiceClient(pg: PgTestClient) {
         default:
           return { data: null, error: { message: `unhandled rpc in test adapter: ${name}` } };
       }
-    } catch (e: any) {
-      return { data: null, error: { message: e.message, code: e.code } };
+    } catch (e) {
+      return { data: null, error: pgErrorOf(e) };
     }
   }
 
@@ -129,16 +193,16 @@ const { __setPurposePolicyOverrideForTests, __clearAllPurposePolicyOverridesForT
 
 const app = express();
 app.use((req, _res, next) => {
-  (req as any).serverConfig = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'] };
+  (req as express.Request & { serverConfig?: unknown }).serverConfig = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'] };
   next();
 });
 app.use(cookieParser());
 app.use(express.json());
 app.use('/api/admin', adminRouter);
 const server = http.createServer(app).listen(0);
-const port = () => (server.address() as any).port;
+const port = () => (server.address() as import('node:net').AddressInfo).port;
 
-function call(method: string, path: string, token: string | null, body?: unknown): Promise<{ status: number; json: any }> {
+function call(method: string, path: string, token: string | null, body?: unknown): Promise<{ status: number; json: AdminApiJson }> {
   const payload = body === undefined ? null : JSON.stringify(body);
   const headers: Record<string, string> = {};
   if (token) headers.cookie = `gs_session=${token}`;
@@ -148,8 +212,8 @@ function call(method: string, path: string, token: string | null, body?: unknown
       let d = '';
       res.on('data', (c) => (d += c));
       res.on('end', () => {
-        let json: any = {};
-        try { json = JSON.parse(d || '{}'); } catch { json = { raw: d }; }
+        let json: AdminApiJson = {};
+        try { json = JSON.parse(d || '{}') as AdminApiJson; } catch { json = { raw: d }; }
         resolve({ status: res.statusCode || 0, json });
       });
     });
@@ -284,7 +348,16 @@ suite('Generic Verification Core — Super Admin settings (real PostgreSQL + rea
     const res = await call('GET', '/api/admin/verification/overview', 'super-admin-token');
     expect(res.status).toBe(200);
     expect(res.json.purposes).toHaveLength(8);
+    expect(res.json.purposes.map((p) => p.purpose)).toEqual([...ADMIN_MANAGED_VERIFICATION_PURPOSES]);
     expect(res.json.readiness.databaseAvailable).toBe(true);
+  });
+
+  it('commerce_order_lookup (code + runtime gated, never admin-managed) is not exposed by the admin settings surface', async () => {
+    const res = await call('GET', '/api/admin/verification/purposes/commerce_order_lookup', 'super-admin-token');
+    expect(res.status).toBe(404);
+    expect(res.json.error).toBe('PURPOSE_UNKNOWN');
+    const sql = await db.query(`SELECT public.gv_admin_default_settings('commerce_order_lookup') AS defaults`);
+    expect(sql.rows[0].defaults).toBeNull();
   });
 
   // ── Non-negotiable dormancy ──────────────────────────────────────────
@@ -331,7 +404,7 @@ suite('Generic Verification Core — Super Admin settings (real PostgreSQL + rea
 
   it('service_role itself cannot UPDATE verification_purpose_settings directly, but CAN reach the same mutation through the RPC', async () => {
     await resetSettingsRow('change_phone');
-    const client = await (db as unknown as { connect(): Promise<any> }).connect();
+    const client = await db.connect();
     try {
       await client.query('SET ROLE service_role');
       await expect(
@@ -345,7 +418,7 @@ suite('Generic Verification Core — Super Admin settings (real PostgreSQL + rea
       expect(rpcResult.rows[0].result.replayed).toBe(false);
       await client.query('RESET ROLE');
     } finally {
-      client.release ? client.release() : client.end?.();
+      client.release();
     }
 
     const row = await db.query(`SELECT otp_ttl_seconds, revision FROM public.verification_purpose_settings WHERE purpose = 'change_phone'`);
@@ -414,7 +487,7 @@ suite('Generic Verification Core — Super Admin settings (real PostgreSQL + rea
     const audit = await db.query(`SELECT action, previous_settings, new_settings, actor_profile_id FROM public.verification_purpose_settings_audit WHERE purpose='sensitive_action'`);
     expect(audit.rows).toHaveLength(1);
     expect(audit.rows[0].action).toBe('update');
-    expect((audit.rows[0] as any).new_settings.otpTtlSeconds).toBe(120);
+    expect((audit.rows[0].new_settings as { otpTtlSeconds: number }).otpTtlSeconds).toBe(120);
     expect(audit.rows[0].actor_profile_id).toBe(SUPER_ADMIN);
     // Never a secret in the sanitized settings.
     const serialized = JSON.stringify(audit.rows[0]);
@@ -429,7 +502,7 @@ suite('Generic Verification Core — Super Admin settings (real PostgreSQL + rea
     expect(res.json.settings.otpTtlSeconds).toBe(600);
     expect(res.json.settings.adminEnabled).toBe(false);
     const audit = await db.query(`SELECT action FROM public.verification_purpose_settings_audit WHERE purpose='workspace_invitation' ORDER BY created_at`);
-    expect(audit.rows.map((r: any) => r.action)).toEqual(['update', 'reset']);
+    expect(audit.rows.map((r) => r.action)).toEqual(['update', 'reset']);
   });
 
   it('GET /audit returns rows filterable by purpose', async () => {
@@ -438,7 +511,7 @@ suite('Generic Verification Core — Super Admin settings (real PostgreSQL + rea
     const res = await call('GET', '/api/admin/verification/audit?purpose=signup_email', 'super-admin-token');
     expect(res.status).toBe(200);
     expect(res.json.rows.length).toBeGreaterThanOrEqual(1);
-    expect(res.json.rows.every((r: any) => r.purpose === 'signup_email')).toBe(true);
+    expect(res.json.rows.every((r) => r.purpose === 'signup_email')).toBe(true);
   });
 
   // ── Template preview: no send, no challenge ──────────────────────────
@@ -464,19 +537,19 @@ suite('Generic Verification Core — Super Admin settings (real PostgreSQL + rea
 
   // ── ACL: tables and RPC, independent of the HTTP layer ───────────────
   it('anon/authenticated cannot SELECT verification_purpose_settings or verification_purpose_settings_audit', async () => {
-    const client = await (db as unknown as { connect(): Promise<any> }).connect();
+    const client = await db.connect();
     try {
       await client.query('SET ROLE authenticated');
       await expect(client.query('SELECT * FROM public.verification_purpose_settings LIMIT 1')).rejects.toThrow();
       await expect(client.query('SELECT * FROM public.verification_purpose_settings_audit LIMIT 1')).rejects.toThrow();
       await client.query('RESET ROLE');
     } finally {
-      client.release ? client.release() : client.end?.();
+      client.release();
     }
   });
 
   it('anon/authenticated cannot execute gv_admin_update_purpose_settings directly', async () => {
-    const client = await (db as unknown as { connect(): Promise<any> }).connect();
+    const client = await db.connect();
     try {
       await client.query('SET ROLE authenticated');
       await expect(
@@ -487,7 +560,7 @@ suite('Generic Verification Core — Super Admin settings (real PostgreSQL + rea
       ).rejects.toThrow();
       await client.query('RESET ROLE');
     } finally {
-      client.release ? client.release() : client.end?.();
+      client.release();
     }
   });
 
@@ -547,11 +620,17 @@ suite('Generic Verification Core — Super Admin settings (real PostgreSQL + rea
     expect(row.rows[0].revision).toBe(1);
   });
 
-  it('the TypeScript baseline (getAdminPolicyBaseline) is identical to the SQL baseline (gv_admin_default_settings) for every purpose', async () => {
-    for (const purpose of ALL_VERIFICATION_PURPOSES) {
+  // Every purpose the admin settings layer manages. `commerce_order_lookup`
+  // (added to the registry after this suite was written, by
+  // 149_commerce_order_lookup_verification_purpose.sql) is governed only by
+  // its own code + runtime gate, never by an admin settings row — so it has
+  // no SQL baseline to compare, and the admin surface must not expose it.
+  it('the TypeScript baseline (getAdminPolicyBaseline) is identical to the SQL baseline (gv_admin_default_settings) for every admin-managed purpose', async () => {
+    for (const purpose of ADMIN_MANAGED_VERIFICATION_PURPOSES) {
       const tsBaseline = getAdminPolicyBaseline(purpose);
       const sqlResult = await db.query(`SELECT public.gv_admin_default_settings($1) AS defaults`, [purpose]);
-      const sqlBaseline = (sqlResult.rows[0] as any).defaults as any;
+      const sqlBaseline = sqlResult.rows[0].defaults as AdminPolicyBaseline;
+      expect(sqlBaseline, `gv_admin_default_settings('${purpose}')`).not.toBeNull();
       expect(sqlBaseline.otpLength).toBe(tsBaseline.otpLength);
       expect(sqlBaseline.otpTtlSeconds).toBe(tsBaseline.otpTtlSeconds);
       expect(sqlBaseline.maxVerificationAttempts).toBe(tsBaseline.maxVerificationAttempts);
@@ -684,18 +763,18 @@ suite('Generic Verification Core — Super Admin settings (real PostgreSQL + rea
     await resetSettingsRow('login_step_up');
     const requestId = randomUUID();
     const first = await rpcUpdate('login_step_up', requestId, 1);
-    expect((first.rows[0] as any).result.replayed).toBe(false);
-    expect((first.rows[0] as any).result.result.settings.revision).toBe(2);
+    expect(rpcResultOf(first).replayed).toBe(false);
+    expect(rpcResultOf(first).result.settings.revision).toBe(2);
 
     await db.query(`UPDATE public.verification_admin_idempotency SET expires_at = now() - interval '1 day' WHERE request_id = $1`, [requestId]);
 
     const second = await rpcUpdate('login_step_up', requestId, 2, { otpTtlSeconds: 250 });
-    expect((second.rows[0] as any).result.replayed).toBe(false); // a REAL new mutation, not a cached replay
-    expect((second.rows[0] as any).result.result.settings.revision).toBe(3);
-    expect((second.rows[0] as any).result.result.settings.otpTtlSeconds).toBe(250);
+    expect(rpcResultOf(second).replayed).toBe(false); // a REAL new mutation, not a cached replay
+    expect(rpcResultOf(second).result.settings.revision).toBe(3);
+    expect(rpcResultOf(second).result.settings.otpTtlSeconds).toBe(250);
 
     const row = await db.query(`SELECT expires_at FROM public.verification_admin_idempotency WHERE request_id = $1`, [requestId]);
-    expect(new Date((row.rows[0] as any).expires_at as string).getTime()).toBeGreaterThan(Date.now()); // reclaimed row is fresh, not still expired
+    expect(new Date(row.rows[0].expires_at as string).getTime()).toBeGreaterThan(Date.now()); // reclaimed row is fresh, not still expired
   });
 
   // ── Migration 100 hardening: atomicity — settings mutation never survives an audit/ledger failure ──

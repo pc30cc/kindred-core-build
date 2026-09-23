@@ -60,6 +60,36 @@ export const ALL_VERIFICATION_PURPOSES: readonly VerificationPurpose[] = [
   'commerce_order_lookup',
 ];
 
+/**
+ * The purposes the Super Admin "Verification & OTP" settings layer manages
+ * — exactly the set the database's admin tables know about
+ * (database/migrations/099_generic_verification_admin_settings.sql seeds one
+ * `verification_purpose_settings` row per purpose, its CHECK constraints
+ * and `gv_admin_default_settings` cover exactly these, and
+ * src/hooks/useVerificationAdmin.ts renders exactly these).
+ *
+ * `commerce_order_lookup` is deliberately NOT in this list: it is governed
+ * solely by its own code + runtime gate (types.ts registry +
+ * 149_commerce_order_lookup_verification_purpose.sql), never by an admin
+ * toggle. Iterating ALL_VERIFICATION_PURPOSES in the admin layer instead of
+ * this list made every overview/purposes read fail with PURPOSE_UNKNOWN
+ * (404), because no settings row exists for it.
+ */
+export const ADMIN_MANAGED_VERIFICATION_PURPOSES: readonly VerificationPurpose[] = [
+  'signup_email',
+  'signup_phone',
+  'password_reset',
+  'login_step_up',
+  'change_email',
+  'change_phone',
+  'sensitive_action',
+  'workspace_invitation',
+];
+
+export function isAdminManagedVerificationPurpose(value: string): value is VerificationPurpose {
+  return (ADMIN_MANAGED_VERIFICATION_PURPOSES as readonly string[]).includes(value);
+}
+
 export interface PurposePolicy {
   /** Must be false for every purpose in this pass — see docs/GENERIC_VERIFICATION_CORE.md. */
   enabled: boolean;

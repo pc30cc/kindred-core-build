@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Mic, MicOff, Minimize2, PhoneOff, Video, VideoOff, X } from 'lucide-react'
-import { ConnectionState, Room, RoomEvent, Track, type RemoteTrack, type LocalTrack } from 'livekit-client'
+import { ConnectionState, LogLevel, Room, RoomEvent, setLogExtension, setLogLevel, Track, type RemoteTrack, type LocalTrack } from 'livekit-client'
 import { api } from '@/api/client'
 import type { CallChannel, CallToken } from '@/api/types'
 import { useApp, type ActiveCall } from '@/store/app'
@@ -8,6 +8,14 @@ import { useT } from '@/hooks/useT'
 import { duration } from '@/lib/format'
 import { Avatar } from '@/components/Avatar'
 import { cx } from '@/lib/cx'
+
+// LiveKit's own account of a call (signalling, ICE, negotiation) goes to the
+// log file through the `[call]` prefix, so a call that fails on someone's
+// machine can be diagnosed after the fact.
+setLogLevel(LogLevel.info)
+setLogExtension((level, msg, context) => {
+  if (level >= LogLevel.info) console.warn('[call] lk', LogLevel[level], msg, context ? JSON.stringify(context).slice(0, 600) : '')
+})
 
 type Phase =
   | { kind: 'waiting' }
@@ -96,11 +104,6 @@ function useCallSession(call: ActiveCall | null) {
         adaptiveStream: true,
         dynacast: true,
         videoCaptureDefaults: { resolution: { width: 1280, height: 720 } },
-        // The deployed LiveKit server predates the v1 single-peer-connection
-        // signalling path. The SDK does fall back, but negotiation after the
-        // fallback times out, so connect the way the web console and widget
-        // (SDK 2.18) do: one publisher and one subscriber connection.
-        singlePeerConnection: false,
       })
       room.current = r
 
@@ -153,9 +156,17 @@ function useCallSession(call: ActiveCall | null) {
         void finish('visitorLeft')
       })
 
-      await r.connect(url, token.token, {
-        rtcConfig: { iceServers: iceServers(token), iceTransportPolicy: token.ice_policy === 'relay' ? 'relay' : 'all' },
-      })
+      // Only hand LiveKit an rtcConfig when there is a TURN relay to add. The
+      // SDK uses the ICE servers from the room's join response only when
+      // `rtcConfig.iceServers` is absent, and an empty array counts as present,
+      // so passing `[]` threw away the server's STUN and TURN and left the
+      // media path to host candidates. Negotiation then timed out every ~13s.
+      const ice = iceServers(token)
+      await r.connect(
+        url,
+        token.token,
+        ice.length ? { rtcConfig: { iceServers: ice, iceTransportPolicy: token.ice_policy === 'relay' ? 'relay' : 'all' } } : {},
+      )
       if (!live.current) return
       try {
         await r.localParticipant.setMicrophoneEnabled(true)

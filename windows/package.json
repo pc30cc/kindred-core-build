@@ -1,7 +1,7 @@
 {
   "name": "webyar-desktop",
   "productName": "Webyar",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Webyar for Windows — the operator inbox, chat, calls and team messaging on the desktop.",
   "author": "Webyar",
   "private": true,
@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
-    "livekit-client": "^2.22.3"
+    "livekit-client": "2.18.7"
   },
   "devDependencies": {
     "@fontsource-variable/inter": "^5.2.8",

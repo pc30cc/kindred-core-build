@@ -28,6 +28,7 @@ public sealed partial class MessageItem : ObservableObject
         Time = m.CreatedAt is { } at ? Display.ClockTime(at, s.Language) : string.Empty;
         IsAi = m.SenderType is SenderTypes.Ai or SenderTypes.Bot;
         SenderId = m.SenderId;
+        ReplyToId = m.ReplyToMessageId;
         if (Side == MessageSide.Outgoing)
         {
             _avatarUrl = IsAi ? null : m.SenderAvatar;
@@ -44,12 +45,26 @@ public sealed partial class MessageItem : ObservableObject
         AttachmentsVisibility = Attachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         BodyVisibility = Body.Trim().Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         SenderVisibility = Side == MessageSide.Outgoing && IsAi ? Visibility.Visible : Visibility.Collapsed;
+        SetActionText(s);
+    }
+
+    private void SetActionText(Strings s)
+    {
+        ReplyLabel = s["reply"];
+        ReplyTip = s["replyToMessage"];
+        CopyLabel = s["copy"];
+        CopyTip = s["copyMessage"];
     }
 
     /// <summary>An optimistic bubble for a reply that is on its way.</summary>
-    public MessageItem(string clientId, string body, Strings s, AttachmentItem? attachment = null)
+    public MessageItem(string clientId, string body, Strings s, AttachmentItem? attachment = null, MessageItem? replyTo = null)
     {
         Id = clientId;
+        if (replyTo is not null)
+        {
+            ReplyToId = replyTo.Id;
+            SetQuote(replyTo, s);
+        }
         ClientId = clientId;
         Side = MessageSide.Outgoing;
         Body = body;
@@ -58,6 +73,8 @@ public sealed partial class MessageItem : ObservableObject
         _meta = Time;
         _pending = true;
         _opacity = 0.6;
+        _actionsVisibility = Visibility.Collapsed;
+        SetActionText(s);
         if (attachment is not null) Attachments.Add(attachment);
         AttachmentsVisibility = Attachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         BodyVisibility = body.Trim().Length > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -133,6 +150,50 @@ public sealed partial class MessageItem : ObservableObject
 
     partial void OnPendingChanged(bool value) => Opacity = value ? 0.6 : 1;
 
+    public string ReplyLabel { get; private set; } = string.Empty;
+    public string ReplyTip { get; private set; } = string.Empty;
+    public string CopyLabel { get; private set; } = string.Empty;
+    public string CopyTip { get; private set; } = string.Empty;
+
+    /// <summary>Reply is offered once the message exists on the server.</summary>
+    [ObservableProperty]
+    private Visibility _actionsVisibility = Visibility.Visible;
+
+    /// <summary>The message this one answers, when it does.</summary>
+    public string? ReplyToId { get; set; }
+
+    [ObservableProperty]
+    private string _quoteSender = string.Empty;
+
+    [ObservableProperty]
+    private string _quoteText = string.Empty;
+
+    [ObservableProperty]
+    private Visibility _quoteVisibility = Visibility.Collapsed;
+
+    /// <summary>Who wrote it, as a reply quote names them.</summary>
+    public string AuthorLabel(Strings s) => Side switch
+    {
+        MessageSide.Outgoing => SenderName.Length > 0 ? SenderName : s["you"],
+        _ => AvatarName.Length > 0 ? AvatarName : s["visitor"],
+    };
+
+    /// <summary>One line standing for the message: its text, or what it carries.</summary>
+    public string Snippet(Strings s)
+    {
+        var text = Body.Trim().Replace('\n', ' ');
+        if (text.Length > 0) return text.Length > 120 ? text[..120] + "…" : text;
+        return Attachments.Count > 0 ? "📎 " + Attachments[0].FileName : string.Empty;
+    }
+
+    /// <summary>Shows <paramref name="target"/> as the quote above this bubble.</summary>
+    public void SetQuote(MessageItem target, Strings s)
+    {
+        QuoteSender = target.AuthorLabel(s);
+        QuoteText = target.Snippet(s);
+        QuoteVisibility = Visibility.Visible;
+    }
+
     /// <summary>Same content, so the row can stay where it is.</summary>
-    public bool SameAs(MessageItem other) => Id == other.Id && Body == other.Body && Attachments.Count == other.Attachments.Count;
+    public bool SameAs(MessageItem other) => Id == other.Id && Body == other.Body && Attachments.Count == other.Attachments.Count && QuoteText == other.QuoteText;
 }

@@ -82,6 +82,8 @@ const sendMessageSchema = z.object({
    * of producing a second message + a second provider delivery.
    */
   client_message_id: z.string().min(8).max(64).optional(),
+  /** The message this one answers, from the same conversation (shown as a quote). */
+  reply_to_message_id: z.string().uuid().nullable().optional(),
 }).refine(
   d => (d.body && d.body.trim().length > 0) || !!d.attachment_id,
   { message: 'body or attachment_id required' }
@@ -290,6 +292,19 @@ conversationsRouter.post('/send-message', async (req, res) => {
       if (prior) { inserted = prior; duplicate = true; }
     }
 
+    // A reply may only quote a message of the same conversation.
+    let replyTo: string | null = null;
+    if (parsed.data.reply_to_message_id) {
+      const { data: quoted } = await sb
+        .from('conversation_messages')
+        .select('id')
+        .eq('id', parsed.data.reply_to_message_id)
+        .eq('conversation_id', parsed.data.conversation_id)
+        .maybeSingle();
+      if (!quoted) return res.status(400).json({ error: 'reply_to_not_in_conversation' });
+      replyTo = quoted.id;
+    }
+
     if (!inserted) {
       const { data: row, error: insErr } = await sb
         .from('conversation_messages')
@@ -299,6 +314,7 @@ conversationsRouter.post('/send-message', async (req, res) => {
           sender_type: 'agent',
           sender_id: auth.userId,
           metadata: baseMetadata,
+          ...(replyTo ? { reply_to_message_id: replyTo } : {}),
         })
         .select(MESSAGE_COLUMNS)
         .single();

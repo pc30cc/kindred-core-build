@@ -55,6 +55,7 @@
                     </LinearGradientBrush>
                     <SolidColorBrush x:Key="BubbleIncomingBorderBrush" Color="#E4E8EF" />
                     <SolidColorBrush x:Key="BubbleOutgoingMetaBrush" Color="#CCFFFFFF" />
+                    <SolidColorBrush x:Key="BubbleOutgoingQuoteBrush" Color="#26FFFFFF" />
                     <SolidColorBrush x:Key="WaveInBrush" Color="#C7D0DE" />
                     <SolidColorBrush x:Key="WaveInPlayedBrush" Color="#3B7AF2" />
                     <SolidColorBrush x:Key="WaveOutBrush" Color="#70FFFFFF" />
@@ -115,6 +116,7 @@
                     </LinearGradientBrush>
                     <SolidColorBrush x:Key="BubbleIncomingBorderBrush" Color="#2A303D" />
                     <SolidColorBrush x:Key="BubbleOutgoingMetaBrush" Color="#CCFFFFFF" />
+                    <SolidColorBrush x:Key="BubbleOutgoingQuoteBrush" Color="#26FFFFFF" />
                     <SolidColorBrush x:Key="WaveInBrush" Color="#434C5E" />
                     <SolidColorBrush x:Key="WaveInPlayedBrush" Color="#5A94FF" />
                     <SolidColorBrush x:Key="WaveOutBrush" Color="#70FFFFFF" />

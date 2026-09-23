@@ -183,30 +183,9 @@ public sealed partial class ShellPage : Page
         _ => "navInboxOpen",
     };
 
-    /// <summary>The web's channelLabel (ChannelBadge.tsx): brand names as they are, the widget translated.</summary>
-    private static string ChannelLabel(string key, Strings s) => key switch
-    {
-        "telegram" => "Telegram",
-        "bale" => "بله",
-        "whatsapp" => "WhatsApp",
-        "instagram" => "Instagram",
-        "x" => "X (Twitter)",
-        "email" => "Email",
-        "phone" => "Phone",
-        "widget" => s["channelWidget"],
-        _ => key,
-    };
+    private static string ChannelLabel(string key, Strings s) => ChannelInfo.Label(key, s);
 
-    private static string ChannelGlyph(string key) => key switch
-    {
-        "telegram" or "bale" => "\uE724",
-        "whatsapp" => "\uE8BD",
-        "instagram" => "\uE722",
-        "email" => "\uE715",
-        "phone" => "\uE717",
-        "x" => "\uE8F2",
-        _ => "\uE8F2",
-    };
+    private static string ChannelGlyph(string key) => ChannelInfo.Glyph(key);
 
     // ── Inbox badges and channel inboxes ──
 

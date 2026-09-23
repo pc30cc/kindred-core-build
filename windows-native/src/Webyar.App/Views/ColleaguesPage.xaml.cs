@@ -30,6 +30,9 @@ public sealed partial class ColleaguesPage : Page
     private readonly ObservableCollection<ColleagueItem> _items = [];
     private readonly Dictionary<string, ColleagueItem> _all = [];
     private readonly ObservableCollection<TeamMessageItem> _messages = [];
+
+    /// <summary>The message the next send answers (the reply bar above the composer).</summary>
+    private TeamMessageItem? _replyTo;
     private readonly List<TeamMessageItem> _outbox = [];
     private Poller? _listPoller;
     private Poller? _threadPoller;
@@ -180,6 +183,7 @@ public sealed partial class ColleaguesPage : Page
         _messages.Clear();
         _outbox.Clear();
         ClearPendingFile();
+        ClearReply();
         if (_recorder is not null) _ = StopRecordingAsync(keep: false);
         _threadPoller?.Dispose();
         var peer = item.Id;
@@ -239,6 +243,12 @@ public sealed partial class ColleaguesPage : Page
         var wanted = Group(
             (t.Messages ?? []).OrderBy(m => m.CreatedAt ?? DateTimeOffset.MinValue).Select(m => new TeamMessageItem(m, me, s)),
             s);
+        // Replies show what they answer, from the thread itself.
+        var byId = wanted.Where(w => w.Side != MessageSide.Day).GroupBy(w => w.Id).ToDictionary(g => g.Key, g => g.First());
+        foreach (var w in wanted)
+        {
+            if (w.ReplyToId is { } rid && byId.TryGetValue(rid, out var target)) w.SetQuote(target, s);
+        }
         // Messages still on their way stay at the end until the server has them.
         foreach (var local in _outbox) wanted.Add(local);
 
@@ -405,8 +415,10 @@ public sealed partial class ColleaguesPage : Page
         var s = Host.Strings;
         Composer.Text = string.Empty;
         ClearPendingFile();
+        var replyTo = _replyTo;
+        ClearReply();
         var local = file is { } f ? new AttachmentItem(f.Name, f.Mime, f.Data, s) : null;
-        var item = new TeamMessageItem(body, local, s);
+        var item = new TeamMessageItem(body, local, s, replyTo);
         if (local is not null) _ = local.LoadPreviewAsync();
         _outbox.Add(item);
         _messages.Add(item);
@@ -419,7 +431,7 @@ public sealed partial class ColleaguesPage : Page
                 attachmentId = await Host.Api.UploadAttachmentAsync(ws.Id, null, up.Name, up.Mime, up.Data);
                 if (local is not null) AttachmentItem.Alias(local.Id, attachmentId);
             }
-            await Host.Api.SendTeamMessageAsync(ws.Id, peer, body, attachmentId);
+            await Host.Api.SendTeamMessageAsync(ws.Id, peer, body, attachmentId, item.ReplyToId);
             _outbox.Remove(item);
             _threadPoller?.Kick();
             _listPoller?.Kick();
@@ -433,6 +445,53 @@ public sealed partial class ColleaguesPage : Page
             if (file is { } back) await SetPendingAsync(back.Name, back.Mime, back.Data);
             ShowError($"{s["sendFailed"]} — {ErrorText.For(ex, s)}");
         }
+    }
+
+    // Reply and copy, under every bubble
+
+    private void OnReplyClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not TeamMessageItem item || item.Id.StartsWith("local:", StringComparison.Ordinal)) return;
+        var s = Host.Strings;
+        _replyTo = item;
+        ReplyBarTitle.Text = s.Get("replyingTo", "name", item.AuthorLabel(s));
+        ReplyBarText.Text = item.Snippet(s);
+        ToolTipService.SetToolTip(ReplyBarClose, s["cancelReply"]);
+        ReplyBar.Visibility = Visibility.Visible;
+        Composer.Focus(FocusState.Programmatic);
+    }
+
+    private void OnCancelReply(object sender, RoutedEventArgs e) => ClearReply();
+
+    private void ClearReply()
+    {
+        _replyTo = null;
+        ReplyBar.Visibility = Visibility.Collapsed;
+    }
+
+    private void OnCopyClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not TeamMessageItem item) return;
+        TextClipboard.Copy(item.Body);
+        Error.Severity = InfoBarSeverity.Success;
+        Error.Message = Host.Strings["copied"];
+        Error.ActionButton = null;
+        Error.IsOpen = true;
+        _ = CloseCopiedSoonAsync();
+    }
+
+    private async Task CloseCopiedSoonAsync()
+    {
+        await Task.Delay(1600);
+        if (Error.Severity == InfoBarSeverity.Success) Error.IsOpen = false;
+    }
+
+    /// <summary>Tapping a quote brings the original message into view.</summary>
+    private void OnQuoteClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not TeamMessageItem item || item.ReplyToId is not { } id) return;
+        var target = _messages.FirstOrDefault(m => m.Id == id);
+        if (target is not null) Messages.ScrollIntoView(target, ScrollIntoViewAlignment.Leading);
     }
 
     private void ShowError(string message)

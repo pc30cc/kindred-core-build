@@ -34,6 +34,9 @@ public sealed partial class ChatView : UserControl
     private string? _lastSeenMessage;
     private (string Name, string Mime, byte[] Data)? _pendingFile;
 
+    /// <summary>The message the next send answers (the reply bar above the composer).</summary>
+    private MessageItem? _replyTo;
+
     /// <summary>The AI answers this thread; the composer sends through it (say-now).</summary>
     private bool _aiMode;
 
@@ -182,6 +185,7 @@ public sealed partial class ChatView : UserControl
         _outbox.Clear();
         if (_recorder is not null) _ = StopRecordingAsync(keep: false);
         ClearPendingFile();
+        ClearReply();
         SetComposerMode(false);
         AiChip.Visibility = Visibility.Collapsed;
         Error.IsOpen = false;
@@ -235,6 +239,12 @@ public sealed partial class ChatView : UserControl
                     wanted.Add(MessageItem.DaySeparator(at, s));
                 }
                 wanted.Add(item);
+            }
+            // Replies show what they answer, from the thread itself.
+            var byId = wanted.Where(w => w.Side is MessageSide.Incoming or MessageSide.Outgoing).GroupBy(w => w.Id).ToDictionary(g => g.Key, g => g.First());
+            foreach (var w in wanted)
+            {
+                if (w.ReplyToId is { } rid && byId.TryGetValue(rid, out var target)) w.SetQuote(target, s);
             }
             wanted.AddRange(_outbox);
             Group(wanted);
@@ -492,8 +502,10 @@ public sealed partial class ChatView : UserControl
         }
         Composer.Text = string.Empty;
         ClearPendingFile();
+        var replyTo = _replyTo;
+        ClearReply();
         var local = file is { } f ? new AttachmentItem(f.Name, f.Mime, f.Data, Host.Strings) : null;
-        var item = new MessageItem(Guid.NewGuid().ToString(), body, Host.Strings, local)
+        var item = new MessageItem(Guid.NewGuid().ToString(), body, Host.Strings, local, replyTo)
         {
             SenderId = Host.User?.Id,
             AvatarName = Host.User?.FullName ?? string.Empty,
@@ -518,7 +530,7 @@ public sealed partial class ChatView : UserControl
                 attachmentId = await Host.Api.UploadAttachmentAsync(workspaceId, conversationId, f.Name, f.Mime, f.Data);
                 if (attachmentId is not null && item.Attachments.FirstOrDefault() is { } local) AttachmentItem.Alias(local.Id, attachmentId);
             }
-            await Host.Api.SendMessageAsync(conversationId, workspaceId, item.Body, item.ClientId!, attachmentId);
+            await Host.Api.SendMessageAsync(conversationId, workspaceId, item.Body, item.ClientId!, attachmentId, item.ReplyToId);
             _outbox.Remove(item);
             _poller?.Kick();
             StatusChanged?.Invoke();
@@ -579,6 +591,53 @@ public sealed partial class ChatView : UserControl
     }
 
     private void OnClearPendingFile(object sender, RoutedEventArgs e) => ClearPendingFile();
+
+    // Reply and copy, under every bubble
+
+    private void OnReplyClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not MessageItem item || item.Pending || _aiMode) return;
+        var s = Host.Strings;
+        _replyTo = item;
+        ReplyBarTitle.Text = s.Get("replyingTo", "name", item.AuthorLabel(s));
+        ReplyBarText.Text = item.Snippet(s);
+        ToolTipService.SetToolTip(ReplyBarClose, s["cancelReply"]);
+        ReplyBar.Visibility = Visibility.Visible;
+        Composer.Focus(FocusState.Programmatic);
+    }
+
+    private void OnCancelReply(object sender, RoutedEventArgs e) => ClearReply();
+
+    private void ClearReply()
+    {
+        _replyTo = null;
+        ReplyBar.Visibility = Visibility.Collapsed;
+    }
+
+    private void OnCopyClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not MessageItem item) return;
+        TextClipboard.Copy(item.Body);
+        Error.Severity = InfoBarSeverity.Success;
+        Error.Message = Host.Strings["copied"];
+        Error.ActionButton = null;
+        Error.IsOpen = true;
+        _ = CloseCopiedSoonAsync();
+    }
+
+    private async Task CloseCopiedSoonAsync()
+    {
+        await Task.Delay(1600);
+        if (Error.Severity == InfoBarSeverity.Success) Error.IsOpen = false;
+    }
+
+    /// <summary>Tapping a quote brings the original message into view.</summary>
+    private void OnQuoteClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not MessageItem item || item.ReplyToId is not { } id) return;
+        var target = _messages.FirstOrDefault(m => m.Id == id);
+        if (target is not null) Messages.ScrollIntoView(target, ScrollIntoViewAlignment.Leading);
+    }
 
     private void ClearPendingFile()
     {

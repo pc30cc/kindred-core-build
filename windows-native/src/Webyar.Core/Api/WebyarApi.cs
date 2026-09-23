@@ -130,8 +130,8 @@ public sealed class WebyarApi
     /// `clientMessageId` makes a retry safe: the server collapses a replay of
     /// the same key. Generate it once per message, not once per attempt.
     /// </summary>
-    public Task SendMessageAsync(string conversationId, string workspaceId, string body, string clientMessageId, string? attachmentId = null, CancellationToken ct = default) =>
-        _client.SendAsync(HttpMethod.Post, "/api/conversations/send-message", new SendMessageBody(conversationId, workspaceId, body, clientMessageId, attachmentId), ct: ct);
+    public Task SendMessageAsync(string conversationId, string workspaceId, string body, string clientMessageId, string? attachmentId = null, string? replyToMessageId = null, CancellationToken ct = default) =>
+        _client.SendAsync(HttpMethod.Post, "/api/conversations/send-message", new SendMessageBody(conversationId, workspaceId, body, clientMessageId, attachmentId, replyToMessageId), ct: ct);
 
     public Task MarkSeenAsync(string conversationId, CancellationToken ct = default) =>
         _client.SendAsync(HttpMethod.Post, $"/api/conversations/{Uri.EscapeDataString(conversationId)}/seen", ct: ct);
@@ -346,7 +346,7 @@ public sealed class WebyarApi
         _client.GetBytesAsync($"/api/conversation-attachments/{Uri.EscapeDataString(attachmentId)}/file", ct);
 
     public Task SendMessageWithAttachmentAsync(string conversationId, string workspaceId, string body, string clientMessageId, string attachmentId, CancellationToken ct = default) =>
-        SendMessageAsync(conversationId, workspaceId, body, clientMessageId, attachmentId, ct);
+        SendMessageAsync(conversationId, workspaceId, body, clientMessageId, attachmentId, null, ct);
 
     // Contacts
 
@@ -431,13 +431,14 @@ public sealed class WebyarApi
     public async Task<TeamThread> TeamThreadAsync(string workspaceId, string peerId, CancellationToken ct = default) =>
         await _client.GetAsync<TeamThread>("/api/team-chat/thread", [Q("workspace_id", workspaceId), Q("peer_id", peerId)], ct).ConfigureAwait(false) ?? new TeamThread();
 
-    public Task SendTeamMessageAsync(string workspaceId, string recipientId, string body, string? attachmentId = null, CancellationToken ct = default) =>
+    public Task SendTeamMessageAsync(string workspaceId, string recipientId, string body, string? attachmentId = null, string? replyToId = null, CancellationToken ct = default) =>
         _client.SendAsync(HttpMethod.Post, "/api/team-chat/messages", new Dictionary<string, object?>
         {
             ["workspace_id"] = workspaceId,
             ["recipient_id"] = recipientId,
             ["body"] = body,
             ["attachment_id"] = attachmentId,
+            ["reply_to_id"] = replyToId,
         }, ct: ct);
 
     public Task MarkTeamReadAsync(string workspaceId, string peerId, CancellationToken ct = default) =>
@@ -530,5 +531,5 @@ public sealed class WebyarApi
     private sealed record EmailThreadsResponse([property: System.Text.Json.Serialization.JsonPropertyName("threads")] IReadOnlyList<EmailThreadSummary>? Threads);
     private sealed record GmailConnectionResponse([property: System.Text.Json.Serialization.JsonPropertyName("connection")] GmailConnection? Connection);
     private sealed record InvitationResponse(CallInvitation? Invitation);
-    private sealed record SendMessageBody(string ConversationId, string WorkspaceId, string Body, string ClientMessageId, string? AttachmentId);
+    private sealed record SendMessageBody(string ConversationId, string WorkspaceId, string Body, string ClientMessageId, string? AttachmentId, string? ReplyToMessageId);
 }

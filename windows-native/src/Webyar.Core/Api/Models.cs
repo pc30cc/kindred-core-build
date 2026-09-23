@@ -105,7 +105,9 @@ public sealed record Message(
     string? SenderName = null,
     string? SenderAvatar = null,
     IReadOnlyList<MessageAttachment>? Attachments = null,
-    JsonElement? Metadata = null)
+    JsonElement? Metadata = null,
+    /// <summary>The message of the same conversation this one answers.</summary>
+    string? ReplyToMessageId = null)
 {
     /// <summary>Operator-side messages sit on the trailing edge of the thread.</summary>
     public bool IsOutgoing => SenderType is SenderTypes.Agent or SenderTypes.Ai or SenderTypes.Bot;

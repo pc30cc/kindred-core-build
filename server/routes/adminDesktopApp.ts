@@ -101,7 +101,7 @@ adminDesktopAppRouter.put('/settings', async (req, res) => {
   if (!actorId) return;
   const parsed = desktopAppSettingsSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid input', issues: parsed.error.issues.map((i) => i.path.join('.')) });
+    return res.status(400).json(invalidInput(parsed.error));
   }
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
@@ -127,35 +127,59 @@ adminDesktopAppRouter.put('/settings', async (req, res) => {
 
 // ── Ads & announcements ─────────────────────────────────────────────────
 
+/** Limits shared with the admin form (src/components/admin/desktop/DesktopCampaignsTab.tsx). */
+export const CAMPAIGN_LIMITS = { name: 200, title: 200, body: 2000, cta_label: 60 } as const;
+
+/** Optional copy: null and blanks are treated as "not set" rather than rejected. */
+const optionalText = (max: number) =>
+  z.preprocess((v) => (v == null ? undefined : v), z.string().trim().max(max).optional());
+
 const localeText = z
   .object({
-    title: z.string().trim().max(120).optional(),
-    body: z.string().trim().max(600).optional(),
-    cta_label: z.string().trim().max(40).optional(),
+    title: optionalText(CAMPAIGN_LIMITS.title),
+    body: optionalText(CAMPAIGN_LIMITS.body),
+    cta_label: optionalText(CAMPAIGN_LIMITS.cta_label),
   })
   .partial();
 
-const OPTIONAL_HTTPS = z
-  .string()
-  .trim()
-  .max(2000)
-  .refine((v) => v === '' || /^https:\/\//i.test(v), 'https required')
-  .transform((v) => (v === '' ? null : v))
-  .nullable();
+/**
+ * A link or image address. A bare domain ("webyar.ai/pricing") gets
+ * `https://` in front; anything with another scheme (http:, javascript:)
+ * is refused, since the desktop app only opens secure links.
+ */
+export const OPTIONAL_HTTPS = z
+  .preprocess(
+    (v) => {
+      if (typeof v !== 'string') return v;
+      const t = v.trim();
+      if (t === '' || /^[a-z][a-z0-9+.-]*:/i.test(t)) return t;
+      return `https://${t.replace(/^\/+/, '')}`;
+    },
+    z
+      .string()
+      .max(2000)
+      .refine((v) => v === '' || /^https:\/\/[^\s/?#]+\.[^\s]+$/i.test(v), 'must be an https:// address')
+      .transform((v) => (v === '' ? null : v))
+      .nullable(),
+  );
 
 const WHEN = z
   .string()
   .trim()
-  .refine((v) => v === '' || !Number.isNaN(Date.parse(v)), 'date required')
+  .refine((v) => v === '' || !Number.isNaN(Date.parse(v)), 'must be a date')
   .transform((v) => (v === '' ? null : new Date(v).toISOString()))
   .nullable();
 
+const localeMap = z
+  .object(Object.fromEntries(CAMPAIGN_LOCALES.map((l) => [l, localeText.nullish()])) as Record<(typeof CAMPAIGN_LOCALES)[number], z.ZodOptional<z.ZodNullable<typeof localeText>>>)
+  .transform((text) => Object.fromEntries(Object.entries(text).filter(([, v]) => v != null)));
+
 export const campaignSchema = z.object({
   kind: z.enum(['ad', 'announcement']),
-  name: z.string().trim().max(120).default(''),
-  placements: z.array(z.enum(DESKTOP_PLACEMENTS)).min(1),
+  name: optionalText(CAMPAIGN_LIMITS.name).transform((v) => v ?? ''),
+  placements: z.array(z.enum(DESKTOP_PLACEMENTS)).min(1, 'choose at least one placement'),
   target_plans: z.array(z.string().trim().min(1).max(80)).max(50).default([]),
-  text: z.object(Object.fromEntries(CAMPAIGN_LOCALES.map((l) => [l, localeText.optional()])) as Record<(typeof CAMPAIGN_LOCALES)[number], z.ZodOptional<typeof localeText>>),
+  text: localeMap,
   image_url: OPTIONAL_HTTPS.optional(),
   cta_url: OPTIONAL_HTTPS.optional(),
   severity: z.enum(CAMPAIGN_SEVERITIES).default('info'),
@@ -164,7 +188,20 @@ export const campaignSchema = z.object({
   active: z.boolean().default(true),
   starts_at: WHEN.optional(),
   ends_at: WHEN.optional(),
+}).refine((c) => !c.starts_at || !c.ends_at || c.ends_at > c.starts_at, {
+  message: 'end must be after start',
+  path: ['ends_at'],
 });
+
+/** The partial schema used by PUT: every field optional, same rules. */
+export const campaignPatchSchema = campaignSchema.innerType().partial();
+
+/** 400 body naming each rejected field, e.g. "text.fa.title: too long (max 200)". */
+export function invalidInput(error: z.ZodError) {
+  const issues = error.issues.map((i) => ({ path: i.path.join('.'), message: i.message }));
+  const detail = issues.map((i) => (i.path ? `${i.path}: ${i.message}` : i.message)).join('; ');
+  return { error: detail ? `Invalid input — ${detail}` : 'Invalid input', issues };
+}
 
 adminDesktopAppRouter.get('/campaigns', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
@@ -182,7 +219,7 @@ adminDesktopAppRouter.post('/campaigns', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   const parsed = campaignSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid input', issues: parsed.error.issues.map((i) => i.path.join('.')) });
+    return res.status(400).json(invalidInput(parsed.error));
   }
   const sb = getServiceClient(serverConfigOf(req));
   const { data, error } = await sb.from('desktop_app_campaigns').insert(parsed.data).select('*').single();
@@ -194,9 +231,9 @@ adminDesktopAppRouter.post('/campaigns', async (req, res) => {
 adminDesktopAppRouter.put('/campaigns/:id', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   if (!z.string().uuid().safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid id' });
-  const parsed = campaignSchema.partial().safeParse(req.body);
+  const parsed = campaignPatchSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid input', issues: parsed.error.issues.map((i) => i.path.join('.')) });
+    return res.status(400).json(invalidInput(parsed.error));
   }
   const sb = getServiceClient(serverConfigOf(req));
   const { data, error } = await sb
@@ -240,7 +277,7 @@ adminDesktopAppRouter.post('/broadcasts', async (req, res) => {
   if (!actorId) return;
   const parsed = broadcastSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid input', issues: parsed.error.issues.map((i) => i.path.join('.')) });
+    return res.status(400).json(invalidInput(parsed.error));
   }
   const d = parsed.data;
   const b = addBroadcast({

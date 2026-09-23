@@ -4454,6 +4454,8 @@ const tr: TranslationKeys = {
         imageUrlHint: "Kare görsel en iyisidir. Yalnızca HTTPS.",
         placements: "Nerede gösterilir",
         placementRequired: "En az bir yer seçin.",
+        invalidUrl: "Adres https:// ile başlamalıdır (ör. https://webyar.ai).",
+        scheduleOrder: "Bitiş zamanı başlangıçtan sonra olmalıdır.",
         targetPlans: "Planlar",
         targetPlansHint: "Hepsi için göstermek üzere boş bırakın.",
         startsAt: "Başlangıç",

@@ -76,6 +76,30 @@ const toLocalInput = (iso: string | null) => {
 };
 const fromLocalInput = (value: string) => (value ? new Date(value).toISOString() : null);
 
+/** Same limits as the server's campaignSchema (server/routes/adminDesktopApp.ts). */
+const LIMITS = { name: 200, title: 200, body: 2000, cta_label: 60 } as const;
+
+/** "webyar.ai/x" → "https://webyar.ai/x", as the server does; other schemes are left for validation to refuse. */
+const normalizeUrl = (value: string | null) => {
+  const v = (value ?? '').trim();
+  if (!v) return null;
+  return /^[a-z][a-z0-9+.-]*:/i.test(v) ? v : `https://${v.replace(/^\/+/, '')}`;
+};
+const isValidUrl = (value: string | null) => {
+  const v = normalizeUrl(value);
+  return !v || /^https:\/\/[^\s/?#]+\.[^\s]+$/i.test(v);
+};
+
+/** First reason the form can't be saved yet, as a translation key. */
+function problemOf(input: DesktopCampaignInput): TranslationKey | null {
+  if (input.placements.length === 0) return 'admin.desktopApp.campaigns.placementRequired';
+  if (!isValidUrl(input.cta_url) || !isValidUrl(input.image_url)) return 'admin.desktopApp.campaigns.invalidUrl';
+  if (input.starts_at && input.ends_at && Date.parse(input.ends_at) <= Date.parse(input.starts_at)) {
+    return 'admin.desktopApp.campaigns.scheduleOrder';
+  }
+  return null;
+}
+
 function status(c: DesktopCampaign): 'live' | 'scheduled' | 'ended' | 'off' {
   if (!c.active) return 'off';
   const now = Date.now();
@@ -106,8 +130,18 @@ export function DesktopCampaignsTab() {
 
   const onSave = async () => {
     if (!editing) return;
+    const input = {
+      ...editing.input,
+      cta_url: normalizeUrl(editing.input.cta_url),
+      image_url: normalizeUrl(editing.input.image_url),
+    };
+    const problem = problemOf(input);
+    if (problem) {
+      toast({ title: t('admin.desktopApp.common.saveFailed'), description: t(problem), variant: 'destructive' });
+      return;
+    }
     try {
-      await save.mutateAsync({ id: editing.id, input: editing.input });
+      await save.mutateAsync({ id: editing.id, input });
       toast({ title: t('admin.desktopApp.common.saved') });
       setEditing(null);
     } catch (e) {
@@ -327,7 +361,8 @@ function CampaignEditor({
         <TextField
           label={t('admin.desktopApp.campaigns.name')}
           hint={t('admin.desktopApp.campaigns.nameHint')}
-          value={value.name}
+          value={value.name ?? ''}
+          maxLength={LIMITS.name}
           onChange={(name) => set({ name })}
         />
         {value.kind === 'announcement' ? (
@@ -371,18 +406,21 @@ function CampaignEditor({
             <TextField
               label={t('admin.desktopApp.campaigns.titleField')}
               value={value.text[l]?.title ?? ''}
+              maxLength={LIMITS.title}
               onChange={(v) => setText(l, 'title', v)}
             />
             <TextAreaField
               label={t('admin.desktopApp.campaigns.bodyField')}
               value={value.text[l]?.body ?? ''}
-              counter={600}
+              counter={LIMITS.body}
+              maxLength={LIMITS.body}
               onChange={(v) => setText(l, 'body', v)}
             />
             <TextField
               label={t('admin.desktopApp.campaigns.ctaLabel')}
               hint={t('admin.desktopApp.campaigns.ctaLabelHint')}
               value={value.text[l]?.cta_label ?? ''}
+              maxLength={LIMITS.cta_label}
               onChange={(v) => setText(l, 'cta_label', v)}
             />
           </TabsContent>
@@ -396,7 +434,8 @@ function CampaignEditor({
           value={value.cta_url ?? ''}
           dir="ltr"
           placeholder="https://"
-          invalid={!!value.cta_url && !/^https:\/\//i.test(value.cta_url)}
+          invalid={!isValidUrl(value.cta_url)}
+          onBlur={() => set({ cta_url: normalizeUrl(value.cta_url) })}
           onChange={(v) => set({ cta_url: v || null })}
         />
         <TextField
@@ -405,7 +444,8 @@ function CampaignEditor({
           value={value.image_url ?? ''}
           dir="ltr"
           placeholder="https://"
-          invalid={!!value.image_url && !/^https:\/\//i.test(value.image_url)}
+          invalid={!isValidUrl(value.image_url)}
+          onBlur={() => set({ image_url: normalizeUrl(value.image_url) })}
           onChange={(v) => set({ image_url: v || null })}
         />
       </FieldGrid>

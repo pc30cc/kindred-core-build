@@ -72,6 +72,8 @@ export function TextField({
   type = 'text',
   disabled,
   dir,
+  maxLength,
+  onBlur,
 }: {
   label: string;
   hint?: string;
@@ -82,6 +84,8 @@ export function TextField({
   type?: string;
   disabled?: boolean;
   dir?: 'ltr' | 'rtl';
+  maxLength?: number;
+  onBlur?: () => void;
 }) {
   return (
     <div className="grid gap-1.5">
@@ -92,6 +96,8 @@ export function TextField({
         dir={dir}
         disabled={disabled}
         placeholder={placeholder}
+        maxLength={maxLength}
+        onBlur={onBlur}
         onChange={(e) => onChange(e.target.value)}
         className={cn(invalid && 'border-destructive focus-visible:ring-destructive')}
       />
@@ -108,6 +114,7 @@ export function TextAreaField({
   rows = 3,
   placeholder,
   counter,
+  maxLength,
 }: {
   label: string;
   hint?: string;
@@ -117,6 +124,7 @@ export function TextAreaField({
   placeholder?: string;
   /** Live "n / max" counter — Apple truncates long purpose strings. */
   counter?: number;
+  maxLength?: number;
 }) {
   return (
     <div className="grid gap-1.5">
@@ -133,7 +141,7 @@ export function TextAreaField({
           </span>
         )}
       </div>
-      <Textarea rows={rows} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+      <Textarea rows={rows} value={value} placeholder={placeholder} maxLength={maxLength} onChange={(e) => onChange(e.target.value)} />
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );

@@ -20,7 +20,7 @@
             <Setter Property="Padding" Value="14,6" />
         </Style>
         <Style x:Key="SegToggle" TargetType="ToggleButton" BasedOn="{StaticResource DefaultToggleButtonStyle}">
-            <Setter Property="CornerRadius" Value="999" />
+            <Setter Property="CornerRadius" Value="8" />
             <Setter Property="Padding" Value="12,3" />
             <Setter Property="FontSize" Value="12.5" />
         </Style>
@@ -128,7 +128,7 @@
                                         </Grid.ColumnDefinitions>
                                         <Grid>
                                             <controls:Avatar Size="42" DisplayName="{x:Bind Name, Mode=OneWay}" Email="{x:Bind Email, Mode=OneWay}" />
-                                            <Border Width="20" Height="20" CornerRadius="10" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-4,-4" Background="{ThemeResource BrandBrush}" BorderBrush="{ThemeResource SurfaceBrush}" BorderThickness="2">
+                                            <Border Width="20" Height="20" CornerRadius="6" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-4,-4" Background="{ThemeResource BrandBrush}" BorderBrush="{ThemeResource SurfaceBrush}" BorderThickness="2">
                                                 <FontIcon Glyph="{x:Bind ChannelGlyph, Mode=OneWay}" FontSize="9" Foreground="White" />
                                             </Border>
                                         </Grid>
@@ -142,7 +142,7 @@
                                             </StackPanel>
                                             <TextBlock FontSize="12" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind Detail, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
-                                        <Border Grid.Column="2" CornerRadius="999" Padding="9,3" VerticalAlignment="Center" Background="{x:Bind WaitBack, Mode=OneWay}">
+                                        <Border Grid.Column="2" CornerRadius="8" Padding="9,3" VerticalAlignment="Center" Background="{x:Bind WaitBack, Mode=OneWay}">
                                             <StackPanel Orientation="Horizontal" Spacing="4" FlowDirection="LeftToRight">
                                                 <FontIcon Glyph="&#xE916;" FontSize="11" Foreground="{x:Bind WaitBrush, Mode=OneWay}" />
                                                 <TextBlock FontSize="12.5" FontWeight="SemiBold" Foreground="{x:Bind WaitBrush, Mode=OneWay}" Text="{x:Bind WaitText, Mode=OneWay}" />
@@ -184,7 +184,7 @@
                             </ListView.ItemTemplate>
                         </ListView>
                         <StackPanel x:Name="Empty" Margin="24" VerticalAlignment="Center" Spacing="8" Visibility="Collapsed">
-                            <Border Width="64" Height="64" CornerRadius="32" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
+                            <Border Width="64" Height="64" CornerRadius="17" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
                                 <FontIcon FontSize="26" Foreground="{ThemeResource BrandBrush}" Glyph="&#xE717;" />
                             </Border>
                             <TextBlock x:Name="EmptyTitle" HorizontalAlignment="Center" FontWeight="SemiBold" />
@@ -199,7 +199,7 @@
             <Border Grid.Column="1" Style="{StaticResource PanelBorder}">
                 <Grid>
                     <StackPanel x:Name="Placeholder" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" MaxWidth="380">
-                        <Border Width="76" Height="76" CornerRadius="38" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
+                        <Border Width="76" Height="76" CornerRadius="21" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
                             <FontIcon FontSize="30" Foreground="{ThemeResource BrandBrush}" Glyph="&#xE77B;" />
                         </Border>
                         <TextBlock x:Name="PlaceholderTitle" HorizontalAlignment="Center" FontSize="16" FontWeight="SemiBold" />
@@ -232,20 +232,20 @@
                                         <TextBlock x:Name="WaitLine" FontSize="12.5" Foreground="{ThemeResource Text2Brush}" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                                        <Button x:Name="RejectButton" MinHeight="44" Padding="16,0" CornerRadius="22" Background="{ThemeResource DangerSoftBrush}" Foreground="{ThemeResource DangerBrush}" BorderThickness="0" Click="OnReject">
+                                        <Button x:Name="RejectButton" MinHeight="44" Padding="16,0" CornerRadius="10" Background="{ThemeResource DangerSoftBrush}" Foreground="{ThemeResource DangerBrush}" BorderThickness="0" Click="OnReject">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
                                                 <FontIcon Glyph="&#xE778;" FontSize="15" />
                                                 <TextBlock x:Name="RejectText" FontWeight="SemiBold" />
                                             </StackPanel>
                                         </Button>
-                                        <Button x:Name="AcceptButton" MinHeight="44" Padding="20,0" CornerRadius="22" Background="{ThemeResource SuccessBrush}" Foreground="White" BorderThickness="0" Click="OnAccept">
+                                        <Button x:Name="AcceptButton" MinHeight="44" Padding="20,0" CornerRadius="10" Background="{ThemeResource SuccessBrush}" Foreground="White" BorderThickness="0" Click="OnAccept">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
                                                 <FontIcon x:Name="AcceptGlyph" Glyph="&#xE717;" FontSize="15" />
                                                 <TextBlock x:Name="AcceptText" FontWeight="SemiBold" />
                                                 <ProgressRing x:Name="AcceptRing" Width="16" Height="16" IsActive="False" Foreground="White" />
                                             </StackPanel>
                                         </Button>
-                                        <Button x:Name="EndButton" MinHeight="44" Padding="20,0" CornerRadius="22" Background="{ThemeResource DangerBrush}" Foreground="White" BorderThickness="0" Visibility="Collapsed" Click="OnEnd">
+                                        <Button x:Name="EndButton" MinHeight="44" Padding="20,0" CornerRadius="10" Background="{ThemeResource DangerBrush}" Foreground="White" BorderThickness="0" Visibility="Collapsed" Click="OnEnd">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
                                                 <FontIcon Glyph="&#xE778;" FontSize="15" />
                                                 <TextBlock x:Name="EndText" FontWeight="SemiBold" />

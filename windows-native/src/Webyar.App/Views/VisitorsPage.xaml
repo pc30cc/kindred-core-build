@@ -17,7 +17,7 @@
             <Setter Property="Foreground" Value="{ThemeResource TextBrush}" />
         </Style>
         <Style x:Key="FilterToggle" TargetType="ToggleButton" BasedOn="{StaticResource DefaultToggleButtonStyle}">
-            <Setter Property="CornerRadius" Value="999" />
+            <Setter Property="CornerRadius" Value="8" />
             <Setter Property="Padding" Value="12,4" />
             <Setter Property="FontSize" Value="12.5" />
         </Style>
@@ -65,7 +65,7 @@
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <ToggleButton x:Name="OnlineFilter" Style="{StaticResource FilterToggle}" Click="OnFilter" />
                         <ToggleButton x:Name="ChatFilter" Style="{StaticResource FilterToggle}" Click="OnFilter" />
-                        <ComboBox x:Name="CountryFilter" MinWidth="120" CornerRadius="999" FontSize="12.5" SelectionChanged="OnCountry" />
+                        <ComboBox x:Name="CountryFilter" MinWidth="120" CornerRadius="8" FontSize="12.5" SelectionChanged="OnCountry" />
                     </StackPanel>
                     <ToggleSwitch x:Name="OfflineSwitch" Toggled="OnIncludeOffline" MinWidth="0" />
                 </StackPanel>
@@ -115,7 +115,7 @@
                         </ListView.ItemTemplate>
                     </ListView>
                     <StackPanel x:Name="Empty" Margin="24" VerticalAlignment="Center" Spacing="8" Visibility="Collapsed">
-                        <Border Width="60" Height="60" CornerRadius="30" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
+                        <Border Width="60" Height="60" CornerRadius="16" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
                             <FontIcon FontSize="24" Foreground="{ThemeResource BrandBrush}" Glyph="&#xE909;" />
                         </Border>
                         <TextBlock x:Name="EmptyTitle" HorizontalAlignment="Center" FontWeight="SemiBold" />

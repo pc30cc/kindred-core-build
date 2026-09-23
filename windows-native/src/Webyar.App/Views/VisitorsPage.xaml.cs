@@ -262,7 +262,7 @@ public sealed partial class VisitorsPage : Page
         {
             Width = 30,
             Height = 30,
-            CornerRadius = new CornerRadius(15),
+            CornerRadius = new CornerRadius(8),
             Background = Palette.Resource("BrandSoftBrush"),
             VerticalAlignment = VerticalAlignment.Top,
             Child = new FontIcon { Glyph = glyph, FontSize = 13, Foreground = Palette.Resource("BrandBrush") },

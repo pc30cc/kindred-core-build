@@ -20,7 +20,7 @@
 
     <!-- Small rounded label: status, priority, tag. -->
     <Style x:Key="ChipBorder" TargetType="Border">
-        <Setter Property="CornerRadius" Value="999" />
+        <Setter Property="CornerRadius" Value="8" />
         <Setter Property="Padding" Value="9,2" />
         <Setter Property="Background" Value="{ThemeResource ElevatedBrush}" />
     </Style>
@@ -58,18 +58,28 @@
         <Setter Property="Padding" Value="8" />
         <Setter Property="MinWidth" Value="34" />
         <Setter Property="MinHeight" Value="34" />
-        <Setter Property="CornerRadius" Value="999" />
+        <Setter Property="CornerRadius" Value="8" />
         <Setter Property="Foreground" Value="{ThemeResource Text2Brush}" />
     </Style>
 
+    <!--
+        Text buttons: a quiet rectangle with slightly rounded corners, the
+        same height as the icon buttons beside them, as in Teams and Outlook.
+    -->
     <Style x:Key="PillButton" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
-        <Setter Property="CornerRadius" Value="999" />
-        <Setter Property="Padding" Value="12,6" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="MinHeight" Value="34" />
+        <Setter Property="Padding" Value="14,5" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
 
     <Style x:Key="PillAccentButton" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}">
-        <Setter Property="CornerRadius" Value="999" />
-        <Setter Property="Padding" Value="12,6" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="MinHeight" Value="34" />
+        <Setter Property="Padding" Value="14,5" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
 
     <Style x:Key="RoundTextBox" TargetType="TextBox" BasedOn="{StaticResource DefaultTextBoxStyle}">

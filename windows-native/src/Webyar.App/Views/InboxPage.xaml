@@ -95,7 +95,7 @@
                                                 Height="20"
                                                 Padding="6,0"
                                                 Background="{ThemeResource BrandBrush}"
-                                                CornerRadius="10"
+                                                CornerRadius="6"
                                                 Visibility="{x:Bind UnreadVisibility, Mode=OneWay}">
                                                 <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="11" FontWeight="Bold" Foreground="White" Text="{x:Bind UnreadText, Mode=OneWay}" />
                                             </Border>
@@ -107,7 +107,7 @@
                     </ListView>
 
                     <StackPanel x:Name="Empty" Margin="24" VerticalAlignment="Center" Spacing="10" Visibility="Collapsed">
-                        <Border Width="56" Height="56" CornerRadius="28" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
+                        <Border Width="56" Height="56" CornerRadius="15" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
                             <FontIcon FontSize="24" Foreground="{ThemeResource BrandBrush}" Glyph="&#xE8BD;" />
                         </Border>
                         <TextBlock x:Name="EmptyTitle" HorizontalAlignment="Center" FontWeight="SemiBold" FontSize="15" />

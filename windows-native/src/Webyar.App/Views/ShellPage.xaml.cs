@@ -272,7 +272,7 @@ public sealed partial class ShellPage : Page
     private static Button? LinkButton(string? url, string? label, string fallback)
     {
         if (url is not { Length: > 0 } || !Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps) return null;
-        var b = new Button { Content = label is { Length: > 0 } ? label : fallback, CornerRadius = new CornerRadius(999) };
+        var b = new Button { Content = label is { Length: > 0 } ? label : fallback, CornerRadius = new CornerRadius(8) };
         b.Click += async (_, _) => await Windows.System.Launcher.LaunchUriAsync(uri);
         return b;
     }
@@ -336,12 +336,13 @@ public sealed partial class ShellPage : Page
         WorkspaceName.Text = current?.Name is { Length: > 0 } wn ? wn : s["appName"];
         WorkspaceLogo.ImageSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
             current?.LogoUrl is { } logo && logo.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? new Uri(logo) : new Uri(AppPaths.Icon));
+        // Always clickable: the list is fetched again each time it opens, so a
+        // workspace joined elsewhere (on the web, by an invitation) shows up here.
         var many = Host.Workspaces.Count > 1;
-        WorkspaceButton.IsEnabled = many;
-        WorkspaceChevron.Visibility = many ? Visibility.Visible : Visibility.Collapsed;
-        ToolTipService.SetToolTip(WorkspaceButton, many ? s["switchWorkspace"] : null);
+        WorkspaceButton.IsEnabled = true;
+        WorkspaceChevron.Visibility = Visibility.Visible;
+        ToolTipService.SetToolTip(WorkspaceButton, s["switchWorkspace"]);
         WorkspaceMenu.Items.Clear();
-        if (!many) return;
         WorkspaceMenu.Items.Add(new MenuFlyoutItem { Text = s["switchWorkspace"], IsEnabled = false });
         foreach (var w in Host.Workspaces)
         {
@@ -358,6 +359,36 @@ public sealed partial class ShellPage : Page
                 await window.SwitchWorkspaceAsync(target);
             };
             WorkspaceMenu.Items.Add(item);
+        }
+        if (!many && current is not null && Host.Workspaces.Count == 0)
+            WorkspaceMenu.Items.Add(new RadioMenuFlyoutItem { Text = WorkspaceName.Text, GroupName = "workspace", IsChecked = true });
+    }
+
+    private bool _refreshingWorkspaces;
+
+    /// <summary>Opening the workspace menu: bring the list up to date while it shows.</summary>
+    private async void OnWorkspaceMenuOpening(object? sender, object e)
+    {
+        if (_refreshingWorkspaces) return;
+        _refreshingWorkspaces = true;
+        try
+        {
+            var fresh = await Host.Api.WorkspacesAsync();
+            Log.Write($"workspaces: {fresh.Count}");
+            if (fresh.Count > 0 && !fresh.Select(w => w.Id).SequenceEqual(Host.Workspaces.Select(w => w.Id)))
+            {
+                Host.Workspaces = fresh;
+                RenderWorkspaces();
+                BuildAccountMenu();
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("workspaces", ex);
+        }
+        finally
+        {
+            _refreshingWorkspaces = false;
         }
     }
 

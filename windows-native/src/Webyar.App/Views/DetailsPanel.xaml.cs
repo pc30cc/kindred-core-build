@@ -133,7 +133,7 @@ public sealed partial class DetailsPanel : UserControl
             remove.Click += async (_, _) => await SetTagsAsync(tags.Where(t => t != tag).ToList());
             TagsPanel.Children.Add(new Border
             {
-                CornerRadius = new CornerRadius(999),
+                CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(10, 3, 4, 3),
                 Background = Palette.Resource("BrandSoftBrush"),
                 Child = new StackPanel

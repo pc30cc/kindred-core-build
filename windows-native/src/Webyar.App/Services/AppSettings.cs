@@ -30,6 +30,7 @@ public sealed class AppSettings
     /// <summary>The last Super Admin broadcast shown, so a restart does not replay it.</summary>
     public long? LastBroadcastSeq { get; set; }
 
+    [System.Text.Json.Serialization.JsonIgnore]
     public Language ResolvedLanguage =>
         Strings.Parse(Language) ?? Core.Localization.Language.Fa;
 

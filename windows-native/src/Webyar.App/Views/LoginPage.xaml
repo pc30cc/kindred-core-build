@@ -34,7 +34,8 @@
                 <!-- Soft light circles, as on the web landing page. -->
                 <Ellipse Width="420" Height="420" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-160,-160,0" Fill="#18FFFFFF" />
                 <Ellipse Width="300" Height="300" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="-120,0,0,-110" Fill="#12FFFFFF" />
-                <StackPanel Padding="44" VerticalAlignment="Center" Spacing="28">
+                <Viewbox Stretch="Uniform" StretchDirection="DownOnly" VerticalAlignment="Center" HorizontalAlignment="Stretch">
+                <StackPanel Width="460" Padding="44" VerticalAlignment="Center" Spacing="28">
                     <Border Width="72" Height="72" CornerRadius="22" Background="#FFFFFF" HorizontalAlignment="Left">
                         <Image x:Name="BrandLogo" Width="48" Height="48" />
                     </Border>
@@ -44,34 +45,38 @@
                     </StackPanel>
                     <StackPanel Spacing="14">
                         <StackPanel Orientation="Horizontal" Spacing="12">
-                            <Border Width="34" Height="34" CornerRadius="17" Background="#26FFFFFF">
+                            <Border Width="34" Height="34" CornerRadius="9" Background="#26FFFFFF">
                                 <FontIcon Glyph="&#xE8BD;" FontSize="15" Foreground="White" />
                             </Border>
                             <TextBlock x:Name="Feature1" Style="{StaticResource FeatureText}" />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Spacing="12">
-                            <Border Width="34" Height="34" CornerRadius="17" Background="#26FFFFFF">
+                            <Border Width="34" Height="34" CornerRadius="9" Background="#26FFFFFF">
                                 <FontIcon Glyph="&#xE945;" FontSize="15" Foreground="White" />
                             </Border>
                             <TextBlock x:Name="Feature2" Style="{StaticResource FeatureText}" />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Spacing="12">
-                            <Border Width="34" Height="34" CornerRadius="17" Background="#26FFFFFF">
+                            <Border Width="34" Height="34" CornerRadius="9" Background="#26FFFFFF">
                                 <FontIcon Glyph="&#xE717;" FontSize="15" Foreground="White" />
                             </Border>
                             <TextBlock x:Name="Feature3" Style="{StaticResource FeatureText}" />
                         </StackPanel>
                     </StackPanel>
                 </StackPanel>
+                </Viewbox>
             </Grid>
         </Border>
 
         <!-- Form -->
-        <ScrollViewer x:Name="FormScroller" Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled">
-            <Grid MinHeight="{Binding ActualHeight, ElementName=FormScroller}">
+        <!--
+            The page never scrolls: in a short window the card scales down as a
+            whole instead, so everything stays on screen and in place.
+        -->
+        <Viewbox Grid.Column="1" Stretch="Uniform" StretchDirection="DownOnly" VerticalAlignment="Center" HorizontalAlignment="Center">
                 <Border
                     Width="420"
-                    Margin="0,24"
+                    Margin="0,16"
                     Padding="36,34"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
@@ -92,14 +97,14 @@
 
                         <StackPanel Spacing="6">
                             <TextBlock x:Name="EmailLabel" FontSize="13" FontWeight="SemiBold" />
-                            <Grid>
+                            <Grid FlowDirection="LeftToRight">
                                 <TextBox x:Name="Email" Height="44" Padding="42,11,12,0" CornerRadius="12" InputScope="EmailSmtpAddress" IsSpellCheckEnabled="False" FlowDirection="LeftToRight" PlaceholderText="name@company.com" />
                                 <FontIcon Glyph="&#xE715;" FontSize="15" Margin="14,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="{ThemeResource Text3Brush}" IsHitTestVisible="False" FlowDirection="LeftToRight" />
                             </Grid>
                         </StackPanel>
                         <StackPanel Spacing="6">
                             <TextBlock x:Name="PasswordLabel" FontSize="13" FontWeight="SemiBold" />
-                            <Grid>
+                            <Grid FlowDirection="LeftToRight">
                                 <PasswordBox x:Name="Password" Height="44" Padding="42,11,12,0" CornerRadius="12" FlowDirection="LeftToRight" PasswordRevealMode="Peek" />
                                 <FontIcon Glyph="&#xE72E;" FontSize="15" Margin="14,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="{ThemeResource Text3Brush}" IsHitTestVisible="False" FlowDirection="LeftToRight" />
                             </Grid>
@@ -114,7 +119,7 @@
                             <HyperlinkButton x:Name="ForgotPassword" Grid.Column="1" Padding="4,2" VerticalAlignment="Center" Click="OnForgotPassword" />
                         </Grid>
 
-                        <Button x:Name="SignIn" Height="46" CornerRadius="12" HorizontalAlignment="Stretch" Style="{StaticResource AccentButtonStyle}" Click="OnSignIn">
+                        <Button x:Name="SignIn" Height="46" CornerRadius="10" HorizontalAlignment="Stretch" Style="{StaticResource AccentButtonStyle}" Click="OnSignIn">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <ProgressRing x:Name="Busy" Width="16" Height="16" IsActive="False" Visibility="Collapsed" Foreground="White" />
                                 <TextBlock x:Name="SignInText" FontSize="15" FontWeight="SemiBold" />
@@ -139,7 +144,6 @@
                         </Grid>
                     </StackPanel>
                 </Border>
-            </Grid>
-        </ScrollViewer>
+        </Viewbox>
     </Grid>
 </Page>

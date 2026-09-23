@@ -102,14 +102,14 @@
         <Border Grid.Column="1" Style="{StaticResource PanelBorder}">
             <Grid>
                 <StackPanel x:Name="Placeholder" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
-                    <Border Width="72" Height="72" CornerRadius="36" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
+                    <Border Width="72" Height="72" CornerRadius="19" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
                         <FontIcon FontSize="30" Foreground="{ThemeResource BrandBrush}" Glyph="&#xE779;" />
                     </Border>
                     <TextBlock x:Name="PlaceholderTitle" HorizontalAlignment="Center" FontSize="16" FontWeight="SemiBold" />
                 </StackPanel>
 
                 <ScrollViewer x:Name="Card" Visibility="Collapsed" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
-                    <StackPanel MaxWidth="960" Padding="28,24,28,28" Spacing="16">
+                    <StackPanel Padding="20,18,20,24" Spacing="14">
                         <!-- Header: who, how to reach them, and the numbers. -->
                         <Border Style="{StaticResource ContactCard}" Padding="22,20">
                             <Grid RowSpacing="18">

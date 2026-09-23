@@ -19,7 +19,7 @@
                 <ColumnDefinition x:Name="EndInset" Width="0" />
             </Grid.ColumnDefinitions>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" Margin="14,0" VerticalAlignment="Center">
-                <Border Width="20" Height="20" CornerRadius="10">
+                <Border Width="20" Height="20" CornerRadius="6">
                     <Border.Background>
                         <ImageBrush x:Name="TitleIcon" Stretch="UniformToFill" />
                     </Border.Background>

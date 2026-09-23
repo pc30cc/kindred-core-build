@@ -17,7 +17,7 @@
             Width="42"
             Height="42"
             Padding="0"
-            CornerRadius="21"
+            CornerRadius="11"
             BorderThickness="0"
             Background="{ThemeResource BrandBrush}"
             Click="OnPlay">

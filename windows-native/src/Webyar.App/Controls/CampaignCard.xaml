@@ -37,7 +37,7 @@
             </Grid>
             <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
                 <StackPanel Orientation="Horizontal" Spacing="6">
-                    <Border Padding="6,1,6,2" CornerRadius="999" Background="{ThemeResource BrandSoftBrush}" VerticalAlignment="Center">
+                    <Border Padding="6,1,6,2" CornerRadius="8" Background="{ThemeResource BrandSoftBrush}" VerticalAlignment="Center">
                         <TextBlock x:Name="AdBadge" FontSize="10.5" FontWeight="SemiBold" Foreground="{ThemeResource BrandBrush}" />
                     </Border>
                     <TextBlock x:Name="TitleText" FontSize="13.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
@@ -47,7 +47,7 @@
             <Button x:Name="CloseButton" Grid.Column="2" Style="{StaticResource IconButton}" MinWidth="28" MinHeight="28" Padding="4" VerticalAlignment="Top" Click="OnClose">
                 <FontIcon Glyph="&#xE711;" FontSize="10" />
             </Button>
-            <Button x:Name="Cta" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Stretch" CornerRadius="999" Style="{StaticResource AccentButtonStyle}" Click="OnCta">
+            <Button x:Name="Cta" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Stretch" CornerRadius="8" Style="{StaticResource AccentButtonStyle}" Click="OnCta">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                     <TextBlock x:Name="CtaText" FontWeight="SemiBold" />
                     <FontIcon Glyph="&#xE8A7;" FontSize="11" />

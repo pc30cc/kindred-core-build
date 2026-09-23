@@ -63,7 +63,7 @@
                         </ListView.ItemTemplate>
                     </ListView>
                     <StackPanel x:Name="Empty" Margin="24" VerticalAlignment="Center" Spacing="8" Visibility="Collapsed">
-                        <Border Width="56" Height="56" CornerRadius="28" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
+                        <Border Width="56" Height="56" CornerRadius="15" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
                             <FontIcon FontSize="24" Foreground="{ThemeResource BrandBrush}" Glyph="&#xE715;" />
                         </Border>
                         <TextBlock x:Name="EmptyTitle" HorizontalAlignment="Center" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" />
@@ -77,7 +77,7 @@
         <Border Grid.Column="1" Style="{StaticResource PanelBorder}">
             <Grid>
                 <StackPanel x:Name="Placeholder" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
-                    <Border Width="72" Height="72" CornerRadius="36" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
+                    <Border Width="72" Height="72" CornerRadius="19" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
                         <FontIcon FontSize="30" Foreground="{ThemeResource BrandBrush}" Glyph="&#xE715;" />
                     </Border>
                     <TextBlock x:Name="PlaceholderTitle" HorizontalAlignment="Center" FontSize="16" FontWeight="SemiBold" />
@@ -96,7 +96,18 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock x:Name="SubjectText" FontSize="17" FontWeight="Bold" TextWrapping="Wrap" VerticalAlignment="Center" />
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
-                            <ToggleButton x:Name="StarButton" Padding="8" MinWidth="34" MinHeight="34" CornerRadius="17" BorderThickness="0" Background="Transparent" Click="OnStar">
+                            <ToggleButton x:Name="StarButton" Padding="8" MinWidth="34" MinHeight="34" CornerRadius="8" BorderThickness="0" Background="Transparent" Click="OnStar">
+                                <!-- Checked is a soft tint with the brand colour, not a filled blue block. -->
+                                <ToggleButton.Resources>
+                                    <StaticResource x:Key="ToggleButtonBackgroundChecked" ResourceKey="BrandSoftBrush" />
+                                    <StaticResource x:Key="ToggleButtonBackgroundCheckedPointerOver" ResourceKey="BrandSoftBrush" />
+                                    <StaticResource x:Key="ToggleButtonBackgroundCheckedPressed" ResourceKey="BrandSoftBrush" />
+                                    <StaticResource x:Key="ToggleButtonForegroundChecked" ResourceKey="BrandBrush" />
+                                    <StaticResource x:Key="ToggleButtonForegroundCheckedPointerOver" ResourceKey="BrandBrush" />
+                                    <StaticResource x:Key="ToggleButtonForegroundCheckedPressed" ResourceKey="BrandBrush" />
+                                    <StaticResource x:Key="ToggleButtonBorderBrushChecked" ResourceKey="BrandSoftBrush" />
+                                    <StaticResource x:Key="ToggleButtonBorderBrushCheckedPointerOver" ResourceKey="BrandSoftBrush" />
+                                </ToggleButton.Resources>
                                 <FontIcon Glyph="&#xE734;" FontSize="15" />
                             </ToggleButton>
                             <Button x:Name="UnreadButton" Style="{StaticResource IconButton}" Click="OnMarkUnread">

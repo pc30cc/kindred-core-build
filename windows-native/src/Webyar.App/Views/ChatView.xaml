@@ -33,7 +33,7 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <Border Width="42" Height="42" CornerRadius="21" Background="{ThemeResource BrandSoftBrush}">
+                        <Border Width="42" Height="42" CornerRadius="11" Background="{ThemeResource BrandSoftBrush}">
                             <FontIcon Glyph="{x:Bind Glyph}" FontSize="18" Foreground="{ThemeResource BrandBrush}" />
                         </Border>
                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
@@ -66,7 +66,7 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <Border Width="42" Height="42" CornerRadius="21" Background="#33FFFFFF">
+                        <Border Width="42" Height="42" CornerRadius="11" Background="#33FFFFFF">
                             <FontIcon Glyph="{x:Bind Glyph}" FontSize="18" Foreground="White" />
                         </Border>
                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
@@ -140,7 +140,7 @@
         </DataTemplate>
 
         <DataTemplate x:Key="SystemTemplate" x:DataType="vm:MessageItem">
-            <Border Margin="0,8" Padding="12,5" HorizontalAlignment="Center" Background="{ThemeResource ElevatedBrush}" CornerRadius="999">
+            <Border Margin="0,8" Padding="12,5" HorizontalAlignment="Center" Background="{ThemeResource ElevatedBrush}" CornerRadius="8">
                 <TextBlock FontSize="12" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind Body}" TextAlignment="Center" TextReadingOrder="DetectFromContent" TextWrapping="Wrap" />
             </Border>
         </DataTemplate>
@@ -176,7 +176,7 @@
             <Grid>
                 <!-- Nothing chosen yet. -->
                 <StackPanel x:Name="Placeholder" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
-                    <Border Width="72" Height="72" CornerRadius="36" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
+                    <Border Width="72" Height="72" CornerRadius="19" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
                         <FontIcon FontSize="30" Foreground="{ThemeResource BrandBrush}" Glyph="&#xE8F2;" />
                     </Border>
                     <TextBlock x:Name="PlaceholderTitle" HorizontalAlignment="Center" FontSize="16" FontWeight="SemiBold" />
@@ -234,7 +234,18 @@
                                     <MenuFlyout x:Name="MoreMenu" Opening="OnMoreOpening" />
                                 </Button.Flyout>
                             </Button>
-                            <ToggleButton x:Name="DetailsToggle" Padding="8" MinWidth="34" MinHeight="34" CornerRadius="17" BorderThickness="0" Background="Transparent" IsChecked="True" Click="OnToggleDetails">
+                            <ToggleButton x:Name="DetailsToggle" Padding="8" MinWidth="34" MinHeight="34" CornerRadius="8" BorderThickness="0" Background="Transparent" IsChecked="True" Click="OnToggleDetails">
+                                <!-- Checked is a soft tint with the brand colour, not a filled blue block. -->
+                                <ToggleButton.Resources>
+                                    <StaticResource x:Key="ToggleButtonBackgroundChecked" ResourceKey="BrandSoftBrush" />
+                                    <StaticResource x:Key="ToggleButtonBackgroundCheckedPointerOver" ResourceKey="BrandSoftBrush" />
+                                    <StaticResource x:Key="ToggleButtonBackgroundCheckedPressed" ResourceKey="BrandSoftBrush" />
+                                    <StaticResource x:Key="ToggleButtonForegroundChecked" ResourceKey="BrandBrush" />
+                                    <StaticResource x:Key="ToggleButtonForegroundCheckedPointerOver" ResourceKey="BrandBrush" />
+                                    <StaticResource x:Key="ToggleButtonForegroundCheckedPressed" ResourceKey="BrandBrush" />
+                                    <StaticResource x:Key="ToggleButtonBorderBrushChecked" ResourceKey="BrandSoftBrush" />
+                                    <StaticResource x:Key="ToggleButtonBorderBrushCheckedPointerOver" ResourceKey="BrandSoftBrush" />
+                                </ToggleButton.Resources>
                                 <FontIcon Glyph="&#xE8A0;" FontSize="15" />
                             </ToggleButton>
                         </StackPanel>
@@ -287,7 +298,7 @@
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <Border Width="44" Height="44" CornerRadius="22" Background="{ThemeResource BrandSoftBrush}">
+                                        <Border Width="44" Height="44" CornerRadius="12" Background="{ThemeResource BrandSoftBrush}">
                                             <Grid>
                                                 <FontIcon x:Name="PendingGlyph" Glyph="&#xE8A5;" FontSize="18" Foreground="{ThemeResource BrandBrush}" />
                                                 <Image x:Name="PendingThumb" Stretch="UniformToFill" Visibility="Collapsed" />
@@ -297,7 +308,7 @@
                                             <TextBlock x:Name="PendingFileName" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                             <TextBlock x:Name="PendingFileSize" FontSize="11.5" Foreground="{ThemeResource Text3Brush}" />
                                         </StackPanel>
-                                        <Button Grid.Column="2" Style="{StaticResource IconButton}" MinWidth="28" MinHeight="28" Padding="4" CornerRadius="14" VerticalAlignment="Center" Click="OnClearPendingFile">
+                                        <Button Grid.Column="2" Style="{StaticResource IconButton}" MinWidth="28" MinHeight="28" Padding="4" CornerRadius="8" VerticalAlignment="Center" Click="OnClearPendingFile">
                                             <FontIcon Glyph="&#xE711;" FontSize="11" />
                                         </Button>
                                     </Grid>
@@ -353,7 +364,7 @@
                                         the visitor directly: the AI says it, in the specialist's voice or
                                         its own — the iOS say-now. This picks the voice.
                                     -->
-                                    <DropDownButton x:Name="VoicePicker" Visibility="Collapsed" Padding="10,5" CornerRadius="16" BorderThickness="0" Background="{ThemeResource AiSoftBrush}">
+                                    <DropDownButton x:Name="VoicePicker" Visibility="Collapsed" Padding="10,5" CornerRadius="8" BorderThickness="0" Background="{ThemeResource AiSoftBrush}">
                                         <StackPanel Orientation="Horizontal" Spacing="7">
                                             <FontIcon x:Name="VoiceGlyph" Glyph="&#xE77B;" FontSize="14" Foreground="{ThemeResource AiBrush}" />
                                             <TextBlock x:Name="VoiceText" FontSize="12.5" FontWeight="SemiBold" Foreground="{ThemeResource AiBrush}" VerticalAlignment="Center" />
@@ -419,10 +430,10 @@
                                     <Button x:Name="RecordCancelButton" Grid.Column="4" Style="{StaticResource IconButton}" Visibility="Collapsed" Click="OnRecordCancel">
                                         <FontIcon Glyph="&#xE74D;" FontSize="16" Foreground="{ThemeResource DangerBrush}" />
                                     </Button>
-                                    <Button x:Name="MicButton" Grid.Column="5" Width="36" Height="36" Padding="0" CornerRadius="18" Margin="0,0,6,0" Style="{StaticResource IconButton}" Click="OnMic">
+                                    <Button x:Name="MicButton" Grid.Column="5" Width="36" Height="36" Padding="0" CornerRadius="10" Margin="0,0,6,0" Style="{StaticResource IconButton}" Click="OnMic">
                                         <FontIcon x:Name="MicGlyph" Glyph="&#xE720;" FontSize="16" />
                                     </Button>
-                                    <Button x:Name="SendButton" Grid.Column="6" Width="36" Height="36" Padding="0" CornerRadius="18" Style="{StaticResource AccentButtonStyle}" IsEnabled="False" Click="OnSend">
+                                    <Button x:Name="SendButton" Grid.Column="6" Width="36" Height="36" Padding="0" CornerRadius="10" Style="{StaticResource AccentButtonStyle}" IsEnabled="False" Click="OnSend">
                                         <!-- The paper plane points the way text runs. -->
                                         <FontIcon x:Name="SendGlyph" FontSize="14" Glyph="&#xE724;" MirroredWhenRightToLeft="True" />
                                     </Button>

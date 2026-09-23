@@ -212,7 +212,7 @@ public sealed partial class ContactsPage : Page
         {
             Width = 32,
             Height = 32,
-            CornerRadius = new CornerRadius(16),
+            CornerRadius = new CornerRadius(9),
             Background = Palette.Resource("BrandSoftBrush"),
             Child = new FontIcon { Glyph = glyph, FontSize = 14, Foreground = Palette.Resource("BrandBrush") },
         });
@@ -365,7 +365,7 @@ public sealed partial class ContactsPage : Page
         {
             Width = 36,
             Height = 36,
-            CornerRadius = new CornerRadius(18),
+            CornerRadius = new CornerRadius(10),
             Background = Palette.Resource(missed ? "DangerSoftBrush" : "SuccessSoftBrush"),
             Child = new FontIcon { Glyph = video ? "" : "", FontSize = 15, Foreground = Palette.Resource(missed ? "DangerBrush" : "SuccessBrush") },
         });
@@ -431,7 +431,7 @@ public sealed partial class ContactsPage : Page
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
         if (glyph is not null) row.Children.Add(new FontIcon { Glyph = glyph, FontSize = 10, Foreground = Palette.Resource(fore) });
         row.Children.Add(new TextBlock { Text = text, FontSize = 11.5, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Palette.Resource(fore) });
-        return new Border { Padding = new Thickness(8, 2, 8, 3), CornerRadius = new CornerRadius(999), Background = Palette.Resource(back), VerticalAlignment = VerticalAlignment.Center, Child = row };
+        return new Border { Padding = new Thickness(8, 2, 8, 3), CornerRadius = new CornerRadius(8), Background = Palette.Resource(back), VerticalAlignment = VerticalAlignment.Center, Child = row };
     }
 
     private static UIElement EmptyNote(string glyph, string text)
@@ -441,7 +441,7 @@ public sealed partial class ContactsPage : Page
         {
             Width = 52,
             Height = 52,
-            CornerRadius = new CornerRadius(26),
+            CornerRadius = new CornerRadius(14),
             HorizontalAlignment = HorizontalAlignment.Center,
             Background = Palette.Resource("ElevatedBrush"),
             Child = new FontIcon { Glyph = glyph, FontSize = 20, Foreground = Palette.Resource("Text3Brush") },

@@ -91,6 +91,18 @@ public sealed partial class ChatView : UserControl
         Refresh(c);
     }
 
+
+    /// <summary>A header action: its icon, then its label.</summary>
+    private static StackPanel Labeled(string glyph, string text) => new()
+    {
+        Orientation = Orientation.Horizontal,
+        Spacing = 7,
+        Children =
+        {
+            new FontIcon { Glyph = glyph, FontSize = 13 },
+            new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center },
+        },
+    };
     public void Refresh(Conversation c)
     {
         if (c.Id != _id) return;
@@ -133,10 +145,10 @@ public sealed partial class ChatView : UserControl
         SubText.Text = string.Join(" · ", new[] { c.Contacts?.Email, assignee }.Where(x => !string.IsNullOrWhiteSpace(x)));
 
         var resolved = c.Status is ConversationStatuses.Resolved or ConversationStatuses.Closed;
-        StatusButton.Content = resolved ? s["reopen"] : s["markResolved"];
+        StatusButton.Content = Labeled(resolved ? "\uE72C" : "\uE73E", resolved ? s["reopen"] : s["markResolved"]);
         StatusButton.Visibility = Visibility.Visible;
         var aiActive = c.IsAiManaged;
-        AssignButton.Content = aiActive ? s["takeOver"] : s["assignToMe"];
+        AssignButton.Content = Labeled(aiActive ? "\uE77B" : "\uE8FA", aiActive ? s["takeOver"] : s["assignToMe"]);
         AssignButton.Visibility = !resolved && (aiActive || c.AssignedTo != Host.User?.Id) && Host.User is not null ? Visibility.Visible : Visibility.Collapsed;
         AiChip.Visibility = aiActive ? Visibility.Visible : Visibility.Collapsed;
 

@@ -47,14 +47,14 @@
                 The workspace, as at the top of the web sidebar. With more than one,
                 it opens the list to switch between them.
             -->
-            <Button x:Name="WorkspaceButton" Margin="0,0,4,0" Padding="4,3,8,3" MinHeight="36" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Background="Transparent" BorderThickness="0" CornerRadius="18" IsEnabled="False">
+            <Button x:Name="WorkspaceButton" Margin="0,0,4,0" Padding="4,3,8,3" MinHeight="36" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Background="Transparent" BorderThickness="0" CornerRadius="8">
                 <Grid ColumnSpacing="10">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <Border Width="28" Height="28" CornerRadius="14">
+                    <Border Width="28" Height="28" CornerRadius="8">
                         <Border.Background>
                             <ImageBrush x:Name="WorkspaceLogo" Stretch="UniformToFill" />
                         </Border.Background>
@@ -63,7 +63,7 @@
                     <FontIcon x:Name="WorkspaceChevron" Grid.Column="2" Glyph="&#xE70D;" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="Collapsed" />
                 </Grid>
                 <Button.Flyout>
-                    <MenuFlyout x:Name="WorkspaceMenu" Placement="BottomEdgeAlignedLeft" />
+                    <MenuFlyout x:Name="WorkspaceMenu" Placement="BottomEdgeAlignedLeft" Opening="OnWorkspaceMenuOpening" />
                 </Button.Flyout>
             </Button>
         </NavigationView.PaneHeader>
@@ -159,12 +159,10 @@
         </NavigationView.MenuItems>
 
         <NavigationView.PaneFooter>
+            <!-- The photo alone stands for the account: it sits where an icon would, so it also shows in the compact rail. -->
             <NavigationViewItem x:Name="AccountItem" SelectsOnInvoked="False" Tapped="OnAccountTapped">
-                <NavigationViewItem.Icon>
-                    <FontIcon Glyph="&#xE77B;" />
-                </NavigationViewItem.Icon>
                 <NavigationViewItem.Content>
-                    <StackPanel Orientation="Horizontal" Spacing="10">
+                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="-4,0,0,0">
                         <controls:Avatar x:Name="MeAvatar" Size="30" Kind="operator" />
                         <StackPanel VerticalAlignment="Center">
                             <TextBlock x:Name="MeName" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="150" />

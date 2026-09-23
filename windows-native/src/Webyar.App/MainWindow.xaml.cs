@@ -116,6 +116,7 @@ public sealed partial class MainWindow : Window
         try
         {
             Host.Workspaces = await Host.Api.WorkspacesAsync();
+            Log.Write($"workspaces: {Host.Workspaces.Count}");
         }
         catch (ApiException e) when (e.Failure != ApiFailure.Unauthorized)
         {

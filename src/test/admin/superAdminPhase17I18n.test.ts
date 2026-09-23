@@ -9,6 +9,9 @@ import tr from '@/i18n/locales/tr';
 const files = [
   'src/pages/admin/MobileAppPage.tsx',
   'src/pages/admin/NotificationsPage.tsx',
+  'src/pages/admin/DesktopAppPage.tsx',
+  'src/components/admin/desktop/DesktopUpdatesTab.tsx',
+  'src/components/admin/desktop/DesktopBehaviourTab.tsx',
   'src/components/admin/mobile/MobileOverviewTab.tsx',
   'src/components/admin/mobile/MobileIdentityTab.tsx',
   'src/components/admin/mobile/MobileBuildTab.tsx',
@@ -70,7 +73,7 @@ function untranslated(path: string): string[] {
 }
 
 describe('Super Admin phase 17 localization', () => {
-  it.each(['mobileApp', 'notifications'] as const)(
+  it.each(['mobileApp', 'desktopApp', 'notifications'] as const)(
     'keeps the complete %s key tree identical in all locales',
     (namespace) => {
       const branch = (locale: typeof en) =>
@@ -85,6 +88,7 @@ describe('Super Admin phase 17 localization', () => {
     for (const locale of [en, fa, tr]) {
       const nav = (locale.admin as unknown as { nav: Record<string, string> }).nav;
       expect(nav.mobileApp).toBeTruthy();
+      expect(nav.desktopApp).toBeTruthy();
       expect(nav.notifications).toBeTruthy();
     }
   });

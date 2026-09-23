@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Everything that is not UI: the API client, the models, realtime, the
+    platform's desktop settings, translations and formatting. Plain net8.0, so
+    it builds and is tested on any OS; the WinUI app is a thin layer on top.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Webyar.Core</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Localization\strings.json" LogicalName="Webyar.Core.strings.json" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Webyar.Core.Tests" />
+  </ItemGroup>
+</Project>

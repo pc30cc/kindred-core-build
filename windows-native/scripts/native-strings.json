@@ -1,0 +1,29 @@
+{
+  "en": {
+    "trayOpen": "Open Webyar",
+    "trayQuit": "Quit",
+    "sendFailed": "Not sent. Tap to try again.",
+    "updateRequiredTitle": "Update required",
+    "updateRequiredBody": "This version of Webyar is no longer supported. Install the update to keep working.",
+    "yesterday": "Yesterday",
+    "realtimeOff": "Live updates are off — refreshing every few seconds"
+  },
+  "fa": {
+    "trayOpen": "باز کردن وب‌یار",
+    "trayQuit": "خروج",
+    "sendFailed": "ارسال نشد. برای تلاش دوباره بزنید.",
+    "updateRequiredTitle": "به‌روزرسانی لازم است",
+    "updateRequiredBody": "این نسخه از وب‌یار دیگر پشتیبانی نمی‌شود. برای ادامه کار، به‌روزرسانی را نصب کنید.",
+    "yesterday": "دیروز",
+    "realtimeOff": "به‌روزرسانی زنده خاموش است — هر چند ثانیه تازه می‌شود"
+  },
+  "tr": {
+    "trayOpen": "Webyar'ı aç",
+    "trayQuit": "Çıkış",
+    "sendFailed": "Gönderilmedi. Tekrar denemek için dokunun.",
+    "updateRequiredTitle": "Güncelleme gerekli",
+    "updateRequiredBody": "Webyar'ın bu sürümü artık desteklenmiyor. Çalışmaya devam etmek için güncellemeyi yükleyin.",
+    "yesterday": "Dün",
+    "realtimeOff": "Canlı güncellemeler kapalı — birkaç saniyede bir yenileniyor"
+  }
+}

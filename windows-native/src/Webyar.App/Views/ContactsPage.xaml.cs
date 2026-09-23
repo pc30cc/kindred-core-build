@@ -71,7 +71,8 @@ public sealed partial class ContactsPage : Page
         var s = Host.Strings;
         Placeholder.Visibility = Visibility.Collapsed;
         Card.Visibility = Visibility.Visible;
-        CardAvatar.DisplayName = c.Name;
+        CardAvatar.DisplayName = c.RawName;
+        CardAvatar.Email = c.Email;
         CardAvatar.ImageUrl = c.AvatarUrl;
         CardName.Text = c.Name;
         CardRows.Children.Clear();

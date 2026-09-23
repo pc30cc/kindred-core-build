@@ -5,13 +5,31 @@
     xmlns:controls="using:Webyar.App.Controls"
     Background="Transparent">
     <Page.Resources>
-        <!-- The sidebar is a white column, as in the web console. -->
-        <StaticResource x:Key="NavigationViewExpandedPaneBackground" ResourceKey="SurfaceBrush" />
-        <StaticResource x:Key="NavigationViewDefaultPaneBackground" ResourceKey="SurfaceBrush" />
-        <StaticResource x:Key="NavigationViewTopPaneBackground" ResourceKey="SurfaceBrush" />
-        <Thickness x:Key="NavigationViewContentGridBorderThickness">1,1,0,0</Thickness>
-        <CornerRadius x:Key="NavigationViewContentGridCornerRadius">10,0,0,0</CornerRadius>
-        <StaticResource x:Key="NavigationViewContentBackground" ResourceKey="AppBackgroundBrush" />
+        <ResourceDictionary>
+            <!--
+                The sidebar is a card-coloured column, as in the web console. Per
+                theme, not StaticResource aliases: those resolve once against the
+                system theme and left a white pane in dark mode.
+            -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="NavigationViewTopPaneBackground" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="NavigationViewContentBackground" Color="#F4F6F9" />
+                    <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="#E3E7EE" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="#13161E" />
+                    <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="#13161E" />
+                    <SolidColorBrush x:Key="NavigationViewTopPaneBackground" Color="#13161E" />
+                    <SolidColorBrush x:Key="NavigationViewContentBackground" Color="#0C0E14" />
+                    <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="#242A36" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+            <Thickness x:Key="NavigationViewContentGridBorderThickness">1,1,0,0</Thickness>
+            <CornerRadius x:Key="NavigationViewContentGridCornerRadius">10,0,0,0</CornerRadius>
+        </ResourceDictionary>
     </Page.Resources>
     <NavigationView
         x:Name="Nav"
@@ -42,23 +60,26 @@
                     <InfoBadge x:Name="UnreadBadge" Visibility="Collapsed" />
                 </NavigationViewItem.InfoBadge>
             </NavigationViewItem>
-            <NavigationViewItem x:Name="ColleaguesItem" Tag="colleagues">
-                <NavigationViewItem.Icon>
-                    <FontIcon Glyph="&#xE716;" />
-                </NavigationViewItem.Icon>
-                <NavigationViewItem.InfoBadge>
-                    <InfoBadge x:Name="ColleaguesBadge" Visibility="Collapsed" />
-                </NavigationViewItem.InfoBadge>
-            </NavigationViewItem>
-            <NavigationViewItem x:Name="EmailItem" Tag="email">
-                <NavigationViewItem.Icon>
-                    <FontIcon Glyph="&#xE715;" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
             <NavigationViewItem x:Name="ContactsItem" Tag="contacts">
                 <NavigationViewItem.Icon>
                     <FontIcon Glyph="&#xE779;" />
                 </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem x:Name="VisitorsItem" Tag="visitors">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE909;" />
+                </NavigationViewItem.Icon>
+                <NavigationViewItem.InfoBadge>
+                    <InfoBadge x:Name="VisitorsBadge" Visibility="Collapsed" Style="{ThemeResource SuccessValueInfoBadgeStyle}" />
+                </NavigationViewItem.InfoBadge>
+            </NavigationViewItem>
+            <NavigationViewItem x:Name="CallCenterItem" Tag="calls">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE717;" />
+                </NavigationViewItem.Icon>
+                <NavigationViewItem.InfoBadge>
+                    <InfoBadge x:Name="CallsBadge" Visibility="Collapsed" Style="{ThemeResource CriticalValueInfoBadgeStyle}" />
+                </NavigationViewItem.InfoBadge>
             </NavigationViewItem>
         </NavigationView.MenuItems>
 
@@ -69,8 +90,11 @@
                 </NavigationViewItem.Icon>
                 <NavigationViewItem.Content>
                     <StackPanel Orientation="Horizontal" Spacing="10">
-                        <controls:Avatar x:Name="MeAvatar" Size="26" PresenceState="online" />
-                        <TextBlock x:Name="MeName" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="140" />
+                        <controls:Avatar x:Name="MeAvatar" Size="30" Kind="operator" />
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock x:Name="MeName" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="150" />
+                            <TextBlock x:Name="MeStatus" FontSize="11.5" Foreground="{ThemeResource Text2Brush}" TextTrimming="CharacterEllipsis" MaxWidth="150" />
+                        </StackPanel>
                     </StackPanel>
                 </NavigationViewItem.Content>
                 <FlyoutBase.AttachedFlyout>

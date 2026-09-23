@@ -16,6 +16,10 @@
                         <Image Source="{x:Bind Preview, Mode=OneWay}" Stretch="Uniform" />
                     </Grid>
                 </Button>
+                <!-- Voice notes play right here. -->
+                <Border Visibility="{x:Bind AudioVisibility}" CornerRadius="999" Background="{ThemeResource Surface2Brush}" BorderBrush="{ThemeResource LineBrush}" BorderThickness="1">
+                    <controls:AudioPlayer Source="{x:Bind}" />
+                </Border>
                 <Button Padding="10,8" CornerRadius="10" Background="{ThemeResource Surface2Brush}" BorderBrush="{ThemeResource LineBrush}" Visibility="{x:Bind FileVisibility}" Click="OnOpenAttachment" Tag="{x:Bind}">
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <Border Width="34" Height="34" CornerRadius="8" Background="{ThemeResource BrandSoftBrush}">
@@ -30,44 +34,69 @@
             </Grid>
         </DataTemplate>
 
+        <!-- Visitor: on the left, with their avatar under the last bubble of a run (the web thread). -->
         <DataTemplate x:Key="IncomingTemplate" x:DataType="vm:MessageItem">
-            <Grid Margin="0,2" HorizontalAlignment="Left" ColumnSpacing="8">
+            <Grid Margin="0,2" HorizontalAlignment="Left" ColumnSpacing="10">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="30" />
+                    <ColumnDefinition Width="34" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <controls:Avatar Size="28" VerticalAlignment="Bottom" Margin="0,0,0,18" DisplayName="{x:Bind AvatarName, Mode=OneWay}" ImageUrl="{x:Bind AvatarUrl, Mode=OneWay}" Visibility="{x:Bind AvatarVisibility, Mode=OneWay}" />
+                <controls:Avatar
+                    Size="34"
+                    VerticalAlignment="Bottom"
+                    Margin="0,0,0,20"
+                    DisplayName="{x:Bind AvatarName, Mode=OneWay}"
+                    Email="{x:Bind AvatarEmail, Mode=OneWay}"
+                    Os="{x:Bind AvatarOs, Mode=OneWay}"
+                    ImageUrl="{x:Bind AvatarUrl, Mode=OneWay}"
+                    Visibility="{x:Bind AvatarVisibility, Mode=OneWay}" />
                 <StackPanel Grid.Column="1" MaxWidth="560" Spacing="3">
-                    <Border Padding="13,9" Background="{ThemeResource BubbleIncomingBrush}" BorderBrush="{ThemeResource LineBrush}" BorderThickness="1" CornerRadius="16,16,16,5">
+                    <Border Padding="14,10" Background="{ThemeResource BubbleIncomingBrush}" BorderBrush="{ThemeResource LineBrush}" BorderThickness="1" CornerRadius="18,18,18,5">
                         <StackPanel Spacing="6">
                             <ItemsControl ItemsSource="{x:Bind Attachments}" ItemTemplate="{StaticResource AttachmentTemplate}" Visibility="{x:Bind AttachmentsVisibility}" />
-                            <TextBlock FontSize="14" IsTextSelectionEnabled="True" Text="{x:Bind Body}" TextWrapping="Wrap" Foreground="{ThemeResource TextBrush}" Visibility="{x:Bind BodyVisibility}" />
+                            <TextBlock FontSize="14" LineHeight="24" IsTextSelectionEnabled="True" Text="{x:Bind Body}" TextWrapping="Wrap" TextReadingOrder="DetectFromContent" TextAlignment="DetectFromContent" Foreground="{ThemeResource TextBrush}" Visibility="{x:Bind BodyVisibility}" />
                         </StackPanel>
                     </Border>
-                    <TextBlock Margin="6,0" FontSize="11" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind Meta, Mode=OneWay}" />
+                    <TextBlock Margin="6,0" FontSize="11" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind Meta, Mode=OneWay}" Visibility="{x:Bind MetaVisibility, Mode=OneWay}" />
                 </StackPanel>
             </Grid>
         </DataTemplate>
 
+        <!-- Operator or AI: on the right, with their photo under the last bubble of a run. -->
         <DataTemplate x:Key="OutgoingTemplate" x:DataType="vm:MessageItem">
-            <StackPanel Margin="0,2" HorizontalAlignment="Right" MaxWidth="560" Spacing="3" Opacity="{x:Bind Opacity, Mode=OneWay}">
-                <StackPanel Orientation="Horizontal" Spacing="5" HorizontalAlignment="Right" Visibility="{x:Bind SenderVisibility}">
-                    <FontIcon Glyph="&#xE945;" FontSize="11" Foreground="{ThemeResource AiBrush}" />
-                    <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource AiBrush}" Text="{x:Bind SenderName}" />
-                </StackPanel>
-                <Border Padding="13,9" Background="{ThemeResource BubbleOutgoingBrush}" CornerRadius="16,16,5,16">
-                    <StackPanel Spacing="6">
-                        <ItemsControl ItemsSource="{x:Bind Attachments}" ItemTemplate="{StaticResource AttachmentTemplate}" Visibility="{x:Bind AttachmentsVisibility}" />
-                        <TextBlock FontSize="14" Foreground="{ThemeResource BubbleOutgoingTextBrush}" IsTextSelectionEnabled="True" Text="{x:Bind Body}" TextWrapping="Wrap" Visibility="{x:Bind BodyVisibility}" />
+            <Grid Margin="0,2" HorizontalAlignment="Right" ColumnSpacing="10" Opacity="{x:Bind Opacity, Mode=OneWay}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="34" />
+                </Grid.ColumnDefinitions>
+                <StackPanel MaxWidth="560" Spacing="3">
+                    <StackPanel Orientation="Horizontal" Spacing="5" HorizontalAlignment="Right" Visibility="{x:Bind SenderVisibility}">
+                        <FontIcon Glyph="&#xE945;" FontSize="11" Foreground="{ThemeResource AiBrush}" />
+                        <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource AiBrush}" Text="{x:Bind SenderName}" />
                     </StackPanel>
-                </Border>
-                <TextBlock Margin="6,0" HorizontalAlignment="Right" FontSize="11" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind Meta, Mode=OneWay}" />
-            </StackPanel>
+                    <Border Padding="14,10" Background="{ThemeResource BubbleOutgoingBrush}" CornerRadius="18,18,5,18" HorizontalAlignment="Right">
+                        <StackPanel Spacing="6">
+                            <ItemsControl ItemsSource="{x:Bind Attachments}" ItemTemplate="{StaticResource AttachmentTemplate}" Visibility="{x:Bind AttachmentsVisibility}" />
+                            <TextBlock FontSize="14" LineHeight="24" Foreground="{ThemeResource BubbleOutgoingTextBrush}" IsTextSelectionEnabled="True" Text="{x:Bind Body}" TextWrapping="Wrap" TextReadingOrder="DetectFromContent" TextAlignment="DetectFromContent" Visibility="{x:Bind BodyVisibility}" />
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Margin="6,0" HorizontalAlignment="Right" FontSize="11" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind Meta, Mode=OneWay}" Visibility="{x:Bind MetaVisibility, Mode=OneWay}" />
+                </StackPanel>
+                <controls:Avatar
+                    Grid.Column="1"
+                    Size="34"
+                    VerticalAlignment="Bottom"
+                    Margin="0,0,0,20"
+                    Kind="{x:Bind AvatarKind}"
+                    DisplayName="{x:Bind AvatarName, Mode=OneWay}"
+                    ImageUrl="{x:Bind AvatarUrl, Mode=OneWay}"
+                    Visibility="{x:Bind AvatarVisibility, Mode=OneWay}" />
+            </Grid>
         </DataTemplate>
 
         <DataTemplate x:Key="SystemTemplate" x:DataType="vm:MessageItem">
             <Border Margin="0,8" Padding="12,5" HorizontalAlignment="Center" Background="{ThemeResource ElevatedBrush}" CornerRadius="999">
-                <TextBlock FontSize="12" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind Body}" TextAlignment="Center" TextWrapping="Wrap" />
+                <TextBlock FontSize="12" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind Body}" TextAlignment="Center" TextReadingOrder="DetectFromContent" TextWrapping="Wrap" />
             </Border>
         </DataTemplate>
 
@@ -163,6 +192,7 @@
                     <Grid Grid.Row="2" Background="{ThemeResource ChatBackgroundBrush}">
                         <ListView
                             x:Name="Messages"
+                            FlowDirection="LeftToRight"
                             Padding="18,10,18,12"
                             IsItemClickEnabled="False"
                             ItemTemplateSelector="{StaticResource MessageSelector}"

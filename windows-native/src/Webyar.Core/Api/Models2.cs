@@ -31,7 +31,7 @@ public sealed record Contact(
     string? VisitorCode = null,
     DateTimeOffset? CreatedAt = null);
 
-public sealed record VisitorGeo(string? CountryCode = null, string? Country = null, string? City = null);
+public sealed record VisitorGeo(string? CountryCode = null, string? Country = null, string? City = null, string? Region = null);
 
 public sealed record VisitorDevice(string? Browser = null, string? Os = null, string? Device = null);
 

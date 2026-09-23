@@ -44,6 +44,7 @@
                     <SolidColorBrush x:Key="SuccessSoftBrush" Color="#2430A46C" />
                     <SolidColorBrush x:Key="WarningBrush" Color="#F76B15" />
                     <SolidColorBrush x:Key="WarningSoftBrush" Color="#24F76B15" />
+                    <SolidColorBrush x:Key="InfoBrush" Color="#4185C8" />
                     <SolidColorBrush x:Key="AiBrush" Color="#7C4DDB" />
                     <SolidColorBrush x:Key="AiSoftBrush" Color="#1F7C4DDB" />
                     <SolidColorBrush x:Key="BubbleIncomingBrush" Color="#FFFFFF" />
@@ -54,10 +55,15 @@
                     <SolidColorBrush x:Key="ChatBackgroundBrush" Color="#F4F6F9" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
+                    <!-- Dark mode fills accents with Light1–3: kept saturated so white text on them stays readable. -->
                     <Color x:Key="SystemAccentColor">#5A94FF</Color>
-                    <Color x:Key="SystemAccentColorLight1">#75A6FF</Color>
-                    <Color x:Key="SystemAccentColorLight2">#93BAFF</Color>
-                    <Color x:Key="SystemAccentColorLight3">#B5CFFF</Color>
+                    <Color x:Key="SystemAccentColorLight1">#5A94FF</Color>
+                    <Color x:Key="SystemAccentColorLight2">#4A84EE</Color>
+                    <Color x:Key="SystemAccentColorLight3">#6FA2FF</Color>
+                    <Color x:Key="TextOnAccentFillColorPrimary">#FFFFFF</Color>
+                    <Color x:Key="TextOnAccentFillColorSecondary">#E6FFFFFF</Color>
+                    <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#E6FFFFFF" />
                     <Color x:Key="SystemAccentColorDark1">#4A84EE</Color>
                     <Color x:Key="SystemAccentColorDark2">#3B72D6</Color>
                     <Color x:Key="SystemAccentColorDark3">#2E5EB8</Color>
@@ -82,6 +88,7 @@
                     <SolidColorBrush x:Key="SuccessSoftBrush" Color="#243DD68C" />
                     <SolidColorBrush x:Key="WarningBrush" Color="#FF8B3E" />
                     <SolidColorBrush x:Key="WarningSoftBrush" Color="#29FF8B3E" />
+                    <SolidColorBrush x:Key="InfoBrush" Color="#5B9BD9" />
                     <SolidColorBrush x:Key="AiBrush" Color="#A585F0" />
                     <SolidColorBrush x:Key="AiSoftBrush" Color="#29A585F0" />
                     <SolidColorBrush x:Key="BubbleIncomingBrush" Color="#1D222D" />

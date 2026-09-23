@@ -24,7 +24,9 @@ public sealed partial class CallWindow : Window
 {
     private static CallWindow? _current;
 
-    private readonly Conversation _conversation;
+    private readonly Conversation? _conversation;
+    /// <summary>Set for a call answered from the call center's queue: the room already exists.</summary>
+    private readonly (string CallId, CallAccept Accept)? _desk;
     private readonly string _workspaceId;
     private readonly string _channel;
     private readonly string _name;
@@ -35,9 +37,10 @@ public sealed partial class CallWindow : Window
     private bool _ended;
     private bool _ready;
 
-    private CallWindow(Conversation c, string workspaceId, string channel, string name)
+    private CallWindow(Conversation? c, string workspaceId, string channel, string name, (string, CallAccept)? desk = null)
     {
         _conversation = c;
+        _desk = desk;
         _workspaceId = workspaceId;
         _channel = channel;
         _name = name;
@@ -93,6 +96,30 @@ public sealed partial class CallWindow : Window
         _ = w.RunAsync();
     }
 
+    /// <summary>Raised on the UI thread when a call answered from the queue ends; carries the call id.</summary>
+    public static event Action<string>? DeskCallEnded;
+
+    public static bool IsBusy => _current is not null;
+
+    /// <summary>Opens the media for a call just accepted on the call center desk.</summary>
+    public static void StartDesk(string callId, CallAccept accept, string workspaceId, string channel, string name)
+    {
+        if (_current is { } running)
+        {
+            running.Activate();
+            return;
+        }
+        var w = new CallWindow(null, workspaceId, channel, name, (callId, accept));
+        _current = w;
+        w.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_current, w)) _current = null;
+            DeskCallEnded?.Invoke(callId);
+        };
+        w.Activate();
+        _ = w.RunAsync();
+    }
+
     private async Task RunAsync()
     {
         var s = Host.Strings;
@@ -121,9 +148,24 @@ public sealed partial class CallWindow : Window
             return;
         }
 
+        if (_desk is { } desk)
+        {
+            // Accepted on the desk: the server made the room and gave us its token.
+            _sessionId = desk.CallId;
+            if (desk.Accept.Connect is not { Supported: true, ServerUrl: { Length: > 0 } url } || desk.Accept.Token is not { Length: > 0 } token)
+            {
+                await FinishAsync("failed", desk.Accept.Connect?.Reason ?? "no_server_url");
+                return;
+            }
+            Post(new { type = "status", text = s["connectingCall"] });
+            _join = new { type = "join", url, token, ice = Array.Empty<object>(), relay = false, channel = _channel };
+            if (_ready) Post(_join);
+            return;
+        }
+
         try
         {
-            _invitation = await Host.Api.InviteToCallAsync(_conversation.Id, _workspaceId, _channel, _stop.Token);
+            _invitation = await Host.Api.InviteToCallAsync(_conversation!.Id, _workspaceId, _channel, _stop.Token);
             Log.Write($"[call] invited {_invitation.Id} {_channel}");
             // Two seconds for as long as the invitation lives — cheaper than a realtime channel for one wait.
             while (!_stop.IsCancellationRequested)
@@ -224,7 +266,7 @@ public sealed partial class CallWindow : Window
             initials = Display.Initials(_name),
             color = $"#{color.R:X2}{color.G:X2}{color.B:X2}",
             channel = _channel,
-            status = s["callWaiting"],
+            status = _desk is null ? s["callWaiting"] : s["connectingCall"],
             strings = new { mute = s["mute"], camera = s["camera"], hangUp = s["hangUpCall"] },
         });
     }
@@ -248,7 +290,8 @@ public sealed partial class CallWindow : Window
         // Ending is idempotent server-side, so a race with the visitor's own hang-up is harmless.
         try
         {
-            if (_sessionId is not null) await Host.Api.HangUpAsync(_sessionId);
+            if (_desk is { } desk) await Host.Api.EndCallAsync(_workspaceId, desk.CallId);
+            else if (_sessionId is not null) await Host.Api.HangUpAsync(_sessionId);
             else if (_invitation is not null) await Host.Api.CancelInvitationAsync(_invitation.Id);
         }
         catch (Exception e)

@@ -27,6 +27,12 @@ public sealed partial class MessageItem : ObservableObject
         Body = Side == MessageSide.System ? SystemText.For(m.Metadata, s) ?? m.Body : m.Body;
         Time = m.CreatedAt is { } at ? Display.ClockTime(at, s.Language) : string.Empty;
         IsAi = m.SenderType is SenderTypes.Ai or SenderTypes.Bot;
+        SenderId = m.SenderId;
+        if (Side == MessageSide.Outgoing)
+        {
+            _avatarUrl = IsAi ? null : m.SenderAvatar;
+            _avatarName = IsAi ? string.Empty : m.SenderName ?? string.Empty;
+        }
         SenderName = m.SenderType switch
         {
             SenderTypes.Ai or SenderTypes.Bot => m.SenderName is { Length: > 0 } n ? n : s["aiReply"],
@@ -79,6 +85,14 @@ public sealed partial class MessageItem : ObservableObject
     public string Time { get; } = string.Empty;
     public DateTimeOffset? CreatedAt { get; }
     public bool IsAi { get; }
+
+    /// <summary>Who sent it; a change of sender starts a new run of bubbles.</summary>
+    public string? SenderId { get; set; }
+
+    /// <summary>How the avatar is drawn: a visitor (null), an operator, or the AI.</summary>
+    public string? AvatarKind => Side == MessageSide.Outgoing ? (IsAi ? "ai" : "operator") : null;
+
+    public string RunKey => Side == MessageSide.Outgoing ? (IsAi ? "ai" : SenderId ?? "agent") : Side.ToString();
     public string SenderName { get; } = string.Empty;
     public ObservableCollection<AttachmentItem> Attachments { get; } = [];
     public Visibility AttachmentsVisibility { get; }
@@ -94,6 +108,16 @@ public sealed partial class MessageItem : ObservableObject
 
     [ObservableProperty]
     private string? _avatarUrl;
+
+    [ObservableProperty]
+    private string? _avatarEmail;
+
+    [ObservableProperty]
+    private string? _avatarOs;
+
+    /// <summary>Name and time show once, under the last bubble of a run, as on the web.</summary>
+    [ObservableProperty]
+    private Visibility _metaVisibility = Visibility.Visible;
 
     [ObservableProperty]
     private string _meta;

@@ -40,6 +40,7 @@ public class RealtimeTests
         var http = new FakeHttp((req, _) => req.RequestUri!.AbsolutePath switch
         {
             "/api/realtime/operator-connect" => (HttpStatusCode.OK, """{"vendor":"centrifugo","ws_url":"wss://rt.example/connection/websocket","token":"ct","expires_at":4102444800000}"""),
+            "/api/realtime/operator-presence-subscribe" => (HttpStatusCode.OK, """{"vendor":"centrifugo","channel":"ws:w1:operators","token":"pt","expires_at":4102444800000}"""),
             _ => (HttpStatusCode.OK, """{"vendor":"centrifugo","channel":"ws:w1:inbox","token":"st","expires_at":4102444800000}"""),
         });
         using var client = new ApiClient(new MemorySessionStore("t"), handler: http);
@@ -48,7 +49,9 @@ public class RealtimeTests
         var events = Channel.CreateUnbounded<InboxEvent>();
         var connected = new TaskCompletionSource();
         rt.EventReceived += e => events.Writer.TryWrite(e);
+        var joined = new TaskCompletionSource();
         rt.ConnectionChanged += up => { if (up) connected.TrySetResult(); };
+        rt.PresenceJoined += () => joined.TrySetResult();
         rt.Start();
 
         Assert.Contains("\"connect\"", await socket.Sent.Reader.ReadAsync());
@@ -58,6 +61,11 @@ public class RealtimeTests
         socket.Incoming.Writer.TryWrite("""{"id":2,"subscribe":{}}""");
         await connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.True(rt.IsConnected);
+
+        // Then it joins the operators channel, which is what marks the operator connected for teammates.
+        Assert.Contains("ws:w1:operators", await socket.Sent.Reader.ReadAsync());
+        socket.Incoming.Writer.TryWrite("""{"id":3,"subscribe":{}}""");
+        await joined.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         socket.Incoming.Writer.TryWrite("{}");
         Assert.Equal("{}", await socket.Sent.Reader.ReadAsync());

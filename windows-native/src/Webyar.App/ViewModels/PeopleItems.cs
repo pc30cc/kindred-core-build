@@ -50,7 +50,9 @@ public sealed class ContactItem(Contact c, Strings s)
 {
     public Contact Contact { get; } = c;
     public string Id => Contact.Id;
-    public string Name { get; } = Display.ContactName(new ConversationContact(c.Name, c.Email, c.AvatarUrl, c.VisitorCode), s);
+    public string Name { get; } = Display.ContactName(new ConversationContact(c.Name, c.Email, c.AvatarUrl, c.VisitorCode), s, c.Id);
+    public string? RawName => Contact.Name;
+    public string? Email => Contact.Email;
     public string? AvatarUrl => Contact.AvatarUrl;
     public string Subtitle => Contact.Email ?? Contact.Phone ?? Contact.VisitorCode ?? string.Empty;
 

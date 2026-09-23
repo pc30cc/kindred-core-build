@@ -1,0 +1,40 @@
+<UserControl
+    x:Class="Webyar.App.Controls.AudioPlayer"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- A voice note played in place: play / pause, a scrubber and the time, like a messenger. -->
+    <Grid Width="260" Padding="4,4,12,4" ColumnSpacing="10" FlowDirection="LeftToRight">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Button
+            x:Name="PlayButton"
+            Width="38"
+            Height="38"
+            Padding="0"
+            CornerRadius="19"
+            BorderThickness="0"
+            Background="{ThemeResource BrandBrush}"
+            Click="OnPlay">
+            <Grid>
+                <FontIcon x:Name="PlayGlyph" Glyph="&#xF5B0;" FontSize="14" Foreground="{ThemeResource OnBrandBrush}" />
+                <ProgressRing x:Name="Loading" Width="18" Height="18" IsActive="False" Foreground="{ThemeResource OnBrandBrush}" />
+            </Grid>
+        </Button>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="0">
+            <Slider
+                x:Name="Scrubber"
+                Minimum="0"
+                Maximum="1"
+                StepFrequency="0.001"
+                IsThumbToolTipEnabled="False"
+                Margin="0,-6,0,-8"
+                ValueChanged="OnScrub" />
+            <Grid>
+                <TextBlock x:Name="TimeText" FontSize="11" Foreground="{ThemeResource Text3Brush}" Text="0:00" />
+                <FontIcon x:Name="ErrorGlyph" HorizontalAlignment="Right" Glyph="&#xE783;" FontSize="12" Foreground="{ThemeResource DangerBrush}" Visibility="Collapsed" />
+            </Grid>
+        </StackPanel>
+    </Grid>
+</UserControl>

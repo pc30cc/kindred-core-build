@@ -52,7 +52,14 @@ public sealed partial class MainWindow : Window
             if (e.DidSizeChange || e.DidPresenterChange) Guard("insets", UpdateInsets);
         };
         Root.ActualThemeChanged += (_, _) => Guard("theme", ApplyTheme);
-        Activated += (_, e) => IsForeground = e.WindowActivationState != WindowActivationState.Deactivated;
+        Activated += (_, e) =>
+        {
+            IsForeground = e.WindowActivationState != WindowActivationState.Deactivated;
+            if (IsForeground) Host.Presence?.NoteInteraction();
+        };
+        // Any key or click counts as being at the desk (active rather than away), as on the web.
+        Root.AddHandler(UIElement.KeyDownEvent, new Microsoft.UI.Xaml.Input.KeyEventHandler((_, _) => Host.Presence?.NoteInteraction()), true);
+        Root.AddHandler(UIElement.PointerPressedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler((_, _) => Host.Presence?.NoteInteraction()), true);
         Host.LanguageChanged += ApplyLanguage;
         Host.Client.Unauthorized += (_, _) => Host.RunOnUi(SignedOut);
         _platformTimer.Tick += async (_, _) => await RefreshPlatformQuietlyAsync();
@@ -115,6 +122,7 @@ public sealed partial class MainWindow : Window
             Host.Settings.Save();
         }
         await Host.StartRealtimeAsync();
+        await Host.StartPresenceAsync();
         Splash.Visibility = Visibility.Collapsed;
         RootFrame.Navigate(typeof(ShellPage));
         if (_pendingOpen is { } open)
@@ -138,12 +146,20 @@ public sealed partial class MainWindow : Window
         if (RootFrame.Content is LoginPage) return;
         Shell?.Teardown();
         Host.User = null;
+        Host.Account = null;
+        Host.StopPresence();
         await Host.StartRealtimeAsync(); // with no workspace this only stops the old one
         ShowLogin();
     }
 
     public void OpenFromNotification(IReadOnlyDictionary<string, string> args)
     {
+        if (args.TryGetValue("page", out var page) && !args.ContainsKey("conversation"))
+        {
+            if (Shell is { } sh) sh.OpenPage(page);
+            else _pendingOpen = args;
+            return;
+        }
         if (!args.TryGetValue("conversation", out var id)) return;
         if (Shell is { } shell) shell.OpenConversation(id);
         else _pendingOpen = args;
@@ -171,6 +187,7 @@ public sealed partial class MainWindow : Window
             _ => ElementTheme.Default,
         };
         var dark = Root.ActualTheme == ElementTheme.Dark;
+        Helpers.Palette.SetTheme(Root.ActualTheme);
         var bar = AppWindow.TitleBar;
         bar.ButtonBackgroundColor = Colors.Transparent;
         bar.ButtonInactiveBackgroundColor = Colors.Transparent;

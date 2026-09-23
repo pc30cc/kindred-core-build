@@ -41,7 +41,7 @@
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <controls:Avatar Size="36" DisplayName="{x:Bind Name}" ImageUrl="{x:Bind AvatarUrl}" />
+                                    <controls:Avatar Size="38" DisplayName="{x:Bind RawName}" Email="{x:Bind Email}" ImageUrl="{x:Bind AvatarUrl}" />
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
                                         <TextBlock FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
                                         <TextBlock FontSize="12" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind Subtitle}" TextTrimming="CharacterEllipsis" />

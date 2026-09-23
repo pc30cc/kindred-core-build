@@ -39,7 +39,79 @@ public sealed class AppHost : IAsyncDisposable
     public DesktopConfig Config { get; private set; } = DesktopConfig.Defaults;
 
     public User? User { get; set; }
+
+    /// <summary>The operator's profile, for their photo; loaded after sign-in, null until then.</summary>
+    public Account? Account { get; set; }
     public IReadOnlyList<Workspace> Workspaces { get; set; } = [];
+
+    /// <summary>The operator's own availability and the team's presence; null while signed out.</summary>
+    public PresenceService? Presence { get; private set; }
+
+    private readonly Dictionary<string, VisitorProfile> _profiles = [];
+    private DateTimeOffset _profilesAt;
+
+    /// <summary>
+    /// Adds each visitor's OS, country and city to a page of conversations,
+    /// as the web inbox does (one batched call). Known profiles are reused;
+    /// the whole set is refreshed every two minutes.
+    /// </summary>
+    public async Task<IReadOnlyList<Conversation>> WithVisitorProfilesAsync(IReadOnlyList<Conversation> list, CancellationToken ct = default)
+    {
+        if (Workspace is not { } ws || list.Count == 0) return list;
+        var stale = DateTimeOffset.UtcNow - _profilesAt > TimeSpan.FromMinutes(2);
+        var wanted = list.Select(c => c.Id).Where(id => stale || !_profiles.ContainsKey(id)).ToList();
+        if (wanted.Count > 0)
+        {
+            foreach (var (id, p) in await Api.VisitorProfilesAsync(ws.Id, wanted, ct)) _profiles[id] = p;
+            if (stale) _profilesAt = DateTimeOffset.UtcNow;
+        }
+        return list.Select(c => _profiles.TryGetValue(c.Id, out var p) ? c with
+        {
+            VisitorOs = p.Device?.Os,
+            VisitorDevice = p.Device?.Device,
+            VisitorCountryCode = p.Geo?.CountryCode,
+            VisitorCountryName = p.Geo?.Country,
+            VisitorCity = p.Geo?.City,
+            VisitorRegion = p.Geo?.Region,
+        } : c).ToList();
+    }
+
+    /// <summary>The call center's waiting line, watched app-wide; null while signed out.</summary>
+    public CallQueueWatcher? CallQueue { get; private set; }
+
+    /// <summary>Raised when <see cref="Account"/> or <see cref="Presence"/> changes, for the shell's account corner.</summary>
+    public event Action? MeChanged;
+
+    /// <summary>After sign-in: the profile photo, then presence (heartbeat, team states).</summary>
+    public async Task StartPresenceAsync()
+    {
+        StopPresence();
+        try
+        {
+            Account = await Api.AccountAsync();
+        }
+        catch (Exception e)
+        {
+            Log.Error("account", e);
+        }
+        if (Workspace is { } ws)
+        {
+            Presence = new PresenceService(this, ws.Id);
+            Presence.Changed += () => MeChanged?.Invoke();
+            Presence.Start();
+            CallQueue = new CallQueueWatcher(this, ws.Id);
+            CallQueue.Start();
+        }
+        MeChanged?.Invoke();
+    }
+
+    public void StopPresence()
+    {
+        Presence?.Dispose();
+        Presence = null;
+        CallQueue?.Dispose();
+        CallQueue = null;
+    }
     public Workspace? Workspace { get; set; }
 
     private IReadOnlyList<WorkspaceMember>? _members;

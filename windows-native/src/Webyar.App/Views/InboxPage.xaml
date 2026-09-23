@@ -63,7 +63,7 @@
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <controls:Avatar Size="42" DisplayName="{x:Bind Name, Mode=OneWay}" ImageUrl="{x:Bind AvatarUrl, Mode=OneWay}" VerticalAlignment="Top" />
+                                    <controls:Avatar Size="46" DisplayName="{x:Bind RawName, Mode=OneWay}" Email="{x:Bind Email, Mode=OneWay}" Os="{x:Bind Os, Mode=OneWay}" CountryCode="{x:Bind CountryCode, Mode=OneWay}" ImageUrl="{x:Bind AvatarUrl, Mode=OneWay}" PresenceState="{x:Bind StatusDot, Mode=OneWay}" VerticalAlignment="Top" />
                                     <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
                                         <Grid ColumnSpacing="8">
                                             <Grid.ColumnDefinitions>

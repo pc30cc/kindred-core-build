@@ -61,7 +61,7 @@ public sealed class BackgroundNotifier : IDisposable
         {
             if (!NotificationRules.InScope(prefs, c, _host.User?.Id)) continue;
             if (c.Id == visible && App.Current.Window?.IsForeground == true) continue;
-            var name = Display.ContactName(c.Contacts, s);
+            var name = Display.ContactName(c.Contacts, s, c.ContactId ?? c.Id);
             var body = prefs.PushPreview ? Display.Preview(c.LastMessage, s) : s["newMessage"];
             _host.Notifier.Show(
                 s.Get("newMessageFrom", "name", name),

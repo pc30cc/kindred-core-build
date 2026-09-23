@@ -41,7 +41,13 @@ public sealed record Conversation(
     ConversationContact? Contacts = null,
     MessagePreview? LastMessage = null,
     int? UnreadCount = null,
-    string? AiState = null)
+    string? AiState = null,
+    string? VisitorOs = null,
+    string? VisitorDevice = null,
+    string? VisitorCountryCode = null,
+    string? VisitorCountryName = null,
+    string? VisitorCity = null,
+    string? VisitorRegion = null)
 {
     /// <summary>When anything last happened, for sorting and "5m ago".</summary>
     public DateTimeOffset? LastActivity => LastMessage?.CreatedAt ?? UpdatedAt ?? CreatedAt;

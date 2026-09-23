@@ -46,6 +46,23 @@ public sealed partial class ConversationItem : ObservableObject
     [ObservableProperty]
     private string? _avatarUrl;
 
+    // The avatar is drawn from the raw contact fields, like the web's ContactAvatar.
+    [ObservableProperty]
+    private string? _rawName;
+
+    [ObservableProperty]
+    private string? _email;
+
+    [ObservableProperty]
+    private string? _os;
+
+    [ObservableProperty]
+    private string? _countryCode;
+
+    /// <summary>The status dot on the avatar: open, pending, resolved or closed.</summary>
+    [ObservableProperty]
+    private string? _statusDot;
+
     [ObservableProperty]
     private string _priorityText = string.Empty;
 
@@ -61,7 +78,12 @@ public sealed partial class ConversationItem : ObservableObject
     public void Update(Conversation c, Strings s, DateTimeOffset now)
     {
         Conversation = c;
-        Name = Display.ContactName(c.Contacts, s);
+        Name = Display.ConversationName(c, s);
+        RawName = c.Contacts?.Name;
+        Email = c.Contacts?.Email;
+        Os = c.VisitorOs;
+        CountryCode = c.VisitorCountryCode;
+        StatusDot = c.Status;
         Initials = Display.Initials(Name);
         Preview = Display.Preview(c.LastMessage, s);
         Stamp = c.LastActivity is { } when ? Display.ListStamp(when, now, s) : string.Empty;

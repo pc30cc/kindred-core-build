@@ -42,7 +42,32 @@ public static class Palette
         };
     }
 
-    public static Brush Resource(string key) => (Brush)Application.Current.Resources[key];
+    /// <summary>
+    /// The theme the window actually shows. The app follows the in-app
+    /// appearance setting on the root element, so a plain lookup in
+    /// Application.Resources (which follows Windows) would hand out light
+    /// brushes in dark mode.
+    /// </summary>
+    public static ElementTheme Theme { get; private set; } = ElementTheme.Light;
+
+    /// <summary>Raised after the theme changes, so code-built brushes can be picked again.</summary>
+    public static event Action? ThemeChanged;
+
+    public static void SetTheme(ElementTheme theme)
+    {
+        if (theme == Theme) return;
+        Theme = theme;
+        ThemeChanged?.Invoke();
+    }
+
+    public static Brush Resource(string key)
+    {
+        var resources = Application.Current.Resources;
+        if (resources.ThemeDictionaries.TryGetValue(Theme == ElementTheme.Dark ? "Dark" : "Light", out var d) &&
+            d is ResourceDictionary themed && themed.TryGetValue(key, out var value) && value is Brush brush)
+            return brush;
+        return (Brush)resources[key];
+    }
 
     /// <summary>(foreground, background) resource keys for a conversation status chip.</summary>
     public static (string Fore, string Back) Status(string status) => status switch

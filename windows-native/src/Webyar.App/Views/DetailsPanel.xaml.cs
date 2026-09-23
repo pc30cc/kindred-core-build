@@ -35,8 +35,11 @@ public sealed partial class DetailsPanel : UserControl
     {
         _conversation = c;
         var s = Host.Strings;
-        var name = Display.ContactName(c.Contacts, s);
-        ContactAvatar.DisplayName = name;
+        var name = Display.ConversationName(c, s);
+        ContactAvatar.DisplayName = c.Contacts?.Name;
+        ContactAvatar.Email = c.Contacts?.Email;
+        ContactAvatar.Os = c.VisitorOs;
+        ContactAvatar.CountryCode = c.VisitorCountryCode;
         ContactAvatar.ImageUrl = c.Contacts?.AvatarUrl;
         ContactName.Text = name;
         ContactEmail.Text = c.Contacts?.Email ?? string.Empty;
@@ -205,7 +208,7 @@ public sealed partial class DetailsPanel : UserControl
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            header.Children.Add(new Avatar { Size = 20, DisplayName = author });
+            header.Children.Add(new Avatar { Size = 22, Kind = "operator", DisplayName = author, ImageUrl = n.Author?.AvatarUrl });
             var title = new TextBlock { Text = $"{author} · {when}", FontSize = 11.5, Foreground = Palette.Resource("Text2Brush"), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
             Grid.SetColumn(title, 1);
             header.Children.Add(title);

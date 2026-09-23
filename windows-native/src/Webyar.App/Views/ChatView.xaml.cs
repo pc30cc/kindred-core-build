@@ -71,27 +71,40 @@ public sealed partial class ChatView : UserControl
         Start(id);
         _conversation = null;
         NameText.Text = Host.Strings["unknownVisitor"];
-        HeaderAvatar.DisplayName = NameText.Text;
+        HeaderAvatar.DisplayName = null;
+        HeaderAvatar.Os = null;
         SubText.Text = string.Empty;
         AssignButton.Visibility = Visibility.Collapsed;
         StatusButton.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>New list data for the open conversation: header, actions and details follow it.</summary>
+    public void RefreshTheme()
+    {
+        if (_conversation is not { } c) return;
+        Refresh(c);
+    }
+
     public void Refresh(Conversation c)
     {
         if (c.Id != _id) return;
         var first = _conversation is null;
         _conversation = c;
         var s = Host.Strings;
-        var name = Display.ContactName(c.Contacts, s);
+        var name = Display.ConversationName(c, s);
         NameText.Text = name;
-        HeaderAvatar.DisplayName = name;
+        HeaderAvatar.DisplayName = c.Contacts?.Name;
+        HeaderAvatar.Email = c.Contacts?.Email;
+        HeaderAvatar.Os = c.VisitorOs;
+        HeaderAvatar.CountryCode = c.VisitorCountryCode;
         HeaderAvatar.ImageUrl = c.Contacts?.AvatarUrl;
+        HeaderAvatar.PresenceState = c.Status;
         // Messages can load before the conversation itself (opened from a toast).
-        foreach (var m in _messages)
+        foreach (var m in _messages.Where(m => m.Side == MessageSide.Incoming))
         {
-            m.AvatarName = name;
+            m.AvatarName = c.Contacts?.Name ?? string.Empty;
+            m.AvatarEmail = c.Contacts?.Email;
+            m.AvatarOs = c.VisitorOs;
             m.AvatarUrl = c.Contacts?.AvatarUrl;
         }
 
@@ -169,14 +182,21 @@ public sealed partial class ChatView : UserControl
             var list = await Host.Api.MessagesAsync(id, ct);
             if (id != _id) return;
             var s = Host.Strings;
-            var contactName = _conversation is { } c ? Display.ContactName(c.Contacts, s) : s["unknownVisitor"];
-            var avatarUrl = _conversation?.Contacts?.AvatarUrl;
+            var contact = _conversation?.Contacts;
+            var os = _conversation?.VisitorOs;
 
             var wanted = new List<MessageItem>();
             DateTime? day = null;
             foreach (var m in list.OrderBy(m => m.CreatedAt ?? DateTimeOffset.MinValue))
             {
-                var item = new MessageItem(m, s) { AvatarName = contactName, AvatarUrl = avatarUrl };
+                var item = new MessageItem(m, s);
+                if (item.Side == MessageSide.Incoming)
+                {
+                    item.AvatarName = contact?.Name ?? string.Empty;
+                    item.AvatarEmail = contact?.Email;
+                    item.AvatarUrl = contact?.AvatarUrl;
+                    item.AvatarOs = os;
+                }
                 if (item.CreatedAt is { } at && at.ToLocalTime().Date != day)
                 {
                     day = at.ToLocalTime().Date;
@@ -185,13 +205,7 @@ public sealed partial class ChatView : UserControl
                 wanted.Add(item);
             }
             wanted.AddRange(_outbox);
-            // The avatar sits beside the last bubble of a run from the visitor.
-            for (var i = 0; i < wanted.Count; i++)
-            {
-                if (wanted[i].Side != MessageSide.Incoming) continue;
-                var next = i + 1 < wanted.Count ? wanted[i + 1] : null;
-                wanted[i].AvatarVisibility = next?.Side == MessageSide.Incoming ? Visibility.Collapsed : Visibility.Visible;
-            }
+            Group(wanted);
             Sync(wanted);
 
             // Seen once per new message, and only while someone is actually looking.
@@ -224,6 +238,25 @@ public sealed partial class ChatView : UserControl
         }
     }
 
+    /// <summary>
+    /// As in the web thread: the avatar and the name · time line sit under the
+    /// last bubble of a run from one sender; a new day or a pause of more than
+    /// five minutes starts a new run.
+    /// </summary>
+    private static void Group(IList<MessageItem> items)
+    {
+        for (var i = 0; i < items.Count; i++)
+        {
+            var m = items[i];
+            if (m.Side is not (MessageSide.Incoming or MessageSide.Outgoing)) continue;
+            var next = i + 1 < items.Count ? items[i + 1] : null;
+            var continues = next is not null && next.RunKey == m.RunKey &&
+                (next.CreatedAt is not { } b || m.CreatedAt is not { } a || b - a <= TimeSpan.FromMinutes(5));
+            m.AvatarVisibility = continues ? Visibility.Collapsed : Visibility.Visible;
+            m.MetaVisibility = continues && !m.Failed ? Visibility.Collapsed : Visibility.Visible;
+        }
+    }
+
     /// <summary>Appends what is new and replaces what changed, leaving the rest where it is.</summary>
     private void Sync(List<MessageItem> wanted)
     {
@@ -232,6 +265,7 @@ public sealed partial class ChatView : UserControl
         {
             if (!_messages[i].SameAs(wanted[i])) break;
             _messages[i].AvatarVisibility = wanted[i].AvatarVisibility;
+            _messages[i].MetaVisibility = wanted[i].MetaVisibility;
         }
         while (_messages.Count > i) _messages.RemoveAt(_messages.Count - 1);
         for (; i < wanted.Count; i++)
@@ -307,10 +341,16 @@ public sealed partial class ChatView : UserControl
         Composer.Text = string.Empty;
         ClearPendingFile();
         var local = file is { } f ? new AttachmentItem(f.Name, f.Mime, f.Data, Host.Strings) : null;
-        var item = new MessageItem(Guid.NewGuid().ToString(), body, Host.Strings, local);
+        var item = new MessageItem(Guid.NewGuid().ToString(), body, Host.Strings, local)
+        {
+            SenderId = Host.User?.Id,
+            AvatarName = Host.User?.FullName ?? string.Empty,
+            AvatarUrl = Host.Account?.AvatarUrl,
+        };
         if (local is not null) _ = local.LoadPreviewAsync();
         _outbox.Add(item);
         _messages.Add(item);
+        Group(_messages);
         await SendAsync(id, ws.Id, item, file);
     }
 
@@ -582,6 +622,6 @@ public sealed partial class ChatView : UserControl
     private void StartCall(string channel)
     {
         if (_conversation is not { } c || Host.Workspace is not { } ws) return;
-        CallWindow.Start(c, ws.Id, channel, Display.ContactName(c.Contacts, Host.Strings));
+        CallWindow.Start(c, ws.Id, channel, Display.ConversationName(c, Host.Strings));
     }
 }

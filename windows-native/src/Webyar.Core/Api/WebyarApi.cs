@@ -92,6 +92,89 @@ public sealed class WebyarApi
     public Task<RealtimeConnect> RealtimeConnectAsync(string workspaceId, string intent = "initial", CancellationToken ct = default) =>
         _client.PostAsync<RealtimeConnect>("/api/realtime/operator-connect", new Dictionary<string, object?> { ["workspace_id"] = workspaceId, ["intent"] = intent }, ct);
 
+    /// <summary>Token for `ws:&lt;workspace&gt;:operators`: being subscribed is what makes an operator "connected" for teammates.</summary>
+    public Task<RealtimeSubscribe> RealtimePresenceSubscribeAsync(string workspaceId, CancellationToken ct = default) =>
+        _client.PostAsync<RealtimeSubscribe>("/api/realtime/operator-presence-subscribe", new Dictionary<string, object?> { ["workspace_id"] = workspaceId }, ct);
+
+    public Task<Account> AccountAsync(CancellationToken ct = default) =>
+        _client.GetAsync<Account>("/api/account/me", ct: ct);
+
+    public Task<Availability> AvailabilityAsync(string locale, CancellationToken ct = default) =>
+        _client.GetAsync<Availability>("/api/availability", [Q("locale", locale)], ct);
+
+    /// <summary>The "invisible" switch of the web console: offline for visitors whatever the schedule says.</summary>
+    public Task<Availability> SetForceOfflineAsync(bool offline, CancellationToken ct = default) =>
+        _client.SendAsync<Availability>(HttpMethod.Patch, "/api/availability", null, new Dictionary<string, object?> { ["force_offline"] = offline }, ct);
+
+    public async Task<IReadOnlyList<TeamPresence>> TeamPresenceAsync(string workspaceId, CancellationToken ct = default) =>
+        (await _client.GetAsync<TeamPresenceResponse>($"/api/availability/team/{Uri.EscapeDataString(workspaceId)}", ct: ct).ConfigureAwait(false))?.Presence ?? [];
+
+    /// <summary>Every two minutes while the app runs; `interacted` feeds active vs away.</summary>
+    public Task HeartbeatAsync(string workspaceId, bool interacted, CancellationToken ct = default) =>
+        _client.SendAsync(HttpMethod.Post, "/api/operator-activity/heartbeat", new Dictionary<string, object?> { ["workspace_id"] = workspaceId, ["interacted"] = interacted }, ct: ct);
+
+    // ── Visitors ──
+
+    public async Task<IReadOnlyList<LiveVisitor>> LiveVisitorsAsync(string workspaceId, bool includeOffline, CancellationToken ct = default)
+    {
+        var q = new List<KeyValuePair<string, string?>> { Q("workspace_id", workspaceId), Q("limit", "200") };
+        if (includeOffline) q.Add(Q("include_offline", "1"));
+        return (await _client.GetAsync<ItemsResponse<LiveVisitor>>("/api/visitor-intel/live", q, ct).ConfigureAwait(false))?.Items ?? [];
+    }
+
+    public Task<PageHistory> PageHistoryAsync(string workspaceId, string sessionId, CancellationToken ct = default) =>
+        _client.GetAsync<PageHistory>($"/api/visitor-intel/{Uri.EscapeDataString(sessionId)}/page-history", [Q("workspace_id", workspaceId), Q("limit", "20")], ct);
+
+    /// <summary>Reuses the visitor's open conversation when there is one, as on the web.</summary>
+    public Task<StartChatResult> StartChatWithVisitorAsync(string workspaceId, string sessionId, CancellationToken ct = default) =>
+        _client.PostAsync<StartChatResult>("/api/conversations/start-from-visitor", new Dictionary<string, object?> { ["workspace_id"] = workspaceId, ["visitor_session_id"] = sessionId }, ct);
+
+    public Task<RealtimeSubscribe> RealtimeVisitorsSubscribeAsync(string workspaceId, CancellationToken ct = default) =>
+        _client.PostAsync<RealtimeSubscribe>("/api/realtime/operator-visitors-subscribe", new Dictionary<string, object?> { ["workspace_id"] = workspaceId }, ct);
+
+    /// <summary>Map markers and tile settings, handed to the map page as they come.</summary>
+    public Task<System.Text.Json.JsonElement> VisitorMapAsync(string workspaceId, CancellationToken ct = default) =>
+        _client.GetAsync<System.Text.Json.JsonElement>("/api/visitor-intel/map", [Q("workspace_id", workspaceId)], ct);
+
+    public Task<System.Text.Json.JsonElement> VisitorMapConfigAsync(string workspaceId, CancellationToken ct = default) =>
+        _client.GetAsync<System.Text.Json.JsonElement>("/api/visitor-intel/map-config", [Q("workspace_id", workspaceId)], ct);
+
+    // ── Call center ──
+
+    public async Task<IReadOnlyList<QueueEntry>> CallQueueAsync(string workspaceId, CancellationToken ct = default) =>
+        (await _client.GetAsync<QueueResponse>("/api/call-center/queue", [Q("workspaceId", workspaceId)], ct).ConfigureAwait(false))?.Queue ?? [];
+
+    public Task<CallCenterOverview> CallOverviewAsync(string workspaceId, CancellationToken ct = default) =>
+        _client.GetAsync<CallCenterOverview>("/api/call-center/overview", [Q("workspaceId", workspaceId)], ct);
+
+    public async Task<IReadOnlyList<AgentCallStatus>> AgentCallStatusesAsync(string workspaceId, CancellationToken ct = default) =>
+        (await _client.GetAsync<AgentsResponse>("/api/call-center/agent-status", [Q("workspaceId", workspaceId)], ct).ConfigureAwait(false))?.Agents ?? [];
+
+    /// <summary>"available" or "away", the two states the web desk offers.</summary>
+    public Task SetAgentCallStatusAsync(string workspaceId, string status, CancellationToken ct = default) =>
+        _client.SendAsync(HttpMethod.Post, "/api/call-center/agent-status", new Dictionary<string, object?> { ["workspaceId"] = workspaceId, ["status"] = status }, [Q("workspaceId", workspaceId)], ct);
+
+    public Task<CallAccept> AcceptCallAsync(string workspaceId, string callId, CancellationToken ct = default) =>
+        _client.SendAsync<CallAccept>(HttpMethod.Post, $"/api/call-center/calls/{Uri.EscapeDataString(callId)}/accept", [Q("workspaceId", workspaceId)], new Dictionary<string, object?> { ["workspaceId"] = workspaceId }, ct);
+
+    public Task RejectCallAsync(string workspaceId, string callId, CancellationToken ct = default) =>
+        _client.SendAsync(HttpMethod.Post, $"/api/call-center/calls/{Uri.EscapeDataString(callId)}/reject", new Dictionary<string, object?> { ["workspaceId"] = workspaceId }, [Q("workspaceId", workspaceId)], ct);
+
+    public Task EndCallAsync(string workspaceId, string callId, CancellationToken ct = default) =>
+        _client.SendAsync(HttpMethod.Post, $"/api/call-center/calls/{Uri.EscapeDataString(callId)}/end", new Dictionary<string, object?> { ["workspaceId"] = workspaceId }, [Q("workspaceId", workspaceId)], ct);
+
+    public Task<CallDetail> CallDetailAsync(string workspaceId, string callId, CancellationToken ct = default) =>
+        _client.GetAsync<CallDetail>($"/api/call-center/calls/{Uri.EscapeDataString(callId)}", [Q("workspaceId", workspaceId)], ct);
+
+    public async Task<IReadOnlyList<CallSession>> CallHistoryAsync(string workspaceId, int limit = 50, CancellationToken ct = default) =>
+        (await _client.GetAsync<CallsResponse>("/api/call-center/calls", [Q("workspaceId", workspaceId), Q("limit", limit.ToString(System.Globalization.CultureInfo.InvariantCulture))], ct).ConfigureAwait(false))?.Calls ?? [];
+
+    public async Task<IReadOnlyList<CallNote>> CallNotesAsync(string workspaceId, string callId, CancellationToken ct = default) =>
+        (await _client.GetAsync<CallNotesResponse>($"/api/call-center/calls/{Uri.EscapeDataString(callId)}/notes", [Q("workspaceId", workspaceId)], ct).ConfigureAwait(false))?.Notes ?? [];
+
+    public Task AddCallNoteAsync(string workspaceId, string callId, string note, CancellationToken ct = default) =>
+        _client.SendAsync(HttpMethod.Post, $"/api/call-center/calls/{Uri.EscapeDataString(callId)}/notes", new Dictionary<string, object?> { ["note"] = note }, [Q("workspaceId", workspaceId)], ct);
+
     public Task<RealtimeSubscribe> RealtimeInboxSubscribeAsync(string workspaceId, CancellationToken ct = default) =>
         _client.PostAsync<RealtimeSubscribe>("/api/realtime/operator-inbox-subscribe", new Dictionary<string, object?> { ["workspace_id"] = workspaceId }, ct);
 
@@ -139,6 +222,26 @@ public sealed class WebyarApi
         catch (ApiException e) when (e.Failure != ApiFailure.Unauthorized)
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// The web inbox's enrichment: one batched call for a page of
+    /// conversations, giving each its visitor's OS and country for the avatar
+    /// and city for the name. Decorative: a failure means "no detail".
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, VisitorProfile>> VisitorProfilesAsync(string workspaceId, IReadOnlyList<string> conversationIds, CancellationToken ct = default)
+    {
+        if (conversationIds.Count == 0) return new Dictionary<string, VisitorProfile>();
+        try
+        {
+            var r = await _client.PostAsync<VisitorIntelResponse>("/api/visitor-intel/network/batch",
+                new Dictionary<string, object?> { ["workspace_id"] = workspaceId, ["conversation_ids"] = conversationIds.Take(500).ToArray() }, ct).ConfigureAwait(false);
+            return r?.ByConversation ?? new Dictionary<string, VisitorProfile>();
+        }
+        catch (ApiException e) when (e.Failure != ApiFailure.Unauthorized)
+        {
+            return new Dictionary<string, VisitorProfile>();
         }
     }
 
@@ -255,6 +358,12 @@ public sealed class WebyarApi
         _client.SendAsync(HttpMethod.Post, $"/api/calls/{Uri.EscapeDataString(callSessionId)}/hangup", ct: ct);
 
     private sealed record SessionResponse(User? User);
+    private sealed record TeamPresenceResponse(IReadOnlyList<TeamPresence>? Presence);
+    private sealed record ItemsResponse<T>(IReadOnlyList<T>? Items);
+    private sealed record QueueResponse(IReadOnlyList<QueueEntry>? Queue);
+    private sealed record AgentsResponse(IReadOnlyList<AgentCallStatus>? Agents);
+    private sealed record CallsResponse(IReadOnlyList<CallSession>? Calls);
+    private sealed record CallNotesResponse(IReadOnlyList<CallNote>? Notes);
     private sealed record WorkspacesResponse(IReadOnlyList<Workspace>? Workspaces);
     private sealed record ConversationsResponse(IReadOnlyList<Conversation>? Conversations);
     private sealed record MessagesResponse(IReadOnlyList<Message>? Messages);

@@ -32,8 +32,10 @@ public sealed partial class AttachmentItem : ObservableObject
         };
         SizeText = a.SizeBytes is { } b ? FormatSize(b, s) : string.Empty;
         IsImage = Kind == "image";
+        IsAudio = Kind == "audio";
         ImageVisibility = IsImage ? Visibility.Visible : Visibility.Collapsed;
-        FileVisibility = IsImage ? Visibility.Collapsed : Visibility.Visible;
+        AudioVisibility = IsAudio ? Visibility.Visible : Visibility.Collapsed;
+        FileVisibility = IsImage || IsAudio ? Visibility.Collapsed : Visibility.Visible;
         Glyph = Kind switch { "audio" => "", "video" => "", "image" => "", _ => "" };
     }
 
@@ -51,7 +53,9 @@ public sealed partial class AttachmentItem : ObservableObject
     public string SizeText { get; }
     public string Glyph { get; }
     public bool IsImage { get; }
+    public bool IsAudio { get; }
     public Visibility ImageVisibility { get; }
+    public Visibility AudioVisibility { get; }
     public Visibility FileVisibility { get; }
 
     [ObservableProperty]

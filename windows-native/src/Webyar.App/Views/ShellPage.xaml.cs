@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Navigation;
 using Microsoft.Windows.AppNotifications;
 using Webyar.App.Services;
+using Webyar.Core.Inbox;
 using Webyar.Core.Localization;
 
 namespace Webyar.App.Views;
@@ -14,7 +15,6 @@ namespace Webyar.App.Views;
 public sealed partial class ShellPage : Page
 {
     private BackgroundNotifier? _notifier;
-    private Helpers.Poller? _colleagues;
     private string? _pendingConversation;
 
     public ShellPage()
@@ -35,7 +35,10 @@ public sealed partial class ShellPage : Page
         base.OnNavigatedTo(e);
         Host.LanguageChanged += OnLanguageChanged;
         Host.Updates.PropertyChanged += OnUpdateChanged;
+        Host.MeChanged += RenderMe;
+        if (Host.CallQueue is { } q) q.Changed += ShowCallsBadge;
         ApplyLanguage();
+        ShowCallsBadge();
         ShowUpdate();
         CheckWindowsNotifications();
 
@@ -44,20 +47,10 @@ public sealed partial class ShellPage : Page
             _notifier = new BackgroundNotifier(Host, ws.Id) { VisibleConversation = () => Inbox?.OpenConversationId };
             _notifier.UnreadChanged += SetUnread;
             _notifier.Start();
-            _colleagues = new Helpers.Poller("colleagues-badge", RefreshColleaguesBadgeAsync, () => Host.PollInterval(TimeSpan.FromSeconds(30)));
-            _colleagues.Start();
-            Host.InboxChanged += _ => _colleagues?.Kick();
         }
-        // Webyar.exe --page=colleagues|email|contacts|settings opens straight on that section.
+        // Webyar.exe --page=contacts|visitors|calls|settings opens straight on that section.
         var page = Environment.GetCommandLineArgs().FirstOrDefault(a => a.StartsWith("--page=", StringComparison.Ordinal))?[7..];
-        Nav.SelectedItem = page switch
-        {
-            "colleagues" => ColleaguesItem,
-            "email" => EmailItem,
-            "contacts" => ContactsItem,
-            "settings" => Nav.SettingsItem ?? InboxItem,
-            _ => InboxItem,
-        };
+        OpenPage(page);
     }
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
@@ -73,8 +66,8 @@ public sealed partial class ShellPage : Page
         Host.Updates.PropertyChanged -= OnUpdateChanged;
         _notifier?.Dispose();
         _notifier = null;
-        _colleagues?.Dispose();
-        _colleagues = null;
+        Host.MeChanged -= RenderMe;
+        if (Host.CallQueue is { } q) q.Changed -= ShowCallsBadge;
         Inbox?.Teardown();
     }
 
@@ -89,13 +82,26 @@ public sealed partial class ShellPage : Page
         Nav.SelectedItem = InboxItem;
     }
 
+    /// <summary>Shows a section by its tag: inbox, contacts, visitors, calls or settings.</summary>
+    public void OpenPage(string? tag)
+    {
+        Nav.SelectedItem = tag switch
+        {
+            "contacts" => ContactsItem,
+            "visitors" => VisitorsItem,
+            "calls" => CallCenterItem,
+            "settings" => Nav.SettingsItem ?? InboxItem,
+            _ => InboxItem,
+        };
+    }
+
     private void OnNavigate(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         var page = args.IsSettingsSelected ? typeof(SettingsPage) : (args.SelectedItem as NavigationViewItem)?.Tag switch
         {
-            "colleagues" => typeof(ColleaguesPage),
-            "email" => typeof(EmailPage),
             "contacts" => typeof(ContactsPage),
+            "visitors" => typeof(VisitorsPage),
+            "calls" => typeof(CallCenterPage),
             _ => typeof(InboxPage),
         };
         if (ContentFrame.Content?.GetType() == page) return;
@@ -109,22 +115,26 @@ public sealed partial class ShellPage : Page
         object want = ContentFrame.Content switch
         {
             SettingsPage => Nav.SettingsItem,
-            ColleaguesPage => ColleaguesItem,
-            EmailPage => EmailItem,
             ContactsPage => ContactsItem,
+            VisitorsPage => VisitorsItem,
+            CallCenterPage => CallCenterItem,
             _ => InboxItem,
         };
         if (!ReferenceEquals(Nav.SelectedItem, want)) Nav.SelectedItem = want;
     }
 
-    /// <summary>Unread colleague messages for the sidebar badge, refreshed with the inbox's rhythm.</summary>
-    private async Task RefreshColleaguesBadgeAsync(CancellationToken ct)
+    private void ShowCallsBadge()
     {
-        if (Host.Workspace is not { } ws) return;
-        var r = await Host.Api.ColleaguesAsync(ws.Id, ct);
-        var n = r.TotalUnread ?? r.Colleagues?.Sum(c => c.Unread ?? 0) ?? 0;
-        ColleaguesBadge.Value = n;
-        ColleaguesBadge.Visibility = n > 0 ? Visibility.Visible : Visibility.Collapsed;
+        var n = Host.CallQueue?.Queue.Count ?? 0;
+        CallsBadge.Value = n;
+        CallsBadge.Visibility = n > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>Online visitors on the sidebar, reported by the visitors page while it is open.</summary>
+    public void SetVisitorsOnline(int count)
+    {
+        VisitorsBadge.Value = count;
+        VisitorsBadge.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void OnLanguageChanged()
@@ -143,14 +153,13 @@ public sealed partial class ShellPage : Page
     {
         var s = Host.Strings;
         InboxItem.Content = s["tabInbox"];
-        ColleaguesItem.Content = s["colleagues"];
-        EmailItem.Content = s["emailInbox"];
         ContactsItem.Content = s["tabContacts"];
+        VisitorsItem.Content = s["navVisitors"];
+        CallCenterItem.Content = s["navCallCenter"];
         if (Nav.SettingsItem is NavigationViewItem settings) settings.Content = s["tabSettings"];
         var name = Host.User?.FullName is { Length: > 0 } n ? n : Host.User?.Email ?? s["account"];
-        MeName.Text = name;
-        MeAvatar.DisplayName = name;
         ToolTipService.SetToolTip(AccountItem, Host.Workspace?.Name is { Length: > 0 } w ? $"{name} — {w}" : name);
+        RenderMe();
         WorkspaceName.Text = Host.Workspace?.Name is { Length: > 0 } wn ? wn : s["appName"];
         WorkspaceLogo.ImageSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
             Host.Workspace?.LogoUrl is { } logo && logo.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? new Uri(logo) : new Uri(AppPaths.Icon));
@@ -161,11 +170,48 @@ public sealed partial class ShellPage : Page
         BuildAccountMenu();
     }
 
+    /// <summary>The account corner: photo, name, and presence as teammates see it.</summary>
+    private void RenderMe()
+    {
+        var s = Host.Strings;
+        var name = Host.Account?.Profile?.FullName is { Length: > 0 } pn ? pn
+            : Host.User?.FullName is { Length: > 0 } n ? n : Host.User?.Email ?? s["account"];
+        MeName.Text = name;
+        MeAvatar.DisplayName = name;
+        MeAvatar.ImageUrl = Host.Account?.AvatarUrl;
+        var presence = Host.Presence;
+        var state = presence?.State ?? Core.Api.PresenceStates.Offline;
+        MeAvatar.PresenceState = state;
+        var label = s[state switch
+        {
+            Core.Api.PresenceStates.Active => "presenceActive",
+            Core.Api.PresenceStates.Away => "presenceAway",
+            Core.Api.PresenceStates.Disconnected => "presenceDisconnected",
+            _ => "presenceOffline",
+        }];
+        MeStatus.Text = presence?.IsInvisible == true ? $"{label} · {s["statusInvisible"]}" : label;
+        BuildAccountMenu();
+    }
+
     private void BuildAccountMenu()
     {
         var s = Host.Strings;
         AccountMenu.Items.Clear();
         if (Host.User?.Email is { } email) AccountMenu.Items.Add(new MenuFlyoutItem { Text = email, IsEnabled = false });
+
+        // Online / invisible: the web console's "invisible mode" (force_offline).
+        if (Host.Presence is { } presence)
+        {
+            AccountMenu.Items.Add(new MenuFlyoutSeparator());
+            AccountMenu.Items.Add(new MenuFlyoutItem { Text = s["statusHeader"], IsEnabled = false });
+            var online = new RadioMenuFlyoutItem { Text = s["statusOnlineForVisitors"], GroupName = "status", IsChecked = !presence.IsInvisible, Icon = new FontIcon { Glyph = "\uE73E" } };
+            var invisible = new RadioMenuFlyoutItem { Text = s["statusInvisible"], GroupName = "status", IsChecked = presence.IsInvisible, Icon = new FontIcon { Glyph = "\uE7B3" } };
+            ToolTipService.SetToolTip(invisible, s["statusInvisibleHint"]);
+            online.Click += async (_, _) => await SetInvisibleAsync(false);
+            invisible.Click += async (_, _) => await SetInvisibleAsync(true);
+            AccountMenu.Items.Add(online);
+            AccountMenu.Items.Add(invisible);
+        }
         if (Host.Workspaces.Count > 1)
         {
             var sub = new MenuFlyoutSubItem { Text = s["workspace"] };
@@ -181,6 +227,20 @@ public sealed partial class ShellPage : Page
         var signOut = new MenuFlyoutItem { Text = s["signOut"], Icon = new FontIcon { Glyph = "" } };
         signOut.Click += async (_, _) => await SignOutAsync();
         AccountMenu.Items.Add(signOut);
+    }
+
+    private async Task SetInvisibleAsync(bool invisible)
+    {
+        if (Host.Presence is not { } presence || presence.IsInvisible == invisible) return;
+        try
+        {
+            await presence.SetInvisibleAsync(invisible);
+        }
+        catch (Exception e)
+        {
+            Log.Error("set status", e);
+            await new ContentDialog { XamlRoot = XamlRoot, FlowDirection = FlowDirection, Title = Host.Strings["statusChangeFailed"], Content = ErrorText.For(e, Host.Strings), CloseButtonText = Host.Strings["ok"] }.ShowAsync();
+        }
     }
 
     private void OnAccountTapped(object sender, TappedRoutedEventArgs e) => FlyoutBase.ShowAttachedFlyout(AccountItem);

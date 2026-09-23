@@ -39,6 +39,7 @@ public sealed partial class InboxPage : Page
         base.OnNavigatedTo(e);
         ApplyLanguage();
         Host.InboxChanged += OnInboxChanged;
+        Palette.ThemeChanged += OnThemeChanged;
         _poller = new Poller("inbox", LoadAsync, () => Host.PollInterval(TimeSpan.FromSeconds(Host.Config.PollIntervalSeconds)));
         _poller.Start();
         if (e.Parameter is string id) Open(id);
@@ -53,9 +54,18 @@ public sealed partial class InboxPage : Page
     public void Teardown()
     {
         Host.InboxChanged -= OnInboxChanged;
+        Palette.ThemeChanged -= OnThemeChanged;
         _poller?.Dispose();
         _poller = null;
         Chat.Close();
+    }
+
+    /// <summary>Brushes chosen in code follow a theme switch.</summary>
+    private void OnThemeChanged()
+    {
+        var now = DateTimeOffset.Now;
+        foreach (var item in _items) item.Update(item.Conversation, Host.Strings, now);
+        Chat.RefreshTheme();
     }
 
     /// <summary>Opens a conversation, e.g. from a toast, even when it is not in the current filter.</summary>
@@ -110,6 +120,8 @@ public sealed partial class InboxPage : Page
             var counts = Host.Api.InboxCountsAsync(ws.Id, "mine", ct);
             var list = await Host.Api.ConversationsAsync(ws.Id, _filter, ct);
             if (generation != _generation) return; // the filter changed while this was loading
+            list = await Host.WithVisitorProfilesAsync(list, ct);
+            if (generation != _generation) return;
             Apply(list);
             Error.IsOpen = false;
             try

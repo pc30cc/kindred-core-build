@@ -53,6 +53,7 @@ public partial class App : Application
 
         _window = new MainWindow();
         CreateTray();
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => _tray?.Dispose();
         ListenForSecondLaunch();
 
         if (!_startHidden) _window.Activate();
@@ -116,6 +117,10 @@ public partial class App : Application
 
         _tray = new TaskbarIcon
         {
+            // A fixed identity: Windows then keeps one tray entry for the app and
+            // reuses it after a crash, a forced close or an update restart, instead
+            // of stacking a new icon beside the dead one each launch.
+            Id = TrayId(),
             ToolTipText = s["appName"],
             // The tray needs a real .ico (BMP frames); H.NotifyIcon cannot turn a PNG into one.
             IconSource = new BitmapImage(new Uri(AppPaths.WindowIcon)),
@@ -125,6 +130,17 @@ public partial class App : Application
             NoLeftClickDelay = true,
         };
         _tray.ForceCreate();
+    }
+
+    /// <summary>
+    /// Stable per install location: the shell binds a tray GUID to one exe path,
+    /// so the installed app and a dev build each get their own.
+    /// </summary>
+    private static Guid TrayId()
+    {
+        var path = (Environment.ProcessPath ?? "Webyar").ToLowerInvariant();
+        var hash = System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes("webyar-tray:" + path));
+        return new Guid(hash);
     }
 
     /// <summary>The tray tooltip carries the unread count, like the taskbar badge in the old app.</summary>

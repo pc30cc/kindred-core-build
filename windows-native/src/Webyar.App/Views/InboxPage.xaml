@@ -35,7 +35,8 @@
 
                 <AutoSuggestBox x:Name="Search" Grid.Row="1" Margin="12,6,12,4" QueryIcon="Find" TextChanged="OnSearchChanged" />
 
-                <SelectorBar x:Name="Filters" Grid.Row="2" Margin="6,2,6,0" SelectionChanged="OnFilterChanged">
+                <!-- The inbox is chosen in the navigation pane now, as in the web sidebar. -->
+                <SelectorBar x:Name="Filters" Grid.Row="2" Margin="6,2,6,0" Visibility="Collapsed" SelectionChanged="OnFilterChanged">
                     <SelectorBarItem x:Name="FilterOpen" Tag="Open" IsSelected="True" />
                     <SelectorBarItem x:Name="FilterPending" Tag="Pending" />
                     <SelectorBarItem x:Name="FilterAi" Tag="Ai" />

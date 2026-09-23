@@ -157,6 +157,7 @@ public sealed partial class ChatView : UserControl
         _lastSeenMessage = null;
         _messages.Clear();
         _outbox.Clear();
+        if (_recorder is not null) _ = StopRecordingAsync(keep: false);
         ClearPendingFile();
         Error.IsOpen = false;
         Composer.Text = string.Empty;
@@ -290,8 +291,15 @@ public sealed partial class ChatView : UserControl
         ToolTipService.SetToolTip(DetailsToggle, s["details"]);
         ShortcutSearch.PlaceholderText = s["searchShortcuts"];
         ToolTipService.SetToolTip(EmojiButton, s["emoji"]);
+        ToolTipService.SetToolTip(MicButton, s["voiceRecord"]);
+        ToolTipService.SetToolTip(RecordCancelButton, s["voiceDiscard"]);
         ComposerHint.Text = s["composerHint"];
         EmojiGrid.ItemsSource ??= Emojis;
+        // The tool buttons sit at the start edge; the pickers open towards the
+        // text (leftwards in Persian) rather than off the side of the window.
+        var placement = s.IsRightToLeft ? FlyoutPlacementMode.TopEdgeAlignedRight : FlyoutPlacementMode.TopEdgeAlignedLeft;
+        EmojiFlyout.Placement = placement;
+        ShortcutsFlyout.Placement = placement;
     }
 
     /// <summary>The replies an operator reaches for most, in the order a support desk uses them.</summary>
@@ -388,7 +396,11 @@ public sealed partial class ChatView : UserControl
             item.Failed = false;
             item.Pending = true;
             string? attachmentId = null;
-            if (file is { } f) attachmentId = await Host.Api.UploadAttachmentAsync(workspaceId, conversationId, f.Name, f.Mime, f.Data);
+            if (file is { } f)
+            {
+                attachmentId = await Host.Api.UploadAttachmentAsync(workspaceId, conversationId, f.Name, f.Mime, f.Data);
+                if (attachmentId is not null && item.Attachments.FirstOrDefault() is { } local) AttachmentItem.Alias(local.Id, attachmentId);
+            }
             await Host.Api.SendMessageAsync(conversationId, workspaceId, item.Body, item.ClientId!, attachmentId);
             _outbox.Remove(item);
             _poller?.Kick();
@@ -438,10 +450,7 @@ public sealed partial class ChatView : UserControl
             var buffer = await Windows.Storage.FileIO.ReadBufferAsync(file);
             var data = new byte[buffer.Length];
             using (var reader = Windows.Storage.Streams.DataReader.FromBuffer(buffer)) reader.ReadBytes(data);
-            _pendingFile = (file.Name, string.IsNullOrEmpty(file.ContentType) ? Mime.Of(file.Name) : file.ContentType, data);
-            PendingFileName.Text = $"{file.Name} · {AttachmentItem.FormatSize(data.LongLength, Host.Strings)}";
-            PendingFile.Visibility = Visibility.Visible;
-            UpdateSendEnabled();
+            await SetPendingAsync(file.Name, string.IsNullOrEmpty(file.ContentType) ? Mime.Of(file.Name) : file.ContentType, data);
             Composer.Focus(FocusState.Programmatic);
         }
         catch (Exception ex)
@@ -457,7 +466,136 @@ public sealed partial class ChatView : UserControl
     {
         _pendingFile = null;
         PendingFile.Visibility = Visibility.Collapsed;
+        PendingThumb.Source = null;
+        PendingThumb.Visibility = Visibility.Collapsed;
         UpdateSendEnabled();
+    }
+
+    /// <summary>Puts a file in the composer card — a photo shows its thumbnail — to go out with the next Send.</summary>
+    private async Task SetPendingAsync(string name, string mime, byte[] data)
+    {
+        _pendingFile = (name, mime, data);
+        PendingFileName.Text = name;
+        PendingFileSize.Text = AttachmentItem.FormatSize(data.LongLength, Host.Strings);
+        PendingGlyph.Glyph = mime.StartsWith("audio/", StringComparison.Ordinal) ? "\uE8D6"
+            : mime.StartsWith("video/", StringComparison.Ordinal) ? "\uE714" : "\uE8A5";
+        PendingThumb.Visibility = Visibility.Collapsed;
+        PendingFile.Visibility = Visibility.Visible;
+        UpdateSendEnabled();
+        if (!mime.StartsWith("image/", StringComparison.Ordinal)) return;
+        try
+        {
+            using var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+            await stream.WriteAsync(System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.AsBuffer(data));
+            stream.Seek(0);
+            var thumb = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage { DecodePixelWidth = 96 };
+            await thumb.SetSourceAsync(stream);
+            if (_pendingFile?.Data != data) return;
+            PendingThumb.Source = thumb;
+            PendingThumb.Visibility = Visibility.Visible;
+        }
+        catch (Exception e)
+        {
+            Log.Error("pending thumbnail", e);
+        }
+    }
+
+    // ── Voice notes ──
+
+    private VoiceRecorder? _recorder;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _recordTimer;
+
+    private async void OnMic(object sender, RoutedEventArgs e)
+    {
+        if (_recorder is { IsRecording: true }) await StopRecordingAsync(keep: true);
+        else await StartRecordingAsync();
+    }
+
+    private async void OnRecordCancel(object sender, RoutedEventArgs e) => await StopRecordingAsync(keep: false);
+
+    private async Task StartRecordingAsync()
+    {
+        var s = Host.Strings;
+        _recorder = new VoiceRecorder();
+        try
+        {
+            await _recorder.StartAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("voice record", ex);
+            await _recorder.DisposeAsync();
+            _recorder = null;
+            // Windows keeps desktop apps off the microphone until allowed in Privacy settings.
+            Error.Message = ex is UnauthorizedAccessException || (uint)ex.HResult == 0x80070005 ? s["micBlocked"] : s["micFailed"];
+            var open = new Button { Content = s["openWindowsSettings"] };
+            open.Click += async (_, _) => await Windows.System.Launcher.LaunchUriAsync(new Uri("ms-settings:privacy-microphone"));
+            Error.ActionButton = open;
+            Error.IsOpen = true;
+            return;
+        }
+        ShowRecording(true);
+        _recordTimer ??= CreateRecordTimer();
+        _recordTimer.Start();
+    }
+
+    private async Task StopRecordingAsync(bool keep)
+    {
+        if (_recorder is not { } recorder) return;
+        _recorder = null;
+        _recordTimer?.Stop();
+        ShowRecording(false);
+        try
+        {
+            if (!keep)
+            {
+                await recorder.CancelAsync();
+                return;
+            }
+            var length = DateTimeOffset.Now - recorder.StartedAt;
+            var data = await recorder.StopAsync();
+            // A tap on the mic by mistake is not a message.
+            if (length < TimeSpan.FromSeconds(1) || data.Length < 1024) return;
+            await SetPendingAsync($"voice-note-{DateTime.Now:yyyyMMdd-HHmmss}.m4a", "audio/mp4", data);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("voice stop", ex);
+            ShowError(Host.Strings["micFailed"]);
+        }
+    }
+
+    private void ShowRecording(bool on)
+    {
+        var s = Host.Strings;
+        RecordBar.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        Composer.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        RecordCancelButton.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        AttachButton.IsEnabled = EmojiButton.IsEnabled = ShortcutsButton.IsEnabled = !on;
+        ComposerHint.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        MicGlyph.Glyph = on ? "\uE71A" : "\uE720";
+        MicButton.Background = on ? Palette.Resource("DangerSoftBrush") : Palette.Transparent;
+        ToolTipService.SetToolTip(MicButton, s[on ? "voiceStop" : "voiceRecord"]);
+        RecordTime.Text = "0:00";
+        RecordHint.Text = s["voiceRecording"];
+        RecordDot.Opacity = 1;
+        if (!on) Composer.Focus(FocusState.Programmatic);
+    }
+
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer CreateRecordTimer()
+    {
+        var t = DispatcherQueue.CreateTimer();
+        t.Interval = TimeSpan.FromMilliseconds(500);
+        t.Tick += (_, _) =>
+        {
+            if (_recorder is not { IsRecording: true } r) return;
+            var e = DateTimeOffset.Now - r.StartedAt;
+            RecordTime.Text = $"{(int)e.TotalMinutes}:{e.Seconds:00}";
+            RecordDot.Opacity = RecordDot.Opacity > 0.5 ? 0.25 : 1;
+            // Voice notes are short; the web caps uploads, so stop well before that.
+            if (e >= TimeSpan.FromMinutes(5)) _ = StopRecordingAsync(keep: true);
+        };
+        return t;
     }
 
     /// <summary>Opens a file with whatever Windows opens that kind of file with.</summary>

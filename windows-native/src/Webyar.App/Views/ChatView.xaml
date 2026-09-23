@@ -16,7 +16,7 @@
             <Grid HorizontalAlignment="Left">
                 <Button Padding="0" BorderThickness="0" Background="Transparent" CornerRadius="16" Visibility="{x:Bind ImageVisibility}" Click="OnOpenAttachment" Tag="{x:Bind}">
                     <Border CornerRadius="16" BorderBrush="{ThemeResource BubbleIncomingBorderBrush}" BorderThickness="1" Background="{ThemeResource ElevatedBrush}">
-                        <Grid MinWidth="180" MinHeight="120" MaxWidth="320" MaxHeight="300">
+                        <Grid Width="{x:Bind PreviewWidth, Mode=OneWay}" Height="{x:Bind PreviewHeight, Mode=OneWay}">
                             <FontIcon Glyph="&#xEB9F;" FontSize="24" Foreground="{ThemeResource Text3Brush}" />
                             <Image Source="{x:Bind Preview, Mode=OneWay}" Stretch="UniformToFill" />
                         </Grid>
@@ -49,7 +49,7 @@
             <Grid HorizontalAlignment="Right">
                 <Button Padding="0" BorderThickness="0" Background="Transparent" CornerRadius="16" Visibility="{x:Bind ImageVisibility}" Click="OnOpenAttachment" Tag="{x:Bind}">
                     <Border CornerRadius="16" BorderBrush="{ThemeResource BubbleIncomingBorderBrush}" BorderThickness="1" Background="{ThemeResource ElevatedBrush}">
-                        <Grid MinWidth="180" MinHeight="120" MaxWidth="320" MaxHeight="300">
+                        <Grid Width="{x:Bind PreviewWidth, Mode=OneWay}" Height="{x:Bind PreviewHeight, Mode=OneWay}">
                             <FontIcon Glyph="&#xEB9F;" FontSize="24" Foreground="{ThemeResource Text3Brush}" />
                             <Image Source="{x:Bind Preview, Mode=OneWay}" Stretch="UniformToFill" />
                         </Grid>
@@ -263,25 +263,50 @@
                         as in Teams and the web console.
                     -->
                     <StackPanel Grid.Row="3" Padding="16,4,16,16" Spacing="8" Background="{ThemeResource ChatBackgroundBrush}">
-                        <Border x:Name="PendingFile" Visibility="Collapsed" HorizontalAlignment="Left" Padding="8,6,6,6" CornerRadius="12" Background="{ThemeResource SurfaceBrush}" BorderBrush="{ThemeResource ComposerBorderBrush}" BorderThickness="1">
-                            <StackPanel Orientation="Horizontal" Spacing="10">
-                                <Border Width="30" Height="30" CornerRadius="8" Background="{ThemeResource BrandSoftBrush}">
-                                    <FontIcon Glyph="&#xE8A5;" FontSize="14" Foreground="{ThemeResource BrandBrush}" />
-                                </Border>
-                                <TextBlock x:Name="PendingFileName" VerticalAlignment="Center" FontSize="12.5" FontWeight="SemiBold" MaxWidth="320" TextTrimming="CharacterEllipsis" />
-                                <Button Style="{StaticResource IconButton}" MinWidth="26" MinHeight="26" Padding="4" CornerRadius="13" Click="OnClearPendingFile">
-                                    <FontIcon Glyph="&#xE711;" FontSize="10" />
-                                </Button>
-                            </StackPanel>
-                        </Border>
                         <Border x:Name="ComposerCard" CornerRadius="14" BorderBrush="{ThemeResource ComposerBorderBrush}" BorderThickness="1" Background="{ThemeResource ComposerBrush}">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
+                                <!-- The file about to go out sits inside the card, with the text, until Send. -->
+                                <Border x:Name="PendingFile" Visibility="Collapsed" HorizontalAlignment="Left" Margin="10,10,10,0" Padding="6,6,6,6" CornerRadius="12" Background="{ThemeResource ComposerBarBrush}" BorderBrush="{ThemeResource ComposerBorderBrush}" BorderThickness="1">
+                                    <Grid ColumnSpacing="10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="44" Height="44" CornerRadius="9" Background="{ThemeResource BrandSoftBrush}">
+                                            <Grid>
+                                                <FontIcon x:Name="PendingGlyph" Glyph="&#xE8A5;" FontSize="18" Foreground="{ThemeResource BrandBrush}" />
+                                                <Image x:Name="PendingThumb" Stretch="UniformToFill" Visibility="Collapsed" />
+                                            </Grid>
+                                        </Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2" MaxWidth="300">
+                                            <TextBlock x:Name="PendingFileName" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock x:Name="PendingFileSize" FontSize="11.5" Foreground="{ThemeResource Text3Brush}" />
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Style="{StaticResource IconButton}" MinWidth="28" MinHeight="28" Padding="4" CornerRadius="14" VerticalAlignment="Center" Click="OnClearPendingFile">
+                                            <FontIcon Glyph="&#xE711;" FontSize="11" />
+                                        </Button>
+                                    </Grid>
+                                </Border>
+                                <!-- While recording a voice note: it takes the text's place. -->
+                                <Grid x:Name="RecordBar" Grid.Row="1" Visibility="Collapsed" MinHeight="46" Padding="16,8" ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Ellipse x:Name="RecordDot" Width="10" Height="10" Fill="{ThemeResource DangerBrush}" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="RecordTime" Grid.Column="1" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" FlowDirection="LeftToRight" Text="0:00" />
+                                    <TextBlock x:Name="RecordHint" Grid.Column="2" FontSize="12.5" Foreground="{ThemeResource Text2Brush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                </Grid>
                                 <TextBox
                                     x:Name="Composer"
+                                    Grid.Row="1"
                                     MinHeight="46"
                                     MaxHeight="180"
                                     Padding="16,13,16,6"
@@ -304,12 +329,14 @@
                                         <Thickness x:Key="TextControlBorderThemeThicknessFocused">0</Thickness>
                                     </TextBox.Resources>
                                 </TextBox>
-                                <Grid Grid.Row="1" Padding="8,2,8,8" ColumnSpacing="2">
+                                <Grid Grid.Row="2" Padding="8,2,8,8" ColumnSpacing="2">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <Button x:Name="AttachButton" Style="{StaticResource IconButton}" Click="OnAttach">
@@ -354,7 +381,14 @@
                                         </FlyoutBase.AttachedFlyout>
                                     </Button>
                                     <TextBlock x:Name="ComposerHint" Grid.Column="3" Margin="10,0" VerticalAlignment="Center" HorizontalAlignment="Right" FontSize="11.5" Foreground="{ThemeResource Text3Brush}" TextTrimming="CharacterEllipsis" />
-                                    <Button x:Name="SendButton" Grid.Column="4" Width="36" Height="36" Padding="0" CornerRadius="18" Style="{StaticResource AccentButtonStyle}" IsEnabled="False" Click="OnSend">
+                                    <!-- Voice note: record, stop (it lands in the card like any file) or throw away. -->
+                                    <Button x:Name="RecordCancelButton" Grid.Column="4" Style="{StaticResource IconButton}" Visibility="Collapsed" Click="OnRecordCancel">
+                                        <FontIcon Glyph="&#xE74D;" FontSize="16" Foreground="{ThemeResource DangerBrush}" />
+                                    </Button>
+                                    <Button x:Name="MicButton" Grid.Column="5" Width="36" Height="36" Padding="0" CornerRadius="18" Margin="0,0,6,0" Style="{StaticResource IconButton}" Click="OnMic">
+                                        <FontIcon x:Name="MicGlyph" Glyph="&#xE720;" FontSize="16" />
+                                    </Button>
+                                    <Button x:Name="SendButton" Grid.Column="6" Width="36" Height="36" Padding="0" CornerRadius="18" Style="{StaticResource AccentButtonStyle}" IsEnabled="False" Click="OnSend">
                                         <!-- The paper plane points the way text runs. -->
                                         <FontIcon x:Name="SendGlyph" FontSize="14" Glyph="&#xE724;" MirroredWhenRightToLeft="True" />
                                     </Button>

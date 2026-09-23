@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Webyar.Core.Api;
 
 /// <summary>
@@ -54,6 +56,31 @@ public sealed class WebyarApi
 
     public Task<InboxCounts> InboxCountsAsync(string workspaceId, string scope = "mine", CancellationToken ct = default) =>
         _client.GetAsync<InboxCounts>("/api/conversations/inbox-tab-counts", [Q("workspace_id", workspaceId), Q("scope", scope)], ct);
+
+    /// <summary>The web sidebar's badges: AI queue, needs-human and spam (same scope rules as the list).</summary>
+    public Task<SidebarCounts> SidebarCountsAsync(string workspaceId, string scope = "mine", CancellationToken ct = default) =>
+        _client.GetAsync<SidebarCounts>("/api/conversations/inbox-counts", [Q("workspace_id", workspaceId), Q("scope", scope)], ct);
+
+    /// <summary>
+    /// Installed channel plugins that bring an inbox ("Other inboxes" in the web
+    /// sidebar). An owner/admin surface: other roles get 403 and see none.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> PluginInboxesAsync(string workspaceId, CancellationToken ct = default)
+    {
+        var doc = await _client.GetAsync<JsonElement>("/api/plugins/catalog", [Q("workspace_id", workspaceId)], ct).ConfigureAwait(false);
+        var keys = new List<string>();
+        if (doc.ValueKind != JsonValueKind.Object || !doc.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array) return keys;
+        foreach (var item in items.EnumerateArray())
+        {
+            bool Flag(string camel, string snake) =>
+                (item.TryGetProperty(camel, out var v) || item.TryGetProperty(snake, out v)) && v.ValueKind == JsonValueKind.True;
+            if (!Flag("installed", "installed") || !Flag("supportsInbox", "supports_inbox")) continue;
+            var key = (item.TryGetProperty("slug", out var slug) && slug.ValueKind == JsonValueKind.String ? slug.GetString() : null)
+                ?? (item.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() : null);
+            if (!string.IsNullOrWhiteSpace(key) && !keys.Contains(key.ToLowerInvariant())) keys.Add(key.ToLowerInvariant());
+        }
+        return keys;
+    }
 
     public async Task<IReadOnlyList<Message>> MessagesAsync(string conversationId, CancellationToken ct = default) =>
         (await _client.GetAsync<MessagesResponse>($"/api/conversations/{Uri.EscapeDataString(conversationId)}/messages", ct: ct).ConfigureAwait(false))?.Messages ?? [];

@@ -54,6 +54,7 @@ public sealed partial class ShellPage : Page
         ShowUpdate();
         CheckWindowsNotifications();
 
+        StartInboxSidebar();
         if (Host.Workspace is { } ws)
         {
             _notifier = new BackgroundNotifier(Host, ws.Id) { VisibleConversation = () => Inbox?.OpenConversationId };
@@ -78,6 +79,8 @@ public sealed partial class ShellPage : Page
         Host.Updates.PropertyChanged -= OnUpdateChanged;
         _notifier?.Dispose();
         _notifier = null;
+        _countsPoller?.Dispose();
+        _countsPoller = null;
         Host.MeChanged -= RenderMe;
         if (Host.CallQueue is { } q)
         {
@@ -96,7 +99,7 @@ public sealed partial class ShellPage : Page
             return;
         }
         _pendingConversation = id;
-        Nav.SelectedItem = InboxItem;
+        Nav.SelectedItem = InboxOpenItem;
     }
 
     /// <summary>Shows a section by its tag: inbox, contacts, visitors, calls or settings.</summary>
@@ -113,8 +116,9 @@ public sealed partial class ShellPage : Page
             "contacts" => ContactsItem,
             "visitors" => VisitorsItem,
             "calls" => CallCenterItem,
-            "settings" => Nav.SettingsItem ?? InboxItem,
-            _ => InboxItem,
+            "colleagues" => ColleaguesItem,
+            "settings" => Nav.SettingsItem ?? InboxOpenItem,
+            _ => InboxOpenItem,
         };
     }
 
@@ -126,28 +130,138 @@ public sealed partial class ShellPage : Page
 
     private void OnNavigate(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
-        var page = args.IsSettingsSelected ? typeof(SettingsPage) : (args.SelectedItem as NavigationViewItem)?.Tag switch
+        var tag = args.IsSettingsSelected ? "settings" : (args.SelectedItem as NavigationViewItem)?.Tag as string ?? "inbox";
+        var page = tag switch
         {
+            "settings" => typeof(SettingsPage),
             "contacts" => typeof(ContactsPage),
             "visitors" => typeof(VisitorsPage),
             "calls" => typeof(CallCenterPage),
+            "colleagues" => typeof(ColleaguesPage),
             _ => typeof(InboxPage),
         };
-        if (ContentFrame.Content?.GetType() == page) return;
-        Inbox?.Teardown();
-        ContentFrame.Navigate(page, page == typeof(InboxPage) ? _pendingConversation : null);
-        if (page == typeof(InboxPage)) _pendingConversation = null;
+        if (ContentFrame.Content?.GetType() != page)
+        {
+            Inbox?.Teardown();
+            ContentFrame.Navigate(page, page == typeof(InboxPage) ? _pendingConversation : null);
+            if (page == typeof(InboxPage)) _pendingConversation = null;
+        }
+        if (Inbox is { } inbox) ShowInbox(inbox, tag);
+    }
+
+    /// <summary>Points the inbox page at the queue or channel a pane item stands for.</summary>
+    private void ShowInbox(InboxPage inbox, string tag)
+    {
+        var s = Host.Strings;
+        if (tag.StartsWith("channel/", StringComparison.Ordinal))
+        {
+            var channel = tag[8..];
+            inbox.ShowInbox(InboxFilter.Open, channel, ChannelLabel(channel, s));
+            return;
+        }
+        var filter = tag.StartsWith("inbox/", StringComparison.Ordinal) && Enum.TryParse<InboxFilter>(tag[6..], out var f) ? f : InboxFilter.Open;
+        inbox.ShowInbox(filter, null, s[InboxTitleKey(filter)]);
+    }
+
+    private static string InboxTitleKey(InboxFilter f) => f switch
+    {
+        InboxFilter.Ai => "navInboxAi",
+        InboxFilter.NeedsHuman => "navInboxNeedsHuman",
+        InboxFilter.Pending => "navInboxPending",
+        InboxFilter.Resolved => "navInboxResolved",
+        InboxFilter.Spam => "navInboxSpam",
+        _ => "navInboxOpen",
+    };
+
+    /// <summary>The web's channelLabel (ChannelBadge.tsx): brand names as they are, the widget translated.</summary>
+    private static string ChannelLabel(string key, Strings s) => key switch
+    {
+        "telegram" => "Telegram",
+        "bale" => "بله",
+        "whatsapp" => "WhatsApp",
+        "instagram" => "Instagram",
+        "x" => "X (Twitter)",
+        "email" => "Email",
+        "phone" => "Phone",
+        "widget" => s["channelWidget"],
+        _ => key,
+    };
+
+    private static string ChannelGlyph(string key) => key switch
+    {
+        "telegram" or "bale" => "\uE724",
+        "whatsapp" => "\uE8BD",
+        "instagram" => "\uE722",
+        "email" => "\uE715",
+        "phone" => "\uE717",
+        "x" => "\uE8F2",
+        _ => "\uE8F2",
+    };
+
+    // ── Inbox badges and channel inboxes ──
+
+    private Poller? _countsPoller;
+    private bool _channelsLoaded;
+
+    private void StartInboxSidebar()
+    {
+        if (Host.Workspace is not { } ws) return;
+        _countsPoller = new Poller("sidebar counts", ct => LoadSidebarAsync(ws.Id, ct), () => TimeSpan.FromSeconds(15));
+        _countsPoller.Start();
+    }
+
+    private async Task LoadSidebarAsync(string workspaceId, CancellationToken ct)
+    {
+        var counts = await Host.Api.SidebarCountsAsync(workspaceId, "mine", ct);
+        Badge(AiBadge, counts.Automated);
+        Badge(NeedsHumanBadge, counts.NeedsHuman);
+        Badge(SpamBadge, counts.Spam);
+        if (_channelsLoaded) return;
+        _channelsLoaded = true;
+        try
+        {
+            ShowChannels(await Host.Api.PluginInboxesAsync(workspaceId, ct));
+        }
+        catch (ApiException e) when (e.Status is 401 or 403 or 404)
+        {
+            // Owners and admins only, as on the web: everyone else simply has no "Other inboxes".
+        }
+    }
+
+    private static void Badge(InfoBadge badge, int? n)
+    {
+        badge.Value = n ?? 0;
+        badge.Visibility = n is > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void ShowChannels(IReadOnlyList<string> keys)
+    {
+        var s = Host.Strings;
+        OtherInboxesItem.MenuItems.Clear();
+        foreach (var key in keys)
+        {
+            OtherInboxesItem.MenuItems.Add(new NavigationViewItem
+            {
+                Content = ChannelLabel(key, s),
+                Tag = "channel/" + key,
+                Icon = new FontIcon { Glyph = ChannelGlyph(key) },
+            });
+        }
+        OtherInboxesItem.Visibility = keys.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void SyncSelection()
     {
+        // Any inbox, queue or channel item stays selected while the inbox page shows it.
+        if (ContentFrame.Content is InboxPage && Nav.SelectedItem is NavigationViewItem { Tag: string t } && (t == "inbox" || t.StartsWith("inbox/", StringComparison.Ordinal) || t.StartsWith("channel/", StringComparison.Ordinal))) return;
         object want = ContentFrame.Content switch
         {
             SettingsPage => Nav.SettingsItem,
             ContactsPage => ContactsItem,
             VisitorsPage => VisitorsItem,
             CallCenterPage => CallCenterItem,
-            _ => InboxItem,
+            ColleaguesPage => ColleaguesItem,
+            _ => InboxOpenItem,
         };
         if (!ReferenceEquals(Nav.SelectedItem, want)) Nav.SelectedItem = want;
     }
@@ -299,6 +413,18 @@ public sealed partial class ShellPage : Page
     {
         var s = Host.Strings;
         InboxItem.Content = s["tabInbox"];
+        InboxOpenItem.Content = s["navInboxOpen"];
+        InboxAiItem.Content = s["navInboxAi"];
+        InboxNeedsHumanItem.Content = s["navInboxNeedsHuman"];
+        InboxPendingItem.Content = s["navInboxPending"];
+        InboxResolvedItem.Content = s["navInboxResolved"];
+        InboxSpamItem.Content = s["navInboxSpam"];
+        InternalInboxItem.Content = s["navInternalInbox"];
+        ColleaguesItem.Content = s["navColleagues"];
+        OtherInboxesItem.Content = s["navOtherInboxes"];
+        foreach (var item in OtherInboxesItem.MenuItems.OfType<NavigationViewItem>())
+            if (item.Tag is string t && t.StartsWith("channel/", StringComparison.Ordinal)) item.Content = ChannelLabel(t[8..], s);
+        if (Inbox is { } inbox && Nav.SelectedItem is NavigationViewItem { Tag: string tag }) ShowInbox(inbox, tag);
         ContactsItem.Content = s["tabContacts"];
         VisitorsItem.Content = s["navVisitors"];
         CallCenterItem.Content = s["navCallCenter"];

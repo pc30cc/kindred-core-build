@@ -214,6 +214,9 @@ public sealed partial class MainWindow : Window
         var font = (FontFamily)Application.Current.Resources[s.Language == Core.Localization.Language.Fa ? "PersianFont" : "LatinFont"];
         RootFrame.FontFamily = font;
         TitleText.FontFamily = font;
+        // Menus, flyouts and tooltips live outside the frame's tree; the theme
+        // font resource reaches them (and every control created from now on).
+        Application.Current.Resources["ContentControlThemeFontFamily"] = font;
         UpdateInsets();
     }
 

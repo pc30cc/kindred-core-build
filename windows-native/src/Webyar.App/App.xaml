@@ -133,8 +133,13 @@
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
 
-            <!-- Vazirmatn for Persian, as in the web console and the iOS app; Segoe UI Variable for Latin UIs. -->
-            <FontFamily x:Key="PersianFont">ms-appx:///Assets/Fonts/Vazirmatn.ttf#Vazirmatn</FontFamily>
+            <!--
+                IRANSans for Persian, the web console's own font (src/assets/fonts):
+                its Regular, Medium and Bold packed into one collection so
+                SemiBold/Bold text uses the real bold cut, not a synthetic one.
+                Segoe UI Variable for Latin UIs.
+            -->
+            <FontFamily x:Key="PersianFont">ms-appx:///Assets/Fonts/IRANSans.ttc#IRANSans, Segoe UI Variable Text</FontFamily>
             <FontFamily x:Key="LatinFont">Segoe UI Variable Text, Segoe UI</FontFamily>
         </ResourceDictionary>
     </Application.Resources>

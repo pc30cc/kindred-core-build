@@ -46,7 +46,7 @@ public sealed partial class ColleaguesPage : Page
         PlaceholderBody.Text = s["noColleagueSelectedBody"];
         ThreadEmpty.Text = s["colleagueThreadEmpty"];
         Composer.PlaceholderText = s["messagePlaceholder"];
-        _listPoller = new Poller("colleagues", LoadListAsync, () => Host.PollInterval(TimeSpan.FromSeconds(15)));
+        _listPoller = new Poller("colleagues", LoadListAsync, () => TimeSpan.FromSeconds(15));
         _listPoller.Start();
         Host.InboxChanged += OnRealtime;
     }
@@ -126,7 +126,7 @@ public sealed partial class ColleaguesPage : Page
         _messages.Clear();
         _threadPoller?.Dispose();
         var peer = item.Id;
-        _threadPoller = new Poller("team-thread", ct => LoadThreadAsync(peer, ct), () => Host.PollInterval(TimeSpan.FromSeconds(5)));
+        _threadPoller = new Poller("team-thread", ct => LoadThreadAsync(peer, ct), () => TimeSpan.FromSeconds(5));
         _threadPoller.Start();
         Composer.Focus(FocusState.Programmatic);
     }

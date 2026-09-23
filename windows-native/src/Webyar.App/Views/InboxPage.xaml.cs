@@ -19,6 +19,8 @@ public sealed partial class InboxPage : Page
     private readonly Dictionary<string, ConversationItem> _all = [];
     private Poller? _poller;
     private InboxFilter _filter = InboxFilter.Open;
+    private string? _channel;
+    private string? _title;
     private string? _openId;
     private bool _syncing;
     private int _generation;
@@ -88,7 +90,7 @@ public sealed partial class InboxPage : Page
     private void ApplyLanguage()
     {
         var s = Host.Strings;
-        HeaderText.Text = s["tabInbox"];
+        HeaderText.Text = _title ?? s["navInboxOpen"];
         Search.PlaceholderText = s["search"];
         ToolTipService.SetToolTip(RefreshButton, s["refresh"]);
         FilterOpen.Text = s["filterOpen"];
@@ -150,7 +152,9 @@ public sealed partial class InboxPage : Page
     {
         var s = Host.Strings;
         var now = DateTimeOffset.Now;
-        var sorted = list.OrderByDescending(c => c.LastActivity ?? DateTimeOffset.MinValue).ToList();
+        var sorted = list
+            .Where(c => _channel is null || c.ChannelKey == _channel)
+            .OrderByDescending(c => c.LastActivity ?? DateTimeOffset.MinValue).ToList();
         var seen = new HashSet<string>();
         foreach (var c in sorted)
         {
@@ -204,6 +208,26 @@ public sealed partial class InboxPage : Page
     {
         if (sender.SelectedItem?.Tag is not string tag || !Enum.TryParse<InboxFilter>(tag, out var filter) || filter == _filter) return;
         _filter = filter;
+        _generation++;
+        _items.Clear();
+        _all.Clear();
+        Loading.Visibility = Visibility.Visible;
+        Loading.IsActive = true;
+        Empty.Visibility = Visibility.Collapsed;
+        _poller?.Kick();
+    }
+
+    /// <summary>
+    /// Switches to one of the inboxes in the navigation pane: a queue/status,
+    /// optionally narrowed to one channel ("Other inboxes"), as the web does.
+    /// </summary>
+    public void ShowInbox(InboxFilter filter, string? channel, string title)
+    {
+        _title = title;
+        HeaderText.Text = title;
+        if (filter == _filter && channel == _channel) return;
+        _filter = filter;
+        _channel = channel;
         _generation++;
         _items.Clear();
         _all.Clear();

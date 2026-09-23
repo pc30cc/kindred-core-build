@@ -53,13 +53,72 @@
             </StackPanel>
         </NavigationView.PaneHeader>
         <NavigationView.MenuItems>
-            <NavigationViewItem x:Name="InboxItem" Tag="inbox">
+            <!-- The inboxes, as in the web sidebar (AppSidebar.tsx): queues, then the internal and channel groups. -->
+            <NavigationViewItem x:Name="InboxItem" Tag="inbox" IsExpanded="True" SelectsOnInvoked="True">
                 <NavigationViewItem.Icon>
                     <FontIcon Glyph="&#xE8BD;" />
                 </NavigationViewItem.Icon>
                 <NavigationViewItem.InfoBadge>
                     <InfoBadge x:Name="UnreadBadge" Visibility="Collapsed" />
                 </NavigationViewItem.InfoBadge>
+                <NavigationViewItem.MenuItems>
+                    <NavigationViewItem x:Name="InboxOpenItem" Tag="inbox/Open">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE8F2;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItem x:Name="InboxAiItem" Tag="inbox/Ai">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE99A;" />
+                        </NavigationViewItem.Icon>
+                        <NavigationViewItem.InfoBadge>
+                            <InfoBadge x:Name="AiBadge" Visibility="Collapsed" Style="{ThemeResource InformationalValueInfoBadgeStyle}" />
+                        </NavigationViewItem.InfoBadge>
+                    </NavigationViewItem>
+                    <NavigationViewItem x:Name="InboxNeedsHumanItem" Tag="inbox/NeedsHuman">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE7BA;" />
+                        </NavigationViewItem.Icon>
+                        <NavigationViewItem.InfoBadge>
+                            <InfoBadge x:Name="NeedsHumanBadge" Visibility="Collapsed" Style="{ThemeResource CriticalValueInfoBadgeStyle}" />
+                        </NavigationViewItem.InfoBadge>
+                    </NavigationViewItem>
+                    <NavigationViewItem x:Name="InboxPendingItem" Tag="inbox/Pending">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE823;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItem x:Name="InboxResolvedItem" Tag="inbox/Resolved">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE73E;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItem x:Name="InboxSpamItem" Tag="inbox/Spam">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE733;" />
+                        </NavigationViewItem.Icon>
+                        <NavigationViewItem.InfoBadge>
+                            <InfoBadge x:Name="SpamBadge" Visibility="Collapsed" Style="{ThemeResource InformationalValueInfoBadgeStyle}" />
+                        </NavigationViewItem.InfoBadge>
+                    </NavigationViewItem>
+                    <NavigationViewItem x:Name="InternalInboxItem" SelectsOnInvoked="False" IsExpanded="True">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE902;" />
+                        </NavigationViewItem.Icon>
+                        <NavigationViewItem.MenuItems>
+                            <NavigationViewItem x:Name="ColleaguesItem" Tag="colleagues">
+                                <NavigationViewItem.Icon>
+                                    <FontIcon Glyph="&#xE716;" />
+                                </NavigationViewItem.Icon>
+                            </NavigationViewItem>
+                        </NavigationViewItem.MenuItems>
+                    </NavigationViewItem>
+                    <NavigationViewItem x:Name="OtherInboxesItem" SelectsOnInvoked="False" IsExpanded="True" Visibility="Collapsed">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE8B7;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                </NavigationViewItem.MenuItems>
             </NavigationViewItem>
             <NavigationViewItem x:Name="ContactsItem" Tag="contacts">
                 <NavigationViewItem.Icon>

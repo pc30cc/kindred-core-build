@@ -13,6 +13,15 @@ public sealed partial class AttachmentItem : ObservableObject
 {
     private static readonly Dictionary<string, byte[]> Cache = [];
 
+    /// <summary>
+    /// Decoded photos by attachment id. Each poll builds fresh items; a photo
+    /// already shown comes back at once at its size instead of flashing empty.
+    /// </summary>
+    private static readonly Dictionary<string, (BitmapImage Image, double Width, double Height)> Previews = [];
+
+    /// <summary>The largest a photo is drawn in the thread, either way.</summary>
+    private const double MaxSide = 320;
+
     public AttachmentItem(MessageAttachment a, Strings s)
     {
         Id = a.Id;
@@ -61,6 +70,12 @@ public sealed partial class AttachmentItem : ObservableObject
     [ObservableProperty]
     private BitmapImage? _preview;
 
+    [ObservableProperty]
+    private double _previewWidth = 240;
+
+    [ObservableProperty]
+    private double _previewHeight = 180;
+
     public async Task<byte[]> BytesAsync()
     {
         if (Cache.TryGetValue(Id, out var cached)) return cached;
@@ -73,20 +88,57 @@ public sealed partial class AttachmentItem : ObservableObject
     public async Task LoadPreviewAsync()
     {
         if (!IsImage || Preview is not null) return;
+        if (Previews.TryGetValue(Id, out var known))
+        {
+            Show(known);
+            return;
+        }
         try
         {
             var data = await BytesAsync();
             using var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
             await stream.WriteAsync(data.AsBuffer());
             stream.Seek(0);
-            var image = new BitmapImage { DecodePixelWidth = 560 };
+            var image = new BitmapImage { DecodePixelWidth = 640 };
             await image.SetSourceAsync(stream);
-            Preview = image;
+            var (w, h) = Fit(image.PixelWidth, image.PixelHeight);
+            Previews[Id] = (image, w, h);
+            Show(Previews[Id]);
         }
         catch (Exception e)
         {
             Log.Error("attachment preview", e);
         }
+    }
+
+    private void Show((BitmapImage Image, double Width, double Height) p)
+    {
+        PreviewWidth = p.Width;
+        PreviewHeight = p.Height;
+        Preview = p.Image;
+    }
+
+    /// <summary>
+    /// A fixed box in the photo's own proportions. Letting the image size its
+    /// cell made the row re-measure on every hover — the bubble blinked and jumped.
+    /// </summary>
+    private static (double Width, double Height) Fit(int pw, int ph)
+    {
+        if (pw <= 0 || ph <= 0) return (240, 180);
+        var scale = Math.Min(1, Math.Min(MaxSide / pw, MaxSide / ph));
+        var w = Math.Max(120, Math.Round(pw * scale));
+        var h = Math.Max(90, Math.Round(ph * scale));
+        return (w, h);
+    }
+
+    /// <summary>
+    /// A file the operator just sent now has its server id: the bytes and the
+    /// decoded photo carry over, so the confirmed message does not reload it.
+    /// </summary>
+    public static void Alias(string localId, string serverId)
+    {
+        if (Cache.TryGetValue(localId, out var data)) Cache[serverId] = data;
+        if (Previews.TryGetValue(localId, out var preview)) Previews[serverId] = preview;
     }
 
     public static string FormatSize(long bytes, Strings s)

@@ -47,10 +47,33 @@ public sealed record Conversation(
     string? VisitorCountryCode = null,
     string? VisitorCountryName = null,
     string? VisitorCity = null,
-    string? VisitorRegion = null)
+    string? VisitorRegion = null,
+    JsonElement? Metadata = null)
 {
     /// <summary>When anything last happened, for sorting and "5m ago".</summary>
     public DateTimeOffset? LastActivity => LastMessage?.CreatedAt ?? UpdatedAt ?? CreatedAt;
+
+    private static readonly string[] Channels = ["telegram", "bale", "whatsapp", "instagram", "x", "email", "phone", "widget"];
+
+    /// <summary>
+    /// Where the visitor wrote from, as the web's resolveChannelKey reads it:
+    /// metadata.channel, else metadata.source, else the chat widget.
+    /// </summary>
+    public string ChannelKey
+    {
+        get
+        {
+            if (Metadata is { ValueKind: JsonValueKind.Object } m)
+            {
+                foreach (var key in new[] { "channel", "source" })
+                {
+                    if (m.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String
+                        && v.GetString()?.ToLowerInvariant() is { } raw && Array.IndexOf(Channels, raw) >= 0) return raw;
+                }
+            }
+            return "widget";
+        }
+    }
 }
 
 public sealed record MessageAttachment(string Id, string? FileName = null, string? MimeType = null, long? SizeBytes = null, string? Kind = null);
@@ -88,6 +111,8 @@ public static class ConversationStatuses
     public const string Resolved = "resolved";
     public const string Closed = "closed";
 }
+
+public sealed record SidebarCounts(int? Main = null, int? Automated = null, int? NeedsHuman = null, int? Spam = null);
 
 public sealed record InboxCounts(int? Open = null, int? Pending = null, int? Resolved = null, int? All = null, int? NeedsHuman = null, int? Automated = null);
 

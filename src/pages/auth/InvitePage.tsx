@@ -79,6 +79,15 @@ function consumeFragmentToken(): { token: string | null; purpose: Purpose } {
   return { token, purpose };
 }
 
+/** The invitation endpoints' JSON bodies; every field is optional. */
+interface InviteApiBody {
+  preview?: Preview;
+  policies?: { terms: PolicyVersion | null; privacy: PolicyVersion | null };
+  error?: string;
+  loginPath?: string;
+  session?: string;
+}
+
 /**
  * Phase 0.4 — no invitation mutation may leave the UI stuck. A rejected fetch,
  * an aborted request, a non-JSON body or a 5xx all resolve to a normal result
@@ -96,12 +105,12 @@ async function postJson(path: string, body: unknown, timeoutMs = 30_000) {
       body: JSON.stringify(body),
       signal: controller ? controller.signal : undefined,
     });
-    let data: any = {};
-    try { data = await res.json(); } catch { data = {}; }
+    let data: InviteApiBody = {};
+    try { data = (await res.json()) as InviteApiBody; } catch { data = {}; }
     return { ok: res.ok, status: res.status, data, transportUnknown: res.status >= 500 } as const;
   } catch {
     // Network rejection / abort / timeout: outcome genuinely unknown.
-    return { ok: false, status: 0, data: {} as any, transportUnknown: true } as const;
+    return { ok: false, status: 0, data: {} as InviteApiBody, transportUnknown: true } as const;
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -133,6 +142,16 @@ export default function InvitePage() {
   const tokenRef = useRef<string | null>(null);
   const purposeRef = useRef<Purpose>('email_claim');
   const initializedRef = useRef(false);
+  // Read and erase the fragment on the very first render, not after the
+  // session check: on a slow first load authLoading can take seconds, and the
+  // token must not sit in the address bar (or history) all that time.
+  const fragmentReadRef = useRef(false);
+  if (!fragmentReadRef.current) {
+    fragmentReadRef.current = true;
+    const fragment = consumeFragmentToken();
+    tokenRef.current = fragment.token;
+    purposeRef.current = fragment.purpose;
+  }
 
   const [state, setState] = useState<FlowState>('loading');
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -179,9 +198,6 @@ export default function InvitePage() {
   useEffect(() => {
     if (authLoading || initializedRef.current) return;
     initializedRef.current = true;
-    const { token, purpose } = consumeFragmentToken();
-    tokenRef.current = token;
-    purposeRef.current = purpose;
     void loadPreview();
   }, [loadPreview, authLoading]);
 

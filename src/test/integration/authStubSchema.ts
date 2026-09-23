@@ -100,8 +100,24 @@ export async function ensureAuthChainInstalled(db: PgQueryable): Promise<void> {
     .filter((f) => f.endsWith('.sql') && !AUTH_CHAIN_EXCLUDED_FILES.has(f))
     .sort();
 
-  const { rows } = await db.query(`SELECT to_regclass('public.profiles') IS NOT NULL AS installed`);
-  const baseAlreadyInstalled = !!rows[0]?.installed;
+  // "Installed" means the real base, not whatever an earlier suite left behind
+  // on the shared database: entitlementFanoutConsumer, for one, replaces
+  // public.workspaces with a one-column stub. A schema whose workspaces has
+  // no owner_id cannot take 001 (CREATE TABLE IF NOT EXISTS keeps the stub)
+  // or 026, so such a schema is reset and installed afresh.
+  const { rows } = await db.query(`
+    SELECT to_regclass('public.profiles') IS NOT NULL AS profiles,
+           to_regclass('public.workspaces') IS NOT NULL AS workspaces,
+           EXISTS (
+             SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'workspaces' AND column_name = 'owner_id'
+           ) AS owner_id`);
+  let baseAlreadyInstalled = !!rows[0]?.profiles && !!rows[0]?.owner_id;
+  if (rows[0]?.workspaces && !rows[0]?.owner_id) {
+    await db.query('DROP SCHEMA IF EXISTS public CASCADE; DROP SCHEMA IF EXISTS auth CASCADE; CREATE SCHEMA public;');
+    await applyAuthSchemaStub(db);
+    baseAlreadyInstalled = false;
+  }
 
   const baseFiles = allFiles.filter((f) => Number(f.slice(0, 3)) < 24);
   const authFiles = allFiles.filter((f) => Number(f.slice(0, 3)) >= 24);

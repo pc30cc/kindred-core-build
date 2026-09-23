@@ -48,12 +48,14 @@ public sealed partial class MainWindow : Window
         }
         RestoreBounds();
 
-        AppWindow.Closing += OnClosing;
+        // Windowing fails fast (the whole process dies) if one of its callbacks
+        // throws, so nothing may escape these handlers.
+        AppWindow.Closing += (s, e) => Guard("closing", () => OnClosing(s, e));
         AppWindow.Changed += (_, e) =>
         {
-            if (e.DidSizeChange) UpdateInsets();
+            if (e.DidSizeChange || e.DidPresenterChange) Guard("insets", UpdateInsets);
         };
-        Root.ActualThemeChanged += (_, _) => ApplyTheme();
+        Root.ActualThemeChanged += (_, _) => Guard("theme", ApplyTheme);
         Activated += (_, e) => IsForeground = e.WindowActivationState != WindowActivationState.Deactivated;
         Host.LanguageChanged += ApplyLanguage;
         Host.Client.Unauthorized += (_, _) => Host.RunOnUi(SignedOut);
@@ -199,11 +201,26 @@ public sealed partial class MainWindow : Window
     {
         var bar = AppWindow.TitleBar;
         var scale = Root.XamlRoot?.RasterizationScale ?? DpiScale();
-        var left = bar.LeftInset / scale;
-        var right = bar.RightInset / scale;
+        if (!(scale > 0)) scale = 1;
+        // Windows 10 reports odd insets while the window is minimized or being restored.
+        static double Safe(double v) => double.IsFinite(v) && v > 0 ? v : 0;
+        var left = Safe(bar.LeftInset / scale);
+        var right = Safe(bar.RightInset / scale);
         var rtl = Root.FlowDirection == FlowDirection.RightToLeft;
         StartInset.Width = new GridLength(rtl ? right : left);
         EndInset.Width = new GridLength(rtl ? left : right);
+    }
+
+    private static void Guard(string what, Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception e)
+        {
+            Log.Error(what, e);
+        }
     }
 
     private void OnClosing(AppWindow sender, AppWindowClosingEventArgs e)

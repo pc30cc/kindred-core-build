@@ -27,5 +27,5 @@ public static class Log
         }
     }
 
-    public static void Error(string what, Exception e) => Write($"error {what}: {e.GetType().Name}: {e.Message}");
+    public static void Error(string what, Exception e) => Write($"error {what}: {e}");
 }

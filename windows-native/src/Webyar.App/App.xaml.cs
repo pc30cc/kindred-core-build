@@ -25,6 +25,15 @@ public partial class App : Application
             Log.Error("unhandled", e.Exception);
             e.Handled = true;
         };
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            if (e.ExceptionObject is Exception ex) Log.Error("fatal", ex);
+        };
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            Log.Error("unobserved task", e.Exception);
+            e.SetObserved();
+        };
     }
 
     public static new App Current => (App)Application.Current;

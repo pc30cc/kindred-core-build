@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Mic, MicOff, Minimize2, PhoneOff, Video, VideoOff, X } from 'lucide-react'
-import { Room, RoomEvent, Track, type RemoteTrack, type LocalTrack } from 'livekit-client'
+import { ConnectionState, Room, RoomEvent, Track, type RemoteTrack, type LocalTrack } from 'livekit-client'
 import { api } from '@/api/client'
 import type { CallChannel, CallToken } from '@/api/types'
 import { useApp, type ActiveCall } from '@/store/app'
@@ -92,7 +92,16 @@ function useCallSession(call: ActiveCall | null) {
         setPhase({ kind: 'ended', outcome: 'failed', detail: 'no_server_url' })
         return
       }
-      const r = new Room({ adaptiveStream: true, dynacast: true, videoCaptureDefaults: { resolution: { width: 1280, height: 720 } } })
+      const r = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+        videoCaptureDefaults: { resolution: { width: 1280, height: 720 } },
+        // The deployed LiveKit server predates the v1 single-peer-connection
+        // signalling path. The SDK does fall back, but negotiation after the
+        // fallback times out, so connect the way the web console and widget
+        // (SDK 2.18) do: one publisher and one subscriber connection.
+        singlePeerConnection: false,
+      })
       room.current = r
 
       const sync = () => {
@@ -118,11 +127,29 @@ function useCallSession(call: ActiveCall | null) {
       r.on(RoomEvent.LocalTrackUnpublished, sync)
       r.on(RoomEvent.TrackMuted, sync)
       r.on(RoomEvent.TrackUnmuted, sync)
-      r.on(RoomEvent.ParticipantDisconnected, () => {
-        if (r.remoteParticipants.size === 0) void finish('visitorLeft')
+      // A LiveKit reconnect drops and re-adds every remote participant, so an
+      // empty room is only "the visitor left" if it is still empty once the
+      // room is connected again. Checked after a grace period, like the web
+      // console does, instead of on the first event.
+      let leftTimer: ReturnType<typeof setTimeout> | null = null
+      const checkVisitorLeft = () => {
+        if (leftTimer) clearTimeout(leftTimer)
+        leftTimer = setTimeout(() => {
+          leftTimer = null
+          if (room.current === r && r.state === ConnectionState.Connected && r.remoteParticipants.size === 0) {
+            console.warn('[call] visitor left', callSessionId)
+            void finish('visitorLeft')
+          }
+        }, 4000)
+      }
+      r.on(RoomEvent.ParticipantDisconnected, checkVisitorLeft)
+      r.on(RoomEvent.Reconnecting, () => console.warn('[call] reconnecting', callSessionId))
+      r.on(RoomEvent.Reconnected, () => {
+        console.warn('[call] reconnected', callSessionId)
+        checkVisitorLeft()
       })
       r.on(RoomEvent.Disconnected, (reason) => {
-        console.warn('[call] room disconnected', { reason })
+        console.warn('[call] room disconnected', JSON.stringify({ callSessionId, reason }))
         void finish('visitorLeft')
       })
 
@@ -145,11 +172,11 @@ function useCallSession(call: ActiveCall | null) {
         }
       }
       setPhase({ kind: 'connected', since: Date.now() })
-      console.warn('[call] connected', { callSessionId, url })
+      console.warn('[call] connected', JSON.stringify({ callSessionId, url }))
       sync()
     } catch (e) {
       const detail = e instanceof Error ? e.message : String(e)
-      console.error('[call] join failed', { callSessionId, detail })
+      console.error('[call] join failed', JSON.stringify({ callSessionId, detail }))
       await finish('failed', detail)
     }
   }

@@ -167,28 +167,42 @@
                     </StackPanel>
                 </toolkit:SettingsCard>
 
-                <!-- Advanced: the server, folded away as Windows does with rarely-touched settings. -->
-                <TextBlock x:Name="AccountHeader" Style="{StaticResource Section}" />
-                <toolkit:SettingsExpander>
+                <!-- Storage: where downloaded files live, and a way to free the space. -->
+                <TextBlock x:Name="StorageHeader" Style="{StaticResource Section}" />
+                <toolkit:SettingsExpander x:Name="CacheExpander" IsExpanded="True">
                     <toolkit:SettingsExpander.HeaderIcon>
-                        <FontIcon Glyph="&#xE968;" />
+                        <FontIcon Glyph="&#xEDA2;" />
                     </toolkit:SettingsExpander.HeaderIcon>
                     <toolkit:SettingsExpander.Header>
-                        <TextBlock x:Name="ServerLabel" />
+                        <TextBlock x:Name="CacheLabel" />
                     </toolkit:SettingsExpander.Header>
                     <toolkit:SettingsExpander.Description>
-                        <TextBlock x:Name="ServerHint" TextWrapping="Wrap" />
+                        <TextBlock x:Name="CacheHint" TextWrapping="Wrap" />
                     </toolkit:SettingsExpander.Description>
+                    <TextBlock x:Name="CacheSize" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
                     <toolkit:SettingsExpander.Items>
-                        <toolkit:SettingsCard HorizontalContentAlignment="Stretch" ContentAlignment="Vertical">
-                            <Grid ColumnSpacing="8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBox x:Name="ServerBox" FlowDirection="LeftToRight" IsSpellCheckEnabled="False" PlaceholderText="https://api.webyar.ai" />
-                                <Button x:Name="ServerSave" Grid.Column="1" MinWidth="96" Style="{StaticResource AccentButtonStyle}" Click="OnSaveServer" />
-                            </Grid>
+                        <toolkit:SettingsCard>
+                            <toolkit:SettingsCard.Header>
+                                <TextBlock x:Name="CacheFolderLabel" />
+                            </toolkit:SettingsCard.Header>
+                            <toolkit:SettingsCard.Description>
+                                <TextBlock x:Name="CachePath" FlowDirection="LeftToRight" HorizontalAlignment="Left" IsTextSelectionEnabled="True" TextWrapping="Wrap" FontFamily="Cascadia Mono, Consolas" FontSize="12" />
+                            </toolkit:SettingsCard.Description>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button x:Name="CopyPathButton" Click="OnCopyCachePath">
+                                    <FontIcon Glyph="&#xE8C8;" FontSize="14" />
+                                </Button>
+                                <Button x:Name="OpenCacheButton" MinWidth="120" Click="OnOpenCache" />
+                            </StackPanel>
+                        </toolkit:SettingsCard>
+                        <toolkit:SettingsCard>
+                            <toolkit:SettingsCard.Header>
+                                <TextBlock x:Name="ClearCacheLabel" />
+                            </toolkit:SettingsCard.Header>
+                            <toolkit:SettingsCard.Description>
+                                <TextBlock x:Name="ClearCacheHint" TextWrapping="Wrap" />
+                            </toolkit:SettingsCard.Description>
+                            <Button x:Name="ClearCacheButton" MinWidth="120" Click="OnClearCache" />
                         </toolkit:SettingsCard>
                     </toolkit:SettingsExpander.Items>
                 </toolkit:SettingsExpander>

@@ -187,7 +187,17 @@
     "navInternalInbox": "Internal inbox",
     "navOtherInboxes": "Other inboxes",
     "navColleagues": "Colleagues",
-    "channelWidget": "Chat widget"
+    "channelWidget": "Chat widget",
+    "storage": "Storage",
+    "fileCache": "Downloaded files",
+    "fileCacheHint": "Photos, voice notes and documents are saved on this PC after the first download, so they open instantly and are not fetched from the server again.",
+    "fileCacheFolder": "Storage location",
+    "openFolder": "Open folder",
+    "copyPath": "Copy path",
+    "clearCache": "Clear cache",
+    "clearCacheHint": "Removes the saved files from this PC. They download again the next time you open them.",
+    "clearCacheConfirm": "Delete all downloaded files from this PC? Nothing is removed from the conversations.",
+    "cacheCleared": "Cache cleared."
   },
   "fa": {
     "trayOpen": "باز کردن وب‌یار",
@@ -377,7 +387,17 @@
     "navInternalInbox": "صندوق داخلی",
     "navOtherInboxes": "سایر صندوق‌ها",
     "navColleagues": "همکاران",
-    "channelWidget": "ویجت چت"
+    "channelWidget": "ویجت چت",
+    "storage": "فضای ذخیره‌سازی",
+    "fileCache": "فایل‌های ذخیره‌شده",
+    "fileCacheHint": "عکس‌ها، پیام‌های صوتی و اسناد بعد از اولین دانلود روی همین کامپیوتر ذخیره می‌شوند تا فوری باز شوند و دوباره از سرور دریافت نشوند.",
+    "fileCacheFolder": "محل ذخیره",
+    "openFolder": "باز کردن پوشه",
+    "copyPath": "کپی مسیر",
+    "clearCache": "حذف کش",
+    "clearCacheHint": "فایل‌های ذخیره‌شده از این کامپیوتر حذف می‌شوند و دفعهٔ بعد که بازشان کنید دوباره دانلود می‌شوند.",
+    "clearCacheConfirm": "همهٔ فایل‌های دانلودشده از این کامپیوتر حذف شوند؟ چیزی از گفتگوها پاک نمی‌شود.",
+    "cacheCleared": "کش حذف شد."
   },
   "tr": {
     "trayOpen": "Webyar'ı aç",
@@ -567,6 +587,16 @@
     "navInternalInbox": "Dahili kutu",
     "navOtherInboxes": "Diğer kutular",
     "navColleagues": "Meslektaşlar",
-    "channelWidget": "Sohbet widget'ı"
+    "channelWidget": "Sohbet widget'ı",
+    "storage": "Depolama",
+    "fileCache": "İndirilen dosyalar",
+    "fileCacheHint": "Fotoğraflar, sesli notlar ve belgeler ilk indirmeden sonra bu bilgisayara kaydedilir; anında açılır ve sunucudan tekrar indirilmez.",
+    "fileCacheFolder": "Kayıt konumu",
+    "openFolder": "Klasörü aç",
+    "copyPath": "Yolu kopyala",
+    "clearCache": "Önbelleği temizle",
+    "clearCacheHint": "Kaydedilen dosyalar bu bilgisayardan silinir. Bir dahaki açışta yeniden indirilir.",
+    "clearCacheConfirm": "İndirilen tüm dosyalar bu bilgisayardan silinsin mi? Konuşmalardan hiçbir şey silinmez.",
+    "cacheCleared": "Önbellek temizlendi."
   }
 }

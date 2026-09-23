@@ -8,13 +8,55 @@
     xmlns:views="using:Webyar.App.Views">
     <UserControl.Resources>
         <!--
+            Attachment cards are buttons, but the stock Button swaps its
+            background for a grey one on hover, which left the white text of an
+            operator file invisible. This template keeps the card's own colour
+            and only lays a faint tint over it.
+        -->
+        <Style x:Key="BubbleButtonStyle" TargetType="Button">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+            <Setter Property="UseSystemFocusVisuals" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid x:Name="Root" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}">
+                            <ContentPresenter Padding="{TemplateBinding Padding}" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                            <Border x:Name="Tint" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="{TemplateBinding CornerRadius}" Opacity="0" IsHitTestVisible="False" />
+                            <VisualStateManager.VisualStateGroups>
+                                <VisualStateGroup x:Name="CommonStates">
+                                    <VisualState x:Name="Normal" />
+                                    <VisualState x:Name="PointerOver">
+                                        <VisualState.Setters>
+                                            <Setter Target="Tint.Opacity" Value="1" />
+                                        </VisualState.Setters>
+                                    </VisualState>
+                                    <VisualState x:Name="Pressed">
+                                        <VisualState.Setters>
+                                            <Setter Target="Tint.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                                            <Setter Target="Tint.Opacity" Value="1" />
+                                        </VisualState.Setters>
+                                    </VisualState>
+                                    <VisualState x:Name="Disabled" />
+                                </VisualStateGroup>
+                            </VisualStateManager.VisualStateGroups>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!--
             Files stand on their own, outside the text bubble, as in Telegram and
             WhatsApp: a photo is a rounded card, a voice note a pill in the
             sender's colour, any other file a card with a type tile.
         -->
         <DataTemplate x:Key="IncomingAttachmentTemplate" x:DataType="vm:AttachmentItem">
             <Grid HorizontalAlignment="Left">
-                <Button Padding="0" BorderThickness="0" Background="Transparent" CornerRadius="16" Visibility="{x:Bind ImageVisibility}" Click="OnOpenAttachment" Tag="{x:Bind}">
+                <Button Style="{StaticResource BubbleButtonStyle}" Padding="0" BorderThickness="0" Background="Transparent" CornerRadius="16" Visibility="{x:Bind ImageVisibility}" Click="OnOpenAttachment" Tag="{x:Bind}">
                     <Border CornerRadius="16" BorderBrush="{ThemeResource BubbleIncomingBorderBrush}" BorderThickness="1" Background="{ThemeResource ElevatedBrush}">
                         <Grid Width="{x:Bind PreviewWidth, Mode=OneWay}" Height="{x:Bind PreviewHeight, Mode=OneWay}">
                             <FontIcon Glyph="&#xEB9F;" FontSize="24" Foreground="{ThemeResource Text3Brush}" />
@@ -25,7 +67,7 @@
                 <Border Visibility="{x:Bind AudioVisibility}" CornerRadius="27" Background="{ThemeResource BubbleIncomingBrush}" BorderBrush="{ThemeResource BubbleIncomingBorderBrush}" BorderThickness="1">
                     <controls:AudioPlayer Source="{x:Bind}" />
                 </Border>
-                <Button Padding="0" CornerRadius="14" BorderThickness="1" BorderBrush="{ThemeResource BubbleIncomingBorderBrush}" Background="{ThemeResource BubbleIncomingBrush}" Visibility="{x:Bind FileVisibility}" Click="OnOpenAttachment" Tag="{x:Bind}">
+                <Button Style="{StaticResource BubbleButtonStyle}" Padding="0" CornerRadius="14" BorderThickness="1" BorderBrush="{ThemeResource BubbleIncomingBorderBrush}" Background="{ThemeResource BubbleIncomingBrush}" Visibility="{x:Bind FileVisibility}" Click="OnOpenAttachment" Tag="{x:Bind}">
                     <Grid Width="272" Padding="10" ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -47,7 +89,7 @@
 
         <DataTemplate x:Key="OutgoingAttachmentTemplate" x:DataType="vm:AttachmentItem">
             <Grid HorizontalAlignment="Right">
-                <Button Padding="0" BorderThickness="0" Background="Transparent" CornerRadius="16" Visibility="{x:Bind ImageVisibility}" Click="OnOpenAttachment" Tag="{x:Bind}">
+                <Button Style="{StaticResource BubbleButtonStyle}" Padding="0" BorderThickness="0" Background="Transparent" CornerRadius="16" Visibility="{x:Bind ImageVisibility}" Click="OnOpenAttachment" Tag="{x:Bind}">
                     <Border CornerRadius="16" BorderBrush="{ThemeResource BubbleIncomingBorderBrush}" BorderThickness="1" Background="{ThemeResource ElevatedBrush}">
                         <Grid Width="{x:Bind PreviewWidth, Mode=OneWay}" Height="{x:Bind PreviewHeight, Mode=OneWay}">
                             <FontIcon Glyph="&#xEB9F;" FontSize="24" Foreground="{ThemeResource Text3Brush}" />
@@ -58,7 +100,7 @@
                 <Border Visibility="{x:Bind AudioVisibility}" CornerRadius="27" Background="{ThemeResource BubbleOutgoingBrush}">
                     <controls:AudioPlayer Source="{x:Bind}" Outgoing="True" />
                 </Border>
-                <Button Padding="0" CornerRadius="14" BorderThickness="0" Background="{ThemeResource BubbleOutgoingBrush}" Visibility="{x:Bind FileVisibility}" Click="OnOpenAttachment" Tag="{x:Bind}">
+                <Button Style="{StaticResource BubbleButtonStyle}" Padding="0" CornerRadius="14" BorderThickness="0" Background="{ThemeResource BubbleOutgoingBrush}" Visibility="{x:Bind FileVisibility}" Click="OnOpenAttachment" Tag="{x:Bind}">
                     <Grid Width="272" Padding="10" ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />

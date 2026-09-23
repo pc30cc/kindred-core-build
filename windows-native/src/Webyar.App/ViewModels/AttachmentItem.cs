@@ -8,7 +8,7 @@ using Webyar.Core.Localization;
 
 namespace Webyar.App.ViewModels;
 
-/// <summary>A file on a message. Photos load their preview on demand; bytes are cached for the session.</summary>
+/// <summary>A file on a message. Photos load their preview on demand; bytes are kept in memory and on disk (<see cref="FileCache"/>).</summary>
 public sealed partial class AttachmentItem : ObservableObject
 {
     private static readonly Dictionary<string, byte[]> Cache = [];
@@ -79,7 +79,13 @@ public sealed partial class AttachmentItem : ObservableObject
     public async Task<byte[]> BytesAsync()
     {
         if (Cache.TryGetValue(Id, out var cached)) return cached;
-        var data = await AppHost.Current.Api.AttachmentDataAsync(Id);
+        var data = await Task.Run(() => FileCache.Read(Id));
+        if (data is null)
+        {
+            data = await AppHost.Current.Api.AttachmentDataAsync(Id);
+            var bytes = data;
+            _ = Task.Run(() => FileCache.Write(Id, bytes));
+        }
         Cache[Id] = data;
         return data;
     }
@@ -137,8 +143,18 @@ public sealed partial class AttachmentItem : ObservableObject
     /// </summary>
     public static void Alias(string localId, string serverId)
     {
-        if (Cache.TryGetValue(localId, out var data)) Cache[serverId] = data;
+        if (Cache.TryGetValue(localId, out var data))
+        {
+            Cache[serverId] = data;
+            _ = Task.Run(() => FileCache.Write(serverId, data));
+        }
         if (Previews.TryGetValue(localId, out var preview)) Previews[serverId] = preview;
+    }
+
+    /// <summary>Forgets the in-memory copies too, after the disk cache is cleared.</summary>
+    public static void ClearMemory()
+    {
+        foreach (var key in Cache.Keys.Where(k => !k.StartsWith("local:", StringComparison.Ordinal)).ToList()) Cache.Remove(key);
     }
 
     public static string FormatSize(long bytes, Strings s)

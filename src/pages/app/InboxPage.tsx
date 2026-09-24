@@ -2324,7 +2324,7 @@ export default function InboxPage() {
                       <div dir={dir} className={cn(
                         'rounded-2xl px-4 py-2.5 text-[14px] leading-[1.7] shadow-sm',
                         isAgent
-                          ? 'bg-primary text-primary-foreground rounded-br-sm'
+                          ? 'bg-primary/10 text-foreground border border-primary/20 rounded-br-sm dark:bg-primary/15'
                           : 'bg-secondary text-foreground rounded-bl-sm'
                       )}>
                         {(() => {

@@ -71,14 +71,19 @@ open Webyar.xcodeproj
 Or from the command line:
 
 ```bash
-xcodebuild -project Webyar.xcodeproj -scheme Webyar -configuration Release build
+scripts/install-local.sh   # Release build, installed in ~/Applications and opened
 ```
+
+(A plain `xcodebuild … -configuration Release` build keeps the hardened
+runtime, which refuses LiveKit's WebRTC framework under an ad hoc signature;
+the script builds without it.)
 
 `WEBYAR_SAMPLE=1` (Debug builds only) answers every API call from memory, so
 every screen can be laid out without a server or an account;
 `WEBYAR_DEBUG_DIR=<folder>` also writes a PNG of each window there and takes
-one-line commands from `<folder>/command.txt` (`route contacts`, `open conv-1`,
-`lang en`, `appearance dark`, `settings`, `ring`) — see `App/DebugTools.swift`.
+one-line commands from `<folder>/command.txt` (`route contacts`, `open c-1`,
+`lang en`, `appearance dark`, `settings`, `ring`, `route email`, `mail e-2`,
+`compose`, `websnap`) — see `App/DebugTools.swift`.
 `xcodebuild test` runs the Windows app's Core tests, ported with the same
 expected values.
 

@@ -224,6 +224,9 @@ struct Banner: View {
             Image(systemName: icon).foregroundStyle(color).font(.system(size: 15))
             VStack(alignment: .leading, spacing: 2) {
                 if let title, !title.isEmpty { Text(title).appFont(12.5, .semibold) }
+                // Wraps, but never asks for its full height: `fixedSize(vertical:)` here made a
+                // strip, measured at the window's narrowest, taller than the window — and the
+                // whole window slid up under its title bar while the strip was shown.
                 if !message.isEmpty { Text(message).appFont(12).foregroundStyle(Palette.text2).lineLimit(4) }
             }
             Spacer(minLength: 8)
@@ -238,11 +241,7 @@ struct Banner: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        // A tinted card, not glass: on macOS 26 a glass strip at the top of a column,
-        // right under the toolbar, makes the whole window give up its title-bar inset —
-        // every column jumps up under the title bar for as long as the strip is shown.
-        .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(color.opacity(0.28), lineWidth: 1))
+        .glassCard(12, tint: color.opacity(0.18))
     }
 }
 

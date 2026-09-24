@@ -22,13 +22,20 @@ Everything the Windows app does, section for section:
 - **Visitors** — who is on the site right now, on a MapKit map, with their
   pages; start a chat with one click.
 - **Contacts** and **Colleagues** (operator-to-operator messages).
+- **Email** — the workspace mailbox the web console connects (Gmail), for
+  owners and admins when the plan has it: All / Unread / Starred, search,
+  older mail page by page; the thread as one page with earlier messages
+  folded, HTML mail shown as sent (scripts off, links open in the browser,
+  inline images); reply, reply all and forward with To / Cc / Bcc filled
+  the way mail apps do, attachments (drop, pick, download), star and
+  unread, and a compose window (⌘N; ⌘↩ sends).
 - **Settings** — language (Persian, English, Turkish, right to left and the
   Persian calendar), appearance, notifications, open at login, the menu bar
   item, updates and the file cache.
 
 And what a Mac is for: native notifications with a Dock badge, a menu bar
 item with the unread count and your status, keeping running in the menu bar
-when the window is closed, keyboard shortcuts (⌘1…⌘7 for the sections,
+when the window is closed, keyboard shortcuts (⌘1…⌘8 for the sections,
 ⌘R refresh, ⇧⌘E resolve, ⌥⌘I details), and self-update through Sparkle.
 
 ## How it is built

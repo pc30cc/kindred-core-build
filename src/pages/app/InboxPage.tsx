@@ -65,7 +65,7 @@ import { interpolate } from '@/components/canned-responses/interpolation';
 import { useTrackCannedResponseUse } from '@/hooks/useCannedResponses';
 import type { CannedLocale, CannedResponse } from '@/lib/canned-responses-api';
 import { useProfile } from '@/hooks/useProfile';
-import { Zap } from 'lucide-react';
+import { Zap, Headset } from 'lucide-react';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { MessageAttachmentView, humanSize } from '@/components/inbox/MessageAttachmentView';
 import { ChannelBadge, ChannelIdentityCard, resolveChannelKey } from '@/components/inbox/ChannelBadge';
@@ -2297,10 +2297,8 @@ export default function InboxPage() {
                             <img src={senderAvatar} alt={agentLabel} className="w-full h-full object-cover" />
                           ) : isAi ? (
                             <Bot className="w-[18px] h-[18px]" />
-                          ) : senderName ? (
-                            <span>{getInitials(senderName)}</span>
                           ) : (
-                            <User className="w-[18px] h-[18px]" />
+                            <Headset className="w-[18px] h-[18px]" />
                           )}
                         </div>
                       ) : (

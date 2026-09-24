@@ -98,6 +98,11 @@ enum DebugTools {
         case "dockback": CallCoordinator.shared.dockBack()
         case "fullscreen": CallCoordinator.shared.toggleFullScreen()
         case "callpage": CallCoordinator.shared.showCallPage()
+        case "transferto":
+            // As if the transfer panel had handed the call to this colleague (u-2 … u-4 in sample mode).
+            if let call = CallCoordinator.shared.call {
+                Task { await call.transfer(toAgent: arg, department: nil, name: app.memberName(arg), reason: "نیاز به پیگیری مالی") }
+            }
         case "handed": SampleBackend.handed = arg != "off"
         case "deskend":
             CallCenterModel.debugCurrent?.debugDeskCallEnded(arg)

@@ -80,6 +80,18 @@ export function mapWhmcsError(status: number, error: unknown): CommerceErrorCode
   return 'commerce_invalid_response';
 }
 
+/**
+ * A non-2xx answer from the addon. The status is kept because two answers
+ * share an error code for the assistant but mean different things for the
+ * connection: 401 is "your signature was refused" (a credential problem),
+ * while 403 `feature_disabled` is "the WHMCS admin switched this section off".
+ */
+export class WhmcsHttpError extends CommerceError {
+  constructor(code: CommerceErrorCode, readonly status: number, message: string) {
+    super(code, message);
+  }
+}
+
 function isTransient(err: unknown): boolean {
   return err instanceof CommerceError && err.code === 'commerce_live_unavailable';
 }
@@ -144,7 +156,7 @@ export class WhmcsConnector {
           return { data: json.data ?? null, bytes, attempts };
         }
         const code = mapWhmcsError(res.status, json?.error);
-        const err = new CommerceError(code, `whmcs ${op} → ${res.status}`);
+        const err = new WhmcsHttpError(code, res.status, `whmcs ${op} → ${res.status}`);
         // Only a 5xx is worth a second try; every 4xx is final.
         if (res.status >= 500 && res.status !== 501) {
           lastError = err;

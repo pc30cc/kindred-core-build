@@ -207,6 +207,22 @@ describe('circuit breaker and health writes', () => {
     expect(whmcs.calls).toEqual([]);
   });
 
+  it('only a refused signature marks the connection as an authentication error', async () => {
+    const healthOf = () => db.tables.commerce_connections[0].health;
+
+    // The WHMCS admin switched "services" off in the addon: not a credential problem.
+    whmcs.disabledSections.add('services');
+    await expect(gateway.whmcsRead(turn(), servicesList())).rejects.toMatchObject({ code: 'commerce_permission_denied' });
+    expect(healthOf()).toBe('connected');
+
+    // Web Yar's secret no longer matches the addon's: that is one.
+    whmcs.disabledSections.clear();
+    whmcs.secret = 'rotated-in-whmcs';
+    await expect(gateway.whmcsRead(turn(), servicesList())).rejects.toMatchObject({ code: 'commerce_permission_denied' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(healthOf()).toBe('authentication_error');
+  });
+
   it('a successful read does not write health every time', async () => {
     for (let i = 0; i < 5; i++) await gateway.whmcsRead(turn(), servicesList(alice, true));
     await new Promise((r) => setTimeout(r, 0));

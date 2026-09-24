@@ -36,7 +36,7 @@ import type {
 import { checkEntitlementFromDB } from '../../../middleware/featureGating.js';
 import { readInstallationSecret } from '../credentials.js';
 import type { CommerceConnectionRow } from '../gateway.js';
-import { WhmcsConnector, type WhmcsTransport } from '../connectors/whmcs.js';
+import { WhmcsConnector, WhmcsHttpError, type WhmcsTransport } from '../connectors/whmcs.js';
 import { BoundedTtlCache } from './cache.js';
 import { CircuitBreaker, ConcurrencyLimiter, TokenBucketLimiter } from './guard.js';
 import { normalizeSession, type LinkScope } from './normalize.js';
@@ -251,8 +251,9 @@ function noteSuccess(ctx: WhmcsTurnContext): void {
 
 function noteFailure(ctx: WhmcsTurnContext, err: CommerceError): void {
   const iso = new Date().toISOString();
-  if (err.code === 'commerce_permission_denied' && ctx.connection.health !== 'authentication_error') {
+  if (err instanceof WhmcsHttpError && err.status === 401 && ctx.connection.health !== 'authentication_error') {
     // The addon refused OUR signature: a credential problem, surfaced once.
+    // (A 403 — a section the WHMCS admin switched off — is not one.)
     void writeHealth(ctx, { health: 'authentication_error', last_error_code: err.code, last_error_at: iso });
     return;
   }

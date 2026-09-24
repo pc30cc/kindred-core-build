@@ -28,6 +28,8 @@ export interface FakeWhmcs {
   bytesOut: number;
   /** 'down' → network error; 'error500' → HTTP 500; 'slow' → never answers before abort */
   mode: 'ok' | 'down' | 'error500' | 'slow';
+  /** Sections the WHMCS admin switched off in the addon settings (403 feature_disabled). */
+  disabledSections: Set<string>;
   requester: (req: CommerceHttpRequest) => Promise<CommerceHttpResponse>;
 }
 
@@ -80,6 +82,7 @@ export function createFakeWhmcs(secret: string, installationId: string): FakeWhm
     calls: [],
     bytesOut: 0,
     mode: 'ok',
+    disabledSections: new Set(),
     requester: async () => json(500, null),
   };
 
@@ -117,6 +120,8 @@ export function createFakeWhmcs(secret: string, installationId: string): FakeWhm
     if (state.mode === 'error500') return respond(500, { ok: false, error: 'internal_error' });
 
     const op = body.op;
+    const section = op.startsWith('catalog.') ? 'catalog' : op.split('.')[0];
+    if (state.disabledSections.has(section)) return respond(403, { ok: false, error: 'feature_disabled' });
     if (op === 'health') {
       return respond(200, { ok: true, data: { protocol_version: 'webyar-commerce/1', addon_version: '1.0.0', whmcs_version: '8.13.1', php_version: '8.2.0', capabilities: [], schema_ok: true, system_url: BASE } });
     }

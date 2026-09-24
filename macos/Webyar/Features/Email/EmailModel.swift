@@ -66,7 +66,17 @@ final class EmailModel {
     // A new email
     var composing = false
 
-    init(app: AppModel) { self.app = app }
+    init(app: AppModel) {
+        self.app = app
+        #if DEBUG
+        Self.debugCurrent = self
+        #endif
+    }
+
+    #if DEBUG
+    /// The live mailbox, for the debug command file.
+    nonisolated(unsafe) static weak var debugCurrent: EmailModel?
+    #endif
 
     func start() {
         guard poller == nil else { return }

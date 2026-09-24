@@ -15,10 +15,11 @@ struct EmailList: View {
                 .onChange(of: model.search) { _, _ in model.searchChanged() }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
+            // A segmented control keeps its order in either direction; read right to left, it starts on the right.
             Picker("", selection: $model.folder) {
-                Text(s["emailFolderAll"]).tag(EmailFolder.all)
-                Text(s["emailFolderUnread"]).tag(EmailFolder.unread)
-                Text(s["emailFolderStarred"]).tag(EmailFolder.starred)
+                ForEach(s.isRightToLeft ? EmailFolder.allCases.reversed() : EmailFolder.allCases, id: \.self) { f in
+                    Text(folderTitle(f)).tag(f)
+                }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -59,6 +60,14 @@ struct EmailList: View {
             }
         }
         .onAppear { model.start() }
+    }
+
+    private func folderTitle(_ f: EmailFolder) -> String {
+        switch f {
+        case .all: app.strings["emailFolderAll"]
+        case .unread: app.strings["emailFolderUnread"]
+        case .starred: app.strings["emailFolderStarred"]
+        }
     }
 
     private var header: some View {

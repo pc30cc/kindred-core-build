@@ -78,6 +78,9 @@ enum DebugTools {
             default: app.route = .inbox(.open)
             }
         case "open": app.openConversation(arg)
+        case "mail": EmailModel.debugCurrent?.select(arg)
+        case "compose": EmailModel.debugCurrent?.composing = arg != "off"
+        case "replymode": EmailModel.debugCurrent?.replyMode = ReplyMode(rawValue: arg) ?? .reply
         case "lang": if let l = Language.parse(arg) { app.setLanguage(l) }
         case "appearance": app.setAppearance(Appearance(rawValue: arg) ?? .system)
         case "settings": app.showSettings?()

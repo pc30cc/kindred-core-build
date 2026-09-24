@@ -140,9 +140,9 @@ struct EmailReplyBox: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Picker("", selection: $model.replyMode) {
-                    Label(s["emailReply"], systemImage: "arrowshape.turn.up.left").tag(ReplyMode.reply)
-                    Label(s["emailReplyAll"], systemImage: "arrowshape.turn.up.left.2").tag(ReplyMode.replyAll)
-                    Label(s["emailForward"], systemImage: "arrowshape.turn.up.right").tag(ReplyMode.forward)
+                    ForEach(s.isRightToLeft ? ReplyMode.allCases.reversed() : ReplyMode.allCases) { m in
+                        Label(modeTitle(m), systemImage: modeIcon(m)).tag(m)
+                    }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -214,6 +214,22 @@ struct EmailReplyBox: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
                 .environment(\.layoutDirection, .leftToRight)
+        }
+    }
+
+    private func modeTitle(_ m: ReplyMode) -> String {
+        switch m {
+        case .reply: app.strings["emailReply"]
+        case .replyAll: app.strings["emailReplyAll"]
+        case .forward: app.strings["emailForward"]
+        }
+    }
+
+    private func modeIcon(_ m: ReplyMode) -> String {
+        switch m {
+        case .reply: "arrowshape.turn.up.left"
+        case .replyAll: "arrowshape.turn.up.left.2"
+        case .forward: "arrowshape.turn.up.right"
         }
     }
 

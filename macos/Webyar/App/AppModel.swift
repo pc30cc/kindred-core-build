@@ -347,7 +347,7 @@ final class AppModel {
         }
         background = bg
         bg.start()
-        Task { notificationsBlocked = settings.notifications && !(await notifier.refreshAuthorization()) }
+        Task { await refreshNotificationPermission() }
     }
 
     private func stopShell() {
@@ -593,6 +593,7 @@ final class AppModel {
     }
 
     func refreshNotificationPermission() async {
-        notificationsBlocked = settings.notifications && !(await notifier.refreshAuthorization())
+        let allowed = await notifier.refreshAuthorization()
+        notificationsBlocked = settings.notifications && !allowed
     }
 }

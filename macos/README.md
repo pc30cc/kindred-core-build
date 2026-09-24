@@ -38,6 +38,15 @@ item with the unread count and your status, keeping running in the menu bar
 when the window is closed, keyboard shortcuts (⌘1…⌘8 for the sections,
 ⌘R refresh, ⇧⌘E resolve, ⌥⌘I details), and self-update through Sparkle.
 
+Super Admin → macOS app steers every installed copy without a release
+(`GET /api/platform/macos-app`, read on launch and hourly, every minute
+during maintenance; see `Core/Config/MacAppConfig.swift`): the appcast,
+channel and cadence of updates and which builds must update, realtime and
+polling, which sections and tools are on (ANDed with the workspace plan),
+the menu bar item, open at login, the Dock badge and notifications, the
+defaults of a first launch, a maintenance notice over the window, and the
+help and legal links in the Help menu and Settings.
+
 ## How it is built
 
 - `Webyar/Core` — the Windows app's `Webyar.Core`, ported to Swift line for

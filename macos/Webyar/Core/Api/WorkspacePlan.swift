@@ -5,6 +5,8 @@ import Foundation
 /// admin switches features, modules and channels on and off per plan. The
 /// rules copy the web sidebar and the other native apps: while it loads
 /// nothing gated shows; if it cannot be fetched at all, nothing is hidden.
+/// Super Admin → macOS app's switches are ANDed on top (`limited(to:)`):
+/// they only ever take away.
 struct WorkspacePlan: Sendable, Equatable {
     enum State: Sendable { case loading, loaded, failed }
 
@@ -22,6 +24,8 @@ struct WorkspacePlan: Sendable, Equatable {
     private var features: [String: Bool?] = [:]
     private var modules: [String: Bool?] = [:]
     private var channels: [String: Bool?] = [:]
+    /// The platform's switches for the Mac app.
+    private(set) var platform = MacAppConfig.Features.all
 
     static let loading = WorkspacePlan(state: .loading)
     static let failed = WorkspacePlan(state: .failed)
@@ -36,6 +40,13 @@ struct WorkspacePlan: Sendable, Equatable {
         p.modules = flags(root["modules"])
         p.channels = flags(root["channels"])
         if let plan = root["plan"], plan.object != nil { p.planName = plan["name"]?.string ?? plan["slug"]?.string }
+        return p
+    }
+
+    /// This plan with the Mac app's platform switches applied.
+    func limited(to features: MacAppConfig.Features) -> WorkspacePlan {
+        var p = self
+        p.platform = features
         return p
     }
 
@@ -101,19 +112,22 @@ struct WorkspacePlan: Sendable, Equatable {
         }
     }
 
-    var voiceCalls: Bool { call("voice") }
-    var videoCalls: Bool { call("video") }
+    var voiceCalls: Bool { platform.calls && call("voice") }
+    var videoCalls: Bool { platform.calls && platform.videoCalls && call("video") }
 
-    var attachments: Bool { feature("widget_attachments") }
-    var voiceNotes: Bool { feature("widget_voice_notes") }
+    var attachments: Bool { platform.attachments && feature("widget_attachments") }
+    var voiceNotes: Bool { platform.voiceNotes && feature("widget_voice_notes") }
+    /// Files on outgoing mail: the platform's switch alone — widget_attachments is the chat widget's.
+    var emailAttachments: Bool { platform.attachments }
     var emoji: Bool { feature("widget_emoji") }
 
-    var contacts: Bool { moduleInPlan("contacts") }
-    var visitors: Bool { moduleInPlan("visitor_tracking") }
-    var callCenter: Bool { moduleInPlan("call_center") && callCenterVisible != false }
-    var teamChat: Bool { inboxCap("inbox_team_chat") }
+    var contacts: Bool { platform.contacts && moduleInPlan("contacts") }
+    var visitors: Bool { platform.visitors && moduleInPlan("visitor_tracking") }
+    /// The desk answers calls, so it goes with them.
+    var callCenter: Bool { platform.callCenter && platform.calls && moduleInPlan("call_center") && callCenterVisible != false }
+    var teamChat: Bool { platform.colleagues && inboxCap("inbox_team_chat") }
     /// The mailbox, as the web sidebar shows it: owners and admins, when the plan has it.
-    var emailInbox: Bool { isAdmin && moduleInPlan("email_inbox") }
+    var emailInbox: Bool { platform.email && isAdmin && moduleInPlan("email_inbox") }
     var needsHumanQueue: Bool { inboxCap("inbox_needs_human") }
 
     /// The AI queue: the plan's AI surface, and the AI answering (or something already in it).

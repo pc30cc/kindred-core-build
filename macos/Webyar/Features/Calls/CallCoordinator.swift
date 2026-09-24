@@ -32,6 +32,8 @@ final class CallCoordinator {
     /// The operator calls the visitor from a conversation.
     func start(app: AppModel, conversation: Conversation, channel: String) {
         if bringToFront() { return }
+        // The buttons hide with the plan and the platform's switches; this holds even if one lingers.
+        guard channel == "video" ? app.plan.videoCalls : app.plan.voiceCalls else { return }
         let workspaceId = app.workspace?.id ?? conversation.workspaceId
         let name = Display.conversationName(conversation, app.strings)
         let c = LiveCall(app: app, conversation: conversation, desk: nil, workspaceId: workspaceId, channel: channel, name: name)
@@ -43,7 +45,8 @@ final class CallCoordinator {
         if bringToFront() { return }
         let workspaceId = app.workspace?.id ?? call?.workspaceId ?? ""
         let name = CallNames.caller(call, fallbackId: call?.contactId ?? call?.visitorSessionId ?? callId, app.strings)
-        let channel = call?.isVideo == true ? "video" : "audio"
+        // With video switched off, a video call is answered by voice.
+        let channel = call?.isVideo == true && app.plan.videoCalls ? "video" : "audio"
         let c = LiveCall(app: app, conversation: nil, desk: LiveCall.Desk(callId: callId, accept: accept),
                          workspaceId: workspaceId, channel: channel, name: name)
         open(c, app: app)

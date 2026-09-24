@@ -131,12 +131,14 @@ struct AccountSettingsTab: View {
 // MARK: - Notifications
 
 /// Notifications on this Mac and their sound. What the operator is notified
-/// about is their account setting, shared with the web console.
+/// about is their account setting, shared with the web console. The platform
+/// can turn Mac notifications off altogether; the switches then say so.
 struct NotificationSettingsTab: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
         let s = app.strings
+        let allowed = app.config.system.notifications
         Form {
             if app.notificationsBlocked {
                 Section {
@@ -146,14 +148,18 @@ struct NotificationSettingsTab: View {
             }
             Section {
                 Toggle(isOn: notificationsBinding) {
-                    SettingLabel(title: s["desktopNotifications"], hint: s["desktopNotificationsHint"], systemImage: "bell.badge")
+                    SettingLabel(title: s["desktopNotifications"],
+                                 hint: allowed ? s["desktopNotificationsHint"] : s["notificationsOffByPlatform"],
+                                 systemImage: allowed ? "bell.badge" : "bell.slash")
                 }
                 .toggleStyle(.switch)
+                .disabled(!allowed)
                 Toggle(isOn: soundBinding) {
                     SettingLabel(title: s["notificationSoundLocal"], systemImage: "speaker.wave.2")
                 }
                 .toggleStyle(.switch)
-                systemSettingsRow
+                .disabled(!allowed)
+                if allowed { systemSettingsRow }
             } header: {
                 SettingsHeader(s["notifications"])
             }
@@ -163,7 +169,7 @@ struct NotificationSettingsTab: View {
 
     private var notificationsBinding: Binding<Bool> {
         Binding<Bool>(
-            get: { app.settings.notifications },
+            get: { app.showsNotifications },
             set: { on in
                 app.settings.notifications = on
                 app.saveSettings()
@@ -206,7 +212,9 @@ struct NotificationSettingsTab: View {
 
 // MARK: - Desktop
 
-/// Opening at login, staying in the menu bar when the window closes, and the menu bar item.
+/// Opening at login, staying in the menu bar when the window closes, and the
+/// menu bar item. What the platform turned off for the Mac app shows off and
+/// greyed, with a line saying why.
 struct DesktopSettingsTab: View {
     @Environment(AppModel.self) private var app
     /// macOS's own login items are the truth; read again whenever the tab shows.
@@ -214,20 +222,27 @@ struct DesktopSettingsTab: View {
 
     var body: some View {
         let s = app.strings
+        let system = app.config.system
         Form {
             Section {
                 Toggle(isOn: loginBinding) {
-                    SettingLabel(title: s["startWithWindows"], hint: s["startWithWindowsHint"], systemImage: "power")
+                    SettingLabel(title: s["startWithWindows"], hint: system.launchAtLogin ? s["startWithWindowsHint"] : s["turnedOffByPlatform"],
+                                 systemImage: "power")
                 }
                 .toggleStyle(.switch)
+                .disabled(!system.launchAtLogin)
                 Toggle(isOn: closeBinding) {
-                    SettingLabel(title: s["closeToTray"], hint: s["closeToTrayHint"], systemImage: "menubar.arrow.up.rectangle")
+                    SettingLabel(title: s["closeToTray"], hint: system.menuBarExtra ? s["closeToTrayHint"] : s["closeToTrayOffByPlatform"],
+                                 systemImage: "menubar.arrow.up.rectangle")
                 }
                 .toggleStyle(.switch)
+                .disabled(!system.menuBarExtra)
                 Toggle(isOn: menuBarBinding) {
-                    SettingLabel(title: s["menuBarItem"], hint: s["menuBarItemHint"], systemImage: "menubar.rectangle")
+                    SettingLabel(title: s["menuBarItem"], hint: system.menuBarExtra ? s["menuBarItemHint"] : s["turnedOffByPlatform"],
+                                 systemImage: "menubar.rectangle")
                 }
                 .toggleStyle(.switch)
+                .disabled(!system.menuBarExtra)
             } header: {
                 SettingsHeader(s["desktop"])
             }
@@ -238,8 +253,10 @@ struct DesktopSettingsTab: View {
 
     private var loginBinding: Binding<Bool> {
         Binding<Bool>(
-            get: { openAtLogin },
+            get: { openAtLogin && app.config.system.launchAtLogin },
             set: { on in
+                app.settings.platformDefaultsApplied = true
+                app.saveSettings()
                 LoginItem.set(on)
                 // A refusal (or a pending approval) leaves the switch where macOS has it.
                 openAtLogin = LoginItem.isEnabled
@@ -248,16 +265,17 @@ struct DesktopSettingsTab: View {
 
     private var closeBinding: Binding<Bool> {
         Binding<Bool>(
-            get: { app.settings.closeToMenuBar },
+            get: { app.closesToMenuBar },
             set: { on in
                 app.settings.closeToMenuBar = on
+                app.settings.platformDefaultsApplied = true
                 app.saveSettings()
             })
     }
 
     private var menuBarBinding: Binding<Bool> {
         Binding<Bool>(
-            get: { app.settings.menuBarItem },
+            get: { app.showsMenuBarItem },
             set: { on in
                 app.settings.menuBarItem = on
                 app.saveSettings()
@@ -278,7 +296,7 @@ struct UpdateSettingsTab: View {
             Section {
                 versionRow
                 if app.updates.required {
-                    Banner(severity: .error, title: s["updateRequiredTitle"], message: s["updateRequiredBody"])
+                    UpdateRequiredBanner()
                 }
             } header: {
                 SettingsHeader(s["updates"])

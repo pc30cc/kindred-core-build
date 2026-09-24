@@ -26,7 +26,21 @@
   "menuWaitingCalls": "Waiting calls: {count}",
   "menuUnread": "Unread: {count}",
   "toggleSidebar": "Toggle Sidebar",
-  "otherWorkspaces": "Workspaces"
+  "otherWorkspaces": "Workspaces",
+  "updateBlockedTitle": "This version has been withdrawn",
+  "updateBlockedBody": "The platform has stopped this build of Webyar. Install the update to keep working.",
+  "maintenanceTitle": "Webyar is under maintenance",
+  "maintenanceBody": "We are working on the service and will be back shortly. Your conversations are safe and waiting for you.",
+  "maintenanceUntil": "Expected back by {time}",
+  "maintenanceMenuLine": "Under maintenance",
+  "helpSupport": "Support",
+  "helpStatus": "Service status",
+  "helpPrivacy": "Privacy policy",
+  "helpTerms": "Terms of service",
+  "helpAndLegal": "Help & legal",
+  "turnedOffByPlatform": "Turned off for the Mac app by the platform administrator.",
+  "closeToTrayOffByPlatform": "The menu bar item is turned off by the platform administrator, so closing the window quits Webyar.",
+  "notificationsOffByPlatform": "The platform administrator has turned off Mac notifications. New messages and calls still show inside the app."
  },
  "fa": {
   "startWithWindows": "باز شدن هنگام ورود به مک",
@@ -55,7 +69,21 @@
   "menuWaitingCalls": "تماس‌های در انتظار: {count}",
   "menuUnread": "خوانده‌نشده: {count}",
   "toggleSidebar": "نمایش/پنهان کردن نوار کناری",
-  "otherWorkspaces": "فضاهای کاری"
+  "otherWorkspaces": "فضاهای کاری",
+  "updateBlockedTitle": "این نسخه کنار گذاشته شده است",
+  "updateBlockedBody": "پلتفرم این نسخه از وب‌یار را از رده خارج کرده است. برای ادامهٔ کار، به‌روزرسانی را نصب کنید.",
+  "maintenanceTitle": "وب‌یار در حال تعمیر و نگهداری است",
+  "maintenanceBody": "در حال کار روی سرویس هستیم و به‌زودی برمی‌گردیم. گفتگوهای شما محفوظ است و منتظرتان می‌ماند.",
+  "maintenanceUntil": "بازگشت پیش‌بینی‌شده: {time}",
+  "maintenanceMenuLine": "در حال تعمیر و نگهداری",
+  "helpSupport": "پشتیبانی",
+  "helpStatus": "وضعیت سرویس",
+  "helpPrivacy": "حریم خصوصی",
+  "helpTerms": "شرایط استفاده",
+  "helpAndLegal": "راهنما و قوانین",
+  "turnedOffByPlatform": "مدیر پلتفرم این گزینه را برای نسخهٔ مک خاموش کرده است.",
+  "closeToTrayOffByPlatform": "مدیر پلتفرم آیکون نوار منو را خاموش کرده است؛ برای همین با بستن پنجره، وب‌یار بسته می‌شود.",
+  "notificationsOffByPlatform": "مدیر پلتفرم اعلان‌های مک را خاموش کرده است. پیام‌ها و تماس‌های تازه همچنان داخل برنامه نمایش داده می‌شوند."
  },
  "tr": {
   "startWithWindows": "Oturum açıldığında başlat",
@@ -84,6 +112,20 @@
   "menuWaitingCalls": "Bekleyen aramalar: {count}",
   "menuUnread": "Okunmamış: {count}",
   "toggleSidebar": "Kenar çubuğunu göster/gizle",
-  "otherWorkspaces": "Çalışma alanları"
+  "otherWorkspaces": "Çalışma alanları",
+  "updateBlockedTitle": "Bu sürüm geri çekildi",
+  "updateBlockedBody": "Platform, Webyar'ın bu sürümünü durdurdu. Çalışmaya devam etmek için güncellemeyi yükleyin.",
+  "maintenanceTitle": "Webyar bakımda",
+  "maintenanceBody": "Hizmet üzerinde çalışıyoruz, kısa süre içinde geri döneceğiz. Konuşmalarınız güvende ve sizi bekliyor.",
+  "maintenanceUntil": "Tahmini dönüş: {time}",
+  "maintenanceMenuLine": "Bakımda",
+  "helpSupport": "Destek",
+  "helpStatus": "Hizmet durumu",
+  "helpPrivacy": "Gizlilik politikası",
+  "helpTerms": "Kullanım koşulları",
+  "helpAndLegal": "Yardım ve yasal",
+  "turnedOffByPlatform": "Platform yöneticisi bunu Mac uygulaması için kapattı.",
+  "closeToTrayOffByPlatform": "Platform yöneticisi menü çubuğu öğesini kapattı; bu yüzden pencereyi kapatmak Webyar’dan çıkar.",
+  "notificationsOffByPlatform": "Platform yöneticisi Mac bildirimlerini kapattı. Yeni mesajlar ve aramalar uygulamanın içinde görünmeye devam eder."
  }
 }

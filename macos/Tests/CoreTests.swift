@@ -89,43 +89,159 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(ErrorText.of(ApiError(failure: .transport), en), en["offlineBody"])
     }
 
-    // MARK: Desktop config
+    // MARK: Platform config (Super Admin → macOS app)
 
-    private func config(_ json: String) -> DesktopConfig {
-        DesktopConfig.parse(try! JSONDecoder().decode(JSONValue.self, from: Data(json.utf8)))
+    private func config(_ json: String, now: Date = Date()) -> MacAppConfig {
+        MacAppConfig.parse(try! JSONDecoder().decode(JSONValue.self, from: Data(json.utf8)), now: now)
+    }
+
+    func testEmptyAnswerIsTheServerDefaults() {
+        let c = config("{}")
+        XCTAssertEqual(c, MacAppConfig.defaults)
+        XCTAssertNil(c.update.appcastUrl)
+        XCTAssertEqual(c.update.channel, "stable")
+        XCTAssertTrue(c.update.autoCheck)
+        XCTAssertTrue(c.update.autoDownload)
+        XCTAssertEqual(c.update.checkIntervalMinutes, 240)
+        XCTAssertEqual(c.features, .all)
+        XCTAssertTrue(c.system.menuBarExtra && c.system.launchAtLogin && c.system.dockBadge && c.system.notifications)
+        XCTAssertNil(c.firstLaunch.language)
+        XCTAssertEqual(c.firstLaunch.appearance, .system)
+        XCTAssertTrue(c.firstLaunch.closeToMenuBar)
+        XCTAssertFalse(c.firstLaunch.launchAtLogin)
+        XCTAssertFalse(c.maintenance.enabled)
+        XCTAssertTrue(c.links.isEmpty)
     }
 
     func testReadsTheAdminSettings() {
         let c = config("""
-        { "update": { "feedUrl": "https://github.com/pc30cc/webyar-desktop-releases/releases/latest/download/", "channel": "beta", "autoUpdate": false, "checkIntervalMinutes": 60 },
-          "realtime": { "enabled": false }, "polling": { "intervalSeconds": 20, "withRealtimeSeconds": 300 }, "features": { "calls": false } }
+        { "update": { "appcastUrl": "https://example.com/macos/appcast.xml", "channel": "beta", "latestVersion": "1.4.0",
+                      "minimumSupportedVersion": "1.2.0", "blockedVersions": ["1.3.1", "1.3.1", ""], "autoCheck": false,
+                      "autoDownload": false, "checkIntervalMinutes": 60 },
+          "realtime": { "enabled": false }, "polling": { "intervalSeconds": 20, "withRealtimeSeconds": 300 },
+          "features": { "calls": true, "videoCalls": false, "email": false, "attachments": false },
+          "system": { "menuBarExtra": false, "dockBadge": false },
+          "defaults": { "language": "tr", "appearance": "dark", "closeToMenuBar": true, "launchAtLogin": true },
+          "maintenance": { "enabled": false, "message": { "en": "Back soon", "fa": "  " } },
+          "links": { "support": "https://example.com/help", "terms": "https://example.com/terms" } }
         """)
-        XCTAssertEqual(c.update.feedUrl, "https://github.com/pc30cc/webyar-desktop-releases/releases/latest/download")
+        XCTAssertEqual(c.update.appcastUrl, "https://example.com/macos/appcast.xml")
         XCTAssertEqual(c.update.channel, "beta")
-        XCTAssertFalse(c.update.autoUpdate)
+        XCTAssertEqual(c.update.latestVersion, "1.4.0")
+        XCTAssertEqual(c.update.blockedVersions, ["1.3.1"])
+        XCTAssertFalse(c.update.autoCheck)
+        XCTAssertFalse(c.update.autoDownload)
         XCTAssertEqual(c.update.checkIntervalMinutes, 60)
         XCTAssertFalse(c.realtimeEnabled)
         XCTAssertEqual(c.pollIntervalSeconds, 20)
         XCTAssertEqual(c.pollWithRealtimeSeconds, 300)
-        XCTAssertFalse(c.callsEnabled)
+        XCTAssertTrue(c.features.calls)
+        XCTAssertFalse(c.features.videoCalls)
+        XCTAssertFalse(c.features.email)
+        XCTAssertFalse(c.features.attachments)
+        XCTAssertTrue(c.features.contacts)
+        XCTAssertFalse(c.system.menuBarExtra)
+        XCTAssertFalse(c.system.dockBadge)
+        XCTAssertTrue(c.system.notifications)
+        XCTAssertEqual(c.firstLaunch.language, .tr)
+        XCTAssertEqual(c.firstLaunch.appearance, .dark)
+        // Closing to the menu bar needs the menu bar item.
+        XCTAssertFalse(c.firstLaunch.closeToMenuBar)
+        XCTAssertTrue(c.firstLaunch.launchAtLogin)
+        // A blank message is no message; the UI language falls back fa → en → tr.
+        XCTAssertEqual(c.maintenance.message(in: .fa), "Back soon")
+        XCTAssertEqual(c.links.support, "https://example.com/help")
+        XCTAssertNil(c.links.status)
+        XCTAssertFalse(c.links.isEmpty)
     }
 
     func testBadValuesFallBackOneByOne() {
-        let c = config(#"{ "update": { "feedUrl": "http://insecure.example", "channel": "nightly", "checkIntervalMinutes": 1 }, "polling": { "intervalSeconds": "x" } }"#)
-        XCTAssertNil(c.update.feedUrl)
+        let c = config("""
+        { "update": { "appcastUrl": "http://insecure.example/appcast.xml", "channel": "nightly", "checkIntervalMinutes": 1, "downloadUrl": "ftp://x" },
+          "polling": { "intervalSeconds": "x", "withRealtimeSeconds": 5000 },
+          "features": { "calls": "no", "voiceNotes": false },
+          "defaults": { "language": "de", "appearance": "sepia" },
+          "links": { "privacy": "javascript:alert(1)", "status": "https://" } }
+        """)
+        XCTAssertNil(c.update.appcastUrl)
+        XCTAssertNil(c.update.downloadUrl)
         XCTAssertEqual(c.update.channel, "stable")
         XCTAssertEqual(c.update.checkIntervalMinutes, 15)
-        XCTAssertEqual(c.pollIntervalSeconds, DesktopConfig.defaults.pollIntervalSeconds)
+        XCTAssertEqual(c.pollIntervalSeconds, MacAppConfig.defaults.pollIntervalSeconds)
+        XCTAssertEqual(c.pollWithRealtimeSeconds, 900)
+        XCTAssertTrue(c.features.calls)
+        XCTAssertFalse(c.features.voiceNotes)
         XCTAssertTrue(c.realtimeEnabled)
-        XCTAssertEqual(config("{}"), DesktopConfig.defaults)
+        XCTAssertNil(c.firstLaunch.language)
+        XCTAssertEqual(c.firstLaunch.appearance, .system)
+        XCTAssertTrue(c.links.isEmpty)
+    }
+
+    func testClampsIntervals() {
+        let low = config(#"{ "update": { "checkIntervalMinutes": 0 }, "polling": { "intervalSeconds": 1, "withRealtimeSeconds": 2 } }"#)
+        XCTAssertEqual(low.update.checkIntervalMinutes, 15)
+        XCTAssertEqual(low.pollIntervalSeconds, 5)
+        XCTAssertEqual(low.pollWithRealtimeSeconds, 15)
+        let high = config(#"{ "update": { "checkIntervalMinutes": 99999 }, "polling": { "intervalSeconds": 1000, "withRealtimeSeconds": 1000 } }"#)
+        XCTAssertEqual(high.update.checkIntervalMinutes, 1440)
+        XCTAssertEqual(high.pollIntervalSeconds, 300)
+        XCTAssertEqual(high.pollWithRealtimeSeconds, 900)
+    }
+
+    func testNoCallsMeansNoVideo() {
+        let c = config(#"{ "features": { "calls": false, "videoCalls": true } }"#)
+        XCTAssertFalse(c.features.calls)
+        XCTAssertFalse(c.features.videoCalls)
+    }
+
+    func testMaintenanceEndsAtItsTime() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let json = #"{ "maintenance": { "enabled": true, "until": "2027-01-15T08:00:00Z", "message": { "tr": "Bakım" } } }"#
+        let before = config(json, now: Date(timeIntervalSince1970: 1_799_990_000))
+        XCTAssertTrue(before.maintenance.enabled)
+        XCTAssertEqual(before.maintenance.until, JSON.parseDate("2027-01-15T08:00:00Z"))
+        XCTAssertEqual(before.maintenance.message(in: .en), "Bakım")
+        XCTAssertFalse(config(json, now: now.addingTimeInterval(86_400)).maintenance.enabled)
+        XCTAssertTrue(config(#"{ "maintenance": { "enabled": true, "until": null } }"#).maintenance.enabled)
+        XCTAssertNil(config(#"{ "maintenance": { "enabled": true } }"#).maintenance.message(in: .fa))
     }
 
     func testMinimumVersion() {
-        var u = DesktopConfig.defaults.update
+        var u = MacAppConfig.defaults.update
         u.minimumSupportedVersion = "1.2.0"
         XCTAssertTrue(u.isBelowMinimum("1.1.9"))
         XCTAssertFalse(u.isBelowMinimum("1.2.0"))
         XCTAssertFalse(u.isBelowMinimum("2.0.0-beta.1"))
+        XCTAssertEqual(u.requirement(for: "1.1.9"), .belowMinimum)
+        XCTAssertEqual(u.requirement(for: "1.2.0"), UpdateSettings.Requirement.none)
+    }
+
+    func testBlockedVersionMustUpdateEvenAboveTheMinimum() {
+        let c = config(#"{ "update": { "minimumSupportedVersion": "1.0.0", "blockedVersions": ["1.3.0", "1.4.0-beta.2"] } }"#)
+        XCTAssertEqual(c.update.requirement(for: "1.3.0"), .blocked)
+        XCTAssertEqual(c.update.requirement(for: "v1.3.0"), .blocked)
+        XCTAssertEqual(c.update.requirement(for: "1.4.0-beta.2"), .blocked)
+        XCTAssertEqual(c.update.requirement(for: "1.4.0"), UpdateSettings.Requirement.none)
+        XCTAssertEqual(c.update.requirement(for: "0.9.0"), .belowMinimum)
+    }
+
+    func testPlatformSwitchesOnlyTakeAway() throws {
+        let root = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"modules":{"contacts":true,"call_center":true,"email_inbox":true},"features":{}}"#.utf8))
+        let plan = WorkspacePlan.parse(root).with(role: "owner", aiAgent: nil, aiAuto: nil, callCenter: true)
+        XCTAssertTrue(plan.contacts && plan.callCenter && plan.emailInbox && plan.videoCalls && plan.attachments)
+        let off = config(#"{ "features": { "calls": false, "contacts": false, "email": false, "attachments": false } }"#).features
+        let limited = plan.limited(to: off)
+        XCTAssertFalse(limited.contacts)
+        XCTAssertFalse(limited.emailInbox)
+        XCTAssertFalse(limited.voiceCalls)
+        XCTAssertFalse(limited.videoCalls)
+        // The desk answers calls, so it goes with them.
+        XCTAssertFalse(limited.callCenter)
+        XCTAssertFalse(limited.attachments)
+        XCTAssertFalse(limited.emailAttachments)
+        XCTAssertTrue(limited.visitors)
+        // Nothing the plan withholds comes back.
+        XCTAssertFalse(WorkspacePlan.loading.limited(to: .all).visitors)
     }
 
     // MARK: Plan

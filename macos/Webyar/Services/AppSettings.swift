@@ -23,6 +23,10 @@ struct AppSettings: Codable, Equatable {
     var lastBroadcastSeq: Int64?
     /// The details inspector beside a conversation.
     var detailsOpen = true
+    /// Super Admin's first-launch defaults have been applied, or were never
+    /// needed: false only on a Mac that had no saved settings when the app
+    /// first ran, until the platform's answer arrives.
+    var platformDefaultsApplied = false
 
     var resolvedLanguage: Language { Language.parse(language) ?? Language.system }
 
@@ -34,7 +38,10 @@ struct AppSettings: Codable, Equatable {
             return try JSONDecoder().decode(AppSettings.self, from: data)
         } catch {
             Log.error("load settings", error)
-            return AppSettings()
+            // Something was saved, so this is not a first launch.
+            var settings = AppSettings()
+            settings.platformDefaultsApplied = true
+            return settings
         }
     }
 
@@ -58,5 +65,7 @@ struct AppSettings: Codable, Equatable {
         dismissedCampaigns = (try? c.decodeIfPresent([String].self, forKey: .dismissedCampaigns)) ?? []
         lastBroadcastSeq = try? c.decodeIfPresent(Int64.self, forKey: .lastBroadcastSeq)
         detailsOpen = (try? c.decodeIfPresent(Bool.self, forKey: .detailsOpen)) ?? true
+        // Settings saved before the flag existed are an operator's own choices: never overwritten.
+        platformDefaultsApplied = (try? c.decodeIfPresent(Bool.self, forKey: .platformDefaultsApplied)) ?? true
     }
 }

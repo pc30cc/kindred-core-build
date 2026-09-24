@@ -170,9 +170,9 @@ struct ComposerView: View {
         return "\(s / 60):" + String(format: "%02d", s % 60)
     }
 
-    /// A file or an image pasted into the box goes into the card, like a picked one.
+    /// A file or an image pasted into the box goes into the card, like a picked one (when files are allowed).
     private func paste(_ providers: [NSItemProvider]) {
-        guard !chat.aiMode, let p = providers.first else { return }
+        guard !chat.aiMode, app.plan.attachments, let p = providers.first else { return }
         if p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
             _ = p.loadObject(ofClass: URL.self) { url, _ in
                 if let url { Task { @MainActor in chat.attach(url: url) } }

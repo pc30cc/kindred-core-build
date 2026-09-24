@@ -91,11 +91,12 @@ extension View {
 
 // MARK: - General
 
-/// Language and appearance.
+/// Language and appearance, and the platform's help and legal links when it set any.
 struct GeneralSettingsTab: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
+        let links = HelpLinks.items(app.config.links, app.strings)
         Form {
             Section {
                 languagePicker
@@ -103,8 +104,33 @@ struct GeneralSettingsTab: View {
             } header: {
                 SettingsHeader(app.strings["general"])
             }
+            if !links.isEmpty {
+                Section {
+                    ForEach(links, id: \.title) { link in
+                        linkRow(link)
+                    }
+                } header: {
+                    SettingsHeader(app.strings["helpAndLegal"])
+                }
+            }
         }
-        .settingsForm(height: 200)
+        .settingsForm(height: links.isEmpty ? 200 : 250 + CGFloat(links.count) * 44)
+    }
+
+    /// Opens in the browser, like System Settings' own outbound rows.
+    private func linkRow(_ link: HelpLinks.Item) -> some View {
+        Button {
+            NSWorkspace.shared.openHttps(link.url)
+        } label: {
+            HStack {
+                SettingLabel(title: link.title, systemImage: link.systemImage)
+                Spacer(minLength: 8)
+                Image(systemName: "arrow.up.forward").foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(link.url)
     }
 
     private var languageBinding: Binding<Language> {

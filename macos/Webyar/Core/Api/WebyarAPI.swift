@@ -399,16 +399,18 @@ final class WebyarAPI {
 
     // MARK: Desktop app: ads, announcements, check-ins
 
-    /// Ads and announcements for this workspace's plan, in one locale. Never throws: none is fine.
-    func desktopCampaigns(workspaceId: String, locale: String) async -> [DesktopCampaign] {
-        let r: CampaignsResponse? = try? await client.get("/api/desktop-app/campaigns", query: [("workspace_id", workspaceId), ("locale", locale)])
+    /// Ads and announcements for this workspace's plan and this app, in one locale. Never throws: none is fine.
+    func desktopCampaigns(workspaceId: String, locale: String, platform: String) async -> [DesktopCampaign] {
+        let r: CampaignsResponse? = try? await client.get("/api/desktop-app/campaigns",
+                                                          query: [("workspace_id", workspaceId), ("locale", locale), ("platform", platform)])
         return r?.campaigns ?? []
     }
 
     /// "This copy is running" — counted in the server's memory only — and any new Super Admin broadcast.
     func desktopHeartbeat(sessionId: String, workspaceId: String?, version: String?, afterSeq: Int64?) async throws -> DesktopHeartbeat {
         let os = ProcessInfo.processInfo.operatingSystemVersionString
-        var body: [String: Any?] = ["session_id": sessionId, "version": version, "os": "macOS \(os)"]
+        // The platform tells the two desktop apps apart for Super Admin's live count and broadcasts.
+        var body: [String: Any?] = ["session_id": sessionId, "version": version, "os": "macOS \(os)", "platform": "macos"]
         if let workspaceId { body["workspace_id"] = workspaceId }
         if let afterSeq { body["after_seq"] = afterSeq }
         return try await client.post("/api/desktop-app/heartbeat", body: body)

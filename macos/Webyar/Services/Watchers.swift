@@ -110,6 +110,14 @@ final class CallQueueWatcher {
 
     private func poll() async throws {
         guard !disabled else { return }
+        // The desk is off (the plan still loading, or the platform switched calls off):
+        // nothing waits, and whatever is waiting when it comes back is learnt, not rung.
+        guard app.plan.callCenter else {
+            if !queue.isEmpty { queue = [] }
+            known = []
+            primed = false
+            return
+        }
         let list: [QueueEntry]
         do {
             list = try await app.api.callQueue(workspaceId: workspaceId)
@@ -137,7 +145,7 @@ final class CallQueueWatcher {
     }
 
     private func announce(_ entry: QueueEntry) {
-        guard app.settings.notifications, !app.isForeground else { return }
+        guard app.showsNotifications, !app.isForeground else { return }
         let s = app.strings
         app.notifier.show(title: s["incomingCallTitle"], body: s.get("incomingCallBody", "name", CallNames.caller(entry, s)),
                           silent: true, arguments: ["page": "calls", "call": entry.callSessionId])
@@ -200,7 +208,7 @@ final class BackgroundNotifier {
         onUnread?(open.reduce(0) { $0 + max(0, $1.unreadCount ?? 0) })
 
         let fresh = rules.fresh(open)
-        guard !fresh.isEmpty, app.settings.notifications else { return }
+        guard !fresh.isEmpty, app.showsNotifications else { return }
         let prefs = await currentPrefs()
         guard NotificationRules.allowed(prefs) else { return }
 
@@ -286,7 +294,7 @@ final class EngagementService {
 
     private func loadCampaigns() async {
         guard let ws = app.workspace, app.user != nil else { campaigns = []; return }
-        let list = await app.api.desktopCampaigns(workspaceId: ws.id, locale: app.strings.language.code)
+        let list = await app.api.desktopCampaigns(workspaceId: ws.id, locale: app.strings.language.code, platform: "macos")
         if list != campaigns { campaigns = list }
     }
 
@@ -320,7 +328,7 @@ final class EngagementService {
     private func receive(_ b: DesktopBroadcast) {
         broadcasts.append(b)
         if broadcasts.count > 3 { broadcasts.removeFirst() }
-        if app.settings.notifications {
+        if app.showsNotifications {
             app.notifier.show(title: b.title, body: b.body ?? "", silent: !app.settings.notificationSound, arguments: [:])
         }
     }

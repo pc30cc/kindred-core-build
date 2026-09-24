@@ -40,7 +40,10 @@ final class AppModel {
     @ObservationIgnored let notifier = Notifier()
     let updates = UpdateService()
     @ObservationIgnored private(set) var engagement: EngagementService!
-    private(set) var config = DesktopConfig.defaults
+    /// Super Admin → macOS app: the last answer kept on this Mac until the platform is asked again.
+    private(set) var config = (AppModel.isSample ? nil : MacAppConfig.cached()) ?? .defaults
+    /// The platform is being asked right now (the maintenance card's "Try again").
+    private(set) var checkingPlatform = false
 
     // MARK: Session
 
@@ -49,7 +52,10 @@ final class AppModel {
     private(set) var account: Account?
     private(set) var workspaces: [Workspace] = []
     private(set) var workspace: Workspace?
-    private(set) var plan = WorkspacePlan.loading
+    /// The workspace's plan as the server sent it.
+    private(set) var workspacePlan = WorkspacePlan.loading
+    /// What this operator may see: the plan, less what the platform switched off for the Mac app.
+    var plan: WorkspacePlan { workspacePlan.limited(to: config.features) }
     private(set) var presence: PresenceService?
     private(set) var callQueue: CallQueueWatcher?
     private(set) var realtimeConnected = false
@@ -121,13 +127,11 @@ final class AppModel {
     // MARK: Launch
 
     func start() async {
-        notifier.register()
+        // No permission prompt for notifications the platform does not allow.
+        notifier.register(askPermission: config.system.notifications)
         FileCache.trim()
         Log.write("launch \(Self.version)")
         await refreshPlatform()
-        platformTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
-            Task { await self?.refreshPlatform() }
-        }
         guard client.hasSession else {
             phase = .signedOut
             return
@@ -144,16 +148,98 @@ final class AppModel {
         }
     }
 
-    /// Asks the platform where it lives and what it wants of desktop apps; keeps the last good answers.
+    /// Asks the platform where it lives and what it wants of the Mac app; keeps the last good answers.
     func refreshPlatform() async {
+        checkingPlatform = true
+        defer { checkingPlatform = false }
         await client.refreshOrigin()
         let origin = client.origin.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         if settings.apiOrigin != origin {
             settings.apiOrigin = origin
             saveSettings()
         }
-        if let c = await DesktopConfig.fetch(client) { config = c }
+        if let fetched = await MacAppConfig.fetch(client) {
+            // Sample mode shares this Mac's defaults with the real app: keep nothing of its make-believe platform.
+            if !Self.isSample { MacAppConfig.remember(fetched.raw) }
+            applyPlatform(fetched.config)
+            applyFirstLaunchDefaults()
+        } else {
+            applyPlatform(config)
+        }
+        schedulePlatformRefresh()
+    }
+
+    private func applyPlatform(_ next: MacAppConfig) {
+        if next != config { config = next }
         updates.configure(config.update)
+        applySystemIntegration()
+        // A section the platform just switched off: back to the inbox, and no ringing for a desk that is gone.
+        if !isAllowed(route) { route = .inbox(.open) }
+        if !plan.callCenter { stopRinging() }
+    }
+
+    /// Hourly; every minute while maintenance is on, so the notice clears promptly.
+    private func schedulePlatformRefresh() {
+        let every: TimeInterval = config.maintenance.enabled ? 60 : 3600
+        if let t = platformTimer, t.isValid, t.timeInterval == every { return }
+        platformTimer?.invalidate()
+        platformTimer = Timer.scheduledTimer(withTimeInterval: every, repeats: true) { [weak self] _ in
+            Task { await self?.refreshPlatform() }
+        }
+    }
+
+    /// What the platform lets the app do on this Mac, applied to what is already there.
+    private func applySystemIntegration() {
+        let system = config.system
+        updateBadge()
+        if system.notifications {
+            if !notifier.asked { notifier.register() }
+        } else {
+            notifier.clearDelivered()
+            notificationsBlocked = false
+        }
+        // Not allowed to open at login: take back a login item registered earlier.
+        if !system.launchAtLogin, !Self.isSample, LoginItem.isEnabled { LoginItem.set(false) }
+    }
+
+    /// Super Admin's defaults for a first launch: once, from the platform's
+    /// first answer, and only on a Mac with no saved settings of its own.
+    private func applyFirstLaunchDefaults() {
+        guard !settings.platformDefaultsApplied else { return }
+        let first = config.firstLaunch
+        settings.platformDefaultsApplied = true
+        settings.appearance = first.appearance
+        settings.closeToMenuBar = first.closeToMenuBar
+        saveSettings()
+        applyAppearance()
+        // "system" leaves the language to follow the Mac, as it already does.
+        if let language = first.language, language != strings.language { setLanguage(language) }
+        if first.launchAtLogin, config.system.launchAtLogin, !Self.isSample, !LoginItem.isEnabled { LoginItem.set(true) }
+        Log.write("first-launch defaults applied")
+    }
+
+    /// Sample mode shares this Mac's login items and defaults with the real app: leave them alone there.
+    static var isSample: Bool {
+        #if DEBUG
+        return DebugTools.sample
+        #else
+        return false
+        #endif
+    }
+
+    // MARK: Platform switches
+
+    /// Closing the window keeps the app running: the operator's choice, when there is a menu bar item to run in.
+    var closesToMenuBar: Bool { config.system.menuBarExtra && settings.closeToMenuBar }
+
+    var showsMenuBarItem: Bool { config.system.menuBarExtra && settings.menuBarItem }
+
+    /// Mac notifications: the operator's choice, when the platform allows them at all.
+    var showsNotifications: Bool { config.system.notifications && settings.notifications }
+
+    /// The Dock badge follows the unread count, unless the platform turned it off.
+    func updateBadge() {
+        notifier.setBadge(config.system.dockBadge ? unread : 0)
     }
 
     func signIn(email: String, password: String, remember: Bool) async throws {
@@ -208,7 +294,7 @@ final class AppModel {
         settings.workspaceId = ws.id
         saveSettings()
         unread = 0
-        notifier.setBadge(0)
+        updateBadge()
         route = .inbox(.open)
         phase = .launching
         await openWorkspace()
@@ -247,7 +333,7 @@ final class AppModel {
         user = nil
         account = nil
         unread = 0
-        notifier.setBadge(0)
+        updateBadge()
         route = .inbox(.open)
         phase = .signedOut
     }
@@ -255,7 +341,7 @@ final class AppModel {
     // MARK: Plan
 
     private func resetPlan() {
-        plan = .loading
+        workspacePlan = .loading
         members = nil
         profiles = [:]
         channelsLoaded = false
@@ -273,13 +359,13 @@ final class AppModel {
             next = try await api.plan(workspaceId: ws.id)
         } catch let e as ApiError where e.failure != .unauthorized {
             Log.error("plan", e)
-            if plan.state == .loaded { return }
+            if workspacePlan.state == .loaded { return }
             next = .failed
         } catch {
             return
         }
         guard workspace?.id == ws.id else { return }
-        plan = next
+        workspacePlan = next
         // If the page on show just went away, back to the inbox.
         if !isAllowed(route) { route = .inbox(.open) }
     }
@@ -361,7 +447,7 @@ final class AppModel {
         let bg = BackgroundNotifier(app: self, workspaceId: ws.id)
         bg.onUnread = { [weak self] n in
             self?.unread = n
-            self?.notifier.setBadge(n)
+            self?.updateBadge()
         }
         background = bg
         bg.start()
@@ -434,7 +520,8 @@ final class AppModel {
     // MARK: Incoming call banner
 
     private func ring(_ entry: QueueEntry) {
-        guard ringing == nil else { return }
+        // No desk, no calls: nothing to ring for.
+        guard ringing == nil, plan.callCenter else { return }
         ringing = entry
         ringSince = Date()
         if settings.notificationSound { Chime.play() }
@@ -500,6 +587,8 @@ final class AppModel {
 
     func setLanguage(_ language: Language) {
         settings.language = language.code
+        // A choice of the operator's own: the platform's first-launch default no longer applies.
+        settings.platformDefaultsApplied = true
         saveSettings()
         Self.forgetSplitFrames()
         strings = Strings(language)
@@ -519,6 +608,7 @@ final class AppModel {
 
     func setAppearance(_ appearance: Appearance) {
         settings.appearance = appearance
+        settings.platformDefaultsApplied = true
         saveSettings()
         applyAppearance()
     }
@@ -631,6 +721,6 @@ final class AppModel {
 
     func refreshNotificationPermission() async {
         let allowed = await notifier.refreshAuthorization()
-        notificationsBlocked = settings.notifications && !allowed
+        notificationsBlocked = showsNotifications && !allowed
     }
 }

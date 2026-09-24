@@ -82,7 +82,7 @@ struct TeamThreadView: View {
     }
 
     @ViewBuilder private var dropOverlay: some View {
-        if dropping {
+        if dropping && app.plan.attachments {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(Palette.brand, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
                 .background(Palette.brand.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))

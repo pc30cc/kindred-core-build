@@ -321,9 +321,7 @@ struct ShellBanners: View {
                        onClose: { app.engagement.broadcasts.removeAll { $0.id == b.id } })
             }
             if app.updates.required {
-                Banner(severity: .error, title: s["updateRequiredTitle"], message: s["updateRequiredBody"],
-                       actionTitle: app.updates.status != .unavailable ? s["checkForUpdates"] : nil,
-                       action: { app.updates.checkForUpdates() })
+                UpdateRequiredBanner()
             }
             if app.notificationsBlocked && !notificationsHidden {
                 Banner(severity: .warning, title: s["windowsNotificationsOff"], message: s["windowsNotificationsOffBody"],
@@ -350,6 +348,26 @@ struct ShellBanners: View {
         case "critical": return .error
         default: return .info
         }
+    }
+}
+
+/// This build may not keep running: too old, or withdrawn by the platform.
+/// It cannot be closed; it offers Sparkle's check, or the platform's
+/// download page where Sparkle is not available.
+struct UpdateRequiredBanner: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let s = app.strings
+        let updates = app.updates
+        let blocked = updates.requirement == .blocked
+        let canCheck = updates.status != .unavailable
+        let download = canCheck ? nil : updates.downloadUrl
+        Banner(severity: .error,
+               title: s[blocked ? "updateBlockedTitle" : "updateRequiredTitle"],
+               message: s[blocked ? "updateBlockedBody" : "updateRequiredBody"],
+               actionTitle: canCheck ? s["checkForUpdates"] : (download != nil ? s["download"] : nil),
+               action: { if canCheck { updates.checkForUpdates() } else { NSWorkspace.shared.openHttps(download) } })
     }
 }
 

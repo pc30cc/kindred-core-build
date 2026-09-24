@@ -23,7 +23,7 @@ struct WebyarApp: App {
                 .appEnvironment(app)
         }
 
-        MenuBarExtra(isInserted: Binding(get: { app.settings.menuBarItem && app.phase == .signedIn }, set: { _ in })) {
+        MenuBarExtra(isInserted: Binding(get: { app.showsMenuBarItem && app.phase == .signedIn }, set: { _ in })) {
             MenuBarContent()
                 .environment(app)
         } label: {
@@ -60,7 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         app.applyAppearance()
         // Opened at login: stay in the menu bar until the operator asks for the window.
-        if LoginItem.launchedAtLogin {
+        if LoginItem.launchedAtLogin && app.config.system.menuBarExtra {
             NSApp.windows.forEach { $0.orderOut(nil) }
         }
         #if DEBUG
@@ -69,8 +69,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { await app.start() }
     }
 
+    /// Without a menu bar item to live in, closing the window quits.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        !app.settings.closeToMenuBar
+        !app.closesToMenuBar
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -107,8 +108,8 @@ enum LoginItem {
     }
 }
 
-/// The menus: Webyar's own items in the app menu, the sections in View, and
-/// the conversation shortcuts.
+/// The menus: Webyar's own items in the app menu, the sections in View, the
+/// conversation shortcuts, and the platform's help links in Help.
 struct AppCommands: Commands {
     let app: AppModel
     @Environment(\.openWindow) private var openWindow
@@ -137,5 +138,35 @@ struct AppCommands: Commands {
             Button(app.strings["navColleagues"]) { app.route = .colleagues }.keyboardShortcut("7", modifiers: .command).disabled(!app.plan.teamChat)
             Button(app.strings["emailInbox"]) { app.route = .email }.keyboardShortcut("8", modifiers: .command).disabled(!app.plan.emailInbox)
         }
+        // A help book Webyar does not have would only say "Help isn't available".
+        CommandGroup(replacing: .help) {
+            HelpLinks(links: app.config.links, strings: app.strings)
+        }
+    }
+}
+
+/// Super Admin's help links, each only when it is set: the Help menu and Settings → General.
+struct HelpLinks: View {
+    let links: MacAppConfig.Links
+    let strings: Strings
+
+    var body: some View {
+        ForEach(Self.items(links, strings), id: \.title) { item in
+            Button(item.title) { NSWorkspace.shared.openHttps(item.url) }
+        }
+    }
+
+    struct Item {
+        let title: String
+        let url: String
+        let systemImage: String
+    }
+
+    static func items(_ links: MacAppConfig.Links, _ s: Strings) -> [Item] {
+        [(links.support, s["helpSupport"], "questionmark.bubble"),
+         (links.status, s["helpStatus"], "waveform.path.ecg"),
+         (links.privacy, s["helpPrivacy"], "hand.raised"),
+         (links.terms, s["helpTerms"], "doc.text")]
+            .compactMap { url, title, image in url.map { Item(title: title, url: $0, systemImage: image) } }
     }
 }

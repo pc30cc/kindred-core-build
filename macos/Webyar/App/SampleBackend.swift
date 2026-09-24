@@ -13,6 +13,13 @@ final class SampleBackend: URLProtocol {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var sent: [String: [[String: Any]]] = [:]
     nonisolated(unsafe) private static var notes: [String: [[String: Any]]] = [:]
+    nonisolated(unsafe) private static var maintenanceOn = false
+
+    /// Super Admin's maintenance switch, for DebugTools' `maintenance on|off`.
+    static var maintenance: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return maintenanceOn }
+        set { lock.lock(); maintenanceOn = newValue; lock.unlock() }
+    }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -141,13 +148,42 @@ final class SampleBackend: URLProtocol {
         ["id": "m-4", "user_id": "u-4", "role": "agent", "profile": ["full_name": "نگار صالحی", "email": "negar@webyar.app"]],
     ]
 
+    /// Super Admin → macOS app, as toPublicMacosAppConfig writes it: every
+    /// switch on, the help links set, and a maintenance notice on demand.
+    private static func macosApp() -> [String: Any] {
+        let f = ISO8601DateFormatter()
+        let until = Date().addingTimeInterval(90 * 60)
+        return [
+            "update": ["appcastUrl": "https://raw.githubusercontent.com/pc30cc/webyar-desktop-releases/main/macos/appcast.xml",
+                       "channel": "stable", "latestVersion": NSNull(), "minimumSupportedVersion": NSNull(), "blockedVersions": [String](),
+                       "downloadUrl": NSNull(), "releaseNotes": NSNull(), "autoCheck": true, "autoDownload": true, "checkIntervalMinutes": 240],
+            "realtime": ["enabled": false],
+            "polling": ["intervalSeconds": 15, "withRealtimeSeconds": 120],
+            "features": ["calls": true, "videoCalls": true, "email": true, "visitors": true, "callCenter": true,
+                         "colleagues": true, "contacts": true, "voiceNotes": true, "attachments": true],
+            "system": ["menuBarExtra": true, "launchAtLogin": true, "dockBadge": true, "notifications": true],
+            "defaults": ["language": "system", "appearance": "system", "closeToMenuBar": true, "launchAtLogin": false],
+            "maintenance": [
+                "enabled": maintenance,
+                "message": [
+                    "fa": "در حال ارتقای سرورهای وب‌یار هستیم تا سرعت و پایداری بیشتری داشته باشید. پیام‌های بازدیدکنندگان ذخیره می‌شوند و پس از پایان کار نمایش داده خواهند شد.",
+                    "en": "We are upgrading Webyar's servers for more speed and stability. Visitor messages are being kept and will appear as soon as we are done.",
+                    "tr": "Daha fazla hız ve kararlılık için Webyar sunucularını yükseltiyoruz. Ziyaretçi mesajları saklanıyor ve iş biter bitmez görünecek.",
+                ],
+                "until": f.string(from: until),
+            ],
+            "links": ["support": "https://webyar.app/support", "status": "https://status.webyar.app",
+                      "privacy": "https://webyar.app/privacy", "terms": "https://webyar.app/terms"],
+        ]
+    }
+
     // MARK: Routing
 
     private static func answer(_ method: String, _ path: String, _ q: [String: String], _ body: [String: Any]) -> (Int, Any) {
         let parts = path.split(separator: "/").map(String.init) // ["api", ...]
         switch (method, path) {
         case ("GET", "/api/platform/origins"): return (200, [String: Any]())
-        case ("GET", "/api/platform/desktop-app"): return (200, ["realtime": ["enabled": false], "polling": ["intervalSeconds": 15]])
+        case ("GET", "/api/platform/macos-app"): return (200, macosApp())
         case ("GET", "/api/auth/session"): return (200, ["user": user])
         case ("POST", "/api/auth/login"): return (200, ["sessionToken": "sample", "user": user])
         case ("GET", "/api/workspaces"):

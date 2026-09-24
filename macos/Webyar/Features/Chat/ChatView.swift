@@ -77,7 +77,7 @@ struct ThreadView: View {
                     .padding(.top, 6)
             }
             .overlay {
-                if dropping {
+                if dropping && app.plan.attachments && !chat.aiMode {
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .strokeBorder(Palette.brand, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
                         .background(Palette.brand.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -87,7 +87,7 @@ struct ThreadView: View {
                 }
             }
             .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in
-                guard !chat.aiMode, let p = providers.first else { return false }
+                guard !chat.aiMode, app.plan.attachments, let p = providers.first else { return false }
                 _ = p.loadObject(ofClass: URL.self) { url, _ in
                     if let url { Task { @MainActor in chat.attach(url: url) } }
                 }
@@ -159,8 +159,8 @@ struct ThreadHeader: View {
 
     @ViewBuilder private func actions(_ c: Conversation, _ s: Strings) -> some View {
         let wide = width > 900
-        // No calls while the AI has the visitor, and only what the plan allows.
-        let calls = app.config.callsEnabled && !c.isResolved && !c.isAiManaged
+        // No calls while the AI has the visitor, and only what the plan and the platform allow.
+        let calls = !c.isResolved && !c.isAiManaged
         GlassGroup(spacing: 6) {
             HStack(spacing: 6) {
                 if calls && app.plan.voiceCalls {

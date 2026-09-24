@@ -10,10 +10,16 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     var onOpen: (([String: String]) -> Void)?
 
     private(set) var authorized: Bool?
+    /// macOS has been asked for permission this run.
+    private(set) var asked = false
 
-    func register() {
+    /// Takes the clicks on this app's notifications and, unless told not to,
+    /// asks macOS for permission to show them.
+    func register(askPermission: Bool = true) {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
+        guard askPermission else { return }
+        asked = true
         center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             if let error { Log.error("notification permission", error) }
             Task { @MainActor in self.authorized = granted }
@@ -39,6 +45,11 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         UNUserNotificationCenter.current().add(request) { error in
             if let error { Log.error("show notification", error) }
         }
+    }
+
+    /// Takes down what is already in Notification Center, when the platform turns notifications off.
+    func clearDelivered() {
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
     }
 
     /// The Dock icon's red badge: unread visitor messages.

@@ -11,7 +11,7 @@ import WebKit
 /// - `WEBYAR_DEBUG_DIR=<folder>` writes a PNG of each window there every two
 ///   seconds, and reads one-line commands from `<folder>/command.txt`
 ///   (`route contacts`, `open c-2`, `lang en`, `appearance dark`, `settings`,
-///   `details off`) — a way to drive and see the app from a script on a Mac
+///   `details off`, `maintenance on`) — a way to drive and see the app from a script on a Mac
 ///   whose screen cannot be recorded.
 @MainActor
 enum DebugTools {
@@ -88,6 +88,10 @@ enum DebugTools {
         case "signout": app.debugSignOut()
         case "details": app.settings.detailsOpen = arg != "off"
         case "ring": app.debugRing()
+        case "maintenance":
+            // Super Admin's switch in the sample platform, then the app asks again at once.
+            SampleBackend.maintenance = arg != "off"
+            Task { await app.refreshPlatform() }
         case "size":
             let wh = arg.split(separator: "x").compactMap { Double($0) }
             if wh.count == 2, let w = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 500 }) {

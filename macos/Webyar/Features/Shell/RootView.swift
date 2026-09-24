@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The one window: a splash while the session is restored, then the sign-in
-/// page or the shell.
+/// page or the shell — under the maintenance notice while the platform is down.
 struct RootView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.controlActiveState) private var active
@@ -21,8 +21,17 @@ struct RootView: View {
                     .id("\(app.workspace?.id ?? "none")-\(app.strings.language.code)")
             }
         }
+        // Not a key reaches the app beneath the maintenance notice either.
+        .disabled(app.config.maintenance.enabled)
+        .overlay {
+            if app.config.maintenance.enabled {
+                MaintenanceOverlay()
+                    .transition(.opacity)
+            }
+        }
         .frame(minWidth: 960, minHeight: 600)
         .animation(.smooth(duration: 0.25), value: app.phase)
+        .animation(.smooth(duration: 0.25), value: app.config.maintenance.enabled)
         .onAppear {
             Typeface.persian = app.strings.language == .fa
             app.showSettings = { openSettings() }

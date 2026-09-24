@@ -167,10 +167,12 @@ struct EmailReplyBox: View {
                 AttachmentStrip(items: model.replyAttachments) { id in model.replyAttachments.removeAll { $0.id == id } }
             }
             HStack(spacing: 8) {
-                Button { picking = true } label: { Image(systemName: "paperclip").font(.system(size: 14)) }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(Palette.text2)
-                    .help(s["attachFile"])
+                if app.plan.emailAttachments {
+                    Button { picking = true } label: { Image(systemName: "paperclip").font(.system(size: 14)) }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(Palette.text2)
+                        .help(s["attachFile"])
+                }
                 if model.replyMode == .forward {
                     Label(s["emailForwardIncludes"], systemImage: "text.quote").appFont(11).foregroundStyle(Palette.text3)
                 }
@@ -195,6 +197,7 @@ struct EmailReplyBox: View {
             if case .success(let urls) = result { urls.forEach { model.stageReply($0) } }
         }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            guard app.plan.emailAttachments else { return false }
             for p in providers {
                 _ = p.loadObject(ofClass: URL.self) { url, _ in
                     if let url { Task { @MainActor in model.stageReply(url) } }
@@ -355,8 +358,10 @@ struct EmailComposeSheet: View {
             }
             Divider()
             HStack(spacing: 10) {
-                Button { picking = true } label: { Label(s["attachFile"], systemImage: "paperclip") }
-                    .buttonStyle(.borderless)
+                if app.plan.emailAttachments {
+                    Button { picking = true } label: { Label(s["attachFile"], systemImage: "paperclip") }
+                        .buttonStyle(.borderless)
+                }
                 Spacer()
                 Button(s["cancel"]) { dismiss() }.keyboardShortcut(.cancelAction)
                 Button(action: send) {
@@ -377,6 +382,7 @@ struct EmailComposeSheet: View {
             if case .success(let urls) = result { urls.forEach(stage) }
         }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            guard app.plan.emailAttachments else { return false }
             for p in providers {
                 _ = p.loadObject(ofClass: URL.self) { url, _ in
                     if let url { Task { @MainActor in stage(url) } }

@@ -14,13 +14,18 @@ struct MenuBarLabel: View {
 }
 
 /// What the menu bar item offers: open the window, the unread and waiting
-/// counts, the operator's status, and quit — the Windows app's tray menu, and more.
+/// counts, the operator's status, and quit — the Windows app's tray menu, and
+/// more — with a line on top while the platform is under maintenance.
 struct MenuBarContent: View {
     @Environment(AppModel.self) private var app
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         let s = app.strings
+        if app.config.maintenance.enabled {
+            Label(s["maintenanceMenuLine"], systemImage: "wrench.and.screwdriver")
+            Divider()
+        }
         Button(s["trayOpen"]) { show() }
         Divider()
         Text(s.get("menuUnread", "count", app.unread))

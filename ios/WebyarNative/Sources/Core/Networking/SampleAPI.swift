@@ -111,6 +111,8 @@ actor SampleAPI: WebyarAPI {
     // so accepting them is the whole of what a stub owes here.
 
     func takeOverConversation(conversationID: String, workspaceID: String) async throws {}
+    func markSpam(conversationID: String, workspaceID: String) async throws {}
+    func unmarkSpam(conversationID: String, workspaceID: String) async throws {}
 
     func aiSayNow(conversationID: String, body: String, voice: SayNowVoice) async throws {}
 

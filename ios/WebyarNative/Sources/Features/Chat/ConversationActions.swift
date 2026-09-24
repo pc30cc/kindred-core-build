@@ -37,6 +37,16 @@ final class ConversationActionsModel {
     var takeOverConfirmed = false
     var takeOverFailed = false
 
+    /// Whether this thread is quarantined, as far as this screen knows.
+    ///
+    /// Seeded from the row the chat was opened with and then owned here, so
+    /// the menu offers the action that is actually available rather than
+    /// always offering both.
+    private(set) var isSpam: Bool
+    /// Set once, to tell the operator what marking spam actually did — it
+    /// reaches further than the name suggests.
+    var spamConfirmed = false
+
     private let conversationID: String
     private let workspaceID: String
     private let api: any WebyarAPI
@@ -48,6 +58,7 @@ final class ConversationActionsModel {
         self.priority = conversation.priority ?? .normal
         self.assignedTo = conversation.assignedTo
         self.tags = conversation.tags ?? []
+        self.isSpam = conversation.isSpam ?? false
         self.api = api
     }
 
@@ -226,6 +237,34 @@ final class ConversationActionsModel {
             await appState.handleUnauthorized()
         } catch {
             takeOverFailed = true
+        }
+    }
+
+    /// Quarantines the thread, and says so.
+    ///
+    /// Optimistic like every other action here, and reverted on failure for
+    /// the same reason: a menu that has already changed to "Not spam" is
+    /// telling the operator something the server never agreed to.
+    func setSpam(_ spam: Bool, appState: AppState) async {
+        guard !isSaving else { return }
+        let previous = isSpam
+        isSpam = spam
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            if spam {
+                try await api.markSpam(conversationID: conversationID, workspaceID: workspaceID)
+                spamConfirmed = true
+            } else {
+                try await api.unmarkSpam(conversationID: conversationID, workspaceID: workspaceID)
+            }
+            Haptics.success()
+        } catch APIError.unauthorized {
+            isSpam = previous
+            await appState.handleUnauthorized()
+        } catch {
+            isSpam = previous
+            saveFailed = true
         }
     }
 

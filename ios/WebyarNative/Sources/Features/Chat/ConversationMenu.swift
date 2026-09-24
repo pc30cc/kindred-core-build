@@ -28,6 +28,8 @@ struct ConversationMenu: View {
     /// conversation already in human hands is an action with nothing to do.
     var isAIManaged: Bool = false
     var onTakeOver: () -> Void = {}
+    /// `true` to quarantine the thread, `false` to let it back out.
+    var onSpam: (Bool) -> Void = { _ in }
 
     /// Whether the call section has anything in it at all. Without this the
     /// section renders empty on an AI-managed thread -- a divider with
@@ -109,6 +111,29 @@ struct ConversationMenu: View {
                     sheet = .notes
                 } label: {
                     Label(notesLabel, systemImage: "note.text")
+                }
+            }
+
+            // On its own, at the bottom, destructive.
+            //
+            // It reaches further than its name: the server flags the contact,
+            // which pulls their other threads in and keeps future ones out of
+            // the main queue. That is why it is red, why it is last, and why
+            // the screen says what happened afterwards rather than letting a
+            // menu row be the whole explanation.
+            Section {
+                if model.isSpam {
+                    Button {
+                        onSpam(false)
+                    } label: {
+                        Label(Str.notSpam(language), systemImage: "tray.and.arrow.up")
+                    }
+                } else {
+                    Button(role: .destructive) {
+                        onSpam(true)
+                    } label: {
+                        Label(Str.markSpam(language), systemImage: "exclamationmark.octagon")
+                    }
                 }
             }
 

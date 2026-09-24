@@ -39,6 +39,8 @@ protocol WebyarAPI: Sendable {
 
     /// Take the thread off the AI and onto this operator.
     func takeOverConversation(conversationID: String, workspaceID: String) async throws
+    func markSpam(conversationID: String, workspaceID: String) async throws
+    func unmarkSpam(conversationID: String, workspaceID: String) async throws
     /// The operator's words, in the AI's writing, to the visitor, now.
     func aiSayNow(conversationID: String, body: String, voice: SayNowVoice) async throws
     func claim(conversationID: String, workspaceID: String) async throws

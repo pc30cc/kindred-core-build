@@ -1119,6 +1119,36 @@ actor APIClient {
     /// way, and a 404 is the only error that earns the second attempt —
     /// anything else is a real failure and must not be retried into a
     /// second, differently-shaped refusal.
+    /// Quarantines a thread — and, with it, the contact behind it.
+    ///
+    /// Worth being plain about, because the name undersells it: the server
+    /// flags the CONTACT, not just this conversation, which pulls their other
+    /// threads into Spam too and keeps future ones out of the main queue
+    /// (`server/services/spam/state.ts`). It does not block the visitor.
+    func markSpam(conversationID: String, workspaceID: String) async throws {
+        let request = try makeRequest(
+            "POST",
+            "/api/conversations/spam",
+            body: SpamBody(workspace_id: workspaceID, conversation_id: conversationID)
+        )
+        try await performIgnoringBody(request)
+    }
+
+    /// The undo, and the way out of the Spam queue.
+    func unmarkSpam(conversationID: String, workspaceID: String) async throws {
+        let request = try makeRequest(
+            "POST",
+            "/api/conversations/not-spam",
+            body: SpamBody(workspace_id: workspaceID, conversation_id: conversationID)
+        )
+        try await performIgnoringBody(request)
+    }
+
+    private struct SpamBody: Encodable, Sendable {
+        let workspace_id: String
+        let conversation_id: String
+    }
+
     func takeOverConversation(conversationID: String, workspaceID: String) async throws {
         let body = TakeOverBody(workspaceId: workspaceID, assign_to_me: true)
         do {

@@ -585,6 +585,51 @@ enum Str {
         }
     }
 
+    // MARK: - Spam
+    //
+    // The same words the console uses, so an operator who works in both does
+    // not have to learn two names for one action.
+
+    static func markSpam(_ l: Language) -> String {
+        switch l {
+        case .en: "Mark as spam"
+        case .fa: "علامت هرزنامه"
+        case .tr: "Spam olarak işaretle"
+        }
+    }
+
+    static func notSpam(_ l: Language) -> String {
+        switch l {
+        case .en: "Not spam"
+        case .fa: "هرزنامه نیست"
+        case .tr: "Spam değil"
+        }
+    }
+
+    static func markedSpamTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Marked as spam"
+        case .fa: "به‌عنوان هرزنامه علامت خورد"
+        case .tr: "Spam olarak işaretlendi"
+        }
+    }
+
+    static func markedSpamBody(_ l: Language) -> String {
+        switch l {
+        case .en: "Conversation moved to Spam. AI will not auto-reply."
+        case .fa: "مکالمه به هرزنامه منتقل شد. هوش مصنوعی پاسخ خودکار نمی‌دهد."
+        case .tr: "Görüşme Spam klasörüne taşındı. Yapay zekâ otomatik yanıt vermez."
+        }
+    }
+
+    static func removedFromSpam(_ l: Language) -> String {
+        switch l {
+        case .en: "Removed from spam"
+        case .fa: "از هرزنامه خارج شد"
+        case .tr: "Spam’den çıkarıldı"
+        }
+    }
+
     static func tabContacts(_ l: Language) -> String {
         switch l {
         case .en: "Contacts"
@@ -629,7 +674,7 @@ enum Str {
     static func filterPending(_ l: Language) -> String {
         switch l {
         case .en: "Awaiting customer"
-        case .fa: "در انتظار مشتری"
+        case .fa: "انتظار مشتری"
         case .tr: "Müşteri bekleniyor"
         }
     }

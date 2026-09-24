@@ -214,6 +214,9 @@ struct Conversation: Codable, Identifiable, Hashable, Sendable {
     /// Only the keys the app reads are decoded; the rest of the object is
     /// server bookkeeping.
     let metadata: [String: JSONValue]?
+    /// Whether this thread is quarantined. Last, and with a default, so the
+    /// seven sample conversations keep compiling without it.
+    var isSpam: Bool? = nil
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -228,6 +231,7 @@ struct Conversation: Codable, Identifiable, Hashable, Sendable {
         case unreadCount = "unread_count"
         case aiState = "ai_state"
         case metadata
+        case isSpam = "is_spam"
     }
 
     var hasUnread: Bool { (unreadCount ?? 0) > 0 }

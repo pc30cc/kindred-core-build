@@ -152,6 +152,9 @@ struct ChatView: View {
                         isAIManaged: AIState.resolve(conversation) == .aiManaged && !actions.didTakeOver,
                         onTakeOver: {
                             Task { await actions.takeOver(appState: appState) }
+                        },
+                        onSpam: { spam in
+                            Task { await actions.setSpam(spam, appState: appState) }
                         }
                     )
                 }
@@ -249,6 +252,24 @@ struct ChatView: View {
                     }
                 }
                 #endif
+            }
+            // Said once, afterwards, rather than asked beforehand.
+            //
+            // The console does not stop to confirm either, and a phone menu
+            // with a red row is already the warning. What the console does do
+            // is tell you what happened — and here that matters more, because
+            // "mark as spam" does not sound like "and every other thread from
+            // this person too".
+            .alert(
+                Str.markedSpamTitle(language),
+                isPresented: $actions.spamConfirmed
+            ) {
+                Button(Str.ok(language), role: .cancel) {}
+                Button(Str.notSpam(language)) {
+                    Task { await actions.setSpam(false, appState: appState) }
+                }
+            } message: {
+                Text(Str.markedSpamBody(language))
             }
             .alert(
                 Str.takeOverFailed(language),
@@ -519,18 +540,25 @@ struct MessageRow: View {
             if showsAvatar {
                 if isAI {
                     AIAvatar(size: Theme.Size.avatarSmall - 4)
-                } else if isOutgoing {
-                    // The operator's own uploaded photo when there is one,
-                    // and the empty slot when there is not -- the same figure
-                    // on the same neutral skeleton their own Settings row
-                    // shows, so the gap reads as "add a photo" in both places
-                    // rather than as initials in one and a face in the other.
+                } else if isOutgoing, let photo = message.senderAvatar, !photo.isEmpty {
+                    // A photo, or nothing at all.
+                    //
+                    // The empty figure on a neutral disc is right in Settings,
+                    // where it reads as "add a photo" next to the control that
+                    // adds one. In a transcript it says nothing: every
+                    // operator without a photo draws the identical grey disc,
+                    // so it is not telling anybody who wrote the message —
+                    // it is just a row of grey circles down the side of a
+                    // conversation. A photo carries that information. The
+                    // absence of one carries none, so it takes no space.
                     Avatar(
                         name: message.senderName ?? "—",
-                        imageURL: message.senderAvatar,
+                        imageURL: photo,
                         size: Theme.Size.avatarSmall - 4,
                         emptyStyle: .personPlain
                     )
+                } else if isOutgoing {
+                    Color.clear
                 } else {
                     Avatar(
                         name: contactName,

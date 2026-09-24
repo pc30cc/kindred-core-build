@@ -238,7 +238,11 @@ struct Banner: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .glassCard(12, tint: color.opacity(0.18))
+        // A tinted card, not glass: on macOS 26 a glass strip at the top of a column,
+        // right under the toolbar, makes the whole window give up its title-bar inset —
+        // every column jumps up under the title bar for as long as the strip is shown.
+        .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(color.opacity(0.28), lineWidth: 1))
     }
 }
 

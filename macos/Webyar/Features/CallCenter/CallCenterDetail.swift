@@ -8,9 +8,6 @@ struct CallCenterDetail: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        // The strip sits over the call in the column's own stack. As a top safe-area inset
-        // that comes and goes, it made the whole window give up its title-bar inset — the
-        // page jumped up under the title bar and stayed there until the strip was closed.
         VStack(spacing: 0) {
             noticeBar
             content
@@ -37,14 +34,7 @@ struct CallCenterDetail: View {
     }
 
     @ViewBuilder private var noticeBar: some View {
-        if CallCenterModel.debugVariant == 1, let notice = model.notice {
-            Text(notice.message).padding(10).frame(maxWidth: .infinity).background(Color.blue.opacity(0.15))
-        } else if CallCenterModel.debugVariant == 2, let notice = model.notice {
-            Banner(severity: notice.severity, title: notice.title, message: notice.message)
-                .padding(.horizontal, 14).padding(.top, 8)
-        } else if CallCenterModel.debugVariant == 3, model.notice != nil {
-            Color.red.frame(height: 40)
-        } else if let notice = model.notice {
+        if let notice = model.notice {
             Banner(severity: notice.severity, title: notice.title, message: notice.message,
                    actionTitle: notice.addNote ? app.strings["ccAddNote"] : nil,
                    action: notice.addNote ? { model.focusNote() } : nil,

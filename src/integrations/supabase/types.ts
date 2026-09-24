@@ -8713,6 +8713,117 @@ export type Database = {
           },
         ]
       }
+      desktop_app_campaigns: {
+        Row: {
+          active: boolean
+          created_at: string
+          cta_url: string | null
+          dismissible: boolean
+          ends_at: string | null
+          id: string
+          image_url: string | null
+          kind: string
+          name: string
+          placements: string[]
+          priority: number
+          severity: string
+          starts_at: string | null
+          target_plans: string[]
+          text: Json
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          cta_url?: string | null
+          dismissible?: boolean
+          ends_at?: string | null
+          id?: string
+          image_url?: string | null
+          kind?: string
+          name?: string
+          placements?: string[]
+          priority?: number
+          severity?: string
+          starts_at?: string | null
+          target_plans?: string[]
+          text?: Json
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          cta_url?: string | null
+          dismissible?: boolean
+          ends_at?: string | null
+          id?: string
+          image_url?: string | null
+          kind?: string
+          name?: string
+          placements?: string[]
+          priority?: number
+          severity?: string
+          starts_at?: string | null
+          target_plans?: string[]
+          text?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      desktop_app_settings: {
+        Row: {
+          auto_update_enabled: boolean
+          calls_enabled: boolean
+          created_at: string
+          download_url: string | null
+          id: string
+          latest_version: string | null
+          minimum_supported_version: string | null
+          poll_interval_realtime_seconds: number
+          poll_interval_seconds: number
+          realtime_enabled: boolean
+          release_notes: string | null
+          update_channel: string
+          update_check_interval_minutes: number
+          update_feed_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          auto_update_enabled?: boolean
+          calls_enabled?: boolean
+          created_at?: string
+          download_url?: string | null
+          id?: string
+          latest_version?: string | null
+          minimum_supported_version?: string | null
+          poll_interval_realtime_seconds?: number
+          poll_interval_seconds?: number
+          realtime_enabled?: boolean
+          release_notes?: string | null
+          update_channel?: string
+          update_check_interval_minutes?: number
+          update_feed_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          auto_update_enabled?: boolean
+          calls_enabled?: boolean
+          created_at?: string
+          download_url?: string | null
+          id?: string
+          latest_version?: string | null
+          minimum_supported_version?: string | null
+          poll_interval_realtime_seconds?: number
+          poll_interval_seconds?: number
+          realtime_enabled?: boolean
+          release_notes?: string | null
+          update_channel?: string
+          update_check_interval_minutes?: number
+          update_feed_url?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       email_attachments: {
         Row: {
           content_id: string | null
@@ -10064,9 +10175,12 @@ export type Database = {
           last_seen_at: string
           permission_status: string | null
           platform: string
-          push_token: string
+          push_token: string | null
+          transport: string
           updated_at: string
           user_id: string
+          voip_token: string | null
+          voip_token_updated_at: string | null
           workspace_id: string | null
         }
         Insert: {
@@ -10080,9 +10194,12 @@ export type Database = {
           last_seen_at?: string
           permission_status?: string | null
           platform: string
-          push_token: string
+          push_token?: string | null
+          transport?: string
           updated_at?: string
           user_id: string
+          voip_token?: string | null
+          voip_token_updated_at?: string | null
           workspace_id?: string | null
         }
         Update: {
@@ -10096,12 +10213,140 @@ export type Database = {
           last_seen_at?: string
           permission_status?: string | null
           platform?: string
-          push_token?: string
+          push_token?: string | null
+          transport?: string
           updated_at?: string
           user_id?: string
+          voip_token?: string | null
+          voip_token_updated_at?: string | null
           workspace_id?: string | null
         }
         Relationships: []
+      }
+      notification_email_jobs: {
+        Row: {
+          attempts: number
+          claimed_at: string | null
+          created_at: string
+          dedupe_key: string
+          id: string
+          last_error: string | null
+          locale: string | null
+          payload: Json
+          scheduled_for: string
+          sent_at: string | null
+          status: string
+          type: string
+          user_id: string
+          workspace_id: string | null
+        }
+        Insert: {
+          attempts?: number
+          claimed_at?: string | null
+          created_at?: string
+          dedupe_key: string
+          id?: string
+          last_error?: string | null
+          locale?: string | null
+          payload?: Json
+          scheduled_for?: string
+          sent_at?: string | null
+          status?: string
+          type: string
+          user_id: string
+          workspace_id?: string | null
+        }
+        Update: {
+          attempts?: number
+          claimed_at?: string | null
+          created_at?: string
+          dedupe_key?: string
+          id?: string
+          last_error?: string | null
+          locale?: string | null
+          payload?: Json
+          scheduled_for?: string
+          sent_at?: string | null
+          status?: string
+          type?: string
+          user_id?: string
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_email_jobs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notification_email_jobs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notification_email_settings: {
+        Row: {
+          digest_every_minutes: number
+          enabled: boolean
+          id: boolean
+          paid_invoices_enabled: boolean
+          product_updates_enabled: boolean
+          provider_override: string | null
+          transcripts_enabled: boolean
+          unread_after_minutes: number
+          unread_messages_enabled: boolean
+          updated_at: string
+          updated_by: string | null
+          weekly_summary_dow: number
+          weekly_summary_enabled: boolean
+          weekly_summary_hour: number
+        }
+        Insert: {
+          digest_every_minutes?: number
+          enabled?: boolean
+          id?: boolean
+          paid_invoices_enabled?: boolean
+          product_updates_enabled?: boolean
+          provider_override?: string | null
+          transcripts_enabled?: boolean
+          unread_after_minutes?: number
+          unread_messages_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+          weekly_summary_dow?: number
+          weekly_summary_enabled?: boolean
+          weekly_summary_hour?: number
+        }
+        Update: {
+          digest_every_minutes?: number
+          enabled?: boolean
+          id?: boolean
+          paid_invoices_enabled?: boolean
+          product_updates_enabled?: boolean
+          provider_override?: string | null
+          transcripts_enabled?: boolean
+          unread_after_minutes?: number
+          unread_messages_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+          weekly_summary_dow?: number
+          weekly_summary_enabled?: boolean
+          weekly_summary_hour?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_email_settings_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       observability_ticker_lease: {
         Row: {
@@ -14189,6 +14434,7 @@ export type Database = {
           id: string
           read_at: string | null
           recipient_id: string
+          reply_to_id: string | null
           sender_id: string
           workspace_id: string
         }
@@ -14199,6 +14445,7 @@ export type Database = {
           id?: string
           read_at?: string | null
           recipient_id: string
+          reply_to_id?: string | null
           sender_id: string
           workspace_id: string
         }
@@ -14209,6 +14456,7 @@ export type Database = {
           id?: string
           read_at?: string | null
           recipient_id?: string
+          reply_to_id?: string | null
           sender_id?: string
           workspace_id?: string
         }
@@ -14218,6 +14466,13 @@ export type Database = {
             columns: ["attachment_id"]
             isOneToOne: false
             referencedRelation: "conversation_attachments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_messages_reply_to_id_fkey"
+            columns: ["reply_to_id"]
+            isOneToOne: false
+            referencedRelation: "team_messages"
             referencedColumns: ["id"]
           },
         ]
@@ -14481,6 +14736,47 @@ export type Database = {
         }
         Relationships: []
       }
+      user_email_notification_prefs: {
+        Row: {
+          created_at: string
+          paid_invoices: boolean
+          product_updates: boolean
+          transcripts: boolean
+          unread_messages: boolean
+          updated_at: string
+          user_id: string
+          weekly_summary: boolean
+        }
+        Insert: {
+          created_at?: string
+          paid_invoices?: boolean
+          product_updates?: boolean
+          transcripts?: boolean
+          unread_messages?: boolean
+          updated_at?: string
+          user_id: string
+          weekly_summary?: boolean
+        }
+        Update: {
+          created_at?: string
+          paid_invoices?: boolean
+          product_updates?: boolean
+          transcripts?: boolean
+          unread_messages?: boolean
+          updated_at?: string
+          user_id?: string
+          weekly_summary?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_email_notification_prefs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_notification_prefs: {
         Row: {
           created_at: string
@@ -14492,6 +14788,7 @@ export type Database = {
           email_user_ratings: boolean
           email_weekly_summary: boolean
           id: string
+          platform: string
           play_sound: boolean
           push_internal_notes: boolean
           push_preview: boolean
@@ -14517,6 +14814,7 @@ export type Database = {
           email_user_ratings?: boolean
           email_weekly_summary?: boolean
           id?: string
+          platform?: string
           play_sound?: boolean
           push_internal_notes?: boolean
           push_preview?: boolean
@@ -14542,6 +14840,7 @@ export type Database = {
           email_user_ratings?: boolean
           email_weekly_summary?: boolean
           id?: string
+          platform?: string
           play_sound?: boolean
           push_internal_notes?: boolean
           push_preview?: boolean
@@ -19661,15 +19960,9 @@ export type Database = {
           isSetofReturn: true
         }
       }
-      commerce_purge_expired_deletions: {
-        Args: Record<PropertyKey, never>
-        Returns: undefined
-      }
+      commerce_purge_expired_deletions: { Args: never; Returns: undefined }
       commerce_sweep_absent_products: {
-        Args: {
-          p_connection_id: string
-          p_sweep_epoch: string
-        }
+        Args: { p_connection_id: string; p_sweep_epoch: string }
         Returns: number
       }
       commerce_tombstone_product: {
@@ -20561,6 +20854,10 @@ export type Database = {
           _purpose: string
           _token_hash: string
         }
+        Returns: Json
+      }
+      wi_delete_invitation: {
+        Args: { _actor_id: string; _invitation_id: string }
         Returns: Json
       }
       wi_execute_idempotent: {

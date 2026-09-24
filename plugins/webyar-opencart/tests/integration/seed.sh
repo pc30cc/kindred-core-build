@@ -73,9 +73,9 @@ INSERT INTO oc_order_status SET order_status_id = 99, language_id = 1, name = 'P
 INSERT INTO oc_order_status SET order_status_id = 99, language_id = 2, name = 'آمادهٔ ارسال با پیک';
 -- customers (password: Test12345!)
 DELETE FROM oc_customer WHERE email LIKE '%@example.test';
-INSERT INTO oc_customer SET customer_id = 101, customer_group_id = 1, store_id = 0, language_id = 1, firstname = 'Ali', lastname = 'Alpha', email = 'ali@example.test', telephone = '09120000001', $PW, status = 1, safe = 0, date_added = NOW();
-INSERT INTO oc_customer SET customer_id = 102, customer_group_id = 2, store_id = 0, language_id = 1, firstname = 'Bita', lastname = 'Beta', email = 'bita@example.test', telephone = '09120000002', $PW, status = 1, safe = 0, date_added = NOW();
-INSERT INTO oc_customer SET customer_id = 103, customer_group_id = 1, store_id = 1, language_id = 1, firstname = 'Cyrus', lastname = 'Gamma', email = 'cyrus@example.test', telephone = '09120000003', $PW, status = 1, safe = 0, date_added = NOW();
+INSERT INTO oc_customer SET customer_id = 101, customer_group_id = 1, store_id = 0, language_id = 1, firstname = 'Ali', lastname = 'Alpha', email = 'ali@example.test', telephone = '09120000001', $PW, newsletter = 0, custom_field = '', status = 1, safe = 0, date_added = NOW();
+INSERT INTO oc_customer SET customer_id = 102, customer_group_id = 2, store_id = 0, language_id = 1, firstname = 'Bita', lastname = 'Beta', email = 'bita@example.test', telephone = '09120000002', $PW, newsletter = 0, custom_field = '', status = 1, safe = 0, date_added = NOW();
+INSERT INTO oc_customer SET customer_id = 103, customer_group_id = 1, store_id = 1, language_id = 1, firstname = 'Cyrus', lastname = 'Gamma', email = 'cyrus@example.test', telephone = '09120000003', $PW, newsletter = 0, custom_field = '', status = 1, safe = 0, date_added = NOW();
 -- orders
 DELETE FROM oc_order WHERE order_id BETWEEN 5001 AND 5010;
 DELETE FROM oc_order_product WHERE order_id BETWEEN 5001 AND 5010;

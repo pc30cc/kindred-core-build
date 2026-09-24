@@ -7,7 +7,7 @@
  * (there is nothing to sign with yet). /:state and /:state/approve are
  * called from the authenticated Web Yar frontend (the "authorize" page).
  */
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
@@ -25,8 +25,8 @@ import { providerProfile } from '../../services/commerce/providers.js';
 
 export const commercePairingRouter = Router();
 
-function serverConfigOf(req: any): ServerConfig {
-  return req.serverConfig as ServerConfig;
+function serverConfigOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
 }
 
 // Pairing is a low-volume, security-sensitive flow — bound attempts hard.

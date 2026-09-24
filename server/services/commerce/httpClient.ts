@@ -92,7 +92,7 @@ async function fetchOnce(req: CommerceHttpRequest): Promise<CommerceHttpResponse
     return { status: res.status, json, bytes: received };
   } catch (err) {
     if (err instanceof CommerceError) throw err;
-    if ((err as any)?.name === 'AbortError') throw new CommerceError('commerce_timeout', 'plugin request timed out');
+    if ((err as { name?: string } | null)?.name === 'AbortError') throw new CommerceError('commerce_timeout', 'plugin request timed out');
     throw new CommerceError('commerce_live_unavailable', err instanceof Error ? err.message : String(err));
   } finally {
     clearTimeout(timer);

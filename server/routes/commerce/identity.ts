@@ -3,7 +3,7 @@
  * runtime after it reads the plugin-injected assertion out of the page
  * bootstrap config (never trusts a raw customer_id from the browser).
  */
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
@@ -14,8 +14,8 @@ import { withoutWidgetShimKeys } from './widgetBody.js';
 
 export const commerceIdentityRouter = Router();
 
-function serverConfigOf(req: any): ServerConfig {
-  return req.serverConfig as ServerConfig;
+function serverConfigOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
 }
 
 const limiter = rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false });

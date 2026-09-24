@@ -274,7 +274,7 @@ async function verifyDirectStoreLinks(
   if (onStore.some((u) => !allowed.has(u)) && opts.conversationId) {
     const sb = getServiceClient(config);
     const { data } = await sb.from('conversations').select('metadata').eq('id', opts.conversationId).eq('workspace_id', workspaceId).maybeSingle();
-    const refs = (data as any)?.metadata?.commerce_refs;
+    const refs = (data as { metadata?: { commerce_refs?: { connection_id?: string; urls?: unknown } } } | null)?.metadata?.commerce_refs;
     if (refs?.connection_id === connection.id && Array.isArray(refs.urls)) for (const u of refs.urls) if (typeof u === 'string') allowed.add(u);
   }
   const store = String(connection.store_id || '').replace(/\/+$/, '');

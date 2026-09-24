@@ -74,7 +74,7 @@ export function startCommerceSyncWorker(): void {
     try {
       const job = await claimNextSyncJob(config, workerId);
       if (job) {
-        await runSyncJobOnce(config, job as any);
+        await runSyncJobOnce(config, job);
         // A job may have re-queued itself (bounded page budget) — poll again
         // immediately rather than waiting a full interval.
         pollTimer = setTimeout(tick, 50);

@@ -14,7 +14,7 @@
  * Mounted BEFORE express.json() in server/index.ts (signature verification
  * needs the exact raw bytes) with its own express.raw() parser.
  */
-import { Router, raw } from 'express';
+import { Router, raw, type Request, type Response } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
@@ -28,8 +28,8 @@ import { COMMERCE_PROTOCOL_VERSION } from '../../../shared/commerce/types.js';
 
 export const commercePluginActionsRouter = Router();
 
-function serverConfigOf(req: any): ServerConfig {
-  return req.serverConfig as ServerConfig;
+function serverConfigOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
 }
 
 // A store asking for its own handshake or resync is cheap but not free —
@@ -52,7 +52,7 @@ type Resolved = { installationId: string; connectionId: string; workspaceId: str
  * Verifies the signature and resolves the caller's own connection.
  * Returns null after having already answered the request.
  */
-async function authenticate(req: any, res: any, canonicalPath: string): Promise<Resolved | null> {
+async function authenticate(req: Request, res: Response, canonicalPath: string): Promise<Resolved | null> {
   const config = serverConfigOf(req);
   const installationId = req.header('X-WebYar-Installation');
   const timestamp = req.header('X-WebYar-Timestamp');

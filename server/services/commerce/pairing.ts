@@ -134,11 +134,20 @@ export async function getPairingRequest(config: ServerConfig, state: string): Pr
     redirectUri: data.redirect_uri,
     requestedOrigin: data.requested_origin,
     providerType: data.provider_type,
-    storeUrl: (data as any).store_url ?? null,
+    storeUrl: (data as { store_url?: string | null }).store_url ?? null,
     expiresAt: data.expires_at,
     expired: new Date(data.expires_at).getTime() < Date.now() || !!data.consumed_at,
     alreadyAuthorized: !!data.authorized_at,
   };
+}
+
+const PERMISSION_KEYS = ['products', 'prices', 'stock', 'orders', 'order_status', 'tracking', 'customer_history', 'coupons', 'reviews'] as const;
+
+/** Only known keys, only booleans — the consent screen's body is user input. */
+export function sanitizePermissions(raw: Record<string, unknown> | null | undefined): Record<string, boolean> {
+  const out: Record<string, boolean> = {};
+  for (const key of PERMISSION_KEYS) if (typeof raw?.[key] === 'boolean') out[key] = raw[key] as boolean;
+  return out;
 }
 
 /** Step 2 — an authenticated, authorized Web Yar user approves the pairing for a workspace. */
@@ -167,6 +176,7 @@ export async function approvePairingRequest(
       authorized_by: input.userId,
       authorization_code_hash: codeHash,
       authorized_at: new Date().toISOString(),
+      permissions: sanitizePermissions(input.permissions),
     })
     .eq('state', input.state)
     .is('consumed_at', null); // never re-authorize an already-consumed request
@@ -204,7 +214,7 @@ export async function exchangePairingCode(
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('commerce_pairing_requests')
-    .select('id, state, code_challenge, provider_type, requested_origin, workspace_id, authorized_by, authorization_code_hash, expires_at, authorized_at, consumed_at, external_store_id, store_url, platform_version')
+    .select('id, state, code_challenge, provider_type, requested_origin, workspace_id, authorized_by, authorization_code_hash, expires_at, authorized_at, consumed_at, external_store_id, store_url, platform_version, permissions')
     .eq('state', input.state)
     .maybeSingle();
   if (error) throw new Error(`pairing lookup failed: ${error.message}`);
@@ -267,6 +277,9 @@ export async function exchangePairingCode(
         catalog_ready: false,
         revoked_at: null,
         ...(direct ? { external_store_id: data.external_store_id, platform_version: data.platform_version ?? null } : {}),
+        // The owner's consent-screen choice; absent (older requests) keeps
+        // the column default.
+        ...(data.permissions && typeof data.permissions === 'object' && Object.keys(data.permissions).length ? { permissions: data.permissions } : {}),
       },
       { onConflict: 'installation_id' },
     )
@@ -307,7 +320,7 @@ export async function runCapabilityHandshake(config: ServerConfig, connectionId:
     .eq('id', connectionId)
     .maybeSingle();
   if (error || !connection || connection.revoked_at) return;
-  if (connection.provider_type === 'opencart') return runOpenCartHandshake(config, connection as any);
+  if (connection.provider_type === 'opencart') return runOpenCartHandshake(config, connection as Parameters<typeof runOpenCartHandshake>[1]);
 
   try {
     const { readInstallationSecret } = await import('./credentials.js');

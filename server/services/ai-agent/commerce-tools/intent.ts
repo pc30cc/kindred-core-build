@@ -32,6 +32,8 @@ export type CommerceIntent =
 // into an order question, never changes how a Persian or English one reads.
 const ORDER_KEYWORDS = /سفارش|پیگیری مرسوله|tracking number|track my order|order status|where.{0,15}my order|my orders|sipariş|kargom|kargo takip|siparişim/i;
 const ORDER_NUMBER_RE = /(?:سفارش|order|sipariş)\D{0,15}#?\s*(\d{3,12})/i;
+// Turkish puts the number first: «12345 numaralı sipariş», «#12345 siparişim».
+const ORDER_NUMBER_BEFORE_RE = /#?(\d{3,12})\s*(?:numaralı|nolu|no'lu)?\s*sipariş/i;
 // «مرجوعی من کجاست» / "my return status" / «iade durumum» — the customer's OWN
 // returns, not the return POLICY (a knowledge-base question).
 const RETURN_STATUS_KEYWORDS = /(?:مرجوعی|مرجوع|برگشت)\s*(?:من|ام|م\b)|وضعیت\s*(?:مرجوعی|مرجوع)|my returns?\b|return status|iade(?:m|lerim| durum)/i;
@@ -137,7 +139,7 @@ export function detectCommerceIntent(question: string): CommerceIntent {
   // anything handed downstream as a search query.
   const scan = normalizeDigits(text);
 
-  const orderNumberMatch = scan.match(ORDER_NUMBER_RE);
+  const orderNumberMatch = scan.match(ORDER_NUMBER_RE) ?? scan.match(ORDER_NUMBER_BEFORE_RE);
   if (orderNumberMatch) return { kind: 'order_lookup', orderNumber: orderNumberMatch[1] };
   if (RETURN_STATUS_KEYWORDS.test(scan)) return { kind: 'order_returns' };
   if (ORDER_KEYWORDS.test(scan)) return { kind: 'order_status' };
@@ -189,8 +191,9 @@ export function detectCommerceIntent(question: string): CommerceIntent {
 // and every order id is re-checked for ownership by the store.
 
 const ORDINALS: Array<[RegExp, number]> = [
-  [/(?:^|\s)(?:اولی|اولین|اوّلی|first(?: one)?|1st|ilki|birinci(?:si)?)(?:\s|$|[؟?.,!])/i, 1],
-  [/(?:^|\s)(?:دومی|دومین|second(?: one)?|2nd|ikinci(?:si)?)(?:\s|$|[؟?.,!])/i, 2],
+  // JavaScript's /i does not fold the Turkish dotted capital «İ», so it is listed.
+  [/(?:^|\s)(?:اولی|اولین|اوّلی|first(?: one)?|1st|[iİ]lki|birinci(?:si)?)(?:\s|$|[؟?.,!])/i, 1],
+  [/(?:^|\s)(?:دومی|دومین|second(?: one)?|2nd|[iİ]kinci(?:si)?)(?:\s|$|[؟?.,!])/i, 2],
   [/(?:^|\s)(?:سومی|سومین|third(?: one)?|3rd|üçüncü(?:sü)?)(?:\s|$|[؟?.,!])/i, 3],
   [/(?:^|\s)(?:چهارمی|چهارمین|fourth(?: one)?|4th|dördüncü(?:sü)?)(?:\s|$|[؟?.,!])/i, 4],
   [/(?:^|\s)(?:پنجمی|پنجمین|fifth(?: one)?|5th|beşinci(?:si)?)(?:\s|$|[؟?.,!])/i, 5],

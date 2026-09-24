@@ -97,6 +97,25 @@ export function mapOpenCartError(status: number, code: unknown): CommerceErrorCo
 
 const STOCK: ReadonlyArray<StockState> = ['in_stock', 'out_of_stock', 'backorder', 'unknown'];
 
+/** A JSON object off the wire: every field is unknown until checked. */
+type Wire = Record<string, unknown>;
+
+function obj(v: unknown): Wire {
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Wire) : {};
+}
+
+function list(v: unknown, max: number): Wire[] {
+  return boundedArray(Array.isArray(v) ? v : [], max).map(obj);
+}
+
+function str(v: unknown, max = 200): string {
+  return typeof v === 'string' || typeof v === 'number' ? String(v).slice(0, max) : '';
+}
+
+function strOrNull(v: unknown, max = 200): string | null {
+  return typeof v === 'string' ? v.slice(0, max) : null;
+}
+
 export class OpenCartConnector implements DirectCommerceConnector {
   readonly providerType = 'opencart';
   readonly searchStrategy = 'direct' as const;
@@ -113,7 +132,7 @@ export class OpenCartConnector implements DirectCommerceConnector {
 
   // ── transport ─────────────────────────────────────────────────────────
 
-  private async call(ctx: CommerceConnectorContext, op: string, body: Record<string, unknown>, opts: DirectReadOptions = {}): Promise<any> {
+  private async call(ctx: CommerceConnectorContext, op: string, body: Record<string, unknown>, opts: DirectReadOptions = {}): Promise<Wire> {
     const payload = JSON.stringify({
       ...body,
       store_id: this.transport.externalStoreId,
@@ -141,21 +160,22 @@ export class OpenCartConnector implements DirectCommerceConnector {
         throw err;
       }
 
-      const json = (res.json ?? {}) as any;
-      const meta = json?._meta;
+      const json = obj(res.json);
+      const meta = obj(json._meta);
+      const db = obj(meta.db);
       opts.onMeta?.({
-        storeQueries: typeof meta?.db?.queries === 'number' ? meta.db.queries : null,
-        storeMs: typeof meta?.ms === 'number' ? meta.ms : null,
+        storeQueries: typeof db.queries === 'number' ? db.queries : null,
+        storeMs: typeof meta.ms === 'number' ? meta.ms : null,
         responseBytes: res.bytes ?? 0,
       });
 
       if (res.status === 200) return json;
 
-      const code = mapOpenCartError(res.status, json?.error);
+      const code = mapOpenCartError(res.status, json.error);
       // Only a server-side failure of a read is worth one more try — never
       // authentication, permission, validation or not-found.
       if (attempt === 0 && res.status >= 500 && res.status !== 503 && ctx.deadlineAt - Date.now() >= MIN_RETRY_BUDGET_MS) continue;
-      throw new CommerceError(code, `store answered ${res.status}${json?.error ? ` ${String(json.error).slice(0, 40)}` : ''}`);
+      throw new CommerceError(code, `store answered ${res.status}${json.error ? ` ${str(json.error, 40)}` : ''}`);
     }
     throw new CommerceError('commerce_live_unavailable', 'store unavailable');
   }
@@ -174,99 +194,106 @@ export class OpenCartConnector implements DirectCommerceConnector {
     }
   }
 
-  private money(raw: any): DisplayMoney | null {
-    if (!raw || typeof raw !== 'object') return null;
-    const amount = String(raw.amount ?? '');
+  private money(raw: unknown): DisplayMoney | null {
+    const m = obj(raw);
+    const amount = str(m.amount, 40);
     if (!/^-?\d+(\.\d+)?$/.test(amount)) return null;
-    const formatted = sanitizeCommerceText(raw.formatted, 60);
+    const formatted = sanitizeCommerceText(m.formatted, 60);
     return {
       amount,
-      currency: String(raw.currency ?? '').slice(0, 10),
+      currency: str(m.currency, 10),
       formatted: formatted ?? amount,
-      ...(typeof raw.tax_included === 'boolean' ? { taxIncluded: raw.tax_included } : {}),
+      ...(typeof m.tax_included === 'boolean' ? { taxIncluded: m.tax_included } : {}),
     };
   }
 
-  private context(raw: any): StoreContext | null {
+  private context(raw: unknown): StoreContext | null {
     if (!raw || typeof raw !== 'object') return null;
+    const c = obj(raw);
     return {
-      storeId: String(raw.store_id ?? ''),
-      language: String(raw.language ?? '').slice(0, 16),
-      currency: String(raw.currency ?? '').slice(0, 10),
-      customerGroupId: String(raw.customer_group_id ?? ''),
-      customer: raw.customer === true,
-      pricesVisible: raw.prices_visible === true,
-      taxIncluded: raw.tax_included === true,
-      taxRegion: String(raw.tax_region ?? 'store').slice(0, 40),
+      storeId: str(c.store_id, 20),
+      language: str(c.language, 16),
+      currency: str(c.currency, 10),
+      customerGroupId: str(c.customer_group_id, 20),
+      customer: c.customer === true,
+      pricesVisible: c.prices_visible === true,
+      taxIncluded: c.tax_included === true,
+      taxRegion: str(c.tax_region, 40) || 'store',
     };
   }
 
-  private summary(raw: any): DirectProductSummary | null {
-    const name = sanitizeCommerceText(raw?.name, 200);
-    if (!raw || !raw.id || !name) return null;
-    const state = STOCK.includes(raw.stock?.state) ? raw.stock.state : 'unknown';
+  private summary(raw: unknown): DirectProductSummary | null {
+    const p = obj(raw);
+    const name = sanitizeCommerceText(p.name, 200);
+    if (!p.id || !name) return null;
+    const stock = obj(p.stock);
+    const state = STOCK.find((s) => s === stock.state) ?? 'unknown';
+    const stockText = sanitizeCommerceText(stock.text, 60);
     return {
-      externalId: String(raw.id).slice(0, 20),
+      externalId: str(p.id, 20),
       name,
-      model: sanitizeCommerceText(raw.model, 64),
-      manufacturer: sanitizeCommerceText(raw.manufacturer, 80),
-      url: this.storeUrl(raw.url),
-      imageUrl: this.storeUrl(raw.image),
-      price: this.money(raw.price),
-      special: this.money(raw.special),
-      priceHidden: raw.price_hidden === 'login_required' ? 'login_required' : null,
+      model: sanitizeCommerceText(p.model, 64),
+      manufacturer: sanitizeCommerceText(p.manufacturer, 80),
+      url: this.storeUrl(p.url),
+      imageUrl: this.storeUrl(p.image),
+      price: this.money(p.price),
+      special: this.money(p.special),
+      priceHidden: p.price_hidden === 'login_required' ? 'login_required' : null,
       stock: {
         state,
-        ...(typeof raw.stock?.quantity === 'number' ? { quantity: raw.stock.quantity } : {}),
-        ...(sanitizeCommerceText(raw.stock?.text, 60) ? { text: sanitizeCommerceText(raw.stock?.text, 60) as string } : {}),
+        ...(typeof stock.quantity === 'number' ? { quantity: stock.quantity } : {}),
+        ...(stockText ? { text: stockText } : {}),
       },
-      rating: typeof raw.rating === 'number' ? raw.rating : null,
-      reviewCount: Number.isFinite(Number(raw.review_count)) ? Number(raw.review_count) : 0,
-      hasOptions: raw.has_options === true,
+      rating: typeof p.rating === 'number' ? p.rating : null,
+      reviewCount: Number.isFinite(Number(p.review_count)) ? Number(p.review_count) : 0,
+      hasOptions: p.has_options === true,
     };
   }
 
-  private detail(raw: any): DirectProductDetail | null {
+  private detail(raw: unknown): DirectProductDetail | null {
     const base = this.summary(raw);
     if (!base) return null;
+    const p = obj(raw);
     return {
       ...base,
-      description: sanitizeCommerceText(raw.description, 700),
-      minimum: Math.max(1, Number(raw.minimum) || 1),
-      options: boundedArray(raw.options, 20).map((o: any) => ({
-        id: String(o?.id ?? ''),
-        name: sanitizeCommerceText(o?.name, 80) ?? '',
-        type: String(o?.type ?? '').slice(0, 20),
-        required: o?.required === true,
-        values: boundedArray(o?.values, 40).map((v: any) => ({
-          id: String(v?.id ?? ''),
-          name: sanitizeCommerceText(v?.name, 80) ?? '',
-          priceDelta: sanitizeCommerceText(v?.price_delta, 40),
-        })).filter((v: any) => v.name),
-      })).filter((o: any) => o.name),
-      attributes: boundedArray(raw.attributes, 20).map((a: any) => ({ name: sanitizeCommerceText(a?.name, 80) ?? '', value: sanitizeCommerceText(a?.value, 160) ?? '' })).filter((a: any) => a.name),
-      specialEnds: typeof raw.special_ends === 'string' ? raw.special_ends.slice(0, 20) : null,
-      quantityDiscounts: boundedArray(raw.quantity_discounts, 5)
-        .map((d: any) => ({ minQuantity: Number(d?.min_quantity) || 0, unitPrice: this.money(d?.unit_price) }))
-        .filter((d: any): d is { minQuantity: number; unitPrice: DisplayMoney } => d.minQuantity > 1 && !!d.unitPrice),
+      description: sanitizeCommerceText(p.description, 700),
+      minimum: Math.max(1, Number(p.minimum) || 1),
+      options: list(p.options, 20).map((o) => ({
+        id: str(o.id, 20),
+        name: sanitizeCommerceText(o.name, 80) ?? '',
+        type: str(o.type, 20),
+        required: o.required === true,
+        values: list(o.values, 40).map((v) => ({
+          id: str(v.id, 20),
+          name: sanitizeCommerceText(v.name, 80) ?? '',
+          priceDelta: sanitizeCommerceText(v.price_delta, 40),
+        })).filter((v) => v.name),
+      })).filter((o) => o.name),
+      attributes: list(p.attributes, 20).map((a) => ({ name: sanitizeCommerceText(a.name, 80) ?? '', value: sanitizeCommerceText(a.value, 160) ?? '' })).filter((a) => a.name),
+      specialEnds: strOrNull(p.special_ends, 20),
+      quantityDiscounts: list(p.quantity_discounts, 5)
+        .map((d) => ({ minQuantity: Number(d.min_quantity) || 0, unitPrice: this.money(d.unit_price) }))
+        .filter((d): d is { minQuantity: number; unitPrice: DisplayMoney } => d.minQuantity > 1 && !!d.unitPrice),
     };
   }
 
-  private status(raw: any): DirectOrderStatus {
-    const category = raw?.category === 'processing' || raw?.category === 'complete' ? raw.category : 'other';
-    return { name: sanitizeCommerceText(raw?.name, 60), category };
+  private status(raw: unknown): DirectOrderStatus {
+    const s = obj(raw);
+    const category = s.category === 'processing' || s.category === 'complete' ? s.category : 'other';
+    return { name: sanitizeCommerceText(s.name, 60), category };
   }
 
-  private orderSummary(raw: any): DirectOrderSummary | null {
-    const total = this.money(raw?.total);
-    if (!raw?.id || !total) return null;
+  private orderSummary(raw: unknown): DirectOrderSummary | null {
+    const o = obj(raw);
+    const total = this.money(o.total);
+    if (!o.id || !total) return null;
     return {
-      externalId: String(raw.id).slice(0, 20),
-      createdAt: typeof raw.date_added === 'string' ? raw.date_added : null,
-      updatedAt: typeof raw.updated_at === 'string' ? raw.updated_at : null,
-      status: this.status(raw.status),
+      externalId: str(o.id, 20),
+      createdAt: strOrNull(o.date_added, 40),
+      updatedAt: strOrNull(o.updated_at, 40),
+      status: this.status(o.status),
       total,
-      itemCount: Number(raw.item_count) || 0,
+      itemCount: Number(o.item_count) || 0,
     };
   }
 
@@ -288,14 +315,14 @@ export class OpenCartConnector implements DirectCommerceConnector {
       page_size: pageSize,
     }, opts);
     return {
-      products: boundedArray(data?.products, pageSize).map((p: any) => this.summary(p)).filter((p: any): p is DirectProductSummary => !!p),
-      page: Number(data?.page) || 1,
+      products: list(data.products, pageSize).map((p) => this.summary(p)).filter((p): p is DirectProductSummary => !!p),
+      page: Number(data.page) || 1,
       pageSize,
-      hasMore: data?.has_more === true,
-      total: typeof data?.total === 'number' ? data.total : null,
-      appliedFilters: data?.applied_filters && typeof data.applied_filters === 'object' ? data.applied_filters : {},
-      unsupportedFilters: boundedArray(data?.unsupported_filters, 10).map((u: unknown) => String(u).slice(0, 60)),
-      context: this.context(data?.context),
+      hasMore: data.has_more === true,
+      total: typeof data.total === 'number' ? data.total : null,
+      appliedFilters: obj(data.applied_filters),
+      unsupportedFilters: boundedArray(Array.isArray(data.unsupported_filters) ? data.unsupported_filters : [], 10).map((u) => str(u, 60)),
+      context: this.context(data.context),
     };
   }
 
@@ -304,36 +331,36 @@ export class OpenCartConnector implements DirectCommerceConnector {
     if (!bounded.length) return { products: [], notFound: [], context: null };
     const data = await this.call(ctx, 'products/get', { ids: bounded.map(Number) }, opts);
     return {
-      products: boundedArray(data?.products, bounded.length).map((p: any) => this.detail(p)).filter((p: any): p is DirectProductDetail => !!p),
-      notFound: boundedArray(data?.not_found, bounded.length).map((id: unknown) => String(id)),
-      context: this.context(data?.context),
+      products: list(data.products, bounded.length).map((p) => this.detail(p)).filter((p): p is DirectProductDetail => !!p),
+      notFound: boundedArray(Array.isArray(data.not_found) ? data.not_found : [], bounded.length).map((id) => str(id, 20)),
+      context: this.context(data.context),
     };
   }
 
   async getReviewsDirect(ctx: CommerceConnectorContext, productExternalId: string, page: number, opts: DirectReadOptions): Promise<DirectReviewsResult> {
     const data = await this.call(ctx, 'products/reviews', { product_id: Number(productExternalId) || 0, page: Math.max(1, page), page_size: 5 }, opts);
     return {
-      productExternalId: String(data?.product_id ?? productExternalId),
-      productName: sanitizeCommerceText(data?.product_name, 200) ?? '',
-      averageRating: typeof data?.average_rating === 'number' && data.average_rating > 0 ? data.average_rating : null,
-      reviewCount: Number(data?.review_count) || 0,
-      page: Number(data?.page) || 1,
-      hasMore: data?.has_more === true,
-      reviews: boundedArray(data?.reviews, 5).map((r: any) => ({
-        author: sanitizeCommerceText(r?.author, 60) ?? '',
-        rating: Number.isFinite(Number(r?.rating)) ? Number(r.rating) : null,
+      productExternalId: str(data.product_id, 20) || productExternalId,
+      productName: sanitizeCommerceText(data.product_name, 200) ?? '',
+      averageRating: typeof data.average_rating === 'number' && data.average_rating > 0 ? data.average_rating : null,
+      reviewCount: Number(data.review_count) || 0,
+      page: Number(data.page) || 1,
+      hasMore: data.has_more === true,
+      reviews: list(data.reviews, 5).map((r) => ({
+        author: sanitizeCommerceText(r.author, 60) ?? '',
+        rating: Number.isFinite(Number(r.rating)) ? Number(r.rating) : null,
         verified: false,
-        date: String(r?.date ?? '').slice(0, 10),
-        text: sanitizeCommerceText(r?.text, 500) ?? '',
+        date: str(r.date, 10),
+        text: sanitizeCommerceText(r.text, 500) ?? '',
       })),
     };
   }
 
   async listCategories(ctx: CommerceConnectorContext, opts: DirectReadOptions) {
     const data = await this.call(ctx, 'catalog/categories', {}, opts);
-    return boundedArray(data?.categories, 30)
-      .map((c: any) => ({ id: String(c?.id ?? ''), name: sanitizeCommerceText(c?.name, 120) ?? '', url: this.storeUrl(c?.url) }))
-      .filter((c: any) => c.name);
+    return list(data.categories, 30)
+      .map((c) => ({ id: str(c.id, 20), name: sanitizeCommerceText(c.name, 120) ?? '', url: this.storeUrl(c.url) }))
+      .filter((c) => c.name);
   }
 
   private requireCustomer(customer: CustomerRef | null | undefined): CustomerRef {
@@ -344,36 +371,39 @@ export class OpenCartConnector implements DirectCommerceConnector {
   async listOrders(ctx: CommerceConnectorContext, customer: CustomerRef, page: number, opts: DirectReadOptions): Promise<Page<DirectOrderSummary>> {
     const data = await this.call(ctx, 'orders/list', { page: Math.max(1, page), page_size: 5 }, { ...opts, customer: this.requireCustomer(customer) });
     return {
-      items: boundedArray(data?.orders, OPENCART_MAX_PAGE_SIZE).map((o: any) => this.orderSummary(o)).filter((o: any): o is DirectOrderSummary => !!o),
-      page: Number(data?.page) || 1,
-      hasMore: data?.has_more === true,
-      context: this.context(data?.context),
+      items: list(data.orders, OPENCART_MAX_PAGE_SIZE).map((o) => this.orderSummary(o)).filter((o): o is DirectOrderSummary => !!o),
+      page: Number(data.page) || 1,
+      hasMore: data.has_more === true,
+      context: this.context(data.context),
     };
   }
 
   async getOrderDetail(ctx: CommerceConnectorContext, customer: CustomerRef, externalOrderId: string, opts: DirectReadOptions): Promise<DirectOrderDetail> {
     if (!/^\d{1,11}$/.test(externalOrderId)) throw new CommerceError('order_not_found', 'invalid order id');
     const data = await this.call(ctx, 'orders/get', { order_id: Number(externalOrderId) }, { ...opts, customer: this.requireCustomer(customer) });
-    const o = data?.order;
+    const o = obj(data.order);
     const summary = this.orderSummary(o);
     if (!summary) throw new CommerceError('commerce_invalid_response', 'malformed order');
+    const fallback: DisplayMoney = { amount: '0', currency: summary.total.currency, formatted: '' };
     return {
       ...summary,
-      currency: String(o.currency ?? summary.total.currency).slice(0, 10),
-      items: boundedArray(o.items, 50).map((i: any) => ({
-        productExternalId: i?.product_id ? String(i.product_id) : null,
-        name: sanitizeCommerceText(i?.name, 160) ?? '',
-        model: sanitizeCommerceText(i?.model, 64),
-        quantity: Number(i?.quantity) || 0,
-        options: boundedArray(i?.options, 8).map((x: unknown) => sanitizeCommerceText(x, 140) ?? '').filter(Boolean),
-        total: this.money(i?.total) ?? { amount: '0', currency: summary.total.currency, formatted: '' },
+      currency: str(o.currency, 10) || summary.total.currency,
+      items: list(o.items, 50).map((i) => ({
+        productExternalId: i.product_id ? str(i.product_id, 20) : null,
+        name: sanitizeCommerceText(i.name, 160) ?? '',
+        model: sanitizeCommerceText(i.model, 64),
+        quantity: Number(i.quantity) || 0,
+        options: boundedArray(Array.isArray(i.options) ? i.options : [], 8).map((x) => sanitizeCommerceText(x, 140) ?? '').filter(Boolean),
+        total: this.money(i.total) ?? fallback,
       })),
       itemsTruncated: o.items_truncated === true,
-      totals: boundedArray(o.totals, 12).map((t: any) => ({ code: String(t?.code ?? '').slice(0, 30), title: sanitizeCommerceText(t?.title, 80) ?? '', amount: this.money(t?.amount) })).filter((t: any) => t.amount),
+      totals: list(o.totals, 12)
+        .map((t) => ({ code: str(t.code, 30), title: sanitizeCommerceText(t.title, 80) ?? '', amount: this.money(t.amount) }))
+        .filter((t): t is { code: string; title: string; amount: DisplayMoney } => !!t.amount),
       shippingMethod: sanitizeCommerceText(o.shipping_method, 120),
       paymentMethod: sanitizeCommerceText(o.payment_method, 120),
       paymentStatus: 'not_reported_by_store',
-      history: boundedArray(o.history, 20).map((h: any) => ({ date: typeof h?.date === 'string' ? h.date : null, status: this.status(h?.status), comment: sanitizeCommerceText(h?.comment, 300) })),
+      history: list(o.history, 20).map((h) => ({ date: strOrNull(h.date, 40), status: this.status(h.status), comment: sanitizeCommerceText(h.comment, 300) })),
       viewUrl: this.storeUrl(o.view_url),
     };
   }
@@ -381,54 +411,55 @@ export class OpenCartConnector implements DirectCommerceConnector {
   async getTrackingDirect(ctx: CommerceConnectorContext, customer: CustomerRef, externalOrderId: string, opts: DirectReadOptions): Promise<DirectTrackingResult> {
     if (!/^\d{1,11}$/.test(externalOrderId)) throw new CommerceError('order_not_found', 'invalid order id');
     const data = await this.call(ctx, 'orders/tracking', { order_id: Number(externalOrderId) }, { ...opts, customer: this.requireCustomer(customer) });
-    const shipments = boundedArray(data?.shipments, 5).map((s: any) => ({
-      carrier: sanitizeCommerceText(s?.carrier, 80),
-      trackingNumber: sanitizeCommerceText(s?.tracking_number, 80),
+    const shipments = list(data.shipments, 5).map((s) => ({
+      carrier: sanitizeCommerceText(s.carrier, 80),
+      trackingNumber: sanitizeCommerceText(s.tracking_number, 80),
       // A carrier's tracking page is legitimately off-store; only its scheme is checked.
-      trackingUrl: typeof s?.tracking_url === 'string' && /^https?:\/\//i.test(s.tracking_url) ? s.tracking_url.slice(0, 300) : null,
-      status: sanitizeCommerceText(s?.status, 80),
-      updatedAt: typeof s?.updated_at === 'string' ? s.updated_at.slice(0, 30) : null,
-      source: sanitizeCommerceText(s?.source, 40) ?? 'extension',
+      trackingUrl: typeof s.tracking_url === 'string' && /^https?:\/\//i.test(s.tracking_url) ? s.tracking_url.slice(0, 300) : null,
+      status: sanitizeCommerceText(s.status, 80),
+      updatedAt: strOrNull(s.updated_at, 30),
+      source: sanitizeCommerceText(s.source, 40) ?? 'extension',
     }));
     return {
-      externalOrderId: String(data?.order_id ?? externalOrderId),
-      available: data?.available === true && shipments.length > 0,
-      reason: typeof data?.reason === 'string' ? data.reason.slice(0, 40) : null,
+      externalOrderId: str(data.order_id, 20) || externalOrderId,
+      available: data.available === true && shipments.length > 0,
+      reason: strOrNull(data.reason, 40),
       shipments,
-      status: this.status(data?.status),
+      status: this.status(data.status),
     };
   }
 
   async listReturns(ctx: CommerceConnectorContext, customer: CustomerRef, page: number, opts: DirectReadOptions): Promise<Page<DirectReturn>> {
     const data = await this.call(ctx, 'orders/returns', { page: Math.max(1, page), page_size: 5 }, { ...opts, customer: this.requireCustomer(customer) });
     return {
-      items: boundedArray(data?.returns, OPENCART_MAX_PAGE_SIZE).map((r: any) => ({
-        externalId: String(r?.id ?? ''),
-        orderExternalId: String(r?.order_id ?? ''),
-        product: sanitizeCommerceText(r?.product, 160) ?? '',
-        quantity: Number(r?.quantity) || 0,
-        status: sanitizeCommerceText(r?.status, 60),
-        createdAt: typeof r?.date_added === 'string' ? r.date_added : null,
+      items: list(data.returns, OPENCART_MAX_PAGE_SIZE).map((r) => ({
+        externalId: str(r.id, 20),
+        orderExternalId: str(r.order_id, 20),
+        product: sanitizeCommerceText(r.product, 160) ?? '',
+        quantity: Number(r.quantity) || 0,
+        status: sanitizeCommerceText(r.status, 60),
+        createdAt: strOrNull(r.date_added, 40),
       })),
-      page: Number(data?.page) || 1,
-      hasMore: data?.has_more === true,
-      context: this.context(data?.context),
+      page: Number(data.page) || 1,
+      hasMore: data.has_more === true,
+      context: this.context(data.context),
     };
   }
 
   /** Capability handshake (the extension's `health`). */
   async negotiateCapabilities(ctx: CommerceConnectorContext) {
     const data = await this.call(ctx, 'health', {});
+    const store = obj(data.store);
     return {
-      protocolVersion: typeof data?.protocol_version === 'string' ? data.protocol_version : 'unknown',
-      connectorVersion: typeof data?.connector_version === 'string' ? data.connector_version.slice(0, 20) : null,
-      platformVersion: typeof data?.platform_version === 'string' ? data.platform_version.slice(0, 20) : null,
-      capabilities: boundedArray(data?.capabilities, 20).filter((c: unknown): c is string => typeof c === 'string'),
-      storeUrl: typeof data?.store?.url === 'string' ? data.store.url : null,
-      storeId: data?.store?.id !== undefined ? String(data.store.id) : null,
-      storeName: sanitizeCommerceText(data?.store?.name, 120),
-      defaultCurrency: typeof data?.store?.default_currency === 'string' ? data.store.default_currency.slice(0, 10) : null,
-      policy: data?.store_policy && typeof data.store_policy === 'object' ? data.store_policy as Record<string, unknown> : {},
+      protocolVersion: str(data.protocol_version, 40) || 'unknown',
+      connectorVersion: strOrNull(data.connector_version, 20),
+      platformVersion: strOrNull(data.platform_version, 20),
+      capabilities: boundedArray(Array.isArray(data.capabilities) ? data.capabilities : [], 20).filter((c): c is string => typeof c === 'string'),
+      storeUrl: strOrNull(store.url, 500),
+      storeId: store.id !== undefined ? str(store.id, 20) : null,
+      storeName: sanitizeCommerceText(store.name, 120),
+      defaultCurrency: strOrNull(store.default_currency, 10),
+      policy: obj(data.store_policy),
     };
   }
 

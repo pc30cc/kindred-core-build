@@ -286,6 +286,38 @@ export const PLUGIN_REGISTRY: readonly PluginDefinition[] = Object.freeze([
     planModuleKey: 'commerce',
     planChannelKey: null,
   },
+  {
+    // OpenCart — a DIRECT connector: the store answers each question live
+    // through the webyar-opencart extension (plugins/webyar-opencart/); Web
+    // Yar keeps no catalogue copy, no sync and no heartbeat for it. See
+    // docs/commerce/OPENCART.md.
+    id: 'opencart',
+    slug: 'opencart',
+    version: '1.0.0',
+    category: 'commerce',
+    status: 'available',
+    capabilities: [
+      'store.read',
+      'products.read',
+      'availability.read',
+      'reviews.read',
+      'orders.read',
+      'tracking.read',
+      'returns.read',
+      'customer_context',
+      'widget.bootstrap',
+      'search.direct',
+    ],
+    workspaceInstallable: true,
+    hasSettings: true,
+    hasSecrets: true,
+    supportsInbox: false,
+    supportsAI: true,
+    supportsMedia: false,
+    supportsWebhook: false,
+    planModuleKey: 'commerce',
+    planChannelKey: null,
+  },
   comingSoon('hubspot', 'crm'),
   comingSoon('webhooks', 'developer'),
 ]);

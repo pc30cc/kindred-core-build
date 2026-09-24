@@ -17,7 +17,7 @@ import { executeAICompletion, executeAICompletionWithConfig, resolveAIConfig } f
 // `executeAICompletion` is still referenced by the GenerationStageResult type.
 import { buildSystemPrompt, buildUserPrompt } from '../prompt.js';
 import { toModelMessages } from '../conversationContext.js';
-import { postValidateAnswer } from '../policy.js';
+import { postValidateAnswer, type PostValidateContext } from '../policy.js';
 import { logRun } from '../logs.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
 import { commitNeedsHuman, routeAfterHandoff, type HandoffCommit } from '../handoffState.js';
@@ -45,6 +45,14 @@ import type { RuntimeDecisionStageResult } from './runtimeDecisionStage.js';
 import type { RetrievalStageResult } from './retrievalStage.js';
 import type { AnswerStageResult } from './answerStage.js';
 import { repairCommerceLinks, urlsFromToolResults, verifyStoreLinks } from '../commerce-tools/answerLinks.js';
+
+/** The conversation columns the action policy gate reads. */
+type GateConversationRow = {
+  workspace_id?: string | null;
+  priority?: string | null;
+  tags?: string[] | null;
+  metadata?: unknown;
+} | null;
 
 export interface GenerationStageResult {
   aiResult: Awaited<ReturnType<typeof executeAICompletion>>;
@@ -187,8 +195,8 @@ export async function runGenerationStage(
   const wsContext = await loadWorkspaceContext(config, workspaceId).catch(() => null);
   // ─── Phase 3 — enabled internal actions (canonical catalog ∩ workspace) ──
   const enabledActionNames = (runtimeCfg?.internalTools || [])
-    .filter((t: any) => t && t.enabled !== false && t.tool_type === 'internal')
-    .map((t: any) => String(t.name))
+    .filter((t) => t && t.enabled !== false && t.tool_type === 'internal')
+    .map((t) => String(t.name))
     .filter((n: string) => {
       const def = getActionDefinition(n);
       return !!def && def.executable;
@@ -302,10 +310,10 @@ export async function runGenerationStage(
     // the AI declining to answer, and it must never escalate to a human.
     // One bounded retry with a larger visible-output budget.
     const emptyOutput = !String(aiResult?.text || '').trim();
-    const lengthCapped = String((aiResult as any)?.finishReason || '') === 'length';
+    const lengthCapped = String(aiResult?.finishReason || '') === 'length';
     if (emptyOutput) {
       generationMeta.empty_first_attempt = true;
-      generationMeta.first_attempt_finish_reason = (aiResult as any)?.finishReason || null;
+      generationMeta.first_attempt_finish_reason = aiResult?.finishReason || null;
       generationMeta.first_attempt_completion_tokens = aiResult?.completionTokens ?? null;
       const retry = await executeAICompletionWithConfig(config, aiConfig, {
         workspaceId,
@@ -326,7 +334,8 @@ export async function runGenerationStage(
         decisionTimeline.push('generation_empty_retry_failed');
       }
     }
-  } catch (err: any) {
+  } catch (caught) {
+    const err = caught as { message?: string } | null;
     // Credit / plan-limit errors → human-friendly limit handoff (no LLM,
     // 0 credits, route to Needs human).
     const limitReason = detectLimitErrorReason(err?.message);
@@ -468,7 +477,7 @@ export async function runGenerationStage(
       const gate: GateContext = {
         workspaceId,
         conversationId,
-        conversationWorkspaceId: (convRow as any)?.workspace_id ?? null,
+        conversationWorkspaceId: (convRow as GateConversationRow)?.workspace_id ?? null,
         visitorMessageId,
         visitorText: question,
         enabledActionNames,
@@ -479,16 +488,16 @@ export async function runGenerationStage(
         humanTakeover: !!state?.humanTakeoverAt || !!state?.hasHumanAgentReplied,
         aiManaged: state ? state.managedByAi !== false : true,
         strictKb: !!settings.answer_only_from_kb,
-        handoffKeywords: (settings as any).handoff_keywords || [],
+        handoffKeywords: settings.handoff_keywords || [],
         // The model may propose a handoff; deterministic authorization is
         // an explicit human request (checked inside the gate), a strategy
         // handoff, or a genuine verified-information gap on this turn.
         strategyHandoffRequired:
           strategy.decisionType === 'handoff'
           || (strategy.groundingMode === 'unverified' && settings.handoff_when_no_kb_match !== false),
-        currentPriority: (convRow as any)?.priority ?? null,
-        currentTags: Array.isArray((convRow as any)?.tags) ? (convRow as any).tags : [],
-        executedKeys: readExecutedActionKeys((convRow as any)?.metadata),
+        currentPriority: (convRow as GateConversationRow)?.priority ?? null,
+        currentTags: Array.isArray((convRow as GateConversationRow)?.tags) ? (convRow as GateConversationRow).tags : [],
+        executedKeys: readExecutedActionKeys((convRow as GateConversationRow)?.metadata),
         // Model output is never authorization: deterministic side effects such
         // as add_tag require an explicit runtime/workspace-configured basis.
         // Workspace-configured workflows/routing keep tagging via their own
@@ -517,8 +526,8 @@ export async function runGenerationStage(
         read_only_results: readOnlyToolResults,
         ...pipeline.metadata,
       };
-    } catch (err: any) {
-      actionsMeta = { error: redactSecrets(err?.message) || 'action_pipeline_failed' };
+    } catch (err) {
+      actionsMeta = { error: redactSecrets((err as { message?: string } | null)?.message) || 'action_pipeline_failed' };
     }
   } else if (readOnlyToolResults.length) {
     actionsMeta = { enabled: enabledActionNames, read_only_results: readOnlyToolResults };
@@ -530,7 +539,7 @@ export async function runGenerationStage(
     strategy.decisionType === 'ask_clarifying_question'
       ? { ok: true as const }
       : postValidateAnswer(aiResult.text || '', {
-          groundingMode: strategy.groundingMode as any,
+          groundingMode: strategy.groundingMode as PostValidateContext['groundingMode'],
           escalateOnUncertainty: settings.handoff_when_no_kb_match !== false,
         });
   if (!valid.ok) {

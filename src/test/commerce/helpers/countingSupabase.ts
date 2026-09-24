@@ -8,7 +8,7 @@
  * (object or array), update, delete, eq, neq, is, in, gt, gte, lt, lte,
  * order, limit, maybeSingle, single and awaiting the builder itself.
  */
-export type Row = Record<string, any>;
+export type Row = Record<string, unknown>;
 
 export interface OpCounts {
   select: number;
@@ -34,41 +34,46 @@ export function createCountingSupabase(seed: Record<string, Row[]> = {}) {
     counts[table][op] += n;
   };
 
+  type Result = { data: unknown; error: { code?: string; message: string } | null };
+
   function from(table: string) {
     db[table] ||= [];
     const filters: Array<(r: Row) => boolean> = [];
     let mode: 'select' | 'insert' | 'update' | 'delete' = 'select';
-    let payload: any = null;
+    let payload: Row | Row[] | null = null;
     let orderBy: { col: string; asc: boolean } | null = null;
     let limitN: number | null = null;
     let returning = false;
+
+    const cmp = (a: unknown, b: unknown) => (String(a) > String(b) ? 1 : String(a) < String(b) ? -1 : 0);
 
     const matches = () => {
       let rows = db[table].filter((r) => filters.every((f) => f(r)));
       if (orderBy) {
         const { col, asc } = orderBy;
-        rows = [...rows].sort((a, b) => (a[col] > b[col] ? 1 : a[col] < b[col] ? -1 : 0) * (asc ? 1 : -1));
+        rows = [...rows].sort((a, b) => cmp(a[col], b[col]) * (asc ? 1 : -1));
       }
       if (limitN !== null) rows = rows.slice(0, limitN);
       return rows;
     };
 
-    const execute = (): { data: any; error: any } => {
+    const execute = (): Result => {
       if (mode === 'select') {
         bump(table, 'select');
         return { data: matches().map((r) => ({ ...r })), error: null };
       }
       if (mode === 'insert') {
         bump(table, 'insert');
-        const list = Array.isArray(payload) ? payload : [payload];
+        const items = Array.isArray(payload) ? payload : [payload ?? {}];
         const inserted: Row[] = [];
-        for (const item of list) {
+        for (const item of items) {
           for (const cols of uniques[table] ?? []) {
             if (db[table].some((r) => cols.every((c) => r[c] === item[c]))) {
               return { data: null, error: { code: '23505', message: 'duplicate key' } };
             }
           }
-          const row = { id: item.id ?? `row-${++seq}`, created_at: new Date(Date.now() + seq).toISOString(), verified_at: new Date(Date.now() + seq).toISOString(), ...item };
+          const stamp = new Date(Date.now() + (seq += 1)).toISOString();
+          const row: Row = { id: item.id ?? `row-${seq}`, created_at: stamp, verified_at: stamp, ...item };
           db[table].push(row);
           inserted.push(row);
         }
@@ -86,26 +91,28 @@ export function createCountingSupabase(seed: Record<string, Row[]> = {}) {
       return { data: null, error: null };
     };
 
-    const builder: any = {
+    const first = (r: Result): Result => (r.error ? r : { data: Array.isArray(r.data) ? r.data[0] ?? null : r.data, error: null });
+
+    const builder = {
       select(_cols?: string) { if (mode !== 'select') returning = true; return builder; },
-      insert(p: any) { mode = 'insert'; payload = p; return builder; },
-      upsert(p: any) { mode = 'insert'; payload = p; return builder; },
-      update(p: any) { mode = 'update'; payload = p; return builder; },
+      insert(p: Row | Row[]) { mode = 'insert'; payload = p; return builder; },
+      upsert(p: Row | Row[]) { mode = 'insert'; payload = p; return builder; },
+      update(p: Row) { mode = 'update'; payload = p; return builder; },
       delete() { mode = 'delete'; return builder; },
-      eq(c: string, v: any) { filters.push((r) => r[c] === v); return builder; },
-      neq(c: string, v: any) { filters.push((r) => r[c] !== v); return builder; },
-      is(c: string, v: any) { filters.push((r) => (r[c] ?? null) === v); return builder; },
-      in(c: string, vs: any[]) { filters.push((r) => vs.includes(r[c])); return builder; },
-      gt(c: string, v: any) { filters.push((r) => r[c] > v); return builder; },
-      gte(c: string, v: any) { filters.push((r) => r[c] >= v); return builder; },
-      lt(c: string, v: any) { filters.push((r) => r[c] < v); return builder; },
-      lte(c: string, v: any) { filters.push((r) => r[c] <= v); return builder; },
+      eq(c: string, v: unknown) { filters.push((r) => r[c] === v); return builder; },
+      neq(c: string, v: unknown) { filters.push((r) => r[c] !== v); return builder; },
+      is(c: string, v: unknown) { filters.push((r) => (r[c] ?? null) === v); return builder; },
+      in(c: string, vs: unknown[]) { filters.push((r) => vs.includes(r[c])); return builder; },
+      gt(c: string, v: unknown) { filters.push((r) => cmp(r[c], v) > 0); return builder; },
+      gte(c: string, v: unknown) { filters.push((r) => cmp(r[c], v) >= 0); return builder; },
+      lt(c: string, v: unknown) { filters.push((r) => cmp(r[c], v) < 0); return builder; },
+      lte(c: string, v: unknown) { filters.push((r) => cmp(r[c], v) <= 0); return builder; },
       not() { return builder; },
       order(col: string, o?: { ascending?: boolean }) { orderBy = { col, asc: o?.ascending !== false }; return builder; },
       limit(n: number) { limitN = n; return builder; },
-      async maybeSingle() { const r = execute(); if (r.error) return r; const d = Array.isArray(r.data) ? r.data[0] ?? null : r.data; return { data: d, error: null }; },
-      async single() { const r = execute(); if (r.error) return r; const d = Array.isArray(r.data) ? r.data[0] ?? null : r.data; return { data: d, error: d ? null : { message: 'no rows' } }; },
-      then(resolve: any, reject: any) { try { resolve(execute()); } catch (e) { reject(e); } },
+      async maybeSingle(): Promise<Result> { return first(execute()); },
+      async single(): Promise<Result> { const r = first(execute()); return r.error || r.data ? r : { data: null, error: { message: 'no rows' } }; },
+      then(resolve: (r: Result) => unknown, reject: (e: unknown) => unknown) { try { return resolve(execute()); } catch (e) { return reject(e); } },
     };
     return builder;
   }

@@ -19,7 +19,7 @@ import {
   siHubspot,
   siGmail,
 } from 'simple-icons';
-import { Plug, Webhook, MessageSquare, Mail, Smartphone } from 'lucide-react';
+import { Plug, Webhook, MessageSquare, Mail, Smartphone, ShoppingCart } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type SimpleIcon = { path: string; hex: string; title: string };
@@ -97,6 +97,8 @@ const MARKS: Record<string, Mark> = {
   sms: { hex: '0EA5E9', fallback: Smartphone },
   shopify: si(siShopify),
   woocommerce: si(siWoocommerce),
+  // simple-icons ships no OpenCart mark; a generic cart in OpenCart's blue.
+  opencart: { hex: '23A1D1', fallback: ShoppingCart },
   hubspot: si(siHubspot),
   webhooks: { hex: '475569', fallback: Webhook },
   default: { hex: '64748B', fallback: Plug },

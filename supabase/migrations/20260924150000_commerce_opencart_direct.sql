@@ -23,6 +23,9 @@
 -- commerce_pairing_requests
 --   external_store_id / store_url / platform_version carried from register to
 --   exchange, so the connection is created for exactly the store that asked.
+--   permissions: what the owner ticked on the consent screen. It was
+--   accepted by /approve but never stored, so every new connection started
+--   with the column default instead of the owner's choice.
 --
 -- commerce_customer_links (existing identity link, now updated in place)
 --   session_ref        opaque, store-encrypted reference to the OpenCart
@@ -44,6 +47,7 @@ ALTER TABLE public.commerce_connections ADD COLUMN IF NOT EXISTS last_health_che
 ALTER TABLE public.commerce_pairing_requests ADD COLUMN IF NOT EXISTS external_store_id text;
 ALTER TABLE public.commerce_pairing_requests ADD COLUMN IF NOT EXISTS store_url text;
 ALTER TABLE public.commerce_pairing_requests ADD COLUMN IF NOT EXISTS platform_version text;
+ALTER TABLE public.commerce_pairing_requests ADD COLUMN IF NOT EXISTS permissions jsonb;
 
 ALTER TABLE public.commerce_customer_links ADD COLUMN IF NOT EXISTS session_ref text;
 ALTER TABLE public.commerce_customer_links ADD COLUMN IF NOT EXISTS customer_group_id text;

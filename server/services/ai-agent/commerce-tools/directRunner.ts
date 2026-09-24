@@ -32,6 +32,7 @@ import {
   CommerceError,
   isDirectConnector,
   type CommerceCapability,
+  type CommerceConnectorContext,
   type CommerceErrorCode,
   type CustomerRef,
   type DirectCommerceConnector,
@@ -100,15 +101,29 @@ function emptyRefs(connectionId: string, subject: string): CommerceRefs {
   return { v: 1, connection_id: connectionId, subject, last: null, products: [], search: null, orders: [], orders_page: 1, orders_has_more: false, urls: [] };
 }
 
+type Loose = Record<string, unknown>;
+
+function loose(v: unknown): Loose {
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Loose) : {};
+}
+
 function readRefs(metadata: unknown, connectionId: string, subject: string): CommerceRefs {
-  const raw = (metadata as any)?.[REFS_KEY];
-  if (!raw || raw.v !== 1 || raw.connection_id !== connectionId) return emptyRefs(connectionId, subject);
+  const raw = loose(loose(metadata)[REFS_KEY]);
+  if (raw.v !== 1 || raw.connection_id !== connectionId) return emptyRefs(connectionId, subject);
+  const search = loose(raw.search);
   const refs: CommerceRefs = {
     ...emptyRefs(connectionId, subject),
     last: raw.last === 'products' || raw.last === 'orders' ? raw.last : null,
     products: Array.isArray(raw.products) ? raw.products.map(String).slice(0, MAX_REF_IDS) : [],
-    search: raw.search && typeof raw.search === 'object' ? raw.search : null,
-    urls: Array.isArray(raw.urls) ? raw.urls.filter((u: unknown) => typeof u === 'string').slice(0, MAX_REF_URLS) : [],
+    search: Array.isArray(search.terms)
+      ? {
+        terms: search.terms.map(String).slice(0, 6),
+        max_price: typeof search.max_price === 'string' ? search.max_price : null,
+        page: Number(search.page) || 1,
+        has_more: search.has_more === true,
+      }
+      : null,
+    urls: Array.isArray(raw.urls) ? raw.urls.filter((u: unknown): u is string => typeof u === 'string').slice(0, MAX_REF_URLS) : [],
   };
   // Another customer (or signed out): their order ids are not this subject's.
   if (raw.subject === subject) {
@@ -123,7 +138,7 @@ function readRefs(metadata: unknown, connectionId: string, subject: string): Com
 
 function stable(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
-  if (value && typeof value === 'object') return `{${Object.keys(value as object).sort().map((k) => `${k}:${stable((value as any)[k])}`).join(',')}}`;
+  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map((k) => `${k}:${stable((value as Loose)[k])}`).join(',')}}`;
   return JSON.stringify(value ?? null);
 }
 
@@ -153,8 +168,9 @@ export async function runDirectCommerceStage(config: ServerConfig, input: Direct
   let metadata: Record<string, unknown> = {};
   if (input.conversationId) {
     const { data: conv } = await sb.from('conversations').select('visitor_session_id, metadata').eq('id', input.conversationId).eq('workspace_id', input.workspaceId).maybeSingle();
-    visitorId = (conv as any)?.visitor_session_id ?? null;
-    metadata = ((conv as any)?.metadata ?? {}) as Record<string, unknown>;
+    const row = loose(conv);
+    visitorId = typeof row.visitor_session_id === 'string' ? row.visitor_session_id : null;
+    metadata = loose(row.metadata);
   }
   let customer: CustomerRef | null = null;
   let customerGroup: string | null = null;
@@ -168,10 +184,10 @@ export async function runDirectCommerceStage(config: ServerConfig, input: Direct
       .order('verified_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    const l = link as any;
-    historyCutoffAt = l?.private_cutoff_at ?? null;
-    if (l && l.session_ref && new Date(l.expires_at).getTime() > Date.now()) {
-      customer = { externalCustomerId: String(l.external_customer_id), sessionRef: String(l.session_ref) };
+    const l = loose(link);
+    historyCutoffAt = typeof l.private_cutoff_at === 'string' ? l.private_cutoff_at : null;
+    if (typeof l.session_ref === 'string' && l.session_ref && new Date(String(l.expires_at)).getTime() > Date.now()) {
+      customer = { externalCustomerId: String(l.external_customer_id), sessionRef: l.session_ref };
       customerGroup = l.customer_group_id ? String(l.customer_group_id) : null;
     }
   }
@@ -184,7 +200,7 @@ export async function runDirectCommerceStage(config: ServerConfig, input: Direct
   const customerKey = customer ? `c:${customer.externalCustomerId}:g${customerGroup ?? '?'}` : 'guest';
 
   // ── the one path to the store ─────────────────────────────────────────
-  const live = async <T>(tool: string, capability: CommerceCapability, permission: CommercePermissionKey, run: (c: DirectCommerceConnector, ctx: any, onMeta: (m: DirectReadMeta) => void) => Promise<T>): Promise<T | null> => {
+  const live = async <T>(tool: string, capability: CommerceCapability, permission: CommercePermissionKey, run: (c: DirectCommerceConnector, ctx: CommerceConnectorContext, onMeta: (m: DirectReadMeta) => void) => Promise<T>): Promise<T | null> => {
     if (meta.storeCalls >= MAX_COMMERCE_CALLS_PER_TURN || Date.now() >= deadlineAt) {
       results.push({ name: tool, data: { error_code: 'turn_budget_exhausted' } });
       return null;
@@ -219,7 +235,7 @@ export async function runDirectCommerceStage(config: ServerConfig, input: Direct
    * reference that the store answered as a guest can never be cached as that
    * customer's (or group's) prices, and the reverse.
    */
-  const publicRead = async <T extends { context?: StoreContext | null }>(tool: string, capability: CommerceCapability, permission: CommercePermissionKey, input_: unknown, ttl: number, fresh: boolean, run: (c: DirectCommerceConnector, ctx: any, onMeta: (m: DirectReadMeta) => void) => Promise<T>, contextFree = false): Promise<T | null> => {
+  const publicRead = async <T extends { context?: StoreContext | null }>(tool: string, capability: CommerceCapability, permission: CommercePermissionKey, input_: unknown, ttl: number, fresh: boolean, run: (c: DirectCommerceConnector, ctx: CommerceConnectorContext, onMeta: (m: DirectReadMeta) => void) => Promise<T>, contextFree = false): Promise<T | null> => {
     const base = [connection.id, connection.installation_id, connection.external_store_id ?? '', tool, language ?? '', stable(input_)].join('|');
     // Reviews and categories carry no price or stock: one entry serves everyone.
     const key = `${base}|${contextFree ? 'any' : customerKey}`;
@@ -244,7 +260,7 @@ export async function runDirectCommerceStage(config: ServerConfig, input: Direct
     return value;
   };
 
-  const searchFilters = (text: string, maxPrice?: string | null) => ({
+  const searchFilters = (text: string, maxPrice?: string | null): { terms: string[]; maxPrice?: string } => ({
     terms: buildSearchTerms(text).slice(0, 6),
     ...(maxPrice ? { maxPrice } : {}),
   });
@@ -358,7 +374,7 @@ export async function runDirectCommerceStage(config: ServerConfig, input: Direct
     addProducts('commerce.search_products', r.products, r.page, (r.page - 1) * DIRECT_PAGE_SIZE);
     if (!r.products.length) results.push({ name: 'commerce.search_products', data: { error_code: 'product_not_found', searched_terms: (filters.terms ?? []).join(' ') } });
     addSearchMeta(r);
-    refs.search = { terms: filters.terms ?? [], max_price: (filters as any).maxPrice ?? null, page: r.page, has_more: r.hasMore };
+    refs.search = { terms: filters.terms ?? [], max_price: 'maxPrice' in filters ? filters.maxPrice ?? null : null, page: r.page, has_more: r.hasMore };
     return r;
   };
 
@@ -476,7 +492,7 @@ async function persistRefs(config: ServerConfig, workspaceId: string, conversati
   const sb = getServiceClient(config);
   const { data } = await sb.from('conversations').select('metadata').eq('id', conversationId).eq('workspace_id', workspaceId).maybeSingle();
   if (!data) return;
-  const current = ((data as any).metadata || {}) as Record<string, unknown>;
+  const current = loose(loose(data).metadata);
   await sb.from('conversations').update({ metadata: { ...current, [REFS_KEY]: refs } }).eq('id', conversationId).eq('workspace_id', workspaceId);
 }
 

@@ -17,6 +17,7 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { writeFileSync } from 'node:fs';
 import { createCountingSupabase } from './helpers/countingSupabase';
+import type { ServerConfig } from '../../../server/config.js';
 
 const BASE = process.env.OPENCART_E2E_BASE || '';
 const BASE1 = process.env.OPENCART_E2E_BASE1 || '';
@@ -41,7 +42,7 @@ let contactUpserts = 0;
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fake.client }));
 vi.mock('../../../shared/net/hostGuard.js', async (orig) => ({
-  ...(await orig<any>()),
+  ...(await orig<typeof import('../../../shared/net/hostGuard.js')>()),
   // TEST ONLY: the local store lives on 127.0.0.1, which production refuses.
   checkOutboundUrl: async () => ({ ok: true }),
 }));
@@ -56,7 +57,7 @@ vi.mock('../../../server/services/widget/anonymousContact.js', () => ({
   ensureVisitorContact: async () => { contactUpserts += 1; return null; },
 }));
 
-const CONFIG: any = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', selfHostBillingUnlimited: true, complianceAuditLoggingEnabled: true };
+const CONFIG = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', selfHostBillingUnlimited: true, complianceAuditLoggingEnabled: true } as unknown as ServerConfig;
 const PERMISSIONS = { products: true, prices: true, stock: true, orders: true, order_status: true, tracking: true, customer_history: true, reviews: true, coupons: false };
 
 function connection(id: string, inst: string, base: string, storeId: string) {
@@ -99,7 +100,8 @@ async function contextAssertion(base: string, cookie: string): Promise<{ asserti
   return { assertion: JSON.parse(text).assertion, bytes: Buffer.byteLength(text) };
 }
 
-const report: any[] = [];
+type ReportRow = Record<string, unknown> & { scenario: string; storeHttpCalls: number; ms: number };
+const report: ReportRow[] = [];
 
 run('OpenCart live store, end to end', () => {
   let runStage: typeof import('../../../server/services/ai-agent/commerce-tools/runner.js').runCommerceToolStage;
@@ -110,8 +112,8 @@ run('OpenCart live store, end to end', () => {
   let metrics: typeof import('../../../server/services/commerce/metrics.js');
 
   beforeAll(async () => {
-    globalThis.fetch = (async (input: any, init?: any) => {
-      const url = typeof input === 'string' ? input : input.url;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (url.includes('webyar') && url.includes('api')) storeCalls += 1;
       const res = await realFetch(input, init);
       return res;
@@ -140,7 +142,7 @@ run('OpenCart live store, end to end', () => {
     const result = await fn();
     const ms = Math.round(performance.now() - started);
     const ops = fake.total();
-    const direct = (result as any)?.directMeta;
+    const direct = (result as { directMeta?: Record<string, number> } | null)?.directMeta;
     report.push({
       scenario,
       storeHttpCalls: storeCalls,
@@ -158,11 +160,12 @@ run('OpenCart live store, end to end', () => {
   }
 
   const ask = (question: string, locale = 'en') => runStage(CONFIG, { workspaceId: WS, conversationId: CONV, question, locale });
-  const rows = (r: any, name: string) => (r.toolResults as any[]).filter((t) => t.name === name).map((t) => t.data);
+  type ToolRow = Record<string, unknown>;
+  const rows = (r: { toolResults: Array<{ name: string; data: ToolRow }> }, name: string): ToolRow[] => r.toolResults.filter((t) => t.name === name).map((t) => t.data);
 
   it('handshake (connect / manual check) marks the store connected with its real capabilities', async () => {
     await measure('handshake (pairing / manual check)', () => handshake(CONFIG, CONN0));
-    const c = fake.db.commerce_connections.find((r: any) => r.id === CONN0);
+    const c = fake.db.commerce_connections.find((r) => r.id === CONN0);
     expect(c.health).toBe('connected');
     expect(c.capabilities).toContain('search.direct');
     expect(c.platform_version).toBe(VERSION);
@@ -236,7 +239,7 @@ run('OpenCart live store, end to end', () => {
   it('the customer sees their own orders, then the latest one’s details and tracking', async () => {
     const list = await measure('order list (signed in)', () => ask('show my orders'));
     const orders = rows(list, 'commerce.customer_orders');
-    expect(orders.map((o: any) => o.order_id)).toEqual(['5002', '5001']);
+    expect(orders.map((o) => o.order_id)).toEqual(['5002', '5001']);
     expect(orders[0].status).toBe('Packed for courier');
     expect(orders[0].status_category).toBe('other');
     const detail = await measure('order details + tracking (follow-up)', () => ask('has the second one been shipped? tracking?'));
@@ -255,7 +258,7 @@ run('OpenCart live store, end to end', () => {
   it('after logout the store refuses the old session; nothing cached is shown', async () => {
     await storefrontLogout(BASE, aliCookie);
     const r = await measure('orders after logout', () => ask('show my orders'));
-    expect(rows(r, 'commerce.customer_orders').filter((o: any) => o.order_id)).toEqual([]);
+    expect(rows(r, 'commerce.customer_orders').filter((o) => o.order_id)).toEqual([]);
     expect(JSON.stringify(r.toolResults)).toContain('identity_expired');
     expect(JSON.stringify(r.toolResults)).not.toContain('5002');
   });
@@ -266,7 +269,7 @@ run('OpenCart live store, end to end', () => {
     const b = await measure('account switch (bind other customer)', () => bind(CONFIG, WS, CONN0, VISITOR, a.assertion!, { requestOrigin: new URL(BASE).origin }), (r) => ({ outcome: r.outcome }));
     expect(b.outcome).toBe('switched');
     const r = await measure('orders after account switch', () => ask('show my orders'));
-    expect(rows(r, 'commerce.customer_orders').map((o: any) => o.order_id)).toEqual(['5005']);
+    expect(rows(r, 'commerce.customer_orders').map((o) => o.order_id)).toEqual(['5005']);
     expect(r.historyCutoffAt).toBeTruthy();
     // Bita's group prices, never Ali's or a guest's cached ones.
     const priced = await measure('search as wholesale customer (group price)', () => ask('do you have iphone?'));
@@ -283,7 +286,7 @@ run('OpenCart live store, end to end', () => {
 
   it('a hanging store costs one deadline, at most one retry, then the circuit opens', async () => {
     if (!SLOW_BASE) return;
-    const caps = fake.db.commerce_connections.find((c: any) => c.id === CONN0)?.capabilities ?? [];
+    const caps = fake.db.commerce_connections.find((c) => c.id === CONN0)?.capabilities ?? [];
     fake.db.commerce_connections = [{ ...connection(CONN_SLOW, INST0, SLOW_BASE, '0'), health: 'connected', capabilities: caps }];
     guard.publicCache.clear();
     const r = await measure('store timeout', () => runStage(CONFIG, { workspaceId: WS, conversationId: null, question: 'do you have nothing-like-this?', locale: 'en' }));

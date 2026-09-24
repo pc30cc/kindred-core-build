@@ -329,7 +329,8 @@ export async function resolveConversationConnection(
   let visitorId = hints.visitorId ?? null;
   if (!visitorId && hints.conversationId) {
     const { data: conv } = await sb.from('conversations').select('visitor_session_id').eq('id', hints.conversationId).eq('workspace_id', workspaceId).maybeSingle();
-    visitorId = (conv as any)?.visitor_session_id ?? null;
+    const convRow = (conv ?? {}) as { visitor_session_id?: string | null };
+    visitorId = convRow.visitor_session_id ?? null;
   }
   if (visitorId) {
     const { data: link } = await sb
@@ -341,7 +342,8 @@ export async function resolveConversationConnection(
       .order('verified_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    const linked = rows.find((r) => r.id === (link as any)?.connection_id);
+    const linkedId = ((link ?? {}) as { connection_id?: string }).connection_id;
+    const linked = rows.find((r) => r.id === linkedId);
     if (linked) return linked;
   }
 

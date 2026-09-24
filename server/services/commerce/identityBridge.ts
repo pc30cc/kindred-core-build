@@ -278,14 +278,14 @@ async function resolveConnection(
     .is('revoked_at', null);
   if (connectionId) {
     const { data } = await base().eq('id', connectionId).maybeSingle();
-    return (data as any) ?? null;
+    return (data as { id: string; installation_id: string; provider_type?: string; external_store_id?: string | null; approved_origin?: string } | null) ?? null;
   }
   // With several stores in one workspace the installation named in the
   // payload picks the row (its secret is still what verifies the signature);
   // otherwise the newest row, exactly as before.
   if (installationId) {
     const { data: byInstallation } = await base().eq('installation_id', installationId).order('created_at', { ascending: false }).limit(1).maybeSingle();
-    if (byInstallation) return byInstallation as any;
+    if (byInstallation) return byInstallation as { id: string; installation_id: string; provider_type?: string; external_store_id?: string | null; approved_origin?: string };
   }
   const { data } = await base().order('created_at', { ascending: false }).limit(1).maybeSingle();
   return (data as { id: string; installation_id: string; provider_type?: string; external_store_id?: string | null; approved_origin?: string } | null) ?? null;

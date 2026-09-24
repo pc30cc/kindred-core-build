@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/build-smart-engine.mjs && node scripts/build-woocommerce-plugin-zip.mjs && vite build && node scripts/widget-hash.js && node scripts/call-widget-hash.js",
+    "build": "node scripts/build-smart-engine.mjs && node scripts/build-woocommerce-plugin-zip.mjs && node scripts/build-opencart-plugin-zip.mjs && vite build && node scripts/widget-hash.js && node scripts/call-widget-hash.js",
     "build:woocommerce-plugin-zip": "node scripts/build-woocommerce-plugin-zip.mjs",
+    "build:opencart-plugin-zip": "node scripts/build-opencart-plugin-zip.mjs",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "lint:changed": "node scripts/lint-changed.mjs",

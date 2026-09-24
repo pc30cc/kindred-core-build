@@ -4,7 +4,7 @@
  * goes through authorizeWorkspaceAccess; every DB query is scoped by
  * workspaceId. No route here ever returns a decrypted secret.
  */
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
@@ -22,8 +22,8 @@ import { isDirectProvider, providerProfile } from '../../services/commerce/provi
 
 export const commerceConnectionsRouter = Router({ mergeParams: true });
 
-function serverConfigOf(req: any): ServerConfig {
-  return req.serverConfig as ServerConfig;
+function serverConfigOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
 }
 
 const CONNECTION_FIELDS =
@@ -107,7 +107,8 @@ commerceConnectionsRouter.post('/:workspaceId/commerce/connections/:connectionId
   if (isDirectProvider(connection.provider_type)) {
     const sb = getServiceClient(config);
     const { data } = await sb.from('commerce_connections').select('last_health_check_at').eq('id', connection.id).maybeSingle();
-    const last = (data as any)?.last_health_check_at ? new Date((data as any).last_health_check_at).getTime() : 0;
+    const lastCheckAt = (data as { last_health_check_at?: string | null } | null)?.last_health_check_at;
+    const last = lastCheckAt ? new Date(lastCheckAt).getTime() : 0;
     if (Date.now() - last < MANUAL_CHECK_MIN_INTERVAL_MS) {
       return res.status(429).json({ error: 'check_rate_limited', retryAfterSeconds: Math.ceil((MANUAL_CHECK_MIN_INTERVAL_MS - (Date.now() - last)) / 1000) });
     }

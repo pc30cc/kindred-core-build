@@ -9,8 +9,11 @@ WHMCS version), HTTPS on the WHMCS System URL.
 2. WHMCS admin → System Settings → Addon Modules → "Web Yar" → Activate.
    Then "Configure" → Access Control: tick the admin roles that may manage it.
 3. Addons → Web Yar:
-   - enter your Web Yar URL (and the API URL if yours is separate), Save;
+   - configure WEBYAR_APP_URL in the WHMCS PHP environment and optionally
+     WEBYAR_API_URL if the API has a separate host (restart PHP-FPM);
    - click "Connect to Web Yar", choose the workspace, approve.
+   - existing installations keep their previously saved URL as a fallback.
+     URLs are displayed to administrators but cannot be changed in this page.
 4. In Web Yar → Plugins → WHMCS, turn on the sections the assistant may read
    (services, domains, invoices, orders, tickets). Private sections start OFF.
 

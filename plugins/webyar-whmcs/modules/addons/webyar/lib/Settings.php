@@ -121,13 +121,15 @@ final class Settings
 
     public static function appUrl()
     {
-        return rtrim((string) self::get('webyar_url'), '/');
+        $configured = getenv('WEBYAR_APP_URL');
+        return rtrim($configured !== false && $configured !== '' ? $configured : (string) self::get('webyar_url'), '/');
     }
 
     /** API base; falls back to the app URL (the documented single-host deployment). */
     public static function apiUrl()
     {
-        $api = rtrim((string) self::get('api_url'), '/');
+        $configured = getenv('WEBYAR_API_URL');
+        $api = rtrim($configured !== false && $configured !== '' ? $configured : (string) self::get('api_url'), '/');
         return $api !== '' ? $api : self::appUrl();
     }
 

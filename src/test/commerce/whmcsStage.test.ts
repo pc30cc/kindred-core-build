@@ -30,7 +30,7 @@ vi.mock('../../../server/services/commerce/credentials.js', () => ({
 vi.mock('../../../server/middleware/featureGating.js', () => ({ checkEntitlementFromDB: async () => ({ allowed: true }) }));
 vi.mock('../../../server/services/observability/metrics.js', () => ({ emitMetric: (_c: unknown, e: Record<string, unknown>) => { metrics.push(e); } }));
 
-const { runWhmcsToolStage, MAX_WHMCS_EVIDENCE_BYTES } = await import('../../../server/services/ai-agent/commerce-tools/whmcsRunner.js');
+const { runWhmcsToolStage, MAX_WHMCS_EVIDENCE_BYTES, __resetWhmcsPolicyForTests } = await import('../../../server/services/ai-agent/commerce-tools/whmcsRunner.js');
 const { renderToolResults } = await import('../../../server/services/ai-agent/actions/readOnly.js');
 const { WhmcsConnector } = await import('../../../server/services/commerce/connectors/whmcs.js');
 const { __resetWhmcsRuntimeForTests } = await import('../../../server/services/commerce/whmcs/gateway.js');
@@ -79,7 +79,7 @@ async function ask(label: string, input: Partial<StageInput>): Promise<StageResu
     connectorFactory: (t) => new WhmcsConnector(t, whmcs.requester),
     ...input,
   });
-  await new Promise((r) => setTimeout(r, 0)); // let fire-and-forget audit/health writes land
+  await new Promise((r) => setTimeout(r, 0)); // let fire-and-forget health writes land
   const ops = opSummary(db);
   report.push({
     scenario: label,
@@ -99,6 +99,7 @@ const status = (r: StageResult) => rows(r, 'whmcs.status')[0] as { error_code?: 
 
 beforeEach(() => {
   __resetWhmcsRuntimeForTests();
+  __resetWhmcsPolicyForTests();
   metrics.length = 0;
   seed();
   whmcs = createFakeWhmcs(SECRET, INSTALL);
@@ -110,6 +111,15 @@ afterAll(() => {
   const cols = ['scenario', 'whmcs_http', 'db_select', 'db_insert', 'db_update', 'bytes_in', 'evidence_bytes', 'ms_mocked'];
   const lines = [cols.join(' | '), cols.map(() => '---').join(' | '), ...report.map((r) => cols.map((c) => String(r[c])).join(' | '))];
   console.log(`\nWHMCS stage — per-turn cost added on top of the existing chat pipeline (measured with counting fakes)\n${lines.join('\n')}\n`);
+});
+
+describe('Super Admin master switch', () => {
+  it('stops WHMCS AI reads before any merchant request when disabled', async () => {
+    db.tables.plugin_platform_state = [{ plugin_id: 'whmcs', enabled: false, maintenance_mode: false, policy: {} }];
+    const result = await ask('platform disabled', { question: 'show my services' });
+    expect(result.toolsUsed).toEqual([]);
+    expect(whmcs.calls).toHaveLength(0);
+  });
 });
 
 describe('what costs nothing', () => {
@@ -249,10 +259,10 @@ describe('selection with WooCommerce in the same workspace (scenario 9) and no c
   });
 });
 
-describe('audit and metrics volume', () => {
-  it('one summary audit row and one metric event per account turn — never one per call', async () => {
+describe('metrics without database audit writes', () => {
+  it('emits a metric without inserting a tool audit row', async () => {
     await ask('follow-up audit check', { question: 'فاکتور 1001 رو نشون بده' });
-    expect(db.count('insert', 'commerce_tool_audit')).toBe(1);
+    expect(db.count('insert', 'commerce_tool_audit')).toBe(0);
     expect(metrics).toHaveLength(1);
     expect(metrics[0]).toMatchObject({ metric: 'commerce_whmcs_turn' });
   });
@@ -273,7 +283,7 @@ describe('empty account lists are successful evidence', () => {
     expect(status(r)).toBeUndefined();
     expect(rows(r, 'whmcs.empty')).toEqual([expect.objectContaining({ resource, count: 0 })]);
     expect(r.directive).toContain('not an authentication or connection failure');
-    expect(db.tables.commerce_tool_audit[0]).toMatchObject({ success: true, safe_error_code: null, result_count: 0 });
+    expect(db.count('insert', 'commerce_tool_audit')).toBe(0);
     expect(whmcs.calls).toHaveLength(1);
   });
 });

@@ -101,10 +101,10 @@ expected values.
 Installed apps update through Sparkle from `pc30cc/mac-os`, a public
 repository: `appcast.xml` at its root and `releases/<version>/` with the zip
 Sparkle downloads and the DMG people download. The app itself carries no
-feed address: Super Admin → macOS app tells it where the appcast is (this
-repository's, by default), as it tells it the channel and the DMG link, so
-the feed can move without a new build. Until the platform first answers
-(or when it cannot be reached and no earlier answer is remembered) the app
+feed address and never reuses a remembered one: Super Admin → macOS app
+tells it where the appcast is (this repository's, by default) on every
+launch, as it tells it the channel and the DMG link, so the feed can move
+without a new build. Until the platform has answered in a launch, the app
 does not look for updates. Every update is signed
 with an EdDSA key; its public half is `SPARKLE_PUBLIC_KEY` in `project.yml`,
 so the apps refuse anything signed with another key.

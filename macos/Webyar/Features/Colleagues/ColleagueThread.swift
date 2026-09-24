@@ -153,28 +153,13 @@ struct TeamMessagesView: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(model.rows) { row in
-                        TeamMessageRow(row: row, peer: peer)
-                            .id(row.id)
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity)
-            }
-            .defaultScrollAnchor(.bottom)
-            // Bubbles sit left/right physically, as the web thread; text inside follows its
-            // own direction. Set on the scroll view itself: a right-to-left scroll view around
-            // left-to-right content draws it shifted sideways.
-            .environment(\.layoutDirection, .leftToRight)
-            .overlay { emptyOverlay }
-            .onChange(of: model.rows.last?.id) { _, id in
-                if let id { withAnimation(.smooth(duration: 0.25)) { proxy.scrollTo(id, anchor: .bottom) } }
+        PinnedMessageList(threadId: peer.userId, lastId: model.rows.last?.id, sentCount: model.sentCount, isEmpty: model.rows.isEmpty) {
+            ForEach(model.rows) { row in
+                TeamMessageRow(row: row, peer: peer)
+                    .id(row.id)
             }
         }
+        .overlay { emptyOverlay }
     }
 
     @ViewBuilder private var emptyOverlay: some View {

@@ -161,17 +161,18 @@ final class AppModel {
         if let fetched = await MacAppConfig.fetch(client) {
             // Sample mode shares this Mac's defaults with the real app: keep nothing of its make-believe platform.
             if !Self.isSample { MacAppConfig.remember(fetched.raw) }
-            applyPlatform(fetched.config)
+            applyPlatform(fetched.config, live: true)
             applyFirstLaunchDefaults()
         } else {
-            applyPlatform(config)
+            applyPlatform(config, live: false)
         }
         schedulePlatformRefresh()
     }
 
-    private func applyPlatform(_ next: MacAppConfig) {
+    /// `live`: the platform answered just now, rather than this being the answer remembered from before.
+    private func applyPlatform(_ next: MacAppConfig, live: Bool) {
         if next != config { config = next }
-        updates.configure(config.update)
+        updates.configure(config.update, live: live)
         applySystemIntegration()
         // A section the platform just switched off: back to the inbox, and no ringing for a desk that is gone.
         if !isAllowed(route) { route = .inbox(.open) }

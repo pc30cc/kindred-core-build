@@ -192,7 +192,7 @@ struct UpdateSettings: Sendable, Equatable {
     /// Why this build may not keep running.
     enum Requirement: Sendable, Equatable { case none, belowMinimum, blocked }
 
-    /// The Sparkle appcast, from Super Admin; nil until the platform has answered.
+    /// The Sparkle appcast, from Super Admin. The updater takes it only from a live answer.
     var appcastUrl: String?
     /// "stable" or "beta".
     var channel: String

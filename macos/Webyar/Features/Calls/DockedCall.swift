@@ -30,11 +30,6 @@ struct DockedCallPanel: View {
         .callDebugHooks(call) { what in
             if what == "notes" { showNotes.toggle() } else if what == "transfer" { showTransfer.toggle() }
         }
-        #if DEBUG
-        .onChange(of: showNotes) { _, on in
-            Log.write("[call] panel notes \(on)\n" + Thread.callStackSymbols.prefix(30).joined(separator: "\n"))
-        }
-        #endif
     }
 
     // MARK: Video: the picture, the controls over it

@@ -268,6 +268,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/210_admin_inventory_rpc_service_role_only.sql',
     hosted: 'supabase/migrations/20260923190000_admin_inventory_rpc_service_role_only.sql',
   },
+  {
+    label: '212 — WHMCS connector: additive link/pairing/connection columns',
+    selfHost: 'database/migrations/212_commerce_whmcs.sql',
+    hosted: 'supabase/migrations/20260924130000_commerce_whmcs.sql',
+  },
 
   // intentionally asymmetric, not a drift bug.
 

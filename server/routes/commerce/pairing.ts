@@ -7,7 +7,7 @@
  * (there is nothing to sign with yet). /:state and /:state/approve are
  * called from the authenticated Web Yar frontend (the "authorize" page).
  */
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
@@ -24,8 +24,8 @@ import { enqueueSyncJob } from '../../services/commerce/sync.js';
 
 export const commercePairingRouter = Router();
 
-function serverConfigOf(req: any): ServerConfig {
-  return req.serverConfig as ServerConfig;
+function serverConfigOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig: ServerConfig }).serverConfig;
 }
 
 // Pairing is a low-volume, security-sensitive flow — bound attempts hard.
@@ -34,8 +34,12 @@ const pairingLimiter = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: t
 const registerSchema = z.object({
   state: z.string().min(16).max(200),
   codeChallenge: z.string().min(32).max(200),
-  redirectUri: z.string().url(),
-  storeOrigin: z.string().url(),
+  redirectUri: z.string().url().max(500),
+  storeOrigin: z.string().url().max(300),
+  // Optional so every WooCommerce plugin build ever shipped keeps pairing
+  // exactly as before; the WHMCS addon names itself and its base URL.
+  provider: z.enum(['woocommerce', 'whmcs']).optional(),
+  storeBaseUrl: z.string().url().max(300).optional(),
 }).strict();
 
 commercePairingRouter.post('/register', pairingLimiter, async (req, res) => {
@@ -47,8 +51,8 @@ commercePairingRouter.post('/register', pairingLimiter, async (req, res) => {
     // marks every field optional (a known zod/TS interaction), which fails
     // assignability against registerPairingRequest's required-field
     // signature even though every field is validated non-empty above.
-    const { state, codeChallenge, redirectUri, storeOrigin } = parsed.data;
-    const result = await registerPairingRequest(serverConfigOf(req), { state, codeChallenge, redirectUri, storeOrigin });
+    const { state, codeChallenge, redirectUri, storeOrigin, provider, storeBaseUrl } = parsed.data;
+    const result = await registerPairingRequest(serverConfigOf(req), { state, codeChallenge, redirectUri, storeOrigin, provider, storeBaseUrl });
     res.json({ ok: true, expiresAt: result.expiresAt });
   } catch (err) {
     if (err instanceof PairingError) return res.status(400).json({ error: err.code, message: err.message });
@@ -126,8 +130,13 @@ commercePairingRouter.post('/exchange', pairingLimiter, async (req, res) => {
     // moves health to 'connected', then the bounded initial sync begins.
     // Neither blocks the plugin's activation request on a network round trip
     // (spec §64 — pairing → handshake → initial sync → catalog_ready).
+    //
+    // A live-queried provider (WHMCS) has no catalogue index, so nothing is
+    // queued for it: no initial sync, no periodic reconciliation, no worker.
     void runCapabilityHandshake(config, result.connectionId)
-      .then(() => enqueueSyncJob(config, result.workspaceId, result.connectionId, 'initial_sync'))
+      .then(() => (result.usesCatalogIndex
+        ? enqueueSyncJob(config, result.workspaceId, result.connectionId, 'initial_sync')
+        : null))
       .catch(() => {});
     res.json({
       installationId: result.installationId,
@@ -140,6 +149,7 @@ commercePairingRouter.post('/exchange', pairingLimiter, async (req, res) => {
       connectionId: result.connectionId,
       storeId: result.storeId,
       protocolVersion: result.protocolVersion,
+      providerType: result.providerType,
     });
   } catch (err) {
     if (err instanceof PairingError) return res.status(400).json({ error: err.code, message: err.message });

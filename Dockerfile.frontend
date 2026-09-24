@@ -33,6 +33,7 @@ RUN npm run build
 RUN test -f /app/dist/widget/widget-manifest.json || (echo "❌ widget-manifest.json missing from build output" && ls -la /app/dist/widget/ && exit 1)
 RUN echo "✅ widget assets:" && ls -la /app/dist/widget/
 RUN test -f /app/dist/downloads/webyar-woocommerce.zip || (echo "❌ webyar-woocommerce.zip missing from build output" && exit 1)
+RUN test -f /app/dist/downloads/webyar-whmcs.zip || (echo "❌ webyar-whmcs.zip missing from build output" && exit 1)
 
 # ── Serve with nginx ───────────────────────────────────────
 FROM nginx:alpine

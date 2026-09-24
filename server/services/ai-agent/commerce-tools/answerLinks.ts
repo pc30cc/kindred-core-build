@@ -21,7 +21,7 @@
 
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
-import { getActiveConnectionForWorkspace } from '../../commerce/gateway.js';
+import { getActiveConnectionForWorkspace, type CommerceConnectionRow } from '../../commerce/gateway.js';
 
 const URL_PATTERN = /https?:\/\/[^\s<>"'`)\]]+/gi;
 const TRAILING_PUNCTUATION = /[.,;:!?؟،؛"'»]+$/;
@@ -179,11 +179,16 @@ export async function verifyStoreLinks(
   config: ServerConfig,
   workspaceId: string,
   text: string,
+  opts: { connections?: CommerceConnectionRow[]; pageOrigin?: string | null; pagePath?: string | null } = {},
 ): Promise<string> {
   const source = String(text ?? '');
   if (!source || source.indexOf('http') === -1) return source;
 
-  const connection = await getActiveConnectionForWorkspace(config, workspaceId).catch(() => null);
+  // The STORE connection only: its catalogue is what vouches for a link. A
+  // billing system's links (invoices, services) are checked against that
+  // turn's own tool results instead, and must never be matched against a
+  // product index they are not in.
+  const connection = await getActiveConnectionForWorkspace(config, workspaceId, { family: 'store', ...opts }).catch(() => null);
   if (!connection) return source;
   const storeHost = hostOf(String(connection.store_id || ''));
   if (!storeHost) return source;

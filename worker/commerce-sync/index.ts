@@ -16,6 +16,7 @@ import os from 'node:os';
 import { envFlagEnabled, type ServerConfig } from '../../server/config.js';
 import { claimNextSyncJob, runSyncJobOnce, enqueueSyncJob } from '../../server/services/commerce/sync.js';
 import { runCapabilityHandshake } from '../../server/services/commerce/pairing.js';
+import { catalogIndexedProviders } from '../../server/services/commerce/connectors/registry.js';
 import { getServiceClient } from '../../server/supabase.js';
 
 function clampInt(v: string | undefined, def: number, min: number, max: number): number {
@@ -73,7 +74,7 @@ export function startCommerceSyncWorker(): void {
     try {
       const job = await claimNextSyncJob(config, workerId);
       if (job) {
-        await runSyncJobOnce(config, job as any);
+        await runSyncJobOnce(config, job);
         // A job may have re-queued itself (bounded page budget) — poll again
         // immediately rather than waiting a full interval.
         pollTimer = setTimeout(tick, 50);
@@ -98,10 +99,16 @@ export function startCommerceSyncWorker(): void {
     if (stopping) return;
     try {
       const sb = getServiceClient(config);
+      // Catalogue-indexed providers only. A live-queried billing connection
+      // (WHMCS) has no index to reconcile, and a periodic handshake to every
+      // installation would be exactly the background heartbeat that design
+      // rules out — its health comes from real reads and the owner's
+      // "Check connection" button (docs/commerce/WHMCS.md).
       const { data: connections } = await sb
         .from('commerce_connections')
         .select('id, workspace_id')
         .is('revoked_at', null)
+        .in('provider_type', catalogIndexedProviders())
         .in('health', ['connected', 'degraded', 'offline']);
       for (const conn of connections ?? []) {
         await runCapabilityHandshake(config, conn.id).catch(() => {});

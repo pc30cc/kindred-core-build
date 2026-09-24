@@ -39,7 +39,7 @@ const ROTATION_THRESHOLD_DAYS = 30; // rotate if <30 days remain
 export function isSecureRequest(req: Request | null): boolean {
   if (process.env.NODE_ENV === 'production') return true;
   if (!req) return false;
-  if ((req as any).secure) return true;
+  if ((req as Request & { secure?: boolean }).secure) return true;
   const xfp = (req.headers['x-forwarded-proto'] as string | undefined) || '';
   if (xfp.split(',')[0]?.trim().toLowerCase() === 'https') return true;
   const origin = (req.headers.origin as string | undefined) || '';
@@ -116,12 +116,21 @@ function decodeCookie(raw: string): VisitorPayload | null {
 export function resolveVisitorIdentity(
   req: Request,
   res: Response,
-  workspaceId: string
+  workspaceId: string,
+  /**
+   * `forceNew` starts a brand-new visitor even when a valid cookie exists —
+   * exactly what clearing the cookie would do, so it grants the caller
+   * nothing. The widget asks for it when the page reports that a DIFFERENT
+   * signed-in person is now using this browser (a store/billing plugin's
+   * `data-commerce-subject`), so the previous person's conversation is not
+   * shown to them.
+   */
+  opts: { forceNew?: boolean } = {},
 ): VisitorCookieResult {
-  const raw = (req as any).cookies?.[COOKIE_NAME] as string | undefined;
+  const raw = (req as Request & { cookies?: Record<string, string> }).cookies?.[COOKIE_NAME];
   const now = Math.floor(Date.now() / 1000);
 
-  let payload = raw ? decodeCookie(raw) : null;
+  let payload = raw && !opts.forceNew ? decodeCookie(raw) : null;
   let isNew = false;
   let needsRotation = false;
 
@@ -201,7 +210,7 @@ export function clearVisitorCookie(res: Response, req?: Request | null): void {
  * Returns null if missing/invalid/expired.
  */
 export function readVisitorCookie(req: Request, expectedWorkspaceId?: string): VisitorPayload | null {
-  const raw = (req as any).cookies?.[COOKIE_NAME] as string | undefined;
+  const raw = (req as Request & { cookies?: Record<string, string> }).cookies?.[COOKIE_NAME];
   if (!raw) return null;
   const payload = decodeCookie(raw);
   if (!payload) return null;

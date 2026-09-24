@@ -95,7 +95,9 @@ export function WooCommerceConfigPanel({ workspaceId }: { workspaceId: string })
     refetchInterval: 15_000,
   });
 
-  const connection = data?.connections?.[0] ?? null;
+  // The list holds every commerce connection of the workspace (a billing
+  // system such as WHMCS too); this panel manages the shop only.
+  const connection = data?.connections?.find((c) => c.provider_type === 'woocommerce') ?? null;
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['commerce-connections', workspaceId] });
 

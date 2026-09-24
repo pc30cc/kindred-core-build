@@ -16,8 +16,9 @@ import type { ServerConfig } from '../../../config.js';
 import { executeAICompletion, executeAICompletionWithConfig, resolveAIConfig } from '../../ai/index.js';
 // `executeAICompletion` is still referenced by the GenerationStageResult type.
 import { buildSystemPrompt, buildUserPrompt } from '../prompt.js';
-import { toModelMessages } from '../conversationContext.js';
-import { postValidateAnswer } from '../policy.js';
+import { toModelMessages, type ContextTurn } from '../conversationContext.js';
+import { postValidateAnswer, type PostValidateContext } from '../policy.js';
+import type { InternalToolRecord } from '../runtimeConfig.js';
 import { logRun } from '../logs.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
 import { commitNeedsHuman, routeAfterHandoff, type HandoffCommit } from '../handoffState.js';
@@ -32,6 +33,8 @@ import {
 } from '../actions/index.js';
 import { resolveHandoffAckMessage, pickHandoffAck } from './helpers.js';
 import { runCommerceToolStage } from '../commerce-tools/runner.js';
+import { runWhmcsToolStage, hasWhmcsData, intentForAccountData, type WhmcsStageResult } from '../commerce-tools/whmcsRunner.js';
+import { listWorkspaceConnections, selectConnection } from '../../commerce/connectionSelection.js';
 import { checkGenerationFreshness, freshnessMeta } from '../freshness.js';
 import { parseAiControl, buildAiControlContract, type AiControl } from '../aiControl.js';
 import { createGuidanceRequest, hasPendingGuidanceRequest } from '../guidance.js';
@@ -187,8 +190,8 @@ export async function runGenerationStage(
   const wsContext = await loadWorkspaceContext(config, workspaceId).catch(() => null);
   // ─── Phase 3 — enabled internal actions (canonical catalog ∩ workspace) ──
   const enabledActionNames = (runtimeCfg?.internalTools || [])
-    .filter((t: any) => t && t.enabled !== false && t.tool_type === 'internal')
-    .map((t: any) => String(t.name))
+    .filter((t: InternalToolRecord | null) => t && t.enabled !== false && t.tool_type === 'internal')
+    .map((t: InternalToolRecord) => String(t.name))
     .filter((n: string) => {
       const def = getActionDefinition(n);
       return !!def && def.executable;
@@ -208,8 +211,19 @@ export async function runGenerationStage(
   // loop. Never throws; a workspace with no commerce connection pays only
   // the cost of a regex intent check. Merged into the SAME sanitized
   // "factual data only" tool-results block get_business_hours already uses.
+  //
+  // The workspace's live connections are read ONCE here and shared by the
+  // store stage, the WHMCS stage and the link verifier (each used to do its
+  // own "newest connection" lookup). The page the visitor is on decides which
+  // connection a turn is about — see commerce/connectionSelection.ts.
+  const commerceConnections = await listWorkspaceConnections(config, workspaceId).catch(() => null);
+  const commerceSite = {
+    pageOrigin: pageContext?.currentPageOrigin ?? null,
+    pagePath: pageContext?.currentPagePath ?? null,
+  };
   const commerceStage = await runCommerceToolStage(config, {
     workspaceId, conversationId: conversationId || null, question,
+    connections: commerceConnections ?? undefined, ...commerceSite,
   }).catch(() => ({ toolResults: [], toolsUsed: [] }));
   const commerceUrls = urlsFromToolResults(commerceStage.toolResults);
   if (commerceStage.toolResults.length) {
@@ -217,6 +231,37 @@ export async function runGenerationStage(
     toolResultsBlock = [toolResultsBlock, commerceBlock].filter(Boolean).join('\n');
     for (const t of commerceStage.toolsUsed) readOnlyToolResults.push({ name: t, ok: true });
   }
+  // WHMCS (billing/hosting accounts). Runs only when the message is about
+  // plans or the visitor's own account; otherwise it returns before any I/O.
+  const previousVisitorTurns = (built?.contextTurns || [])
+    .filter((t) => t.role === 'visitor' && typeof t.text === 'string' && t.text.trim() && t.text.trim() !== question)
+    .map((t) => t.text)
+    .slice(-4);
+  const whmcsStage: WhmcsStageResult | null = commerceConnections && commerceConnections.some((c) => c.provider_type === 'whmcs')
+    ? await runWhmcsToolStage(config, {
+        workspaceId, conversationId: conversationId || null, question,
+        connections: commerceConnections, ...commerceSite, previousVisitorTurns,
+      }).catch(() => null)
+    : null;
+  if (whmcsStage?.toolResults.length) {
+    const whmcsBlock = renderToolResults(whmcsStage.toolResults);
+    toolResultsBlock = [toolResultsBlock, whmcsBlock].filter(Boolean).join('\n');
+    for (const t of whmcsStage.toolsUsed) readOnlyToolResults.push({ name: t, ok: true });
+  }
+  const whmcsAccountTurn = whmcsStage?.intent === 'account' && whmcsStage.toolResults.length > 0;
+  // A different WHMCS subject (other client account, other user, or after a
+  // logout) must not see the previous subject's answers in the prompt.
+  const whmcsCutoffMs = whmcsAccountTurn && whmcsStage?.historyCutoff ? Date.parse(whmcsStage.historyCutoff) : NaN;
+  const historyCut = Number.isFinite(whmcsCutoffMs);
+  // Fast-path misses: when a billing connection is in context for this turn
+  // and the deterministic router fetched nothing, the SAME generation may
+  // name the account section it needed in its private control block. One
+  // bounded follow-up (below) then fetches it and regenerates once — no
+  // separate router model, no loop, and still no authority from the model.
+  const whmcsConnectionInContext = commerceConnections
+    ? selectConnection(commerceConnections, { family: 'billing', ...commerceSite }).connection
+    : null;
+  const offerAccountData = !!whmcsConnectionInContext && !!conversationId && !hasWhmcsData(whmcsStage);
   // A guidance request only makes sense when a human could actually answer
   // it soon: operators reachable, AI still owns the conversation, and no
   // request is already pending for this conversation.
@@ -246,28 +291,38 @@ export async function runGenerationStage(
     enabledActions: enabledActionNames,
     // vNext — private, non-visitor-visible context.
     operatorGuidanceBlock: operatorGuidance?.promptBlock || null,
-    conversationMemoryBlock: memoryBlock,
-    aiControlContract: buildAiControlContract({ allowGuidanceRequest: allowGuidanceRequest }),
+    // After a WHMCS subject change the stored memory describes the previous
+    // subject's conversation; it is left out of this account turn's prompt.
+    conversationMemoryBlock: historyCut ? null : memoryBlock,
+    aiControlContract: buildAiControlContract({ allowGuidanceRequest: allowGuidanceRequest, allowAccountDataRequest: offerAccountData }),
   });
   // Phase 11 — real role-tagged history. Providers that accept a message
   // array get system + user/assistant turns + the current message; the
   // rendered text block is only used as a fallback for that same context.
   // The current visitor message is delivered separately as `prompt`, so it
   // must never be duplicated as the last history turn.
-  const historyMessages = toModelMessages(built?.contextTurns || [])
+  const turnsSince = (cutoffMs: number): ContextTurn[] => (Number.isFinite(cutoffMs)
+    ? (built?.contextTurns || []).filter((t) => !!t.createdAt && Date.parse(t.createdAt) >= cutoffMs)
+    : (built?.contextTurns || []));
+  const messagesFor = (turns: ContextTurn[]) => toModelMessages(turns)
     .filter((m, i, arr) => !(i === arr.length - 1 && m.role === 'user' && m.content.trim() === question));
-  const userPrompt = buildUserPrompt(question, sources, strategy, {
-    pageContext: pageContext ? { currentPageUrl: pageContext.currentPageUrl, currentPageTitle: pageContext.currentPageTitle } : null,
-    pageMatched: pageExact || pagePath,
-    // Phase 2.1 — bounded multi-turn context, already tenant-scoped.
-    conversationContext: historyMessages.length ? null : (built?.conversationContext || null),
-    // Phase 2.7 — warn the model when sources materially disagree.
-    conflictDetected: strategy.conflictDetected,
-    toolResults: toolResultsBlock,
-    nudgeContext: nudgeContext || null,
-  }) + (decisionStage.assistFirstActive
-    ? `\n\nTURN DIRECTIVE — the visitor asked for a human. A transfer has NOT happened. Acknowledge the request in one short sentence, then make exactly ONE genuinely useful attempt at their actual problem, and close by offering the transfer. Never imply the transfer is already in progress. Suggested tone: "${assistFirstMessage(locale)}"`
-    : '');
+  const composeUserPrompt = (toolBlock: string | null, directive: string | null, cut: boolean, messages: ReturnType<typeof messagesFor>) =>
+    buildUserPrompt(question, sources, strategy, {
+      pageContext: pageContext ? { currentPageUrl: pageContext.currentPageUrl, currentPageTitle: pageContext.currentPageTitle } : null,
+      pageMatched: pageExact || pagePath,
+      // Phase 2.1 — bounded multi-turn context, already tenant-scoped.
+      // The rendered text fallback carries the SAME history; after a WHMCS
+      // subject change it would reintroduce exactly what was cut above.
+      conversationContext: messages.length || cut ? null : (built?.conversationContext || null),
+      // Phase 2.7 — warn the model when sources materially disagree.
+      conflictDetected: strategy.conflictDetected,
+      toolResults: toolBlock,
+      nudgeContext: nudgeContext || null,
+    }) + (directive ? `\n\n${directive}` : '') + (decisionStage.assistFirstActive
+      ? `\n\nTURN DIRECTIVE — the visitor asked for a human. A transfer has NOT happened. Acknowledge the request in one short sentence, then make exactly ONE genuinely useful attempt at their actual problem, and close by offering the transfer. Never imply the transfer is already in progress. Suggested tone: "${assistFirstMessage(locale)}"`
+      : '');
+  const historyMessages = messagesFor(turnsSince(whmcsCutoffMs));
+  const userPrompt = composeUserPrompt(toolResultsBlock, whmcsStage?.directive ?? null, historyCut, historyMessages);
 
   let aiResult;
   /** Observability for the empty-output retry (P0-18). */
@@ -291,10 +346,10 @@ export async function runGenerationStage(
     // the AI declining to answer, and it must never escalate to a human.
     // One bounded retry with a larger visible-output budget.
     const emptyOutput = !String(aiResult?.text || '').trim();
-    const lengthCapped = String((aiResult as any)?.finishReason || '') === 'length';
+    const lengthCapped = String((aiResult as { finishReason?: unknown } | null)?.finishReason || '') === 'length';
     if (emptyOutput) {
       generationMeta.empty_first_attempt = true;
-      generationMeta.first_attempt_finish_reason = (aiResult as any)?.finishReason || null;
+      generationMeta.first_attempt_finish_reason = (aiResult as { finishReason?: unknown } | null)?.finishReason || null;
       generationMeta.first_attempt_completion_tokens = aiResult?.completionTokens ?? null;
       const retry = await executeAICompletionWithConfig(config, aiConfig, {
         workspaceId,
@@ -315,7 +370,8 @@ export async function runGenerationStage(
         decisionTimeline.push('generation_empty_retry_failed');
       }
     }
-  } catch (err: any) {
+  } catch (caught: unknown) {
+    const err = caught as { message?: string } | null;
     // Credit / plan-limit errors → human-friendly limit handoff (no LLM,
     // 0 credits, route to Needs human).
     const limitReason = detectLimitErrorReason(err?.message);
@@ -371,7 +427,54 @@ export async function runGenerationStage(
   // control JSON can never reach the visitor even if a later stage fails.
   const parsedControl = parseAiControl(aiResult.text || '');
   aiResult = { ...aiResult, text: parsedControl.text };
-  const aiControl = parsedControl.control;
+  let aiControl = parsedControl.control;
+
+  // ─── WHMCS fast-path miss → one bounded fetch + one regeneration ───────
+  let whmcsFallback: WhmcsStageResult | null = null;
+  if (offerAccountData && aiControl.accountData) {
+    decisionTimeline.push(`whmcs_model_requested_${aiControl.accountData}`);
+    generationMeta.whmcs_fallback = 'requested';
+    whmcsFallback = await runWhmcsToolStage(config, {
+      workspaceId, conversationId: conversationId || null, question,
+      connections: commerceConnections, ...commerceSite, previousVisitorTurns,
+      forcedIntent: intentForAccountData(aiControl.accountData, question),
+    }).catch(() => null);
+    // Regenerate only when real rows came back. A refusal (not signed in,
+    // no permission, unavailable) adds nothing the first answer lacked.
+    if (hasWhmcsData(whmcsFallback)) {
+      const fallbackCutMs = whmcsFallback.historyCutoff ? Date.parse(whmcsFallback.historyCutoff) : NaN;
+      const fallbackMessages = messagesFor(turnsSince(fallbackCutMs));
+      const fallbackPrompt = composeUserPrompt(
+        [toolResultsBlock, renderToolResults(whmcsFallback.toolResults)].filter(Boolean).join('\n'),
+        whmcsFallback.directive,
+        Number.isFinite(fallbackCutMs),
+        fallbackMessages,
+      );
+      const regenerated = await executeAICompletionWithConfig(config, aiConfig, {
+        workspaceId,
+        prompt: fallbackPrompt,
+        systemPrompt,
+        messages: fallbackMessages,
+        maxTokens: 600,
+        temperature:
+          settings.answer_guidance === 'creative' ? 0.6 :
+          settings.answer_guidance === 'balanced' ? 0.4 : 0.2,
+      }, input.runCtx ?? undefined).catch(() => null);
+      if (regenerated && String(regenerated.text || '').trim()) {
+        const reparsed = parseAiControl(regenerated.text || '');
+        aiResult = { ...regenerated, text: reparsed.text };
+        // Bounded to ONE extra round: a second request is ignored.
+        aiControl = { ...reparsed.control, accountData: null };
+        generationMeta.whmcs_fallback = 'regenerated';
+        for (const t of whmcsFallback.toolsUsed) readOnlyToolResults.push({ name: t, ok: true });
+      } else {
+        generationMeta.whmcs_fallback = 'regeneration_failed';
+      }
+    } else {
+      generationMeta.whmcs_fallback = 'no_data';
+    }
+  }
+  const whmcsUrls = [...(whmcsStage?.urls ?? []), ...(hasWhmcsData(whmcsFallback) ? whmcsFallback!.urls : [])];
 
   // A store link the model RETYPED instead of copying is a 404 presented as
   // fact. Done here, before the action pipeline and before anything is
@@ -385,25 +488,37 @@ export async function runGenerationStage(
   if (commerceUrls.length) {
     aiResult = { ...aiResult, text: repairCommerceLinks(aiResult.text || '', commerceUrls) };
   }
+  // WHMCS links: only the ones this turn's results carried survive on the
+  // billing host; a retyped one is repaired or dropped the same way.
+  if (whmcsUrls.length) {
+    aiResult = { ...aiResult, text: repairCommerceLinks(aiResult.text || '', whmcsUrls) };
+  }
   aiResult = {
     ...aiResult,
-    text: await verifyStoreLinks(config, workspaceId, aiResult.text || '').catch(() => aiResult.text || ''),
+    text: await verifyStoreLinks(config, workspaceId, aiResult.text || '', {
+      connections: commerceConnections ?? undefined, ...commerceSite,
+    }).catch(() => aiResult.text || ''),
   };
 
   // Fold model-reported state into the deterministic memory patch. Model
   // input is advisory: bounded fields only, never counters or authorization.
+  // On a WHMCS account turn the model's free-text memory fields could hold
+  // invoice amounts or service details; persisting them would be a second,
+  // unmanaged copy of account data. Only the deterministic patch is kept.
+  const accountDataShown = whmcsAccountTurn || (whmcsFallback?.intent === 'account' && hasWhmcsData(whmcsFallback));
+  const modelMemory = accountDataShown ? { ...aiControl, currentIssue: null, awaitingUserAction: null, entities: [], proposedSolution: null } : aiControl;
   const memoryPatch: MemoryPatch = {
     ...memoryTurnPatch,
-    ...(aiControl.currentIssue ? { currentIssue: aiControl.currentIssue } : {}),
-    ...(aiControl.awaitingUserAction ? { awaitingUserAction: aiControl.awaitingUserAction } : {}),
-    ...(aiControl.entities.length ? { addEntities: aiControl.entities } : {}),
+    ...(modelMemory.currentIssue ? { currentIssue: modelMemory.currentIssue } : {}),
+    ...(modelMemory.awaitingUserAction ? { awaitingUserAction: modelMemory.awaitingUserAction } : {}),
+    ...(modelMemory.entities.length ? { addEntities: modelMemory.entities } : {}),
     ...(aiControl.resolutionStatus !== 'unknown'
       ? { issueStatus: aiControl.resolutionStatus === 'resolved' ? 'resolved' as const
           : aiControl.resolutionStatus === 'awaiting_user' ? 'awaiting_user' as const
           : 'open' as const }
       : {}),
-    ...(aiControl.proposedSolution
-      ? { addAttempt: { summary: aiControl.proposedSolution, status: 'proposed' as const } }
+    ...(modelMemory.proposedSolution
+      ? { addAttempt: { summary: modelMemory.proposedSolution, status: 'proposed' as const } }
       : {}),
   };
 
@@ -445,15 +560,16 @@ export async function runGenerationStage(
   let actionHandoffExecuted = false;
   if (conversationId && (parseActionPlan(aiResult.text || '').blockPresent || enabledActionNames.length)) {
     try {
-      const { data: convRow } = await sb
+      const { data: convData } = await sb
         .from('conversations')
         .select('workspace_id,priority,tags,metadata')
         .eq('id', conversationId)
         .maybeSingle();
+      const convRow = convData as { workspace_id?: string | null; priority?: string | null; tags?: unknown; metadata?: unknown } | null;
       const gate: GateContext = {
         workspaceId,
         conversationId,
-        conversationWorkspaceId: (convRow as any)?.workspace_id ?? null,
+        conversationWorkspaceId: convRow?.workspace_id ?? null,
         visitorMessageId,
         visitorText: question,
         enabledActionNames,
@@ -464,16 +580,16 @@ export async function runGenerationStage(
         humanTakeover: !!state?.humanTakeoverAt || !!state?.hasHumanAgentReplied,
         aiManaged: state ? state.managedByAi !== false : true,
         strictKb: !!settings.answer_only_from_kb,
-        handoffKeywords: (settings as any).handoff_keywords || [],
+        handoffKeywords: (settings as { handoff_keywords?: string[] }).handoff_keywords || [],
         // The model may propose a handoff; deterministic authorization is
         // an explicit human request (checked inside the gate), a strategy
         // handoff, or a genuine verified-information gap on this turn.
         strategyHandoffRequired:
           strategy.decisionType === 'handoff'
           || (strategy.groundingMode === 'unverified' && settings.handoff_when_no_kb_match !== false),
-        currentPriority: (convRow as any)?.priority ?? null,
-        currentTags: Array.isArray((convRow as any)?.tags) ? (convRow as any).tags : [],
-        executedKeys: readExecutedActionKeys((convRow as any)?.metadata),
+        currentPriority: convRow?.priority ?? null,
+        currentTags: Array.isArray(convRow?.tags) ? (convRow.tags as string[]) : [],
+        executedKeys: readExecutedActionKeys(convRow?.metadata as Parameters<typeof readExecutedActionKeys>[0]),
         // Model output is never authorization: deterministic side effects such
         // as add_tag require an explicit runtime/workspace-configured basis.
         // Workspace-configured workflows/routing keep tagging via their own
@@ -502,7 +618,8 @@ export async function runGenerationStage(
         read_only_results: readOnlyToolResults,
         ...pipeline.metadata,
       };
-    } catch (err: any) {
+    } catch (caught: unknown) {
+      const err = caught as { message?: string } | null;
       actionsMeta = { error: redactSecrets(err?.message) || 'action_pipeline_failed' };
     }
   } else if (readOnlyToolResults.length) {
@@ -515,7 +632,7 @@ export async function runGenerationStage(
     strategy.decisionType === 'ask_clarifying_question'
       ? { ok: true as const }
       : postValidateAnswer(aiResult.text || '', {
-          groundingMode: strategy.groundingMode as any,
+          groundingMode: strategy.groundingMode as PostValidateContext['groundingMode'],
           escalateOnUncertainty: settings.handoff_when_no_kb_match !== false,
         });
   if (!valid.ok) {

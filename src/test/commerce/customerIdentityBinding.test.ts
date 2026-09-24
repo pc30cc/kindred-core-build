@@ -28,7 +28,7 @@ const INSTALL_OLD = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 const VISITOR = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 const SECRET = 'installation-secret-for-tests';
 
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
 
 /** The whole commerce_connections table, filtered by the fake below. */
 let connections: Row[] = [];
@@ -39,17 +39,17 @@ const seen = {
   links: [] as Row[],
   nonces: [] as Row[],
   /** Filters the connection lookup applied, so the workspace/revoked guards are visible. */
-  connectionFilters: [] as Array<[string, string, any]>,
+  connectionFilters: [] as Array<[string, string, unknown]>,
   connectionOrdered: [] as string[],
 };
 
 function fakeClient() {
   const make = (table: string) => {
-    const filters: Array<[string, string, any]> = [];
-    const b: any = {
+    const filters: Array<[string, string, unknown]> = [];
+    const b: Record<string, unknown> = {
       select: () => b,
-      eq: (col: string, val: any) => { filters.push(['eq', col, val]); return b; },
-      is: (col: string, val: any) => { filters.push(['is', col, val]); return b; },
+      eq: (col: string, val: unknown) => { filters.push(['eq', col, val]); return b; },
+      is: (col: string, val: unknown) => { filters.push(['is', col, val]); return b; },
       order: (col: string) => { if (table === 'commerce_connections') seen.connectionOrdered.push(col); return b; },
       limit: () => b,
       insert: async (row: Row) => {
@@ -66,6 +66,15 @@ function fakeClient() {
         const sorted = [...match].sort((a, z) => String(z.created_at).localeCompare(String(a.created_at)));
         return { data: sorted[0] ?? null, error: null };
       },
+      // A list read (`await sb.from(...).select().eq()...limit(n)`): every
+      // matching row, in table order — no implicit "newest first".
+      then: (resolve: (v: { data: Row[]; error: null }) => unknown) => {
+        if (table !== 'commerce_connections') return resolve({ data: [], error: null });
+        seen.connectionFilters.push(...filters);
+        const match = connections.filter((c) =>
+          filters.every(([op, col, val]) => (op === 'is' ? c[col] === val : c[col] === val)));
+        return resolve({ data: match, error: null });
+      },
     };
     return b;
   };
@@ -74,21 +83,21 @@ function fakeClient() {
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeClient() }));
 vi.mock('../../../server/services/commerce/credentials.js', () => ({
-  readInstallationSecret: async (_c: any, installationId: string) =>
+  readInstallationSecret: async (_c: unknown, installationId: string) =>
     installationId === INSTALL ? SECRET : null,
 }));
 vi.mock('../../../server/services/widget/anonymousContact.js', () => ({
-  ensureVisitorContact: async (_sb: any, input: Row) => { seen.contacts.push(input); return 'contact-1'; },
+  ensureVisitorContact: async (_sb: unknown, input: Row) => { seen.contacts.push(input); return 'contact-1'; },
 }));
 
 const { verifyAndBindCustomerContext } = await import('../../../server/services/commerce/identityBridge.js');
 
-const CONFIG: any = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' };
+const CONFIG = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' } as unknown as Parameters<typeof verifyAndBindCustomerContext>[0];
 
 const b64url = (raw: string) => Buffer.from(raw, 'utf8').toString('base64url');
 
 /** Exactly what plugins/webyar-woocommerce/src/Identity/CustomerContext.php emits. */
-function assertion(over: Record<string, any> = {}, secret = SECRET) {
+function assertion(over: Record<string, unknown> = {}, secret = SECRET) {
   const now = Math.floor(Date.now() / 1000);
   const payload = b64url(JSON.stringify({
     installation_id: INSTALL,
@@ -127,16 +136,18 @@ describe('a store that cannot name its connection', () => {
     expect(seen.links[0]).toMatchObject({ workspace_id: WS, connection_id: CONN_NEW, external_customer_id: '2', visitor_id: VISITOR });
   });
 
-  it('resolves the newest un-revoked connection, the one the AI stage will read back', async () => {
-    // `resolveVerifiedCustomer` looks the link up by the connection
-    // `getActiveConnectionForWorkspace` returns — newest first. Writing the
-    // link against any other row would store a link nothing ever finds.
-    connections.push({ id: CONN_OLD, workspace_id: WS, installation_id: INSTALL, revoked_at: null, created_at: '2025-01-01T00:00:00Z' });
+  it('resolves the connection of the installation that signed the assertion, not the newest one', async () => {
+    // It used to be "the workspace's newest connection". With a second
+    // connection in the workspace (a WHMCS installation paired after the
+    // shop), the newest row is not the shop's, and every shop assertion was
+    // rejected as "issued for a different installation". The link must land
+    // on the signing installation's own connection, whatever its age.
+    connections.push({ id: CONN_OLD, workspace_id: WS, installation_id: INSTALL_OLD, revoked_at: null, created_at: '2027-01-01T00:00:00Z' });
 
     await bind(null);
 
     expect(seen.links[0].connection_id).toBe(CONN_NEW);
-    expect(seen.connectionOrdered).toContain('created_at');
+    expect(seen.connectionOrdered).not.toContain('created_at');
   });
 
   it('refuses when the workspace has no live connection at all', async () => {

@@ -50,6 +50,30 @@ limiting. `products/resolve` and `products/availability` accept **arrays**
 of ids so a 5-product live-revalidation batch is one HTTP round trip, not
 five.
 
+## WHMCS addon surface
+
+WHMCS is addressed through one endpoint,
+`<SystemURL>/modules/addons/webyar/api.php`, `POST` with a JSON body
+`{ op, params, grant }`. It uses the same `webyar-commerce/1` signature
+scheme as the WordPress plugin, computed over the fixed logical path
+`/webyar/whmcs/v1` (the physical path depends on where WHMCS is installed).
+Operations are a closed list: `health`, `catalog.search`, `catalog.browse`,
+`session.check`, and `list` / `get` for `services`, `domains`, `invoices`,
+`orders` and `tickets`. There is no write operation. Lists return at most 10
+items and `has_more`. Details, grant rules and limits are in
+[WHMCS.md](WHMCS.md).
+
+| Addon answer | Web Yar error |
+|---|---|
+| 401 (signature, replay, clock) | `commerce_permission_denied` (health → `authentication_error`) |
+| 403 `grant_invalid` | `identity_expired` → binding revoked, visitor asked to sign in |
+| 403 `permission_denied` (WHMCS user permission) | `account_permission_denied` |
+| 403 `feature_disabled` (section off in the addon) | `commerce_permission_denied` (health unchanged) |
+| 404 | `resource_not_found` (another client's id looks the same) |
+| 409 `schema_unsupported` | `connector_outdated` |
+| 429 | `rate_limited` |
+| 5xx / network | `commerce_live_unavailable` (one retry when time allows) |
+
 ## Money
 
 ```ts
@@ -137,7 +161,8 @@ the existing `MAX_ACTIONS_PER_TURN` bounding philosophy in
 `commerce_invalid_response`, `product_not_found`,
 `variation_not_available`, `identity_required`, `identity_expired`,
 `order_not_found`, `order_access_denied`, `connector_outdated`,
-`protocol_mismatch`, `catalog_syncing`. These are the only strings the AI
+`protocol_mismatch`, `catalog_syncing`, and for WHMCS `resource_not_found`,
+`account_permission_denied`, `rate_limited`. These are the only strings the AI
 tool layer ever sees for a failure; underlying exceptions/stack traces are
 logged server-side only, never forwarded.
 

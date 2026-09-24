@@ -30,11 +30,13 @@ enum EmailHTML {
         let line = dark ? "#2a303d" : "#e3e7ee"
         let card = dark ? "#171b24" : "#ffffff"
         let chip = dark ? "#1d222d" : "#f1f4f9"
+        // Palette.chatBackground, painted by the page itself: an opaque page composites the same everywhere.
+        let bg = dark ? "#0f1218" : "#f5f7fa"
         var html = """
         <!doctype html><html dir="\(dir)"><head><meta charset="utf-8">
         <meta name="color-scheme" content="\(dark ? "dark" : "light")">
         <style>
-        html,body{margin:0;padding:0;background:transparent}
+        html,body{margin:0;padding:0;background:\(bg)}
         body{padding:14px 18px 28px;font:14px/1.55 -apple-system,"SF Pro Text","Geeza Pro",sans-serif;color:\(fg);-webkit-font-smoothing:antialiased}
         details{background:\(card);border:1px solid \(line);border-radius:14px;margin:0 0 10px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,\(dark ? "0.3" : "0.04"))}
         summary{list-style:none;cursor:pointer;padding:12px 16px;display:flex;gap:12px;align-items:center}
@@ -141,6 +143,7 @@ struct MailWebView: NSViewRepresentable {
         config.websiteDataStore = .nonPersistent()
         let view = WKWebView(frame: .zero, configuration: config)
         view.navigationDelegate = context.coordinator
+        // No white flash before the page (which paints its own background) arrives.
         view.setValue(false, forKey: "drawsBackground")
         view.allowsMagnification = true
         return view

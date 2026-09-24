@@ -20,7 +20,7 @@ concurrency:
 jobs:
   guards:
     name: Source, translation and security guards
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -63,7 +63,7 @@ jobs:
 
   database:
     name: Clean replay + invitation suites (PostgreSQL, mandatory)
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 40
 
     services:
@@ -141,7 +141,7 @@ jobs:
 
   e2e:
     name: Browser E2E (fa / tr / en)
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

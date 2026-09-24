@@ -56,11 +56,36 @@ struct AuthBackdrop: View {
 /// The lift is what separates it from the backdrop. A flat card on a flat
 /// background is two rectangles; the shadow is what makes it a card sitting on
 /// a screen. Kept shallow — at this radius anything deeper reads as a popup.
+///
+/// ## Why this card is left-to-right in every language
+///
+/// Everything inside it holds a left-to-right string. An address and a
+/// password are Latin whatever the interface language is, which is why both
+/// fields already pin their own text direction — reading `user@host`
+/// right-to-left renders it as `host@user`.
+///
+/// The row around them was still mirroring, and that put the icon and the
+/// text it labels at opposite ends of the card: in Persian the envelope sat
+/// hard against the right edge while "ایمیل" started from the left, with the
+/// whole width of the row between them. A gutter icon that is not touching
+/// its own field is not a gutter icon, it is a decoration in the corner.
+///
+/// So the card is pinned here rather than at each row. The rows are not the
+/// only thing that mirrors: the divider between them is inset by the gutter
+/// width, and the email row carries a trailing pad. Pinning the row alone
+/// would have moved the icon to the left and left the divider indented from
+/// the right — which is the same bug one layer down.
+///
+/// This is a no-op for English and Turkish, which are left-to-right already.
+/// Everything that should still read right-to-left in Persian — the greeting,
+/// the subtitle, the forgot-password link, the error banner — is outside this
+/// card and untouched.
 struct AuthCard<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
         content
+            .environment(\.layoutDirection, .leftToRight)
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
                     .fill(Theme.Palette.surface)

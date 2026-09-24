@@ -8,30 +8,32 @@ struct RootView: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        Group {
-            switch app.phase {
-            case .launching:
-                SplashView()
-            case .signedOut:
-                LoginView()
-            case .signedIn:
-                // Rebuilt for another workspace, and for another language so the
-                // columns change sides with the text direction, as Windows rebuilds its page.
-                ShellView()
-                    .id("\(app.workspace?.id ?? "none")-\(app.strings.language.code)")
+        let maintenance = app.config.maintenance.enabled
+        ZStack {
+            Group {
+                switch app.phase {
+                case .launching:
+                    SplashView()
+                case .signedOut:
+                    LoginView()
+                case .signedIn:
+                    // Rebuilt for another workspace, and for another language so the
+                    // columns change sides with the text direction, as Windows rebuilds its page.
+                    ShellView()
+                        .id("\(app.workspace?.id ?? "none")-\(app.strings.language.code)")
+                }
             }
-        }
-        // Not a key reaches the app beneath the maintenance notice either.
-        .disabled(app.config.maintenance.enabled)
-        .overlay {
-            if app.config.maintenance.enabled {
+            // Not a key reaches the app beneath the maintenance notice either.
+            .disabled(maintenance)
+            // A sibling, not an overlay of the disabled content, so its own buttons stay live.
+            if maintenance {
                 MaintenanceOverlay()
                     .transition(.opacity)
             }
         }
         .frame(minWidth: 960, minHeight: 600)
         .animation(.smooth(duration: 0.25), value: app.phase)
-        .animation(.smooth(duration: 0.25), value: app.config.maintenance.enabled)
+        .animation(.smooth(duration: 0.25), value: maintenance)
         .onAppear {
             Typeface.persian = app.strings.language == .fa
             app.showSettings = { openSettings() }

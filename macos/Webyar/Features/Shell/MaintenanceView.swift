@@ -14,7 +14,7 @@ struct MaintenanceOverlay: View {
         ZStack {
             // The app stays in view, blurred, so it is plain it will be back as it was.
             Rectangle().fill(.ultraThinMaterial)
-            Palette.appBackground.opacity(0.45)
+            Palette.appBackground.opacity(0.25)
             VStack(spacing: 14) {
                 Image(systemName: "wrench.and.screwdriver.fill")
                     .font(.system(size: 28, weight: .medium))

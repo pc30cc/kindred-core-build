@@ -114,7 +114,7 @@ struct GeneralSettingsTab: View {
                 }
             }
         }
-        .settingsForm(height: links.isEmpty ? 200 : 250 + CGFloat(links.count) * 44)
+        .settingsForm(height: links.isEmpty ? 200 : 200 + CGFloat(links.count) * 38)
     }
 
     /// Opens in the browser, like System Settings' own outbound rows.

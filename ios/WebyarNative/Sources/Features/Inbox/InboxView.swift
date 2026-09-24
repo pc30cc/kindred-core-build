@@ -340,10 +340,19 @@ struct InboxView: View {
                 Text(model.channel?.title(language) ?? model.filter.headerTitle(language))
                     .font(.app(.headline))
                     .foregroundStyle(Theme.Palette.label)
+                    .lineLimit(1)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(Theme.Palette.labelSecondary)
             }
+            // Its ideal width, and no less.
+            //
+            // A `Menu` in a toolbar got this for free; a `Button` does not —
+            // it is handed a width and squeezes its label to fit, which
+            // turned the screen's own name into an ellipsis the moment the
+            // menu became a sheet. Nothing else about the swap was visible,
+            // which is exactly why it was worth photographing.
+            .fixedSize(horizontal: true, vertical: false)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

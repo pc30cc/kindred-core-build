@@ -21,14 +21,30 @@ struct SearchRow: View {
         trailing: Theme.screenInset
     )
 
+    @Environment(\.layoutDirection) private var direction
+
+    /// The magnifier sits on the far side from where the words start.
+    ///
+    /// An `HStack` mirrors under a right-to-left layout, so leaving the glyph
+    /// first put it hard against the right edge in Persian -- on the same
+    /// side the typing starts, with the caret pushed in behind it. Listing it
+    /// last in Persian mirrors it to the left, which leaves the whole right
+    /// edge to the text.
+    private var magnifier: some View {
+        Image(systemName: "magnifyingglass")
+            .font(.system(size: 16))
+            .foregroundStyle(Theme.Palette.labelSecondary)
+    }
+
     var body: some View {
         HStack(spacing: Theme.Space.sm) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 16))
-                .foregroundStyle(Theme.Palette.labelSecondary)
+            if direction == .leftToRight { magnifier }
 
             TextField(prompt, text: $text)
                 .font(.app(.body))
+                // Leading, which is the right edge in Persian and the left in
+                // English -- the side the language starts its words on.
+                .multilineTextAlignment(.leading)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
@@ -47,6 +63,8 @@ struct SearchRow: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text(verbatim: "×"))
             }
+
+            if direction == .rightToLeft { magnifier }
         }
         .padding(.horizontal, Theme.Space.md)
         .frame(height: Theme.Size.minTouchTarget)

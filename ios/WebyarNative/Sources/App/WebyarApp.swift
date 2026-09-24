@@ -76,6 +76,20 @@ struct RootView: View {
                     ))
             }
         }
+        // The default face for anything that never named a font of its own.
+        //
+        // A Toggle's label, a Picker's label, a plain row of text -- none of
+        // them carry a `.font`, so none of them were touched when every
+        // explicit call site moved to IRANSans, and half of Settings stayed
+        // in the system face. This is the other half: the environment's font
+        // is what SwiftUI falls back to, so setting it here sets it for
+        // everything that has no opinion, on every screen, including screens
+        // written after this one.
+        //
+        // Body-sized, because that is what "no opinion" resolves to anyway.
+        // Anything with its own size -- a section header, a footnote -- keeps
+        // it, since an explicit font always wins over the environment.
+        .environment(\.font, .app(.body))
         .animation(Theme.Motion.standard, value: appState.session)
         .task {
             // First thing, while the launch view — a centred mark on a plain

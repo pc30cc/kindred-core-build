@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Which face the interface is set in, and the one place that decides it.
 ///
@@ -36,6 +37,39 @@ enum AppTypeface {
     /// breath — the two have to agree or the interface is half one language.
     static func apply(_ language: Language) {
         current = language == .fa ? .iranSans : .system
+        applyToNavigationBar()
+    }
+
+    /// The navigation bar's title is drawn by UIKit, not by us.
+    ///
+    /// This is why "مخاطبین" and "تنظیمات" stayed in the system face while
+    /// every row beneath them changed: `.navigationTitle` hands a string to a
+    /// `UINavigationBar`, and no SwiftUI `.font` modifier reaches inside one.
+    /// The only lever is the appearance proxy — the same lever
+    /// `WindowDirection` already pulls for `semanticContentAttribute`.
+    ///
+    /// The existing appearance objects are mutated and put back rather than
+    /// replaced with fresh ones. A new `UINavigationBarAppearance` starts
+    /// with a transparent background, so configuring one from scratch would
+    /// take the bar's own material with it -- and on iOS 26 that material is
+    /// the Liquid Glass this app was just rebuilt around.
+    private static func applyToNavigationBar() {
+        let bar = UINavigationBar.appearance()
+        for appearance in [bar.standardAppearance, bar.scrollEdgeAppearance, bar.compactAppearance] {
+            guard let appearance else { continue }
+            appearance.titleTextAttributes = titleAttributes(size: 17, weight: .semibold)
+            appearance.largeTitleTextAttributes = titleAttributes(size: 34, weight: .bold)
+        }
+        bar.standardAppearance = bar.standardAppearance
+    }
+
+    /// Empty for the system face, which is what puts English and Turkish back
+    /// to the bar UIKit would have drawn on its own.
+    private static func titleAttributes(size: CGFloat, weight: Font.Weight) -> [NSAttributedString.Key: Any] {
+        guard let name = current.faceName(for: weight),
+              let font = UIFont(name: name, size: size)
+        else { return [:] }
+        return [.font: font]
     }
 
     /// The face for a weight.

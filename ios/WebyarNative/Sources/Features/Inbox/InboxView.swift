@@ -455,13 +455,6 @@ struct ConversationRow: View {
         return assigned == currentUserID
     }
 
-    /// The third line only exists when it has something to say.
-    private var hasFooter: Bool {
-        conversation.hasUnread
-            || conversation.status == .resolved
-            || conversation.priority?.isElevated == true
-            || isMine
-    }
 
     private var displayName: String {
         Format.contactName(
@@ -521,8 +514,6 @@ struct ConversationRow: View {
 
                     Spacer(minLength: Theme.Space.xs)
 
-                    ChannelMark(key: conversation.channelKey, language: language)
-
                     Text(Format.listTimestamp(conversation.lastActivity, locale: locale))
                         .font(Theme.Typo.meta)
                         .foregroundStyle(Theme.Palette.labelSecondary)
@@ -541,29 +532,38 @@ struct ConversationRow: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                if hasFooter {
-                    HStack(spacing: Theme.Space.sm) {
-                        if let priority = conversation.priority, priority.isElevated {
-                            StatusPill(
-                                text: priority == .urgent
-                                    ? Str.priorityUrgent(language)
-                                    : Str.priorityHigh(language),
-                                tint: priority == .urgent ? Theme.Palette.danger : Theme.Palette.warning
-                            )
-                        }
-                        if conversation.status == .resolved {
-                            StatusPill(text: Str.filterResolved(language), tint: Theme.Palette.success)
-                        }
-                        if isMine {
-                            StatusPill(text: Str.assignedToYou(language), tint: Theme.Palette.brand)
-                        }
-                        Spacer(minLength: 0)
-                        if let count = conversation.unreadCount, count > 0 {
-                            UnreadBadge(count: count)
-                        }
+                // Always drawn, because a thread always came in on
+                // something -- the widget when it came in on nothing else.
+                //
+                // On the title line this cost the name its width: "Alexander
+                // Konstantinopoulos" truncated to make room for a badge
+                // saying the same three words on every row. The console's own
+                // mobile inbox puts it on the line below for the same reason.
+                HStack(spacing: Theme.Space.sm) {
+                    ChannelMark(key: conversation.channelKey, language: language)
+
+                    if let priority = conversation.priority, priority.isElevated {
+                        StatusPill(
+                            text: priority == .urgent
+                                ? Str.priorityUrgent(language)
+                                : Str.priorityHigh(language),
+                            tint: priority == .urgent ? Theme.Palette.danger : Theme.Palette.warning
+                        )
                     }
-                    .padding(.top, Theme.Space.xxs)
+                    if conversation.status == .resolved {
+                        StatusPill(text: Str.filterResolved(language), tint: Theme.Palette.success)
+                    }
+                    if isMine {
+                        StatusPill(text: Str.assignedToYou(language), tint: Theme.Palette.brand)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    if let count = conversation.unreadCount, count > 0 {
+                        UnreadBadge(count: count)
+                    }
                 }
+                .padding(.top, Theme.Space.xxs)
             }
         }
         .contentShape(Rectangle())

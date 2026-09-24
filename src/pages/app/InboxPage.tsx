@@ -2365,7 +2365,7 @@ export default function InboxPage() {
                               <div className={cn(
                                 'rounded-lg px-2.5 py-1.5 mb-1.5 text-[12.5px] leading-[1.6] border-s-2',
                                 isAgent
-                                  ? 'bg-primary-foreground/10 border-primary-foreground/50 text-primary-foreground/80'
+                                  ? 'bg-background/70 border-primary/60 text-muted-foreground'
                                   : 'bg-background/70 border-primary/60 text-muted-foreground',
                               )}>
                                 {qAuthor && <div className="font-semibold text-[11px] mb-0.5 opacity-90">{qAuthor}</div>}

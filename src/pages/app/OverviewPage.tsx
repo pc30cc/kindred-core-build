@@ -228,10 +228,11 @@ export default function OverviewPage() {
   return (
     <div dir={dir} className="space-y-6 animate-fade-in">
       {/* ── Hero ─────────────────────────────────────────── */}
-      <section className="relative overflow-hidden rounded-3xl border border-border/60 bg-gradient-to-br from-indigo-500/[0.14] via-violet-500/[0.08] to-cyan-500/[0.06] p-6 shadow-sm sm:p-7">
-        <div className="pointer-events-none absolute -top-24 end-[-4rem] h-64 w-64 rounded-full bg-violet-500/25 blur-3xl" />
-        <div className="pointer-events-none absolute bottom-[-7rem] start-1/4 h-56 w-56 rounded-full bg-cyan-500/20 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-16 end-1/3 h-40 w-40 rounded-full bg-amber-500/15 blur-3xl" />
+      <section className="relative overflow-hidden beam-border rounded-3xl border border-border/60 bg-brand-soft p-6 shadow-glow sm:p-7">
+        <div className="pointer-events-none absolute -top-24 end-[-4rem] h-64 w-64 rounded-full bg-brand-violet/25 blur-3xl animate-aurora" />
+        <div className="pointer-events-none absolute bottom-[-7rem] start-1/4 h-56 w-56 rounded-full bg-brand-teal/25 blur-3xl animate-aurora" />
+        <div className="pointer-events-none absolute -bottom-16 end-1/3 h-40 w-40 rounded-full bg-brand-coral/15 blur-3xl" />
+        <div className="bg-grid pointer-events-none absolute inset-0" />
         <div className="relative flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div

@@ -338,7 +338,7 @@
     @apply text-muted-foreground hover:text-foreground hover:bg-secondary;
   }
   .nav-item-active {
-    @apply text-primary bg-primary/10 hover:bg-primary/15 hover:text-primary font-semibold;
+    @apply text-primary bg-primary/10 hover:bg-primary/15 hover:text-primary font-semibold shadow-[inset_2px_0_0_hsl(var(--primary))];
   }
 
   .section-header {

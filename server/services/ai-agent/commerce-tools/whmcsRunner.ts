@@ -77,6 +77,12 @@ export interface WhmcsStageInput {
   /** The visitor's own earlier messages in this conversation, oldest first. */
   previousVisitorTurns?: readonly string[];
   correlationId?: string;
+  /**
+   * Skip intent detection and run this intent: used once per turn when the
+   * model's private control block named the account section it needed
+   * (generationStage fallback). Still subject to every gate below.
+   */
+  forcedIntent?: WhmcsIntent;
   /** Test seam. */
   connectorFactory?: (transport: WhmcsTransport) => WhmcsConnector;
 }
@@ -297,7 +303,7 @@ function singular(resource: WhmcsResource): string {
 
 export async function runWhmcsToolStage(config: ServerConfig, input: WhmcsStageInput): Promise<WhmcsStageResult> {
   const startedAt = Date.now();
-  const intent = resolveWhmcsFollowUp(input.question, input.previousVisitorTurns ?? []);
+  const intent = input.forcedIntent ?? resolveWhmcsFollowUp(input.question, input.previousVisitorTurns ?? []);
   if (intent.kind === 'none') return empty('none', 'skipped');
 
   let connections = input.connections ?? null;
@@ -494,6 +500,17 @@ export async function runWhmcsToolStage(config: ServerConfig, input: WhmcsStageI
     selection: selected.reason,
     metrics: { httpCalls: m.httpCalls, cacheHits: m.cacheHits, coalesced: m.coalesced, bytesIn: m.bytesIn, evidenceBytes: evidence.bytes, durationMs },
   };
+}
+
+/** Whether a stage result carries real account/catalog rows (not only a status/error row). */
+export function hasWhmcsData(result: WhmcsStageResult | null | undefined): boolean {
+  return !!result && result.toolResults.some((r) => r.name !== 'whmcs.status' && r.name !== 'whmcs.note');
+}
+
+/** The intent the model asked for through `account_data`. */
+export function intentForAccountData(section: 'services' | 'domains' | 'invoices' | 'orders' | 'tickets' | 'plans', question: string): WhmcsIntent {
+  if (section === 'plans') return { kind: 'catalog', mode: 'browse', query: question.slice(0, 80) };
+  return { kind: 'account', resource: section, mode: 'list', selector: null, filter: null, fresh: false, followUp: true };
 }
 
 export type { WhmcsTurnContext };

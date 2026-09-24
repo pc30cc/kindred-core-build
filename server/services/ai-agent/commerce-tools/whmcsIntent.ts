@@ -124,7 +124,8 @@ const RESOURCE_STEMS: Record<WhmcsResource, { fa: string[]; tr: string[]; en: st
   },
   tickets: {
     fa: ['تیکت', 'تیکتی'],
-    tr: ['ticket', 'talep', 'destektalebi'],
+    // Turkish voices a final p/ç/t/k before a vowel: talep → talebi, borç → borcu.
+    tr: ['ticket', 'talep', 'talebi', 'talebim', 'destektalebi'],
     en: ['ticket'],
   },
 };
@@ -133,22 +134,31 @@ const RESOURCE_STEMS: Record<WhmcsResource, { fa: string[]; tr: string[]; en: st
 const RESOURCE_PHRASES: Array<[RegExp, WhmcsResource]> = [
   [/صورت ?حساب/, 'invoices'],
   [/درخواست پشتیبانی/, 'tickets'],
-  [/alan ad[ıi]/, 'domains'],
+  [/alan ?ad(?:[ıi]|lar)/, 'domains'],
   [/destek talep/, 'tickets'],
   [/support (?:request|case)s?/, 'tickets'],
   [/(?:payment|amount) due|how much do i owe|outstanding balance/, 'invoices'],
   [/پرداخت ?نشده/, 'invoices'],
   [/ödenmemiş|odenmemis/, 'invoices'],
+  // "What do I have to pay?" names no resource at all, but in a billing
+  // system it can only mean the invoices.
+  [/(?:باید|بایست)[^.؟?]{0,12}پرداخت|پرداخت کنم|need to pay|have to pay|pay (?:now|this month)|ödemem|ödemeliyim|odemem|odemeliyim/, 'invoices'],
+  // "Has support replied?" is a ticket question.
+  [/پشتیبانی[^.؟?]{0,20}(?:جواب|پاسخ)|support[^.?]{0,20}(?:repl|answer|respond)|destek[^.?]{0,20}(?:cevap|yanıt|yanit)/, 'tickets'],
 ];
 
-const EN_POSSESSIVE = /(?:^| )(?:my|mine|i have|do i|am i|i owe|i paid|my account)(?: |$)/;
+const EN_POSSESSIVE = /(?:^| )(?:my|mine|i have|do i|am i|i owe|i paid|my account|i need to pay|i have to pay)(?: |$|\?)/;
 const FA_POSSESSIVE_WORDS = /(?:^| )(?:من|مال من|حسابم|اکانتم|حساب کاربریم|پنلم)(?: |$)/;
-const TR_POSSESSIVE_WORDS = /(?:^| )(?:benim|hesabım|hesabim)(?: |$)/;
+const TR_POSSESSIVE_WORDS = /(?:^| )(?:benim|hesabım|hesabim|alan ?adım|alan ?adlarım|alan ?adımı|alan ?adlarımı)(?: |$)/;
 
 /** Account-state words: asking about these only makes sense for something the visitor owns. */
 const ACCOUNT_SIGNAL = /تمدید|منقضی|انقضا|سررسید|سر ?رسید|معلق|تعلیق|ساسپند|وضعیت|پرداخت|بدهکار|مانده|سر رسید|renew|expir|due|suspend|status|unpaid|overdue|balance|outstanding|yenile|sona er|vade|askı|askiya|durum|ödeme|odeme|bakiye/;
 
-const CATALOG_SIGNAL = /قیمت|تعرفه|هزینه|خرید|بخرم|بخرید|می‌خوام بخرم|چند (?:است|هست|ه)|ارزان|ارزون|مقایسه|پلن|پکیج|معرفی|price|pricing|cost|how much|buy|purchase|order a|plans?|packages?|cheap|compare|offer|fiyat|ücret|ucret|satın|satin|kaç para|kac para|planlar|paketler|ne kadar/;
+const CATALOG_SIGNAL = /قیمت|تعرفه|هزینه|خرید|بخرم|بخرید|می‌خوام بخرم|چند (?:است|هست|ه)|ارزان|ارزون|مقایسه|پلن|پکیج|معرفی|price|pricing|cost|how much|buy|purchase|order a|plans?|packages?|cheap|compare|offer|fiyat|ücret|ucret|satın|satin|kaç para|kac para|planlar|paketler|ne kadar|ucuz/;
+
+/** A question about what is on offer, with no resource word of its own. */
+const OFFER_QUESTION = /(?:do you (?:have|offer|sell)|is there|are there|var mı|var mi|دارید|دارین|هست؟|موجوده)/;
+const PLAN_WORD = /پلن|پکیج|تعرفه|plan|package|paket/;
 
 const CATALOG_BROWSE = /چه (?:پلن|پکیج|سرویس|هاست)|چه ?نوع|لیست (?:پلن|تعرفه|قیمت)|تعرفه ها|تعرفهها|همه (?:پلن|پکیج)|what (?:plans|packages|hosting)|list of (?:plans|packages)|show (?:me )?(?:your )?(?:plans|packages|pricing)|hangi (?:paket|plan)|paketleriniz|planlarınız|fiyat listesi/;
 
@@ -266,7 +276,7 @@ export function detectWhmcsIntent(question: string): WhmcsIntent {
         followUp: false,
       };
     }
-    if (resource === 'services' && (catalogSignal || /\?|؟|دارید|دارین|hosting|hizmet/.test(normalized))) {
+    if (resource === 'services' && (catalogSignal || OFFER_QUESTION.test(normalized) || /\?|؟|hosting|hizmet/.test(normalized))) {
       return {
         kind: 'catalog',
         mode: CATALOG_BROWSE.test(normalized) || !stripsToQuery(normalized) ? 'browse' : 'search',
@@ -278,6 +288,10 @@ export function detectWhmcsIntent(question: string): WhmcsIntent {
   }
 
   if (CATALOG_BROWSE.test(normalized)) return { kind: 'catalog', mode: 'browse', query: catalogQuery(question) };
+  // «پلن ارزون‌تر دارید؟», "is there a cheaper plan?", «daha ucuz paket var mı?»
+  if (PLAN_WORD.test(normalized) && (catalogSignal || OFFER_QUESTION.test(normalized))) {
+    return { kind: 'catalog', mode: stripsToQuery(normalized) ? 'search' : 'browse', query: catalogQuery(question) };
+  }
   return { kind: 'none' };
 }
 

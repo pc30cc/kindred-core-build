@@ -339,10 +339,33 @@
   // visitor to the widget, so every order question could only answer
   // `identity_required`.
   var _commerceBound = false;
+  // A billing plugin (WHMCS) also names the grant behind the assertion with an
+  // opaque fingerprint (`data-commerce-binding`). The same grant on the next
+  // page of the same tab was bound a moment ago, and re-posting it only makes
+  // the server re-verify something it already holds — so it is skipped for a
+  // while. The server stays authoritative either way: every private read is
+  // re-authorized by the billing system itself.
+  var BINDING_REUSE_MS = 10 * 60 * 1000;
+  function bindingKey(workspaceId) { return "gs:cbind:" + workspaceId; }
+  function alreadyBound(workspaceId, binding) {
+    if (!binding) return false;
+    try {
+      var raw = window.sessionStorage.getItem(bindingKey(workspaceId));
+      if (!raw) return false;
+      var rec = JSON.parse(raw);
+      return rec && rec.b === binding && (Date.now() - rec.t) < BINDING_REUSE_MS;
+    } catch (_) { return false; }
+  }
+  function rememberBinding(workspaceId, binding) {
+    if (!binding) return;
+    try { window.sessionStorage.setItem(bindingKey(workspaceId), JSON.stringify({ b: binding, t: Date.now() })); } catch (_) {}
+  }
   function bindCommerceIdentity(apiBase, workspaceId, token) {
     if (_commerceBound) return;   // defence in depth; bootstrap() is not re-entered today
     var assertion = attr("data-commerce-assertion");
     if (!assertion || !apiBase || !workspaceId || !token) return;
+    var binding = attr("data-commerce-binding");
+    if (alreadyBound(workspaceId, binding)) { _commerceBound = true; log("commerce identity: already linked"); return; }
     _commerceBound = true;
     // The connection id is an optional cross-check, not a requirement: a store
     // paired before the plugin began storing its own connection id cannot send
@@ -369,9 +392,28 @@
         headers: { "Content-Type": "application/json", "X-Widget-Token": token },
         body: JSON.stringify(body),
       }).then(function (r) {
+        if (r.ok) rememberBinding(workspaceId, binding);
         log("commerce identity:", r.ok ? "linked" : "not linked (" + r.status + ")");
       }).catch(function () { /* offline or blocked — stay anonymous */ });
     } catch (_) { /* no fetch — stay anonymous */ }
+  }
+
+  // ─── Who is using this browser, as the embedding site knows it ───
+  // A billing/store plugin may put an opaque per-person fingerprint on the tag
+  // (`data-commerce-subject`: "anon" for a signed-out page, "u<hash>" for a
+  // signed-in user). When the previous page belonged to a signed-in person
+  // and this one belongs to someone else — or to nobody, after a logout — the
+  // widget asks bootstrap for a FRESH visitor, so the previous person's
+  // conversation is not shown on a shared computer. Pages without the
+  // attribute (every plain embed) are unaffected.
+  function commerceSubjectChanged(workspaceId) {
+    var subject = attr("data-commerce-subject");
+    if (!subject || !workspaceId) return false;
+    var key = "gs:csub:" + workspaceId;
+    var previous = null;
+    try { previous = window.localStorage.getItem(key); } catch (_) { return false; }
+    try { window.localStorage.setItem(key, subject); } catch (_) {}
+    return !!previous && previous.charAt(0) === "u" && previous !== subject;
   }
 
   function getApiBase() {
@@ -955,10 +997,12 @@
     }
 
     var bootstrapUrl = apiBase + "/api/widget/bootstrap";
-    var bootstrapBody = JSON.stringify({
+    var bootstrapPayload = {
       workspace_id: WORKSPACE_ID,
       origin: window.location.origin,
-    });
+    };
+    if (commerceSubjectChanged(WORKSPACE_ID)) bootstrapPayload.fresh_visitor = true;
+    var bootstrapBody = JSON.stringify(bootstrapPayload);
 
     fetchWithRetry(bootstrapUrl, {
       method: "POST",

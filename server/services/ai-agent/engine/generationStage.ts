@@ -16,7 +16,7 @@ import type { ServerConfig } from '../../../config.js';
 import { executeAICompletion, executeAICompletionWithConfig, resolveAIConfig } from '../../ai/index.js';
 // `executeAICompletion` is still referenced by the GenerationStageResult type.
 import { buildSystemPrompt, buildUserPrompt } from '../prompt.js';
-import { toModelMessages } from '../conversationContext.js';
+import { toModelMessages, type ContextTurn } from '../conversationContext.js';
 import { postValidateAnswer, type PostValidateContext } from '../policy.js';
 import type { InternalToolRecord } from '../runtimeConfig.js';
 import { logRun } from '../logs.js';
@@ -33,8 +33,8 @@ import {
 } from '../actions/index.js';
 import { resolveHandoffAckMessage, pickHandoffAck } from './helpers.js';
 import { runCommerceToolStage } from '../commerce-tools/runner.js';
-import { runWhmcsToolStage, type WhmcsStageResult } from '../commerce-tools/whmcsRunner.js';
-import { listWorkspaceConnections } from '../../commerce/connectionSelection.js';
+import { runWhmcsToolStage, hasWhmcsData, intentForAccountData, type WhmcsStageResult } from '../commerce-tools/whmcsRunner.js';
+import { listWorkspaceConnections, selectConnection } from '../../commerce/connectionSelection.js';
 import { checkGenerationFreshness, freshnessMeta } from '../freshness.js';
 import { parseAiControl, buildAiControlContract, type AiControl } from '../aiControl.js';
 import { createGuidanceRequest, hasPendingGuidanceRequest } from '../guidance.js';
@@ -253,6 +253,15 @@ export async function runGenerationStage(
   // logout) must not see the previous subject's answers in the prompt.
   const whmcsCutoffMs = whmcsAccountTurn && whmcsStage?.historyCutoff ? Date.parse(whmcsStage.historyCutoff) : NaN;
   const historyCut = Number.isFinite(whmcsCutoffMs);
+  // Fast-path misses: when a billing connection is in context for this turn
+  // and the deterministic router fetched nothing, the SAME generation may
+  // name the account section it needed in its private control block. One
+  // bounded follow-up (below) then fetches it and regenerates once — no
+  // separate router model, no loop, and still no authority from the model.
+  const whmcsConnectionInContext = commerceConnections
+    ? selectConnection(commerceConnections, { family: 'billing', ...commerceSite }).connection
+    : null;
+  const offerAccountData = !!whmcsConnectionInContext && !!conversationId && !hasWhmcsData(whmcsStage);
   // A guidance request only makes sense when a human could actually answer
   // it soon: operators reachable, AI still owns the conversation, and no
   // request is already pending for this conversation.
@@ -285,32 +294,35 @@ export async function runGenerationStage(
     // After a WHMCS subject change the stored memory describes the previous
     // subject's conversation; it is left out of this account turn's prompt.
     conversationMemoryBlock: historyCut ? null : memoryBlock,
-    aiControlContract: buildAiControlContract({ allowGuidanceRequest: allowGuidanceRequest }),
+    aiControlContract: buildAiControlContract({ allowGuidanceRequest: allowGuidanceRequest, allowAccountDataRequest: offerAccountData }),
   });
   // Phase 11 — real role-tagged history. Providers that accept a message
   // array get system + user/assistant turns + the current message; the
   // rendered text block is only used as a fallback for that same context.
   // The current visitor message is delivered separately as `prompt`, so it
   // must never be duplicated as the last history turn.
-  const promptTurns = historyCut
-    ? (built?.contextTurns || []).filter((t) => !!t.createdAt && Date.parse(t.createdAt) >= whmcsCutoffMs)
-    : (built?.contextTurns || []);
-  const historyMessages = toModelMessages(promptTurns)
+  const turnsSince = (cutoffMs: number): ContextTurn[] => (Number.isFinite(cutoffMs)
+    ? (built?.contextTurns || []).filter((t) => !!t.createdAt && Date.parse(t.createdAt) >= cutoffMs)
+    : (built?.contextTurns || []));
+  const messagesFor = (turns: ContextTurn[]) => toModelMessages(turns)
     .filter((m, i, arr) => !(i === arr.length - 1 && m.role === 'user' && m.content.trim() === question));
-  const userPrompt = buildUserPrompt(question, sources, strategy, {
-    pageContext: pageContext ? { currentPageUrl: pageContext.currentPageUrl, currentPageTitle: pageContext.currentPageTitle } : null,
-    pageMatched: pageExact || pagePath,
-    // Phase 2.1 — bounded multi-turn context, already tenant-scoped.
-    // The rendered text fallback carries the SAME history; after a WHMCS
-    // subject change it would reintroduce exactly what was cut above.
-    conversationContext: historyMessages.length || historyCut ? null : (built?.conversationContext || null),
-    // Phase 2.7 — warn the model when sources materially disagree.
-    conflictDetected: strategy.conflictDetected,
-    toolResults: toolResultsBlock,
-    nudgeContext: nudgeContext || null,
-  }) + (whmcsStage?.directive ? `\n\n${whmcsStage.directive}` : '') + (decisionStage.assistFirstActive
-    ? `\n\nTURN DIRECTIVE — the visitor asked for a human. A transfer has NOT happened. Acknowledge the request in one short sentence, then make exactly ONE genuinely useful attempt at their actual problem, and close by offering the transfer. Never imply the transfer is already in progress. Suggested tone: "${assistFirstMessage(locale)}"`
-    : '');
+  const composeUserPrompt = (toolBlock: string | null, directive: string | null, cut: boolean, messages: ReturnType<typeof messagesFor>) =>
+    buildUserPrompt(question, sources, strategy, {
+      pageContext: pageContext ? { currentPageUrl: pageContext.currentPageUrl, currentPageTitle: pageContext.currentPageTitle } : null,
+      pageMatched: pageExact || pagePath,
+      // Phase 2.1 — bounded multi-turn context, already tenant-scoped.
+      // The rendered text fallback carries the SAME history; after a WHMCS
+      // subject change it would reintroduce exactly what was cut above.
+      conversationContext: messages.length || cut ? null : (built?.conversationContext || null),
+      // Phase 2.7 — warn the model when sources materially disagree.
+      conflictDetected: strategy.conflictDetected,
+      toolResults: toolBlock,
+      nudgeContext: nudgeContext || null,
+    }) + (directive ? `\n\n${directive}` : '') + (decisionStage.assistFirstActive
+      ? `\n\nTURN DIRECTIVE — the visitor asked for a human. A transfer has NOT happened. Acknowledge the request in one short sentence, then make exactly ONE genuinely useful attempt at their actual problem, and close by offering the transfer. Never imply the transfer is already in progress. Suggested tone: "${assistFirstMessage(locale)}"`
+      : '');
+  const historyMessages = messagesFor(turnsSince(whmcsCutoffMs));
+  const userPrompt = composeUserPrompt(toolResultsBlock, whmcsStage?.directive ?? null, historyCut, historyMessages);
 
   let aiResult;
   /** Observability for the empty-output retry (P0-18). */
@@ -415,7 +427,54 @@ export async function runGenerationStage(
   // control JSON can never reach the visitor even if a later stage fails.
   const parsedControl = parseAiControl(aiResult.text || '');
   aiResult = { ...aiResult, text: parsedControl.text };
-  const aiControl = parsedControl.control;
+  let aiControl = parsedControl.control;
+
+  // ─── WHMCS fast-path miss → one bounded fetch + one regeneration ───────
+  let whmcsFallback: WhmcsStageResult | null = null;
+  if (offerAccountData && aiControl.accountData) {
+    decisionTimeline.push(`whmcs_model_requested_${aiControl.accountData}`);
+    generationMeta.whmcs_fallback = 'requested';
+    whmcsFallback = await runWhmcsToolStage(config, {
+      workspaceId, conversationId: conversationId || null, question,
+      connections: commerceConnections, ...commerceSite, previousVisitorTurns,
+      forcedIntent: intentForAccountData(aiControl.accountData, question),
+    }).catch(() => null);
+    // Regenerate only when real rows came back. A refusal (not signed in,
+    // no permission, unavailable) adds nothing the first answer lacked.
+    if (hasWhmcsData(whmcsFallback)) {
+      const fallbackCutMs = whmcsFallback.historyCutoff ? Date.parse(whmcsFallback.historyCutoff) : NaN;
+      const fallbackMessages = messagesFor(turnsSince(fallbackCutMs));
+      const fallbackPrompt = composeUserPrompt(
+        [toolResultsBlock, renderToolResults(whmcsFallback.toolResults)].filter(Boolean).join('\n'),
+        whmcsFallback.directive,
+        Number.isFinite(fallbackCutMs),
+        fallbackMessages,
+      );
+      const regenerated = await executeAICompletionWithConfig(config, aiConfig, {
+        workspaceId,
+        prompt: fallbackPrompt,
+        systemPrompt,
+        messages: fallbackMessages,
+        maxTokens: 600,
+        temperature:
+          settings.answer_guidance === 'creative' ? 0.6 :
+          settings.answer_guidance === 'balanced' ? 0.4 : 0.2,
+      }, input.runCtx ?? undefined).catch(() => null);
+      if (regenerated && String(regenerated.text || '').trim()) {
+        const reparsed = parseAiControl(regenerated.text || '');
+        aiResult = { ...regenerated, text: reparsed.text };
+        // Bounded to ONE extra round: a second request is ignored.
+        aiControl = { ...reparsed.control, accountData: null };
+        generationMeta.whmcs_fallback = 'regenerated';
+        for (const t of whmcsFallback.toolsUsed) readOnlyToolResults.push({ name: t, ok: true });
+      } else {
+        generationMeta.whmcs_fallback = 'regeneration_failed';
+      }
+    } else {
+      generationMeta.whmcs_fallback = 'no_data';
+    }
+  }
+  const whmcsUrls = [...(whmcsStage?.urls ?? []), ...(hasWhmcsData(whmcsFallback) ? whmcsFallback!.urls : [])];
 
   // A store link the model RETYPED instead of copying is a 404 presented as
   // fact. Done here, before the action pipeline and before anything is
@@ -431,8 +490,8 @@ export async function runGenerationStage(
   }
   // WHMCS links: only the ones this turn's results carried survive on the
   // billing host; a retyped one is repaired or dropped the same way.
-  if (whmcsStage?.urls.length) {
-    aiResult = { ...aiResult, text: repairCommerceLinks(aiResult.text || '', whmcsStage.urls) };
+  if (whmcsUrls.length) {
+    aiResult = { ...aiResult, text: repairCommerceLinks(aiResult.text || '', whmcsUrls) };
   }
   aiResult = {
     ...aiResult,
@@ -446,7 +505,8 @@ export async function runGenerationStage(
   // On a WHMCS account turn the model's free-text memory fields could hold
   // invoice amounts or service details; persisting them would be a second,
   // unmanaged copy of account data. Only the deterministic patch is kept.
-  const modelMemory = whmcsAccountTurn ? { ...aiControl, currentIssue: null, awaitingUserAction: null, entities: [], proposedSolution: null } : aiControl;
+  const accountDataShown = whmcsAccountTurn || (whmcsFallback?.intent === 'account' && hasWhmcsData(whmcsFallback));
+  const modelMemory = accountDataShown ? { ...aiControl, currentIssue: null, awaitingUserAction: null, entities: [], proposedSolution: null } : aiControl;
   const memoryPatch: MemoryPatch = {
     ...memoryTurnPatch,
     ...(modelMemory.currentIssue ? { currentIssue: modelMemory.currentIssue } : {}),

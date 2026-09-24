@@ -344,7 +344,18 @@ async function confirmAccess(ctx: WhmcsTurnContext, grant: WhmcsGrantRef): Promi
   const key = `whmcs-session|${ctx.connection.installation_id}|${grant.grantId}|${grant.userId}|${grant.clientId}`;
   const { promise, shared } = cache.coalesce(key, () => liveCall(ctx, 'session.check', {}, grant));
   if (shared) ctx.metrics.coalesced += 1;
-  const state = normalizeSession(await promise);
+  let raw: unknown;
+  try {
+    raw = await promise;
+  } catch (err) {
+    // WHMCS answers a logged-out / switched / expired grant with 403: that
+    // must purge what was cached under it just like `valid: false` does.
+    if (err instanceof CommerceError && (err.code === 'identity_expired' || err.code === 'account_permission_denied')) {
+      dropGrantCache(ctx.connection, ctx.workspaceId, grant);
+    }
+    throw err;
+  }
+  const state = normalizeSession(raw);
   if (!state.valid) {
     dropGrantCache(ctx.connection, ctx.workspaceId, grant);
     throw new CommerceError('identity_expired', 'WHMCS grant no longer valid');

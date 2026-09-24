@@ -406,7 +406,11 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
     }
 
     // Issue / refresh visitor identity cookie (HttpOnly, signed)
-    const visitor = resolveVisitorIdentity(req, res, resolvedWorkspaceId);
+    // `fresh_visitor`: the embedding page says a different signed-in person
+    // is now on this browser (see public/widget/loader.js commerce subject).
+    const visitor = resolveVisitorIdentity(req, res, resolvedWorkspaceId, {
+      forceNew: (req.body as { fresh_visitor?: unknown } | undefined)?.fresh_visitor === true,
+    });
 
     // No-cache
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');

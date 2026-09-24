@@ -1176,6 +1176,73 @@ actor APIClient {
         )
         return try await perform(request, as: ContactsResponse.self).contacts
     }
+
+    // MARK: - Staying up to date
+
+    /// Asks the platform which transport this client should use.
+    ///
+    /// The same call the web console makes on every tab before it opens
+    /// anything. The answer is the deployment's decision — the provider is
+    /// configured in Super Admin, and during an incident the platform can
+    /// hold every client on polling — so it is asked rather than assumed.
+    /// `intent` is the platform's own observability, not ours: the server
+    /// counts a reconnect only when the client says it was one, because it
+    /// cannot tell a dropped socket from a scheduled renewal by looking at
+    /// the request. Reporting everything as a first connection would quietly
+    /// flatten the reconnect graph in Super Admin.
+    func liveNegotiation(
+        workspaceID: String,
+        intent: LiveConnectIntent
+    ) async throws -> LiveNegotiation {
+        let request = try makeRequest(
+            "POST",
+            "/api/realtime/operator-connect",
+            body: OperatorConnectBody(workspace_id: workspaceID, intent: intent.rawValue)
+        )
+        return try await perform(request, as: LiveNegotiation.self)
+    }
+
+    /// A subscription token for one channel.
+    ///
+    /// Minted per channel and per operator, and the server checks membership
+    /// — and, for a thread, that the conversation is in the workspace — before
+    /// it signs anything. There is no channel this can be talked into issuing
+    /// that the operator could not already read over HTTP.
+    func liveGrant(for channel: LiveChannel) async throws -> LiveChannelGrant {
+        let request: URLRequest
+        switch channel {
+        case .inbox(let workspaceID):
+            request = try makeRequest(
+                "POST",
+                "/api/realtime/operator-inbox-subscribe",
+                body: WorkspaceBody(workspace_id: workspaceID)
+            )
+        case .conversation(let workspaceID, let conversationID):
+            request = try makeRequest(
+                "POST",
+                "/api/realtime/operator-subscribe",
+                body: OperatorSubscribeBody(
+                    workspace_id: workspaceID,
+                    conversation_id: conversationID
+                )
+            )
+        }
+        return try await perform(request, as: LiveChannelGrant.self)
+    }
+
+    private struct OperatorConnectBody: Encodable, Sendable {
+        let workspace_id: String
+        let intent: String
+    }
+
+    private struct WorkspaceBody: Encodable, Sendable {
+        let workspace_id: String
+    }
+
+    private struct OperatorSubscribeBody: Encodable, Sendable {
+        let workspace_id: String
+        let conversation_id: String
+    }
 }
 
 /// The inbox queues, expressed the way the API wants them.

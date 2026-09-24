@@ -595,6 +595,22 @@ actor SampleAPI: WebyarAPI {
         return prefs
     }
 
+    // MARK: - Staying up to date
+
+    /// There is no server here and nothing that can change, so the sample
+    /// backend answers the way a deployment with realtime switched off does.
+    /// `LiveUpdates` never gets this far — it declines to negotiate against
+    /// the sample backend at all — and this exists so the answer is the same
+    /// either way rather than a crash waiting for somebody to remove that
+    /// check.
+    func liveNegotiation(workspaceID: String, intent: LiveConnectIntent) async throws -> LiveNegotiation {
+        LiveNegotiation(vendor: "disabled", socketURL: nil, token: nil, expiresAt: nil, forcePolling: false)
+    }
+
+    func liveGrant(for channel: LiveChannel) async throws -> LiveChannelGrant {
+        LiveChannelGrant(vendor: "disabled", channel: nil, token: nil)
+    }
+
     // MARK: - Fixtures
 
     private static func ago(_ minutes: Int) -> Date {

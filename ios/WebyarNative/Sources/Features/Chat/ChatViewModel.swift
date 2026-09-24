@@ -161,6 +161,15 @@ final class ChatViewModel {
         isSending = false
     }
 
+    /// Whether this transcript already contains a given message.
+    ///
+    /// The live channel carries the operator's own replies back to them, and
+    /// a send has already re-read the thread by the time that arrives. This
+    /// is what stops the echo costing a second round trip.
+    func has(messageID: String) -> Bool {
+        state.value?.contains { $0.id == messageID } ?? false
+    }
+
     func reload(appState: AppState) async {
         do {
             let messages = try await api.messages(conversationID: conversation.id)

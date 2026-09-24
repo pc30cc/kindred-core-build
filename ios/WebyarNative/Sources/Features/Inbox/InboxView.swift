@@ -56,6 +56,21 @@ struct InboxView: View {
             .task(id: workspaceID) {
                 await model.loadChannels(workspaceID: workspaceID)
             }
+            // What makes a new message appear here without being asked.
+            //
+            // The list used to reload only when this `.task` re-ran, which
+            // is why leaving the tab and coming back was the way to see a
+            // visitor's reply: nothing was telling the inbox anything had
+            // happened. `ws:<workspace>:inbox` is the channel the console
+            // watches for exactly this, and the server fans every new
+            // message out to it as well as to the thread's own channel.
+            //
+            // A quiet refresh rather than a load: the rows stay where they
+            // are and the new one arrives among them, instead of the whole
+            // list blanking to a skeleton every time somebody types.
+            .liveUpdates(on: workspaceID.map { LiveChannel.inbox(workspaceID: $0) }) { _ in
+                await model.absorb(workspaceID: workspaceID, appState: appState)
+            }
             // Only the inbox offers one, and only once the list is real —
             // a promotion over a skeleton is a promotion over nothing.
             .task(id: "\(workspaceID ?? "-")|\(model.state.isLoaded)") {

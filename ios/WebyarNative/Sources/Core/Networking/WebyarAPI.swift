@@ -131,6 +131,11 @@ protocol WebyarAPI: Sendable {
 
     func notificationPrefs() async throws -> NotificationPrefs
     func updateNotificationPrefs(_ prefs: NotificationPrefs) async throws -> NotificationPrefs
+
+    // MARK: - Staying up to date
+
+    func liveNegotiation(workspaceID: String, intent: LiveConnectIntent) async throws -> LiveNegotiation
+    func liveGrant(for channel: LiveChannel) async throws -> LiveChannelGrant
 }
 
 extension APIClient: WebyarAPI {}

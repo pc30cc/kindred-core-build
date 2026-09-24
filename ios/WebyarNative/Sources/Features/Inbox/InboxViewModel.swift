@@ -39,6 +39,8 @@ final class InboxViewModel {
     /// "no operating system" from "not known yet", and guessing shows
     /// initials it is about to replace.
     private(set) var isResolvingVisitors = true
+    /// Threads whose visitor profile has already been asked for once.
+    private var askedAboutVisitor: Set<String> = []
     var filter: InboxFilter = .open
     /// A channel inbox laid over the queue — Telegram, Bale, and the rest.
     ///
@@ -155,7 +157,7 @@ final class InboxViewModel {
                 guard !Task.isCancelled else { return }
                 state = .loaded(conversations)
                 counts = await counters
-                await loadVisitors(for: conversations, workspaceID: workspaceID)
+                await loadVisitors(for: conversations, workspaceID: workspaceID, rereadAll: true)
             } catch APIError.unauthorized {
                 await appState.handleUnauthorized()
             } catch let error as APIError {
@@ -172,13 +174,33 @@ final class InboxViewModel {
     /// while the request is in flight, so the list does not blank out under
     /// the finger.
     func refresh(workspaceID: String?, appState: AppState) async {
+        await reread(workspaceID: workspaceID, appState: appState, rereadVisitors: true)
+    }
+
+    /// A refresh nobody asked for: the platform said something changed and
+    /// the list is catching up.
+    ///
+    /// Identical to a pull except in what it re-reads about the visitors.
+    /// A reply arriving does not change which browser or country is behind a
+    /// thread, so this asks only about threads it has never asked about —
+    /// otherwise a busy conversation would cost one visitor lookup per
+    /// message for an answer that was already on screen.
+    func absorb(workspaceID: String?, appState: AppState) async {
+        await reread(workspaceID: workspaceID, appState: appState, rereadVisitors: false)
+    }
+
+    private func reread(workspaceID: String?, appState: AppState, rereadVisitors: Bool) async {
         guard let workspaceID else { return }
         do {
             async let counters = try? await api.inboxCounts(workspaceID: workspaceID, scope: "mine")
             let conversations = try await api.conversations(workspaceID: workspaceID, filter: filter)
             state = .loaded(conversations)
             counts = await counters
-            await loadVisitors(for: conversations, workspaceID: workspaceID)
+            await loadVisitors(
+                for: conversations,
+                workspaceID: workspaceID,
+                rereadAll: rereadVisitors
+            )
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()
         } catch {
@@ -187,11 +209,32 @@ final class InboxViewModel {
     }
 
     /// One batched lookup per page of conversations, never one per row.
-    private func loadVisitors(for conversations: [Conversation], workspaceID: String) async {
+    ///
+    /// `rereadAll` is what tells a deliberate refresh from a live one. Asked
+    /// rather than answered is the thing being tracked: most contacts have no
+    /// session row at all — an imported contact, an email thread, a Telegram
+    /// visitor — so "came back empty" is the ordinary case and filtering on
+    /// what is missing would ask about the same threads forever.
+    private func loadVisitors(
+        for conversations: [Conversation],
+        workspaceID: String,
+        rereadAll: Bool
+    ) async {
         guard !conversations.isEmpty else { return }
+
+        let wanted = rereadAll
+            ? conversations.map(\.id)
+            : conversations.map(\.id).filter { !askedAboutVisitor.contains($0) }
+
+        guard !wanted.isEmpty else {
+            isResolvingVisitors = false
+            return
+        }
+        askedAboutVisitor.formUnion(wanted)
+
         let profiles = try? await api.visitorIntel(
             workspaceID: workspaceID,
-            conversationIDs: conversations.map(\.id)
+            conversationIDs: wanted
         )
         guard !Task.isCancelled else { return }
         isResolvingVisitors = false

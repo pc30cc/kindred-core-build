@@ -200,6 +200,25 @@ struct ChatView: View {
             .task {
                 await model.load(appState: appState)
             }
+            // The other half of the same gap the inbox had: an open thread
+            // never reloaded either, so an operator sitting in a conversation
+            // waiting for an answer was the one person who could not see it
+            // arrive.
+            //
+            // The push carries the whole message, and this deliberately
+            // throws it away and re-reads the thread. Patching a transcript
+            // from a push means two code paths that can disagree about what a
+            // conversation contains; re-reading means one. What the push is
+            // used for is deciding whether the read is needed at all — the
+            // operator's own reply comes back over this channel too, and by
+            // then it is already on screen.
+            .liveUpdates(on: LiveChannel.conversation(
+                workspaceID: conversation.workspaceId,
+                conversationID: conversation.id
+            )) { push in
+                if let id = push?.messageID, model.has(messageID: id) { return }
+                await model.reload(appState: appState)
+            }
             .alert(sayNow.notice ?? "", isPresented: Binding(
                 get: { sayNow.notice != nil },
                 set: { if !$0 { sayNow.notice = nil } }

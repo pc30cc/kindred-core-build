@@ -18,6 +18,7 @@ CONN_BEFORE=$($M "SELECT MD5(value) FROM oc_setting WHERE \`key\`='module_webyar
 SITE=/tmp/wyoc/sp/sites/$DB
 PROTO=$( [ "$MAJOR" = 4 ] && echo "$SITE/extension/webyar/system/library/webyar/Protocol.php" || echo "$SITE/system/library/webyar/Protocol.php" )
 sed -i "s/CONNECTOR_VERSION = '[^']*'/CONNECTOR_VERSION = '0.9.0'/" "$PROTO"   # "old files"
+sleep 3             # opcache re-reads file dates at most every 2 s (revalidate_freq)
 $A page >/dev/null   # the old page is compiled into OpenCart's template cache
 MARKER="wy-upgrade-$RANDOM$RANDOM"
 if [ "$MAJOR" = 4 ]; then

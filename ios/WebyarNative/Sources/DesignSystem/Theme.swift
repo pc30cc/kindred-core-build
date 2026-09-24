@@ -136,6 +136,84 @@ enum Theme {
         static let bubbleIncomingText = Color(uiColor: .label)
     }
 
+
+    // MARK: - Elevation
+    //
+    // How far off the page a surface sits. Three steps, because a fourth
+    // would be a shadow nobody can tell from the one above it.
+    //
+    // The values are deliberately soft and low-opacity: iOS shadows describe
+    // height, they do not draw outlines. A shadow dark enough to see on its
+    // own is a shadow that will look like dirt on an OLED screen.
+
+    enum Elevation {
+        /// Flat on the page. A row, a chip — something with an edge but no lift.
+        case resting
+        /// Lifted: a card, a grouped section.
+        case raised
+        /// Floating over content that scrolls beneath it: the tab bar, a
+        /// header, a composer.
+        case floating
+
+        var radius: CGFloat {
+            switch self {
+            case .resting: return 4
+            case .raised: return 12
+            case .floating: return 20
+            }
+        }
+
+        var y: CGFloat {
+            switch self {
+            case .resting: return 1
+            case .raised: return 4
+            case .floating: return 8
+            }
+        }
+
+        var opacity: Double {
+            switch self {
+            case .resting: return 0.06
+            case .raised: return 0.10
+            case .floating: return 0.16
+            }
+        }
+    }
+
+    // MARK: - Gradients
+
+    enum Gradient {
+        /// The brand, given depth. Used on the one primary action of a
+        /// screen and on the outgoing chat bubble — nowhere else, because a
+        /// gradient on everything is a gradient on nothing.
+        @MainActor
+        static let brand = LinearGradient(
+            colors: [
+                Palette.brand,
+                Color(uiColor: UIColor { traits in
+                    traits.userInterfaceStyle == .dark
+                        ? UIColor(red: 0.243, green: 0.451, blue: 0.898, alpha: 1)
+                        : UIColor(red: 0.176, green: 0.373, blue: 0.851, alpha: 1)
+                }),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+
+        /// The page behind everything: the system's grouped background with
+        /// the faintest wash of brand at the top, so glass laid over it has
+        /// something to refract rather than a flat grey.
+        @MainActor
+        static let canvas = LinearGradient(
+            colors: [
+                Palette.brand.opacity(0.07),
+                Palette.brand.opacity(0.0),
+            ],
+            startPoint: .top,
+            endPoint: .center
+        )
+    }
+
     // MARK: - Typography
     //
     // Text styles are system styles, never fixed point sizes, so every label
@@ -168,5 +246,30 @@ enum Theme {
         /// message: it travels a short distance and should feel crisp, not
         /// wobbly.
         static let tabBubble = Animation.spring(response: 0.28, dampingFraction: 0.86)
+
+        /// Glass settling. Slower and softer than `bubble`: a lens that has
+        /// mass moves differently from a message that pops in, and Apple's
+        /// own glass transitions land around here.
+        static let glass = Animation.spring(response: 0.42, dampingFraction: 0.78)
+
+        /// Two pieces of glass merging or pulling apart. Short, because the
+        /// shape is doing the talking and a slow morph reads as lag.
+        static let morph = Animation.spring(response: 0.32, dampingFraction: 0.84)
+    }
+}
+
+/// Lift a surface off the page by a named amount.
+///
+/// A modifier rather than a raw `.shadow(...)` at each call site, so that
+/// "this is a card" and "this floats over the content" stay two decisions
+/// with two answers, instead of sixty hand-tuned radii.
+extension View {
+    func elevated(_ level: Theme.Elevation) -> some View {
+        shadow(
+            color: .black.opacity(level.opacity),
+            radius: level.radius,
+            x: 0,
+            y: level.y
+        )
     }
 }

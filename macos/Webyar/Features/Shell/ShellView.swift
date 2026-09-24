@@ -51,6 +51,7 @@ final class Pages {
     let visitors: VisitorsModel
     let calls: CallCenterModel
     let colleagues: ColleaguesModel
+    let email: EmailModel
 
     init(app: AppModel) {
         inbox = InboxModel(app: app)
@@ -58,6 +59,7 @@ final class Pages {
         visitors = VisitorsModel(app: app)
         calls = CallCenterModel(app: app)
         colleagues = ColleaguesModel(app: app)
+        email = EmailModel(app: app)
     }
 
     func stop() {
@@ -66,6 +68,7 @@ final class Pages {
         visitors.stop()
         calls.stop()
         colleagues.stop()
+        email.stop()
     }
 }
 
@@ -80,6 +83,7 @@ struct PageList: View {
         case .visitors: VisitorsList(model: pages.visitors)
         case .calls: CallCenterList(model: pages.calls)
         case .colleagues: ColleaguesList(model: pages.colleagues)
+        case .email: EmailList(model: pages.email)
         }
     }
 }
@@ -95,6 +99,7 @@ struct PageDetail: View {
         case .visitors: VisitorDetail(model: pages.visitors)
         case .calls: CallCenterDetail(model: pages.calls)
         case .colleagues: ColleagueThread(model: pages.colleagues)
+        case .email: EmailDetail(model: pages.email)
         }
     }
 }
@@ -120,6 +125,7 @@ struct SidebarView: View {
                 row(.inbox(.pending), s["navInboxPending"], "clock", badge: 0, color: Palette.brand)
                 row(.inbox(.resolved), s["navInboxResolved"], "checkmark.circle", badge: 0, color: Palette.brand)
                 row(.inbox(.spam), s["navInboxSpam"], "xmark.bin", badge: app.counts.spam ?? 0, color: Palette.text3)
+                if plan.emailInbox { row(.email, s["emailInbox"], "envelope", badge: 0, color: Palette.brand) }
             }
             if plan.teamChat {
                 Section(s["navInternalInbox"]) {

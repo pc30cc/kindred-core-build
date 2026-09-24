@@ -112,6 +112,8 @@ struct WorkspacePlan: Sendable, Equatable {
     var visitors: Bool { moduleInPlan("visitor_tracking") }
     var callCenter: Bool { moduleInPlan("call_center") && callCenterVisible != false }
     var teamChat: Bool { inboxCap("inbox_team_chat") }
+    /// The mailbox, as the web sidebar shows it: owners and admins, when the plan has it.
+    var emailInbox: Bool { isAdmin && moduleInPlan("email_inbox") }
     var needsHumanQueue: Bool { inboxCap("inbox_needs_human") }
 
     /// The AI queue: the plan's AI surface, and the AI answering (or something already in it).

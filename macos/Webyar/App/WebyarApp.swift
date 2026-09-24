@@ -137,6 +137,7 @@ struct AppCommands: Commands {
             Button(app.strings["navVisitors"]) { app.route = .visitors }.keyboardShortcut("5", modifiers: .command).disabled(!app.plan.visitors)
             Button(app.strings["navCallCenter"]) { app.route = .calls }.keyboardShortcut("6", modifiers: .command).disabled(!app.plan.callCenter)
             Button(app.strings["navColleagues"]) { app.route = .colleagues }.keyboardShortcut("7", modifiers: .command).disabled(!app.plan.teamChat)
+            Button(app.strings["emailInbox"]) { app.route = .email }.keyboardShortcut("8", modifiers: .command).disabled(!app.plan.emailInbox)
         }
     }
 }

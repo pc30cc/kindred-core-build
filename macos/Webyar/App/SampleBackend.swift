@@ -244,6 +244,55 @@ final class SampleBackend: URLProtocol {
         default:
             break
         }
+        if path == "/api/plugins/gmail/connection" {
+            return (200, ["connection": ["connected": true, "emailAddress": "support@webyar.ai", "status": "connected"]])
+        }
+        if parts.count >= 3, parts[1] == "email-inbox" {
+            let threads: [[String: Any]] = [
+                ["id": "e-1", "provider": "gmail", "subject": "سفارش ۴۸۲۱۳ — درخواست بازگشت وجه", "participants": [["email": "maryam@example.com", "name": "مریم احمدی"], ["email": "support@webyar.ai"]],
+                 "lastMessageAt": ago(14), "isRead": false, "isStarred": true, "labels": ["INBOX", "UNREAD", "VIP"], "lastMessageSnippet": "سلام، فاکتور را پیوست کردم. لطفاً مبلغ اضافه را برگردانید."],
+                ["id": "e-2", "provider": "gmail", "subject": "Enterprise plan — quote for 40 seats", "participants": [["email": "alex.k.richardson@verylongcompanyname-international.com", "name": "Alexander Konstantinopoulos-Richardson"], ["email": "cfo@verylongcompanyname-international.com", "name": "Dana Wu"], ["email": "support@webyar.ai"]],
+                 "lastMessageAt": ago(95), "isRead": false, "isStarred": false, "labels": ["INBOX"], "lastMessageSnippet": "Could you send over a formal quote including the call center add-on and annual billing?"],
+                ["id": "e-3", "provider": "gmail", "subject": "Fatura hakkında", "participants": ["ayse@example.com.tr", "support@webyar.ai"],
+                 "lastMessageAt": ago(1500), "isRead": true, "isStarred": false, "labels": ["INBOX"], "lastMessageSnippet": "Teşekkürler, her şey yolunda."],
+                ["id": "e-4", "provider": "gmail", "subject": "Your weekly Webyar report", "participants": [["email": "reports@webyar.ai", "name": "Webyar Reports"], ["email": "support@webyar.ai"]],
+                 "lastMessageAt": ago(4000), "isRead": true, "isStarred": false, "labels": ["INBOX", "CATEGORY_UPDATES"], "lastMessageSnippet": "128 conversations, 94% answered within 2 minutes."],
+            ]
+            if parts.count == 3 || (parts.count == 4 && parts[3] == "threads") {
+                var list = threads
+                if q["unread"] == "true" { list = list.filter { ($0["isRead"] as? Bool) == false } }
+                if q["starred"] == "true" { list = list.filter { ($0["isStarred"] as? Bool) == true } }
+                if let term = q["q"]?.lowercased(), !term.isEmpty { list = list.filter { "\($0["subject"] ?? "") \($0["lastMessageSnippet"] ?? "")".lowercased().contains(term) } }
+                return (200, ["threads": list, "nextBefore": NSNull()])
+            }
+            if parts.count >= 5, parts[3] == "threads" {
+                let id = parts[4]
+                if parts.count == 6 { return (200, ["ok": true]) }
+                let thread = threads.first { ($0["id"] as? String) == id } ?? threads[0]
+                var messages: [[String: Any]] = []
+                if id == "e-2" {
+                    messages = [
+                        ["id": "m1", "direction": "inbound", "fromAddress": "Alexander Konstantinopoulos-Richardson <alex.k.richardson@verylongcompanyname-international.com>", "toAddresses": ["support@webyar.ai"], "ccAddresses": ["cfo@verylongcompanyname-international.com"],
+                         "htmlBody": "<p>Hi Webyar team,</p><p>We're evaluating <b>Webyar Enterprise</b> for our support desk (40 operators across three time zones). Could you send over a formal quote including the <a href=\"https://webyar.ai/pricing\">call center add-on</a> and annual billing?</p><table style=\"border-collapse:collapse\"><tr><td style=\"border:1px solid #ddd;padding:6px 10px\">Seats</td><td style=\"border:1px solid #ddd;padding:6px 10px\">40</td></tr><tr><td style=\"border:1px solid #ddd;padding:6px 10px\">Channels</td><td style=\"border:1px solid #ddd;padding:6px 10px\">Widget, WhatsApp, Email</td></tr></table><p>Best,<br>Alex</p>",
+                         "snippet": "We're evaluating Webyar Enterprise for our support desk", "sentAt": ago(300), "deliveryStatus": "sent",
+                         "attachments": [["id": "a1", "filename": "requirements-v3.pdf", "contentType": "application/pdf", "sizeBytes": 482113, "url": "https://example.com/requirements-v3.pdf"]]],
+                        ["id": "m2", "direction": "outbound", "fromAddress": "support@webyar.ai", "toAddresses": ["alex.k.richardson@verylongcompanyname-international.com"],
+                         "textBody": "Hi Alex,\n\nThanks for reaching out! I've looped in our sales team; you'll have the quote within a business day.\n\nSara", "snippet": "Thanks for reaching out!", "sentAt": ago(200), "deliveryStatus": "sent"],
+                        ["id": "m3", "direction": "inbound", "fromAddress": "Dana Wu <cfo@verylongcompanyname-international.com>", "toAddresses": ["support@webyar.ai"], "ccAddresses": ["alex.k.richardson@verylongcompanyname-international.com"],
+                         "textBody": "Hello,\n\nCould you send over a formal quote including the call center add-on and annual billing? We'd like to sign before the end of the quarter.\n\nhttps://verylongcompanyname-international.com/procurement\n\nDana Wu\nCFO", "snippet": "Could you send over a formal quote", "sentAt": ago(95), "deliveryStatus": "sent"],
+                    ]
+                } else {
+                    messages = [
+                        ["id": "m1", "direction": "inbound", "fromAddress": "مریم احمدی <maryam@example.com>", "toAddresses": ["support@webyar.ai"],
+                         "textBody": "سلام وقت بخیر،\n\nسفارش ۴۸۲۱۳ را دیروز تحویل گرفتم ولی مبلغ فاکتور با چیزی که پرداخت کردم فرق دارد. فاکتور را پیوست کردم؛ لطفاً مبلغ اضافه را برگردانید.\n\nممنون\nمریم", "snippet": "سلام، فاکتور را پیوست کردم.", "sentAt": ago(14), "deliveryStatus": "sent",
+                         "attachments": [["id": "a2", "filename": "invoice-48213.pdf", "contentType": "application/pdf", "sizeBytes": 124000, "url": "https://example.com/invoice.pdf"]]],
+                    ]
+                }
+                return (200, ["thread": thread, "messages": messages])
+            }
+            if parts.count == 4, parts[3] == "send" { return (200, ["messageId": UUID().uuidString]) }
+            if parts.count == 4, parts[3] == "attachments" { return (200, ["storageKey": UUID().uuidString, "filename": q["filename"] ?? "file", "contentType": q["content_type"] ?? "application/octet-stream", "sizeBytes": 1000]) }
+        }
         // Parametrised paths.
         if parts.count >= 4, parts[1] == "conversations" {
             let id = parts[2]

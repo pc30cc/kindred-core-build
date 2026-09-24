@@ -71,6 +71,7 @@ enum DebugTools {
             case "visitors": app.route = .visitors
             case "calls": app.route = .calls
             case "colleagues": app.route = .colleagues
+            case "email": app.route = .email
             case "ai": app.route = .inbox(.ai)
             case "pending": app.route = .inbox(.pending)
             case "resolved": app.route = .inbox(.resolved)

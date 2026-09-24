@@ -121,7 +121,17 @@ final class ApiClient {
         try await raw("GET", path, query: [], body: nil, timeout: 60).0
     }
 
-    private func raw(_ method: String, _ path: String, query: Query, body: [String: Any?]?, timeout: TimeInterval) async throws -> (Data, Int) {
+    /// Raw bytes as the request body (a file upload), answered with JSON.
+    func upload<T: Decodable>(_ path: String, query: Query = [], data: Data, contentType: String, as type: T.Type = T.self) async throws -> T {
+        let (answer, status) = try await raw("POST", path, query: query, body: nil, timeout: 120, upload: (data, contentType))
+        do {
+            return try JSON.decoder().decode(T.self, from: answer)
+        } catch {
+            throw ApiError(failure: .decoding, status: status, underlying: String(describing: error))
+        }
+    }
+
+    private func raw(_ method: String, _ path: String, query: Query, body: [String: Any?]?, timeout: TimeInterval, upload: (Data, String)? = nil) async throws -> (Data, Int) {
         precondition(path.hasPrefix("/api/"), "Only /api/ paths are allowed.")
         var components = URLComponents(url: origin, resolvingAgainstBaseURL: false)!
         components.percentEncodedPath = path
@@ -140,6 +150,9 @@ final class ApiClient {
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: Self.clean(body), options: [])
+        } else if case let (data, type)? = upload {
+            request.setValue(type, forHTTPHeaderField: "Content-Type")
+            request.httpBody = data
         }
 
         let data: Data

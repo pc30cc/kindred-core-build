@@ -12,7 +12,8 @@ enum LiveChannel: Hashable, Sendable {
     /// `message` envelope for every new message on any thread — the server
     /// fans those out here as well as to the thread's own channel
     /// (`publishConversationEvent`) — plus `event` envelopes for status,
-    /// assignment, tags and the AI lifecycle.
+    /// assignment, tags, the AI lifecycle, and internal operator-to-operator
+    /// messages (`kind: "team_message"`).
     case inbox(workspaceID: String)
 
     /// One open thread.
@@ -55,6 +56,15 @@ struct LivePush: Sendable {
     let senderType: String?
     /// `conversation_updated`, `spam_changed`, … on an `event` push.
     let kind: String?
+
+    /// A colleague sent an internal message somewhere in this workspace.
+    ///
+    /// Deliberately the whole story: the push names neither operator, so the
+    /// inbox channel — which every signed-in operator is on — never carries
+    /// who is talking to whom. The client re-reads its own colleagues, which
+    /// the server answers for that operator alone.
+    /// See `publishTeamMessageEvent` in `server/services/realtime/publish.ts`.
+    static let teamMessage = "team_message"
 }
 
 /// Why a client is negotiating, in the server's own vocabulary.

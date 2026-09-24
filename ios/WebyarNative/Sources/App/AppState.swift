@@ -226,6 +226,7 @@ final class AppState {
         // is leaving, and its channels name a workspace they may no longer
         // be a member of. Nothing should outlive a sign-out.
         LiveUpdates.shared.signedOut()
+        ColleagueUnread.shared.signedOut()
         session = .signedOut
         workspaces = []
         selectedWorkspace = nil

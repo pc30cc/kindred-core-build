@@ -37,7 +37,9 @@ final class ColleaguesViewModel {
             return
         }
         do {
-            state = .loaded(try await api.colleagues(workspaceID: workspaceID).colleagues)
+            let colleagues = try await api.colleagues(workspaceID: workspaceID).colleagues
+            state = .loaded(colleagues)
+            ColleagueUnread.shared.absorb(colleagues)
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()
         } catch let error as APIError {
@@ -52,6 +54,9 @@ final class ColleaguesViewModel {
               let colleagues = try? await api.colleagues(workspaceID: workspaceID).colleagues
         else { return }
         state = .loaded(colleagues)
+        // The chip on the inbox strip counts the same rows this screen has
+        // just read, so it is told rather than left to ask again.
+        ColleagueUnread.shared.absorb(colleagues)
     }
 
     /// Clears the badge as the thread opens, rather than one refresh later.
@@ -64,6 +69,7 @@ final class ColleaguesViewModel {
             avatarURL: old.avatarURL, unread: 0, lastMessage: old.lastMessage
         )
         state = .loaded(all)
+        ColleagueUnread.shared.absorb(all)
     }
 }
 
@@ -97,6 +103,17 @@ struct ColleaguesView: View {
             .refreshable { await model.refresh(workspaceID: workspaceID) }
             .task(id: workspaceID) {
                 await model.load(workspaceID: workspaceID, appState: appState)
+            }
+            // The same doorbell the inbox listens to. Internal messages ring
+            // it without naming anybody, so the answer is always the same
+            // one: read this list again.
+            //
+            // `nil` is the app coming back to the foreground, or the timer
+            // that stands in where the deployment has no socket — both mean
+            // the same thing here, so both are taken.
+            .liveUpdates(on: workspaceID.map { LiveChannel.inbox(workspaceID: $0) }) { push in
+                guard push == nil || push?.kind == LivePush.teamMessage else { return }
+                await model.refresh(workspaceID: workspaceID)
             }
     }
 

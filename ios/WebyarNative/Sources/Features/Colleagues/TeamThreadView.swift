@@ -62,13 +62,23 @@ final class TeamThreadViewModel {
         }
     }
 
-    /// Quietly, without blanking the thread — this runs on a timer.
+    /// Quietly, without blanking the thread — this runs on a timer and on
+    /// the live channel.
     func poll(workspaceID: String?, peerID: String) async {
         guard let workspaceID, !isSending,
               let response = try? await api.teamThread(workspaceID: workspaceID, peerID: peerID)
         else { return }
         me = response.me
         state = .loaded(response.messages)
+
+        // A message that lands while the operator is reading the thread has
+        // been read. Without this the Colleagues badge would count the line
+        // they are looking at, and keep counting it until they left the
+        // screen and came back.
+        let unread = response.messages.contains { $0.senderId == peerID && $0.readAt == nil }
+        guard unread else { return }
+        try? await api.markTeamThreadRead(workspaceID: workspaceID, peerID: peerID)
+        await ColleagueUnread.shared.refresh(workspaceID: workspaceID)
     }
 
     func send(workspaceID: String?, peerID: String, appState: AppState) async {
@@ -187,6 +197,15 @@ struct TeamThreadView: View {
                     guard !Task.isCancelled else { return }
                     await model.poll(workspaceID: workspaceID, peerID: colleague.userId)
                 }
+            }
+            // And the doorbell on top of it, which arrives in the same second
+            // the colleague presses send rather than up to ten later. The
+            // poll stays: it is what answers on a deployment with no socket,
+            // and it costs nothing to leave a re-read running behind a
+            // re-read.
+            .liveUpdates(on: workspaceID.map { LiveChannel.inbox(workspaceID: $0) }) { push in
+                guard push == nil || push?.kind == LivePush.teamMessage else { return }
+                await model.poll(workspaceID: workspaceID, peerID: colleague.userId)
             }
             .alert(
                 Str.offlineTitle(language),

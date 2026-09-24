@@ -90,6 +90,10 @@ struct FilterPicker: View {
         let title: String
         /// SF Symbol, and the same one the title menu uses for this place.
         let icon: String
+        /// Unread behind this inbox. Drawn exactly like a queue's count,
+        /// because to the operator glancing at the strip it means the same
+        /// thing — this much is waiting in there.
+        var count: Int = 0
         let open: () -> Void
     }
 
@@ -176,24 +180,7 @@ struct FilterPicker: View {
                     .font(.app(.subheadline, weight: isSelected ? .semibold : .medium))
                     .lineLimit(1)
 
-                if count > 0 {
-                    Text(Format.number(count, language: language))
-                        .font(Theme.Typo.metaEmphasis)
-                        .monospacedDigit()
-                        // The count changes under the operator's eyes as
-                        // conversations arrive; rolling the digits says that
-                        // plainly where a cross-fade just flickers.
-                        .contentTransition(.numericText())
-                        .padding(.horizontal, Theme.Space.xs)
-                        .frame(minWidth: 20, minHeight: 19)
-                        .background(
-                            Capsule().fill(
-                                isSelected
-                                    ? Color.white.opacity(0.22)
-                                    : Theme.Palette.brand.opacity(0.13)
-                            )
-                        )
-                }
+                countBadge(count, onBrand: isSelected)
             }
             .foregroundStyle(isSelected ? Color.white : Theme.Palette.label)
             .padding(.horizontal, Theme.Space.sm + Theme.Space.xs)
@@ -230,6 +217,29 @@ struct FilterPicker: View {
         .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
     }
 
+    /// Nothing at all below one, so a quiet queue carries no furniture.
+    @ViewBuilder
+    private func countBadge(_ count: Int, onBrand: Bool) -> some View {
+        if count > 0 {
+            Text(Format.number(count, language: language))
+                .font(Theme.Typo.metaEmphasis)
+                .monospacedDigit()
+                // The count changes under the operator's eyes as
+                // conversations arrive; rolling the digits says that
+                // plainly where a cross-fade just flickers.
+                .contentTransition(.numericText())
+                .padding(.horizontal, Theme.Space.xs)
+                .frame(minWidth: 20, minHeight: 19)
+                .background(
+                    Capsule().fill(
+                        onBrand
+                            ? Color.white.opacity(0.22)
+                            : Theme.Palette.brand.opacity(0.13)
+                    )
+                )
+        }
+    }
+
     /// The same capsule as an unselected queue, with its icon in front of it.
     ///
     /// Deliberately never the selected treatment: this chip opens a screen
@@ -249,6 +259,10 @@ struct FilterPicker: View {
                 Text(destination.title)
                     .font(.app(.subheadline, weight: .medium))
                     .lineLimit(1)
+
+                // Brand-tinted rather than white-on-brand, because the
+                // capsule under it is never the brand fill.
+                countBadge(destination.count, onBrand: false)
             }
             .foregroundStyle(Theme.Palette.label)
             .padding(.horizontal, Theme.Space.sm + Theme.Space.xs)
@@ -265,7 +279,11 @@ struct FilterPicker: View {
             .contentShape(Capsule())
         }
         .buttonStyle(PressableButtonStyle())
-        .accessibilityLabel(destination.title)
+        .accessibilityLabel(
+            destination.count > 0
+                ? "\(destination.title) (\(Format.number(destination.count, language: language)))"
+                : destination.title
+        )
         .accessibilityAddTraits(.isButton)
     }
 }

@@ -24,6 +24,9 @@ struct InboxView: View {
 
     @State private var push = PushController.shared
     @State private var isAskingAboutNotifications = false
+    /// The number on the Colleagues chip, owned outside this screen so that
+    /// reading a thread two pushes deep can drop it.
+    @State private var colleagueUnread = ColleagueUnread.shared
 
     private var language: Language { appState.language }
     private var workspaceID: String? { appState.selectedWorkspace?.id }
@@ -56,6 +59,13 @@ struct InboxView: View {
             .task(id: workspaceID) {
                 await model.loadChannels(workspaceID: workspaceID)
             }
+            // The chip's number on first paint, and again every time this
+            // tab comes back — `.task` is tied to being on screen, which is
+            // exactly when the chip can be looked at.
+            .task(id: "colleagues|\(workspaceID ?? "-")|\(appState.colleaguesVisible)") {
+                guard appState.colleaguesVisible else { return }
+                await colleagueUnread.refresh(workspaceID: workspaceID)
+            }
             // What makes a new message appear here without being asked.
             //
             // The list used to reload only when this `.task` re-ran, which
@@ -68,8 +78,15 @@ struct InboxView: View {
             // A quiet refresh rather than a load: the rows stay where they
             // are and the new one arrives among them, instead of the whole
             // list blanking to a skeleton every time somebody types.
-            .liveUpdates(on: workspaceID.map { LiveChannel.inbox(workspaceID: $0) }) { _ in
-                await model.absorb(workspaceID: workspaceID, appState: appState)
+            .liveUpdates(on: workspaceID.map { LiveChannel.inbox(workspaceID: $0) }) { push in
+                // An internal message rings the same doorbell — the server
+                // has no other operator-only channel to ring — but it
+                // changes nothing in the conversation list, so re-reading
+                // that here would be a round trip bought for nobody.
+                if push?.kind != LivePush.teamMessage {
+                    await model.absorb(workspaceID: workspaceID, appState: appState)
+                }
+                await refreshColleagueUnread(for: push)
             }
             // Only the inbox offers one, and only once the list is real —
             // a promotion over a skeleton is a promotion over nothing.
@@ -181,9 +198,22 @@ struct InboxView: View {
                 title: Str.colleagues(language),
                 // The same glyph the title menu gives it.
                 icon: "person.2",
+                count: colleagueUnread.count,
                 open: { path.append(InboxRoute.colleagues) }
             )
         ]
+    }
+
+    /// Keeps the Colleagues chip honest while the inbox is on screen.
+    ///
+    /// Only for the pushes that can have moved the number: an internal
+    /// message, or `nil` — the app returning to the foreground, or the timer
+    /// that stands in where there is no socket. A visitor's message cannot
+    /// change what a colleague has said, so it buys nothing.
+    private func refreshColleagueUnread(for push: LivePush?) async {
+        guard appState.colleaguesVisible else { return }
+        guard push == nil || push?.kind == LivePush.teamMessage else { return }
+        await colleagueUnread.refresh(workspaceID: workspaceID)
     }
 
     /// Any change to this reloads the list: switching filter, switching

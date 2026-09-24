@@ -301,3 +301,48 @@ export async function publishVisitorEvent(
     rtWarn('publish', 'visitors:error', { error: err?.message || String(err) });
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Internal (operator-to-operator) message events
+//   Channel: ws:<workspace_id>:inbox  (operator-only)
+//   Envelope: { type: 'event', payload: { kind: 'team_message', workspace_id } }
+//
+// Content-free on purpose, and without either operator's id. The inbox
+// channel is workspace-wide — every signed-in operator is on it — while a
+// team message is private to its two participants, which is what RLS on
+// `team_messages` enforces. Naming the pair here would tell the whole
+// workspace who is talking to whom, so the push says only that something
+// internal happened; each client then re-reads its own
+// `/api/team-chat/colleagues`, which is authenticated and answers with that
+// operator's unread and nobody else's.
+//
+// Polling fallback: the console refetches colleagues every 20s and an open
+// thread every 10s, so losing this costs latency, never a message. Unknown
+// `kind` values are ignored by every existing subscriber (`useInboxListRealtime`
+// returns early on one), so nothing that shipped before this reacts to it.
+// ─────────────────────────────────────────────────────────────────────
+
+export async function publishTeamMessageEvent(
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<void> {
+  const envelope: ConversationEventEnvelope = {
+    type: 'event',
+    payload: { kind: 'team_message', workspace_id: workspaceId },
+  };
+  try {
+    const publisher = await resolvePublisher(config, workspaceId);
+    const channel = buildInboxChannelName(workspaceId);
+    rtDebug('publish', 'team:attempt', { vendor: publisher.vendor, channel });
+    const result = await publisher.publish(channel, envelope);
+    if (!result.ok) {
+      rtWarn('publish', 'team:skipped', {
+        vendor: publisher.vendor,
+        channel,
+        reason: result.reason,
+      });
+    }
+  } catch (err) {
+    rtWarn('publish', 'team:error', { error: err?.message || String(err) });
+  }
+}

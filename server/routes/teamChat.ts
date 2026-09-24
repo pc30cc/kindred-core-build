@@ -19,6 +19,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
+import { publishTeamMessageEvent } from '../services/realtime/publish.js';
 
 export const teamChatRouter = Router();
 
@@ -296,6 +297,12 @@ teamChatRouter.post('/messages', async (req, res) => {
         .update({ status: 'attached' })
         .eq('id', attachmentId);
     }
+
+    // A doorbell, rung after the row is safely in. Fire-and-forget and
+    // non-throwing by construction: realtime being down must never fail a
+    // message that is already written, it only means the recipient's unread
+    // badge waits for their next poll instead of appearing at once.
+    void publishTeamMessageEvent(config, workspace_id);
 
     return res.json({ ok: true, message: { ...inserted, attachment } });
   } catch (err) {

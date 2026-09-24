@@ -243,6 +243,13 @@ API calls.
 
 ## 5. Customer identity
 
+**Which conversation belongs to whom.** Links are written against the
+widget's visitor id. A conversation's visitor is its `metadata.visitor_id`
+(AI-started conversations have no visitor session at all); only older
+conversations without it are resolved through their session's `visitor_id`,
+in the same workspace. A session's own id is never taken for a visitor id
+(`server/services/commerce/conversationVisitor.ts`, the rule WHMCS uses too).
+
 **Introduction (browser, once per page, only when the chat is opened).**
 The injected loader carries `data-commerce-context-url` and **no identity**.
 When the visitor opens the chat, `loader.js` calls that same-origin endpoint
@@ -375,7 +382,10 @@ What the model receives (and the prompt rules, `prompt.ts`):
 address changes or automatic returns. The model gets links and guidance only.
 
 **Search quality, stated honestly.** Search is the store's own kind of match:
-`LIKE` on product name and tags, plus exact model/SKU, with the question's
+`LIKE` on product name and tags, plus exact model/SKU, and (1.1.1+) the
+names of this store's visible categories and their parents — «چه گوشی‌هایی
+دارید؟» finds the products of the «گوشی و تبلت» category in the same single
+query, ranked with tag matches — with the question's
 words ORed and ranked by how many match (Persian ی/ک and ZWNJ variants
 included). It is not semantic search, and the model is told so
 (`semantic_search=false`). OpenCart attributes are free text and options are
@@ -525,7 +535,7 @@ plugins/webyar-opencart/tests/integration/run.sh down   # stop everything, delet
 
 ## 12. Known limitations
 
-- Search is keyword `LIKE` (§6); relevance is only as good as product names and tags.
+- Search is keyword `LIKE` (§6); relevance is only as good as product names, tags and category names.
 - The price filter is before tax.
 - Guests' prices are in the store's default currency and the store's default
   tax location. A signed-in customer's currency and tax address come from

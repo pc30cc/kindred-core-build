@@ -27,6 +27,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
+import { resolveConversationVisitor } from '../../commerce/conversationVisitor.js';
 import type { ReadOnlyToolResult } from '../actions/readOnly.js';
 import {
   CommerceError,
@@ -164,14 +165,7 @@ export async function runDirectCommerceStage(config: ServerConfig, input: Direct
   await assertCommerceModuleEntitled(config, input.workspaceId); // plan gate — throws CommerceError
 
   // ── conversation + identity (two indexed reads, only on commerce turns) ──
-  let visitorId: string | null = null;
-  let metadata: Record<string, unknown> = {};
-  if (input.conversationId) {
-    const { data: conv } = await sb.from('conversations').select('visitor_session_id, metadata').eq('id', input.conversationId).eq('workspace_id', input.workspaceId).maybeSingle();
-    const row = loose(conv);
-    visitorId = typeof row.visitor_session_id === 'string' ? row.visitor_session_id : null;
-    metadata = loose(row.metadata);
-  }
+  const { visitorId, metadata } = await resolveConversationVisitor(config, input.workspaceId, input.conversationId);
   let customer: CustomerRef | null = null;
   let customerGroup: string | null = null;
   let historyCutoffAt: string | null = null;
@@ -179,6 +173,7 @@ export async function runDirectCommerceStage(config: ServerConfig, input: Direct
     const { data: link } = await sb
       .from('commerce_customer_links')
       .select('external_customer_id, session_ref, customer_group_id, expires_at, private_cutoff_at')
+      .eq('workspace_id', input.workspaceId)
       .eq('connection_id', connection.id)
       .eq('visitor_id', visitorId)
       .order('verified_at', { ascending: false })

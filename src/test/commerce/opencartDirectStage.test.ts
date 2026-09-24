@@ -80,7 +80,10 @@ function seed(permissions: Record<string, boolean> = { products: true, prices: t
     external_store_id: '0', platform_version: '4.1.0.4', capabilities: ALL_CAPS, permissions, health: 'connected', catalog_ready: false, revoked_at: null,
     protocol_version: 'webyar-commerce/1', created_at: '2026-01-01',
   }];
-  fake.db.conversations = [{ id: CONV, workspace_id: WS, visitor_session_id: VISITOR, metadata: {} }];
+  // As production writes it: the visitor lives in metadata; AI-intro
+  // conversations have no visitor session at all.
+  fake.db.conversations = [{ id: CONV, workspace_id: WS, visitor_session_id: null, metadata: { visitor_id: VISITOR } }];
+  fake.db.visitor_sessions = [];
   fake.db.commerce_customer_links = [];
   fake.db.commerce_tool_audit = [];
 }
@@ -157,6 +160,34 @@ describe('private data', () => {
     await ask('show my orders');
     expect(calls[0]).toMatchObject({ op: 'orders' });
     expect((calls[0].args[0] as CustomerRef)).toEqual({ externalCustomerId: '101', sessionRef: 'ref-101' });
+  });
+
+  it('an AI-started conversation (no visitor session) still finds its signed-in customer', async () => {
+    // Found on the open.webyar.ai demo: the link existed, every order turn said "sign in".
+    fake.db.conversations = [{ id: CONV, workspace_id: WS, visitor_session_id: null, metadata: { visitor_id: VISITOR } }];
+    link('101');
+    await ask('show my orders');
+    expect(calls[0]).toMatchObject({ op: 'orders' });
+  });
+
+  it('a legacy conversation finds its visitor through its session, in the same workspace only', async () => {
+    fake.db.conversations = [{ id: CONV, workspace_id: WS, visitor_session_id: 'sess-1', metadata: {} }];
+    fake.db.visitor_sessions = [{ id: 'sess-1', workspace_id: 'another-workspace', visitor_id: VISITOR }];
+    link('101');
+    let r = await ask('show my orders');
+    expect(calls).toEqual([]);
+    expect(JSON.stringify(r.toolResults)).toContain('identity_required');
+    fake.db.visitor_sessions = [{ id: 'sess-1', workspace_id: WS, visitor_id: VISITOR }];
+    r = await ask('show my orders');
+    expect(calls[0]).toMatchObject({ op: 'orders' });
+  });
+
+  it('a session id is never taken for a visitor id', async () => {
+    fake.db.conversations = [{ id: CONV, workspace_id: WS, visitor_session_id: VISITOR, metadata: {} }];
+    link('101');
+    const r = await ask('show my orders');
+    expect(calls).toEqual([]);
+    expect(JSON.stringify(r.toolResults)).toContain('identity_required');
   });
 
   it('an expired link is no customer at all', async () => {

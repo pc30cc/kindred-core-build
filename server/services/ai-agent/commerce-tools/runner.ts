@@ -9,6 +9,7 @@
  */
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
+import { resolveConversationVisitor } from '../../commerce/conversationVisitor.js';
 import type { ReadOnlyToolResult } from '../actions/readOnly.js';
 import {
   CommerceError,
@@ -138,14 +139,14 @@ async function resolveVerifiedCustomer(
   conversationId: string | null,
 ): Promise<string | null> {
   if (!conversationId) return null;
-  const sb = getServiceClient(config);
-  const { data: conv } = await sb.from('conversations').select('visitor_session_id').eq('id', conversationId).eq('workspace_id', workspaceId).maybeSingle();
-  const visitorId = conv?.visitor_session_id;
+  const { visitorId } = await resolveConversationVisitor(config, workspaceId, conversationId);
   if (!visitorId) return null;
 
+  const sb = getServiceClient(config);
   const { data: link } = await sb
     .from('commerce_customer_links')
     .select('external_customer_id, expires_at')
+    .eq('workspace_id', workspaceId)
     .eq('connection_id', connectionId)
     .eq('visitor_id', visitorId)
     .gte('expires_at', new Date().toISOString())

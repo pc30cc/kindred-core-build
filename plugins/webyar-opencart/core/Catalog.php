@@ -49,7 +49,6 @@ final class Catalog {
 		if ($terms) {
 			$conditions = [];
 			$scores = [];
-
 			foreach ($terms as $term) {
 				$variants = Text::variants($term);
 				$name = [];
@@ -60,10 +59,18 @@ final class Catalog {
 					$tag[] = '`pd`.`tag` LIKE ' . $this->db->like($v);
 				}
 
+				// Shoppers ask by category («چه گوشی‌هایی دارید؟») far more
+				// often than by a word in a product name: a term naming one of
+				// this store's visible categories (or a parent) matches its
+				// products too, ranked with tags. A subquery, not a round trip.
+				$weak = $tag;
+				$weak[] = '`p`.`product_id` IN (SELECT `p2c`.`product_id` FROM ' . $this->db->t('product_to_category') . ' `p2c` INNER JOIN ' . $this->db->t('category_path') . ' `cp` ON (`cp`.`category_id` = `p2c`.`category_id`) INNER JOIN ' . $this->db->t('category_description') . ' `cd` ON (`cd`.`category_id` = `cp`.`path_id` AND `cd`.`language_id` = ' . $this->ctx->languageId . ') INNER JOIN ' . $this->db->t('category') . ' `c` ON (`c`.`category_id` = `cp`.`path_id` AND `c`.`status` = 1) INNER JOIN ' . $this->db->t('category_to_store') . ' `c2s` ON (`c2s`.`category_id` = `cp`.`path_id` AND `c2s`.`store_id` = ' . $this->ctx->storeId . ') WHERE ' . implode(' OR ', array_map(fn ($v) => '`cd`.`name` LIKE ' . $this->db->like($v), $variants)) . ')';
+
 				$exact = '`p`.`model` = ' . $this->db->str($term) . $this->skuMatch($term);
-				$conditions[] = '(' . implode(' OR ', array_merge($name, $tag)) . ' OR ' . $exact . ')';
-				$scores[] = '(CASE WHEN ' . $exact . ' THEN 5 WHEN ' . implode(' OR ', $name) . ' THEN 2 WHEN ' . implode(' OR ', $tag) . ' THEN 1 ELSE 0 END)';
+				$conditions[] = '(' . implode(' OR ', array_merge($name, $weak)) . ' OR ' . $exact . ')';
+				$scores[] = '(CASE WHEN ' . $exact . ' THEN 5 WHEN ' . implode(' OR ', $name) . ' THEN 2 WHEN ' . implode(' OR ', $weak) . ' THEN 1 ELSE 0 END)';
 			}
+
 
 			// OR across terms and rank by how many matched: a shopper's
 			// sentence («یه هدفون خوب معرفی کن») never has every word in a name.

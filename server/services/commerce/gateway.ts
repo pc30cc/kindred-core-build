@@ -13,6 +13,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { resolveConversationVisitor } from './conversationVisitor.js';
 import {
   CommerceError,
   type CommerceCapability,
@@ -315,8 +316,7 @@ export async function resolveConversationConnection(
   const sb = getServiceClient(config);
   let visitorId = hints.visitorId ?? null;
   if (!visitorId && hints.conversationId) {
-    const { data: conv } = await sb.from('conversations').select('visitor_session_id').eq('id', hints.conversationId).eq('workspace_id', workspaceId).maybeSingle();
-    visitorId = ((conv ?? {}) as { visitor_session_id?: string | null }).visitor_session_id ?? null;
+    visitorId = (await resolveConversationVisitor(config, workspaceId, hints.conversationId)).visitorId;
   }
   if (!visitorId) return null;
   const { data: link } = await sb

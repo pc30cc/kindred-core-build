@@ -24,7 +24,7 @@ on:
 jobs:
   migrate:
     name: Apply pending migrations
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

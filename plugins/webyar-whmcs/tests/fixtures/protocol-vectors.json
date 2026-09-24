@@ -1,0 +1,36 @@
+{
+    "comment": "Shared by plugins/webyar-whmcs/tests (PHP) and src/test/commerce/whmcsProtocol.test.ts (TypeScript). Regenerate both sides together.",
+    "secret": "vector-secret-0001-abcdefghijklmnop",
+    "request": {
+        "protocol": "webyar-commerce/1",
+        "method": "POST",
+        "path": "/webyar/whmcs/v1",
+        "installation_id": "9418e6df-2080-466c-a7e5-66eb563830a8",
+        "timestamp": "1790000000",
+        "nonce": "00112233445566778899aabbccddeeff",
+        "body": "{\"op\":\"services.list\",\"params\":{\"limit\":10},\"grant\":{\"id\":\"0123456789abcdef0123456789abcdef\",\"uid\":\"1\",\"cid\":\"10\"}}",
+        "string_to_sign": "webyar-commerce/1\nPOST\n/webyar/whmcs/v1\n9418e6df-2080-466c-a7e5-66eb563830a8\n1790000000\n00112233445566778899aabbccddeeff\n95288216e98b615575298b34993a2c45b5daf5457ef9a31ccca42b53b3250d37",
+        "signature": "39e00ec736847682807132445af64c78a7b9d6947cbb1cbe5934e21f1c7edf10"
+    },
+    "assertion": {
+        "now": 1790000060,
+        "workspace_id": "6ee40d07-32a3-4594-8a5f-d439f81afa5b",
+        "token": "whmcs1.eyJ2IjoxLCJ0eXAiOiJ3aG1jcy5pZGVudGl0eSIsImlzcyI6Ijk0MThlNmRmLTIwODAtNDY2Yy1hN2U1LTY2ZWI1NjM4MzBhOCIsIndpZCI6IjZlZTQwZDA3LTMyYTMtNDU5NC04YTVmLWQ0MzlmODFhZmE1YiIsImF1ZCI6IndlYnlhci13aWRnZXQiLCJpYXQiOjE3OTAwMDAwMDAsImV4cCI6MTc5MDAwMDMwMCwianRpIjoiYWFiYmNjZGRlZWZmMDAxMTIyMzNhYWJiIiwiZ2lkIjoiMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYiLCJ1aWQiOiIxIiwiY2lkIjoiMTAiLCJzdWIiOiI5NmVjY2JhYTMxMzIwNDY5OTdkM2U3OGQiLCJuYW1lIjoiQWxpY2UgRXhhbXBsZSIsImVtYWlsIjoiYWxpY2VAZXhhbXBsZS5jb20ifQ.3da24ce5939a69484272ac639ca929a7302f52fee271088dacd501bc1021002e",
+        "payload": {
+            "v": 1,
+            "typ": "whmcs.identity",
+            "iss": "9418e6df-2080-466c-a7e5-66eb563830a8",
+            "wid": "6ee40d07-32a3-4594-8a5f-d439f81afa5b",
+            "aud": "webyar-widget",
+            "iat": 1790000000,
+            "exp": 1790000300,
+            "jti": "aabbccddeeff00112233aabb",
+            "gid": "0123456789abcdef0123456789abcdef",
+            "uid": "1",
+            "cid": "10",
+            "sub": "96eccbaa3132046997d3e78d",
+            "name": "Alice Example",
+            "email": "alice@example.com"
+        }
+    }
+}

@@ -171,6 +171,15 @@ describe('Contacts whose sessions were never linked back to them', () => {
     expect(one!.device.os).toBe('Android');
   });
 
+  it('finds a returning visitor\'s newest session through the recorded visitor id', async () => {
+    state.sessions.push(unlinked('sess-v-old', { visitor_id: 'v9', last_seen_at: '2026-01-05', os: 'Windows' }));
+    state.sessions.push(unlinked('sess-v-new', { visitor_id: 'v9', last_seen_at: '2026-04-05', os: 'iOS' }));
+    state.contacts = [{ id: 'c5', workspace_id: WS, metadata: { visitor_id: 'v9', session_id: 'not-a-session' } }];
+    const map = await np.resolveContactsNetworkProfiles(cfg, WS, ['c5'], adminPolicy);
+    expect(map.get('c5')!.visitor_session_id).toBe('sess-v-new');
+    expect(map.get('c5')!.device.os).toBe('iOS');
+  });
+
   it('never uses a recorded session from another workspace, and leaves linked contacts alone', async () => {
     state.sessions.push(unlinked('sess-other', { workspace_id: 'w2' }));
     state.contacts = [

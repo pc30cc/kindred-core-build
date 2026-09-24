@@ -550,8 +550,11 @@ export async function resolveContactNetworkProfile(
  * with no linked session at all even though their visit is on record. For
  * those, in order:
  *   1. the session of their newest conversation (`conversations.visitor_session_id`,
- *      the same link the Inbox resolves through), then
- *   2. the session the widget recorded on the contact (`contacts.metadata.session_id`).
+ *      the same link the Inbox resolves through);
+ *   2. the newest session of the widget visitor recorded on the contact
+ *      (`contacts.metadata.visitor_id`) — a returning visitor's later
+ *      sessions are never stamped with the contact;
+ *   3. the session recorded on the contact (`contacts.metadata.session_id`).
  * Every id returned is a session of this workspace.
  */
 export async function resolveUnlinkedContactSessionIds(
@@ -584,14 +587,33 @@ export async function resolveUnlinkedContactSessionIds(
     add(c.contact_id, c.visitor_session_id);
   }
 
-  const { data: contacts } = await sb
+  const { data: contactsRaw } = await sb
     .from('contacts')
     .select('id, metadata')
     .eq('workspace_id', workspaceId)
     .in('id', ids);
-  for (const c of (contacts ?? []) as Array<{ id: string; metadata: Record<string, unknown> | null }>) {
-    add(c.id, c.metadata?.session_id);
+  const contacts = (contactsRaw ?? []) as Array<{ id: string; metadata: Record<string, unknown> | null }>;
+
+  const visitorOf = new Map<string, string>();
+  for (const c of contacts) {
+    const v = c.metadata?.visitor_id;
+    if (typeof v === 'string' && v) visitorOf.set(c.id, v);
   }
+  if (visitorOf.size) {
+    const { data: byVisitor } = await sb
+      .from('visitor_sessions')
+      .select('id, visitor_id, last_seen_at')
+      .eq('workspace_id', workspaceId)
+      .in('visitor_id', Array.from(new Set(visitorOf.values())))
+      .order('last_seen_at', { ascending: false })
+      .limit(1000);
+    const newestByVisitor = new Map<string, string>();
+    for (const s of (byVisitor ?? []) as Array<{ id: string; visitor_id: string }>) {
+      if (!newestByVisitor.has(s.visitor_id)) newestByVisitor.set(s.visitor_id, s.id);
+    }
+    for (const [contactId, visitorId] of visitorOf) add(contactId, newestByVisitor.get(visitorId));
+  }
+  for (const c of contacts) add(c.id, c.metadata?.session_id);
 
   const all = Array.from(new Set(Array.from(candidates.values()).flat()));
   if (!all.length) return out;

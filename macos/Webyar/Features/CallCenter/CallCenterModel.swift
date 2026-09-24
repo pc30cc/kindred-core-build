@@ -64,11 +64,14 @@ final class CallCenterModel {
     #if DEBUG
     /// The call center on screen, for the debug command file.
     nonisolated(unsafe) static weak var debugCurrent: CallCenterModel?
+    nonisolated(unsafe) static var debugVariant = 0
     /// As if the in-call window had just hung up the call picked.
     func debugDeskCallEnded(_ part: String = "") {
         switch part {
         case "notice": notice = CallDeskNotice(severity: .info, title: app.strings["ccWrapUp"], message: app.strings["ccWrapUpHint"], addNote: true)
         case "focus": focusNoteRequest += 1
+        case "off": notice = nil
+        case "v0", "v1", "v2", "v3": Self.debugVariant = Int(part.dropFirst()) ?? 0
         default: if let id = selectedId { deskCallEnded(id) }
         }
     }

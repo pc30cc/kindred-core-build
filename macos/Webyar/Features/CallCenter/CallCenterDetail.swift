@@ -37,7 +37,6 @@ struct CallCenterDetail: View {
     }
 
     @ViewBuilder private var noticeBar: some View {
-        #if DEBUG
         if CallCenterModel.debugVariant == 1, let notice = model.notice {
             Text(notice.message).padding(10).frame(maxWidth: .infinity).background(Color.blue.opacity(0.15))
         } else if CallCenterModel.debugVariant == 2, let notice = model.notice {
@@ -46,9 +45,6 @@ struct CallCenterDetail: View {
         } else if CallCenterModel.debugVariant == 3, model.notice != nil {
             Color.red.frame(height: 40)
         } else if let notice = model.notice {
-        #else
-        if let notice = model.notice {
-        #endif
             Banner(severity: notice.severity, title: notice.title, message: notice.message,
                    actionTitle: notice.addNote ? app.strings["ccAddNote"] : nil,
                    action: notice.addNote ? { model.focusNote() } : nil,

@@ -31,15 +31,23 @@ enum DebugTools {
     }
 
     private static func snapshot(_ folder: URL) {
-        for (i, window) in NSApp.windows.enumerated() where window.isVisible {
-            guard let view = window.contentView?.superview ?? window.contentView else { continue }
-            let bounds = view.bounds
-            guard bounds.width > 10, let rep = view.bitmapImageRepForCachingDisplay(in: bounds) else { continue }
-            view.cacheDisplay(in: bounds, to: rep)
+        for (i, window) in NSApp.windows.enumerated() where window.isVisible && window.windowNumber > 0 {
+            // An app may always capture its own windows; no screen-recording permission is involved.
+            guard let image = capture(CGWindowID(window.windowNumber)) else { continue }
+            let rep = NSBitmapImageRep(cgImage: image)
             guard let png = rep.representation(using: .png, properties: [:]) else { continue }
             let name = window.identifier?.rawValue.replacingOccurrences(of: "/", with: "_") ?? "window"
             try? png.write(to: folder.appendingPathComponent("\(i)-\(name).png"))
         }
+    }
+
+    /// CGWindowListCreateImage, looked up at run time: the SDK marks it obsolete, the OS still answers.
+    private static func capture(_ id: CGWindowID) -> CGImage? {
+        typealias Fn = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
+        let fn = unsafeBitCast(sym, to: Fn.self)
+        // optionIncludingWindow = 1 << 3, boundsIgnoreFraming = 1 << 0, bestResolution = 1 << 3
+        return fn(.null, 1 << 3, id, (1 << 0) | (1 << 3))?.takeRetainedValue()
     }
 
     private static func runCommand(_ folder: URL, _ app: AppModel) {

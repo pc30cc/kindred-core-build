@@ -293,12 +293,6 @@ export function AppLayout() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // Strict: if slug doesn't match any workspace, show 404
-  if (!isLoading && notFound) {
-    return <WorkspaceNotFound />;
-  }
-
-  // Hold the chrome back until the workspace and its plan are known, so the
-  // sidebar never paints gated items that disappear a moment later.
   useEffect(() => {
     // Mouse-follow light for .spotlight cards (Magic UI style)
     const onMove = (e: PointerEvent) => {
@@ -311,6 +305,13 @@ export function AppLayout() {
     window.addEventListener('pointermove', onMove, { passive: true });
     return () => window.removeEventListener('pointermove', onMove);
   }, []);
+
+  if (!isLoading && notFound) {
+    return <WorkspaceNotFound />;
+  }
+
+  // Hold the chrome back until the workspace and its plan are known, so the
+  // sidebar never paints gated items that disappear a moment later.
 
   if (!shellReady) {
     return <AppShellSkeleton />;

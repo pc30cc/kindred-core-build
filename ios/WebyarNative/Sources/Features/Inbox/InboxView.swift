@@ -166,6 +166,26 @@ struct InboxView: View {
         path.append(conversation)
     }
 
+    /// The inboxes that ride on the strip without being queues.
+    ///
+    /// Colleagues is its own screen, not a filter, so it cannot be one of
+    /// the chips proper — see `FilterPicker.Destination`. It is here as well
+    /// as in the title menu because it is the one inbox an operator reaches
+    /// for mid-shift, and going through a menu for it every time is three
+    /// taps for something the strip can do in one.
+    private var stripDestinations: [FilterPicker.Destination] {
+        guard appState.colleaguesVisible else { return [] }
+        return [
+            .init(
+                id: "colleagues",
+                title: Str.colleagues(language),
+                // The same glyph the title menu gives it.
+                icon: "person.2",
+                open: { path.append(InboxRoute.colleagues) }
+            )
+        ]
+    }
+
     /// Any change to this reloads the list: switching filter, switching
     /// workspace, or signing in as somebody else.
     private var reloadKey: String {
@@ -203,7 +223,8 @@ struct InboxView: View {
                 selection: $model.filter,
                 filters: appState.inboxChips,
                 counts: model.counts,
-                language: language
+                language: language,
+                destinations: stripDestinations
             )
                 .listRowInsets(filterInsets)
                 .listRowSeparator(.hidden)

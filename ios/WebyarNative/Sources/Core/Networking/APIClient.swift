@@ -1329,17 +1329,22 @@ enum InboxFilter: String, CaseIterable, Identifiable, Sendable {
         return filters
     }
 
-    /// The two queues that stay on the strip above the list.
+    /// The queues that stay on the strip above the list.
     ///
-    /// The rest moved into the menu behind the screen's own title, which is
-    /// where the console keeps them too: its top strip carries Open and AI
-    /// and its sidebar carries the whole list. Four chips across a phone left
-    /// no room for the counts, and two of them — Resolved and the AI handover
-    /// queue — are places you go now and then rather than switch between all
-    /// day.
+    /// The rest stay in the menu behind the screen's own title, which is
+    /// where the console keeps them too. What earns a place here is being
+    /// somewhere an operator moves *between* during a shift rather than
+    /// visits now and then: Open, the AI queue, and the threads waiting on a
+    /// customer's reply. Resolved, Spam and the AI handover queue are the
+    /// other kind, and they stay in the menu.
+    ///
+    /// The strip scrolls, so a fourth name costs nothing — but it is not a
+    /// place to put everything either. Every chip here is a queue the counts
+    /// are meaningful for.
     static func chips(for entitlements: Entitlements?) -> [InboxFilter] {
         var filters: [InboxFilter] = [.open]
         if entitlements?.featureEnabled("inbox_ai_queue") == true { filters.append(.ai) }
+        filters.append(.pending)
         return filters
     }
 }

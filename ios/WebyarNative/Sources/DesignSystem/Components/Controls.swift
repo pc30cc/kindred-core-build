@@ -77,10 +77,29 @@ struct PrimaryButton: View {
 /// A count rides in the segment label when there is one, because the whole
 /// reason to glance at this control is to see where the work is.
 struct FilterPicker: View {
+
+    /// A chip that leaves this screen rather than narrowing it.
+    ///
+    /// The strip is a filter control and these are not filters, so they are
+    /// kept apart rather than mixed into `filters`: they sit after a divider,
+    /// they carry an icon, and nothing can ever draw one as selected. An
+    /// operator who taps one and comes back finds the queue they left still
+    /// chosen, because it never stopped being chosen.
+    struct Destination: Identifiable {
+        let id: String
+        let title: String
+        /// SF Symbol, and the same one the title menu uses for this place.
+        let icon: String
+        let open: () -> Void
+    }
+
     @Binding var selection: InboxFilter
     let filters: [InboxFilter]
     let counts: InboxCounts?
     let language: Language
+    /// The inboxes that are their own screens. Empty unless the plan grants
+    /// one, which is why this defaults rather than being passed everywhere.
+    var destinations: [Destination] = []
 
     private func label(for filter: InboxFilter) -> String {
         let title = filter.title(language)
@@ -107,6 +126,22 @@ struct FilterPicker: View {
                 HStack(spacing: Theme.Space.sm) {
                     ForEach(filters) { filter in
                         chipButton(for: filter)
+                    }
+
+                    if !destinations.isEmpty {
+                        // A hairline, not a gap. The two groups are different
+                        // kinds of thing — one narrows the list, one leaves
+                        // it — and a little more space would only read as a
+                        // layout accident.
+                        Rectangle()
+                            .fill(Theme.Palette.separator.opacity(0.7))
+                            .frame(width: 0.5, height: 20)
+                            .padding(.horizontal, Theme.Space.xxs)
+                            .accessibilityHidden(true)
+
+                        ForEach(destinations) { destination in
+                            destinationButton(for: destination)
+                        }
                     }
                 }
                 // Room for the glass edge and its shadow, which would
@@ -189,6 +224,45 @@ struct FilterPicker: View {
         .buttonStyle(PressableButtonStyle())
         .accessibilityLabel(label(for: filter))
         .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
+    }
+
+    /// The same capsule as an unselected queue, with its icon in front of it.
+    ///
+    /// Deliberately never the selected treatment: this chip opens a screen
+    /// and comes straight back off it, and a chip that lit up and then went
+    /// out again as the operator returned would read as the tap having been
+    /// undone.
+    private func destinationButton(for destination: Destination) -> some View {
+        Button {
+            Haptics.selection()
+            destination.open()
+        } label: {
+            HStack(spacing: Theme.Space.xs) {
+                Image(systemName: destination.icon)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.brand)
+
+                Text(destination.title)
+                    .font(.app(.subheadline, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(Theme.Palette.label)
+            .padding(.horizontal, Theme.Space.md)
+            .frame(height: 36)
+            .background {
+                Capsule(style: .continuous)
+                    .fill(Theme.Palette.surface)
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .strokeBorder(Theme.Palette.separator.opacity(0.7), lineWidth: 0.5)
+                    )
+                    .elevated(.resting)
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(PressableButtonStyle())
+        .accessibilityLabel(destination.title)
+        .accessibilityAddTraits(.isButton)
     }
 }
 

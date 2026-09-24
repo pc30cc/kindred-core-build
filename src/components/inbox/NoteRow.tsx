@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { Loader2, Pencil, Trash2, Check, X } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { OperatorAvatarFallback } from '@/components/ui/operator-avatar-fallback';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import type { ConversationNote } from '@/hooks/useConversationNotes';
@@ -42,7 +43,7 @@ export function NoteRow({ note, canEdit, isDeleting, isUpdating, onUpdate, onDel
       <div className="flex items-start gap-2">
         <Avatar className="h-6 w-6 shrink-0">
           {author?.avatar_url && <AvatarImage src={author.avatar_url} alt="" />}
-          <AvatarFallback className="text-[10px] font-bold">{initial}</AvatarFallback>
+          <OperatorAvatarFallback />
         </Avatar>
 
         <div className="min-w-0 flex-1">

@@ -186,6 +186,10 @@ final class InboxViewModel {
     /// otherwise a busy conversation would cost one visitor lookup per
     /// message for an answer that was already on screen.
     func absorb(workspaceID: String?, appState: AppState) async {
+        // Not while the first load is still out. The two would race for
+        // `state`, and a list that has never been drawn has nothing to
+        // catch up with anyway.
+        guard state.isLoaded else { return }
         await reread(workspaceID: workspaceID, appState: appState, rereadVisitors: false)
     }
 

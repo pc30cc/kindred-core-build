@@ -159,6 +159,15 @@ final class LiveUpdates {
         defer { opening = nil }
         guard let workspace = workspaceID, !isSuspended else { return }
 
+        // Signing out tears this down, but a screen can outlive the sign-out
+        // by an animation and ask for its stream on the way out. Negotiating
+        // with a discarded token would answer 401 and start a retry loop
+        // against a session that no longer exists.
+        guard await api.hasToken else {
+            isLive = false
+            return
+        }
+
         guard let negotiation = try? await api.liveNegotiation(workspaceID: workspace, intent: intent) else {
             // We could not even ask. Screens poll until this succeeds.
             isLive = false

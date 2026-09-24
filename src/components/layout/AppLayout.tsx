@@ -299,6 +299,19 @@ export function AppLayout() {
 
   // Hold the chrome back until the workspace and its plan are known, so the
   // sidebar never paints gated items that disappear a moment later.
+  useEffect(() => {
+    // Mouse-follow light for .spotlight cards (Magic UI style)
+    const onMove = (e: PointerEvent) => {
+      const el = (e.target as HTMLElement | null)?.closest?.('.spotlight') as HTMLElement | null;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      el.style.setProperty('--mx', `${e.clientX - r.left}px`);
+      el.style.setProperty('--my', `${e.clientY - r.top}px`);
+    };
+    window.addEventListener('pointermove', onMove, { passive: true });
+    return () => window.removeEventListener('pointermove', onMove);
+  }, []);
+
   if (!shellReady) {
     return <AppShellSkeleton />;
   }

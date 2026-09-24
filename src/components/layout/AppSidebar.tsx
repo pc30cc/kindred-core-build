@@ -61,7 +61,7 @@ function NavChip({
         collapsed ? 'h-10 w-10' : 'h-8 w-8',
         active
           ? cn('bg-gradient-to-br text-white shadow-glow', a.grad)
-          : cn('bg-sidebar-accent/70 ring-1 ring-sidebar-border text-sidebar-muted-foreground group-hover:-translate-y-0.5 group-hover:ring-0 group-hover:bg-gradient-to-br group-hover:text-white group-hover:shadow-md', a.grad.replace(/(from|to)-/g, 'group-hover:$1-')),
+          : cn('bg-sidebar-accent/70 ring-1 ring-sidebar-border text-sidebar-muted-foreground group-hover:-translate-y-0.5 group-hover:ring-0 group-hover:bg-brand group-hover:text-white group-hover:shadow-glow'),
       )}
     >
       {active && <span aria-hidden className={cn('absolute inset-0 -z-10 rounded-xl blur-md opacity-60', a.glow)} />}

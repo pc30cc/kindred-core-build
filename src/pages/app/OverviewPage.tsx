@@ -243,7 +243,7 @@ export default function OverviewPage() {
               <bdi>{formatLongDate(new Date())}</bdi>
             </div>
             <h1 className="text-2xl font-bold tracking-tight sm:text-[34px]">
-              <span className="bg-gradient-to-br from-indigo-600 via-violet-600 to-cyan-500 bg-clip-text text-transparent dark:from-indigo-300 dark:via-violet-300 dark:to-cyan-200">
+              <span className="text-brand">
                 {greeting}{userName ? `، ${userName}` : ''}
               </span>
             </h1>

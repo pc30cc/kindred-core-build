@@ -1,5 +1,7 @@
 name: macOS app
 
+# Public repository: standard GitHub-hosted runners are used.
+
 # Builds and tests the native macOS app (macos/, SwiftUI) on a macOS runner —
 # its UI cannot compile anywhere else. Every push that touches it (or the
 # Windows app's strings and font, which it bundles) builds, tests and

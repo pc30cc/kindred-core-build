@@ -54,8 +54,8 @@ function seed(extra: Partial<Record<string, Row[]>> = {}) {
   db = createFakeDb({
     commerce_connections: [whmcsConn],
     conversations: [
-      { id: 'conv-a', workspace_id: WS, visitor_session_id: VISITOR_A },
-      { id: 'conv-g', workspace_id: WS, visitor_session_id: VISITOR_G },
+      { id: 'conv-a', workspace_id: WS, visitor_session_id: null, metadata: { visitor_id: VISITOR_A } },
+      { id: 'conv-g', workspace_id: WS, visitor_session_id: null, metadata: { visitor_id: VISITOR_G } },
     ],
     commerce_customer_links: [{
       id: 'link-a', workspace_id: WS, connection_id: 'conn-whmcs', visitor_id: VISITOR_A, grant_ref: ALICE_GRANT,

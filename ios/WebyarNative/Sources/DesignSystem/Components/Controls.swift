@@ -123,7 +123,11 @@ struct FilterPicker: View {
         // say so.
         ScrollView(.horizontal) {
             LiquidGlassGroup(spacing: Theme.Space.lg) {
-                HStack(spacing: Theme.Space.sm) {
+                // Four points between chips, not eight. A capsule already
+                // reads as separate from its neighbour without the gap doing
+                // the work, and four of them across a phone is where the
+                // Turkish strip stopped fitting.
+                HStack(spacing: Theme.Space.xs) {
                     ForEach(filters) { filter in
                         chipButton(for: filter)
                     }
@@ -136,7 +140,7 @@ struct FilterPicker: View {
                         Rectangle()
                             .fill(Theme.Palette.separator.opacity(0.7))
                             .frame(width: 0.5, height: 20)
-                            .padding(.horizontal, Theme.Space.xxs)
+                            .padding(.horizontal, Theme.Space.xs)
                             .accessibilityHidden(true)
 
                         ForEach(destinations) { destination in

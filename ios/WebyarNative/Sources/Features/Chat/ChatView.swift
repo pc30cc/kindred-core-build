@@ -220,6 +220,11 @@ struct ChatView: View {
                 conversationID: conversation.id
             )) { push in
                 if let id = push?.messageID, model.has(messageID: id) { return }
+                // The visitor's, not an echo of the operator's own send and
+                // not the AI's — the same test the tab bar's dot uses.
+                if push?.type == "message", push?.senderType == "contact" {
+                    MessageSounds.shared.play(.receivedHere, messageID: push?.messageID)
+                }
                 await model.reload(appState: appState)
             }
             .alert(sayNow.notice ?? "", isPresented: Binding(

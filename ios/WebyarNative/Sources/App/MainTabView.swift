@@ -158,7 +158,13 @@ struct MainTabView: View {
         // does anything here.
         .liveUpdates(on: inboxChannel) { push in
             guard let push else { return }
-            inboxAlert.note(push, isLookingAtInbox: selection == .inbox && inboxPath.isEmpty)
+            let rang = inboxAlert.note(
+                push,
+                isLookingAtInbox: selection == .inbox && inboxPath.isEmpty
+            )
+            // The same test decides the dot and the sound, so the two can
+            // never disagree about whether something is waiting.
+            if rang { MessageSounds.shared.play(.receivedAway, messageID: push.messageID) }
         }
         // Looking at the list is what clears it — including arriving there
         // from a notification, which selects the tab on the way in.

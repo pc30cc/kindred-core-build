@@ -103,6 +103,7 @@ final class ChatViewModel {
                 clientMessageID: UUID().uuidString,
                 attachmentID: nil
             )
+            MessageSounds.shared.play(.sent)
             await reload(appState: appState)
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()
@@ -150,6 +151,7 @@ final class ChatViewModel {
                 attachmentID: attachmentID
             )
             await reload(appState: appState)
+            MessageSounds.shared.play(.sent)
             Haptics.success()
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()

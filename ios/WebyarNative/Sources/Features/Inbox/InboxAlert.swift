@@ -36,21 +36,23 @@ final class InboxAlert {
     /// `isLookingAtInbox` is passed in rather than read from here because
     /// the tab bar's selection belongs to the shell, and a signal that knew
     /// about navigation would be two things at once.
-    func note(_ push: LivePush, isLookingAtInbox: Bool) {
-        guard push.type == "message" else { return }
+    @discardableResult
+    func note(_ push: LivePush, isLookingAtInbox: Bool) -> Bool {
+        guard push.type == "message" else { return false }
         // Only a visitor. The operator's own reply comes back over this
         // channel too, and so does the AI's — neither is somebody waiting.
-        guard push.senderType == "contact" else { return }
+        guard push.senderType == "contact" else { return false }
         // Not while the list is on screen: the row updates itself, and a dot
         // on the tab you are already reading is a dot about nothing.
-        guard !isLookingAtInbox else { return }
+        guard !isLookingAtInbox else { return false }
         // Nor for the thread that is open right now. Same rule the
         // notification banner follows (`PushController.presentation`), for
         // the same reason: it is already being read.
         guard push.conversationID == nil || push.conversationID != PushController.shared.viewing else {
-            return
+            return false
         }
         isRinging = true
+        return true
     }
 
     /// The operator opened the inbox. Whatever was waiting is now in front

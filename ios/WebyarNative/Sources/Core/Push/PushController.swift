@@ -233,7 +233,24 @@ final class PushController {
     func presentation(for content: UNNotificationContent) -> UNNotificationPresentationOptions {
         applyBadge(from: content)
         if let id = content.userInfo["conversationId"] as? String, id == viewing { return [] }
-        return [.banner, .sound, .list]
+
+        // The banner, but not its sound.
+        //
+        // While the app is in front of somebody a message can reach it twice
+        // — down the realtime socket and through APNs — and letting iOS play
+        // the notification tone as well would make one message make two
+        // noises. So the app takes the sound: it is the side that knows
+        // whether the operator is reading that thread, and it deduplicates
+        // by message id, so whichever transport arrives first is the one
+        // that sounds and the second is silent.
+        //
+        // Backgrounded, none of this runs and the system plays the sound the
+        // server asked for, which is the right division of labour.
+        MessageSounds.shared.play(
+            .receivedAway,
+            messageID: content.userInfo["messageId"] as? String
+        )
+        return [.banner, .list]
     }
 
     /// A tap, or one of the buttons on the banner.

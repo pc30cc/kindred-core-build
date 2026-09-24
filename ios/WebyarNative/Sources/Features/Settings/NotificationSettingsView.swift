@@ -22,6 +22,11 @@ final class NotificationSettingsModel {
     func load(appState: AppState) async {
         do {
             prefs = try await api.notificationPrefs()
+            // Mirrored locally so the in-app message sounds, which have to be
+            // decided in the milliseconds between a push landing and a tone
+            // playing, never wait on a request to find out whether the
+            // operator wants to hear them.
+            MessageSounds.isEnabled = prefs.playSound
             loadFailed = false
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()
@@ -44,16 +49,19 @@ final class NotificationSettingsModel {
         edit(&next)
         guard next != previous else { return }
         prefs = next
+        MessageSounds.isEnabled = next.playSound
         saveFailed = false
 
         Task {
             isSaving = true
             do {
                 prefs = try await api.updateNotificationPrefs(next)
+                MessageSounds.isEnabled = prefs.playSound
             } catch APIError.unauthorized {
                 await appState.handleUnauthorized()
             } catch {
                 prefs = previous
+                MessageSounds.isEnabled = previous.playSound
                 saveFailed = true
                 Haptics.warning()
             }

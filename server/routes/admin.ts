@@ -37,6 +37,7 @@ import { adminRetentionRouter } from './adminRetention.js';
 import { adminBackupRouter } from './adminBackup.js';
 import { adminMobileAppRouter } from './adminMobileApp.js';
 import { adminDesktopAppRouter } from './adminDesktopApp.js';
+import { adminMacosAppRouter } from './adminMacosApp.js';
 import { adminNotificationsRouter } from './adminNotifications.js';
 import { adminNotificationEmailRouter } from './adminNotificationEmail.js';
 import { normalizePhoneToE164 } from '../services/phoneVerification/phone.js';
@@ -129,6 +130,7 @@ adminRouter.use('/backup', adminBackupRouter);
 // Native app (iOS) identity, build, privacy and App Store readiness
 adminRouter.use('/mobile-app', adminMobileAppRouter);
 adminRouter.use('/desktop-app', adminDesktopAppRouter);
+adminRouter.use('/macos-app', adminMacosAppRouter);
 
 // Platform-wide push/notification policy, categories, copy and diagnostics
 adminRouter.use('/notifications', adminNotificationsRouter);

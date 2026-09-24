@@ -163,10 +163,13 @@ struct TeamMessagesView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
-                // Bubbles sit left/right physically, as the web thread; text inside follows its own direction.
-                .environment(\.layoutDirection, .leftToRight)
+                .frame(maxWidth: .infinity)
             }
             .defaultScrollAnchor(.bottom)
+            // Bubbles sit left/right physically, as the web thread; text inside follows its
+            // own direction. Set on the scroll view itself: a right-to-left scroll view around
+            // left-to-right content draws it shifted sideways.
+            .environment(\.layoutDirection, .leftToRight)
             .overlay { emptyOverlay }
             .onChange(of: model.rows.last?.id) { _, id in
                 if let id { withAnimation(.smooth(duration: 0.25)) { proxy.scrollTo(id, anchor: .bottom) } }

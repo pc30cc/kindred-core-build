@@ -10,26 +10,50 @@ final class AIThreadTests: UITestCase {
 
     // MARK: - The inbox switcher
 
-    func testTheInboxMenuOffersTheAwaitingCustomerQueue() {
+    func testTheInboxSwitcherOffersTheAwaitingCustomerQueue() {
         launchToInbox()
 
-        // The menu behind the screen's own title, which is where every queue
-        // that is not a chip lives.
+        // Behind the screen's own title, which is where every queue that is
+        // not a chip lives. A sheet since the menu could not be made to take
+        // the operator's typeface — see `InboxSwitcherSheet`.
         let title = app.buttons[A11yID.inboxTitleMenu].firstMatch
-        XCTAssertTrue(title.waitForExistence(timeout: 10), "the inbox title menu was not reachable")
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "the inbox switcher was not reachable")
         title.tap()
 
-        let row = app.buttons["در انتظار مشتری"]
+        let row = app.buttons["انتظار مشتری"]
         XCTAssertTrue(
             row.waitForExistence(timeout: 5),
-            "the awaiting-customer queue is missing from the inbox menu"
+            "the awaiting-customer queue is missing from the inbox switcher"
         )
 
         // And the queues it sits between are still there, so a pass cannot
-        // mean "the menu now contains one row".
+        // mean "the sheet now contains one row".
         for other in ["حل‌شده", "هرزنامه"] {
-            XCTAssertTrue(app.buttons[other].exists, "\(other) went missing from the inbox menu")
+            XCTAssertTrue(app.buttons[other].exists, "\(other) went missing from the inbox switcher")
         }
+    }
+
+    /// The whole reason the switcher stopped being a `Menu`.
+    ///
+    /// A row drawn by the app can be asked what it is; a `UIMenu`'s cannot,
+    /// and its typeface was the system's whatever the app asked for. This
+    /// cannot read a font, but it can prove the rows belong to the app —
+    /// which is the thing that was not true before.
+    func testTheSwitcherRowsBelongToTheApp() {
+        launchToInbox()
+        let title = app.buttons[A11yID.inboxTitleMenu].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        title.tap()
+
+        let row = app.buttons["انتظار مشتری"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        // A sheet the app drew, so its rows sit inside the app's own window
+        // and have a real frame. A menu's rows are in another one.
+        XCTAssertTrue(row.frame.height > 0, "the switcher row has no frame of its own")
+        XCTAssertTrue(
+            app.navigationBars["صندوق"].waitForExistence(timeout: 3),
+            "the switcher sheet has no title of its own"
+        )
     }
 
     // MARK: - One field, and only what belongs in it

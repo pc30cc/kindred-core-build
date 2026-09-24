@@ -93,14 +93,14 @@ final class Orders
     {
         $invoiceId = (int) $row->invoiceid;
         return array(
-            'id' => (string) $row->id,
-            'number' => ((string) $row->ordernum) !== '' ? Text::clean($row->ordernum, 40) : (string) $row->id,
+            'id' => Text::id($row->id),
+            'number' => ((string) $row->ordernum) !== '' ? Text::clean($row->ordernum, 40) : Text::id($row->id),
             'status' => (string) $row->status,
             'payment_status' => $row->payment_status !== null ? (string) $row->payment_status : null,
             'date' => Text::date($row->date),
             'amount' => Text::amount($row->amount),
             'currency' => $currency,
-            'invoice_id' => $invoiceId > 0 && $row->payment_status !== null ? (string) $invoiceId : null,
+            'invoice_id' => $invoiceId > 0 && $row->payment_status !== null ? Text::id($invoiceId) : null,
             'view_url' => $invoiceId > 0 && $row->payment_status !== null ? Links::invoice($invoiceId) : null,
         );
     }

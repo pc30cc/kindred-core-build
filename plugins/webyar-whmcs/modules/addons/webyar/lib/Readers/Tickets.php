@@ -114,7 +114,7 @@ final class Tickets
     private static function shape($row)
     {
         return array(
-            'id' => (string) $row->id,
+            'id' => Text::id($row->id),
             'tid' => Text::clean($row->tid, 40),
             'subject' => Text::clean($row->title, 200),
             'status' => (string) $row->status,

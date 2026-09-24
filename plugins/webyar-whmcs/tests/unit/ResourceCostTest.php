@@ -38,7 +38,8 @@ final class ResourceCostTest extends TestCase
         foreach (self::$report as $op => $r) {
             $lines[] = sprintf('%s | %d | %d | %d | %d | %d', $op, $r['select'], $r['insert'], $r['update'], $r['delete'], $r['bytes']);
         }
-        fwrite(STDERR, "\n\nWHMCS addon — statements per request (measured, SQLite)\n" . implode("\n", $lines) . "\n");
+        $driver = WhmcsDb::realDatabase() ? Capsule::connection()->getDriverName() : 'sqlite';
+        fwrite(STDERR, "\n\nWHMCS addon — statements per request (measured, " . $driver . ")\n" . implode("\n", $lines) . "\n");
     }
 
     private function measure($label, callable $fn)

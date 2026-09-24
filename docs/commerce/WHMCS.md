@@ -352,7 +352,8 @@ Web Yar memory (bounded by the cache caps above: ≤ 8 MB plus limiter maps).
 
 | Suite | What it proves |
 |---|---|
-| `plugins/webyar-whmcs/tests` (PHPUnit, 45 tests) | the real addon readers and API on SQLite shaped like WHMCS: signature, replay, grant lifecycle, WHMCS user permissions, ownership (another client's id is not found), closed accounts, column allow-lists, catalogue visibility, widget injection, statement counts |
+| `plugins/webyar-whmcs/tests` (PHPUnit, 46 tests) | the real addon readers and API on SQLite shaped like WHMCS: signature, replay, grant lifecycle, WHMCS user permissions, ownership (another client's id is not found), closed accounts, column allow-lists, catalogue visibility, widget injection, statement counts |
+| the same 46 tests with `WEBYAR_TEST_DB=mysql` ([`tests/realdb`](../../plugins/webyar-whmcs/tests/realdb/README.md)) | every addon query against MariaDB/MySQL holding WHMCS's own `install.sql` schema plus the reconstructed later tables: real column types (`INT ZEROFILL` ids, `DECIMAL` amounts, `DATE` columns), collation and SQL dialect |
 | `src/test/commerce/whmcsProtocol.test.ts` | TS and PHP sign byte-identical requests and assertions (shared vectors) |
 | `whmcsIdentity`, `whmcsGateway`, `whmcsStage`, `whmcsIntent`, `connectionSelection`, `whmcsPairingCoexistence`, `connectionsRoute`, `whmcsConfigPanel` | forged/expired/replayed assertions, cross-workspace/installation isolation, logout/switch/permission change, cache isolation, limits, breaker, deadlines, fa/en/tr routing, pairing, panel behaviour |
 | `src/test/ai-agent/whmcsAccountFallback.test.ts` | the bounded fallback through the real engine (model faked) |
@@ -360,11 +361,16 @@ Web Yar memory (bounded by the cache caps above: ≤ 8 MB plus limiter maps).
 Run: `npx vitest run src/test/commerce src/test/ai-agent/whmcsAccountFallback.test.ts`
 and, in `plugins/webyar-whmcs`, `composer install && vendor/bin/phpunit`.
 
+The MySQL mode was run on MariaDB 11.8 with the base schema of WHMCS 9.0.9:
+46/46 pass. Its first run found that WHMCS returns `INT ZEROFILL` ids padded
+(`0000000102`); the addon now emits every id as a plain decimal (`102`).
+
 **Not proven**: behaviour on a real WHMCS install (no licensed instance was
-available, and none was installed on any server), MySQL-specific SQL
-behaviour, WHMCS hook timing in a live client area, real network latency,
-and the recall of the model-signalled fallback with a real LLM. The
-simulator and fakes are test doubles, not a benchmark.
+available, and none was installed on any server), the exact WHMCS 9 shape of
+the tables its encoded upgrades add (reconstructed from the developer docs),
+WHMCS hook timing in a live client area, real network latency, and the recall
+of the model-signalled fallback with a real LLM. The simulator and fakes are
+test doubles, not a benchmark.
 
 ## 12. WooCommerce changes made alongside
 

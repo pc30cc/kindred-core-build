@@ -92,8 +92,8 @@ final class Invoices
         $status = (string) $row->status;
         $due = Text::date($row->duedate);
         return array(
-            'id' => (string) $row->id,
-            'number' => ((string) $row->invoicenum) !== '' ? Text::clean($row->invoicenum, 40) : (string) $row->id,
+            'id' => Text::id($row->id),
+            'number' => ((string) $row->invoicenum) !== '' ? Text::clean($row->invoicenum, 40) : Text::id($row->id),
             'status' => $status,
             'date' => Text::date($row->date),
             'due_date' => $due,

@@ -162,6 +162,16 @@ final class WebyarAPI {
         try await client.call("PATCH", "/api/conversations/\(Self.e(id))", body: body)
     }
 
+    /// Spam is soft routing, as on the web: the thread (and the visitor's other threads) go to
+    /// the Spam queue and the AI stops answering; the visitor is not blocked.
+    func markSpam(_ id: String, workspaceId: String) async throws {
+        try await client.call("POST", "/api/conversations/spam", body: ["workspace_id": workspaceId, "conversation_id": id])
+    }
+
+    func unmarkSpam(_ id: String, workspaceId: String) async throws {
+        try await client.call("POST", "/api/conversations/not-spam", body: ["workspace_id": workspaceId, "conversation_id": id])
+    }
+
     func claim(_ id: String, workspaceId: String) async throws {
         try await client.call("POST", "/api/conversations/\(Self.e(id))/claim", body: ["workspace_id": workspaceId])
     }
@@ -299,6 +309,11 @@ final class WebyarAPI {
     func callNotes(workspaceId: String, callId: String) async throws -> [CallNote] {
         let r: CallNotesResponse = try await client.get("/api/call-center/calls/\(Self.e(callId))/notes", query: [("workspaceId", workspaceId)])
         return r.notes ?? []
+    }
+
+    /// A call marked as spam on the desk; a call still waiting leaves the line.
+    func markCallSpam(workspaceId: String, callId: String, spam: Bool) async throws {
+        try await client.call("POST", "/api/call-center/calls/\(Self.e(callId))/\(spam ? "spam" : "not-spam")", query: [("workspaceId", workspaceId)])
     }
 
     func addCallNote(workspaceId: String, callId: String, note: String) async throws {

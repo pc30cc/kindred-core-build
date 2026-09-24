@@ -164,6 +164,10 @@ struct ThreadHeader: View {
         if c.isAiManaged {
             Chip(text: s["navInboxAi"], foreground: Palette.ai, background: Palette.aiSoft, systemImage: "sparkles")
         }
+        if c.isSpam == true {
+            Chip(text: s["spam"], foreground: Palette.danger, background: Palette.dangerSoft, systemImage: "xmark.bin")
+                .help(s["spamTip"])
+        }
     }
 
     @ViewBuilder private func actions(_ c: Conversation, _ s: Strings) -> some View {
@@ -205,6 +209,18 @@ struct ThreadHeader: View {
                 .help(c.isResolved ? s["reopen"] : s["markResolved"])
                 .disabled(chat.busy)
                 .keyboardShortcut("e", modifiers: [.command, .shift])
+                let spam = c.isSpam == true
+                Button { chat.toggleSpam() } label: {
+                    Label(s[spam ? "notSpam" : "markSpam"], systemImage: spam ? "tray.and.arrow.up" : "xmark.bin")
+                        .labelStyle(AdaptiveLabelStyle(showTitle: false))
+                        .frame(width: 18, height: 18)
+                        .foregroundStyle(spam ? Palette.brand : Palette.danger)
+                }
+                .glassButton()
+                .buttonBorderShape(.circle)
+                .help(s[spam ? "notSpam" : "markSpamTip"])
+                .accessibilityLabel(s[spam ? "notSpam" : "markSpam"])
+                .disabled(chat.busy)
                 ConversationMenu(chat: chat, conversation: c)
             }
         }

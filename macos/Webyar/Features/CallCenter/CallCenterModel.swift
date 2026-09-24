@@ -53,6 +53,7 @@ final class CallCenterModel {
     private(set) var accepting = false
     private(set) var rejecting = false
     private(set) var ending = false
+    private(set) var markingSpam = false
     private(set) var addingNote = false
     var noteDraft = ""
     var notice: CallDeskNotice?
@@ -482,6 +483,31 @@ final class CallCenterModel {
         } catch {
             Log.error("end call", error)
             showNotice("\(s["ccEndFailed"]) — \(ErrorText.of(error, s))")
+        }
+    }
+
+    /// Spam or not, for the call on show. A call still waiting leaves the line on the server.
+    func toggleSpam() async {
+        guard let id = selectedId, let ws = app.workspace, let call = shownCall else { return }
+        let s = app.strings
+        let spam = !call.isSpam
+        markingSpam = true
+        defer { markingSpam = false }
+        do {
+            try await app.api.markCallSpam(workspaceId: ws.id, callId: id, spam: spam)
+            if selectedId == id, var c = selectedCall {
+                var meta = c.metadata?.object ?? [:]
+                meta["spam"] = spam ? .object(["marked_by": .string(app.user?.id ?? "")]) : nil
+                c.metadata = .object(meta)
+                selectedCall = c
+            }
+            showNotice(s[spam ? "callMarkedSpam" : "removedFromSpam"], severity: .success)
+            app.callQueue?.kick()
+            detailPoller?.kick()
+            if showHistory { Task { await reloadHistory() } }
+        } catch {
+            Log.error("call spam", error)
+            showNotice(ErrorText.of(error, s))
         }
     }
 

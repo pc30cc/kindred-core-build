@@ -15,6 +15,7 @@ final class PresenceService {
     @ObservationIgnored private var heartbeat: Poller?
     @ObservationIgnored private var team: Poller?
     @ObservationIgnored private var interacted = true
+    @ObservationIgnored private var lastWhy = ""
 
     /// What visitors see, from the server's own rules.
     private(set) var availability: Availability?
@@ -69,7 +70,14 @@ final class PresenceService {
         for p in list where map[p.userId] == nil { map[p.userId] = p }
         teamStates = map
         let me = app.user.flatMap { map[$0.id] }
-        state = me?.effective ?? (availability?.status.isOnline == true ? PresenceState.active : PresenceState.offline)
+        let next = me?.effective ?? (availability?.status.isOnline == true ? PresenceState.active : PresenceState.offline)
+        let why = "reason=\(me?.reason ?? "-") visitors=\(availability?.status.state ?? "-")/\(availability?.status.reason ?? "-") connected=\(me?.connected.map(String.init) ?? "-") listed=\(me != nil)"
+        if next != state || why != lastWhy {
+            // Why this operator reads as they do, once per change: the server's rules decide it.
+            Log.write("[presence] me \(next) \(why)")
+            lastWhy = why
+        }
+        state = next
     }
 }
 

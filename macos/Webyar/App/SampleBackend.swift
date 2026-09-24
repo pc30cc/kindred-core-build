@@ -248,6 +248,8 @@ final class SampleBackend: URLProtocol {
                 bySession[String(format: "00000000-0000-4000-8000-%012d", i + 1)] = p
             }
             return (200, ["by_conversation": byConversation, "by_contact": byContact, "by_session": bySession])
+        case ("POST", "/api/conversations/spam"), ("POST", "/api/conversations/not-spam"):
+            return (200, ["ok": true, "conversation_ids": [body["conversation_id"] ?? ""], "contact_id": NSNull()])
         case ("POST", "/api/conversations/send-message"):
             let id = body["conversation_id"] as? String ?? ""
             lock.lock()
@@ -412,6 +414,8 @@ final class SampleBackend: URLProtocol {
                 if notesDown { return (503, ["error": "unavailable"]) }
                 lock.lock(); callNotes[id, default: []].append(["id": UUID().uuidString, "note": body["note"] as? String ?? "", "author_name": "Sara Karimi", "created_at": ago(0)]); lock.unlock()
                 return (200, ["ok": true])
+            case ("POST", "spam"), ("POST", "not-spam"):
+                return (200, ["ok": true, "call_id": id, "spam": parts[4] == "spam"])
             case ("POST", "transfer"):
                 return (200, ["ok": true, "assigned_agent_id": body["to_agent_id"] ?? NSNull(), "handoff": "manual"])
             default: break

@@ -435,7 +435,12 @@ private struct CallDeskHistoryRow: View {
                 Text(CallNames.caller(c, fallbackId: c.contactId ?? c.visitorSessionId ?? c.id, s))
                     .appFont(13, .semibold)
                     .lineLimit(1)
-                Text(CallDeskText.state(c.state, s)).appFont(12).foregroundStyle(colors.0).lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(CallDeskText.state(c.state, s)).appFont(12).foregroundStyle(colors.0).lineLimit(1)
+                    if c.isSpam {
+                        Label(s["callSpam"], systemImage: "xmark.bin").appFont(11, .semibold).foregroundStyle(Palette.danger).lineLimit(1)
+                    }
+                }
             }
             Spacer(minLength: 4)
             VStack(alignment: .trailing, spacing: 1) {

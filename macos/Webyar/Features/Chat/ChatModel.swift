@@ -378,6 +378,19 @@ final class ChatModel {
         run({ try await self.app.api.updateConversation(c.id, workspaceId: ws.id, status: next) }) { $0.status = next }
     }
 
+    /// Spam or not, as the web inbox's button: the thread moves between the queues.
+    func toggleSpam() {
+        guard let c = conversation, let ws = app.workspace else { return }
+        let spam = c.isSpam != true
+        let s = app.strings
+        run({
+            if spam { try await self.app.api.markSpam(c.id, workspaceId: ws.id) } else { try await self.app.api.unmarkSpam(c.id, workspaceId: ws.id) }
+        }) { [weak self] in
+            $0.isSpam = spam
+            self?.notice = Notice(severity: .success, message: s[spam ? "markedSpamTitle" : "removedFromSpam"])
+        }
+    }
+
     func assignToMe() {
         guard let c = conversation, let ws = app.workspace, let me = app.user else { return }
         if c.isAiManaged {

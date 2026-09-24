@@ -106,43 +106,60 @@ struct PageDetail: View {
 
 // MARK: - Sidebar
 
+/// The sidebar in two tiers, so where one is reads at a glance: the sections
+/// (inbox, colleagues, other inboxes, contacts, visitors, call center) each on a
+/// coloured tile in semibold, and the inbox's queues and the other inboxes'
+/// channels folded under their section, indented and lighter. A folded section
+/// shows its unread count on itself.
 struct SidebarView: View {
     @Environment(AppModel.self) private var app
+    @AppStorage("sidebarInboxOpen") private var inboxOpen = true
+    @AppStorage("sidebarOthersOpen") private var othersOpen = true
 
     var body: some View {
         @Bindable var app = app
         let s = app.strings
         let plan = app.plan
         List(selection: Binding(get: { app.route }, set: { if let r = $0 { app.route = r } })) {
-            Section(s["tabInbox"]) {
-                row(.inbox(.open), s["navInboxOpen"], "tray.full", badge: app.unread, color: Palette.brand)
-                if plan.aiQueue(automated: app.counts.automated) {
-                    row(.inbox(.ai), s["navInboxAi"], "sparkles", badge: app.counts.automated ?? 0, color: Palette.ai)
+            Section {
+                DisclosureGroup(isExpanded: $inboxOpen) {
+                    sub(.inbox(.open), s["navInboxOpen"], "bubble.left.and.bubble.right", badge: app.unread, color: Palette.brand)
+                    if plan.aiQueue(automated: app.counts.automated) {
+                        sub(.inbox(.ai), s["navInboxAi"], "sparkles", badge: app.counts.automated ?? 0, color: Palette.ai)
+                    }
+                    if plan.needsHumanQueue {
+                        sub(.inbox(.needsHuman), s["navInboxNeedsHuman"], "person.fill.questionmark", badge: app.counts.needsHuman ?? 0, color: Palette.danger)
+                    }
+                    sub(.inbox(.pending), s["navInboxPending"], "clock", badge: 0, color: Palette.brand)
+                    sub(.inbox(.resolved), s["navInboxResolved"], "checkmark.circle", badge: 0, color: Palette.brand)
+                    sub(.inbox(.spam), s["navInboxSpam"], "xmark.bin", badge: app.counts.spam ?? 0, color: Palette.text3)
+                    if plan.emailInbox { sub(.email, s["emailInbox"], "envelope", badge: 0, color: Palette.brand) }
+                } label: {
+                    heading(s["tabInbox"], "tray.full.fill", tint: Palette.brand, badge: inboxOpen ? 0 : app.unread, open: $inboxOpen)
                 }
-                if plan.needsHumanQueue {
-                    row(.inbox(.needsHuman), s["navInboxNeedsHuman"], "person.fill.questionmark", badge: app.counts.needsHuman ?? 0, color: Palette.danger)
+                if plan.teamChat {
+                    section(.colleagues, s["navColleagues"], "person.2.fill", tint: Color(hex: 0x0EA5A4), badge: 0, color: Palette.brand)
                 }
-                row(.inbox(.pending), s["navInboxPending"], "clock", badge: 0, color: Palette.brand)
-                row(.inbox(.resolved), s["navInboxResolved"], "checkmark.circle", badge: 0, color: Palette.brand)
-                row(.inbox(.spam), s["navInboxSpam"], "xmark.bin", badge: app.counts.spam ?? 0, color: Palette.text3)
-                if plan.emailInbox { row(.email, s["emailInbox"], "envelope", badge: 0, color: Palette.brand) }
-            }
-            if plan.teamChat {
-                Section(s["navInternalInbox"]) {
-                    row(.colleagues, s["navColleagues"], "person.2", badge: 0, color: Palette.brand)
-                }
-            }
-            if plan.isAdmin && !app.channels.isEmpty {
-                Section(s["navOtherInboxes"]) {
-                    ForEach(app.channels, id: \.self) { key in
-                        row(.channel(key), Display.channelLabel(key, s), channelIcon(key), badge: 0, color: Palette.brand)
+                if plan.isAdmin && !app.channels.isEmpty {
+                    DisclosureGroup(isExpanded: $othersOpen) {
+                        ForEach(app.channels, id: \.self) { key in
+                            sub(.channel(key), Display.channelLabel(key, s), channelIcon(key), badge: 0, color: Palette.brand)
+                        }
+                    } label: {
+                        heading(s["navOtherInboxes"], "square.stack.3d.up.fill", tint: Color(hex: 0x6E56CF), badge: 0, open: $othersOpen)
                     }
                 }
             }
             Section {
-                if plan.contacts { row(.contacts, s["tabContacts"], "person.crop.rectangle.stack", badge: 0, color: Palette.brand) }
-                if plan.visitors { row(.visitors, s["navVisitors"], "globe", badge: app.visitorsOnline, color: Palette.success) }
-                if plan.callCenter { row(.calls, s["navCallCenter"], "phone", badge: app.callQueue?.queue.count ?? 0, color: Palette.danger) }
+                if plan.contacts {
+                    section(.contacts, s["tabContacts"], "person.crop.rectangle.stack.fill", tint: Color(hex: 0xF76B15), badge: 0, color: Palette.brand)
+                }
+                if plan.visitors {
+                    section(.visitors, s["navVisitors"], "globe", tint: Color(hex: 0x30A46C), badge: app.visitorsOnline, color: Palette.success)
+                }
+                if plan.callCenter {
+                    section(.calls, s["navCallCenter"], "phone.fill", tint: Color(hex: 0xE5484D), badge: app.callQueue?.queue.count ?? 0, color: Palette.danger)
+                }
             }
         }
         .listStyle(.sidebar)
@@ -158,12 +175,31 @@ struct SidebarView: View {
         }
     }
 
-    private func row(_ route: Route, _ title: String, _ icon: String, badge: Int, color: Color) -> some View {
-        HStack(spacing: 0) {
-            Label { Text(title).appFont(13) } icon: { Image(systemName: icon) }
+    /// A section of the app: its own page.
+    private func section(_ route: Route, _ title: String, _ icon: String, tint: Color, badge: Int, color: Color) -> some View {
+        SidebarSection(title: title, icon: icon, tint: tint, badge: badge, color: color)
+            .tag(route)
+    }
+
+    /// A section that folds its pages under it; the whole row opens and closes it.
+    private func heading(_ title: String, _ icon: String, tint: Color, badge: Int, open: Binding<Bool>) -> some View {
+        SidebarSection(title: title, icon: icon, tint: tint, badge: badge, color: Palette.brand)
+            .contentShape(Rectangle())
+            .onTapGesture { withAnimation(.smooth(duration: 0.2)) { open.wrappedValue.toggle() } }
+    }
+
+    /// A page inside a section: a queue of the inbox, or a channel.
+    private func sub(_ route: Route, _ title: String, _ icon: String, badge: Int, color: Color) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: icon)
+                .font(.system(size: 11.5, weight: .medium))
+                .frame(width: 18)
+                .foregroundStyle(.secondary)
+            Text(title).appFont(12.5).lineLimit(1)
             Spacer(minLength: 6)
             CountBadge(count: badge, color: color)
         }
+        .padding(.vertical, 1)
         .tag(route)
     }
 
@@ -176,6 +212,33 @@ struct SidebarView: View {
         case "phone": return "phone"
         default: return "bubble.left"
         }
+    }
+}
+
+/// A section's row: its icon on a coloured tile, its name in semibold.
+private struct SidebarSection: View {
+    let title: String
+    let icon: String
+    let tint: Color
+    let badge: Int
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 24, height: 24)
+                .background(
+                    LinearGradient(colors: [tint.opacity(0.92), tint], startPoint: .top, endPoint: .bottom),
+                    in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+                )
+                .shadow(color: tint.opacity(0.28), radius: 2, y: 1)
+            Text(title).appFont(13.5, .semibold).lineLimit(1)
+            Spacer(minLength: 6)
+            CountBadge(count: badge, color: color)
+        }
+        .padding(.vertical, 3)
     }
 }
 
@@ -231,40 +294,18 @@ struct WorkspaceHeader: View {
     }
 }
 
-/// The account: photo, name, and presence as teammates see it; a menu with
-/// the invisible switch, the workspaces and sign out.
+/// The account: photo, name, and presence as teammates see it. It opens a card
+/// drawn here rather than a system menu, so it reads right to left in Persian
+/// like the rest of the window: status, workspaces, settings, sign out.
 struct AccountCorner: View {
     @Environment(AppModel.self) private var app
+    @State private var open = false
     @State private var confirmSignOut = false
     @State private var statusError: String?
 
     var body: some View {
         let s = app.strings
-        Menu {
-            if let email = app.user?.email { Text(email) }
-            if let presence = app.presence {
-                Divider()
-                Section(s["statusHeader"]) {
-                    Toggle(isOn: Binding(get: { !presence.isInvisible }, set: { if $0 { setInvisible(false) } })) {
-                        Label(s["statusOnlineForVisitors"], systemImage: "checkmark.circle")
-                    }
-                    Toggle(isOn: Binding(get: { presence.isInvisible }, set: { if $0 { setInvisible(true) } })) {
-                        Label(s["statusInvisible"], systemImage: "eye.slash")
-                    }
-                    .help(s["statusInvisibleHint"])
-                }
-            }
-            if app.workspaces.count > 1 {
-                Menu(s["workspace"]) {
-                    ForEach(app.workspaces) { w in
-                        Toggle(w.name, isOn: Binding(get: { w.id == app.workspace?.id }, set: { _ in Task { await app.switchWorkspace(w) } }))
-                    }
-                }
-            }
-            Divider()
-            SettingsLink { Label(s["tabSettings"] + "…", systemImage: "gearshape") }
-            Button(role: .destructive) { confirmSignOut = true } label: { Label(s["signOut"], systemImage: "rectangle.portrait.and.arrow.right") }
-        } label: {
+        Button { open.toggle() } label: {
             HStack(spacing: 10) {
                 AvatarView(name: app.myName, imageURL: app.account?.avatarUrl, size: 30, kind: .operator, presence: app.myState, faceless: true)
                 VStack(alignment: .leading, spacing: 1) {
@@ -272,16 +313,22 @@ struct AccountCorner: View {
                     Text(statusLine).appFont(11).foregroundStyle(Palette.text2).lineLimit(1)
                 }
                 Spacer(minLength: 0)
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Palette.text3)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .contentShape(Rectangle())
         }
-        .menuStyle(.button)
         .buttonStyle(.plain)
-        .menuIndicator(.hidden)
         .glassCard(12, interactive: true)
         .help(app.workspace.map { "\(app.myName) — \($0.name)" } ?? app.myName)
+        .popover(isPresented: $open, arrowEdge: .top) {
+            AccountMenu(close: { open = false },
+                        signOut: { open = false; confirmSignOut = true },
+                        setInvisible: setInvisible)
+                // A popover is a window of its own: set the reading direction again.
+                .environment(\.layoutDirection, s.isRightToLeft ? .rightToLeft : .leftToRight)
+        }
         .confirmationDialog(s["signOut"], isPresented: $confirmSignOut) {
             Button(s["signOut"], role: .destructive) { Task { await app.signOut() } }
             Button(s["cancel"], role: .cancel) {}
@@ -302,6 +349,145 @@ struct AccountCorner: View {
 
     private func setInvisible(_ on: Bool) {
         Task { statusError = await app.setInvisible(on) }
+    }
+}
+
+/// The account card: who, how visitors see them, the workspaces, settings and sign out.
+private struct AccountMenu: View {
+    let close: () -> Void
+    let signOut: () -> Void
+    let setInvisible: (Bool) -> Void
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let s = app.strings
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                AvatarView(name: app.myName, imageURL: app.account?.avatarUrl, size: 40, kind: .operator, presence: app.myState, faceless: true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(app.myName).appFont(14, .bold).lineLimit(1)
+                    if let email = app.user?.email {
+                        Text(verbatim: email).appFont(11.5).foregroundStyle(Palette.text2).lineLimit(1)
+                    }
+                    Text(app.presenceLabel(app.myState)).appFont(11).foregroundStyle(presenceColor).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(14)
+            Divider()
+            if let presence = app.presence {
+                heading(s["statusHeader"])
+                AccountMenuRow(title: s["statusOnlineForVisitors"], icon: "circle.fill", tint: Palette.success, checked: !presence.isInvisible) {
+                    setInvisible(false)
+                }
+                AccountMenuRow(title: s["statusInvisible"], icon: "eye.slash", tint: Palette.text2, checked: presence.isInvisible) {
+                    setInvisible(true)
+                }
+                .help(s["statusInvisibleHint"])
+                Divider().padding(.vertical, 4)
+            }
+            if app.workspaces.count > 1 {
+                heading(s["workspace"])
+                ForEach(app.workspaces) { w in
+                    AccountMenuRow(title: w.name.isEmpty ? (w.slug ?? w.id) : w.name, icon: "building.2", tint: Palette.text2,
+                                   checked: w.id == app.workspace?.id) {
+                        close()
+                        Task { await app.switchWorkspace(w) }
+                    }
+                }
+                Divider().padding(.vertical, 4)
+            }
+            SettingsLink {
+                AccountMenuRowLabel(title: s["tabSettings"], icon: "gearshape", tint: Palette.text2, checked: false)
+            }
+            .buttonStyle(AccountMenuRowStyle())
+            .simultaneousGesture(TapGesture().onEnded { close() })
+            AccountMenuRow(title: s["signOut"], icon: "rectangle.portrait.and.arrow.right", tint: Palette.danger, checked: false,
+                           textTint: Palette.danger, action: signOut)
+                .padding(.bottom, 6)
+        }
+        .frame(width: 270)
+    }
+
+    private var presenceColor: Color {
+        switch app.myState {
+        case PresenceState.active: return Palette.success
+        case PresenceState.away: return Palette.warning
+        default: return Palette.text3
+        }
+    }
+
+    private func heading(_ text: String) -> some View {
+        Text(text)
+            .appFont(11, .semibold)
+            .foregroundStyle(Palette.text3)
+            .padding(.horizontal, 14)
+            .padding(.top, 8)
+            .padding(.bottom, 2)
+    }
+}
+
+private struct AccountMenuRow: View {
+    let title: String
+    let icon: String
+    let tint: Color
+    let checked: Bool
+    var textTint: Color? = nil
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            AccountMenuRowLabel(title: title, icon: icon, tint: tint, checked: checked, textTint: textTint)
+        }
+        .buttonStyle(AccountMenuRowStyle())
+    }
+}
+
+private struct AccountMenuRowLabel: View {
+    let title: String
+    let icon: String
+    let tint: Color
+    let checked: Bool
+    var textTint: Color? = nil
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: icon == "circle.fill" ? 8 : 13, weight: .medium))
+                .foregroundStyle(tint)
+                .frame(width: 20)
+            Text(title).appFont(13).foregroundStyle(textTint ?? Palette.text).lineLimit(1)
+            Spacer(minLength: 8)
+            if checked {
+                Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Palette.brand)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .contentShape(Rectangle())
+    }
+}
+
+/// A row that lights up under the pointer, as a menu item does.
+private struct AccountMenuRowStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Lit(label: configuration.label, pressed: configuration.isPressed)
+    }
+
+    private struct Lit<Label: View>: View {
+        let label: Label
+        let pressed: Bool
+        @State private var hovering = false
+
+        var body: some View {
+            label
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(pressed ? Palette.selected : hovering ? Palette.hover : Color.clear)
+                )
+                .padding(.horizontal, 6)
+                .onHover { hovering = $0 }
+        }
     }
 }
 

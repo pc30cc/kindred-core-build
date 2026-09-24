@@ -92,6 +92,8 @@ struct Conversation: Codable, Hashable, Sendable, Identifiable {
     @Lenient var unreadCount: Int? = nil
     var aiState: String?
     var metadata: JSONValue?
+    /// Marked as spam: in the Spam queue, and the AI does not answer it.
+    var isSpam: Bool?
 
     // Filled in from the visitor's network profile (not part of the response).
     var visitorOs: String?
@@ -642,6 +644,13 @@ struct CallSession: Codable, Hashable, Sendable, Identifiable {
     var metadata: JSONValue?
 
     var isVideo: Bool { callType == "video" }
+
+    /// Marked as spam on the desk (`metadata.spam`).
+    var isSpam: Bool {
+        guard let v = metadata?["spam"] else { return false }
+        if case .null = v { return false }
+        return true
+    }
 }
 
 struct QueueEntry: Codable, Hashable, Sendable, Identifiable {

@@ -235,7 +235,7 @@ final class SampleBackend: URLProtocol {
                 var x: [String: Any] = ["id": "vs-\(i + 1)", "status": i % 3 == 2 ? "idle" : "online", "current_page": "https://webyar.ai/\(["pricing", "checkout", "blog/ai-support", "", "docs/install", "contact"][i])",
                                         "last_activity_at": ago(Double(i)), "started_at": ago(Double(i * 7 + 3)), "browser": "Chrome", "os": v.os, "device": i == 2 ? "Mobile" : "Desktop",
                                         "geo": ["country": v.country, "country_code": v.cc, "city": v.city, "region": v.region, "latitude": v.lat, "longitude": v.lng],
-                                        "contact": ["id": v.id, "name": v.name ?? NSNull(), "visitor_code": v.code]]
+                                        "contact": ["id": v.id, "name": v.name.map { $0 as Any } ?? NSNull(), "visitor_code": v.code]]
                 if i < 3 { x["conversation"] = ["id": "conv-\(i + 1)", "status": "open"] }
                 return x
             }])
@@ -272,7 +272,7 @@ final class SampleBackend: URLProtocol {
                 return (200, ["conversations": [["id": "conv-1", "status": "open", "last_message_body": "ممنون، خیلی لطف کردید!", "operator_name": "Sara Karimi", "message_count": 9, "created_at": ago(3000), "updated_at": ago(2)]]])
             }
             if let v = visitors.first(where: { $0.id == id }) {
-                return (200, ["contact": ["id": v.id, "name": v.name ?? NSNull(), "email": v.email ?? NSNull(), "visitor_code": v.code, "created_at": ago(9000), "updated_at": ago(60)]])
+                return (200, ["contact": ["id": v.id, "name": v.name.map { $0 as Any } ?? NSNull(), "email": v.email.map { $0 as Any } ?? NSNull(), "visitor_code": v.code, "created_at": ago(9000), "updated_at": ago(60)]])
             }
         }
         if parts.count >= 4, parts[1] == "visitor-intel", parts.last == "page-history" {

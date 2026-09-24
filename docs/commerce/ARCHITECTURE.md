@@ -31,6 +31,7 @@ Commerce Gateway (server/services/commerce/gateway.ts)
 CommerceConnector contract (shared/commerce/types.ts)
    │
    ├── WooCommerce connector (server/services/commerce/connectors/woocommerce.ts)
+   ├── WHMCS connector (server/services/commerce/connectors/whmcs.ts) — billing, live-only, see WHMCS.md
    ├── Shopify        [future — same contract, new adapter]
    ├── PrestaShop      [future]
    ├── OpenCart        [future]
@@ -112,11 +113,33 @@ not model-issued HTTP requests. See `docs/commerce/CONNECTOR_PROTOCOL.md`
 future native-tool-calling provider would still be constrained by the same
 gates.
 
+## Provider families and connection selection
+
+A workspace may have one shop and one billing system connected at the same
+time. Each provider is described once in
+`server/services/commerce/connectors/registry.ts`:
+
+| Field | WooCommerce | WHMCS |
+|---|---|---|
+| `family` | `store` | `billing` |
+| `usesCatalogIndex` | true — sync worker, `commerce_products`, `catalog_ready` gate | false — queried live, nothing indexed, never swept by the worker |
+| `pluginId` | `woocommerce` | `whmcs` |
+| handshake | `/wp-json/webyar/v1/health` | `health` op on `api.php` |
+
+Which connection a turn is about is decided by
+`server/services/commerce/connectionSelection.ts`, one rule for every
+caller (AI stage, identity binding, link verification): a bound identity →
+the page the visitor is on (origin + base path) → the only connection of
+the requested family → otherwise none. There is no "newest connection"
+fallback; ambiguity selects nothing. The workspace's connections are read
+once per turn and shared by every stage.
+
 ## Extending to a second connector (e.g. Shopify)
 
 1. Implement `CommerceConnector` (`shared/commerce/types.ts`) for Shopify.
 2. Declare its capability set in `server/services/commerce/capabilities.ts`.
-3. Register it in `server/services/commerce/connectors/registry.ts`.
+3. Register a descriptor (family, `usesCatalogIndex`, plugin id, handshake)
+   in `server/services/commerce/connectors/registry.ts`.
 4. Add its own auth strategy (Shopify uses real OAuth2 — reuse the shape in
    `server/services/seo/gsc/oauthConfig.ts`, not WooCommerce's pairing flow).
 5. Normalize Shopify's product/order shapes into `CommerceProduct` /

@@ -26,6 +26,9 @@ struct PinnedMessageList<Rows: View>: View {
     /// Waiting to land on the newest message of a thread just opened.
     @State private var landing = true
     @State private var landingTask: Task<Void, Never>?
+    /// When the end of the list last went out of view: a list that shrinks (a call sliding
+    /// down above it) pushes it out without the operator having scrolled anywhere.
+    @State private var leftBottomAt: Date?
 
     private static var bottomId: String { "pinned-list-bottom" }
 
@@ -42,7 +45,10 @@ struct PinnedMessageList<Rows: View>: View {
                             atBottom = true
                             unseen = 0
                         }
-                        .onDisappear { atBottom = false }
+                        .onDisappear {
+                            atBottom = false
+                            leftBottomAt = Date()
+                        }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
@@ -62,6 +68,18 @@ struct PinnedMessageList<Rows: View>: View {
                 }
             }
             .animation(.smooth(duration: 0.2), value: atBottom)
+            // The space for the list changed (a call panel sliding in or out above it): one that
+            // was at the bottom stays there, rather than being left part-way up.
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { old, new in
+                guard old != new, !landing, !isEmpty else { return }
+                let justLeft = leftBottomAt.map { Date().timeIntervalSince($0) < 0.8 } ?? false
+                guard atBottom || justLeft else { return }
+                Task { @MainActor in
+                    scrollToBottom(proxy, animated: false)
+                    try? await Task.sleep(nanoseconds: 380_000_000)
+                    scrollToBottom(proxy, animated: false)
+                }
+            }
             .onChange(of: threadId, initial: true) { _, _ in
                 unseen = 0
                 landing = true

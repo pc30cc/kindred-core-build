@@ -28,6 +28,8 @@ final class CallCoordinator {
     private(set) var presentation: Presentation = .docked
     /// The window floats above other apps' windows.
     private(set) var isFloating = false
+    /// The call's window is full screen.
+    private(set) var isFullScreen = false
     /// How many in-page call panels are on screen: none means the operator is on
     /// another page, and the call bar takes over.
     private(set) var dockedPanels = 0
@@ -138,6 +140,7 @@ final class CallCoordinator {
         guard presentation == .window else { return }
         presentation = .docked
         narrowWidth = nil
+        isFullScreen = false
         let w = window
         window = nil
         windowDelegate = nil
@@ -218,6 +221,7 @@ final class CallCoordinator {
         w.center()
 
         let d = CallWindowDelegate()
+        d.fullScreenChanged = { [weak self] on in self?.isFullScreen = on }
         d.shouldClose = { [weak self, weak c] in
             // Closing the window puts the call back into its page; an ended call just closes.
             guard let self, let c, !c.isEnded else { return true }
@@ -238,6 +242,7 @@ final class CallCoordinator {
     private func finished() {
         guard let c = call else { return }
         c.onFinished = nil
+        isFullScreen = false
         let deskId = c.desk?.callId
         call = nil
         presentation = .docked
@@ -261,8 +266,12 @@ final class CallCoordinator {
 @MainActor
 private final class CallWindowDelegate: NSObject, NSWindowDelegate {
     var shouldClose: (() -> Bool)?
+    var fullScreenChanged: ((Bool) -> Void)?
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         shouldClose?() ?? true
     }
+
+    func windowDidEnterFullScreen(_ notification: Notification) { fullScreenChanged?(true) }
+    func windowDidExitFullScreen(_ notification: Notification) { fullScreenChanged?(false) }
 }

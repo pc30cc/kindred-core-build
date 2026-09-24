@@ -29,7 +29,8 @@
     "callFullScreen": "Full screen",
     "callPopOut": "Open in its own window",
     "callDockBack": "Back into the page",
-    "callBackToCall": "Back to the call"
+    "callBackToCall": "Back to the call",
+    "callExitFullScreen": "Exit full screen"
   },
   "fa": {
     "callKeepOnTop": "پنجرهٔ تماس همیشه روی پنجره‌های دیگر بماند",
@@ -61,7 +62,8 @@
     "callFullScreen": "تمام صفحه",
     "callPopOut": "باز کردن در پنجرهٔ جدا",
     "callDockBack": "برگرداندن به داخل صفحه",
-    "callBackToCall": "بازگشت به تماس"
+    "callBackToCall": "بازگشت به تماس",
+    "callExitFullScreen": "خروج از تمام صفحه"
   },
   "tr": {
     "callKeepOnTop": "Arama penceresini üstte tut",
@@ -93,6 +95,7 @@
     "callFullScreen": "Tam ekran",
     "callPopOut": "Ayrı pencerede aç",
     "callDockBack": "Sayfaya geri al",
-    "callBackToCall": "Aramaya dön"
+    "callBackToCall": "Aramaya dön",
+    "callExitFullScreen": "Tam ekrandan çık"
   }
 }

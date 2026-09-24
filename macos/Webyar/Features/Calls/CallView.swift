@@ -178,7 +178,8 @@ struct CallView: View {
         let co = CallCoordinator.shared
         return HStack(spacing: 8) {
             if call.isVideo {
-                windowButton(icon: "arrow.up.left.and.arrow.down.right", help: s["callFullScreen"]) { co.toggleFullScreen() }
+                windowButton(icon: co.isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                             help: s[co.isFullScreen ? "callExitFullScreen" : "callFullScreen"]) { co.toggleFullScreen() }
             }
             windowButton(icon: "pip.enter", help: s["callDockBack"]) { co.dockBack() }
             windowButton(icon: co.isFloating ? "pin.fill" : "pin", help: s["callKeepOnTop"], on: co.isFloating) {

@@ -1,5 +1,7 @@
-import { MessageSquare, Phone, Sparkles, BarChart3, Zap, Bot, CheckCheck } from 'lucide-react';
-import { WebyarMark } from '@/components/brand/WebyarMark';
+import { MessageSquare, Phone, Sparkles, BarChart3, Zap, Bot, MicOff, Camera, Video, PhoneOff } from 'lucide-react';
+import { LoopVideo } from '@/components/site/LoopVideo';
+import callerWoman from '@/assets/caller-woman.jpg';
+import operatorMan from '@/assets/operator-man.jpg';
 
 interface Props {
   title: string;
@@ -16,11 +18,6 @@ const CHIPS = [
   { icon: Sparkles, label: 'Smart Inbox' },
 ];
 
-const ROWS = [
-  { w1: 'w-24', w2: 'w-40', active: true, unread: 2, tone: 'bg-brand-teal/25' },
-  { w1: 'w-20', w2: 'w-32', active: false, unread: 0, tone: 'bg-brand-sky/25' },
-  { w1: 'w-28', w2: 'w-36', active: false, unread: 0, tone: 'bg-brand-violet/25' },
-];
 
 /** Light aurora showcase panel for auth screens — same language as the WebYar landing hero. */
 export function AuthHeroPanel({ title, subtitle, className }: Props) {
@@ -47,50 +44,49 @@ export function AuthHeroPanel({ title, subtitle, className }: Props) {
         </h2>
         <p className="mt-4 max-w-md text-base leading-relaxed text-muted-foreground">{subtitle}</p>
 
-        {/* Product preview: glass inbox mock */}
-        <div className="glass mt-10 w-full max-w-md overflow-hidden rounded-3xl text-start shadow-glow">
-          <div className="flex items-center gap-3 border-b border-border/60 px-4 py-3">
-            <div className="bg-brand flex h-8 w-8 items-center justify-center rounded-xl text-primary-foreground shadow-sm">
-              <WebyarMark className="h-4 w-4" />
-            </div>
-            <div className="h-2 w-20 rounded-full bg-foreground/20" />
-            <span className="ms-auto inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <span className="h-1.5 w-1.5 rounded-full bg-success" /> online
-            </span>
-          </div>
-
-          <div className="divide-y divide-border/50">
-            {ROWS.map((r, i) => (
-              <div key={i} className={`flex items-center gap-3 px-4 py-3 ${r.active ? 'bg-primary/[0.07]' : ''}`}>
-                <div className={`h-9 w-9 shrink-0 rounded-full ${r.tone}`} />
-                <div className="min-w-0 flex-1 space-y-2">
-                  <div className={`h-2 ${r.w1} rounded-full bg-foreground/25`} />
-                  <div className={`h-1.5 ${r.w2} rounded-full bg-muted-foreground/20`} />
-                </div>
-                {r.unread ? (
-                  <span className="bg-brand flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-semibold text-primary-foreground">
-                    {r.unread}
-                  </span>
-                ) : (
-                  <CheckCheck className="h-3.5 w-3.5 text-primary/70" />
-                )}
+        {/* Product preview: phone video call + native apps */}
+        <div className="relative mt-10 flex items-center justify-center">
+          <div className="relative aspect-[9/19.5] w-[230px] rounded-[44px] border border-border bg-background p-[9px] shadow-glow ring-1 ring-foreground/10">
+            <div className="relative h-full w-full overflow-hidden rounded-[36px] bg-secondary">
+              <div className="absolute top-2 left-1/2 z-20 h-[20px] w-[72px] -translate-x-1/2 rounded-full bg-background" />
+              <LoopVideo
+                src="/auth-media/caller-woman.mp4"
+                poster={callerWoman}
+                title="Video call"
+                className="absolute inset-0 h-full w-full object-cover object-top"
+              />
+              <div className="absolute inset-0 bg-gradient-to-b from-background/40 via-transparent to-background/70" />
+              <div className="relative flex flex-col items-center pt-9 text-center">
+                <div className="h-2 w-20 rounded-full bg-foreground/40" />
+                <div dir="ltr" className="mt-1.5 text-[10px] text-foreground/80">02:14</div>
               </div>
-            ))}
+              <div className="absolute bottom-20 end-3 h-20 w-14 overflow-hidden rounded-xl border-2 border-foreground/30 shadow-lg">
+                <LoopVideo src="/auth-media/operator-man.mp4" poster={operatorMan} title="Operator" className="h-full w-full object-cover" />
+              </div>
+              <div className="absolute inset-x-0 bottom-6 flex justify-center gap-2.5">
+                {[MicOff, Camera, Video].map((I, i) => (
+                  <span key={i} className="glass flex h-10 w-10 items-center justify-center rounded-full">
+                    <I className="h-4 w-4 text-foreground" />
+                  </span>
+                ))}
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive">
+                  <PhoneOff className="h-4 w-4 text-destructive-foreground" />
+                </span>
+              </div>
+            </div>
           </div>
 
-          <div className="grid grid-cols-3 border-t border-border/60">
-            {[
-              { v: '98%', l: 'CSAT' },
-              { v: '<1m', l: 'Reply' },
-              { v: '24/7', l: 'AI' },
-            ].map((s) => (
-              <div key={s.l} dir="ltr" className="border-e border-border/50 px-4 py-3 text-center last:border-e-0">
-                <div className="text-brand text-sm font-bold">{s.v}</div>
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.l}</div>
+          {/* Native app badges */}
+          <div className="absolute -start-20 top-12 flex flex-col gap-3">
+            {['ios', 'android', 'windows'].map((p, i) => (
+              <div key={p} className="glass flex items-center gap-2 rounded-2xl px-3 py-2 shadow-sm" style={{ transform: `translateX(${i % 2 ? -12 : 0}px)` }}>
+                <img src={`/auth-media/${p}.png`} alt="" className="h-7 w-7 rounded-lg" loading="lazy" />
+                <span dir="ltr" className="text-xs font-semibold text-foreground">{p === 'ios' ? 'iOS' : p === 'android' ? 'Android' : 'Windows'}</span>
               </div>
             ))}
           </div>
         </div>
+
 
         <div dir="ltr" className="relative mt-10 w-full max-w-lg overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_15%,black_85%,transparent)]">
           <div className="animate-marquee flex w-max gap-2" style={{ animationDirection: 'reverse' }}>

@@ -20,7 +20,7 @@ jobs:
   # immediately visible and can be made a required status check.
   widget-guard:
     name: widget-guard
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 15
 
     steps:
@@ -43,7 +43,7 @@ jobs:
   # the repository is genuinely red.
   typecheck-test-build:
     name: typecheck-test-build
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 30
 
     steps:

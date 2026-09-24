@@ -154,7 +154,7 @@ final class SampleBackend: URLProtocol {
         let f = ISO8601DateFormatter()
         let until = Date().addingTimeInterval(90 * 60)
         return [
-            "update": ["appcastUrl": "https://raw.githubusercontent.com/pc30cc/webyar-desktop-releases/main/macos/appcast.xml",
+            "update": ["appcastUrl": "https://raw.githubusercontent.com/pc30cc/mac-os/main/appcast.xml",
                        "channel": "stable", "latestVersion": NSNull(), "minimumSupportedVersion": NSNull(), "blockedVersions": [String](),
                        "downloadUrl": NSNull(), "releaseNotes": NSNull(), "autoCheck": true, "autoDownload": true, "checkIntervalMinutes": 240],
             "realtime": ["enabled": false],

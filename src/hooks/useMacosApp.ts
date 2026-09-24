@@ -81,7 +81,7 @@ export interface MacosAppPayload {
 
 /** Where Sparkle looks when the appcast is cleared; the server restores it on save. */
 export const MACOS_DEFAULT_APPCAST_URL =
-  'https://raw.githubusercontent.com/pc30cc/webyar-desktop-releases/main/macos/appcast.xml';
+  'https://raw.githubusercontent.com/pc30cc/mac-os/main/appcast.xml';
 
 /** Same bounds as MACOS_APP_BOUNDS on the server (and the CHECK constraints of migration 211). */
 export const MACOS_BOUNDS = {

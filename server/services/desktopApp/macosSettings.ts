@@ -79,7 +79,7 @@ export interface MacosAppSettings {
 }
 
 export const MACOS_APP_DEFAULT_APPCAST_URL =
-  'https://raw.githubusercontent.com/pc30cc/webyar-desktop-releases/main/macos/appcast.xml';
+  'https://raw.githubusercontent.com/pc30cc/mac-os/main/appcast.xml';
 
 export const MACOS_APP_DEFAULTS: MacosAppSettings = {
   appcast_url: MACOS_APP_DEFAULT_APPCAST_URL,

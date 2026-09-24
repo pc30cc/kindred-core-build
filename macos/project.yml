@@ -24,8 +24,8 @@ settings:
     DEVELOPMENT_TEAM: ""
     # Sparkle's EdDSA public key (generate_keys prints it). Empty turns
     # self-update off, as for any build from source.
-    SPARKLE_PUBLIC_KEY: ""
-    SPARKLE_FEED_URL: "https://raw.githubusercontent.com/pc30cc/webyar-desktop-releases/main/macos/appcast.xml"
+    SPARKLE_PUBLIC_KEY: "9PfemqCNjPl8N7vYtWgNn1cB/NCf4XMfNiaEdW7JxIA="
+    SPARKLE_FEED_URL: "https://raw.githubusercontent.com/pc30cc/mac-os/main/appcast.xml"
 
 packages:
   # A call needs a real WebRTC stack, and the platform's calls already run on

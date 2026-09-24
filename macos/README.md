@@ -96,9 +96,25 @@ one-line commands from `<folder>/command.txt` (`route contacts`, `open c-1`,
 `xcodebuild test` runs the Windows app's Core tests, ported with the same
 expected values.
 
-Local builds are signed ad hoc and run on the Mac that built them. Releases
-are built by `.github/workflows/macos.yml`: tag `mac-v<version>` (matching
-`MARKETING_VERSION` in `project.yml`) and it signs with Developer ID,
-notarizes, and publishes the DMG and the Sparkle appcast to
-`pc30cc/webyar-desktop-releases` — see the workflow for the secrets it needs.
-A build without `SPARKLE_PUBLIC_KEY` has self-update turned off.
+## Updates
+
+Installed apps update through Sparkle from `pc30cc/mac-os`, a public
+repository: `appcast.xml` at its root (the default appcast; Super Admin →
+macOS app can point the apps elsewhere) and `releases/<version>/` with the
+zip Sparkle downloads and the DMG people download. Every update is signed
+with an EdDSA key; its public half is `SPARKLE_PUBLIC_KEY` in `project.yml`,
+so the apps refuse anything signed with another key.
+
+Two ways to publish, both through `scripts/publish-feed.sh`:
+
+- **From a Mac** — `scripts/release-local.sh <version> <build> [stable|beta] ["notes"]`
+  builds, packages, signs with the private key `generate_keys` keeps in that
+  Mac's Keychain, and pushes. Signed ad hoc: the first manual install needs
+  right-click → Open once; updates after that need nothing. The build number
+  must grow with every release. Back up the private key once with
+  `generate_keys -x <file>` and keep it somewhere safe: without it, no
+  update can ever reach the installed apps again.
+- **From CI** — tag `mac-v<version>` (matching `MARKETING_VERSION` in
+  `project.yml`); `.github/workflows/macos.yml` signs with Developer ID,
+  notarizes and publishes. It needs the secrets listed at its top,
+  including that same private key as `SPARKLE_PRIVATE_KEY`.

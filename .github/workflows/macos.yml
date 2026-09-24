@@ -4,14 +4,16 @@ name: macOS app
 # its UI cannot compile anywhere else. Every push that touches it (or the
 # Windows app's strings and font, which it bundles) builds, tests and
 # uploads the app. A tag named mac-v<version> also signs it with Developer ID,
-# notarizes it, and publishes the DMG and the Sparkle appcast to the public
-# releases repo the installed apps update from.
+# notarizes it, and publishes it to pc30cc/mac-os, the public repository the
+# installed apps update from (appcast.xml plus releases/<version>/), through
+# macos/scripts/publish-feed.sh — the same step a release from a Mac uses
+# (macos/scripts/release-local.sh).
 #
 #   1. Bump MARKETING_VERSION (and CURRENT_PROJECT_VERSION) in macos/project.yml.
 #   2. Push a tag mac-v<that version>, e.g. mac-v1.0.0.
 #
 # Publishing needs these secrets:
-#   DESKTOP_RELEASES_TOKEN        "Contents: Read and write" on pc30cc/webyar-desktop-releases
+#   MAC_RELEASES_TOKEN            "Contents: Read and write" on pc30cc/mac-os
 #   MAC_CERTIFICATE_P12           base64 of a "Developer ID Application" certificate (.p12)
 #   MAC_CERTIFICATE_PASSWORD      its password
 #   MAC_NOTARY_APPLE_ID / MAC_NOTARY_PASSWORD / MAC_NOTARY_TEAM_ID
@@ -119,7 +121,7 @@ jobs:
           xcrun notarytool submit out/Webyar.dmg --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --wait
           xcrun stapler staple out/Webyar.dmg
 
-      - name: Appcast
+      - name: Sign the update
         if: github.ref_type == 'tag'
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
@@ -127,24 +129,9 @@ jobs:
         run: |
           sparkle=$(find build ~/Library/Developer/Xcode/DerivedData -path '*artifacts/sparkle/Sparkle/bin' -type d 2>/dev/null | head -1)
           if [ -z "$sparkle" ]; then echo "::error::Sparkle tools not found"; exit 1; fi
-          sig=$(echo "$SPARKLE_PRIVATE_KEY" | "$sparkle/sign_update" --ed-key-file - out/Webyar.dmg)
-          url="https://github.com/pc30cc/webyar-desktop-releases/releases/download/${GITHUB_REF_NAME}/Webyar.dmg"
-          cat > out/appcast.xml <<EOF
-          <?xml version="1.0" encoding="utf-8"?>
-          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
-            <channel>
-              <title>Webyar for Mac</title>
-              <item>
-                <title>Webyar $VERSION</title>
-                <pubDate>$(date -R)</pubDate>
-                <sparkle:version>$(grep -E '^\s+CURRENT_PROJECT_VERSION:' project.yml | head -1 | sed -E 's/.*"(.*)".*/\1/')</sparkle:version>
-                <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
-                <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-                <enclosure url="$url" type="application/octet-stream" $sig />
-              </item>
-            </channel>
-          </rss>
-          EOF
+          xcrun stapler staple build/export/Webyar.app
+          ditto -c -k --sequesterRsrc --keepParent build/export/Webyar.app out/Webyar.zip
+          echo "$SPARKLE_PRIVATE_KEY" | "$sparkle/sign_update" --ed-key-file - out/Webyar.zip > out/signature.txt
 
       - uses: actions/upload-artifact@v4
         with:
@@ -152,17 +139,17 @@ jobs:
           path: macos/out/
           if-no-files-found: error
 
-      - name: Publish release
+      - name: Publish to pc30cc/mac-os
         if: github.ref_type == 'tag'
         env:
-          GH_TOKEN: ${{ secrets.DESKTOP_RELEASES_TOKEN }}
+          TOKEN: ${{ secrets.MAC_RELEASES_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          if [ -z "$GH_TOKEN" ]; then echo "::error::DESKTOP_RELEASES_TOKEN is not set"; exit 1; fi
-          gh release create "$GITHUB_REF_NAME" out/Webyar.dmg --repo pc30cc/webyar-desktop-releases \
-            --title "Webyar for Mac ${{ steps.version.outputs.version }}" --notes "Webyar for Mac ${{ steps.version.outputs.version }}" || \
-            gh release upload "$GITHUB_REF_NAME" out/Webyar.dmg --repo pc30cc/webyar-desktop-releases --clobber
-          # The appcast lives at a fixed path in the releases repo (SUFeedURL).
-          content=$(base64 -i out/appcast.xml)
-          sha=$(gh api repos/pc30cc/webyar-desktop-releases/contents/macos/appcast.xml --jq .sha 2>/dev/null || true)
-          gh api -X PUT repos/pc30cc/webyar-desktop-releases/contents/macos/appcast.xml \
-            -f message="Webyar for Mac ${{ steps.version.outputs.version }}" -f content="$content" ${sha:+-f sha="$sha"}
+          if [ -z "$TOKEN" ]; then echo "::error::MAC_RELEASES_TOKEN is not set"; exit 1; fi
+          build=$(grep -E '^\s+CURRENT_PROJECT_VERSION:' project.yml | head -1 | sed -E 's/.*"(.*)".*/\1/')
+          channel=stable; case "$VERSION" in *-*) channel=beta ;; esac
+          git clone "https://x-access-token:${TOKEN}@github.com/pc30cc/mac-os" "$RUNNER_TEMP/mac-os"
+          git -C "$RUNNER_TEMP/mac-os" config user.name "github-actions[bot]"
+          git -C "$RUNNER_TEMP/mac-os" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          FEED_DIR="$RUNNER_TEMP/mac-os" scripts/publish-feed.sh "$VERSION" "$build" "$channel" \
+            out/Webyar.zip out/Webyar.dmg "$(cat out/signature.txt)" "Webyar for Mac $VERSION"

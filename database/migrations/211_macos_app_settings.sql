@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS public.macos_app_settings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Updates (Sparkle) ---------------------------------------------------
-  appcast_url text DEFAULT 'https://raw.githubusercontent.com/pc30cc/webyar-desktop-releases/main/macos/appcast.xml',
+  appcast_url text DEFAULT 'https://raw.githubusercontent.com/pc30cc/mac-os/main/appcast.xml',
   update_channel text NOT NULL DEFAULT 'stable',          -- stable | beta
   latest_version text,
   minimum_supported_version text,

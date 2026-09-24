@@ -1330,6 +1330,19 @@ enum InboxFilter: String, CaseIterable, Identifiable, Sendable {
     /// Narrows Main Inbox to threads the AI has handed back.
     var needsHumanOnly: Bool { self == .needsHuman }
 
+    /// What this queue is called on the strip, where the room runs out.
+    ///
+    /// Only where it has to be: three chips and a destination have to fit
+    /// across a phone, and "Müşteri bekleniyor" alone is a third of that
+    /// width. The full name is still what the switcher and the screen title
+    /// use — a chip is a tab, and tabs are allowed to be terse.
+    func chipTitle(_ language: Language) -> String {
+        switch self {
+        case .pending: Str.filterPendingShort(language)
+        default: title(language)
+        }
+    }
+
     func title(_ language: Language) -> String {
         switch self {
         case .open: Str.filterOpen(language)

@@ -671,6 +671,16 @@ enum Str {
     /// Named for who is being waited on rather than for the status word:
     /// "Pending" alone leaves an operator guessing whose move it is, and the
     /// whole point of the queue is that it is not theirs.
+    /// The strip's version. Persian is already short enough to keep its own
+    /// name; the other two are not.
+    static func filterPendingShort(_ l: Language) -> String {
+        switch l {
+        case .en: "Awaiting"
+        case .fa: "انتظار مشتری"
+        case .tr: "Bekleniyor"
+        }
+    }
+
     static func filterPending(_ l: Language) -> String {
         switch l {
         case .en: "Awaiting customer"

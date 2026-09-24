@@ -102,7 +102,7 @@ struct FilterPicker: View {
     var destinations: [Destination] = []
 
     private func label(for filter: InboxFilter) -> String {
-        let title = filter.title(language)
+        let title = filter.chipTitle(language)
         guard let count = counts?.count(for: filter), count > 0 else { return title }
         return "\(title) (\(Format.number(count, language: language)))"
     }
@@ -168,7 +168,7 @@ struct FilterPicker: View {
             }
         } label: {
             HStack(spacing: Theme.Space.xs) {
-                Text(filter.title(language))
+                Text(filter.chipTitle(language))
                     .font(.app(.subheadline, weight: isSelected ? .semibold : .medium))
                     .lineLimit(1)
 
@@ -192,7 +192,7 @@ struct FilterPicker: View {
                 }
             }
             .foregroundStyle(isSelected ? Color.white : Theme.Palette.label)
-            .padding(.horizontal, Theme.Space.md)
+            .padding(.horizontal, Theme.Space.sm + Theme.Space.xs)
             .frame(height: 36)
             .background {
                 if isSelected {
@@ -247,7 +247,7 @@ struct FilterPicker: View {
                     .lineLimit(1)
             }
             .foregroundStyle(Theme.Palette.label)
-            .padding(.horizontal, Theme.Space.md)
+            .padding(.horizontal, Theme.Space.sm + Theme.Space.xs)
             .frame(height: 36)
             .background {
                 Capsule(style: .continuous)

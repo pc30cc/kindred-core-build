@@ -38,7 +38,7 @@ export function BrandLoader({
           className="absolute inset-0 rounded-full motion-safe:animate-brand-spin"
           style={{
             background:
-              'conic-gradient(from 0deg, transparent 0deg, transparent 180deg, hsl(var(--primary) / 0.25) 250deg, hsl(var(--primary)) 352deg, transparent 360deg)',
+              'conic-gradient(from 0deg, transparent 0deg, transparent 180deg, hsl(var(--brand-teal) / 0.35) 230deg, hsl(var(--brand-sky)) 300deg, hsl(var(--brand-violet)) 352deg, transparent 360deg)',
             WebkitMask: 'radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px))',
             mask: 'radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px))',
           }}
@@ -53,7 +53,7 @@ export function BrandLoader({
           ) : (
             <span
               aria-hidden
-              className="bg-primary"
+              className="bg-brand"
               style={{
                 width: s.mark,
                 height: s.mark,
@@ -83,7 +83,7 @@ export function BrandLoader({
 /** Full-viewport branded loading screen. */
 export function BrandLoaderScreen({ logoUrl }: { logoUrl?: string | null }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
+    <div className="auth-aurora flex min-h-screen items-center justify-center">
       <BrandLoader size="lg" logoUrl={logoUrl} />
     </div>
   );

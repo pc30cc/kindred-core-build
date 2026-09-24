@@ -56,7 +56,7 @@ interface Connection {
   last_health_check_at: string | null;
 }
 
-export const OPENCART_PERMISSION_KEYS = ['products', 'prices', 'stock', 'reviews', 'orders', 'tracking'] as const;
+const OPENCART_PERMISSION_KEYS = ['products', 'prices', 'stock', 'reviews', 'orders', 'tracking'] as const;
 
 const HEALTH_TONES: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   connected: 'default',

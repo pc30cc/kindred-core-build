@@ -376,7 +376,6 @@ struct UpdateRequiredBanner: View {
 struct IncomingCallCard: View {
     @Environment(AppModel.self) private var app
     @State private var busy = false
-    @State private var pulse = false
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 12) {
@@ -392,7 +391,7 @@ struct IncomingCallCard: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
                     AvatarView(name: c?.visitorName, email: c?.visitorEmail, size: 44)
-                        .overlay(Circle().stroke(Palette.success.opacity(pulse ? 0 : 0.7), lineWidth: pulse ? 12 : 2).scaleEffect(pulse ? 1.5 : 1))
+                        .overlay(RingPulse())
                     VStack(alignment: .leading, spacing: 2) {
                         Label(s[entry.isVideo ? "incomingVideoCall" : "incomingVoiceCall"], systemImage: entry.isVideo ? "video.fill" : "phone.fill")
                             .appFont(11.5, .semibold)
@@ -423,8 +422,25 @@ struct IncomingCallCard: View {
             .glassCard(22, tint: Palette.success.opacity(0.10))
             .shadow(color: .black.opacity(0.18), radius: 24, y: 10)
             .transition(.move(edge: .bottom).combined(with: .opacity))
-            .onAppear { withAnimation(.easeOut(duration: 1.2).repeatForever(autoreverses: false)) { pulse = true } }
         }
+    }
+}
+
+/// A ring spreading from the caller's face every 1.2 s — clock-driven, so the repeating
+/// animation never catches the card sliding in (see CallPulse in the call window).
+private struct RingPulse: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { context in
+            // 0 → 1 every 1.2 s, eased out.
+            let x = reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.2) / 1.2
+            let p = 1 - (1 - x) * (1 - x)
+            Circle()
+                .stroke(Palette.success.opacity(0.7 * (1 - p)), lineWidth: 2 + 10 * p)
+                .scaleEffect(1 + 0.5 * p)
+        }
+        .allowsHitTesting(false)
     }
 }
 

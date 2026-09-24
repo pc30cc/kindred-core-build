@@ -681,24 +681,27 @@ private struct CallControlButton: View {
 
 /// Soft rings around the face while the visitor is being rung.
 private struct CallPulse: View {
-    @State private var expanded = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(Color(hex: 0x5A94FF).opacity(0.05))
-                .frame(width: 156, height: 156)
-                .scaleEffect(expanded ? 1.1 : 0.92)
-            Circle()
-                .fill(Color(hex: 0x5A94FF).opacity(0.10))
-                .frame(width: 132, height: 132)
-                .scaleEffect(expanded ? 1.06 : 0.96)
-        }
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-                expanded = true
+        // Driven by the clock, not by a repeating `withAnimation` started in `onAppear`: that
+        // transaction also caught the layout settling around it as the window opened, so the
+        // face, the name and the buttons swung back and forth with the rings for as long as
+        // the visitor was being rung — every call from a conversation, which rings until the
+        // visitor answers (a desk call is answered at once and never showed it).
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            // 0…1…0 every 1.8 s, eased like the old ease-in-out.
+            let wave = reduceMotion ? 0 : (1 - cos(t * .pi / 0.9)) / 2
+            ZStack {
+                Circle()
+                    .fill(Color(hex: 0x5A94FF).opacity(0.05))
+                    .frame(width: 156, height: 156)
+                    .scaleEffect(0.92 + 0.18 * wave)
+                Circle()
+                    .fill(Color(hex: 0x5A94FF).opacity(0.10))
+                    .frame(width: 132, height: 132)
+                    .scaleEffect(0.96 + 0.10 * wave)
             }
         }
         .allowsHitTesting(false)

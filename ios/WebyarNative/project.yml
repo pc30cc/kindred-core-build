@@ -64,6 +64,12 @@ targets:
         # simulator; it is App Store Connect that rejects the upload, as
         # ITMS-90713. That is the whole reason it is here.
         CFBundleIconName: AppIcon
+        # The Persian face, registered so `Font.custom("IRANSans-…")` can
+        # find it. One TrueType collection carrying Regular, Medium and Bold —
+        # the same file the Windows app ships, so the two surfaces are set in
+        # the same font rather than in two cuts of nearly the same one.
+        UIAppFonts:
+          - IRANSans.ttc
         CFBundleShortVersionString: "1.0.0"
         CFBundleVersion: "1"
         UILaunchScreen:

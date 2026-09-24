@@ -326,7 +326,7 @@ struct InboxView: View {
         } label: {
             HStack(spacing: Theme.Space.xs) {
                 Text(model.channel?.title(language) ?? model.filter.headerTitle(language))
-                    .font(.headline)
+                    .font(.app(.headline))
                     .foregroundStyle(Theme.Palette.label)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 11, weight: .bold))

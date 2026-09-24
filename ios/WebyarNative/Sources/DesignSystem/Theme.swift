@@ -231,24 +231,30 @@ enum Theme {
 
     // MARK: - Typography
     //
-    // Text styles are system styles, never fixed point sizes, so every label
-    // grows with the reader's Dynamic Type setting.
+    // Text styles are styles, never fixed point sizes, so every label grows
+    // with the reader's Dynamic Type setting.
+    //
+    // They resolve through `Font.app`, which is what puts the Persian
+    // interface in IRANSans and leaves the English one in San Francisco.
+    // Computed rather than stored for that reason: the face is a property of
+    // the language, and the language can change while the app is running.
 
     enum Typo {
         /// Screen hero title (login).
-        static let hero = Font.system(.largeTitle, design: .default, weight: .bold)
+        @MainActor static var hero: Font { .app(.largeTitle, weight: .bold) }
         /// A row's primary line — a contact name, a conversation subject.
-        static let rowTitle = Font.system(.body, weight: .semibold)
+        @MainActor static var rowTitle: Font { .app(.body, weight: .semibold) }
         /// A row's supporting line — the message preview.
-        static let rowSubtitle = Font.system(.subheadline)
+        @MainActor static var rowSubtitle: Font { .app(.subheadline) }
         /// Timestamps, counters, channel badges.
-        static let meta = Font.system(.caption)
-        static let metaEmphasis = Font.system(.caption, weight: .semibold)
+        @MainActor static var meta: Font { .app(.caption) }
+        @MainActor static var metaEmphasis: Font { .app(.caption, weight: .semibold) }
         /// Button labels.
-        static let button = Font.system(.body, weight: .semibold)
+        @MainActor static var button: Font { .app(.body, weight: .semibold) }
         /// Chat message text.
-        static let message = Font.system(.body)
+        @MainActor static var message: Font { .app(.body) }
     }
+
 
     // MARK: - Motion
 

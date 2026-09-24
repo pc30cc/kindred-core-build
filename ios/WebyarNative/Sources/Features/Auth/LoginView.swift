@@ -65,7 +65,7 @@ struct LoginView: View {
                             PasswordResetView(prefilledEmail: email)
                         } label: {
                             Text(Str.forgotPassword(language))
-                                .font(.subheadline)
+                                .font(.app(.subheadline))
                                 .foregroundStyle(Theme.Palette.brand)
                                 .frame(minHeight: Theme.Size.minTouchTarget)
                         }
@@ -110,11 +110,11 @@ struct LoginView: View {
     private var header: some View {
         VStack(spacing: Theme.Space.xxs) {
             Text(Str.loginTitle(language))
-                .font(.title3.weight(.semibold))
+                .font(.app(.title3, weight: .semibold))
                 .foregroundStyle(Theme.Palette.label)
 
             Text(Str.loginSubtitle(language))
-                .font(.footnote)
+                .font(.app(.footnote))
                 .foregroundStyle(Theme.Palette.labelSecondary)
         }
         .multilineTextAlignment(.center)

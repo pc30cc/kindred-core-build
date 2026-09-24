@@ -131,7 +131,7 @@ struct PlainComposer: View {
         HStack(alignment: .bottom, spacing: 0) {
             TextField(placeholder, text: $text, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.body)
+                .font(.app(.body))
                 .lineLimit(1...5)
                 .focused($isWriting)
                 .padding(.horizontal, Theme.Space.xs)

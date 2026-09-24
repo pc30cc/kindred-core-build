@@ -100,13 +100,13 @@ struct PromoFullScreen: View {
 
                 VStack(spacing: Theme.Space.sm) {
                     Text(creative.title)
-                        .font(.title2.weight(.bold))
+                        .font(.app(.title2, weight: .bold))
                         .foregroundStyle(Theme.Palette.label)
                         .multilineTextAlignment(.center)
 
                     if !creative.body.isEmpty {
                         Text(creative.body)
-                            .font(.body)
+                            .font(.app(.body))
                             .foregroundStyle(Theme.Palette.labelSecondary)
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: 320)

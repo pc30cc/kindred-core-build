@@ -42,7 +42,7 @@ struct ContactDetailView: View {
                     )
 
                     Text(displayName)
-                        .font(.title2.weight(.semibold))
+                        .font(.app(.title2, weight: .semibold))
                         .multilineTextAlignment(.center)
                         .foregroundStyle(Theme.Palette.label)
                 }
@@ -126,7 +126,7 @@ struct DetailRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.lg) {
             Text(label)
-                .font(.body)
+                .font(.app(.body))
                 .foregroundStyle(Theme.Palette.label)
                 .layoutPriority(1)
                 .fixedSize(horizontal: true, vertical: false)
@@ -134,7 +134,7 @@ struct DetailRow: View {
             Spacer(minLength: Theme.Space.sm)
 
             Text(value)
-                .font(.body)
+                .font(.app(.body))
                 .foregroundStyle(Theme.Palette.labelSecondary)
                 .multilineTextAlignment(.trailing)
                 .textSelection(.enabled)

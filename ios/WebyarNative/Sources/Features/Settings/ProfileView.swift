@@ -177,7 +177,7 @@ struct ProfileView: View {
                             Task { await model.removePhoto(appState: appState) }
                         } label: {
                             Text(Str.removePhoto(language))
-                                .font(.subheadline)
+                                .font(.app(.subheadline))
                         }
                         .disabled(model.isUploadingPhoto)
                     }
@@ -209,7 +209,7 @@ struct ProfileView: View {
 
                 if let account = model.account, !account.isEmailVerified {
                     Label(Str.emailNotVerified(language), systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote)
+                        .font(.app(.footnote))
                         .foregroundStyle(Theme.Palette.warning)
                 }
             } header: {
@@ -226,7 +226,7 @@ struct ProfileView: View {
                             if model.isSaving { ProgressView().controlSize(.small) }
                             Text(Str.save(language))
                         }
-                        .font(.subheadline.weight(.semibold))
+                        .font(.app(.subheadline, weight: .semibold))
                         .frame(minHeight: Theme.Size.minTouchTarget - 8)
                     }
                     .disabled(model.isSaving)
@@ -306,7 +306,7 @@ private struct ChangePhotoButton: View {
     var body: some View {
         PhotosPicker(selection: $selection, matching: .images, photoLibrary: .shared()) {
             Text(verbatim: title)
-                .font(.subheadline.weight(.semibold))
+                .font(.app(.subheadline, weight: .semibold))
                 .foregroundStyle(Theme.Palette.brand)
                 .frame(minHeight: Theme.Size.minTouchTarget - 8)
         }

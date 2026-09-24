@@ -111,7 +111,7 @@ struct Avatar: View {
 
             if let flag {
                 Text(flag)
-                    .font(.system(size: flagSize * 0.78))
+                    .font(.app(size: flagSize * 0.78))
                     .frame(width: flagSize, height: flagSize)
                     .background(Circle().fill(Theme.Palette.surface))
                     .overlay(Circle().strokeBorder(Theme.Palette.separator.opacity(0.7), lineWidth: 0.5))
@@ -180,7 +180,7 @@ struct Avatar: View {
             ZStack {
                 initialsGradient
                 Text(initials)
-                    .font(.system(size: size * 0.38, weight: .semibold))
+                    .font(.app(size: size * 0.38, weight: .semibold))
                     .foregroundStyle(.white)
                     // Initials are Latin-derived; forcing LTR keeps a mixed
                     // name from rendering its letters in the wrong order.

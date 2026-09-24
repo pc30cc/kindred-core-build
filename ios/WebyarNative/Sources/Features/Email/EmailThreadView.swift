@@ -126,7 +126,7 @@ struct EmailThreadView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: Theme.Space.md) {
                 Text(subject)
-                    .font(.title3.weight(.semibold))
+                    .font(.app(.title3, weight: .semibold))
                     .foregroundStyle(Theme.Palette.label)
                     .frame(maxWidth: .infinity, alignment: .leading)
 

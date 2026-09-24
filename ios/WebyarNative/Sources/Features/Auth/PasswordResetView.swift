@@ -76,11 +76,11 @@ struct PasswordResetView: View {
                 glyph("key.horizontal.fill")
 
                 Text(Str.resetTitle(language))
-                    .font(.title3.weight(.semibold))
+                    .font(.app(.title3, weight: .semibold))
                     .foregroundStyle(Theme.Palette.label)
 
                 Text(Str.resetSubtitle(language))
-                    .font(.footnote)
+                    .font(.app(.footnote))
                     .foregroundStyle(Theme.Palette.labelSecondary)
                     .multilineTextAlignment(.center)
                     // Left to its own devices a two-line explanation under a
@@ -126,7 +126,7 @@ struct PasswordResetView: View {
             glyph("envelope.fill")
 
             Text(Str.resetSentTitle(language))
-                .font(.title3.weight(.semibold))
+                .font(.app(.title3, weight: .semibold))
                 .foregroundStyle(Theme.Palette.label)
 
             // The address is inside a sentence, so it cannot be pinned
@@ -135,13 +135,13 @@ struct PasswordResetView: View {
             // own; what it needs is only to be told which way the sentence
             // goes, which the environment already says.
             Text(Str.resetSentDetail(language, email: address))
-                .font(.footnote)
+                .font(.app(.footnote))
                 .foregroundStyle(Theme.Palette.labelSecondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 320)
 
             Text(Str.resetCheckSpam(language))
-                .font(.caption)
+                .font(.app(.caption))
                 .foregroundStyle(Theme.Palette.labelSecondary.opacity(0.8))
                 .multilineTextAlignment(.center)
                 .padding(.top, Theme.Space.xxs)

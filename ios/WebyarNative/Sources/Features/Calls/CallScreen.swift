@@ -157,7 +157,7 @@ struct CallScreen: View {
     private var header: some View {
         VStack(spacing: Theme.Space.xs) {
             Text(session.contactName)
-                .font(.system(.title2, weight: .semibold))
+                .font(.app(.title2, weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
 

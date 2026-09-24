@@ -76,7 +76,7 @@ struct SettingsView: View {
 
                             if let email = appState.session.user?.email, !email.isEmpty {
                                 Text(email)
-                                    .font(.subheadline)
+                                    .font(.app(.subheadline))
                                     .foregroundStyle(Theme.Palette.labelSecondary)
                                     .lineLimit(1)
                                     .environment(\.layoutDirection, .leftToRight)
@@ -287,7 +287,7 @@ private struct WorkspaceRow: View {
                         .foregroundStyle(Theme.Palette.labelSecondary)
                 }
                 Text(workspace.name)
-                    .font(.body)
+                    .font(.app(.body))
                     .foregroundStyle(Theme.Palette.label)
                     .lineLimit(1)
             }

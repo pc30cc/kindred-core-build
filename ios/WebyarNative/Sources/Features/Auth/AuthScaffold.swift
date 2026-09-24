@@ -169,7 +169,7 @@ struct AuthErrorBanner: View {
                 .foregroundStyle(Theme.Palette.danger)
 
             Text(message)
-                .font(.footnote)
+                .font(.app(.footnote))
                 .foregroundStyle(Theme.Palette.label)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .multilineTextAlignment(.leading)

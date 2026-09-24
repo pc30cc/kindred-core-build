@@ -120,7 +120,7 @@ struct NotificationSettingsView: View {
         .overlay(alignment: .top) {
             if model.saveFailed {
                 Text(Str.saveFailed(language))
-                    .font(.footnote)
+                    .font(.app(.footnote))
                     .foregroundStyle(Theme.Palette.danger)
                     .padding(.horizontal, Theme.Space.md)
                     .padding(.vertical, Theme.Space.sm)
@@ -148,13 +148,13 @@ struct NotificationSettingsView: View {
                     Text(push.authorization == .denied
                          ? Str.pushDeniedTitle(language)
                          : Str.pushPrimerTitle(language))
-                        .font(.headline)
+                        .font(.app(.headline))
                         .foregroundStyle(Theme.Palette.label)
 
                     Text(push.authorization == .denied
                          ? Str.pushDeniedBody(language)
                          : Str.pushPrimerBody(language))
-                        .font(.footnote)
+                        .font(.app(.footnote))
                         .foregroundStyle(Theme.Palette.labelSecondary)
                         .fixedSize(horizontal: false, vertical: true)
 
@@ -172,7 +172,7 @@ struct NotificationSettingsView: View {
                             }
                         }
                     }
-                    .font(.subheadline.weight(.semibold))
+                    .font(.app(.subheadline, weight: .semibold))
                     .frame(minHeight: Theme.Size.minTouchTarget - 8)
                 }
                 .padding(.vertical, Theme.Space.xs)
@@ -342,7 +342,7 @@ struct NotificationSettingsView: View {
                 Text(push.isRegistered
                      ? Str.pushDeviceRegistered(language)
                      : Str.pushDeviceNotRegistered(language))
-                    .font(.footnote)
+                    .font(.app(.footnote))
                     .foregroundStyle(push.isRegistered
                                      ? Theme.Palette.labelSecondary
                                      : Theme.Palette.warning)

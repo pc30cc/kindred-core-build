@@ -422,14 +422,14 @@ struct Composer: View {
         ZStack(alignment: .leading) {
             if text.isEmpty {
                 Text(effectivePlaceholder)
-                    .font(.body)
+                    .font(.app(.body))
                     .foregroundStyle(Theme.Palette.labelTertiary)
                     .allowsHitTesting(false)
             }
 
             TextField("", text: $text, axis: .vertical)
                 .accessibilityIdentifier(A11y.composerField)
-                .font(.body)
+                .font(.app(.body))
                 .lineLimit(1...6)
                 .focused($isWriting)
         }
@@ -471,7 +471,7 @@ struct EmojiStrip: View {
                         onPick(character)
                     } label: {
                         Text(character)
-                            .font(.system(size: 26))
+                            .font(.app(size: 26))
                             .frame(width: Theme.Size.minTouchTarget, height: Theme.Size.minTouchTarget)
                     }
                     .buttonStyle(.plain)

@@ -42,12 +42,12 @@ struct DeleteAccountView: View {
                         .accessibilityHidden(true)
 
                     Text(Str.deleteAccountBody(language))
-                        .font(.subheadline)
+                        .font(.app(.subheadline))
                         .foregroundStyle(Theme.Palette.label)
                         .fixedSize(horizontal: false, vertical: true)
 
                     Text(Str.deleteAccountKeeps(language))
-                        .font(.footnote)
+                        .font(.app(.footnote))
                         .foregroundStyle(Theme.Palette.labelSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -61,7 +61,7 @@ struct DeleteAccountView: View {
                         language,
                         workspaces: blockedBy.joined(separator: "، ")
                     ))
-                    .font(.footnote)
+                    .font(.app(.footnote))
                     .foregroundStyle(Theme.Palette.label)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier(A11y.deleteAccountBlocked)

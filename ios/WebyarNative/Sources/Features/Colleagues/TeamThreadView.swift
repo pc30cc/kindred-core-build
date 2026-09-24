@@ -430,7 +430,7 @@ private struct TeamMessageRow: View {
             // of a three-line reply is noise, the same as a repeated face.
             if showsAvatar {
                 Text(Format.bubbleTime(message.createdAt, locale: locale))
-                    .font(.caption2)
+                    .font(.app(.caption2))
                     .foregroundStyle(Theme.Palette.labelTertiary)
                     .padding(.horizontal, size + Theme.Space.sm)
                     .environment(\.layoutDirection, language.layoutDirection)

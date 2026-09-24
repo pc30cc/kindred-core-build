@@ -82,7 +82,7 @@ struct FloatingTabBar<Tab: Hashable>: View {
                     .symbolEffect(.bounce, value: isSelected)
 
                 Text(item.title)
-                    .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
+                    .font(.app(size: 11, weight: isSelected ? .semibold : .medium))
                     .lineLimit(1)
                     // Long localized labels ("Gelen kutusu") shrink instead of
                     // being cut off mid-word.

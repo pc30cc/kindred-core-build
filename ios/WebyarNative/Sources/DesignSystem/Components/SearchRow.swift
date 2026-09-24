@@ -28,7 +28,7 @@ struct SearchRow: View {
                 .foregroundStyle(Theme.Palette.labelSecondary)
 
             TextField(prompt, text: $text)
-                .font(.body)
+                .font(.app(.body))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)

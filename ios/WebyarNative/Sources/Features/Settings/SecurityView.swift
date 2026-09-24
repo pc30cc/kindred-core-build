@@ -167,7 +167,7 @@ struct SecurityView: View {
                         if model.isChangingPassword { ProgressView().controlSize(.small) }
                         Text(Str.changePassword(language))
                     }
-                    .font(.subheadline.weight(.semibold))
+                    .font(.app(.subheadline, weight: .semibold))
                     .foregroundStyle(model.canChangePassword ? Theme.Palette.brand : Theme.Palette.labelTertiary)
                     .frame(minHeight: Theme.Size.minTouchTarget - 10)
                 }
@@ -294,7 +294,7 @@ struct SessionRow: View {
                         ProgressView().controlSize(.small)
                     } else {
                         Text(Str.signOutDevice(language))
-                            .font(.subheadline.weight(.semibold))
+                            .font(.app(.subheadline, weight: .semibold))
                             .foregroundStyle(Theme.Palette.danger)
                     }
                 }

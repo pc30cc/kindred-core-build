@@ -55,6 +55,7 @@ final class AppState {
             // Before SwiftUI has even been told, so the window and the
             // interface turn together rather than one frame apart.
             WindowDirection.apply(language)
+            AppTypeface.apply(language)
         }
     }
 

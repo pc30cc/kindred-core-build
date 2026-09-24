@@ -83,6 +83,7 @@ struct RootView: View {
             // on. Every screen after this is built with the window already
             // facing the right way.
             WindowDirection.apply(appState.language)
+            AppTypeface.apply(appState.language)
             // The action buttons on a banner are registered by the app, not
             // sent in the payload, and their titles are in the operator's
             // chosen language — so this runs again whenever that changes,
@@ -262,7 +263,7 @@ struct BrandMark: View {
             .frame(width: size, height: size)
             .overlay(
                 Text(letter)
-                    .font(.system(size: size * 0.46, weight: .bold))
+                    .font(.app(size: size * 0.46, weight: .bold))
                     .foregroundStyle(.white)
             )
             .accessibilityHidden(true)

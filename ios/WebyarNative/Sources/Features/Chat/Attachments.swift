@@ -303,7 +303,7 @@ private struct VoiceNoteView: View {
 
     private func caption(_ text: String) -> some View {
         Text(text)
-            .font(.caption2)
+            .font(.app(.caption2))
             .foregroundStyle(tint.opacity(0.7))
             .lineLimit(1)
             // Which end of the bar this sits under is decided physically, not
@@ -582,7 +582,7 @@ private struct FileCard: View {
 
                 if let subtitle {
                     Text(subtitle)
-                        .font(.caption2)
+                        .font(.app(.caption2))
                         .foregroundStyle(tint.opacity(0.7))
                 }
             }

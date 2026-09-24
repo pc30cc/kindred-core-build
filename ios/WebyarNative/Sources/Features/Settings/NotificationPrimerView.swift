@@ -28,13 +28,13 @@ struct NotificationPrimerView: View {
                 .accessibilityHidden(true)
 
             Text(Str.pushPrimerTitle(language))
-                .font(.title3.weight(.semibold))
+                .font(.app(.title3, weight: .semibold))
                 .foregroundStyle(Theme.Palette.label)
                 .multilineTextAlignment(.center)
                 .padding(.top, Theme.Space.xl)
 
             Text(Str.pushPrimerBody(language))
-                .font(.subheadline)
+                .font(.app(.subheadline))
                 .foregroundStyle(Theme.Palette.labelSecondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
@@ -46,7 +46,7 @@ struct NotificationPrimerView: View {
 
             Button(action: onDismiss) {
                 Text(Str.pushNotNow(language))
-                    .font(.subheadline)
+                    .font(.app(.subheadline))
                     .foregroundStyle(Theme.Palette.labelSecondary)
                     .frame(minHeight: Theme.Size.minTouchTarget)
             }

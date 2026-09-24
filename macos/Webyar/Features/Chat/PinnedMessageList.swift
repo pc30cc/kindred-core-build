@@ -70,14 +70,12 @@ struct PinnedMessageList<Rows: View>: View {
             .animation(.smooth(duration: 0.2), value: atBottom)
             // The space for the list changed (a call panel sliding in or out above it): one that
             // was at the bottom stays there, rather than being left part-way up.
-            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { old, new in
-                guard old != new, !landing, !isEmpty else { return }
-                let justLeft = leftBottomAt.map { Date().timeIntervalSince($0) < 0.8 } ?? false
-                guard atBottom || justLeft else { return }
-                Task { @MainActor in
-                    scrollToBottom(proxy, animated: false)
-                    try? await Task.sleep(nanoseconds: 380_000_000)
-                    scrollToBottom(proxy, animated: false)
+            .background {
+                GeometryReader { geo in
+                    // The visible height: the frame less what the header and the call panel take.
+                    Color.clear.onChange(of: geo.size.height - geo.safeAreaInsets.top - geo.safeAreaInsets.bottom) { old, new in
+                        keepAtBottom(proxy, old, new)
+                    }
                 }
             }
             .onChange(of: threadId, initial: true) { _, _ in
@@ -123,6 +121,17 @@ struct PinnedMessageList<Rows: View>: View {
             landing = false
             atBottom = true
             unseen = 0
+        }
+    }
+
+    private func keepAtBottom(_ proxy: ScrollViewProxy, _ old: CGFloat, _ new: CGFloat) {
+        guard old != new, !landing, !isEmpty else { return }
+        let justLeft = leftBottomAt.map { Date().timeIntervalSince($0) < 0.8 } ?? false
+        guard atBottom || justLeft else { return }
+        Task { @MainActor in
+            scrollToBottom(proxy, animated: false)
+            try? await Task.sleep(nanoseconds: 380_000_000)
+            scrollToBottom(proxy, animated: false)
         }
     }
 

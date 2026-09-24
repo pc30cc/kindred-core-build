@@ -17,56 +17,62 @@ const CHIPS = [
 ];
 
 const ROWS = [
-  { w1: 'w-24', w2: 'w-40', active: true, unread: 2 },
-  { w1: 'w-20', w2: 'w-32', active: false, unread: 0 },
-  { w1: 'w-28', w2: 'w-36', active: false, unread: 0 },
+  { w1: 'w-24', w2: 'w-40', active: true, unread: 2, tone: 'bg-brand-teal/25' },
+  { w1: 'w-20', w2: 'w-32', active: false, unread: 0, tone: 'bg-brand-sky/25' },
+  { w1: 'w-28', w2: 'w-36', active: false, unread: 0, tone: 'bg-brand-violet/25' },
 ];
 
-/** Calm, dark showcase panel for auth screens. */
+/** Light aurora showcase panel for auth screens — same language as the WebYar landing hero. */
 export function AuthHeroPanel({ title, subtitle, className }: Props) {
   return (
-    <div className={`dark relative hidden overflow-hidden bg-background text-foreground lg:flex ${className ?? ''}`}>
-      <div aria-hidden className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-48 start-1/2 h-[560px] w-[560px] -translate-x-1/2 rounded-full bg-primary/10 blur-[140px]" />
-        <div className="bg-grid absolute inset-0 opacity-40 [mask-image:radial-gradient(ellipse_at_center,black_30%,transparent_75%)]" />
+    <div className={`relative hidden overflow-hidden border-s border-border/60 bg-secondary/40 text-foreground lg:flex ${className ?? ''}`}>
+      {/* Aurora backdrop */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="animate-aurora absolute -top-40 start-[10%] h-[520px] w-[520px] rounded-full bg-primary/20 blur-[110px]" />
+        <div className="animate-aurora absolute top-24 end-[5%] h-[460px] w-[460px] rounded-full bg-brand-sky/20 blur-[110px]" style={{ animationDelay: '-6s' }} />
+        <div className="animate-aurora absolute -bottom-40 start-1/3 h-[340px] w-[340px] rounded-full bg-brand-violet/15 blur-[100px]" style={{ animationDelay: '-12s' }} />
+        <div className="bg-grid absolute inset-0 [mask-image:radial-gradient(ellipse_at_center,black_35%,transparent_80%)]" />
       </div>
 
       <div className="relative z-10 flex w-full flex-col items-center justify-center p-12 text-center">
-        <span className="mb-6 inline-flex items-center gap-2 rounded-full border border-border/60 bg-card/40 px-3 py-1 text-[11px] font-medium tracking-[0.2em] text-muted-foreground">
-          <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+        <span className="glass mb-6 inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold text-foreground">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
+          </span>
           WEBYAR
         </span>
-        <h2 className="max-w-md text-3xl font-semibold leading-tight tracking-tight text-foreground xl:text-4xl">
+        <h2 className="max-w-md text-3xl font-extrabold leading-tight tracking-tight text-foreground xl:text-4xl">
           {title}
         </h2>
         <p className="mt-4 max-w-md text-base leading-relaxed text-muted-foreground">{subtitle}</p>
 
-        {/* Product preview: a quiet inbox mock */}
-        <div className="mt-10 w-full max-w-md overflow-hidden rounded-2xl border border-border/60 bg-card/50 text-start shadow-2xl backdrop-blur-xl">
+        {/* Product preview: glass inbox mock */}
+        <div className="glass mt-10 w-full max-w-md overflow-hidden rounded-3xl text-start shadow-glow">
           <div className="flex items-center gap-3 border-b border-border/60 px-4 py-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-primary">
+            <div className="bg-brand flex h-8 w-8 items-center justify-center rounded-xl text-primary-foreground shadow-sm">
               <WebyarMark className="h-4 w-4" />
             </div>
-            <div className="h-2 w-20 rounded-full bg-foreground/30" />
+            <div className="h-2 w-20 rounded-full bg-foreground/20" />
             <span className="ms-auto inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <span className="h-1.5 w-1.5 rounded-full bg-success" /> online
             </span>
           </div>
 
-          <div className="divide-y divide-border/40">
+          <div className="divide-y divide-border/50">
             {ROWS.map((r, i) => (
-              <div key={i} className={`flex items-center gap-3 px-4 py-3 ${r.active ? 'bg-primary/[0.06]' : ''}`}>
-                <div className="h-9 w-9 shrink-0 rounded-full bg-muted" />
+              <div key={i} className={`flex items-center gap-3 px-4 py-3 ${r.active ? 'bg-primary/[0.07]' : ''}`}>
+                <div className={`h-9 w-9 shrink-0 rounded-full ${r.tone}`} />
                 <div className="min-w-0 flex-1 space-y-2">
-                  <div className={`h-2 ${r.w1} rounded-full bg-foreground/40`} />
-                  <div className={`h-1.5 ${r.w2} rounded-full bg-muted-foreground/25`} />
+                  <div className={`h-2 ${r.w1} rounded-full bg-foreground/25`} />
+                  <div className={`h-1.5 ${r.w2} rounded-full bg-muted-foreground/20`} />
                 </div>
                 {r.unread ? (
-                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+                  <span className="bg-brand flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-semibold text-primary-foreground">
                     {r.unread}
                   </span>
                 ) : (
-                  <CheckCheck className="h-3.5 w-3.5 text-muted-foreground/60" />
+                  <CheckCheck className="h-3.5 w-3.5 text-primary/70" />
                 )}
               </div>
             ))}
@@ -78,8 +84,8 @@ export function AuthHeroPanel({ title, subtitle, className }: Props) {
               { v: '<1m', l: 'Reply' },
               { v: '24/7', l: 'AI' },
             ].map((s) => (
-              <div key={s.l} dir="ltr" className="border-e border-border/40 px-4 py-3 text-center last:border-e-0">
-                <div className="text-sm font-semibold text-foreground">{s.v}</div>
+              <div key={s.l} dir="ltr" className="border-e border-border/50 px-4 py-3 text-center last:border-e-0">
+                <div className="text-brand text-sm font-bold">{s.v}</div>
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.l}</div>
               </div>
             ))}
@@ -89,8 +95,8 @@ export function AuthHeroPanel({ title, subtitle, className }: Props) {
         <div dir="ltr" className="relative mt-10 w-full max-w-lg overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_15%,black_85%,transparent)]">
           <div className="animate-marquee flex w-max gap-2" style={{ animationDirection: 'reverse' }}>
             {[...CHIPS, ...CHIPS].map(({ icon: Icon, label }, i) => (
-              <span key={i} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border/50 bg-card/30 px-3 py-1.5 text-xs text-muted-foreground">
-                <Icon className="h-3.5 w-3.5 text-primary/80" />
+              <span key={i} className="glass inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium text-foreground/80">
+                <Icon className="h-3.5 w-3.5 text-primary" />
                 {label}
               </span>
             ))}

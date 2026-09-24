@@ -329,6 +329,10 @@ struct AccountCorner: View {
                 // A popover is a window of its own: set the reading direction again.
                 .environment(\.layoutDirection, s.isRightToLeft ? .rightToLeft : .leftToRight)
         }
+        #if DEBUG
+        // DebugTools' `account`: opens the card as a click would.
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("WebyarDebugAccount"))) { _ in open.toggle() }
+        #endif
         .confirmationDialog(s["signOut"], isPresented: $confirmSignOut) {
             Button(s["signOut"], role: .destructive) { Task { await app.signOut() } }
             Button(s["cancel"], role: .cancel) {}

@@ -98,6 +98,7 @@ enum DebugTools {
             // As if the operator typed a note in the call's notes and sent it.
             if let call = CallCoordinator.shared.call { call.noteDraft = arg; call.addNote() }
         case "notesdown": SampleBackend.notesDown = arg != "off"
+        case "account": NotificationCenter.default.post(name: Notification.Name("WebyarDebugAccount"), object: nil)
         case "hangup": CallCoordinator.shared.call?.hangUp()
         case "popout": CallCoordinator.shared.popOut()
         case "dockback": CallCoordinator.shared.dockBack()

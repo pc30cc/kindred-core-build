@@ -9,8 +9,8 @@
  *   - a public plan question costs one WHMCS call per installation and
  *     normalised query per PUBLIC_CATALOG_TTL_MS, zero Web Yar DB writes;
  *   - an account question costs two indexed Web Yar reads (conversation
- *     visitor → binding), the secret read, ≤ WHMCS_MAX_CALLS_PER_TURN signed
- *     calls, and ONE summary audit row;
+ *     visitor → binding), the secret read and ≤ WHMCS_MAX_CALLS_PER_TURN signed
+ *     calls;
  *   - nothing WHMCS returns is written to Web Yar's database. It lives in
  *     the prompt of this turn and in the bounded in-process cache.
  *
@@ -59,12 +59,37 @@ import {
   normalizeTicketPage,
 } from '../../commerce/whmcs/normalize.js';
 import { markWhmcsLinkRevoked, resolveWhmcsBinding } from '../../commerce/whmcs/identity.js';
-import { recordCommerceToolAudit } from '../../commerce/audit.js';
 import { emitMetric } from '../../observability/metrics.js';
+import { getPlatformState } from '../../plugins/state.js';
 import { resolveWhmcsFollowUp, type WhmcsIntent, type WhmcsResource } from './whmcsIntent.js';
 
 /** Upper bound on what the WHMCS stage may add to the prompt (serialized tool rows). */
 export const MAX_WHMCS_EVIDENCE_BYTES = 6_000;
+
+// A short, bounded process-local policy cache keeps the Super Admin master
+// switch responsive without adding a database query to every visitor turn.
+let whmcsPolicy: { until: number; enabled: boolean } | null = null;
+let whmcsPolicyPending: Promise<boolean> | null = null;
+/** Clears only the short platform policy cache; used by isolated tests. */
+export function __resetWhmcsPolicyForTests(): void {
+  whmcsPolicy = null;
+  whmcsPolicyPending = null;
+}
+async function whmcsAiEnabled(config: ServerConfig): Promise<boolean> {
+  if (whmcsPolicy && Date.now() < whmcsPolicy.until) return whmcsPolicy.enabled;
+  if (!whmcsPolicyPending) {
+    whmcsPolicyPending = getPlatformState(config, 'whmcs')
+      .then((state) => state.enabled && !state.maintenance_mode && state.policy?.aiEnabled !== false)
+      .catch(() => false)
+      .then((enabled) => {
+        whmcsPolicy = { until: Date.now() + 15_000, enabled };
+        return enabled;
+      })
+      .finally(() => { whmcsPolicyPending = null; });
+  }
+  return whmcsPolicyPending;
+}
+
 
 export interface WhmcsStageInput {
   workspaceId: string;
@@ -307,6 +332,11 @@ export async function runWhmcsToolStage(config: ServerConfig, input: WhmcsStageI
   const startedAt = Date.now();
   const intent = input.forcedIntent ?? resolveWhmcsFollowUp(input.question, input.previousVisitorTurns ?? []);
   if (intent.kind === 'none') return empty('none', 'skipped');
+  // The Super Admin plugin switch is the outer gate for every WHMCS AI read.
+  // Fail closed if policy cannot be read; do not contact the merchant install.
+  if (!(await whmcsAiEnabled(config))) {
+    return empty(intent.kind, 'skipped');
+  }
 
   let connections = input.connections ?? null;
   if (!connections) {
@@ -327,8 +357,6 @@ export async function runWhmcsToolStage(config: ServerConfig, input: WhmcsStageI
   const toolsUsed: string[] = [];
   let historyCutoff: string | null = null;
   let errorCode: string | null = null;
-  let privateRead = false;
-  let resultCount = 0;
 
   const pushWithUrl = (name: string, row: Row) => {
     evidence.push(name, row);
@@ -354,9 +382,7 @@ export async function runWhmcsToolStage(config: ServerConfig, input: WhmcsStageI
       const catalog = read.value as ReturnType<typeof normalizeCatalog>;
       if (!catalog.items.length) status('resource_not_found', { scope: 'catalog' });
       for (const p of catalog.items) pushWithUrl('whmcs.catalog', { ...productRow(p, catalog.taxMode), ...freshness(read.source, read.ageMs, catalog.asOf) });
-      resultCount = catalog.items.length;
     } else {
-      privateRead = true;
       const resource = intent.resource;
       toolsUsed.push(`whmcs.${resource}.${intent.mode}`);
       const binding = await resolveWhmcsBinding(config, {
@@ -386,7 +412,6 @@ export async function runWhmcsToolStage(config: ServerConfig, input: WhmcsStageI
             if (!page.items.length) evidence.push('whmcs.empty', { resource, filter: intent.filter, count: 0, ...freshness(read.source, read.ageMs, page.asOf) });
             page.items.forEach((item, i) => pushWithUrl(`whmcs.${resource}`, { ...renderItem(resource, item, i + 1), ...freshness(read.source, read.ageMs, page.asOf) }));
             if (page.hasMore) evidence.push(`whmcs.${resource}_more`, { more_available: true, shown: page.items.length });
-            resultCount = page.items.length;
           } else {
             let targetId: string | null = selector.kind === 'id' ? selector.value : null;
             if (!targetId) {
@@ -431,7 +456,6 @@ export async function runWhmcsToolStage(config: ServerConfig, input: WhmcsStageI
                     evidence.push('whmcs.ticket_reply', { from: reply.from, at: reply.at, excerpt: reply.excerpt });
                   }
                 }
-                resultCount = 1;
               }
             }
           }
@@ -459,23 +483,6 @@ export async function runWhmcsToolStage(config: ServerConfig, input: WhmcsStageI
   const durationMs = Date.now() - startedAt;
   const m = ctx.metrics;
 
-  // One summary row per turn that touched account data or went live — never
-  // one row per call, and nothing for a pure public-cache hit.
-  if (privateRead || m.httpCalls > 0) {
-    void recordCommerceToolAudit(config, {
-      workspaceId: input.workspaceId,
-      connectionId: connection.id,
-      conversationId: input.conversationId,
-      correlationId,
-      toolName: toolsUsed[0] ?? 'whmcs',
-      durationMs,
-      success: errorCode === null || errorCode === 'resource_not_found',
-      safeErrorCode: errorCode,
-      cacheHit: m.cacheHits > 0 && m.httpCalls === m.accessChecks,
-      liveRevalidated: m.httpCalls > 0,
-      resultCount,
-    });
-  }
   emitMetric(config, {
     metric: 'commerce_whmcs_turn',
     workspaceId: input.workspaceId,

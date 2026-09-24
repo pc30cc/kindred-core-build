@@ -16,8 +16,8 @@ use WebYar\Whmcs\Version;
  * CSRF token, and the pairing callback is bound to the random `state` it
  * started with.
  *
- * Opening the page costs: settings reads (one table), one COUNT of active
- * grants. It never contacts Web Yar by itself — "Check connection" does,
+ * Opening the page costs: settings reads (one table), one admin-language
+ * lookup, and one COUNT of active grants. It never contacts Web Yar by itself — "Check connection" does,
  * once per click.
  */
 final class Page
@@ -28,6 +28,12 @@ final class Page
     public static function render(array $vars)
     {
         $lang = isset($vars['_lang']) && is_array($vars['_lang']) ? $vars['_lang'] : array();
+        // The WHMCS addon default is English; use the logged-in admin's
+        // preference so the whole page follows WHMCS when it is Persian.
+        if (self::isPersian()) {
+            require __DIR__ . '/../../lang/farsi.php';
+            $lang = array_merge($lang, $_ADDONLANG);
+        }
         $moduleLink = isset($vars['modulelink']) ? (string) $vars['modulelink'] : 'addonmodules.php?module=webyar';
         $notice = null;
 
@@ -61,13 +67,6 @@ final class Page
     {
         switch ($action) {
             case 'save':
-                $webyar = self::cleanUrl(isset($_POST['webyar_url']) ? $_POST['webyar_url'] : '');
-                $api = self::cleanUrl(isset($_POST['api_url']) ? $_POST['api_url'] : '');
-                if ($webyar === null || ($api === null && trim((string) $_POST['api_url']) !== '')) {
-                    return array('danger', self::t($lang, 'invalid_url'));
-                }
-                Settings::set('webyar_url', $webyar);
-                Settings::set('api_url', $api === null ? '' : $api);
                 Settings::set('auto_widget', !empty($_POST['auto_widget']) ? '1' : '0');
                 Settings::set('share_contact', !empty($_POST['share_contact']) ? '1' : '0');
                 foreach (Settings::SECTIONS as $section) {
@@ -104,16 +103,19 @@ final class Page
         };
         $token = self::csrfToken();
         $credential = Settings::credential();
+        $rtl = self::isPersian();
+        $logo = '../modules/addons/webyar/assets/icon.png';
+        echo '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>';
+        echo '<link href="https://fonts.googleapis.com/css2?family=' . ($rtl ? 'Vazirmatn' : 'Inter') . ':wght@400;500;600;700&display=swap" rel="stylesheet">';
+        echo '<style>.webyar-whmcs{font-family:' . ($rtl ? 'Vazirmatn' : 'Inter') . ',sans-serif;max-width:1080px;margin:24px auto;padding:28px;border-radius:24px;background:#f6f8fc;color:#14213d;box-shadow:0 18px 60px rgba(20,33,61,.08)}.webyar-whmcs .wy-head{display:flex;align-items:center;gap:16px;margin-bottom:26px}.webyar-whmcs .wy-head img{width:58px;height:58px;border-radius:16px;object-fit:contain;background:#fff;padding:8px}.webyar-whmcs .wy-head h2{margin:0;font-weight:700}.webyar-whmcs .wy-head p{margin:6px 0 0;color:#55657b;line-height:1.8}.webyar-whmcs .panel{border:1px solid #e6ecf5;border-radius:17px;overflow:hidden;box-shadow:0 8px 25px rgba(20,33,61,.04);margin-bottom:20px}.webyar-whmcs .panel-heading{background:white;border-bottom:1px solid #eef2f7;padding:17px 22px}.webyar-whmcs .panel-title{font-weight:700}.webyar-whmcs .panel-body{padding:22px}.webyar-whmcs .btn{border-radius:9px;margin:3px;padding:9px 15px}.webyar-whmcs .btn-primary{background:#2764d8;border-color:#2764d8}.webyar-whmcs .checkbox{padding:5px 0}.webyar-whmcs .checkbox label{font-weight:500}.webyar-whmcs .help-block{line-height:1.7}.webyar-whmcs .wy-readonly{direction:ltr;unicode-bidi:plaintext;overflow-wrap:anywhere;background:#f6f8fc;padding:11px;border-radius:8px}</style>';
         $capabilities = Schema::supportedCapabilities();
-        // dir="auto" lets a Persian (RTL) or Turkish/English (LTR) admin
-        // language lay out naturally; URLs and ids are always forced LTR.
-        echo '<div class="webyar-whmcs" dir="auto">';
+        // Admin language controls direction; URL and ids stay LTR.
+        echo '<div class="webyar-whmcs" dir="' . ($rtl ? 'rtl' : 'ltr') . '">';
         if (is_array($notice)) {
             echo '<div class="alert alert-' . $e($notice[0]) . '">' . $e($notice[1]) . '</div>';
         }
 
-        echo '<h2>' . $e(self::t($lang, 'title')) . '</h2>';
-        echo '<p>' . $e(self::t($lang, 'intro')) . '</p>';
+        echo '<div class="wy-head"><img src="' . $e($logo) . '" alt="Web Yar"><div><h2>' . $e(self::t($lang, 'title')) . '</h2><p>' . $e(self::t($lang, 'intro')) . '</p></div></div>';
 
         // ── Connection ──
         echo '<div class="panel panel-default"><div class="panel-heading"><h3 class="panel-title">' . $e(self::t($lang, 'connection')) . '</h3></div><div class="panel-body">';
@@ -135,8 +137,8 @@ final class Page
         echo '<form method="post" action="' . $e($moduleLink) . '">';
         echo '<input type="hidden" name="a" value="save"><input type="hidden" name="token_webyar" value="' . $e($token) . '">';
         echo '<div class="panel panel-default"><div class="panel-heading"><h3 class="panel-title">' . $e(self::t($lang, 'settings')) . '</h3></div><div class="panel-body">';
-        echo '<div class="form-group"><label>' . $e(self::t($lang, 'webyar_url')) . '</label><input class="form-control" dir="ltr" name="webyar_url" value="' . $e(Settings::appUrl()) . '" placeholder="https://app.example.com"></div>';
-        echo '<div class="form-group"><label>' . $e(self::t($lang, 'api_url')) . '</label><input class="form-control" dir="ltr" name="api_url" value="' . $e((string) Settings::get('api_url')) . '" placeholder="https://api.example.com"><p class="help-block">' . $e(self::t($lang, 'api_url_help')) . '</p></div>';
+        echo '<div class="form-group"><label>' . $e(self::t($lang, 'webyar_url')) . '</label><div class="wy-readonly" dir="ltr">' . $e(Settings::appUrl()) . '</div></div>';
+        echo '<div class="form-group"><label>' . $e(self::t($lang, 'api_url')) . '</label><div class="wy-readonly" dir="ltr">' . $e(Settings::apiUrl()) . '</div></div>';
         echo self::checkbox('auto_widget', Settings::autoWidget(), self::t($lang, 'auto_widget'));
         echo self::checkbox('share_contact', Settings::shareContact(), self::t($lang, 'share_contact'));
         echo '<h4>' . $e(self::t($lang, 'sections')) . '</h4><p class="help-block">' . $e(self::t($lang, 'sections_help')) . '</p>';
@@ -201,20 +203,20 @@ final class Page
         return ($https ? 'https' : 'http') . '://' . $host . $path . '?' . ($query ? $query . '&' : '') . 'a=pair_callback';
     }
 
-    private static function cleanUrl($value)
+    private static function isPersian()
     {
-        $value = rtrim(trim((string) $value), '/');
-        if ($value === '' || strlen($value) > 200) {
-            return null;
+        $language = '';
+        if (!empty($_SESSION['adminid'])) {
+            try {
+                $language = strtolower((string) \WHMCS\Database\Capsule::table('tbladmins')->where('id', (int) $_SESSION['adminid'])->value('language'));
+            } catch (\Exception $e) {
+                $language = '';
+            }
         }
-        $parts = parse_url($value);
-        if (!is_array($parts) || empty($parts['host']) || empty($parts['scheme']) || !in_array(strtolower($parts['scheme']), array('https', 'http'), true)) {
-            return null;
+        if ($language === '') {
+            $language = strtolower((string) Platform::setting('Language'));
         }
-        if (isset($parts['query']) || isset($parts['fragment']) || isset($parts['user'])) {
-            return null;
-        }
-        return $value;
+        return in_array($language, array('farsi', 'persian', 'fa', 'fa_ir'), true);
     }
 
     private static function t(array $lang, $key, $fallback = null)

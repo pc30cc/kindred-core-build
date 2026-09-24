@@ -149,6 +149,12 @@ final class ContactsModel {
             guard gen == listGeneration else { return }
             let sorted: [Contact] = contacts.sorted { Self.stamp($0) > Self.stamp($1) }
             raw = sorted.map { c -> (Contact, VisitorProfile?) in (c, profiles[c.id]) }
+            #if DEBUG
+            for c in sorted.prefix(60) {
+                let p = profiles[c.id]
+                Log.write("[contacts-debug] \(c.id.prefix(8)) name=\(c.name ?? "-") profile=\(p != nil) os=\(p?.device?.os ?? "-") browser=\(p?.device?.browser ?? "-") cc=\(p?.geo?.countryCode ?? "-") avatar=\(c.avatarUrl != nil) visitor=\(c.visitorCode ?? "-") meta=\(c.metadata?.object?.keys.sorted().joined(separator: ",") ?? "-")")
+            }
+            #endif
             relabel()
             error = nil
             loading = false

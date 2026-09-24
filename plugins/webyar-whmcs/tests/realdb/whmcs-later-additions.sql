@@ -57,3 +57,6 @@ ALTER TABLE `tblproducts` ADD COLUMN IF NOT EXISTS `order` int(1) NOT NULL DEFAU
 ALTER TABLE `tbldomains` ADD COLUMN IF NOT EXISTS `donotrenew` int(1) NOT NULL DEFAULT 0;
 ALTER TABLE `tblinvoices` ADD COLUMN IF NOT EXISTS `invoicenum` text COLLATE utf8_unicode_ci NOT NULL;
 ALTER TABLE `tbltickets` ADD COLUMN IF NOT EXISTS `merged_ticket_id` int(10) unsigned NOT NULL DEFAULT 0;
+-- The base schema has tbltickets.tid as int(6); WHMCS 8/9 store the public
+-- ticket number ("ABC-123456") as text.
+ALTER TABLE `tbltickets` MODIFY `tid` varchar(128) COLLATE utf8_unicode_ci NOT NULL DEFAULT '';

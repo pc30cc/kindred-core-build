@@ -54,7 +54,7 @@ final class Domains
     private static function shape($row, $currency)
     {
         return array(
-            'id' => (string) $row->id,
+            'id' => Text::id($row->id),
             'domain' => Text::clean($row->domain, 253),
             'status' => (string) $row->status,
             'registration_date' => Text::date($row->registrationdate),

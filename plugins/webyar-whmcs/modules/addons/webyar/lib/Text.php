@@ -54,6 +54,16 @@ final class Text
         return preg_match('/^-?\d+(\.\d+)?$/', $string) ? $string : null;
     }
 
+    /**
+     * A WHMCS row id as a plain decimal string. Many WHMCS id columns are
+     * INT ZEROFILL, which MySQL returns padded ("0000000102"); the same id
+     * must read "102" whichever column or driver it came from.
+     */
+    public static function id($value)
+    {
+        return (string) (int) $value;
+    }
+
     public static function today()
     {
         // WHMCS stores dates in its own configured timezone, which is PHP's default here.

@@ -2,6 +2,7 @@
 
 use PHPUnit\Framework\TestCase;
 use WebYar\Whmcs\Grants;
+use WebYar\Whmcs\Text;
 use WHMCS\Database\Capsule;
 
 /** Scenario 12/13 of the brief: amounts, currencies, dates and statuses read correctly; nothing internal leaves. */
@@ -23,6 +24,15 @@ final class ReadersTest extends TestCase
         list($status, $payload) = Signing::call($op, $params, $this->alice);
         $this->assertSame(200, $status, $op . ' ' . json_encode($payload));
         return $payload['data'];
+    }
+
+    public function test_zerofill_ids_read_as_plain_decimals(): void
+    {
+        // MySQL returns WHMCS's INT ZEROFILL ids padded; the same id must read the same everywhere.
+        $this->assertSame('102', Text::id('0000000102'));
+        $this->assertSame('102', Text::id(102));
+        $this->assertSame('102', Text::id('102'));
+        $this->assertSame('0', Text::id('0000000000'));
     }
 
     public function test_unpaid_invoices_carry_balance_after_partial_payment_and_hide_drafts(): void

@@ -166,7 +166,7 @@ final class Catalog
             $product = isset($official[(int) $row->id]) ? $official[(int) $row->id] : null;
             $url = $product && !empty($product['product-url']) ? (string) $product['product-url'] : Links::orderProduct($row->id);
             $items[] = array(
-                'id' => (string) $row->id,
+                'id' => Text::id($row->id),
                 'name' => Text::clean($row->name, 120),
                 'group' => Text::clean($row->grp, 120),
                 'description' => Text::clean($row->description, 300),

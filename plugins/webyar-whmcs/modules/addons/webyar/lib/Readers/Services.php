@@ -79,7 +79,7 @@ final class Services
     private static function shape($row, $currency)
     {
         return array(
-            'id' => (string) $row->id,
+            'id' => Text::id($row->id),
             'product' => Text::clean($row->product, 120),
             'group' => Text::clean($row->grp, 120),
             'domain' => Text::clean($row->domain, 253),

@@ -213,6 +213,14 @@ struct FilterPicker: View {
             .contentShape(Capsule())
         }
         .buttonStyle(PressableButtonStyle())
+        // Every chip at the width of its own words.
+        //
+        // Without this the row does not scroll: `ScrollView` proposes the
+        // width it has, `HStack` shares that out, and `Text` — the most
+        // flexible thing in a chip — gives way first. Four queues, their
+        // counts and Colleagues do not fit a phone in Persian or Turkish,
+        // and what came of it was «همک…» rather than a strip that moved.
+        .fixedSize(horizontal: true, vertical: false)
         .accessibilityLabel(label(for: filter))
         .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
     }
@@ -279,6 +287,7 @@ struct FilterPicker: View {
             .contentShape(Capsule())
         }
         .buttonStyle(PressableButtonStyle())
+        .fixedSize(horizontal: true, vertical: false)
         .accessibilityLabel(
             destination.count > 0
                 ? "\(destination.title) (\(Format.number(destination.count, language: language)))"

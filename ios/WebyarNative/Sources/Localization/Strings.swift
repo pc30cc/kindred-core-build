@@ -732,6 +732,20 @@ enum Str {
         }
     }
 
+    /// The same inbox, named for a chip rather than for a screen.
+    ///
+    /// The strip has to hold four queues, their counts and this, and
+    /// "Meslektaşlar" alone is a third of a phone. The screen it opens and
+    /// the title menu still say the whole word — the short one is only for
+    /// the one place where the long one costs the chips beside it.
+    static func colleaguesShort(_ l: Language) -> String {
+        switch l {
+        case .en: "Team"
+        case .fa: "همکاران"
+        case .tr: "Ekip"
+        }
+    }
+
     static func colleaguesEmptyTitle(_ l: Language) -> String {
         switch l {
         case .en: "No colleagues yet"

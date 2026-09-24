@@ -195,7 +195,7 @@ struct InboxView: View {
         return [
             .init(
                 id: "colleagues",
-                title: Str.colleagues(language),
+                title: Str.colleaguesShort(language),
                 // The same glyph the title menu gives it.
                 icon: "person.2",
                 count: colleagueUnread.count,

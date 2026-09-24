@@ -110,7 +110,16 @@ final class ChatModel {
 
     var aiMode: Bool { conversation?.isAiManaged == true }
 
+    #if DEBUG
+    /// The thread on screen, for the debug command file.
+    nonisolated(unsafe) static weak var debugCurrent: ChatModel?
+    func debugRefresh() { poller?.kick() }
+    #endif
+
     func start() {
+        #if DEBUG
+        Self.debugCurrent = self
+        #endif
         poller = Poller("thread", interval: { [weak self] in
             guard let self else { return 5 }
             return self.app.pollInterval(Double(min(5, self.app.config.pollIntervalSeconds)))

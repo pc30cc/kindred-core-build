@@ -15,6 +15,13 @@ final class SampleBackend: URLProtocol {
     nonisolated(unsafe) private static var notes: [String: [[String: Any]]] = [:]
     nonisolated(unsafe) private static var maintenanceOn = false
 
+    /// A visitor's message arriving in a conversation, for DebugTools' `visitor <id>`.
+    static func visitorSays(_ conversationId: String, _ body: String) {
+        lock.lock()
+        sent[conversationId, default: []].append(["id": "visitor-\(UUID().uuidString)", "conversation_id": conversationId, "sender_type": "contact", "body": body, "created_at": ago(0)])
+        lock.unlock()
+    }
+
     /// Super Admin's maintenance switch, for DebugTools' `maintenance on|off`.
     static var maintenance: Bool {
         get { lock.lock(); defer { lock.unlock() }; return maintenanceOn }
@@ -132,6 +139,12 @@ final class SampleBackend: URLProtocol {
             m("ai", "Hello! I'm the Webyar assistant. How can I help you today?", 11)
             m("contact", "I want to know about your enterprise plan pricing", 3)
             m("ai", "Our Enterprise plan starts at $499/month and includes unlimited operators, the AI agent and the call center. Would you like me to connect you with a specialist?", 2)
+        case "conv-2":
+            for i in 0..<30 {
+                m("contact", "Message \(i + 1) from the visitor — checking how a long thread scrolls.", Double(400 - i * 12))
+                m("agent", "Reply \(i + 1): thanks, noted. Anything else I can help with?", Double(395 - i * 12))
+            }
+            m("contact", "Last one: can I change the delivery address after I've already paid?", 5)
         default:
             m("contact", "Hello 👋", 120)
             m("agent", "Hi! How can I help?", 118)

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { AuthHeroPanel } from '@/components/auth/AuthHeroPanel';
 import { BrandLogo } from '@/components/brand/BrandLogo';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
@@ -10,7 +11,6 @@ import { Eye, EyeOff, Loader2, ArrowRight, Mail, Lock, Check } from 'lucide-reac
 import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
 import { cn } from '@/lib/utils';
-import loginIllustration from '@/assets/login-illustration.jpg';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -143,7 +143,7 @@ export default function LoginPage() {
 
   return (
     <div className="fixed inset-0 flex" dir={dir}>
-      <div className={`flex-1 flex flex-col bg-background overflow-y-auto ${isRtl ? 'order-2' : 'order-1'}`}>
+      <div className={`auth-aurora flex-1 flex flex-col overflow-y-auto ${isRtl ? 'order-2' : 'order-1'}`}>
         <div className="flex items-center justify-between px-8 py-5 shrink-0">
           {brandName ? (
             <div className="flex items-center gap-3">
@@ -157,9 +157,9 @@ export default function LoginPage() {
         </div>
 
         <div className="flex-1 flex items-center justify-center px-6 pb-12">
-          <div className="w-full max-w-[420px] space-y-8">
+          <div className="glass beam-border w-full max-w-[440px] space-y-8 rounded-3xl p-7 shadow-glow sm:p-9">
             <div className="space-y-2">
-              <h1 className="text-3xl font-bold text-foreground tracking-tight">{t('auth.loginTitle')}</h1>
+              <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">{t('auth.loginTitle')}</h1>
               <p className="text-muted-foreground">{t('auth.loginSubtitle')}</p>
             </div>
 
@@ -258,7 +258,7 @@ export default function LoginPage() {
               <Button
 
                 type="submit"
-                className="w-full h-12 text-base font-semibold gap-2 rounded-xl shadow-sm hover:shadow-md transition-shadow"
+                className="btn-shimmer w-full h-12 text-base font-semibold gap-2 rounded-xl"
                 disabled={loading}
               >
                 {loading ? (
@@ -284,49 +284,11 @@ export default function LoginPage() {
         </div>
       </div>
 
-      <div className={`hidden lg:flex w-[42%] xl:w-[45%] relative overflow-hidden ${isRtl ? 'order-1' : 'order-2'}`}
-        style={{ background: 'var(--gradient-auth-hero, var(--gradient-primary))' }}
-      >
-        <div className="absolute -top-24 -right-24 w-80 h-80 rounded-full bg-white/10 blur-3xl" />
-        <div className="absolute bottom-0 -left-20 w-[500px] h-[500px] rounded-full bg-white/5 blur-2xl" />
-        <div className="absolute top-1/3 right-16 w-48 h-48 rounded-full bg-white/8 blur-xl" />
-
-        <div className="absolute inset-0 opacity-[0.03]"
-          style={{
-            backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)',
-            backgroundSize: '24px 24px',
-          }}
-        />
-
-        <div className="relative z-10 flex flex-col justify-center items-center p-12 text-center w-full">
-          <div className="space-y-5 max-w-md">
-            <h2 className="text-3xl xl:text-4xl font-bold text-white leading-tight">
-              {t('auth.loginPromoTitle')}
-            </h2>
-            <p className="text-white/70 text-base leading-relaxed">
-              {t('auth.loginPromoSubtitle')}
-            </p>
-          </div>
-
-          <div className="mt-10 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl ring-1 ring-white/20 transform hover:scale-[1.02] transition-transform duration-500">
-            <img
-              src={loginIllustration}
-              alt="Platform preview"
-              className="w-full h-auto object-cover"
-              width={960}
-              height={1080}
-            />
-          </div>
-
-          <div className="mt-8 flex flex-wrap justify-center gap-2">
-            {['Live Chat', 'Smart Inbox', 'Analytics', 'Automation'].map((feature) => (
-              <span key={feature} className="px-3 py-1.5 text-xs font-medium text-white/90 bg-white/10 rounded-full backdrop-blur-sm border border-white/10">
-                {feature}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
+      <AuthHeroPanel
+        title={t('auth.loginPromoTitle')}
+        subtitle={t('auth.loginPromoSubtitle')}
+        className={`w-[44%] xl:w-[46%] ${isRtl ? 'order-1' : 'order-2'}`}
+      />
     </div>
   );
 }

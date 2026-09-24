@@ -298,8 +298,16 @@ final class SampleBackend: URLProtocol {
                 ["id": "d-2", "name": "پشتیبانی فنی", "enabled": true, "cc_voice_enabled": true, "cc_video_enabled": true],
             ]])
         case ("POST", "/api/call-invitations"):
-            return (200, ["invitation": ["id": "inv-\(UUID().uuidString.prefix(8))", "status": "pending", "channel": body["channel"] ?? "audio",
-                                         "conversation_id": body["conversation_id"] ?? "", "expires_at": ago(-5)]])
+            // As the server does: the invitation also lands in the thread as a system message.
+            let id = "inv-\(UUID().uuidString.prefix(8))"
+            let conversation = body["conversation_id"] as? String ?? ""
+            let channel = body["channel"] as? String ?? "audio"
+            lock.lock()
+            sent[conversation, default: []].append(["id": "sys-\(id)", "conversation_id": conversation, "sender_type": "system", "body": "You have been invited to a call.",
+                                                    "metadata": ["kind": "call_invitation", "status": "pending", "channel": channel, "invitation_id": id, "operator_name": "Sara Karimi"],
+                                                    "created_at": ago(0)])
+            lock.unlock()
+            return (200, ["invitation": ["id": id, "status": "pending", "channel": channel, "conversation_id": conversation, "expires_at": ago(-5)]])
         case ("GET", "/api/call-center/calls"):
             return (200, ["calls": [
                 ["id": "cs-9", "state": "ended", "call_type": "voice", "visitor_name": "مریم احمدی", "created_at": ago(90), "duration_seconds": 312],

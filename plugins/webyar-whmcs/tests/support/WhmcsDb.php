@@ -7,11 +7,27 @@ use WebYar\Whmcs\Settings;
 use WHMCS\Database\Capsule;
 
 /**
- * An in-memory database shaped like the WHMCS tables the addon reads, plus
- * the addon's own tables (created by the addon's real Schema::install()).
+ * The database the addon tests run against, in one of two modes:
+ *
+ *  - default: an in-memory SQLite database shaped like the WHMCS tables the
+ *    addon reads (fast, runs anywhere);
+ *  - real database: a MySQL/MariaDB database that already holds the WHMCS
+ *    schema (see tests/realdb/README.md). Selected by WEBYAR_TEST_DB=mysql.
+ *    Tables are emptied between tests, never created here, so every seed row
+ *    and every addon query meets the real column types, defaults and SQL
+ *    dialect.
+ *
+ * Either way the addon's own tables are created by its real Schema::install().
  */
 final class WhmcsDb
 {
+    /** WHMCS tables the seed writes to — emptied before each test in real-database mode. */
+    const SEEDED_TABLES = array(
+        'tblclients', 'tblcurrencies', 'tblusers_clients', 'tblproductgroups', 'tblproducts', 'tblhosting',
+        'tbldomains', 'tblinvoices', 'tblinvoiceitems', 'tblaccounts', 'tblorders', 'tbltickets',
+        'tblticketreplies', 'tblticketnotes', 'tblticketdepartments',
+    );
+
     const SECRET = 'test-installation-secret-0123456789abcdef';
     const INSTALLATION = '9418e6df-2080-466c-a7e5-66eb563830a8';
     const WORKSPACE = '6ee40d07-32a3-4594-8a5f-d439f81afa5b';
@@ -20,7 +36,8 @@ final class WhmcsDb
     public static function boot()
     {
         $capsule = new Capsule();
-        $capsule->addConnection(array('driver' => 'sqlite', 'database' => ':memory:', 'prefix' => ''));
+        $real = self::realDatabase();
+        $capsule->addConnection($real ?: array('driver' => 'sqlite', 'database' => ':memory:', 'prefix' => ''));
         $capsule->setAsGlobal();
         Schema::resetCache();
         Settings::resetMemo();
@@ -40,6 +57,59 @@ final class WhmcsDb
             return array('result' => 'error');
         };
 
+        if ($real) {
+            self::emptyRealTables();
+        } else {
+            self::createSqliteTables();
+        }
+
+        Schema::install();
+        Settings::storeCredential(array(
+            'installation_id' => self::INSTALLATION,
+            'secret' => self::SECRET,
+            'workspace_id' => self::WORKSPACE,
+            'connection_id' => self::CONNECTION,
+        ));
+        Settings::set('webyar_url', 'https://app.webyar.test');
+        Settings::set('api_url', 'https://api.webyar.test');
+        Settings::resetMemo();
+    }
+
+    /** @return array<string,mixed>|null the connection for WEBYAR_TEST_DB=mysql, else null */
+    public static function realDatabase()
+    {
+        if (getenv('WEBYAR_TEST_DB') !== 'mysql') {
+            return null;
+        }
+        return array(
+            'driver' => 'mysql',
+            'host' => getenv('WEBYAR_TEST_DB_HOST') ?: '127.0.0.1',
+            'port' => getenv('WEBYAR_TEST_DB_PORT') ?: '3306',
+            'database' => getenv('WEBYAR_TEST_DB_NAME') ?: 'webyar_realdb_test',
+            'username' => getenv('WEBYAR_TEST_DB_USER') ?: 'root',
+            'password' => getenv('WEBYAR_TEST_DB_PASSWORD') ?: '',
+            // What WHMCS itself uses: utf8 tables, and no strict SQL mode.
+            'charset' => 'utf8',
+            'collation' => 'utf8_unicode_ci',
+            'prefix' => '',
+            'strict' => false,
+        );
+    }
+
+    /** Real-database mode: empty the seeded WHMCS tables and drop the addon's own. */
+    private static function emptyRealTables()
+    {
+        $db = Capsule::connection();
+        foreach ($db->select("SHOW TABLES LIKE 'mod\\_webyar\\_%'") as $row) {
+            $db->statement('DROP TABLE `' . current((array) $row) . '`');
+        }
+        foreach (self::SEEDED_TABLES as $table) {
+            $db->statement('TRUNCATE TABLE `' . $table . '`');
+        }
+    }
+
+    private static function createSqliteTables()
+    {
         $schema = Capsule::schema();
         $schema->create('tblclients', function ($t) {
             $t->increments('id');
@@ -173,17 +243,6 @@ final class WhmcsDb
             $t->increments('id');
             $t->string('name');
         });
-
-        Schema::install();
-        Settings::storeCredential(array(
-            'installation_id' => self::INSTALLATION,
-            'secret' => self::SECRET,
-            'workspace_id' => self::WORKSPACE,
-            'connection_id' => self::CONNECTION,
-        ));
-        Settings::set('webyar_url', 'https://app.webyar.test');
-        Settings::set('api_url', 'https://api.webyar.test');
-        Settings::resetMemo();
     }
 
     /** What webyar_activate() does once: introspect the schema and cache the result. */

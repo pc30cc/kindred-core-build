@@ -80,6 +80,10 @@ enum DebugTools {
             }
         case "open": app.openConversation(arg)
         case "mail": EmailModel.debugCurrent?.select(arg)
+        case "cc":
+            CallCenterModel.debugCurrent?.select(arg)
+        case "deskend":
+            CallCenterModel.debugCurrent?.debugDeskCallEnded()
         case "scrollup":
             // As if the operator scrolled the open thread up to read.
             for w in NSApp.windows { for sv in scrollViews(w.contentView) where sv.documentView.map({ $0.frame.height > sv.contentView.bounds.height + 200 }) ?? false {

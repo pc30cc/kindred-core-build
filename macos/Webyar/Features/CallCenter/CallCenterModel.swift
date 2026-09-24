@@ -61,7 +61,17 @@ final class CallCenterModel {
     /// Bumped with the call to scroll the list to.
     private(set) var scrollRequest: String?
 
+    #if DEBUG
+    /// The call center on screen, for the debug command file.
+    nonisolated(unsafe) static weak var debugCurrent: CallCenterModel?
+    /// As if the in-call window had just hung up the call picked.
+    func debugDeskCallEnded() { if let id = selectedId { deskCallEnded(id) } }
+    #endif
+
     init(app: AppModel) {
+        #if DEBUG
+        defer { Self.debugCurrent = self }
+        #endif
         self.app = app
     }
 

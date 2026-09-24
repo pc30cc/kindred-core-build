@@ -40,6 +40,7 @@ struct FloatingTabBar<Tab: Hashable>: View {
 
     @Namespace private var bubble
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.layoutDirection) private var direction
 
     var body: some View {
         LiquidGlassGroup(spacing: Theme.Space.xl) {
@@ -152,7 +153,13 @@ struct FloatingTabBar<Tab: Hashable>: View {
             .frame(width: 7, height: 7)
             .overlay(Circle().strokeBorder(Theme.Palette.surface, lineWidth: 1.5))
             .frame(width: 10, height: 10)
-            .offset(x: 5, y: -3)
+            // `.topTrailing` mirrors under RTL and lands the dot on the
+            // icon's top-LEFT, which is right — but `.offset(x:)` does not
+            // mirror with it. Left as a plain `+5` the nudge that pushes the
+            // dot clear of the icon in English pushed it onto the icon's
+            // corner in Persian, which is exactly how it first shipped and
+            // exactly what the screenshot showed.
+            .offset(x: direction == .rightToLeft ? -5 : 5, y: -3)
             .transition(
                 reduceMotion
                     ? .opacity

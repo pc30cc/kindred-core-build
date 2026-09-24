@@ -20,7 +20,7 @@ concurrency:
 jobs:
   guards:
     name: Source, translation and security guards
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["self-hosted","linux","x64","android"]') }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -63,7 +63,7 @@ jobs:
 
   database:
     name: Clean replay + invitation suites (PostgreSQL, mandatory)
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["self-hosted","linux","x64","android"]') }}
     timeout-minutes: 40
 
     services:
@@ -141,7 +141,7 @@ jobs:
 
   e2e:
     name: Browser E2E (fa / tr / en)
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["self-hosted","linux","x64","android"]') }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

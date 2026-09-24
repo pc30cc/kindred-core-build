@@ -2324,7 +2324,7 @@ export default function InboxPage() {
                       <div dir={dir} className={cn(
                         'rounded-2xl px-4 py-2.5 text-[14px] leading-[1.7] shadow-sm',
                         isAgent
-                          ? 'bg-primary text-primary-foreground rounded-br-sm'
+                          ? 'bg-primary/10 text-foreground border border-primary/20 rounded-br-sm dark:bg-primary/15'
                           : 'bg-secondary text-foreground rounded-bl-sm'
                       )}>
                         {(() => {
@@ -2365,7 +2365,7 @@ export default function InboxPage() {
                               <div className={cn(
                                 'rounded-lg px-2.5 py-1.5 mb-1.5 text-[12.5px] leading-[1.6] border-s-2',
                                 isAgent
-                                  ? 'bg-primary-foreground/10 border-primary-foreground/50 text-primary-foreground/80'
+                                  ? 'bg-background/70 border-primary/60 text-muted-foreground'
                                   : 'bg-background/70 border-primary/60 text-muted-foreground',
                               )}>
                                 {qAuthor && <div className="font-semibold text-[11px] mb-0.5 opacity-90">{qAuthor}</div>}

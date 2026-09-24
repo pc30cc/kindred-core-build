@@ -20,6 +20,7 @@ import { toast } from '@/hooks/use-toast';
 import { pluginsApi } from '@/lib/plugins-api';
 import { TelegramConfigPanel } from '@/components/plugins/TelegramConfigPanel';
 import { WooCommerceConfigPanel } from '@/components/plugins/WooCommerceConfigPanel';
+import { WhmcsConfigPanel } from '@/components/plugins/WhmcsConfigPanel';
 import { OpenCartConfigPanel } from '@/components/plugins/OpenCartConfigPanel';
 import { GmailConfigPanel } from '@/components/plugins/GmailConfigPanel';
 import { YahooConfigPanel } from '@/components/plugins/YahooConfigPanel';
@@ -188,6 +189,8 @@ export default function PluginDetailPage() {
         </Tabs>
       ) : pluginId === 'woocommerce' && !blocked ? (
         <WooCommerceConfigPanel workspaceId={workspaceId} />
+      ) : pluginId === 'whmcs' && !blocked ? (
+        <WhmcsConfigPanel workspaceId={workspaceId} />
       ) : pluginId === 'opencart' && !blocked ? (
         <OpenCartConfigPanel workspaceId={workspaceId} />
       ) : pluginId === 'gmail' && !blocked ? (

@@ -158,6 +158,19 @@ rejected outright; the browser is never trusted to submit a raw
 - A cloned store (another origin or store id answering with the same
   credential) is marked `stale_origin` and must be reconnected.
 
+## WHMCS account identity
+
+WHMCS access is anchored on a **grant** held by the addon: a session-bound,
+revocable record of "this WHMCS user, acting for this client account". The
+client-area page hands the widget a 5-minute signed assertion naming the
+grant. Web Yar binds it to the widget visitor, but never decides on its own
+that the grant is still valid: every turn with a private read begins with a
+live `session.check`. Logout, a new login, an account switch, a password
+change, a closed account, 30 minutes idle or 12 hours of age end the grant.
+Then the WHMCS user's permission on that account is checked live, and the
+reader's SQL is scoped to that account. Chat text (names, emails, ids) is
+never accepted as proof. See [WHMCS.md](WHMCS.md) §3–§5.
+
 ## Guest order verification
 
 Reuses the Generic Verification Core (`server/services/verification/`) —
@@ -180,3 +193,10 @@ the Generic Verification Core. Order number alone is never sufficient.
 - Unknown/un-negotiated capability → treated as absent, never assumed present.
 - Ambiguous/ unauthorized order lookup → `identity_required` /
   `order_access_denied`, never partial data "to be helpful."
+- WooCommerce plugin order routes (lookup, customer list, tracking) refuse
+  any request whose `authorization` does not name that order's customer (or,
+  for a verified guest, exactly that order), with the same answer as a
+  missing order.
+- WHMCS: an authorization error (`grant_invalid`, permission denied) is never
+  answered from cache, and the grant's cache entries are dropped. Ambiguous
+  connection selection selects nothing.

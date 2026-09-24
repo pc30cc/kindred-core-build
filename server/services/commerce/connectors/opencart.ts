@@ -153,7 +153,7 @@ export class OpenCartConnector implements DirectCommerceConnector {
 
       let res;
       try {
-        res = await commerceHttpRequest({ url, method: 'POST', headers, body: payload, retryable: false, timeoutMs: remaining, maxBytes: OPENCART_MAX_RESPONSE_BYTES });
+        res = await commerceHttpRequest({ url, method: 'POST', headers, body: payload, retryable: false, timeoutMs: remaining, maxResponseBytes: OPENCART_MAX_RESPONSE_BYTES });
       } catch (err) {
         const transient = err instanceof CommerceError && err.code === 'commerce_live_unavailable';
         if (attempt === 0 && transient && ctx.deadlineAt - Date.now() >= MIN_RETRY_BUDGET_MS) continue;

@@ -60,7 +60,12 @@ vi.mock('../../../server/middleware/featureGating.js', () => ({
   checkEntitlementFromDB: async () => ({ allowed: true, plan: 'test' }),
   checkModuleAccess: async () => ({ allowed: true, plan: 'test' }),
 }));
-vi.mock('../../../server/services/commerce/connectors/registry.js', () => ({ resolveConnector: () => fakeConnector }));
+vi.mock('../../../server/services/commerce/connectors/registry.js', async (orig) => ({
+  // The real provider descriptors (what makes OpenCart a direct store); only
+  // the connector is the stand-in.
+  ...(await orig<typeof import('../../../server/services/commerce/connectors/registry.js')>()),
+  resolveConnector: () => fakeConnector,
+}));
 
 const { runCommerceToolStage } = await import('../../../server/services/ai-agent/commerce-tools/runner.js');
 const { publicCache, connectionGuard } = await import('../../../server/services/commerce/liveGuard.js');

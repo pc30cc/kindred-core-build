@@ -19,7 +19,8 @@ import {
   type CommerceConnectorContext,
 } from '../../../shared/commerce/types.js';
 import { readInstallationSecret } from './credentials.js';
-import { resolveConnector } from './connectors/registry.js';
+import { getProviderDescriptor, resolveConnector, type ProviderFamily } from './connectors/registry.js';
+import { listWorkspaceConnections, selectConnection } from './connectionSelection.js';
 import { recordCommerceToolAudit, type CommerceToolAuditRow } from './audit.js';
 import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 import { providerProfile } from './providers.js';
@@ -31,13 +32,14 @@ export type CommercePermissionKey =
 
 export interface CommerceConnectionRow {
   id: string;
+  created_at?: string;
   workspace_id: string;
   installation_id: string;
   provider_type: string;
   store_id: string;
   approved_origin: string;
   capabilities: string[];
-  permissions: Record<CommercePermissionKey, boolean>;
+  permissions: Partial<Record<CommercePermissionKey | string, boolean>>;
   health: string;
   catalog_ready: boolean;
   revoked_at: string | null;
@@ -68,21 +70,25 @@ export async function getConnectionForWorkspace(
   return (data as CommerceConnectionRow | null) ?? null;
 }
 
+/**
+ * The STORE connection (catalogue/orders) in context for a workspace.
+ *
+ * Used to be "newest un-revoked connection of any kind", which broke as soon
+ * as a workspace had a WooCommerce store and a WHMCS installation side by
+ * side. Now delegates to connectionSelection.ts: bound identity → the page's
+ * own site → the only connection of that family. Ambiguous → null.
+ */
 export async function getActiveConnectionForWorkspace(
   config: ServerConfig,
   workspaceId: string,
+  opts: { family?: ProviderFamily; pageOrigin?: string | null; pagePath?: string | null; connections?: CommerceConnectionRow[] } = {},
 ): Promise<CommerceConnectionRow | null> {
-  const sb = getServiceClient(config);
-  const { data, error } = await sb
-    .from('commerce_connections')
-    .select(CONNECTION_COLUMNS)
-    .eq('workspace_id', workspaceId)
-    .is('revoked_at', null)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(`commerce connection read failed: ${error.message}`);
-  return (data as CommerceConnectionRow | null) ?? null;
+  const rows = opts.connections ?? await listWorkspaceConnections(config, workspaceId);
+  return selectConnection(rows, {
+    family: opts.family ?? 'store',
+    pageOrigin: opts.pageOrigin ?? null,
+    pagePath: opts.pagePath ?? null,
+  }).connection;
 }
 
 function assertUsable(connection: CommerceConnectionRow): void {
@@ -188,19 +194,20 @@ export async function withCommerceConnector<T>(
     if (options.permission) assertPermission(connection, options.permission);
     await assertEntitled(config, workspaceId, options.permission);
     const direct = providerProfile(connection.provider_type).searchStrategy === 'direct';
-    // `catalog_ready` means "Web Yar's own index is usable". A direct
-    // connector has no index — it reads the store per question — so the
-    // gate does not apply to it (and must not make it look unavailable).
-    if (!direct && !connection.catalog_ready) throw new CommerceError('catalog_syncing', 'initial catalog sync not complete');
+    // Only a provider Web Yar keeps a catalogue index for can be "still
+    // syncing". A billing system is queried live and has no index to wait on.
+    if (getProviderDescriptor(connection.provider_type)?.usesCatalogIndex !== false && !connection.catalog_ready) {
+      throw new CommerceError('catalog_syncing', 'initial catalog sync not complete');
+    }
 
     const secret = await readInstallationSecret(config, connection.installation_id);
     if (!secret) throw new CommerceError('commerce_not_connected', 'no installation credential on file');
 
     const connector = resolveConnector(connection.provider_type, {
       origin: connection.approved_origin,
+      baseUrl: String(connection.store_id || connection.approved_origin),
       installationId: connection.installation_id,
       secret,
-      storeUrl: connection.store_id,
       externalStoreId: connection.external_store_id ?? null,
       platformVersion: connection.platform_version ?? null,
     });
@@ -277,75 +284,50 @@ export async function observeDirectHealth(config: ServerConfig, connection: Comm
 }
 
 /**
- * Which connection a conversation is about — never just "the newest one in
- * the workspace" when anything better is known:
+ * The STORE connection a conversation turn is about. connectionSelection.ts
+ * decides (the page's own site, then the only store); this adds one thing
+ * for a workspace with several stores and no page context (older widgets,
+ * other channels): the store this visitor is signed in to, as a tiebreaker.
+ * Never "the newest": ambiguous still selects nothing.
  *
- *   1. the one whose store matches the page the visitor is on (a shop with
- *      several stores in one workspace shows the widget on each of them),
- *   2. the connection this visitor is signed in to (a live identity link),
- *   3. the only active connection of the workspace,
- *   4. otherwise the newest active one (the pre-existing behaviour, kept so a
- *      workspace with several legacy stores still gets catalogue answers).
- *
- * All candidates are this workspace's own rows; a link or page origin can
- * only choose AMONG them. Private reads additionally require the identity
- * link to be on the chosen connection, and the store re-validates it.
+ * A link can only choose AMONG this workspace's rows. Private reads still
+ * require the link to be on the chosen connection, and a direct store
+ * re-validates the customer's session on every private read.
  */
 export async function resolveConversationConnection(
   config: ServerConfig,
   workspaceId: string,
-  hints: { visitorId?: string | null; conversationId?: string | null; pageUrl?: string | null; skipLinkLookup?: boolean },
+  hints: {
+    visitorId?: string | null;
+    conversationId?: string | null;
+    connections?: CommerceConnectionRow[];
+    pageOrigin?: string | null;
+    pagePath?: string | null;
+    /** A turn that reads nothing private does not need the link: skip two reads. */
+    skipLinkLookup?: boolean;
+  },
 ): Promise<CommerceConnectionRow | null> {
+  const rows = hints.connections ?? await listWorkspaceConnections(config, workspaceId);
+  const input = { family: 'store' as const, pageOrigin: hints.pageOrigin ?? null, pagePath: hints.pagePath ?? null };
+  const first = selectConnection(rows, input);
+  if (first.connection || first.reason !== 'ambiguous' || hints.skipLinkLookup) return first.connection;
+
   const sb = getServiceClient(config);
-  const { data, error } = await sb
-    .from('commerce_connections')
-    .select(CONNECTION_COLUMNS)
-    .eq('workspace_id', workspaceId)
-    .is('revoked_at', null)
-    .order('created_at', { ascending: false })
-    .limit(20);
-  if (error) throw new Error(`commerce connection read failed: ${error.message}`);
-  const rows = (data ?? []) as CommerceConnectionRow[];
-  if (rows.length <= 1) return rows[0] ?? null;
-
-  if (hints.pageUrl) {
-    try {
-      const page = new URL(hints.pageUrl);
-      const byOrigin = rows.filter((r) => { try { return new URL(r.approved_origin).origin === page.origin; } catch { return false; } });
-      // Several stores of one OpenCart install can share an origin; the
-      // longest matching store path wins.
-      const byPath = byOrigin
-        .filter((r) => { try { return page.pathname.startsWith(new URL(r.store_id).pathname); } catch { return false; } })
-        .sort((a, b) => b.store_id.length - a.store_id.length);
-      if (byPath[0]) return byPath[0];
-      if (byOrigin[0]) return byOrigin[0];
-    } catch { /* not a URL — ignore */ }
-  }
-
-  // A turn that will not read anything private (no intent) does not need
-  // the visitor's link to pick a store; skip two reads.
-  if (hints.skipLinkLookup) return rows[0];
-
   let visitorId = hints.visitorId ?? null;
   if (!visitorId && hints.conversationId) {
     const { data: conv } = await sb.from('conversations').select('visitor_session_id').eq('id', hints.conversationId).eq('workspace_id', workspaceId).maybeSingle();
-    const convRow = (conv ?? {}) as { visitor_session_id?: string | null };
-    visitorId = convRow.visitor_session_id ?? null;
+    visitorId = ((conv ?? {}) as { visitor_session_id?: string | null }).visitor_session_id ?? null;
   }
-  if (visitorId) {
-    const { data: link } = await sb
-      .from('commerce_customer_links')
-      .select('connection_id')
-      .eq('workspace_id', workspaceId)
-      .eq('visitor_id', visitorId)
-      .gte('expires_at', new Date().toISOString())
-      .order('verified_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const linkedId = ((link ?? {}) as { connection_id?: string }).connection_id;
-    const linked = rows.find((r) => r.id === linkedId);
-    if (linked) return linked;
-  }
-
-  return rows[0];
+  if (!visitorId) return null;
+  const { data: link } = await sb
+    .from('commerce_customer_links')
+    .select('connection_id')
+    .eq('workspace_id', workspaceId)
+    .eq('visitor_id', visitorId)
+    .gte('expires_at', new Date().toISOString())
+    .order('verified_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const boundConnectionId = ((link ?? {}) as { connection_id?: string }).connection_id ?? null;
+  return boundConnectionId ? selectConnection(rows, { ...input, boundConnectionId }).connection : null;
 }

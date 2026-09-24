@@ -1,4 +1,4 @@
--- Hosted mirror of database/migrations/212_commerce_opencart_direct.sql.
+-- Hosted mirror of database/migrations/214_commerce_opencart_direct.sql.
 -- OpenCart connector — direct (index-less) commerce reads.
 --
 -- ADDITIVE ONLY. No column is dropped, renamed or retyped; no row is deleted.
@@ -14,15 +14,16 @@
 --                          multi-store shop connects each store separately;
 --                          every signed call carries it and the extension
 --                          refuses a mismatch)
---   platform_version       OpenCart version reported by the handshake; picks
---                          the 3.0 vs 4.1 route shape
+--   (platform_version, added by 212 for WHMCS, holds the OpenCart version and
+--    picks the 3.0 vs 4.1 route shape)
 --   last_health_check_at   rate limit of the manual "check connection" button
 --                          (health is otherwise observed from real requests,
 --                          never polled)
 --
 -- commerce_pairing_requests
---   external_store_id / store_url / platform_version carried from register to
---   exchange, so the connection is created for exactly the store that asked.
+--   external_store_id / platform_version carried from register to exchange
+--   (the store's base URL uses 212's requested_base_url), so the connection
+--   is created for exactly the store that asked.
 --   permissions: what the owner ticked on the consent screen. It was
 --   accepted by /approve but never stored, so every new connection started
 --   with the column default instead of the owner's choice.
@@ -39,20 +40,17 @@
 --                      sign-out): conversation history older than this is not
 --                      fed back to the model, so one customer's private
 --                      answers never reach the next customer's prompt
---   updated_at
+--   (updated_at is added by 212.)
 ALTER TABLE public.commerce_connections ADD COLUMN IF NOT EXISTS external_store_id text;
-ALTER TABLE public.commerce_connections ADD COLUMN IF NOT EXISTS platform_version text;
 ALTER TABLE public.commerce_connections ADD COLUMN IF NOT EXISTS last_health_check_at timestamptz;
 
 ALTER TABLE public.commerce_pairing_requests ADD COLUMN IF NOT EXISTS external_store_id text;
-ALTER TABLE public.commerce_pairing_requests ADD COLUMN IF NOT EXISTS store_url text;
 ALTER TABLE public.commerce_pairing_requests ADD COLUMN IF NOT EXISTS platform_version text;
 ALTER TABLE public.commerce_pairing_requests ADD COLUMN IF NOT EXISTS permissions jsonb;
 
 ALTER TABLE public.commerce_customer_links ADD COLUMN IF NOT EXISTS session_ref text;
 ALTER TABLE public.commerce_customer_links ADD COLUMN IF NOT EXISTS customer_group_id text;
 ALTER TABLE public.commerce_customer_links ADD COLUMN IF NOT EXISTS private_cutoff_at timestamptz;
-ALTER TABLE public.commerce_customer_links ADD COLUMN IF NOT EXISTS updated_at timestamptz;
 
 -- The identity bridge now looks up "this visitor's current link on this
 -- connection" and updates it in place instead of inserting a row per page

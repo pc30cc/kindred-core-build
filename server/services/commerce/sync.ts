@@ -9,7 +9,8 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { CommerceError } from '../../../shared/commerce/types.js';
 import { readInstallationSecret } from './credentials.js';
-import { WooCommerceConnector, normalizeWooCommerceProduct } from './connectors/woocommerce.js';
+import { normalizeWooCommerceProduct } from './connectors/woocommerce.js';
+import { getProviderDescriptor } from './connectors/registry.js';
 import { upsertProductInIndex } from './productIndex.js';
 import { commerceHttpRequest } from './httpClient.js';
 import { buildSignedHeaders } from './signing.js';
@@ -41,7 +42,7 @@ export async function enqueueSyncJob(
     .select('id')
     .maybeSingle();
   if (error) {
-    if ((error as any).code === '23505') return null; // one active job per connection already exists
+    if ((error as { code?: string }).code === '23505') return null; // one active job per connection already exists
     throw new Error(`sync job enqueue failed: ${error.message}`);
   }
   return data as { id: string } | null;
@@ -63,13 +64,13 @@ async function fetchProductPage(
   secret: string,
   page: number,
   modifiedAfter: string | null,
-): Promise<{ products: any[]; hasMore: boolean }> {
+): Promise<{ products: unknown[]; hasMore: boolean }> {
   const { signedPath, requestPath } = catalogExportPaths(page, modifiedAfter);
   const headers = buildSignedHeaders(secret, installationId, 'GET', signedPath, '');
   const res = await commerceHttpRequest({ url: `${origin}${requestPath}`, method: 'GET', headers, retryable: true });
   if (res.status >= 400) throw new CommerceError('commerce_live_unavailable', `catalog export failed: ${res.status}`);
-  const body = res.json as any;
-  return { products: Array.isArray(body?.products) ? body.products : [], hasMore: body?.has_more === true };
+  const body = (res.json && typeof res.json === 'object' ? res.json : {}) as { products?: unknown; has_more?: unknown };
+  return { products: Array.isArray(body.products) ? body.products : [], hasMore: body.has_more === true };
 }
 
 /**
@@ -83,12 +84,18 @@ export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Pro
   const sb = getServiceClient(config);
   const { data: connection, error: connError } = await sb
     .from('commerce_connections')
-    .select('id, workspace_id, installation_id, approved_origin, revoked_at')
+    .select('id, workspace_id, installation_id, approved_origin, revoked_at, provider_type')
     .eq('id', job.connection_id)
     .maybeSingle();
   if (connError) throw new Error(connError.message);
   if (!connection || connection.revoked_at) {
     await failJob(config, job, 'commerce_not_connected', true);
+    return;
+  }
+  // Only a catalogue-indexed provider is ever synced. A live-queried billing
+  // connection (WHMCS) has nothing to copy, by design — see docs/commerce/WHMCS.md.
+  if (getProviderDescriptor(String(connection.provider_type ?? 'woocommerce'))?.usesCatalogIndex === false) {
+    await failJob(config, job, 'commerce_permission_denied', true);
     return;
   }
 

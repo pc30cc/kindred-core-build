@@ -245,6 +245,16 @@ export const COMMERCE_CAPABILITIES = [
   // connectors that answer searches live from the store and read returns.
   'returns.read',
   'search.direct',
+  // Billing/hosting connectors (WHMCS). Additive: a WooCommerce plugin never
+  // advertises these, and every gated call treats an absent capability as
+  // absent — see shared/commerce/whmcs.ts for the account contract.
+  'catalog.read',
+  'account.services.read',
+  'account.domains.read',
+  'account.invoices.read',
+  'account.orders.read',
+  'account.tickets.read',
+  'identity.grant',
 ] as const;
 
 export type CommerceCapability = (typeof COMMERCE_CAPABILITIES)[number];
@@ -268,6 +278,10 @@ export const COMMERCE_ERROR_CODES = [
   'connector_outdated',
   'protocol_mismatch',
   'catalog_syncing',
+  // Billing/hosting connectors (WHMCS).
+  'resource_not_found',
+  'account_permission_denied',
+  'rate_limited',
 ] as const;
 
 export type CommerceErrorCode = (typeof COMMERCE_ERROR_CODES)[number];

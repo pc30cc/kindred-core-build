@@ -5,13 +5,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createHmac, createHash } from 'node:crypto';
 
-interface Sent { url: string; headers: Record<string, string>; body: string; timeoutMs?: number; maxBytes?: number }
+interface Sent { url: string; headers: Record<string, string>; body: string; timeoutMs?: number; maxResponseBytes?: number }
 const sent: Sent[] = [];
 let answers: Array<{ status: number; json: unknown; bytes?: number } | Error> = [];
 
 vi.mock('../../../server/services/commerce/httpClient.js', () => ({
   commerceHttpRequest: async (req: Sent & { method: string }) => {
-    sent.push({ url: req.url, headers: req.headers, body: req.body, timeoutMs: req.timeoutMs, maxBytes: req.maxBytes });
+    sent.push({ url: req.url, headers: req.headers, body: req.body, timeoutMs: req.timeoutMs, maxResponseBytes: req.maxResponseBytes });
     const next = answers.shift();
     if (!next) throw new Error('no answer queued');
     if (next instanceof Error) throw next;
@@ -49,7 +49,7 @@ describe('the one signed route', () => {
     ].join('\n')).digest('hex');
     expect(req.headers['X-WebYar-Signature']).toBe(expected);
     expect(JSON.parse(body)).toMatchObject({ store_id: '2', terms: ['mac'], page: 1, page_size: 5 });
-    expect(req.maxBytes).toBe(128 * 1024);
+    expect(req.maxResponseBytes).toBe(128 * 1024);
   });
 
   it('uses the 3.0 route shape for 3.x stores', () => {

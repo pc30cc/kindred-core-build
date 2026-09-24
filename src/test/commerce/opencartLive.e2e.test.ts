@@ -161,7 +161,10 @@ run('OpenCart live store, end to end', () => {
     return result;
   }
 
-  const ask = (question: string, locale = 'en') => runStage(CONFIG, { workspaceId: WS, conversationId: CONV, question, locale });
+  // The page the visitor is on, as the widget reports it: with two stores in
+  // the workspace, this is what picks the store (connectionSelection.ts).
+  const page = (base: string) => ({ pageOrigin: base ? new URL(base).origin : null, pagePath: base ? new URL(base).pathname : null });
+  const ask = (question: string, locale = 'en') => runStage(CONFIG, { workspaceId: WS, conversationId: CONV, question, locale, ...page(BASE) });
   type ToolRow = Record<string, unknown>;
   const rows = (r: { toolResults: Array<{ name: string; data: ToolRow }> }, name: string): ToolRow[] => r.toolResults.filter((t) => t.name === name).map((t) => t.data);
 
@@ -206,7 +209,7 @@ run('OpenCart live store, end to end', () => {
   it('identical concurrent questions cost the store one call', async () => {
     guard.publicCache.clear();
     await measure('5 identical concurrent searches', async () => {
-      const all = await Promise.all(Array.from({ length: 5 }, () => runStage(CONFIG, { workspaceId: WS, conversationId: null, question: 'do you have iphone?', locale: 'en' })));
+      const all = await Promise.all(Array.from({ length: 5 }, () => runStage(CONFIG, { workspaceId: WS, conversationId: null, question: 'do you have iphone?', locale: 'en', ...page(BASE) })));
       return all[0];
     });
     expect(storeCalls).toBe(1);
@@ -281,7 +284,7 @@ run('OpenCart live store, end to end', () => {
 
   it('a store-0 link grants nothing on store 1', async () => {
     if (!BASE1) return;
-    const r = await measure('store switch (store 1, no link there)', () => runStage(CONFIG, { workspaceId: WS, conversationId: CONV, question: 'show my orders', locale: 'en', pageUrl: `${BASE1}index.php` }));
+    const r = await measure('store switch (store 1, no link there)', () => runStage(CONFIG, { workspaceId: WS, conversationId: CONV, question: 'show my orders', locale: 'en', ...page(BASE1) }));
     expect(storeCalls).toBe(0);
     expect(JSON.stringify(r.toolResults)).toContain('identity_required');
   });

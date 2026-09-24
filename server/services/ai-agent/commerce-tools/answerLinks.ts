@@ -21,7 +21,7 @@
 
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
-import { getActiveConnectionForWorkspace, resolveConversationConnection, type CommerceConnectionRow } from '../../commerce/gateway.js';
+import { resolveConversationConnection, type CommerceConnectionRow } from '../../commerce/gateway.js';
 import { isDirectProvider } from '../../commerce/providers.js';
 
 const URL_PATTERN = /https?:\/\/[^\s<>"'`)\]]+/gi;
@@ -180,14 +180,30 @@ export async function verifyStoreLinks(
   config: ServerConfig,
   workspaceId: string,
   text: string,
-  opts: { conversationId?: string | null; pageUrl?: string | null; allowedUrls?: readonly string[] } = {},
+  opts: {
+    connections?: CommerceConnectionRow[];
+    pageOrigin?: string | null;
+    pagePath?: string | null;
+    /** Direct stores: the conversation whose listed items vouch for links. */
+    conversationId?: string | null;
+    /** Direct stores: store links handed to the model this turn. */
+    allowedUrls?: readonly string[];
+  } = {},
 ): Promise<string> {
   const source = String(text ?? '');
   if (!source || source.indexOf('http') === -1) return source;
 
-  const connection = opts.conversationId || opts.pageUrl
-    ? await resolveConversationConnection(config, workspaceId, { conversationId: opts.conversationId ?? null, pageUrl: opts.pageUrl ?? null }).catch(() => null)
-    : await getActiveConnectionForWorkspace(config, workspaceId).catch(() => null);
+  // The STORE connection only: its catalogue (or, for a direct store, what
+  // this conversation was shown) is what vouches for a link. A billing
+  // system's links (invoices, services) are checked against that turn's own
+  // tool results instead, and must never be matched against a product index
+  // they are not in.
+  const connection = await resolveConversationConnection(config, workspaceId, {
+    conversationId: opts.conversationId ?? null,
+    connections: opts.connections,
+    pageOrigin: opts.pageOrigin ?? null,
+    pagePath: opts.pagePath ?? null,
+  }).catch(() => null);
   if (!connection) return source;
   const storeHost = hostOf(String(connection.store_id || ''));
   if (!storeHost) return source;

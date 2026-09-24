@@ -1,0 +1,25 @@
+Web Yar for WHMCS — installation
+================================
+
+Requirements: WHMCS 8.0 or newer, PHP 7.2 or newer (as supported by your
+WHMCS version), HTTPS on the WHMCS System URL.
+
+1. Extract this archive into your WHMCS root directory. It creates
+   modules/addons/webyar/ and nothing else.
+2. WHMCS admin → System Settings → Addon Modules → "Web Yar" → Activate.
+   Then "Configure" → Access Control: tick the admin roles that may manage it.
+3. Addons → Web Yar:
+   - enter your Web Yar URL (and the API URL if yours is separate), Save;
+   - click "Connect to Web Yar", choose the workspace, approve.
+4. In Web Yar → Plugins → WHMCS, turn on the sections the assistant may read
+   (services, domains, invoices, orders, tickets). Private sections start OFF.
+
+The widget is added to the client area automatically (can be switched off).
+Nothing runs in the background: no cron, no sync, no polling.
+
+Uninstall: Addon Modules → Web Yar → Deactivate. Only the addon's own
+mod_webyar_* tables are removed. No WHMCS client, service, domain, invoice,
+order or ticket data is touched. Then delete modules/addons/webyar/.
+
+Full documentation: docs/commerce/WHMCS.md in the Web Yar repository, or the
+guide linked from Web Yar → Plugins → WHMCS.

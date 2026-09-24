@@ -94,7 +94,7 @@ export async function verifyAndBindCustomerContext(
 
   if (payload.audience !== 'webyar-widget') throw new CommerceError('identity_expired', 'wrong audience');
 
-  const connection = await resolveConnection(config, workspaceId, connectionId, typeof payload.installation_id === 'string' ? payload.installation_id : null);
+  const connection = await resolveConnection(config, workspaceId, connectionId, String(payload.installation_id ?? ''));
   if (!connection) throw new CommerceError('commerce_not_connected', 'no active connection for this workspace');
   if (payload.installation_id !== connection.installation_id) {
     throw new CommerceError('identity_expired', 'assertion issued for a different installation');
@@ -250,43 +250,46 @@ function sameOrigin(a: string, b: string): boolean {
  * would tell it; requiring the id would leave the identity bridge silently
  * inert on every such store forever.
  *
- * Nothing is lost by resolving it here. The id never carried any authority of
- * its own: the assertion payload names its installation, only that
- * installation's secret can sign it, and that signature is verified against
- * the secret this server looks up for itself. The id was only ever a
- * cross-check — so it stays one when supplied, and is derived when it is not.
+ * It is resolved from the INSTALLATION the signed payload names, inside the
+ * workspace being bound into, among un-revoked connections. It used to be
+ * "the workspace's newest connection", which was only correct while a
+ * workspace could hold exactly one connection: with a WHMCS installation
+ * paired after the shop, every WooCommerce assertion resolved to the WHMCS row
+ * and was rejected as "issued for a different installation".
  *
- * Two things this does that accepting the caller's id did not:
- * the connection must belong to the workspace being bound into (an id from
- * another workspace used to be written straight into the link row), and it
- * must not be revoked. And when it is derived, it is derived exactly as
- * `getActiveConnectionForWorkspace` derives it for the AI stage — newest
- * un-revoked connection — so the link is guaranteed to be written where the
- * reader will later look for it.
+ * One read of the workspace's live connections (a handful of rows) keeps the
+ * two refusals distinct: no live connection at all → `commerce_not_connected`;
+ * live connections, none of them this installation → `identity_expired`.
  */
+interface ResolvedConnection {
+  id: string;
+  installation_id: string;
+  provider_type?: string;
+  external_store_id?: string | null;
+  approved_origin?: string;
+}
+
 async function resolveConnection(
   config: ServerConfig,
   workspaceId: string,
   connectionId: string | null,
-  installationId: string | null = null,
-): Promise<{ id: string; installation_id: string; provider_type?: string; external_store_id?: string | null; approved_origin?: string } | null> {
+  installationId: string,
+): Promise<ResolvedConnection | null> {
   const sb = getServiceClient(config);
-  const base = () => sb
+  const { data } = await sb
     .from('commerce_connections')
     .select('id, installation_id, provider_type, external_store_id, approved_origin')
     .eq('workspace_id', workspaceId)
-    .is('revoked_at', null);
+    .is('revoked_at', null)
+    .limit(10);
+  const rows = (Array.isArray(data) ? data : data ? [data] : []) as ResolvedConnection[];
+  if (!rows.length) return null;
+  const match = rows.find((r) => r.installation_id === installationId);
   if (connectionId) {
-    const { data } = await base().eq('id', connectionId).maybeSingle();
-    return (data as { id: string; installation_id: string; provider_type?: string; external_store_id?: string | null; approved_origin?: string } | null) ?? null;
+    // Named: it must be this workspace's live connection AND the signing installation.
+    const named = rows.find((r) => r.id === connectionId);
+    if (!named) return null;
+    return named;
   }
-  // With several stores in one workspace the installation named in the
-  // payload picks the row (its secret is still what verifies the signature);
-  // otherwise the newest row, exactly as before.
-  if (installationId) {
-    const { data: byInstallation } = await base().eq('installation_id', installationId).order('created_at', { ascending: false }).limit(1).maybeSingle();
-    if (byInstallation) return byInstallation as { id: string; installation_id: string; provider_type?: string; external_store_id?: string | null; approved_origin?: string };
-  }
-  const { data } = await base().order('created_at', { ascending: false }).limit(1).maybeSingle();
-  return (data as { id: string; installation_id: string; provider_type?: string; external_store_id?: string | null; approved_origin?: string } | null) ?? null;
+  return match ?? rows[0];
 }

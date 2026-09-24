@@ -16,7 +16,7 @@ import os from 'node:os';
 import { envFlagEnabled, type ServerConfig } from '../../server/config.js';
 import { claimNextSyncJob, runSyncJobOnce, enqueueSyncJob } from '../../server/services/commerce/sync.js';
 import { runCapabilityHandshake } from '../../server/services/commerce/pairing.js';
-import { providersWithBackgroundWork } from '../../server/services/commerce/providers.js';
+import { catalogIndexedProviders } from '../../server/services/commerce/connectors/registry.js';
 import { getServiceClient } from '../../server/supabase.js';
 
 function clampInt(v: string | undefined, def: number, min: number, max: number): number {
@@ -99,14 +99,20 @@ export function startCommerceSyncWorker(): void {
     if (stopping) return;
     try {
       const sb = getServiceClient(config);
+      // Catalogue-indexed providers only. A live-queried billing connection
+      // (WHMCS) has no index to reconcile, and a periodic handshake to every
+      // installation would be exactly the background heartbeat that design
+      // rules out — its health comes from real reads and the owner's
+      // "Check connection" button (docs/commerce/WHMCS.md).
       const { data: connections } = await sb
         .from('commerce_connections')
         .select('id, workspace_id')
         .is('revoked_at', null)
         .in('health', ['connected', 'degraded', 'offline'])
-        // Direct connectors (OpenCart) are never polled and never synced:
-        // their health comes from real requests and the manual check.
-        .in('provider_type', providersWithBackgroundWork());
+        // Only indexed stores are reconciled. Direct stores (OpenCart) and
+        // billing systems (WHMCS) are never polled or synced: their health
+        // comes from real requests and the manual check.
+        .in('provider_type', catalogIndexedProviders());
       for (const conn of connections ?? []) {
         await runCapabilityHandshake(config, conn.id).catch(() => {});
         await enqueueSyncJob(config, conn.workspace_id, conn.id, 'reconciliation').catch(() => {});

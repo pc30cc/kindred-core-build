@@ -20,13 +20,13 @@ export interface CommerceHttpRequest {
   /** Only GET-shaped reads may be retried — never a mutating call. */
   retryable?: boolean;
   /**
-   * Per-request wall-clock cap, clamped to TOTAL_TIMEOUT_MS. Callers that run
-   * under a per-turn deadline pass what is LEFT of it, so one slow store can
-   * never overrun the turn.
+   * Per-request wall-clock budget. Defaults to TOTAL_TIMEOUT_MS; a caller
+   * working inside a turn deadline (the WHMCS connector) passes what is left
+   * of it, so one slow origin can never outlive the turn.
    */
   timeoutMs?: number;
-  /** Response size cap, clamped to MAX_RESPONSE_BYTES. */
-  maxBytes?: number;
+  /** Response size cap. Defaults to MAX_RESPONSE_BYTES. */
+  maxResponseBytes?: number;
 }
 
 export interface CommerceHttpResponse {
@@ -45,7 +45,7 @@ async function fetchOnce(req: CommerceHttpRequest): Promise<CommerceHttpResponse
 
   const controller = new AbortController();
   const timeoutMs = Math.max(1, Math.min(req.timeoutMs ?? TOTAL_TIMEOUT_MS, TOTAL_TIMEOUT_MS));
-  const maxBytes = Math.max(1, Math.min(req.maxBytes ?? MAX_RESPONSE_BYTES, MAX_RESPONSE_BYTES));
+  const maxBytes = Math.max(1, Math.min(req.maxResponseBytes ?? MAX_RESPONSE_BYTES, MAX_RESPONSE_BYTES));
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(req.url, {
@@ -92,7 +92,7 @@ async function fetchOnce(req: CommerceHttpRequest): Promise<CommerceHttpResponse
     return { status: res.status, json, bytes: received };
   } catch (err) {
     if (err instanceof CommerceError) throw err;
-    if ((err as { name?: string } | null)?.name === 'AbortError') throw new CommerceError('commerce_timeout', 'plugin request timed out');
+    if ((err as { name?: unknown } | null)?.name === 'AbortError') throw new CommerceError('commerce_timeout', 'plugin request timed out');
     throw new CommerceError('commerce_live_unavailable', err instanceof Error ? err.message : String(err));
   } finally {
     clearTimeout(timer);
@@ -100,6 +100,9 @@ async function fetchOnce(req: CommerceHttpRequest): Promise<CommerceHttpResponse
 }
 
 export async function commerceHttpRequest(req: CommerceHttpRequest): Promise<CommerceHttpResponse> {
+  // Retries stay GET-only here. The WHMCS connector implements its own single,
+  // deadline-bounded retry for its idempotent signed POST reads, because a
+  // retried POST must carry a FRESH nonce and signature, which only it can mint.
   const attempts = req.retryable && req.method === 'GET' ? MAX_RETRIES + 1 : 1;
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {

@@ -1,0 +1,13 @@
+{
+    "schema": "1.0",
+    "type": "whmcs-addons",
+    "name": "webyar",
+    "license": "proprietary",
+    "category": "support",
+    "description": {
+        "name": "Web Yar",
+        "tagline": "AI assistant answers customers about their own services, domains, invoices, orders and tickets.",
+        "short": "Read-only, live, permission-aware connection between the Web Yar widget and WHMCS."
+    },
+    "authors": [{ "name": "Web Yar", "homepage": "https://webyar.ai" }]
+}

@@ -55,8 +55,8 @@ included (**M**):
 
 | | 4.1.0.4 | 3.0.5.1 | 4.1.0.0 |
 |---|---|---|---|
-| SQL total | 25 | 23 | 26 |
-| of which writes | 5 | 4 | 6 |
+| SQL total | 25 | 23 | 25 |
+| of which writes | 5 | 4 | 5 |
 
 These writes are OpenCart core's per-request bookkeeping for a signed-in
 customer: `UPDATE customer` (language and IP), the cart merge, and the
@@ -68,26 +68,26 @@ Everything MariaDB executed for one request, OpenCart's startup included. The
 "extension" column is the extension's own share, from its `_meta.db` counter.
 The extension's write is the replay-guard nonce (`INSERT IGNORE`). On 1 request
 in 50 it adds a second write that prunes nonces older than 10 minutes
-(`DELETE … LIMIT 50`), as the 3.0.5.1 `orders list` row shows.
+(`DELETE … LIMIT 50`).
 
 | Operation | 4.1.0.4 total SQL | 4.1.0.4 extension | 3.0.5.1 total SQL | 3.0.5.1 extension | 4.1.0.0 total SQL | 4.1.0.0 extension |
 |---|---|---|---|---|---|---|
-| `health` | 22 (3 writes) | 1 (1 write) | 17 (2 writes) | 1 (1 write) | 21 (3 writes) | 1 (1 write) |
-| `search (guest)` | 21 (2 writes) | 2 (1 write) | 18 (2 writes) | 2 (1 write) | 21 (2 writes) | 2 (1 write) |
+| `health` | 20 (2 writes) | 1 (1 write) | 17 (2 writes) | 1 (1 write) | 20 (2 writes) | 1 (1 write) |
+| `search (guest)` | 21 (2 writes) | 2 (1 write) | 18 (2 writes) | 2 (1 write) | 22 (3 writes) | 2 (1 write) |
 | `product details x1` | 24 (2 writes) | 4 (1 write) | 21 (2 writes) | 4 (1 write) | 24 (2 writes) | 4 (1 write) |
 | `product details x5` | 23 (2 writes) | 4 (1 write) | 20 (2 writes) | 4 (1 write) | 23 (2 writes) | 4 (1 write) |
 | `reviews` | 22 (2 writes) | 3 (1 write) | 19 (2 writes) | 3 (1 write) | 22 (2 writes) | 3 (1 write) |
-| `orders list` | 23 (2 writes) | 4 (1 write) | 21 (3 writes) | 5 (2 write) | 23 (2 writes) | 4 (1 write) |
-| `order details` | 27 (2 writes) | 8 (1 write) | 24 (2 writes) | 8 (1 write) | 27 (2 writes) | 8 (1 write) |
-| `tracking` | 23 (2 writes) | 4 (1 write) | 20 (2 writes) | 4 (1 write) | 23 (2 writes) | 4 (1 write) |
+| `orders list` | 23 (2 writes) | 4 (1 write) | 20 (2 writes) | 4 (1 write) | 23 (2 writes) | 4 (1 write) |
+| `order details` | 29 (3 writes) | 8 (1 write) | 24 (2 writes) | 8 (1 write) | 27 (2 writes) | 8 (1 write) |
+| `tracking` | 23 (2 writes) | 4 (1 write) | 20 (2 writes) | 4 (1 write) | 24 (3 writes) | 4 (1 write) |
 
 What the rest is: OpenCart's framework startup (settings, store, language,
 currency, customer group, cart clean-up). OpenCart runs it for every request;
 the extension cannot avoid it without editing core. There is **no**
 `REPLACE INTO session` on API calls, because the extension suppresses the
-empty machine session's write. Occasional extra `DELETE FROM session WHERE
-expire < …` lines (the rows with 3 writes, and the sixth write on 4.1.0.0's
-context endpoint) are OpenCart's probabilistic session GC.
+empty machine session's write. An occasional third write (`DELETE FROM
+session WHERE expire < …`) is OpenCart's probabilistic session GC, and it
+lands on random requests.
 
 No request is N+1:
 
@@ -100,7 +100,9 @@ No request is N+1:
 Run by the real connector, gateway, identity bridge and AI commerce stage
 against the real store (`src/test/commerce/opencartLive.e2e.test.ts`),
 OpenCart 4.1.0.4. The workspace has **two** OpenCart stores connected (to
-exercise store selection), except where noted.
+exercise store selection), except where noted. Each turn carries the page
+the visitor is on, as the widget sends it; that page picks the store
+(`connectionSelection.ts`).
 
 Columns:
 
@@ -114,48 +116,49 @@ Columns:
 
 | Scenario | Store calls | Store SQL | Resp. B | Evidence B | Web Yar DB (S/I/U) | tables (S/I/U) | ms |
 |---|---|---|---|---|---|---|---|
-| handshake (pairing / manual check) | 1 | – | – | – | 1/0/1 | connections 1/0/1 | 42 |
-| unrelated question | 0 | – | – | – | 1/0/0 | connections 1/0/0 | 3 |
-| product search (guest) | 1 | 2 | 1620 | 1104 | 6/1/1 | connections 1/0/0, conversations 3/0/1, links 2/0/0, audit 0/1/0 | 18 |
-| repeat search (warm cache) | 0 | 0 | 0 | 1104 | 5/1/0 | connections 1/0/0, conversations 2/0/0, links 2/0/0, audit 0/1/0 | 1 |
-| price/stock of selected product (follow-up) | 1 | 4 | 1091 | 816 | 5/1/0 | connections 1/0/0, conversations 2/0/0, links 2/0/0, audit 0/1/0 | 19 |
-| 5 identical concurrent searches | 1 | 2 | 892 | 581 | 5/1/0 | connections 5/0/0, audit 0/1/0 | 14 |
-| orders as guest | 0 | 0 | 0 | 98 | 5/1/0 | connections 1/0/0, conversations 2/0/0, links 2/0/0, audit 0/1/0 | 0 |
+| handshake (pairing / manual check) | 1 | – | – | – | 1/0/1 | connections 1/0/1 | 40 |
+| unrelated question | 0 | – | – | – | 1/0/0 | connections 1/0/0 | 4 |
+| product search (guest) | 1 | 2 | 1620 | 1104 | 4/1/1 | connections 1/0/0, conversations 2/0/1, links 1/0/0, audit 0/1/0 | 29 |
+| repeat search (warm cache) | 0 | 0 | 0 | 1104 | 3/1/0 | connections 1/0/0, conversations 1/0/0, links 1/0/0, audit 0/1/0 | 1 |
+| price/stock of selected product (follow-up) | 1 | 4 | 1091 | 816 | 3/1/0 | connections 1/0/0, conversations 1/0/0, links 1/0/0, audit 0/1/0 | 19 |
+| 5 identical concurrent searches | 1 | 2 | 892 | 581 | 5/1/0 | connections 5/0/0, audit 0/1/0 | 20 |
+| orders as guest | 0 | 0 | 0 | 98 | 3/1/0 | connections 1/0/0, conversations 1/0/0, links 1/0/0, audit 0/1/0 | 1 |
 | widget open, signed in (first bind) | 0 | – | – | – | 2/2/0 | connections 1/0/0, nonce 0/1/0, links 1/1/0 | 1 |
-| widget re-open, same customer | 0 | – | – | – | 2/1/0 | connections 1/0/0, nonce 0/1/0, links 1/0/0 | 0 |
-| order list (signed in) | 1 | 4 | 776 | 460 | 6/1/1 | connections 1/0/0, conversations 3/0/1, links 2/0/0, audit 0/1/0 | 14 |
-| order details + tracking (follow-up) | 2 | 12 | 2164 | 1195 | 6/1/1 | connections 1/0/0, conversations 3/0/1, links 2/0/0, audit 0/1/0 | 26 |
-| order id tampering | 1 | 0 | 0 | 71 | 5/1/0 | connections 1/0/0, conversations 2/0/0, links 2/0/0, audit 0/1/0 | 15 |
-| orders after logout | 1 | 0 | 0 | 99 | 5/1/0 | connections 1/0/0, conversations 2/0/0, links 2/0/0, audit 0/1/0 | 20 |
+| widget re-open, same customer | 0 | – | – | – | 2/1/0 | connections 1/0/0, nonce 0/1/0, links 1/0/0 | 1 |
+| order list (signed in) | 1 | 4 | 776 | 460 | 4/1/1 | connections 1/0/0, conversations 2/0/1, links 1/0/0, audit 0/1/0 | 13 |
+| order details + tracking (follow-up) | 2 | 12 | 2163 | 1195 | 4/1/1 | connections 1/0/0, conversations 2/0/1, links 1/0/0, audit 0/1/0 | 35 |
+| order id tampering | 1 | 0 | 0 | 71 | 3/1/0 | connections 1/0/0, conversations 1/0/0, links 1/0/0, audit 0/1/0 | 12 |
+| orders after logout | 1 | 0 | 0 | 99 | 3/1/0 | connections 1/0/0, conversations 1/0/0, links 1/0/0, audit 0/1/0 | 13 |
 | account switch (bind other customer) | 0 | – | – | – | 2/1/1 | connections 1/0/0, nonce 0/1/0, links 1/0/1 | 1 |
-| orders after account switch | 1 | 4 | 542 | 275 | 6/1/1 | connections 1/0/0, conversations 3/0/1, links 2/0/0, audit 0/1/0 | 13 |
-| search as wholesale customer (group price) | 1 | 4 | 797 | 567 | 6/1/1 | connections 1/0/0, conversations 3/0/1, links 2/0/0, audit 0/1/0 | 22 |
+| orders after account switch | 1 | 4 | 544 | 275 | 4/1/1 | connections 1/0/0, conversations 2/0/1, links 1/0/0, audit 0/1/0 | 15 |
+| search as wholesale customer (group price) | 1 | 4 | 800 | 567 | 4/1/1 | connections 1/0/0, conversations 2/0/1, links 1/0/0, audit 0/1/0 | 13 |
 | sign-out reported by the widget (unlink) | 0 | – | – | – | 0/0/1 | links 0/0/1 | 0 |
 | store switch (store 1, no link there) | 0 | 0 | 0 | 98 | 3/1/0 | connections 1/0/0, conversations 1/0/0, links 1/0/0, audit 0/1/0 | 0 |
 | store timeout | 1 | 0 | 0 | 117 | 1/1/1 | connections 1/0/1, audit 0/1/0 | 6005 |
-| store circuit open | 0 | 0 | 0 | 126 | 1/1/0 | connections 1/0/0, audit 0/1/0 | 1 |
-| product search (guest), workspace with one store | 1 | 2 | 896 | 581 | 4/1/1 | connections 1/0/0, conversations 2/0/1, links 1/0/0, audit 0/1/0 | 172 |
-| 120 distinct searches (bounded cache) | 120 | – | – | – | 120/120/0 | connections 120/0/0, audit 0/120/0 | 1827 |
+| store circuit open | 0 | 0 | 0 | 126 | 1/1/0 | connections 1/0/0, audit 0/1/0 | 0 |
+| product search (guest), workspace with one store | 1 | 2 | 892 | 581 | 4/1/1 | connections 1/0/0, conversations 2/0/1, links 1/0/0, audit 0/1/0 | 17 |
+| 120 distinct searches (bounded cache) | 120 | – | – | – | 120/120/0 | connections 120/0/0, audit 0/120/0 | 1911 |
 
 3.0.5.1 and 4.1.0.0 give the same store calls and Web Yar statements in
 every row, with response bytes within ±3 % (checked by script on
-`final-e2e-oc3.json` and `final-e2e-oc40.json` from the same run). The one
-exception is 4.1.0.0's wholesale search, at 5 store queries instead of 4:
-that was the nonce prune.
+`final-e2e-oc3.json` and `final-e2e-oc40.json` from the same run). Store
+queries differ only in 4.1.0.0's "order details + tracking (follow-up)" at
+13 store queries instead of 12. The replay guard's nonce prune (1 request in
+50) is the only extension query that varies from run to run.
 
-How to read the Web Yar DB column for a guest product search:
-
-- **Two stores**: 6 SELECT (1 connections, 3 conversations, 2 customer links),
-  1 INSERT (audit), 1 UPDATE (follow-up refs).
-- **One store, the common case**: 4 SELECT, 1 INSERT, 1 UPDATE, measured
-  separately (row "workspace with one store").
-
-The breakdown:
+How to read the Web Yar DB column for a guest product search: 4 SELECT,
+1 INSERT, 1 UPDATE, with two stores (the page picks one) and with one store
+(row "workspace with one store") alike:
 
 - `commerce_connections` ×1: the workspace's active connections, one indexed
-  read. With a single store, the choice ends here.
-- `conversations` ×1 and `commerce_customer_links` ×1: only when there are
-  several stores. They pick the store the visitor is signed in to.
+  read. In production the generation stage reads them once per turn and
+  shares them with every commerce stage. The page, or the only store,
+  settles the choice here.
+- (Only with several stores and **no** page context, as with an older
+  widget or another channel: `conversations` ×1 and
+  `commerce_customer_links` ×1 to use the store the visitor is signed in to
+  as a tiebreaker. Otherwise nothing is selected; there is no "newest"
+  fallback.)
 - `conversations` ×1 and `commerce_customer_links` ×1: the conversation's
   visitor and follow-up refs, and this visitor's link on the chosen store.
 - `conversations` ×1 SELECT and ×1 UPDATE: only when the listed ids changed.
@@ -176,9 +179,9 @@ price- or order-shaped is written anywhere.
 | 5 identical concurrent questions | 1 store call (single-flight) |
 | Guest asks about orders | 0 store calls; told to sign in |
 | Store hangs (never answers) | 1 call, cut at the turn deadline: 6,005 ms total, no retry after a timeout |
-| After 3 transport failures in 60 s | circuit open: 0 store calls, 1 ms |
-| 120 distinct questions (half fa, half en) | 120 store calls, 120 audit INSERTs; cache stays bounded: 121 entries (these 120 plus one left by the previous step) / 35,847 bytes (limits 500 / 4 MB) |
-| Heap growth over those 120 turns | 1,024 KB (Node, includes garbage not yet collected) |
+| After 3 transport failures in 60 s | circuit open: 0 store calls, 0 ms |
+| 120 distinct questions (half fa, half en) | 120 store calls, 120 audit INSERTs; cache stays bounded: 121 entries (these 120 plus 1 left by the previous step) / 35,847 bytes (limits 500 / 4 MB) |
+| Heap growth over those 120 turns | 2,269 KB (Node, includes garbage not yet collected) |
 | Order id of another customer | 1 call, `order_not_found`, 0 order rows returned |
 | After logout on the store | 1 call, `identity_expired`, nothing cached shown |
 

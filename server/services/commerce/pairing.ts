@@ -15,10 +15,9 @@ import { checkOutboundUrl } from '../../../shared/net/hostGuard.js';
 import { CommerceError } from '../../../shared/commerce/types.js';
 import { installPlugin } from '../plugins/state.js';
 import { storeInstallationSecret } from './credentials.js';
-import { WooCommerceConnector } from './connectors/woocommerce.js';
+import { getProviderDescriptor, isKnownProvider } from './connectors/registry.js';
 import { OpenCartConnector } from './connectors/opencart.js';
 import { writeCommerceAudit } from './audit.js';
-import { providerProfile, COMMERCE_PROVIDERS } from './providers.js';
 
 const PAIRING_TTL_MS = 10 * 60 * 1000;
 const AUTHORIZATION_CODE_TTL_MS = 5 * 60 * 1000;
@@ -38,6 +37,32 @@ function sha256Base64Url(input: string): string {
   return base64url(createHash('sha256').update(input).digest());
 }
 
+/**
+ * A billing system such as WHMCS is often installed under a path
+ * (https://example.com/billing). The origin alone cannot address its API, so
+ * the base URL is captured too — but it must live on the very origin being
+ * paired, carry no query/fragment/credentials, and use a plain path.
+ */
+export function normalizeStoreBaseUrl(storeOrigin: string, storeBaseUrl: string | null | undefined): string {
+  const origin = new URL(storeOrigin).origin;
+  if (!storeBaseUrl) return origin;
+  let base: URL;
+  try {
+    base = new URL(storeBaseUrl);
+  } catch {
+    throw new PairingError('invalid_base_url', 'store_base_url must be a valid URL');
+  }
+  if (base.origin !== origin) throw new PairingError('invalid_base_url', 'store_base_url must be on store_origin');
+  if (base.search || base.hash || base.username || base.password) {
+    throw new PairingError('invalid_base_url', 'store_base_url must be a plain URL');
+  }
+  const path = base.pathname.replace(/\/+$/, '');
+  if (path.length > 200 || !/^(\/[A-Za-z0-9._~-]+)*$/.test(path) || path.split('/').some((seg) => seg === '..' || seg === '.')) {
+    throw new PairingError('invalid_base_url', 'store_base_url path is not allowed');
+  }
+  return `${origin}${path}`;
+}
+
 /** Step 1 — plugin registers its pairing intent server-to-server before opening the browser. */
 export async function registerPairingRequest(
   config: ServerConfig,
@@ -47,12 +72,15 @@ export async function registerPairingRequest(
     redirectUri: string;
     storeOrigin: string;
     provider?: string;
-    /** Direct connectors (OpenCart): which store of the installation, its base URL and version. */
+    /** Path-addressed providers: WHMCS System URL, OpenCart store base URL. */
+    storeBaseUrl?: string | null;
+    /** OpenCart: which store of the installation, and its version. */
     externalStoreId?: string | null;
-    storeUrl?: string | null;
     platformVersion?: string | null;
   },
 ): Promise<{ expiresAt: string }> {
+  const provider = input.provider ?? 'woocommerce';
+  if (!isKnownProvider(provider)) throw new PairingError('invalid_provider', 'unknown provider');
   if (!input.state || input.state.length < 16 || input.state.length > 200) {
     throw new PairingError('invalid_state', 'state must be 16-200 chars');
   }
@@ -76,20 +104,18 @@ export async function registerPairingRequest(
   const ssrf = await checkOutboundUrl(input.storeOrigin);
   if (ssrf.ok === false) throw new PairingError('unsafe_origin', `store_origin rejected: ${ssrf.reason}`);
 
-  const provider = input.provider ?? 'woocommerce';
-  if (!COMMERCE_PROVIDERS.includes(provider)) throw new PairingError('invalid_provider', 'unknown commerce provider');
-  let storeUrl: string | null = null;
+  // Only a provider that is addressed by path (WHMCS) records a base URL. The
+  // WooCommerce insert stays byte-for-byte what it was, so a database that
+  // has not run the WHMCS migration yet keeps pairing stores unchanged.
+  const normalizedBase = provider === 'woocommerce' ? null : normalizeStoreBaseUrl(origin.origin, input.storeBaseUrl);
+  // OpenCart builds `<base>index.php?route=…` URLs, so its base keeps the
+  // trailing slash.
+  const baseUrl = provider === 'opencart' && normalizedBase ? `${normalizedBase}/` : normalizedBase;
   if (provider === 'opencart') {
     // One OpenCart install can serve several stores; each pairs on its own,
     // and every later call is scoped to exactly this store.
     if (!input.externalStoreId || !/^\d{1,9}$/.test(input.externalStoreId)) throw new PairingError('invalid_store', 'external_store_id required');
-    try {
-      const u = new URL(input.storeUrl ?? '');
-      if (u.origin !== origin.origin || u.protocol !== 'https:' || u.search || u.hash) throw new Error('mismatch');
-      storeUrl = u.toString().endsWith('/') ? u.toString() : `${u.toString()}/`;
-    } catch {
-      throw new PairingError('invalid_store', 'store_url must be an https URL on store_origin');
-    }
+    if (!input.storeBaseUrl) throw new PairingError('invalid_store', 'store_url required');
   }
 
   const sb = getServiceClient(config);
@@ -101,8 +127,9 @@ export async function registerPairingRequest(
     provider_type: provider,
     requested_origin: origin.origin,
     expires_at: expiresAt,
+    ...(baseUrl ? { requested_base_url: baseUrl } : {}),
     ...(provider === 'opencart'
-      ? { external_store_id: input.externalStoreId, store_url: storeUrl, platform_version: (input.platformVersion ?? '').slice(0, 20) || null }
+      ? { external_store_id: input.externalStoreId, platform_version: (input.platformVersion ?? '').slice(0, 20) || null }
       : {}),
   });
   if (error) throw new Error(`pairing register failed: ${error.message}`);
@@ -124,7 +151,7 @@ export async function getPairingRequest(config: ServerConfig, state: string): Pr
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('commerce_pairing_requests')
-    .select('state, redirect_uri, requested_origin, provider_type, expires_at, authorized_at, consumed_at, store_url')
+    .select('state, redirect_uri, requested_origin, provider_type, expires_at, authorized_at, consumed_at, requested_base_url')
     .eq('state', state)
     .maybeSingle();
   if (error) throw new Error(`pairing lookup failed: ${error.message}`);
@@ -134,7 +161,7 @@ export async function getPairingRequest(config: ServerConfig, state: string): Pr
     redirectUri: data.redirect_uri,
     requestedOrigin: data.requested_origin,
     providerType: data.provider_type,
-    storeUrl: (data as { store_url?: string | null }).store_url ?? null,
+    storeUrl: (data as { requested_base_url?: string | null }).requested_base_url ?? null,
     expiresAt: data.expires_at,
     expired: new Date(data.expires_at).getTime() < Date.now() || !!data.consumed_at,
     alreadyAuthorized: !!data.authorized_at,
@@ -203,7 +230,9 @@ export interface ExchangeResult {
   workspaceId: string;
   storeId: string;
   protocolVersion: string;
-  providerType?: string;
+  providerType: string;
+  /** False for a live-queried provider (WHMCS): no catalogue sync is queued. */
+  usesCatalogIndex: boolean;
 }
 
 /** Step 3 — server-to-server code exchange using the PKCE verifier. */
@@ -214,12 +243,14 @@ export async function exchangePairingCode(
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('commerce_pairing_requests')
-    .select('id, state, code_challenge, provider_type, requested_origin, workspace_id, authorized_by, authorization_code_hash, expires_at, authorized_at, consumed_at, external_store_id, store_url, platform_version, permissions')
+    .select('*')
     .eq('state', input.state)
     .maybeSingle();
   if (error) throw new Error(`pairing lookup failed: ${error.message}`);
   if (!data) throw new PairingError('not_found', 'pairing request not found');
   if (data.consumed_at) throw new PairingError('already_used', 'authorization code already used');
+  const descriptor = getProviderDescriptor(String(data.provider_type ?? 'woocommerce'));
+  if (!descriptor) throw new PairingError('invalid_provider', 'unknown provider');
   if (!data.authorized_at || !data.workspace_id || !data.authorized_by) {
     throw new PairingError('not_authorized', 'pairing was not approved');
   }
@@ -246,40 +277,49 @@ export async function exchangePairingCode(
   if (consumeError) throw new Error(`pairing consume failed: ${consumeError.message}`);
   if (!consumed) throw new PairingError('already_used', 'authorization code already used');
 
-  const direct = providerProfile(data.provider_type).searchStrategy === 'direct';
   // WooCommerce: one site per workspace installation (instance 'default').
   // OpenCart: one installation PER STORE — a multi-store shop connecting two
   // stores to one workspace must get two installations, two secrets and two
   // connections, or the second pairing would silently take over the first.
-  const instanceKey = data.provider_type === 'opencart'
-    ? `store:${createHash('sha256').update(String(data.store_url ?? data.requested_origin)).digest('hex').slice(0, 24)}`
+  const instanceKey = descriptor.providerType === 'opencart'
+    ? `store:${createHash('sha256').update(String(data.requested_base_url ?? data.requested_origin)).digest('hex').slice(0, 24)}`
     : 'default';
-  const installation = await installPlugin(config, data.workspace_id, providerProfile(data.provider_type).pluginId, data.authorized_by, instanceKey);
+  const installation = await installPlugin(config, data.workspace_id, descriptor.pluginId, data.authorized_by, instanceKey);
   const installationSecret = base64url(randomBytes(32));
   await storeInstallationSecret(config, installation.id, installationSecret, 'live');
 
-  // One store = one active connection. For WooCommerce store_id is the
-  // approved origin itself; for OpenCart it is the store's base URL (unique
-  // per store even when stores of one install share a host), with the
-  // numeric OpenCart store id alongside.
+  // One store (origin) = one active connection. store_id is the approved
+  // origin itself — stable, unique per site, and requires no plugin-side
+  // identifier generation. A provider without a catalogue index (WHMCS,
+  // OpenCart) uses its base URL instead, which is still on — and re-checked
+  // against — that origin; for OpenCart that keeps two stores of one install
+  // on one host apart, with the numeric OpenCart store id alongside.
+  const storeId = descriptor.usesCatalogIndex
+    ? data.requested_origin
+    : String(data.requested_base_url || data.requested_origin);
   const { data: connectionRow, error: connError } = await sb
     .from('commerce_connections')
     .upsert(
       {
         workspace_id: data.workspace_id,
         installation_id: installation.id,
-        provider_type: data.provider_type,
-        store_id: direct && data.store_url ? data.store_url : data.requested_origin,
+        provider_type: descriptor.providerType,
+        store_id: storeId,
         approved_origin: data.requested_origin,
         protocol_version: 'webyar-commerce/1',
         capabilities: [],
         health: 'reconnecting',
         catalog_ready: false,
         revoked_at: null,
-        ...(direct ? { external_store_id: data.external_store_id, platform_version: data.platform_version ?? null } : {}),
-        // The owner's consent-screen choice; absent (older requests) keeps
-        // the column default.
-        ...(data.permissions && typeof data.permissions === 'object' && Object.keys(data.permissions).length ? { permissions: data.permissions } : {}),
+        ...(descriptor.providerType === 'opencart' ? { external_store_id: data.external_store_id, platform_version: data.platform_version ?? null } : {}),
+        // A provider with its own permission model (WHMCS) starts from its
+        // defaults. Otherwise the owner's consent-screen choice, when one was
+        // made; otherwise the column default.
+        ...(descriptor.defaultPermissions
+          ? { permissions: descriptor.defaultPermissions }
+          : data.permissions && typeof data.permissions === 'object' && Object.keys(data.permissions).length
+            ? { permissions: data.permissions }
+            : {}),
       },
       { onConflict: 'installation_id' },
     )
@@ -300,9 +340,10 @@ export async function exchangePairingCode(
     connectionId: connectionRow.id,
     installationSecret,
     workspaceId: data.workspace_id,
-    storeId: direct && data.store_url ? data.store_url : data.requested_origin,
+    storeId,
     protocolVersion: 'webyar-commerce/1',
-    providerType: data.provider_type,
+    providerType: descriptor.providerType,
+    usesCatalogIndex: descriptor.usesCatalogIndex,
   };
 }
 
@@ -312,15 +353,25 @@ export async function exchangePairingCode(
  * heartbeat reconciliation. Never throws — a failed handshake just leaves
  * the connection in a non-connected health state for the next attempt.
  */
-export async function runCapabilityHandshake(config: ServerConfig, connectionId: string): Promise<void> {
+export async function runCapabilityHandshake(
+  config: ServerConfig,
+  connectionId: string,
+  opts: { workspaceId?: string } = {},
+): Promise<void> {
   const sb = getServiceClient(config);
-  const { data: connection, error } = await sb
+  let query = sb
     .from('commerce_connections')
-    .select('id, installation_id, approved_origin, workspace_id, revoked_at, provider_type, store_id, external_store_id, platform_version')
-    .eq('id', connectionId)
-    .maybeSingle();
+    .select('id, installation_id, approved_origin, store_id, provider_type, workspace_id, revoked_at, health, external_store_id, platform_version')
+    .eq('id', connectionId);
+  // A dashboard caller names the workspace it is authorized for; the handshake
+  // must then only ever touch that workspace's own connection.
+  if (opts.workspaceId) query = query.eq('workspace_id', opts.workspaceId);
+  const { data: connection, error } = await query.maybeSingle();
   if (error || !connection || connection.revoked_at) return;
   if (connection.provider_type === 'opencart') return runOpenCartHandshake(config, connection as Parameters<typeof runOpenCartHandshake>[1]);
+
+  const descriptor = getProviderDescriptor(String(connection.provider_type ?? 'woocommerce'));
+  if (!descriptor) return;
 
   try {
     const { readInstallationSecret } = await import('./credentials.js');
@@ -330,55 +381,71 @@ export async function runCapabilityHandshake(config: ServerConfig, connectionId:
       return;
     }
 
-    const connector = new WooCommerceConnector({
-      origin: connection.approved_origin,
-      installationId: connection.installation_id,
-      secret,
-    });
-    const handshake = await connector.negotiateCapabilities({
-      workspaceId: connection.workspace_id,
-      connectionId: connection.id,
-      installationId: connection.installation_id,
-      capabilities: [],
-      correlationId: `handshake-${connectionId}`,
-      deadlineAt: Date.now() + 8000,
-    });
+    const handshake = await descriptor.handshake(
+      {
+        origin: connection.approved_origin,
+        baseUrl: String(connection.store_id || connection.approved_origin),
+        installationId: connection.installation_id,
+        secret,
+      },
+      {
+        workspaceId: connection.workspace_id,
+        connectionId: connection.id,
+        installationId: connection.installation_id,
+        capabilities: [],
+        correlationId: `handshake-${connectionId}`,
+        deadlineAt: Date.now() + 8000,
+      },
+    );
 
-    const health = handshake.protocolVersion !== 'webyar-commerce/1' ? 'protocol_mismatch' : 'connected';
+    const health = handshake.protocolVersion !== 'webyar-commerce/1'
+      ? 'protocol_mismatch'
+      : handshake.schemaOk === false ? 'degraded' : 'connected';
+    const now = new Date().toISOString();
+    const common = {
+      connector_version: handshake.connectorVersion,
+      capabilities: handshake.capabilities,
+      protocol_version: handshake.protocolVersion,
+      health,
+      last_seen_at: now,
+      last_success_at: now,
+      ...(handshake.schemaOk === false ? { last_error_code: 'schema_unsupported', last_error_at: now } : {}),
+    };
+    const providerFields = descriptor.usesCatalogIndex
+      ? {
+          woocommerce_version: handshake.woocommerceVersion ?? null,
+          wordpress_version: handshake.wordpressVersion ?? null,
+          hpos_enabled: handshake.hposEnabled ?? null,
+          // NEVER raised here. `commerce_connections.catalog_ready` means "Web
+          // Yar's own product index is usable", which only a completed sync can
+          // establish (sync.ts). The handshake field of the same name is the
+          // STORE answering a different question — "can I serve my catalogue?" —
+          // and the connector plugin answers it with a constant true. Copying it
+          // across raised the flag at pairing time, before a single product had
+          // been indexed, so the `catalog_syncing` guard in gateway.ts and the
+          // AI runner never fired and the assistant answered from an empty index
+          // as though the catalogue were complete.
+          //
+          // The reverse still applies: a store that reports it CANNOT serve its
+          // catalogue invalidates whatever we indexed from it, so that lowers
+          // the flag immediately.
+          ...(handshake.catalogReady === false ? { catalog_ready: false } : {}),
+        }
+      : { platform_version: handshake.platformVersion };
     await sb
       .from('commerce_connections')
-      .update({
-        connector_version: handshake.connectorVersion,
-        woocommerce_version: handshake.woocommerceVersion,
-        wordpress_version: handshake.wordpressVersion,
-        hpos_enabled: handshake.hposEnabled,
-        capabilities: handshake.capabilities,
-        protocol_version: handshake.protocolVersion,
-        // NEVER raised here. `commerce_connections.catalog_ready` means "Web
-        // Yar's own product index is usable", which only a completed sync can
-        // establish (sync.ts). The handshake field of the same name is the
-        // STORE answering a different question — "can I serve my catalogue?" —
-        // and the connector plugin answers it with a constant true. Copying it
-        // across raised the flag at pairing time, before a single product had
-        // been indexed, so the `catalog_syncing` guard in gateway.ts and the
-        // AI runner never fired and the assistant answered from an empty index
-        // as though the catalogue were complete.
-        //
-        // The reverse still applies: a store that reports it CANNOT serve its
-        // catalogue invalidates whatever we indexed from it, so that lowers
-        // the flag immediately.
-        ...(handshake.catalogReady === false ? { catalog_ready: false } : {}),
-        health,
-        last_seen_at: new Date().toISOString(),
-        last_success_at: new Date().toISOString(),
-      })
+      .update({ ...common, ...providerFields })
       .eq('id', connectionId);
   } catch (err) {
+    const code = err instanceof CommerceError ? err.code : 'commerce_live_unavailable';
     await sb
       .from('commerce_connections')
       .update({
-        health: 'offline',
-        last_error_code: err instanceof CommerceError ? err.code : 'commerce_live_unavailable',
+        // A billing connection that is refused outright has a credential
+        // problem, not an outage; the store family keeps its original
+        // `offline` so nothing about WooCommerce health reporting changes.
+        health: descriptor.family === 'billing' && code === 'commerce_permission_denied' ? 'authentication_error' : 'offline',
+        last_error_code: code,
         last_error_at: new Date().toISOString(),
       })
       .eq('id', connectionId);

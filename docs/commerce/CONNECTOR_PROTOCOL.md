@@ -52,8 +52,9 @@ five.
 
 ## Direct connectors (OpenCart)
 
-A provider whose profile says `searchStrategy: 'direct'`
-(`server/services/commerce/providers.ts`) has no catalogue export, no
+A store-family provider without a catalogue index (`usesCatalogIndex:
+false` in `server/services/commerce/connectors/registry.ts`, which
+`isDirectProvider()` in `providers.ts` reads) has no catalogue export, no
 events and no sync. Its extension exposes ONE signed route and a whitelist
 of operations. The signature is the same `webyar-commerce/1` HMAC, over the
 canonical path `/opencart/v1/<op>`:
@@ -95,6 +96,30 @@ Per-turn bounds for direct providers: at most `MAX_COMMERCE_CALLS_PER_TURN`
 given only the time left. At most one retry, only for a transient transport
 error or a 5xx (re-signed with a new nonce). Evidence given to the model is
 capped at 7,000 bytes. See OPENCART.md §4, §6 and §9.
+
+## WHMCS addon surface
+
+WHMCS is addressed through one endpoint,
+`<SystemURL>/modules/addons/webyar/api.php`, `POST` with a JSON body
+`{ op, params, grant }`. It uses the same `webyar-commerce/1` signature
+scheme as the WordPress plugin, computed over the fixed logical path
+`/webyar/whmcs/v1` (the physical path depends on where WHMCS is installed).
+Operations are a closed list: `health`, `catalog.search`, `catalog.browse`,
+`session.check`, and `list` / `get` for `services`, `domains`, `invoices`,
+`orders` and `tickets`. There is no write operation. Lists return at most 10
+items and `has_more`. Details, grant rules and limits are in
+[WHMCS.md](WHMCS.md).
+
+| Addon answer | Web Yar error |
+|---|---|
+| 401 (signature, replay, clock) | `commerce_permission_denied` (health → `authentication_error`) |
+| 403 `grant_invalid` | `identity_expired` → binding revoked, visitor asked to sign in |
+| 403 `permission_denied` (WHMCS user permission) | `account_permission_denied` |
+| 403 `feature_disabled` (section off in the addon) | `commerce_permission_denied` (health unchanged) |
+| 404 | `resource_not_found` (another client's id looks the same) |
+| 409 `schema_unsupported` | `connector_outdated` |
+| 429 | `rate_limited` |
+| 5xx / network | `commerce_live_unavailable` (one retry when time allows) |
 
 ## Money
 
@@ -183,7 +208,8 @@ the existing `MAX_ACTIONS_PER_TURN` bounding philosophy in
 `commerce_invalid_response`, `product_not_found`,
 `variation_not_available`, `identity_required`, `identity_expired`,
 `order_not_found`, `order_access_denied`, `connector_outdated`,
-`protocol_mismatch`, `catalog_syncing` (indexed providers only). These are the only strings the AI
+`protocol_mismatch`, `catalog_syncing` (indexed providers only), and for WHMCS
+`resource_not_found`, `account_permission_denied`, `rate_limited`. These are the only strings the AI
 tool layer ever sees for a failure; underlying exceptions/stack traces are
 logged server-side only, never forwarded.
 

@@ -97,6 +97,8 @@ const MARKS: Record<string, Mark> = {
   sms: { hex: '0EA5E9', fallback: Smartphone },
   shopify: si(siShopify),
   woocommerce: si(siWoocommerce),
+  // Not in simple-icons; the same hand-drawn mark BrandIcon uses.
+  whmcs: { hex: '1F75BC', path: 'M2 5l3.2 14h3l2.3-9.4L12.8 19h3L19 5h-3l-1.7 9.5L11.9 5H9.1L6.7 14.5 5 5H2z' },
   // simple-icons ships no OpenCart mark; a generic cart in OpenCart's blue.
   opencart: { hex: '23A1D1', fallback: ShoppingCart },
   hubspot: si(siHubspot),

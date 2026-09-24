@@ -1,7 +1,7 @@
 # OpenCart Connector
 
 Status: implemented on branch `claude/keen-sagan-9otkif`. Not merged or deployed.
-Rollout is gated like WooCommerce: migration 212 adds the `opencart` plugin
+Rollout is gated like WooCommerce: migration 214 adds the `opencart` plugin
 with `rollout_status = 'coming_soon'`, `installable = false`. A platform admin
 enables it in Super Admin → Plugins.
 
@@ -93,7 +93,8 @@ unchanged, with these OpenCart specifics:
 
 - **Per store.** One OpenCart installation can serve several stores. Each one
   connects on its own. `register` carries `provider=opencart`,
-  `externalStoreId` (OpenCart `store_id`), `storeUrl` and `platformVersion`.
+  `externalStoreId` (OpenCart `store_id`), `storeUrl` (kept in
+  `requested_base_url`, the same column WHMCS uses) and `platformVersion`.
   Web Yar creates **one installation per store** (`instance_key =
   store:<hash of store URL>`), each with its own secret and its own
   `commerce_connections` row (`store_id` = the store's base URL,
@@ -108,7 +109,8 @@ unchanged, with these OpenCart specifics:
   browser only ever carries `state` and the single-use `code`.
 - **Consent-screen permissions are stored.** `/approve` used to accept the
   owner's choices and drop them. They are now stored on the pairing request
-  and applied at exchange, for WooCommerce too.
+  and applied at exchange, for WooCommerce too. A provider with its own
+  permission defaults (WHMCS) keeps them.
 - **Credentials at rest (store side).** The installation secret is
   AES-256-GCM encrypted with a random key kept in `DIR_STORAGE/webyar/local.key`,
   outside the database (OpenCart recommends moving `storage/` out of the web
@@ -324,7 +326,7 @@ rate) and is reported as `price_filter_basis=before_tax`.
 
 ## 7. Data: stored vs read live
 
-**Stored in Web Yar** (metadata only; migration 212 is additive):
+**Stored in Web Yar** (metadata only; migration 214 is additive):
 
 | Where | What |
 |---|---|
@@ -465,8 +467,10 @@ plugins/webyar-opencart/tests/integration/run.sh down   # stop everything, delet
   reported per value.
 - The public cache is per replica (§9).
 - The conversation's `ai_memory` (working memory) is not rewritten on an
-  identity change. Only the model's history is cut off; entity strings the
-  working memory kept from before the switch can remain in it.
+  identity change. On commerce turns after a switch, the model gets neither
+  the earlier history nor that stored memory. A turn with no commerce
+  question at all does not look up the link, so it can still see memory
+  written before the switch.
 - The OpenCart admin UI text is English, Persian and Turkish. OpenCart
   language directories named other than `en-gb`, `fa-ir`/`fa` and
   `tr-tr`/`tr` fall back to English.

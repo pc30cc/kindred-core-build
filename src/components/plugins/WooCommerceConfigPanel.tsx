@@ -95,8 +95,9 @@ export function WooCommerceConfigPanel({ workspaceId }: { workspaceId: string })
     refetchInterval: 15_000,
   });
 
-  // A workspace can also hold other stores (OpenCart); this panel is the
-  // WooCommerce one.
+  // The list holds every commerce connection of the workspace (another shop
+  // such as OpenCart, a billing system such as WHMCS); this panel manages the
+  // WooCommerce shop only.
   const connection = data?.connections?.find((c) => c.provider_type === 'woocommerce') ?? null;
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['commerce-connections', workspaceId] });

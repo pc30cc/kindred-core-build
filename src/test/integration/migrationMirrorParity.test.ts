@@ -268,6 +268,26 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/210_admin_inventory_rpc_service_role_only.sql',
     hosted: 'supabase/migrations/20260923190000_admin_inventory_rpc_service_role_only.sql',
   },
+  {
+    label: '211 — macOS app settings; desktop campaigns per platform',
+    selfHost: 'database/migrations/211_macos_app_settings.sql',
+    hosted: 'supabase/migrations/20260924120000_macos_app_settings.sql',
+  },
+  {
+    label: '212 — WHMCS connector: additive link/pairing/connection columns',
+    selfHost: 'database/migrations/212_commerce_whmcs.sql',
+    hosted: 'supabase/migrations/20260924130000_commerce_whmcs.sql',
+  },
+  {
+    label: '213 — desktop app tables reachable by service_role only',
+    selfHost: 'database/migrations/213_desktop_apps_service_role_only.sql',
+    hosted: 'supabase/migrations/20260924140000_desktop_apps_service_role_only.sql',
+  },
+  {
+    label: '214 — OpenCart direct connector: additive metadata columns',
+    selfHost: 'database/migrations/214_commerce_opencart_direct.sql',
+    hosted: 'supabase/migrations/20260924150000_commerce_opencart_direct.sql',
+  },
 
   // intentionally asymmetric, not a drift bug.
 

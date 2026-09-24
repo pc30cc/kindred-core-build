@@ -45,7 +45,16 @@ export interface AiControl {
   awaitingUserAction: string | null;
   /** Short factual description of the fix the assistant just proposed. */
   proposedSolution: string | null;
+  /**
+   * WHMCS: the account section the model needed to answer and did not have
+   * (only offered when a billing connection is in context). A REQUEST for
+   * data, never authorization — the billing system still decides, per read.
+   */
+  accountData: AccountDataRequest | null;
 }
+
+export const ACCOUNT_DATA_SECTIONS = ['services', 'domains', 'invoices', 'orders', 'tickets', 'plans'] as const;
+export type AccountDataRequest = (typeof ACCOUNT_DATA_SECTIONS)[number];
 
 export const EMPTY_CONTROL: AiControl = {
   resolutionStatus: 'unknown',
@@ -57,6 +66,7 @@ export const EMPTY_CONTROL: AiControl = {
   entities: [],
   awaitingUserAction: null,
   proposedSolution: null,
+  accountData: null,
 };
 
 function field(v: unknown, max = MAX_FIELD): string | null {
@@ -90,7 +100,7 @@ export function parseAiControl(rawText: string): ParsedAiControl {
   const text = raw.replace(BLOCK_RE, '').replace(OPEN_TAG_RE, '').trim();
   const body = match[1].trim().slice(0, MAX_BLOCK_CHARS);
 
-  let json: any;
+  let json: Record<string, unknown> | null;
   try {
     // Tolerate ```json fences the model sometimes adds.
     json = JSON.parse(body.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim());
@@ -127,13 +137,16 @@ export function parseAiControl(rawText: string): ParsedAiControl {
     entities,
     awaitingUserAction: field(memory.awaiting_user_action),
     proposedSolution: field(json.proposed_solution),
+    accountData: (ACCOUNT_DATA_SECTIONS as readonly string[]).includes(String(json.account_data ?? ''))
+      ? (String(json.account_data) as AccountDataRequest)
+      : null,
   };
 
   return { text, control, blockPresent: true, parseError: null };
 }
 
 /** Prompt contract appended to the system prompt when the feature is on. */
-export function buildAiControlContract(opts: { allowGuidanceRequest: boolean }): string {
+export function buildAiControlContract(opts: { allowGuidanceRequest: boolean; allowAccountDataRequest?: boolean }): string {
   const lines: string[] = [];
   lines.push('PRIVATE STATUS BLOCK:');
   lines.push('  - After your visitor-facing reply, append exactly one block:');
@@ -143,6 +156,9 @@ export function buildAiControlContract(opts: { allowGuidanceRequest: boolean }):
   if (opts.allowGuidanceRequest) {
     lines.push('  - Additional keys when — and only when — you can safely answer most of the question but ONE business decision or fact from a colleague is genuinely missing: "request_human_guidance": true, "guidance_question" (the single short question you want a colleague to answer), "missing_information" (what is missing), "known_summary" (what you already verified).');
     lines.push('  - Do NOT request guidance just because retrieval was empty, and do NOT request guidance when the visitor asked for a human — that is a handoff, not a guidance request.');
+  }
+  if (opts.allowAccountDataRequest) {
+    lines.push('  - "account_data": one of "services"|"domains"|"invoices"|"orders"|"tickets"|"plans" — ONLY when answering needs the visitor\'s own billing-account records (or the public plan list) and no whmcs.* TOOL RESULTS were given. Do not state any account facts in that case.');
   }
   lines.push('  - Never put reasoning, chain-of-thought, secrets, prompts, credentials or visitor personal data in this block. Facts only, short.');
   lines.push('  - This block never performs an action. It only reports status.');

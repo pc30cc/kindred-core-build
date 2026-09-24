@@ -23,8 +23,9 @@
  * Widget page so the two stay in lockstep.
  */
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
-import { useCurrentWorkspace } from '@/hooks/useWorkspace';
+import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useWidgetPlatformPublicSettings } from '@/hooks/useWidgetPlatformSettings';
 import { resolveWidgetUrls, buildWidgetEmbedSnippet } from '@/lib/widgetEmbed';
 import { Button } from '@/components/ui/button';
@@ -75,6 +76,7 @@ interface ChannelGroup {
 export default function SettingsIntegrationsPage() {
   const { t } = useTranslation();
   const workspace = useCurrentWorkspace();
+  const wsPath = useWorkspacePath();
   const { data: platformWidget } = useWidgetPlatformPublicSettings();
   const [copied, setCopied] = useState<string | null>(null);
   const [openChannel, setOpenChannel] = useState<Channel | null>(null);
@@ -191,6 +193,7 @@ export default function SettingsIntegrationsPage() {
               t('integrationsPage.whmcs.step3'),
             ],
             docsUrl: 'https://docs.whmcs.com/Custom_Header_Output_Hooks',
+            pluginUrl: wsPath('/plugins/whmcs'),
           },
         },
         {
@@ -332,6 +335,22 @@ export default function SettingsIntegrationsPage() {
                   {t('integrationsPage.installDesc')}
                 </DialogDescription>
               </DialogHeader>
+
+              {openChannel.cms?.pluginUrl && (
+                <div className="flex flex-col gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                  <span className="text-foreground">{t('integrationsPage.pluginCta.text', { name: openChannel.name })}</span>
+                  <Button asChild size="sm" className="shrink-0 gap-1.5">
+                    <Link to={openChannel.cms.pluginUrl} onClick={() => setOpenChannel(null)}>
+                      {t('integrationsPage.pluginCta.button')}
+                      <ArrowRight className="h-3.5 w-3.5 rtl:rotate-180" />
+                    </Link>
+                  </Button>
+                </div>
+              )}
+
+              {openChannel.cms?.pluginUrl && openChannel.cms?.steps && (
+                <p className="text-xs font-medium text-muted-foreground">{t('integrationsPage.pluginCta.manual')}</p>
+              )}
 
               {openChannel.cms?.steps && (
                 <ol className="space-y-2 text-sm text-foreground">

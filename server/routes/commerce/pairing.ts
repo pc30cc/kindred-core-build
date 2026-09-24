@@ -21,12 +21,11 @@ import {
   runCapabilityHandshake,
 } from '../../services/commerce/pairing.js';
 import { enqueueSyncJob } from '../../services/commerce/sync.js';
-import { providerProfile } from '../../services/commerce/providers.js';
 
 export const commercePairingRouter = Router();
 
 function serverConfigOf(req: Request): ServerConfig {
-  return (req as Request & { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
+  return (req as Request & { serverConfig: ServerConfig }).serverConfig;
 }
 
 // Pairing is a low-volume, security-sensitive flow — bound attempts hard.
@@ -35,12 +34,16 @@ const pairingLimiter = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: t
 const registerSchema = z.object({
   state: z.string().min(16).max(200),
   codeChallenge: z.string().min(32).max(200),
-  redirectUri: z.string().url(),
-  storeOrigin: z.string().url(),
-  // Optional and additive: the WooCommerce plugin sends none of these.
-  provider: z.enum(['woocommerce', 'opencart']).optional(),
+  redirectUri: z.string().url().max(500),
+  storeOrigin: z.string().url().max(300),
+  // Optional so every WooCommerce plugin build ever shipped keeps pairing
+  // exactly as before; the WHMCS addon and the OpenCart extension name
+  // themselves and their base URL (OpenCart sends it as `storeUrl`).
+  provider: z.enum(['woocommerce', 'whmcs', 'opencart']).optional(),
+  storeBaseUrl: z.string().url().max(300).optional(),
+  storeUrl: z.string().url().max(300).optional(),
+  // OpenCart: which store of a multi-store install, and its version.
   externalStoreId: z.string().regex(/^\d{1,9}$/).optional(),
-  storeUrl: z.string().url().max(500).optional(),
   platformVersion: z.string().max(20).optional(),
 }).strict();
 
@@ -53,8 +56,10 @@ commercePairingRouter.post('/register', pairingLimiter, async (req, res) => {
     // marks every field optional (a known zod/TS interaction), which fails
     // assignability against registerPairingRequest's required-field
     // signature even though every field is validated non-empty above.
-    const { state, codeChallenge, redirectUri, storeOrigin, provider, externalStoreId, storeUrl, platformVersion } = parsed.data;
-    const result = await registerPairingRequest(serverConfigOf(req), { state, codeChallenge, redirectUri, storeOrigin, provider, externalStoreId, storeUrl, platformVersion });
+    const { state, codeChallenge, redirectUri, storeOrigin, provider, storeBaseUrl, storeUrl, externalStoreId, platformVersion } = parsed.data;
+    const result = await registerPairingRequest(serverConfigOf(req), {
+      state, codeChallenge, redirectUri, storeOrigin, provider, storeBaseUrl: storeBaseUrl ?? storeUrl, externalStoreId, platformVersion,
+    });
     res.json({ ok: true, expiresAt: result.expiresAt });
   } catch (err) {
     if (err instanceof PairingError) return res.status(400).json({ error: err.code, message: err.message });
@@ -133,10 +138,11 @@ commercePairingRouter.post('/exchange', pairingLimiter, async (req, res) => {
     // moves health to 'connected', then the bounded initial sync begins.
     // Neither blocks the plugin's activation request on a network round trip
     // (spec §64 — pairing → handshake → initial sync → catalog_ready).
-    // Direct connectors (OpenCart) keep no catalogue in Web Yar: handshake
-    // only, never a sync job.
+    //
+    // A live-queried provider (WHMCS, OpenCart) has no catalogue index, so nothing is
+    // queued for it: no initial sync, no periodic reconciliation, no worker.
     void runCapabilityHandshake(config, result.connectionId)
-      .then(() => (providerProfile(result.providerType).catalogSync
+      .then(() => (result.usesCatalogIndex
         ? enqueueSyncJob(config, result.workspaceId, result.connectionId, 'initial_sync')
         : null))
       .catch(() => {});
@@ -151,6 +157,7 @@ commercePairingRouter.post('/exchange', pairingLimiter, async (req, res) => {
       connectionId: result.connectionId,
       storeId: result.storeId,
       protocolVersion: result.protocolVersion,
+      providerType: result.providerType,
     });
   } catch (err) {
     if (err instanceof PairingError) return res.status(400).json({ error: err.code, message: err.message });

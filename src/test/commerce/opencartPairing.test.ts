@@ -31,7 +31,7 @@ const verifier = 'v'.repeat(64);
 const challenge = createHash('sha256').update(verifier).digest('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 async function pair(state: string, storeId: string, storeUrl: string, permissions: Record<string, boolean>) {
-  await registerPairingRequest(CONFIG, { state, codeChallenge: challenge, redirectUri: `${storeUrl}index.php?route=x`, storeOrigin: 'https://shop.example', provider: 'opencart', externalStoreId: storeId, storeUrl, platformVersion: '4.1.0.4' });
+  await registerPairingRequest(CONFIG, { state, codeChallenge: challenge, redirectUri: `${storeUrl}index.php?route=x`, storeOrigin: 'https://shop.example', provider: 'opencart', externalStoreId: storeId, storeBaseUrl: storeUrl, platformVersion: '4.1.0.4' });
   const { redirectUrl } = await approvePairingRequest(CONFIG, { state, workspaceId: 'ws', userId: 'u', permissions });
   const code = new URL(redirectUrl).searchParams.get('code') as string;
   return exchangePairingCode(CONFIG, { state, code, codeVerifier: verifier });
@@ -46,9 +46,9 @@ beforeEach(() => {
 describe('register', () => {
   it('requires the OpenCart store id and an https store URL on the same origin', async () => {
     const base = { state: 's'.repeat(20), codeChallenge: challenge, redirectUri: 'https://shop.example/index.php', storeOrigin: 'https://shop.example', provider: 'opencart' };
-    await expect(registerPairingRequest(CONFIG, { ...base, storeUrl: 'https://shop.example/' })).rejects.toBeInstanceOf(PairingError);
-    await expect(registerPairingRequest(CONFIG, { ...base, externalStoreId: '0', storeUrl: 'https://other.example/' })).rejects.toBeInstanceOf(PairingError);
-    await expect(registerPairingRequest(CONFIG, { ...base, externalStoreId: '0', storeUrl: 'http://shop.example/' })).rejects.toBeInstanceOf(PairingError);
+    await expect(registerPairingRequest(CONFIG, { ...base, storeBaseUrl: 'https://shop.example/' })).rejects.toBeInstanceOf(PairingError);
+    await expect(registerPairingRequest(CONFIG, { ...base, externalStoreId: '0', storeBaseUrl: 'https://other.example/' })).rejects.toBeInstanceOf(PairingError);
+    await expect(registerPairingRequest(CONFIG, { ...base, externalStoreId: '0', storeBaseUrl: 'http://shop.example/' })).rejects.toBeInstanceOf(PairingError);
     await expect(registerPairingRequest(CONFIG, { ...base, provider: 'magento' })).rejects.toBeInstanceOf(PairingError);
   });
 });

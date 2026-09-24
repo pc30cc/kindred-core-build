@@ -31,6 +31,7 @@ import {
   type TrackingResult,
   type AuthorizedCustomerLookup,
   type CommerceOrderSummary,
+  type OrderStatus,
   CommerceError,
 } from '../../../../shared/commerce/types.js';
 import type { ProductReviewsResult } from '../../../../shared/commerce/types.js';
@@ -46,6 +47,25 @@ export interface WooCommerceTransport {
 
 const MAX_PRODUCTS_PER_CALL = 20;
 const MAX_VARIANTS_PER_PRODUCT = 50;
+const PRODUCT_TYPES: ReadonlyArray<CommerceProduct['type']> = ['simple', 'variable', 'grouped', 'external'];
+
+/**
+ * A JSON object exactly as the plugin sent it. Nothing about its shape is
+ * trusted: every field is narrowed where it is read.
+ */
+type Wire = Record<string, unknown>;
+
+function wire(value: unknown): Wire {
+  return value !== null && typeof value === 'object' ? (value as Wire) : {};
+}
+
+function wireList(value: unknown, max: number): unknown[] {
+  return boundedArray(Array.isArray(value) ? (value as unknown[]) : null, max);
+}
+
+function str(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
 
 /**
  * Accepts BOTH shapes the plugin actually sends.
@@ -61,13 +81,13 @@ const MAX_VARIANTS_PER_PRODUCT = 50;
  * price. The unit fixture used scalars for products too, which is why nothing
  * caught it.
  */
-function toMoney(raw: any, currency: string): Money | null {
+function toMoney(raw: unknown, currency: string): Money | null {
   if (raw === null || raw === undefined || raw === '') return null;
 
   if (typeof raw === 'object') {
-    const amount = String((raw as any).amountMinor ?? '').trim();
+    const amount = String(wire(raw).amountMinor ?? '').trim();
     if (!/^-?\d+(\.\d+)?$/.test(amount)) return null;
-    const c = (raw as any).currency;
+    const c = wire(raw).currency;
     return { amountMinor: amount, currency: typeof c === 'string' && c ? c : currency };
   }
 
@@ -80,25 +100,29 @@ function toStockState(raw: unknown): StockState {
   return raw === 'in_stock' || raw === 'out_of_stock' || raw === 'backorder' ? raw : 'unknown';
 }
 
-function normalizeTaxonomy(raw: any): CommerceTaxonomy | null {
-  if (!raw || typeof raw !== 'object') return null;
+function normalizeTaxonomy(value: unknown): CommerceTaxonomy | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = wire(value);
   const name = sanitizeCommerceText(raw.name, 120);
   if (!name) return null;
   return { id: String(raw.id ?? ''), name, slug: typeof raw.slug === 'string' ? raw.slug.slice(0, 120) : null };
 }
 
-function normalizeAttribute(raw: any): CommerceAttribute | null {
-  if (!raw || typeof raw !== 'object') return null;
+function normalizeAttribute(value: unknown): CommerceAttribute | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = wire(value);
   const name = sanitizeCommerceText(raw.name, 80);
   if (!name) return null;
-  const values = boundedArray(raw.values, 30)
+  const values = wireList(raw.values, 30)
     .map((v: unknown) => sanitizeCommerceText(v, 80))
     .filter((v: string | null): v is string => !!v);
   return { name, values, usedForVariations: raw.usedForVariations === true };
 }
 
-function normalizeVariant(raw: any, currency: string): CommerceVariant | null {
-  if (!raw || typeof raw !== 'object' || !raw.externalId) return null;
+function normalizeVariant(value: unknown, currency: string): CommerceVariant | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = wire(value);
+  if (!raw.externalId) return null;
   const attrs: Record<string, string> = {};
   if (raw.attributes && typeof raw.attributes === 'object') {
     for (const [k, v] of Object.entries(raw.attributes).slice(0, 20)) {
@@ -121,15 +145,17 @@ function normalizeVariant(raw: any, currency: string): CommerceVariant | null {
   };
 }
 
-export function normalizeWooCommerceProduct(raw: any): CommerceProduct | null {
-  if (!raw || typeof raw !== 'object' || !raw.externalId) return null;
+export function normalizeWooCommerceProduct(value: unknown): CommerceProduct | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = wire(value);
+  if (!raw.externalId) return null;
   const currency = typeof raw.currency === 'string' ? raw.currency.slice(0, 10) : 'USD';
   const title = sanitizeCommerceText(raw.title, 200);
   if (!title) return null;
 
   return {
     externalId: String(raw.externalId),
-    type: ['simple', 'variable', 'grouped', 'external'].includes(raw.type) ? raw.type : 'simple',
+    type: PRODUCT_TYPES.find((t) => t === raw.type) ?? 'simple',
     sku: typeof raw.sku === 'string' ? raw.sku.slice(0, 100) : null,
     title,
     shortDescription: sanitizeCommerceText(raw.shortDescription, 500),
@@ -141,12 +167,12 @@ export function normalizeWooCommerceProduct(raw: any): CommerceProduct | null {
     effectivePrice: toMoney(raw.effectivePrice, currency),
     stockState: toStockState(raw.stockState),
     stockQuantity: typeof raw.stockQuantity === 'number' ? raw.stockQuantity : null,
-    categories: boundedArray(raw.categories, 20).map(normalizeTaxonomy).filter((v: any): v is CommerceTaxonomy => !!v),
-    tags: boundedArray(raw.tags, 20).map(normalizeTaxonomy).filter((v: any): v is CommerceTaxonomy => !!v),
-    attributes: boundedArray(raw.attributes, 20).map(normalizeAttribute).filter((v: any): v is CommerceAttribute => !!v),
-    variants: boundedArray(raw.variants, MAX_VARIANTS_PER_PRODUCT)
-      .map((v: any) => normalizeVariant(v, currency))
-      .filter((v: any): v is CommerceVariant => !!v),
+    categories: wireList(raw.categories, 20).map(normalizeTaxonomy).filter((v): v is CommerceTaxonomy => !!v),
+    tags: wireList(raw.tags, 20).map(normalizeTaxonomy).filter((v): v is CommerceTaxonomy => !!v),
+    attributes: wireList(raw.attributes, 20).map(normalizeAttribute).filter((v): v is CommerceAttribute => !!v),
+    variants: wireList(raw.variants, MAX_VARIANTS_PER_PRODUCT)
+      .map((v) => normalizeVariant(v, currency))
+      .filter((v): v is CommerceVariant => !!v),
     isVirtual: raw.isVirtual === true,
     isDownloadable: raw.isDownloadable === true,
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : new Date(0).toISOString(),
@@ -158,7 +184,7 @@ export class WooCommerceConnector implements CommerceConnector {
 
   constructor(private readonly transport: WooCommerceTransport) {}
 
-  private async call(ctx: CommerceConnectorContext, method: 'GET' | 'POST', path: string, body?: unknown) {
+  private async call(ctx: CommerceConnectorContext, method: 'GET' | 'POST', path: string, body?: unknown): Promise<Wire | null> {
     const bodyStr = body !== undefined ? JSON.stringify(body) : '';
     const url = `${this.transport.origin}${path}`;
     const headers = buildSignedHeaders(this.transport.secret, this.transport.installationId, method, path, bodyStr);
@@ -182,7 +208,7 @@ export class WooCommerceConnector implements CommerceConnector {
     if (res.status >= 500) throw new CommerceError('commerce_live_unavailable', `plugin error: ${res.status}`);
     if (res.status >= 400) throw new CommerceError('commerce_invalid_response', `plugin rejected request: ${res.status}`);
 
-    return res.json as any;
+    return res.json !== null && typeof res.json === 'object' ? (res.json as Wire) : null;
   }
 
   async getStoreInfo(ctx: CommerceConnectorContext): Promise<StoreInfo> {
@@ -211,9 +237,9 @@ export class WooCommerceConnector implements CommerceConnector {
 
     return {
       catalogReady: data?.catalog_ready !== false,
-      products: boundedArray(data?.products, limit)
+      products: wireList(data?.products, limit)
         .map(normalizeWooCommerceProduct)
-        .filter((p: any): p is CommerceProduct => !!p),
+        .filter((p): p is CommerceProduct => !!p),
       nextCursor: typeof data?.next_cursor === 'string' ? data.next_cursor : null,
       totalMatched: typeof data?.total_matched === 'number' ? data.total_matched : null,
       liveRevalidated: false,
@@ -223,9 +249,9 @@ export class WooCommerceConnector implements CommerceConnector {
   async getProducts(ctx: CommerceConnectorContext, ids: string[]): Promise<CommerceProduct[]> {
     const bounded = ids.slice(0, MAX_PRODUCTS_PER_CALL);
     const data = await this.call(ctx, 'POST', '/wp-json/webyar/v1/products/resolve', { ids: bounded });
-    return boundedArray(data?.products, bounded.length)
+    return wireList(data?.products, bounded.length)
       .map(normalizeWooCommerceProduct)
-      .filter((p: any): p is CommerceProduct => !!p);
+      .filter((p): p is CommerceProduct => !!p);
   }
 
   async getAvailability(ctx: CommerceConnectorContext, input: AvailabilityInput): Promise<AvailabilityResult> {
@@ -239,7 +265,7 @@ export class WooCommerceConnector implements CommerceConnector {
       variantExternalId: input.variantExternalId ?? null,
       stockState: toStockState(data.stock_state),
       stockQuantity: typeof data.stock_quantity === 'number' ? data.stock_quantity : null,
-      effectivePrice: toMoney(data.effective_price, data.currency ?? 'USD'),
+      effectivePrice: toMoney(data.effective_price, str(data.currency) ?? 'USD'),
       asOf: new Date().toISOString(),
       source: 'live',
     };
@@ -262,13 +288,16 @@ export class WooCommerceConnector implements CommerceConnector {
       averageRating: Number.isFinite(average) && average > 0 ? average : null,
       reviewCount: Number.isFinite(Number(data.review_count)) ? Number(data.review_count) : 0,
       reviews: Array.isArray(data.reviews)
-        ? data.reviews.slice(0, 10).map((r: any) => ({
-            author: String(r?.author ?? '').slice(0, 80),
-            rating: Number.isFinite(Number(r?.rating)) ? Number(r.rating) : null,
-            verified: !!r?.verified,
-            date: String(r?.date ?? ''),
-            text: String(r?.text ?? '').slice(0, 600),
-          }))
+        ? data.reviews.slice(0, 10).map((item: unknown) => {
+            const r = wire(item);
+            return {
+              author: String(r.author ?? '').slice(0, 80),
+              rating: Number.isFinite(Number(r.rating)) ? Number(r.rating) : null,
+              verified: !!r.verified,
+              date: String(r.date ?? ''),
+              text: String(r.text ?? '').slice(0, 600),
+            };
+          })
         : [],
     };
   }
@@ -282,17 +311,21 @@ export class WooCommerceConnector implements CommerceConnector {
     const currency = typeof data.currency === 'string' ? data.currency : 'USD';
     return {
       externalId: input.externalOrderId,
-      status: data.status ?? 'unknown',
+      // The plugin maps WooCommerce statuses onto OrderStatus (OrderReader::map_status).
+      status: (str(data.status) ?? 'unknown') as OrderStatus,
       currency,
       total: toMoney(data.total, currency) ?? { amountMinor: '0', currency },
-      createdAt: data.created_at ?? new Date(0).toISOString(),
-      updatedAt: data.updated_at ?? new Date(0).toISOString(),
-      lineItems: boundedArray(data.line_items, 30).map((li: any) => ({
-        productExternalId: li.product_id ? String(li.product_id) : null,
-        title: sanitizeCommerceText(li.title, 200) ?? 'Item',
-        quantity: typeof li.quantity === 'number' ? li.quantity : 1,
-        total: toMoney(li.total, currency) ?? { amountMinor: '0', currency },
-      })),
+      createdAt: str(data.created_at) ?? new Date(0).toISOString(),
+      updatedAt: str(data.updated_at) ?? new Date(0).toISOString(),
+      lineItems: wireList(data.line_items, 30).map((item) => {
+        const li = wire(item);
+        return {
+          productExternalId: li.product_id ? String(li.product_id) : null,
+          title: sanitizeCommerceText(li.title, 200) ?? 'Item',
+          quantity: typeof li.quantity === 'number' ? li.quantity : 1,
+          total: toMoney(li.total, currency) ?? { amountMinor: '0', currency },
+        };
+      }),
       maskedContact: {
         email: typeof data.masked_email === 'string' ? data.masked_email : null,
         phone: typeof data.masked_phone === 'string' ? data.masked_phone : null,
@@ -306,13 +339,18 @@ export class WooCommerceConnector implements CommerceConnector {
       authorization: input,
     });
     if (!data || data.found === false) throw new CommerceError('order_not_found', 'order not found');
+    // TrackingResolver (and the `webyar_commerce_tracking_payload` filter it
+    // documents for shipping plugins) emits camelCase keys; snake_case is
+    // still read for plugin builds that sent it.
+    const trackingNumber = data.trackingNumber ?? data.tracking_number;
+    const updatedAt = data.updatedAt ?? data.updated_at;
     return {
       externalOrderId: input.externalOrderId,
       carrier: sanitizeCommerceText(data.carrier, 80),
-      trackingNumber: typeof data.tracking_number === 'string' ? data.tracking_number.slice(0, 80) : null,
-      trackingUrl: sanitizeUrl(data.tracking_url),
+      trackingNumber: typeof trackingNumber === 'string' || typeof trackingNumber === 'number' ? String(trackingNumber).slice(0, 80) : null,
+      trackingUrl: sanitizeUrl(data.trackingUrl ?? data.tracking_url),
       status: sanitizeCommerceText(data.status, 80),
-      updatedAt: typeof data.updated_at === 'string' ? data.updated_at : null,
+      updatedAt: typeof updatedAt === 'string' ? updatedAt : null,
     };
   }
 
@@ -323,13 +361,14 @@ export class WooCommerceConnector implements CommerceConnector {
       authorization: input,
       limit,
     });
-    return boundedArray(data?.orders, limit).map((o: any) => {
+    return wireList(data?.orders, limit).map((item) => {
+      const o = wire(item);
       const currency = typeof o.currency === 'string' ? o.currency : 'USD';
       return {
         externalId: String(o.external_id ?? o.id ?? ''),
-        status: o.status ?? 'unknown',
+        status: (str(o.status) ?? 'unknown') as OrderStatus,
         total: toMoney(o.total, currency) ?? { amountMinor: '0', currency },
-        createdAt: o.created_at ?? new Date(0).toISOString(),
+        createdAt: str(o.created_at) ?? new Date(0).toISOString(),
       };
     });
   }
@@ -356,7 +395,7 @@ export class WooCommerceConnector implements CommerceConnector {
       woocommerceVersion: typeof data?.woocommerce_version === 'string' ? data.woocommerce_version : null,
       wordpressVersion: typeof data?.wordpress_version === 'string' ? data.wordpress_version : null,
       hposEnabled: typeof data?.hpos_enabled === 'boolean' ? data.hpos_enabled : null,
-      capabilities: boundedArray(data?.capabilities, 20).filter((c: unknown) => typeof c === 'string'),
+      capabilities: wireList(data?.capabilities, 20).filter((c): c is string => typeof c === 'string'),
       catalogReady: data?.catalog_ready === true,
     };
   }

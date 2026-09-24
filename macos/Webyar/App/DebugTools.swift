@@ -17,6 +17,7 @@ enum DebugTools {
     static var sample: Bool { ProcessInfo.processInfo.environment["WEBYAR_SAMPLE"] == "1" }
     private static var timer: Timer?
     private static var lastCommand = ""
+    private static var queue: [String] = []
 
     static func start(app: AppModel) {
         guard let dir = ProcessInfo.processInfo.environment["WEBYAR_DEBUG_DIR"] else { return }
@@ -53,9 +54,14 @@ enum DebugTools {
     private static func runCommand(_ folder: URL, _ app: AppModel) {
         let file = folder.appendingPathComponent("command.txt")
         guard let text = try? String(contentsOf: file, encoding: .utf8) else { return }
-        let line = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !line.isEmpty, line != lastCommand else { return }
-        lastCommand = line
+        // Several commands separated by ";" run one per tick.
+        let all = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !all.isEmpty, all != lastCommand {
+            lastCommand = all
+            queue = all.split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }
+        }
+        guard !queue.isEmpty else { return }
+        let line = queue.removeFirst()
         let parts = line.split(separator: " ").map(String.init)
         let arg = parts.count > 1 ? parts[1] : ""
         switch parts.first {

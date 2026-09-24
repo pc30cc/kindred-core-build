@@ -364,7 +364,7 @@
       "exposure": "None. The table carries no Data API grants; it is reached only by the Express server through service_role, which bypasses RLS.",
       "intentional": true,
       "decision": "deferred-by-design",
-      "justification": "Server-only table written exclusively by the Express backend or workers; deny-by-default is intended. Verified 2026-09-23 on a clean replay: no anon/authenticated table grants.",
+      "justification": "Server-only table written exclusively by the Express backend or workers; deny-by-default is intended. Hosted default privileges had granted anon/authenticated; migration 213 revokes them.",
       "owner": "backend/platform",
       "follow_up": "Re-evaluate only if this table is ever exposed directly to the browser."
     },
@@ -377,7 +377,20 @@
       "exposure": "None. The table carries no Data API grants; it is reached only by the Express server through service_role, which bypasses RLS.",
       "intentional": true,
       "decision": "deferred-by-design",
-      "justification": "Server-only table written exclusively by the Express backend or workers; deny-by-default is intended. Verified 2026-09-23 on a clean replay: no anon/authenticated table grants.",
+      "justification": "Server-only table written exclusively by the Express backend or workers; deny-by-default is intended. Hosted default privileges had granted anon/authenticated; migration 213 revokes them.",
+      "owner": "backend/platform",
+      "follow_up": "Re-evaluate only if this table is ever exposed directly to the browser."
+    },
+    {
+      "fingerprint": "0008_rls_enabled_no_policy:public.macos_app_settings",
+      "category": "SECURITY / rls_enabled_no_policy",
+      "object": "public.macos_app_settings",
+      "severity": "INFO",
+      "reason": "RLS is enabled but no policy exists, so PostgREST returns zero rows for anon/authenticated.",
+      "exposure": "None. The table carries no Data API grants; it is reached only by the Express server through service_role, which bypasses RLS.",
+      "intentional": true,
+      "decision": "deferred-by-design",
+      "justification": "Server-only table (Super Admin → macOS app) written exclusively by the Express backend; the Mac app reads its public projection from GET /api/platform/macos-app. Deny-by-default is intended; anon/authenticated table grants are revoked by migration 213.",
       "owner": "backend/platform",
       "follow_up": "Re-evaluate only if this table is ever exposed directly to the browser."
     },

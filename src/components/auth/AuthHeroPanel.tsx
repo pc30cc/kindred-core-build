@@ -1,4 +1,4 @@
-import { MessageSquare, Phone, Sparkles, BarChart3, Zap, Bot } from 'lucide-react';
+import { MessageSquare, Phone, Sparkles, BarChart3, Zap, Bot, CheckCheck } from 'lucide-react';
 import { WebyarMark } from '@/components/brand/WebyarMark';
 
 interface Props {
@@ -16,67 +16,81 @@ const CHIPS = [
   { icon: Sparkles, label: 'Smart Inbox' },
 ];
 
-/** Dark aurora showcase panel for auth screens (Magic UI style). */
+const ROWS = [
+  { w1: 'w-24', w2: 'w-40', active: true, unread: 2 },
+  { w1: 'w-20', w2: 'w-32', active: false, unread: 0 },
+  { w1: 'w-28', w2: 'w-36', active: false, unread: 0 },
+];
+
+/** Calm, dark showcase panel for auth screens. */
 export function AuthHeroPanel({ title, subtitle, className }: Props) {
   return (
     <div className={`dark relative hidden overflow-hidden bg-background text-foreground lg:flex ${className ?? ''}`}>
       <div aria-hidden className="pointer-events-none absolute inset-0">
-        <div className="animate-aurora absolute -top-40 start-[10%] h-[520px] w-[520px] rounded-full bg-brand-teal/25 blur-[110px]" />
-        <div className="animate-aurora absolute top-24 end-[0%] h-[460px] w-[460px] rounded-full bg-brand-violet/25 blur-[110px]" style={{ animationDelay: '-6s' }} />
-        <div className="animate-aurora absolute -bottom-40 start-1/3 h-[320px] w-[320px] rounded-full bg-brand-coral/15 blur-[100px]" style={{ animationDelay: '-12s' }} />
-        <div className="bg-grid absolute inset-0" />
+        <div className="absolute -top-48 start-1/2 h-[560px] w-[560px] -translate-x-1/2 rounded-full bg-primary/10 blur-[140px]" />
+        <div className="bg-grid absolute inset-0 opacity-40 [mask-image:radial-gradient(ellipse_at_center,black_30%,transparent_75%)]" />
       </div>
 
       <div className="relative z-10 flex w-full flex-col items-center justify-center p-12 text-center">
-        <span className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-card/60 px-3 py-1 text-xs font-medium text-muted-foreground backdrop-blur">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping-soft absolute inline-flex h-full w-full rounded-full bg-primary" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
-          </span>
+        <span className="mb-6 inline-flex items-center gap-2 rounded-full border border-border/60 bg-card/40 px-3 py-1 text-[11px] font-medium tracking-[0.2em] text-muted-foreground">
+          <span className="h-1.5 w-1.5 rounded-full bg-primary" />
           WEBYAR
         </span>
-        <h2 className="max-w-md text-3xl font-bold leading-tight xl:text-4xl">
-          <span className="text-brand">{title}</span>
+        <h2 className="max-w-md text-3xl font-semibold leading-tight tracking-tight text-foreground xl:text-4xl">
+          {title}
         </h2>
         <p className="mt-4 max-w-md text-base leading-relaxed text-muted-foreground">{subtitle}</p>
 
-        {/* Floating product card with rotating light border */}
-        <div className="beam-border glass mt-10 w-full max-w-md rounded-3xl p-5 text-start shadow-glow">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand text-white shadow-glow">
-              <WebyarMark className="h-6 w-6" />
+        {/* Product preview: a quiet inbox mock */}
+        <div className="mt-10 w-full max-w-md overflow-hidden rounded-2xl border border-border/60 bg-card/50 text-start shadow-2xl backdrop-blur-xl">
+          <div className="flex items-center gap-3 border-b border-border/60 px-4 py-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-primary">
+              <WebyarMark className="h-4 w-4" />
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="h-2.5 w-28 rounded-full bg-foreground/80" />
-              <div className="mt-2 h-2 w-40 rounded-full bg-muted-foreground/40" />
-            </div>
-            <span className="rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-semibold text-success">● online</span>
+            <div className="h-2 w-20 rounded-full bg-foreground/30" />
+            <span className="ms-auto inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <span className="h-1.5 w-1.5 rounded-full bg-success" /> online
+            </span>
           </div>
-          <div className="mt-5 space-y-2.5">
-            <div className="ms-auto w-3/4 rounded-2xl rounded-ee-md bg-brand px-3 py-2 text-xs text-white">
-              <div className="h-2 w-full rounded-full bg-white/60" />
-              <div className="mt-1.5 h-2 w-2/3 rounded-full bg-white/40" />
-            </div>
-            <div className="w-2/3 rounded-2xl rounded-es-md bg-secondary px-3 py-2">
-              <div className="h-2 w-full rounded-full bg-muted-foreground/50" />
-              <div className="mt-1.5 h-2 w-1/2 rounded-full bg-muted-foreground/30" />
-            </div>
+
+          <div className="divide-y divide-border/40">
+            {ROWS.map((r, i) => (
+              <div key={i} className={`flex items-center gap-3 px-4 py-3 ${r.active ? 'bg-primary/[0.06]' : ''}`}>
+                <div className="h-9 w-9 shrink-0 rounded-full bg-muted" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className={`h-2 ${r.w1} rounded-full bg-foreground/40`} />
+                  <div className={`h-1.5 ${r.w2} rounded-full bg-muted-foreground/25`} />
+                </div>
+                {r.unread ? (
+                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+                    {r.unread}
+                  </span>
+                ) : (
+                  <CheckCheck className="h-3.5 w-3.5 text-muted-foreground/60" />
+                )}
+              </div>
+            ))}
           </div>
-          <div className="mt-5 grid grid-cols-3 gap-2">
-            {[72, 48, 88].map((h, i) => (
-              <div key={i} className="flex h-16 items-end rounded-xl bg-secondary/70 p-2">
-                <div className="w-full rounded-md bg-brand" style={{ height: `${h}%` }} />
+
+          <div className="grid grid-cols-3 border-t border-border/60">
+            {[
+              { v: '98%', l: 'CSAT' },
+              { v: '<1m', l: 'Reply' },
+              { v: '24/7', l: 'AI' },
+            ].map((s) => (
+              <div key={s.l} dir="ltr" className="border-e border-border/40 px-4 py-3 text-center last:border-e-0">
+                <div className="text-sm font-semibold text-foreground">{s.v}</div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.l}</div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Marquee of capabilities */}
         <div dir="ltr" className="relative mt-10 w-full max-w-lg overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_15%,black_85%,transparent)]">
           <div className="animate-marquee flex w-max gap-2" style={{ animationDirection: 'reverse' }}>
             {[...CHIPS, ...CHIPS].map(({ icon: Icon, label }, i) => (
-              <span key={i} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-card/50 px-3 py-1.5 text-xs font-medium text-foreground/90 backdrop-blur">
-                <Icon className="h-3.5 w-3.5 text-primary" />
+              <span key={i} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border/50 bg-card/30 px-3 py-1.5 text-xs text-muted-foreground">
+                <Icon className="h-3.5 w-3.5 text-primary/80" />
                 {label}
               </span>
             ))}

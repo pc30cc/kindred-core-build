@@ -71,6 +71,23 @@ struct ChatView: View {
         )
     }
 
+    /// The visitor's name, face and device, built outside the toolbar.
+    ///
+    /// Six arguments inside a `.toolbar { ToolbarItem { … } }` closure was
+    /// enough to push the type-checker past its own time limit: it gave up on
+    /// the entire body when the sixth was added. Hoisting it here with the
+    /// type spelled out leaves nothing for it to infer.
+    private var header: ChatHeader {
+        ChatHeader(
+            title: title,
+            avatarURL: conversation.contact?.avatarURL,
+            visitor: model.visitor,
+            isResolvingVisitor: model.isResolvingVisitor,
+            aiState: AIState.resolve(conversation),
+            language: language
+        )
+    }
+
     var body: some View {
         @Bindable var model = model
 
@@ -112,16 +129,7 @@ struct ChatView: View {
             // operator at a glance which device and country they are talking
             // to without opening the contact.
             .toolbar {
-                ToolbarItem(placement: .principal) {
-                    ChatHeader(
-                        title: title,
-                        avatarURL: conversation.contact?.avatarURL,
-                        visitor: model.visitor,
-                        isResolvingVisitor: model.isResolvingVisitor,
-                        aiState: AIState.resolve(conversation),
-                        language: language
-                    )
-                }
+                ToolbarItem(placement: .principal) { header }
 
                 ToolbarItem(placement: .topBarTrailing) {
                     ConversationMenu(

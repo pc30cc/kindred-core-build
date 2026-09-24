@@ -16,6 +16,9 @@ struct ContactDetailView: View {
     /// as from the list, and the avatar rule cannot depend on how you got
     /// here.
     @State private var visitor: VisitorProfile?
+    /// That read is still out, so the avatar shows a skeleton rather than
+    /// initials it is about to replace with the operating-system mark.
+    @State private var isResolvingVisitor = true
 
     private var language: Language { appState.language }
 
@@ -36,6 +39,7 @@ struct ContactDetailView: View {
                         name: displayName,
                         imageURL: contact.avatarURL,
                         size: Theme.Size.avatarLarge,
+                        isResolvingIdentity: isResolvingVisitor,
                         os: visitor?.device?.os,
                         device: visitor?.device?.device,
                         countryCode: visitor?.geo?.countryCode
@@ -72,6 +76,24 @@ struct ContactDetailView: View {
                     }
                 }
             }
+
+            // Where they are and what they are on.
+            //
+            // This screen has been fetching both since it was written and
+            // spending them on the avatar alone -- the operating-system mark
+            // and the flag. The Windows app puts the same two facts in words
+            // on its visitor card, and words are what you need when the
+            // question is "which browser is this person having trouble in".
+            if location != nil || deviceSummary != nil {
+                Section {
+                    if let location {
+                        DetailRow(label: Str.visitorLocation(language), value: location)
+                    }
+                    if let deviceSummary {
+                        DetailRow(label: Str.visitorDevice(language), value: deviceSummary, isLatin: true)
+                    }
+                }
+            }
         }
         .listStyle(.insetGrouped)
         .navigationTitle(displayName)
@@ -81,8 +103,39 @@ struct ContactDetailView: View {
                 workspaceID: workspaceID,
                 contactIDs: [contact.id]
             )[contact.id]
+            isResolvingVisitor = false
         }
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// City and country, in that order, each only once.
+    ///
+    /// The same join the Windows app's `VisitorText.Location` does, including
+    /// dropping a city that repeats the country.
+    private var location: String? {
+        let parts = [visitor?.geo?.city, visitor?.geo?.country]
+            .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        var seen: Set<String> = []
+        let unique = parts.filter { seen.insert($0).inserted }
+        return unique.isEmpty ? nil : unique.joined(separator: Str.listSeparator(language))
+    }
+
+    /// Browser, operating system and device class, in the order an operator
+    /// reads them out loud: "Chrome on Windows, desktop".
+    private var deviceSummary: String? {
+        let device = visitor?.device
+        let kind = device?.device?.trimmingCharacters(in: .whitespaces).lowercased()
+        let localizedKind: String? = switch kind {
+        case "desktop": Str.deviceDesktop(language)
+        case "mobile": Str.deviceMobile(language)
+        case "tablet": Str.deviceTablet(language)
+        default: nil
+        }
+        let parts = [device?.browser, device?.os, localizedKind]
+            .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private var hasDetails: Bool {

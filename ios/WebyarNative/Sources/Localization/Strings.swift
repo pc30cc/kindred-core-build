@@ -2159,6 +2159,35 @@ extension Str {
         }
     }
 
+    /// What goes between two items on one line.
+    ///
+    /// Persian has its own comma, and a Latin one in a Persian line is the
+    /// kind of detail that makes an interface feel translated rather than
+    /// written. The Windows app joins a visitor's location with the same
+    /// character.
+    static func listSeparator(_ l: Language) -> String {
+        switch l {
+        case .fa: "، "
+        case .en, .tr: ", "
+        }
+    }
+
+    static func visitorLocation(_ l: Language) -> String {
+        switch l {
+        case .en: "Location"
+        case .fa: "موقعیت"
+        case .tr: "Konum"
+        }
+    }
+
+    static func visitorDevice(_ l: Language) -> String {
+        switch l {
+        case .en: "Device"
+        case .fa: "دستگاه"
+        case .tr: "Cihaz"
+        }
+    }
+
     // MARK: - Attachments
 
     /// Shown while the bytes are on their way. Taken from the console's

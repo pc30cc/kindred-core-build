@@ -41,7 +41,21 @@
   "helpAndLegal": "Help & legal",
   "turnedOffByPlatform": "Turned off for the Mac app by the platform administrator.",
   "closeToTrayOffByPlatform": "The menu bar item is turned off by the platform administrator, so closing the window quits Webyar.",
-  "notificationsOffByPlatform": "The platform administrator has turned off Mac notifications. New messages and calls still show inside the app."
+  "notificationsOffByPlatform": "The platform administrator has turned off Mac notifications. New messages and calls still show inside the app.",
+  "spam": "Spam",
+  "spamTip": "This conversation is marked as spam — AI will not auto-reply.",
+  "markSpam": "Mark as spam",
+  "markSpamTip": "Mark as spam (does not block the visitor)",
+  "markedSpamTitle": "Marked as spam",
+  "notSpam": "Not spam",
+  "removedFromSpam": "Removed from spam",
+  "callMarkSpamTip": "Mark this call as spam: a waiting call leaves the line, and the caller is flagged (not blocked)",
+  "callMarkedSpam": "Call marked as spam",
+  "callSpam": "Spam",
+  "presenceOutsideSchedule": "Outside your hours",
+  "presenceDayOff": "Not a working day",
+  "scheduleOfflineNote": "You are outside the hours in your weekly schedule, so visitors and colleagues see you offline.",
+  "scheduleOffAction": "Be available whenever I am online"
  },
  "fa": {
   "jumpToLatest": "رفتن به آخرین پیام",
@@ -85,7 +99,21 @@
   "helpAndLegal": "راهنما و قوانین",
   "turnedOffByPlatform": "مدیر پلتفرم این گزینه را برای نسخهٔ مک خاموش کرده است.",
   "closeToTrayOffByPlatform": "مدیر پلتفرم آیکون نوار منو را خاموش کرده است؛ برای همین با بستن پنجره، وب‌یار بسته می‌شود.",
-  "notificationsOffByPlatform": "مدیر پلتفرم اعلان‌های مک را خاموش کرده است. پیام‌ها و تماس‌های تازه همچنان داخل برنامه نمایش داده می‌شوند."
+  "notificationsOffByPlatform": "مدیر پلتفرم اعلان‌های مک را خاموش کرده است. پیام‌ها و تماس‌های تازه همچنان داخل برنامه نمایش داده می‌شوند.",
+  "spam": "هرزنامه",
+  "spamTip": "این مکالمه هرزنامه علامت خورده — هوش مصنوعی پاسخ خودکار نمی‌دهد.",
+  "markSpam": "علامت هرزنامه",
+  "markSpamTip": "علامت‌گذاری به‌عنوان هرزنامه (بازدیدکننده مسدود نمی‌شود)",
+  "markedSpamTitle": "به‌عنوان هرزنامه علامت خورد",
+  "notSpam": "هرزنامه نیست",
+  "removedFromSpam": "از هرزنامه خارج شد",
+  "callMarkSpamTip": "علامت هرزنامه برای این تماس: تماسِ در صف از صف خارج می‌شود و تماس‌گیرنده علامت می‌خورد (مسدود نمی‌شود)",
+  "callMarkedSpam": "تماس به‌عنوان هرزنامه علامت خورد",
+  "callSpam": "هرزنامه",
+  "presenceOutsideSchedule": "خارج از ساعت کاری",
+  "presenceDayOff": "امروز روز کاری نیست",
+  "scheduleOfflineNote": "بیرون از ساعت‌های برنامهٔ هفتگی‌تان هستید؛ برای همین بازدیدکنندگان و همکاران شما را آفلاین می‌بینند.",
+  "scheduleOffAction": "همیشه در دسترس باشم (زمان‌بندی خاموش)"
  },
  "tr": {
   "jumpToLatest": "En son mesaja git",
@@ -129,6 +157,20 @@
   "helpAndLegal": "Yardım ve yasal",
   "turnedOffByPlatform": "Platform yöneticisi bunu Mac uygulaması için kapattı.",
   "closeToTrayOffByPlatform": "Platform yöneticisi menü çubuğu öğesini kapattı; bu yüzden pencereyi kapatmak Webyar’dan çıkar.",
-  "notificationsOffByPlatform": "Platform yöneticisi Mac bildirimlerini kapattı. Yeni mesajlar ve aramalar uygulamanın içinde görünmeye devam eder."
+  "notificationsOffByPlatform": "Platform yöneticisi Mac bildirimlerini kapattı. Yeni mesajlar ve aramalar uygulamanın içinde görünmeye devam eder.",
+  "spam": "Spam",
+  "spamTip": "Bu görüşme spam olarak işaretlendi — yapay zekâ otomatik yanıt vermez.",
+  "markSpam": "Spam olarak işaretle",
+  "markSpamTip": "Spam olarak işaretle (ziyaretçiyi engellemez)",
+  "markedSpamTitle": "Spam olarak işaretlendi",
+  "notSpam": "Spam değil",
+  "removedFromSpam": "Spam’den çıkarıldı",
+  "callMarkSpamTip": "Bu aramayı spam olarak işaretle: bekleyen arama sıradan çıkar, arayan işaretlenir (engellenmez)",
+  "callMarkedSpam": "Arama spam olarak işaretlendi",
+  "callSpam": "Spam",
+  "presenceOutsideSchedule": "Çalışma saatleri dışında",
+  "presenceDayOff": "Çalışma günü değil",
+  "scheduleOfflineNote": "Haftalık programınızdaki saatlerin dışındasınız; bu yüzden ziyaretçiler ve ekip sizi çevrimdışı görüyor.",
+  "scheduleOffAction": "Çevrimiçiyken her zaman müsait ol"
  }
 }

@@ -1,11 +1,23 @@
 import AppKit
 import SwiftUI
 
+extension View {
+    /// A text field's text on the language's side. AppKit's field in a popover (a
+    /// window of its own) lines up left whatever SwiftUI's direction says, so the
+    /// side is pinned outright: under a left-to-right frame, trailing is the right.
+    func readingSide(_ rtl: Bool) -> some View {
+        multilineTextAlignment(rtl ? .trailing : .leading)
+            .environment(\.layoutDirection, .leftToRight)
+    }
+}
+
 /// A person, drawn exactly like the web console's ContactAvatar (and the
 /// Windows app's Avatar control) so a visitor looks the same everywhere:
 /// their photo; else their operating system's logo on that OS's gradient;
 /// else initials on a gradient picked by a hash of the name. Operators show
 /// their photo or first letter on the brand tint; the AI its sparkles.
+/// With `faceless`, what has neither a photo nor a logo to show is a grey
+/// disc with a person in it rather than letters.
 struct AvatarView: View {
     enum Kind { case visitor, `operator`, ai }
 
@@ -19,6 +31,8 @@ struct AvatarView: View {
     var kind: Kind = .visitor
     /// The dot: operator presence, visitor presence or a conversation status.
     var presence: String? = nil
+    /// No initials: a grey disc with a person when there is no photo or logo.
+    var faceless = false
 
     @Environment(AppModel.self) private var app
 
@@ -55,6 +69,8 @@ struct AvatarView: View {
         case .ai:
             Circle().fill(Palette.aiSoft)
                 .overlay(Image(systemName: "sparkles").font(.system(size: size * 0.45, weight: .semibold)).foregroundStyle(Palette.ai))
+        case .operator where faceless:
+            Self.skeleton(size: size)
         case .operator:
             let n = (name ?? "").trimmingCharacters(in: .whitespaces)
             Circle().fill(Palette.brandSoft)
@@ -67,6 +83,8 @@ struct AvatarView: View {
                         Image(systemName: "person.fill").font(.system(size: size * 0.42)).foregroundStyle(Palette.brand)
                     }
                 }
+        case .visitor where faceless && AvatarArt.osOf(os) == .none:
+            Self.skeleton(size: size)
         case .visitor:
             let art = AvatarArt.make(name: name, email: email, os: os)
             Circle().fill(gradient(art))
@@ -82,6 +100,16 @@ struct AvatarView: View {
                     }
                 }
         }
+    }
+
+    /// The grey disc with a person in the middle, for someone with no face to show yet.
+    static func skeleton(size: CGFloat) -> some View {
+        Circle().fill(Palette.elevated)
+            .overlay {
+                Image(systemName: "person.fill")
+                    .font(.system(size: size * 0.46))
+                    .foregroundStyle(Palette.text3.opacity(0.8))
+            }
     }
 
     private var initialsSize: CGFloat {

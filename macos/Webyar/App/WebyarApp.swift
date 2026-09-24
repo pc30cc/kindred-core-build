@@ -85,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         app.engagement.stop()
+        CallCoordinator.shared.hangUpForQuit()
     }
 }
 

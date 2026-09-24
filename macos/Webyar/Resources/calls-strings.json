@@ -17,6 +17,10 @@
     "callNotesEmpty": "No notes yet. Notes stay with the call, so whoever takes it sees them.",
     "callNotePlaceholder": "Write a note…",
     "callNoteSend": "Add note",
+    "callNoteSending": "Sending…",
+    "callNoteFailed": "Not sent",
+    "callNoteRetry": "Send again",
+    "callNoteDiscard": "Discard",
     "callAgentAvailable": "Available",
     "callAgentBusy": "On a call",
     "callAgentAway": "Away",
@@ -25,7 +29,12 @@
     "callHandedFrom": "From {name}",
     "callJoin": "Join the call",
     "callHandedFailed": "Couldn't join the call",
-    "callTransferFailed": "Transfer failed"
+    "callTransferFailed": "Transfer failed",
+    "callFullScreen": "Full screen",
+    "callPopOut": "Open in its own window",
+    "callDockBack": "Back into the page",
+    "callBackToCall": "Back to the call",
+    "callExitFullScreen": "Exit full screen"
   },
   "fa": {
     "callKeepOnTop": "پنجرهٔ تماس همیشه روی پنجره‌های دیگر بماند",
@@ -45,6 +54,10 @@
     "callNotesEmpty": "هنوز یادداشتی نیست. یادداشت‌ها همراه تماس می‌مانند و هر کس تماس را بگیرد آن‌ها را می‌بیند.",
     "callNotePlaceholder": "یادداشت بنویسید…",
     "callNoteSend": "ثبت یادداشت",
+    "callNoteSending": "در حال ثبت…",
+    "callNoteFailed": "ثبت نشد",
+    "callNoteRetry": "دوباره بفرست",
+    "callNoteDiscard": "حذف",
     "callAgentAvailable": "در دسترس",
     "callAgentBusy": "در حال مکالمه",
     "callAgentAway": "دور از میز",
@@ -53,7 +66,12 @@
     "callHandedFrom": "از طرف {name}",
     "callJoin": "پیوستن به تماس",
     "callHandedFailed": "پیوستن به تماس انجام نشد",
-    "callTransferFailed": "ارجاع انجام نشد"
+    "callTransferFailed": "ارجاع انجام نشد",
+    "callFullScreen": "تمام صفحه",
+    "callPopOut": "باز کردن در پنجرهٔ جدا",
+    "callDockBack": "برگرداندن به داخل صفحه",
+    "callBackToCall": "بازگشت به تماس",
+    "callExitFullScreen": "خروج از تمام صفحه"
   },
   "tr": {
     "callKeepOnTop": "Arama penceresini üstte tut",
@@ -73,6 +91,10 @@
     "callNotesEmpty": "Henüz not yok. Notlar aramayla kalır; aramayı alan herkes görür.",
     "callNotePlaceholder": "Not yazın…",
     "callNoteSend": "Not ekle",
+    "callNoteSending": "Gönderiliyor…",
+    "callNoteFailed": "Gönderilemedi",
+    "callNoteRetry": "Yeniden gönder",
+    "callNoteDiscard": "Sil",
     "callAgentAvailable": "Müsait",
     "callAgentBusy": "Görüşmede",
     "callAgentAway": "Uzakta",
@@ -81,6 +103,11 @@
     "callHandedFrom": "{name} aktardı",
     "callJoin": "Aramaya katıl",
     "callHandedFailed": "Aramaya katılınamadı",
-    "callTransferFailed": "Aktarılamadı"
+    "callTransferFailed": "Aktarılamadı",
+    "callFullScreen": "Tam ekran",
+    "callPopOut": "Ayrı pencerede aç",
+    "callDockBack": "Sayfaya geri al",
+    "callBackToCall": "Aramaya dön",
+    "callExitFullScreen": "Tam ekrandan çık"
   }
 }

@@ -53,6 +53,7 @@ final class CallCenterModel {
     private(set) var accepting = false
     private(set) var rejecting = false
     private(set) var ending = false
+    private(set) var markingSpam = false
     private(set) var addingNote = false
     var noteDraft = ""
     var notice: CallDeskNotice?
@@ -307,6 +308,11 @@ final class CallCenterModel {
     func show(callId: String) -> Bool {
         if showHistory { showHistory = false }
         guard let item = queueItem(callId) else {
+            // The call this operator is on: long gone from the line, still the one to show.
+            if let desk = CallCoordinator.shared.call?.desk, desk.callId == callId {
+                if selectedId != callId { open(id: callId, call: desk.session, entry: nil) }
+                return true
+            }
             showNotice(app.strings["callTakenElsewhere"], severity: .info)
             return false
         }
@@ -438,6 +444,8 @@ final class CallCenterModel {
             } else {
                 var call = item.entry.callSession ?? Self.session(for: item.entry)
                 if item.entry.isVideo { call.callType = "video" }
+                // The caller's face on the call is looked up by their visitor session.
+                if call.visitorSessionId == nil { call.visitorSessionId = item.entry.visitorSessionId }
                 CallCoordinator.shared.joinAccepted(app: app, accept: accept, call: call, callId: id)
             }
             app.callQueue?.kick()
@@ -475,6 +483,31 @@ final class CallCenterModel {
         } catch {
             Log.error("end call", error)
             showNotice("\(s["ccEndFailed"]) — \(ErrorText.of(error, s))")
+        }
+    }
+
+    /// Spam or not, for the call on show. A call still waiting leaves the line on the server.
+    func toggleSpam() async {
+        guard let id = selectedId, let ws = app.workspace, let call = shownCall else { return }
+        let s = app.strings
+        let spam = !call.isSpam
+        markingSpam = true
+        defer { markingSpam = false }
+        do {
+            try await app.api.markCallSpam(workspaceId: ws.id, callId: id, spam: spam)
+            if selectedId == id, var c = selectedCall {
+                var meta = c.metadata?.object ?? [:]
+                meta["spam"] = spam ? .object(["marked_by": .string(app.user?.id ?? "")]) : nil
+                c.metadata = .object(meta)
+                selectedCall = c
+            }
+            showNotice(s[spam ? "callMarkedSpam" : "removedFromSpam"], severity: .success)
+            app.callQueue?.kick()
+            detailPoller?.kick()
+            if showHistory { Task { await reloadHistory() } }
+        } catch {
+            Log.error("call spam", error)
+            showNotice(ErrorText.of(error, s))
         }
     }
 

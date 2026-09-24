@@ -350,6 +350,8 @@ final class AppModel {
         workspacePlan = .loading
         members = nil
         profiles = [:]
+        sessionProfiles = [:]
+        sessionProfilesAsked = []
         channelsLoaded = false
         channels = []
         counts = SidebarCounts()
@@ -753,6 +755,40 @@ final class AppModel {
         }
     }
 
+    // MARK: Callers' devices
+
+    /// A caller's OS and country by visitor session, for the call center's faces;
+    /// a session in `sessionProfilesAsked` but not here has none to give.
+    private(set) var sessionProfiles: [String: VisitorProfile] = [:]
+    private(set) var sessionProfilesAsked: Set<String> = []
+    @ObservationIgnored private var sessionProfilesWanted: Set<String> = []
+    @ObservationIgnored private var sessionProfilesTask: Task<Void, Never>?
+
+    /// Asks for a caller's device once; the faces on screen in the same moment go in one call, as the web desk does.
+    func wantSessionProfile(_ sessionId: String?) {
+        guard let id = sessionId, !id.isEmpty, !sessionProfilesAsked.contains(id) else { return }
+        sessionProfilesWanted.insert(id)
+        guard sessionProfilesTask == nil else { return }
+        sessionProfilesTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            await self?.loadSessionProfiles()
+        }
+    }
+
+    private func loadSessionProfiles() async {
+        defer { sessionProfilesTask = nil }
+        let ids = Array(sessionProfilesWanted)
+        sessionProfilesWanted = []
+        guard let ws = workspace, !ids.isEmpty else { return }
+        let got = await api.sessionProfiles(workspaceId: ws.id, sessionIds: ids)
+        sessionProfiles.merge(got) { _, b in b }
+        sessionProfilesAsked.formUnion(ids)
+        // Asked for while this batch was out.
+        if !sessionProfilesWanted.isEmpty {
+            sessionProfilesTask = Task { [weak self] in await self?.loadSessionProfiles() }
+        }
+    }
+
     // MARK: Me
 
     var myName: String {
@@ -779,6 +815,29 @@ final class AppModel {
             return nil
         } catch {
             Log.error("set status", error)
+            return ErrorText.of(error, strings)
+        }
+    }
+
+    /// The operator's state as a line: the state, and why when the schedule keeps them offline.
+    var myStatusLine: String {
+        var parts = [presenceLabel(myState)]
+        if let reason = presence?.offScheduleReason {
+            parts.append(strings[reason == "day_disabled" ? "presenceDayOff" : "presenceOutsideSchedule"])
+        } else if presence?.isInvisible == true {
+            parts.append(strings["statusInvisible"])
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Turns the weekly schedule off, so visitors see the operator whenever they are not invisible.
+    func turnScheduleOff() async -> String? {
+        guard let presence else { return nil }
+        do {
+            try await presence.setScheduleEnabled(false)
+            return nil
+        } catch {
+            Log.error("schedule off", error)
             return ErrorText.of(error, strings)
         }
     }

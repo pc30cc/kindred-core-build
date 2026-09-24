@@ -16,6 +16,7 @@ final class SampleBackend: URLProtocol {
     nonisolated(unsafe) private static var maintenanceOn = false
     nonisolated(unsafe) private static var callNotes: [String: [[String: Any]]] = [:]
     nonisolated(unsafe) private static var handedOn = false
+    nonisolated(unsafe) private static var notesDownOn = false
 
     /// A visitor's message arriving in a conversation, for DebugTools' `visitor <id>`.
     static func visitorSays(_ conversationId: String, _ body: String) {
@@ -28,6 +29,12 @@ final class SampleBackend: URLProtocol {
     static var handed: Bool {
         get { lock.lock(); defer { lock.unlock() }; return handedOn }
         set { lock.lock(); handedOn = newValue; lock.unlock() }
+    }
+
+    /// Adding a call note failing, for DebugTools' `notesdown on|off`.
+    static var notesDown: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return notesDownOn }
+        set { lock.lock(); notesDownOn = newValue; lock.unlock() }
     }
 
     /// Super Admin's maintenance switch, for DebugTools' `maintenance on|off`.
@@ -233,13 +240,16 @@ final class SampleBackend: URLProtocol {
             }
             return (200, ["conversations": list])
         case ("POST", "/api/visitor-intel/network/batch"):
-            var byConversation: [String: Any] = [:], byContact: [String: Any] = [:]
+            var byConversation: [String: Any] = [:], byContact: [String: Any] = [:], bySession: [String: Any] = [:]
             for (i, v) in visitors.enumerated() {
                 let p: [String: Any] = ["geo": ["country_code": v.cc, "country": v.country, "city": v.city, "region": v.region], "device": ["os": v.os, "browser": "Chrome"]]
                 byConversation["conv-\(i + 1)"] = p
                 byContact[v.id] = p
+                bySession[String(format: "00000000-0000-4000-8000-%012d", i + 1)] = p
             }
-            return (200, ["by_conversation": byConversation, "by_contact": byContact])
+            return (200, ["by_conversation": byConversation, "by_contact": byContact, "by_session": bySession])
+        case ("POST", "/api/conversations/spam"), ("POST", "/api/conversations/not-spam"):
+            return (200, ["ok": true, "conversation_ids": [body["conversation_id"] ?? ""], "contact_id": NSNull()])
         case ("POST", "/api/conversations/send-message"):
             let id = body["conversation_id"] as? String ?? ""
             lock.lock()
@@ -275,16 +285,18 @@ final class SampleBackend: URLProtocol {
         case ("GET", "/api/call-center/queue"):
             return (200, ["queue": [
                 ["id": "q-1", "call_session_id": "cs-1", "state": "waiting", "channel": "voice", "priority": 1, "created_at": ago(1.5),
-                 "call_session": ["id": "cs-1", "state": "ringing", "call_type": "voice", "visitor_name": "Ayşe Yılmaz", "visitor_email": "ayse@example.com.tr", "page_title": "Pricing — Webyar", "created_at": ago(1.5)]],
+                 "visitor_session_id": "00000000-0000-4000-8000-000000000002",
+                 "call_session": ["id": "cs-1", "state": "ringing", "call_type": "voice", "visitor_session_id": "00000000-0000-4000-8000-000000000002", "visitor_name": "Ayşe Yılmaz", "visitor_email": "ayse@example.com.tr", "page_title": "Pricing — Webyar", "created_at": ago(1.5)]],
                 ["id": "q-2", "call_session_id": "cs-2", "state": "waiting", "channel": "video", "priority": 2, "created_at": ago(4),
-                 "call_session": ["id": "cs-2", "state": "ringing", "call_type": "video", "visitor_phone": "+49 30 1234567", "page_title": "Checkout", "created_at": ago(4)]],
+                 "visitor_session_id": "00000000-0000-4000-8000-000000000099",
+                 "call_session": ["id": "cs-2", "state": "ringing", "call_type": "video", "visitor_session_id": "00000000-0000-4000-8000-000000000099", "visitor_phone": "+49 30 1234567", "page_title": "Checkout", "created_at": ago(4)]],
             ]])
         case ("GET", "/api/call-center/overview"):
             return (200, ["today_calls": 38, "waiting_calls": 2, "active_calls": 1, "missed_today": 3, "callbacks_pending": 1, "provider": ["provider": "livekit", "ready": true]])
         case ("GET", "/api/call-center/agent-status"): return (200, ["agents": [["user_id": "u-1", "status": "available"]]])
         case ("GET", "/api/call-center/calls") where q["status"] == "active":
             guard handed else { return (200, ["calls": [[String: Any]]()]) }
-            return (200, ["calls": [["id": "cs-7", "state": "active", "call_type": "video", "visitor_name": "Deniz Yılmaz", "visitor_email": "deniz@example.com",
+            return (200, ["calls": [["id": "cs-7", "state": "active", "call_type": "video", "visitor_session_id": "00000000-0000-4000-8000-000000000004", "visitor_name": "Deniz Yılmaz", "visitor_email": "deniz@example.com",
                                      "assigned_agent_id": "u-1", "transfer_from_agent_id": "u-2", "transfer_reason": "مشکل پرداخت؛ نیاز به پیگیری مالی", "created_at": ago(3)]]])
         case ("GET", "/api/call-center/agents/presence"):
             return (200, ["presence": [
@@ -310,7 +322,7 @@ final class SampleBackend: URLProtocol {
             return (200, ["invitation": ["id": id, "status": "pending", "channel": channel, "conversation_id": conversation, "expires_at": ago(-5)]])
         case ("GET", "/api/call-center/calls"):
             return (200, ["calls": [
-                ["id": "cs-9", "state": "ended", "call_type": "voice", "visitor_name": "مریم احمدی", "created_at": ago(90), "duration_seconds": 312],
+                ["id": "cs-9", "state": "ended", "call_type": "voice", "visitor_session_id": "00000000-0000-4000-8000-000000000001", "visitor_name": "مریم احمدی", "created_at": ago(90), "duration_seconds": 312],
                 ["id": "cs-8", "state": "missed", "call_type": "video", "visitor_email": "alex.k.richardson@verylongcompanyname-international.com", "created_at": ago(300)],
             ]])
         case ("GET", "/api/visitor-intel/live"):
@@ -399,8 +411,11 @@ final class SampleBackend: URLProtocol {
                 lock.lock(); defer { lock.unlock() }
                 return (200, ["notes": [["id": "cn-1", "note": "مشتری دربارهٔ تمدید اشتراک سؤال دارد؛ فاکتور قبلی را دیده.", "author_name": "رضا محمدی", "created_at": ago(6)]] + (callNotes[id] ?? [])])
             case ("POST", "notes"):
+                if notesDown { return (503, ["error": "unavailable"]) }
                 lock.lock(); callNotes[id, default: []].append(["id": UUID().uuidString, "note": body["note"] as? String ?? "", "author_name": "Sara Karimi", "created_at": ago(0)]); lock.unlock()
                 return (200, ["ok": true])
+            case ("POST", "spam"), ("POST", "not-spam"):
+                return (200, ["ok": true, "call_id": id, "spam": parts[4] == "spam"])
             case ("POST", "transfer"):
                 return (200, ["ok": true, "assigned_agent_id": body["to_agent_id"] ?? NSNull(), "handoff": "manual"])
             default: break

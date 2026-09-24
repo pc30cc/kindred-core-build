@@ -59,6 +59,15 @@ struct ThreadView: View {
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
                 ThreadHeader(chat: chat, width: width, roomForDetails: columnWidth > 820)
+                // This conversation's call slides down from under the header, and back up when it ends.
+                VStack(spacing: 0) {
+                    if let call = CallCoordinator.shared.docksHere(conversationId: chat.conversation?.id) {
+                        DockedCallPanel(call: call)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
+                .clipped()
+                .animation(.smooth(duration: 0.32), value: CallCoordinator.shared.docksHere(conversationId: chat.conversation?.id) != nil)
                 if let notice = chat.notice {
                     Banner(severity: notice.severity, message: notice.message,
                            actionTitle: notice.retry ? app.strings["retry"] : nil,
@@ -155,6 +164,10 @@ struct ThreadHeader: View {
         if c.isAiManaged {
             Chip(text: s["navInboxAi"], foreground: Palette.ai, background: Palette.aiSoft, systemImage: "sparkles")
         }
+        if c.isSpam == true {
+            Chip(text: s["spam"], foreground: Palette.danger, background: Palette.dangerSoft, systemImage: "xmark.bin")
+                .help(s["spamTip"])
+        }
     }
 
     @ViewBuilder private func actions(_ c: Conversation, _ s: Strings) -> some View {
@@ -196,6 +209,18 @@ struct ThreadHeader: View {
                 .help(c.isResolved ? s["reopen"] : s["markResolved"])
                 .disabled(chat.busy)
                 .keyboardShortcut("e", modifiers: [.command, .shift])
+                let spam = c.isSpam == true
+                Button { chat.toggleSpam() } label: {
+                    Label(s[spam ? "notSpam" : "markSpam"], systemImage: spam ? "tray.and.arrow.up" : "xmark.bin")
+                        .labelStyle(AdaptiveLabelStyle(showTitle: false))
+                        .frame(width: 18, height: 18)
+                        .foregroundStyle(spam ? Palette.brand : Palette.danger)
+                }
+                .glassButton()
+                .buttonBorderShape(.circle)
+                .help(s[spam ? "notSpam" : "markSpamTip"])
+                .accessibilityLabel(s[spam ? "notSpam" : "markSpam"])
+                .disabled(chat.busy)
                 ConversationMenu(chat: chat, conversation: c)
             }
         }
@@ -258,7 +283,8 @@ struct MessagesView: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        PinnedMessageList(threadId: chat.id, lastId: chat.rows.last?.id, sentCount: chat.sentCount, isEmpty: chat.rows.isEmpty) {
+        PinnedMessageList(threadId: chat.id, lastId: chat.rows.last?.id, sentCount: chat.sentCount, isEmpty: chat.rows.isEmpty,
+                          refit: CallCoordinator.shared.docksHere(conversationId: chat.conversation?.id) != nil) {
             ForEach(chat.rows) { row in
                 MessageRowView(row: row, conversation: chat.conversation)
                     .id(row.id)

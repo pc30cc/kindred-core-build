@@ -108,77 +108,17 @@ struct CallView: View {
     }
 
     private func avatar(_ size: CGFloat) -> some View {
-        let c = call.conversation
-        return AvatarView(name: c == nil ? call.name : c?.contacts?.name, email: c?.contacts?.email, os: c?.visitorOs,
-                          countryCode: c?.visitorCountryCode, imageURL: c?.contacts?.avatarUrl, size: size)
+        CallAvatar(call: call, size: size)
     }
 
-    private var statusColor: Color {
-        call.phase == .connected ? Palette.success : Color(hex: 0x98A2B3)
-    }
+    private var statusColor: Color { CallStatusText.color(call) }
 
-    @ViewBuilder
-    private var statusLine: some View {
-        switch call.phase {
-        case .waiting:
-            Text(s[call.desk == nil ? "callWaiting" : "connectingCall"])
-        case .connecting:
-            Text(s["connectingCall"])
-        case .connected:
-            if let at = call.connectedAt {
-                TimelineView(.periodic(from: at, by: 1)) { context in
-                    Text(Display.duration(Int(context.date.timeIntervalSince(at)), s.language))
-                        .monospacedDigit()
-                }
-            } else {
-                Text(Display.duration(0, s.language))
-            }
-        case .ended(let outcome):
-            Text(s[outcome.textKey])
-        }
-    }
+    private var statusLine: some View { CallStatusText(call: call) }
 
     // MARK: Video
 
     private var videoLayer: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .bottomTrailing) {
-                Color.black
-                if call.remoteVideoTrack == nil {
-                    // The visitor's camera is off (or not there yet): their face where the picture goes.
-                    avatar(96)
-                        .frame(width: geo.size.width, height: geo.size.height)
-                }
-                if let remote = call.remoteVideoTrack {
-                    // Flipped once, as the web console flips every call video (src/index.css,
-                    // "Call video orientation"): the visitor's camera arrives mirrored, and this
-                    // shows them the way they really are. Pinned left to right so a right-to-left
-                    // window never adds a second flip.
-                    SwiftUIVideoView(remote, layoutMode: .fill, mirrorMode: .mirror)
-                        .environment(\.layoutDirection, .leftToRight)
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .clipped()
-                }
-                if let local = call.localVideoTrack {
-                    localPreview(local, width: min(geo.size.width * 0.26, 260))
-                }
-            }
-            .frame(width: geo.size.width, height: geo.size.height)
-        }
-    }
-
-    /// The operator's own camera, mirrored the way every selfie camera is.
-    private func localPreview(_ track: VideoTrack, width: CGFloat) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
-        return SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: .mirror)
-            // Mirrored exactly once, whatever the window's direction (see the visitor's video).
-            .environment(\.layoutDirection, .leftToRight)
-            .frame(width: width, height: width / 1.6)
-            .clipShape(shape)
-            .overlay { shape.strokeBorder(Color.white.opacity(0.18), lineWidth: 2) }
-            .shadow(color: .black.opacity(0.5), radius: 16, y: 12)
-            .padding(.bottom, 96)
-            .padding(.trailing, 18)
+        CallVideoStage(call: call, previewBottom: 96)
     }
 
     // MARK: Notices
@@ -228,20 +168,31 @@ struct CallView: View {
     }
 
     private func openPrivacySettings(_ type: AVMediaType) {
-        let pane = type == .video ? "Privacy_Camera" : "Privacy_Microphone"
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
-            NSWorkspace.shared.open(url)
-        }
+        CallVideoStage.openPrivacySettings(type)
     }
 
     // MARK: Window
 
+    /// Back into the page, full screen, keep on top.
     private var pinButton: some View {
-        let on = CallCoordinator.shared.isFloating
-        return Button {
-            CallCoordinator.shared.setFloating(!on)
-        } label: {
-            Image(systemName: on ? "pin.fill" : "pin")
+        let co = CallCoordinator.shared
+        return HStack(spacing: 8) {
+            if call.isVideo {
+                windowButton(icon: co.isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                             help: s[co.isFullScreen ? "callExitFullScreen" : "callFullScreen"]) { co.toggleFullScreen() }
+            }
+            windowButton(icon: "pip.enter", help: s["callDockBack"]) { co.dockBack() }
+            windowButton(icon: co.isFloating ? "pin.fill" : "pin", help: s["callKeepOnTop"], on: co.isFloating) {
+                co.setFloating(!co.isFloating)
+            }
+        }
+        .padding(.top, 12)
+        .padding(.horizontal, 14)
+    }
+
+    private func windowButton(icon: String, help: String, on: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(on ? Palette.brand : Color.white.opacity(0.85))
                 .frame(width: 30, height: 30)
@@ -249,9 +200,7 @@ struct CallView: View {
         }
         .buttonStyle(.plain)
         .glass(Circle(), interactive: true)
-        .help(s["callKeepOnTop"])
-        .padding(.top, 12)
-        .padding(.horizontal, 14)
+        .help(help)
     }
 
     // MARK: Controls
@@ -291,7 +240,7 @@ struct CallView: View {
                     .disabled(!live)
                     .popover(isPresented: $showTransfer, arrowEdge: .top) {
                         CallTransferPanel(call: call) { showTransfer = false }
-                            .environment(\.colorScheme, .dark)
+                            .callPopover()
                     }
                 }
                 if call.transferredTo != nil {
@@ -318,7 +267,36 @@ struct CallView: View {
     }
 }
 
-private extension View {
+/// The notes' glass card, when they stand beside the call rather than in a popover.
+private struct CallPanelChrome: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View {
+        if on { content.glassCard(18) } else { content }
+    }
+}
+
+/// A popover is a window of its own and does not carry the page's reading
+/// direction with it: set it again, so Persian reads right to left there too.
+private struct CallPopoverStyle: ViewModifier {
+    @Environment(AppModel.self) private var app
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.colorScheme, .dark)
+            .environment(\.layoutDirection, app.strings.isRightToLeft ? .rightToLeft : .leftToRight)
+            .foregroundStyle(Color(hex: 0xE8ECF4))
+            .background(Color(hex: 0x14171F))
+            .presentationBackground(Color(hex: 0x14171F))
+    }
+}
+
+extension View {
+    /// A popover off a call (notes, transfer): the call's own solid dark, edge to edge —
+    /// not the system's grey popover material with a second, lighter card inside it.
+    func callPopover() -> some View {
+        modifier(CallPopoverStyle())
+    }
+
     /// DebugTools' `callui` command: opens a panel as if its button had been clicked.
     @ViewBuilder
     func callDebugHooks(_ call: LiveCall, _ open: @escaping (String) -> Void) -> some View {
@@ -338,12 +316,14 @@ private extension View {
 
 /// The call's notes beside it: read every few seconds, so what a colleague writes shows up,
 /// and what is written here is there for whoever the call is handed to.
-private struct CallNotesPanel: View {
+struct CallNotesPanel: View {
     static let width: CGFloat = 300
 
     @Bindable var call: LiveCall
     let s: Strings
     let close: () -> Void
+    /// Its own glass card beside the call; none in a popover, which is the card.
+    var chrome = true
     @FocusState private var focused: Bool
 
     private var draftEmpty: Bool { call.noteDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -367,7 +347,7 @@ private struct CallNotesPanel: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
-                        if let notes = call.notes {
+                        if let notes = call.shownNotes {
                             if notes.isEmpty {
                                 Text(s["callNotesEmpty"])
                                     .appFont(12)
@@ -383,7 +363,7 @@ private struct CallNotesPanel: View {
                     }
                 }
                 .scrollIndicators(.hidden)
-                .onChange(of: call.notes?.last?.id, initial: true) { _, id in
+                .onChange(of: call.shownNotes?.last?.id, initial: true) { _, id in
                     guard let id else { return }
                     withAnimation(.smooth(duration: 0.2)) { proxy.scrollTo(id, anchor: .bottom) }
                 }
@@ -397,6 +377,7 @@ private struct CallNotesPanel: View {
                 TextField(s["callNotePlaceholder"], text: $call.noteDraft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .appFont(13)
+                    .readingSide(s.isRightToLeft)
                     .lineLimit(1...5)
                     .focused($focused)
                     .padding(.horizontal, 10)
@@ -405,27 +386,35 @@ private struct CallNotesPanel: View {
                     .onChange(of: call.noteDraft) { _, text in
                         if text.count > 2000 { call.noteDraft = String(text.prefix(2000)) }
                     }
-                Button {
-                    Task { await call.addNote() }
-                } label: {
-                    if call.addingNote {
-                        ProgressView().controlSize(.small).frame(width: 28, height: 28)
-                    } else {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 26))
-                            .foregroundStyle(draftEmpty ? Color.white.opacity(0.25) : Palette.brand)
+                    .onKeyPress(.return, phases: .down) { press in
+                        // Enter adds the note; Shift+Enter starts a new line, as in the chat composer.
+                        if press.modifiers.contains(.shift) || press.modifiers.contains(.option) {
+                            call.noteDraft += "\n"
+                            return .handled
+                        }
+                        call.addNote()
+                        return .handled
                     }
+                Button {
+                    call.addNote()
+                    focused = true
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 26))
+                        .foregroundStyle(draftEmpty ? Color.white.opacity(0.25) : Palette.brand)
+                        .frame(width: 30, height: 30)
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut(.return, modifiers: .command)
-                .disabled(draftEmpty || call.addingNote)
+                .disabled(draftEmpty)
                 .help(s["callNoteSend"])
+                .accessibilityLabel(s["callNoteSend"])
             }
         }
         .padding(14)
         .frame(width: Self.width)
         .frame(maxHeight: .infinity, alignment: .top)
-        .glassCard(18)
+        .modifier(CallPanelChrome(on: chrome))
         .onAppear { focused = true }
     }
 
@@ -440,18 +429,42 @@ private struct CallNotesPanel: View {
                 .appFont(12.5)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
+            switch n.sending {
+            case .no:
+                EmptyView()
+            case .going:
+                HStack(spacing: 5) {
+                    ProgressView().controlSize(.mini)
+                    Text(s["callNoteSending"])
+                }
+                .appFont(11)
+                .foregroundStyle(Color(hex: 0x98A2B3))
+            case .failed:
+                HStack(spacing: 10) {
+                    Label(s["callNoteFailed"], systemImage: "exclamationmark.circle.fill")
+                        .foregroundStyle(Palette.danger)
+                    Button(s["callNoteRetry"]) { call.retryNote(n.id) }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Palette.brand)
+                    Button(s["callNoteDiscard"]) { call.discardNote(n.id) }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color(hex: 0x98A2B3))
+                }
+                .appFont(11, .semibold)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color.white.opacity(n.sending == .no ? 0.07 : 0.045), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .opacity(n.sending == .going ? 0.75 : 1)
     }
 }
 
 // MARK: - Transfer
 
 /// Who the call can go to — operators with their state and load, or a department — and why.
-private struct CallTransferPanel: View {
+struct CallTransferPanel: View {
     let call: LiveCall
     let done: () -> Void
     @Environment(AppModel.self) private var app
@@ -507,7 +520,12 @@ private struct CallTransferPanel: View {
             }
             .frame(height: 220)
             TextField(s["callTransferReason"], text: $reason)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
+                .appFont(13)
+                .readingSide(s.isRightToLeft)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .onChange(of: reason) { _, text in
                     if text.count > 200 { reason = String(text.prefix(200)) }
                 }
@@ -640,7 +658,7 @@ private struct CallTransferPanel: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(selected ? Palette.brand.opacity(0.18) : Color.white.opacity(0.04),
+            .background(selected ? Palette.brand.opacity(0.24) : Color.white.opacity(0.06),
                         in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .contentShape(Rectangle())
         }
@@ -649,10 +667,12 @@ private struct CallTransferPanel: View {
 }
 
 /// One round control: glass, or a solid disc when switched off (white) or for hanging up (red).
-private struct CallControlButton: View {
+struct CallControlButton: View {
     let icon: String
     let help: String
     var solid: Color?
+    /// 56 in the call window; smaller where the call sits inside a page.
+    var size: CGFloat = 56
     let action: () -> Void
 
     var body: some View {
@@ -667,9 +687,9 @@ private struct CallControlButton: View {
     @ViewBuilder
     private var face: some View {
         let glyph = Image(systemName: icon)
-            .font(.system(size: 20, weight: .medium))
+            .font(.system(size: size * 0.36, weight: .medium))
             .foregroundStyle(solid == Color.white ? Color(hex: 0x0C0E14) : Color.white)
-            .frame(width: 56, height: 56)
+            .frame(width: size, height: size)
             .contentShape(Circle())
         if let solid {
             glyph.background(Circle().fill(solid))
@@ -680,28 +700,158 @@ private struct CallControlButton: View {
 }
 
 /// Soft rings around the face while the visitor is being rung.
-private struct CallPulse: View {
-    @State private var expanded = false
+struct CallPulse: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(Color(hex: 0x5A94FF).opacity(0.05))
-                .frame(width: 156, height: 156)
-                .scaleEffect(expanded ? 1.1 : 0.92)
-            Circle()
-                .fill(Color(hex: 0x5A94FF).opacity(0.10))
-                .frame(width: 132, height: 132)
-                .scaleEffect(expanded ? 1.06 : 0.96)
-        }
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-                expanded = true
+        // Driven by the clock, not by a repeating `withAnimation` started in `onAppear`: that
+        // transaction also caught the layout settling around it as the window opened, so the
+        // face, the name and the buttons swung back and forth with the rings for as long as
+        // the visitor was being rung — every call from a conversation, which rings until the
+        // visitor answers (a desk call is answered at once and never showed it).
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            // 0…1…0 every 1.8 s, eased like the old ease-in-out.
+            let wave = reduceMotion ? 0 : (1 - cos(t * .pi / 0.9)) / 2
+            ZStack {
+                Circle()
+                    .fill(Color(hex: 0x5A94FF).opacity(0.05))
+                    .frame(width: 156, height: 156)
+                    .scaleEffect(0.92 + 0.18 * wave)
+                Circle()
+                    .fill(Color(hex: 0x5A94FF).opacity(0.10))
+                    .frame(width: 132, height: 132)
+                    .scaleEffect(0.96 + 0.10 * wave)
             }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Shared by the call window, the panel in the page and the call bar
+
+/// The visitor's face (or the caller's, on the desk).
+struct CallAvatar: View {
+    let call: LiveCall
+    let size: CGFloat
+
+    var body: some View {
+        if let c = call.conversation {
+            AvatarView(name: c.contacts?.name, email: c.contacts?.email, os: c.visitorOs,
+                       countryCode: c.visitorCountryCode, imageURL: c.contacts?.avatarUrl, size: size)
+        } else {
+            CallerAvatar(call: call.desk?.session, size: size)
+        }
+    }
+}
+
+/// A call-center caller's face, drawn as everywhere else: their device's logo
+/// on its gradient and their flag, looked up by visitor session as the web desk
+/// does. Until that is known, or when it cannot be, a grey disc with a person.
+struct CallerAvatar: View {
+    let call: CallSession?
+    /// The queue's own note of the session, when its copy of the call lacks one.
+    var sessionId: String? = nil
+    var size: CGFloat = 42
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let sid = call?.visitorSessionId ?? sessionId
+        let p = sid.flatMap { app.sessionProfiles[$0] }
+        AvatarView(name: call?.visitorName, email: call?.visitorEmail, os: p?.device?.os,
+                   countryCode: p?.geo?.countryCode, size: size, faceless: true)
+            .task(id: sid) { app.wantSessionProfile(sid) }
+    }
+}
+
+/// Ringing, connecting, the running time, or how it ended — coloured green while connected.
+struct CallStatusText: View {
+    let call: LiveCall
+    @Environment(AppModel.self) private var app
+
+    static func color(_ call: LiveCall) -> Color {
+        call.phase == .connected ? Palette.success : Color(hex: 0x98A2B3)
+    }
+
+    var body: some View {
+        let s = app.strings
+        Group {
+            switch call.phase {
+            case .waiting:
+                Text(s[call.desk == nil ? "callWaiting" : "connectingCall"])
+            case .connecting:
+                Text(s["connectingCall"])
+            case .connected:
+                if let at = call.connectedAt {
+                    TimelineView(.periodic(from: at, by: 1)) { context in
+                        Text(Display.duration(Int(context.date.timeIntervalSince(at)), s.language))
+                            .monospacedDigit()
+                    }
+                } else {
+                    Text(Display.duration(0, s.language))
+                }
+            case .ended(let outcome):
+                Text(s[outcome.textKey])
+            }
+        }
+        .foregroundStyle(Self.color(call))
+    }
+}
+
+/// The picture: the visitor's camera edge to edge (their face while it is off), the
+/// operator's own camera inset in the corner.
+struct CallVideoStage: View {
+    let call: LiveCall
+    /// Room below the operator's camera for the controls laid over the picture.
+    var previewBottom: CGFloat = 96
+    var previewMaxWidth: CGFloat = 260
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .bottomTrailing) {
+                Color.black
+                if call.remoteVideoTrack == nil {
+                    // The visitor's camera is off (or not there yet): their face where the picture goes.
+                    CallAvatar(call: call, size: min(96, geo.size.height * 0.4))
+                        .frame(width: geo.size.width, height: geo.size.height)
+                }
+                if let remote = call.remoteVideoTrack {
+                    // Flipped once, as the web console flips every call video (src/index.css,
+                    // "Call video orientation"): the visitor's camera arrives mirrored, and this
+                    // shows them the way they really are. Pinned left to right so a right-to-left
+                    // window never adds a second flip.
+                    SwiftUIVideoView(remote, layoutMode: .fill, mirrorMode: .mirror)
+                        .environment(\.layoutDirection, .leftToRight)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .clipped()
+                }
+                if let local = call.localVideoTrack {
+                    localPreview(local, width: min(geo.size.width * 0.26, previewMaxWidth))
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+    }
+
+    /// The operator's own camera, mirrored the way every selfie camera is.
+    private func localPreview(_ track: VideoTrack, width: CGFloat) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        return SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: .mirror)
+            // Mirrored exactly once, whatever the window's direction (see the visitor's video).
+            .environment(\.layoutDirection, .leftToRight)
+            .frame(width: width, height: width / 1.6)
+            .clipShape(shape)
+            .overlay { shape.strokeBorder(Color.white.opacity(0.18), lineWidth: 2) }
+            .shadow(color: .black.opacity(0.5), radius: 16, y: 12)
+            .padding(.bottom, previewBottom)
+            .padding(.trailing, 14)
+    }
+
+    static func openPrivacySettings(_ type: AVMediaType) {
+        let pane = type == .video ? "Privacy_Camera" : "Privacy_Microphone"
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
+            NSWorkspace.shared.open(url)
+        }
     }
 }

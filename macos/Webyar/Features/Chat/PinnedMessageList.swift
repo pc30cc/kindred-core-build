@@ -18,6 +18,9 @@ struct PinnedMessageList<Rows: View>: View {
     /// Bumped by the model each time this operator sends.
     let sentCount: Int
     let isEmpty: Bool
+    /// Changes when something above the list takes or gives back room (a call panel sliding
+    /// in or out): a list that was at the bottom goes back there.
+    var refit: Bool = false
     @ViewBuilder let rows: () -> Rows
 
     @Environment(AppModel.self) private var app
@@ -26,6 +29,9 @@ struct PinnedMessageList<Rows: View>: View {
     /// Waiting to land on the newest message of a thread just opened.
     @State private var landing = true
     @State private var landingTask: Task<Void, Never>?
+    /// When the end of the list last went out of view: a list that shrinks (a call sliding
+    /// down above it) pushes it out without the operator having scrolled anywhere.
+    @State private var leftBottomAt: Date?
 
     private static var bottomId: String { "pinned-list-bottom" }
 
@@ -42,7 +48,10 @@ struct PinnedMessageList<Rows: View>: View {
                             atBottom = true
                             unseen = 0
                         }
-                        .onDisappear { atBottom = false }
+                        .onDisappear {
+                            atBottom = false
+                            leftBottomAt = Date()
+                        }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
@@ -62,6 +71,9 @@ struct PinnedMessageList<Rows: View>: View {
                 }
             }
             .animation(.smooth(duration: 0.2), value: atBottom)
+            // The space for the list changed (a call panel sliding in or out above it): one that
+            // was at the bottom stays there, rather than being left part-way up.
+            .onChange(of: refit) { _, _ in keepAtBottom(proxy) }
             .onChange(of: threadId, initial: true) { _, _ in
                 unseen = 0
                 landing = true
@@ -105,6 +117,20 @@ struct PinnedMessageList<Rows: View>: View {
             landing = false
             atBottom = true
             unseen = 0
+        }
+    }
+
+    private func keepAtBottom(_ proxy: ScrollViewProxy) {
+        guard !landing, !isEmpty else { return }
+        // At the bottom a moment ago counts: the room change itself may have pushed it out of view.
+        let justLeft = leftBottomAt.map { Date().timeIntervalSince($0) < 0.8 } ?? false
+        guard atBottom || justLeft else { return }
+        Task { @MainActor in
+            // Now, as the panel slides, and once it has settled.
+            for delay: UInt64 in [0, 120_000_000, 400_000_000] {
+                if delay > 0 { try? await Task.sleep(nanoseconds: delay) }
+                scrollToBottom(proxy, animated: false)
+            }
         }
     }
 

@@ -10,6 +10,17 @@ struct CallCenterDetail: View {
     var body: some View {
         VStack(spacing: 0) {
             noticeBar
+            // The call answered here slides down over it, and back up when it ends.
+            VStack(spacing: 0) {
+                if let call = CallCoordinator.shared.docksHere(deskCallId: model.selectedId) {
+                    DockedCallPanel(call: call)
+                        .frame(maxWidth: 760)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .clipped()
+            .animation(.smooth(duration: 0.32), value: CallCoordinator.shared.docksHere(deskCallId: model.selectedId) != nil)
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -138,26 +149,41 @@ private struct CallDeskCallerCard: View {
         let colors = CallDeskText.stateColors(state)
         let video = model.shownIsVideo
         return HStack(spacing: 18) {
-            AvatarView(name: call.visitorName, email: call.visitorEmail, size: 64)
+            CallerAvatar(call: call, size: 64)
             VStack(alignment: .leading, spacing: 4) {
                 Text(model.shownName).appFont(19, .bold).lineLimit(1).textSelection(.enabled)
                 HStack(spacing: 8) {
                     Chip(text: CallDeskText.state(state, s), foreground: colors.0, background: colors.1)
                     Chip(text: s[video ? "ccVideo" : "ccVoice"], systemImage: video ? "video.fill" : "phone.fill")
+                    if call.isSpam {
+                        Chip(text: s["callSpam"], foreground: Palette.danger, background: Palette.dangerSoft, systemImage: "xmark.bin")
+                    }
                 }
                 CallDeskWaitLine(model: model, call: call)
             }
         }
     }
 
-    @ViewBuilder private var buttons: some View {
+    private var buttons: some View {
         let s = app.strings
         let waiting = model.selectedIsWaiting
         let onCall = model.isOnCall(call)
         let busy = model.accepting || model.rejecting
-        if waiting || onCall {
-            GlassGroup(spacing: 10) {
+        return GlassGroup(spacing: 10) {
                 HStack(spacing: 10) {
+                    // Spam, as on a chat: a waiting call leaves the line; the caller is flagged, not blocked.
+                    Button { Task { await model.toggleSpam() } } label: {
+                        Image(systemName: call.isSpam ? "tray.and.arrow.up" : "xmark.bin")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 20, height: 20)
+                            .foregroundStyle(call.isSpam ? Palette.brand : Palette.danger)
+                    }
+                    .glassButton()
+                    .buttonBorderShape(.circle)
+                    .controlSize(.large)
+                    .help(s[call.isSpam ? "notSpam" : "callMarkSpamTip"])
+                    .accessibilityLabel(s[call.isSpam ? "notSpam" : "markSpam"])
+                    .disabled(busy || model.markingSpam)
                     if waiting {
                         Button { Task { await model.reject() } } label: {
                             Label(s["ccReject"], systemImage: "phone.down.fill").appFont(13, .semibold)
@@ -182,7 +208,6 @@ private struct CallDeskCallerCard: View {
                     }
                 }
             }
-        }
     }
 
     @ViewBuilder private var acceptLabel: some View {

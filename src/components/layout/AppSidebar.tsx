@@ -57,14 +57,15 @@ function NavChip({
   return (
     <span
       className={cn(
-        'flex shrink-0 items-center justify-center rounded-lg transition-all duration-200',
-        collapsed ? 'h-9 w-9' : 'h-7 w-7',
+        'relative flex shrink-0 items-center justify-center rounded-xl transition-all duration-300',
+        collapsed ? 'h-10 w-10' : 'h-8 w-8',
         active
-          ? cn('bg-gradient-to-br text-white shadow-md', a.grad)
-          : cn('ring-1 group-hover:scale-105', a.chip),
+          ? cn('bg-gradient-to-br text-white shadow-glow', a.grad)
+          : cn('bg-sidebar-accent/70 ring-1 ring-sidebar-border text-sidebar-muted-foreground group-hover:-translate-y-0.5 group-hover:ring-0 group-hover:bg-gradient-to-br group-hover:text-white group-hover:shadow-md', a.grad.replace(/(from|to)-/g, 'group-hover:$1-')),
       )}
     >
-      <Icon className={collapsed ? 'h-[18px] w-[18px]' : 'h-4 w-4'} />
+      {active && <span aria-hidden className={cn('absolute inset-0 -z-10 rounded-xl blur-md opacity-60', a.glow)} />}
+      <Icon className={collapsed ? 'h-[19px] w-[19px]' : 'h-[17px] w-[17px]'} strokeWidth={2} />
     </span>
   );
 }
@@ -374,14 +375,17 @@ export function AppSidebar({
     <>
     <aside
       className={cn(
-        'relative flex flex-col bg-sidebar',
+        'relative flex flex-col overflow-hidden bg-sidebar/80 backdrop-blur-xl',
         variant === 'drawer'
           ? 'h-full w-full'
           : 'h-screen h-dvh border-e border-sidebar-border transition-[width] duration-200',
         variant === 'rail' && (collapsed ? 'w-[68px]' : 'w-[220px]'),
       )}
-      style={{ backgroundImage: 'var(--gradient-sidebar)' }}
     >
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-0 overflow-hidden">
+        <div className="animate-aurora absolute -top-24 -start-16 h-56 w-56 rounded-full bg-brand-teal/15 blur-3xl" />
+        <div className="animate-aurora absolute bottom-10 -end-20 h-56 w-56 rounded-full bg-brand-violet/15 blur-3xl" style={{ animationDelay: '-8s' }} />
+      </div>
       {/* Collapse toggle — centered on the sidebar divider line. Rail only:
           the drawer variant has no collapsed state to toggle into. */}
       {variant === 'rail' && (
@@ -408,7 +412,7 @@ export function AppSidebar({
             'hover:bg-sidebar-accent/50',
           )}
         >
-          <div className="relative w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shrink-0 overflow-hidden ring-1 ring-primary/20 shadow-sm">
+          <div className="relative w-9 h-9 rounded-xl bg-brand flex items-center justify-center shrink-0 overflow-hidden shadow-glow">
             {workspaceIconUrl ? (
               <ImageWithSkeleton src={workspaceIconUrl} className="h-full w-full object-cover" />
             ) : (
@@ -544,9 +548,9 @@ export function AppSidebar({
           to={wsPath('')}
           title={collapsed ? undefined : t('nav.dashboard')}
           className={cn(
-            'flex items-center rounded-lg px-3 py-2 text-sm font-semibold transition-all',
+            'flex items-center rounded-xl px-3 py-2 text-sm font-semibold transition-all',
             isActive('')
-              ? 'bg-brand text-white shadow-glow'
+              ? 'nav-glow text-sidebar-foreground'
               : 'text-sidebar-foreground hover:bg-sidebar-accent/50',
             collapsed && 'justify-center px-0'
           )}
@@ -566,9 +570,9 @@ export function AppSidebar({
           to={wsPath('/inbox')}
           title={collapsed ? undefined : t('nav.inbox')}
           className={cn(
-            'group flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
+            'group flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium transition-all',
             isActive('/inbox')
-              ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+              ? 'nav-glow text-sidebar-foreground font-semibold'
               : 'text-sidebar-foreground hover:bg-sidebar-accent/50',
             collapsed && 'justify-center px-0'
           )}
@@ -587,7 +591,7 @@ export function AppSidebar({
           const itemCls = (on: boolean) => cn(
             'flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] transition-colors',
             on
-              ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+              ? 'nav-glow text-sidebar-foreground font-semibold'
               : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
           );
           return (
@@ -708,9 +712,9 @@ export function AppSidebar({
             to={wsPath(item.path)}
             title={collapsed ? undefined : t(`nav.${item.key}` as any)}
             className={cn(
-              'group flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
+              'group flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium transition-all',
               isActive(item.path)
-                ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                ? 'nav-glow text-sidebar-foreground font-semibold'
                 : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
               collapsed && 'justify-center px-0'
             )}
@@ -737,9 +741,9 @@ export function AppSidebar({
               document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }));
             } : undefined}
             className={cn(
-              'group flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
+              'group flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium transition-all',
               isActive(item.path)
-                ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                ? 'nav-glow text-sidebar-foreground font-semibold'
                 : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
               collapsed && 'justify-center px-0'
             )}
@@ -756,7 +760,7 @@ export function AppSidebar({
             to="/admin"
             title={collapsed ? undefined : 'Super Admin'}
             className={cn(
-              'group flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-sidebar-primary hover:bg-sidebar-accent transition-all',
+              'group flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium text-sidebar-primary hover:bg-sidebar-accent transition-all',
               collapsed && 'justify-center px-0'
             )}
           >

@@ -6,7 +6,7 @@ page view costs with the widget on.
 
     admin_checks.py <4|3> <base> <db>
 """
-import json, subprocess, sys
+import json, re, subprocess, sys
 import requests
 import oc_admin
 from oc_admin import Admin
@@ -45,14 +45,18 @@ html, csrf = admin.page()
 check('settings page renders for an admin', csrf is not None)
 check('admin page carries no storefront widget', 'gs-widget-loader' not in html)
 
-form = {'webyar_csrf': csrf, 'module_webyar_status': '1', 'module_webyar_app_url': 'https://app.example.test', 'module_webyar_api_url': '',
+check('the Web Yar address is fixed, not a form field', 'module_webyar_app_url' not in html and 'module_webyar_api_url' not in html)
+check('redesigned page: own styles, Google font, language and direction', 'class="wy"' in html and 'fonts.googleapis.com/css2?family=Inter' in html and 'dir="ltr"' in html)
+check('update section with the automatic switch (on by default)', re.search(r'name="module_webyar_auto_update" value="1"', html) is not None)
+
+form = {'webyar_csrf': csrf, 'module_webyar_status': '1', 'module_webyar_auto_update': '1',
         'module_webyar_orders': '1', 'module_webyar_reviews': '1', 'module_webyar_customer_scope': 'installation', 'widget[0]': '1', 'widget[1]': '1'}
 res = admin.post('save', form)
 check('save with the form token succeeds', 'success' in res, res)
 res = admin.post('save', {**form, 'webyar_csrf': 'forged'})
 check('save with a forged token is refused', 'error' in res and 'success' not in res, res)
-res = admin.post('save', {**form, 'module_webyar_app_url': 'http://evil.example'})
-check('a non-https Web Yar address is refused', 'error' in res, res)
+res = admin.post('save', {**form, 'module_webyar_app_url': 'https://evil.example'})
+check('a posted Web Yar address is ignored', 'success' in res and q("SELECT COUNT(*) FROM oc_setting WHERE `key` IN ('module_webyar_app_url','module_webyar_api_url')") == '0', res)
 res = admin.post('connect', {'webyar_csrf': csrf, 'store_id': '0'})
 check('connecting an http store explains https is required', 'error' in res and 'https' in json.dumps(res), res)
 res = admin.post('connect', {'webyar_csrf': csrf, 'store_id': '99'})

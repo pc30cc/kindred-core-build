@@ -1,0 +1,260 @@
+{{ header }}{{ column_left }}
+{#
+  Web Yar settings page — ONE template for OpenCart 4.1 and 3.0 (copied into
+  both packages by scripts/build-opencart-plugin-zip.mjs). Self-contained:
+  its own styles, icons and script, so it looks the same on Bootstrap 5
+  (4.1) and Bootstrap 3 (3.0). Every value is escaped explicitly — 3.0 does
+  not autoescape.
+#}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family={{ font|e('url') }}:wght@400;500;600;700;800&amp;display=swap">
+<style>
+.wy{--wy-ink:#0f172a;--wy-muted:#64748b;--wy-line:#e2e8f0;--wy-bg:#f5f7fb;--wy-card:#fff;--wy-brand:#4f46e5;--wy-brand2:#7c3aed;--wy-ok:#059669;--wy-okbg:#ecfdf5;--wy-warn:#b45309;--wy-warnbg:#fffbeb;--wy-bad:#dc2626;--wy-badbg:#fef2f2;
+  font-family:'{{ font|e('css') }}',system-ui,-apple-system,'Segoe UI',Tahoma,sans-serif;color:var(--wy-ink);background:var(--wy-bg);padding:24px;border-radius:0;line-height:1.7;font-size:14px}
+.wy *{box-sizing:border-box}
+.wy button,.wy select,.wy input{font-family:inherit}
+.wy-hero{position:relative;overflow:hidden;border-radius:20px;padding:28px 30px;color:#fff;background:linear-gradient(135deg,var(--wy-brand) 0%,var(--wy-brand2) 55%,#db2777 130%);box-shadow:0 18px 40px -18px rgba(79,70,229,.55)}
+.wy-hero:after{content:"";position:absolute;inset-inline-end:-60px;top:-60px;width:260px;height:260px;border-radius:50%;background:rgba(255,255,255,.08)}
+.wy-hero-top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:relative;z-index:1}
+.wy-mark{width:52px;height:52px;border-radius:16px;background:rgba(255,255,255,.16);display:grid;place-items:center;flex:none;backdrop-filter:blur(4px)}
+.wy-hero h1{margin:0;font-size:22px;font-weight:800;color:#fff;letter-spacing:-.01em}
+.wy-hero p{margin:6px 0 0;max-width:720px;opacity:.9;font-size:14px}
+.wy-hero-actions{margin-inline-start:auto;display:flex;gap:10px;flex-wrap:wrap}
+.wy-btn{display:inline-flex;align-items:center;gap:8px;border-radius:12px;padding:9px 16px;font-weight:600;font-size:13px;border:1px solid transparent;cursor:pointer;text-decoration:none!important;transition:.15s transform,.15s box-shadow,.15s background;line-height:1.4;white-space:nowrap}
+.wy-btn:hover{transform:translateY(-1px)}
+.wy-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.wy-btn-primary{background:var(--wy-brand);color:#fff!important;box-shadow:0 8px 18px -10px var(--wy-brand)}
+.wy-btn-primary:hover{background:#4338ca}
+.wy-btn-light{background:#fff;color:var(--wy-brand)!important}
+.wy-btn-glass{background:rgba(255,255,255,.14);color:#fff!important;border-color:rgba(255,255,255,.3)}
+.wy-btn-ghost{background:#fff;color:var(--wy-ink)!important;border-color:var(--wy-line)}
+.wy-btn-ghost:hover{border-color:#cbd5e1}
+.wy-btn-danger{background:#fff;color:var(--wy-bad)!important;border-color:#fecaca}
+.wy-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:18px 0}
+@media (max-width:991px){.wy-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.wy-stat{background:var(--wy-card);border:1px solid var(--wy-line);border-radius:16px;padding:14px 16px;display:flex;align-items:center;gap:12px}
+.wy-stat-icon{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:#eef2ff;color:var(--wy-brand);flex:none}
+.wy-stat small{display:block;color:var(--wy-muted);font-size:12px}
+.wy-stat strong{font-size:17px;font-weight:700}
+.wy-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:1199px){.wy-grid{grid-template-columns:minmax(0,1fr)}}
+.wy-card{background:var(--wy-card);border:1px solid var(--wy-line);border-radius:18px;box-shadow:0 1px 2px rgba(15,23,42,.04);margin-bottom:18px}
+.wy-card-head{padding:16px 20px;border-bottom:1px solid var(--wy-line);display:flex;align-items:center;gap:10px}
+.wy-card-head h2{margin:0;font-size:15px;font-weight:700}
+.wy-card-body{padding:18px 20px}
+.wy-help{color:var(--wy-muted);font-size:13px;margin:0 0 14px}
+.wy-store{border:1px solid var(--wy-line);border-radius:16px;padding:16px;margin-bottom:12px;transition:.15s border-color}
+.wy-store:last-child{margin-bottom:0}
+.wy-store.is-connected{border-color:#a7f3d0;background:linear-gradient(180deg,#f0fdf8,#fff 60%)}
+.wy-store-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.wy-store-name{font-weight:700;font-size:15px}
+.wy-store-host{color:var(--wy-muted);font-size:12px;direction:ltr;display:inline-block}
+.wy-pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600;margin-inline-start:auto}
+.wy-pill i{width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block}
+.wy-pill-ok{background:var(--wy-okbg);color:var(--wy-ok)}
+.wy-pill-off{background:#f1f5f9;color:var(--wy-muted)}
+.wy-meta{display:flex;gap:18px;flex-wrap:wrap;margin:10px 0 0;color:var(--wy-muted);font-size:12px}
+.wy-meta code{background:#f1f5f9;border-radius:6px;padding:1px 6px;color:var(--wy-ink);font-size:11px;direction:ltr;display:inline-block}
+.wy-store-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px dashed var(--wy-line)}
+.wy-store-foot .wy-actions{margin-inline-start:auto;display:flex;gap:8px;flex-wrap:wrap}
+.wy-row{display:flex;align-items:flex-start;gap:14px;padding:14px 0;border-bottom:1px solid var(--wy-line)}
+.wy-row:first-child{padding-top:0}
+.wy-row:last-of-type{border-bottom:0}
+.wy-row-text{flex:1;min-width:0}
+.wy-row-text strong{display:block;font-weight:600}
+.wy-row-text span{display:block;color:var(--wy-muted);font-size:12.5px;margin-top:2px}
+.wy-switch{position:relative;display:inline-block;width:44px;height:26px;flex:none;margin:0}
+.wy-switch input{opacity:0;width:0;height:0;position:absolute}
+.wy-switch span{position:absolute;inset:0;background:#cbd5e1;border-radius:999px;transition:.2s;cursor:pointer}
+.wy-switch span:before{content:"";position:absolute;width:20px;height:20px;top:3px;inset-inline-start:3px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.wy-switch input:checked+span{background:var(--wy-brand)}
+.wy-switch input:checked+span:before{transform:translateX(18px)}
+.wy[dir=rtl] .wy-switch input:checked+span:before{transform:translateX(-18px)}
+.wy-switch input:focus-visible+span{outline:3px solid #c7d2fe}
+.wy-select{width:100%;border:1px solid var(--wy-line);border-radius:12px;padding:9px 12px;background:#fff;font-size:13px;margin-top:8px}
+.wy-save{display:flex;justify-content:flex-end;margin-top:16px}
+.wy-alert{border-radius:14px;padding:12px 16px;margin-bottom:14px;font-weight:500;display:flex;gap:10px;align-items:center}
+.wy-alert-bad{background:var(--wy-badbg);color:var(--wy-bad)}
+.wy-alert-warn{background:var(--wy-warnbg);color:var(--wy-warn)}
+.wy-alert-ok{background:var(--wy-okbg);color:var(--wy-ok)}
+.wy-kv{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--wy-line);font-size:13px}
+.wy-kv span{color:var(--wy-muted)}
+.wy-kv b{direction:ltr}
+.wy-foot{color:var(--wy-muted);font-size:12px;text-align:center;margin-top:6px}
+.wy-toast{position:fixed;inset-block-end:24px;inset-inline-end:24px;z-index:9999;max-width:420px;border-radius:14px;padding:12px 16px;color:#fff;font-weight:600;box-shadow:0 18px 40px -16px rgba(15,23,42,.5);opacity:0;transform:translateY(10px);transition:.25s;pointer-events:none}
+.wy-toast.show{opacity:1;transform:none}
+.wy-toast.ok{background:#047857}.wy-toast.bad{background:#b91c1c}
+.wy-spin{width:14px;height:14px;border:2px solid currentColor;border-inline-end-color:transparent;border-radius:50%;animation:wy-spin .7s linear infinite;display:none}
+.wy-busy .wy-spin{display:inline-block}
+@keyframes wy-spin{to{transform:rotate(360deg)}}
+</style>
+<div id="content">
+<div class="wy" dir="{{ dir|e }}" lang="{{ lang|e }}">
+
+  <div class="wy-hero">
+    <div class="wy-hero-top">
+      <div class="wy-mark"><svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.2 3.5c-.5.4-1.3.1-1.3-.6V16A2.5 2.5 0 0 1 4 13.5v-8Z" fill="#fff" fill-opacity=".95"/><path d="M12 6.8l.9 2 2 .9-2 .9-.9 2-.9-2-2-.9 2-.9.9-2Z" fill="#7c3aed"/></svg></div>
+      <div>
+        <h1>{{ t.heading_title|e }}</h1>
+        <p>{{ t.text_subtitle|e }}</p>
+      </div>
+      <div class="wy-hero-actions">
+        <a class="wy-btn wy-btn-light" href="{{ dashboard|e }}" target="_blank" rel="noopener">{{ t.text_dashboard|e }}</a>
+        <a class="wy-btn wy-btn-glass" href="{{ back|e }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="{{ dir == 'rtl' ? 'M9 6l6 6-6 6' : 'M15 6l-6 6 6 6' }}"/></svg>{{ t.text_extension|e }}</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="wy-stats">
+    <div class="wy-stat"><div class="wy-stat-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1.5-5h15L21 9M4 9h16v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V9Zm5 11v-6h6v6"/></svg></div><div><small>{{ t.text_stat_stores|e }}</small><strong>{{ connected_count }} / {{ store_count }}</strong></div></div>
+    <div class="wy-stat"><div class="wy-stat-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v11H9l-5 4V5Z"/></svg></div><div><small>{{ t.text_stat_widget|e }}</small><strong>{{ widget_count > 0 ? t.text_on|e : t.text_off|e }}</strong></div></div>
+    <div class="wy-stat"><div class="wy-stat-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 6 6 .9-4.5 4.3 1 6.3L12 16.6 6.5 19.5l1-6.3L3 8.9 9 8l3-6Z"/></svg></div><div><small>{{ t.text_stat_version|e }}</small><strong dir="ltr">{{ version|e }}</strong></div></div>
+    <div class="wy-stat"><div class="wy-stat-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4h-4"/></svg></div><div><small>{{ t.text_stat_updates|e }}</small><strong>{{ auto_update and update_supported ? t.text_automatic|e : t.text_manual|e }}</strong></div></div>
+  </div>
+
+  {% if not supported %}<div class="wy-alert wy-alert-bad">{{ text_unsupported|e }}</div>{% endif %}
+  {% if not key_ok %}<div class="wy-alert wy-alert-warn">{{ t.error_storage|e }}</div>{% endif %}
+  {% if updated %}<div class="wy-alert wy-alert-ok wy-updated">{{ t.text_updated_done|format(version)|e }}</div>{% endif %}
+
+  <form id="wy-settings" action="{{ save|e }}" method="post" data-wy-ajax="1">
+    <input type="hidden" name="webyar_csrf" value="{{ csrf|e }}">
+  </form>
+
+  <div class="wy-grid">
+    <div>
+      <div class="wy-card">
+        <div class="wy-card-head"><h2>{{ t.text_stores|e }}</h2></div>
+        <div class="wy-card-body">
+          <p class="wy-help">{{ t.help_stores|e }}</p>
+          {% for store in stores %}
+          <div class="wy-store{{ store.connected ? ' is-connected' : '' }}">
+            <div class="wy-store-top">
+              <div>
+                <div class="wy-store-name">{{ store.name|e }}</div>
+                <span class="wy-store-host">{{ store.url|e }}</span>
+              </div>
+              {% if store.connected %}
+                <span class="wy-pill wy-pill-ok"><i></i>{{ t.text_connected|e }}</span>
+              {% else %}
+                <span class="wy-pill wy-pill-off"><i></i>{{ t.text_not_connected|e }}</span>
+              {% endif %}
+            </div>
+            {% if store.connected %}
+            <div class="wy-meta">
+              <span>{{ t.text_workspace|e }}: <code>{{ store.workspace_id|slice(0, 8)|e }}…</code></span>
+              <span>{{ t.text_paired_at|e }}: <code>{{ store.paired_at|e }}</code></span>
+            </div>
+            {% elseif not store.https %}
+            <div class="wy-meta" style="color:var(--wy-bad)">{{ t.error_https|e }}</div>
+            {% endif %}
+            <div class="wy-store-foot">
+              <label class="wy-switch" title="{{ t.label_widget|e('html_attr') }}">
+                <input type="hidden" name="widget[{{ store.store_id|e }}]" value="0" form="wy-settings">
+                <input type="checkbox" name="widget[{{ store.store_id|e }}]" value="1" form="wy-settings"{{ store.widget ? ' checked' : '' }} data-wy-autosave="1">
+                <span></span>
+              </label>
+              <span style="font-size:13px">{{ t.label_widget|e }}</span>
+              <div class="wy-actions">
+                {% if store.connected %}
+                  <form action="{{ test|e }}" method="post" data-wy-ajax="1"><input type="hidden" name="store_id" value="{{ store.store_id|e }}"><input type="hidden" name="webyar_csrf" value="{{ csrf|e }}"><button type="submit" class="wy-btn wy-btn-ghost"><span class="wy-spin"></span>{{ t.button_test|e }}</button></form>
+                  <form action="{{ connect|e }}" method="post" data-wy-ajax="1"><input type="hidden" name="store_id" value="{{ store.store_id|e }}"><input type="hidden" name="webyar_csrf" value="{{ csrf|e }}"><button type="submit" class="wy-btn wy-btn-ghost"><span class="wy-spin"></span>{{ t.button_reconnect|e }}</button></form>
+                  <form action="{{ disconnect|e }}" method="post" data-wy-ajax="1" data-wy-confirm="{{ t.text_confirm_disconnect|e('html_attr') }}"><input type="hidden" name="store_id" value="{{ store.store_id|e }}"><input type="hidden" name="webyar_csrf" value="{{ csrf|e }}"><button type="submit" class="wy-btn wy-btn-danger"><span class="wy-spin"></span>{{ t.button_disconnect|e }}</button></form>
+                {% else %}
+                  <form action="{{ connect|e }}" method="post" data-wy-ajax="1"><input type="hidden" name="store_id" value="{{ store.store_id|e }}"><input type="hidden" name="webyar_csrf" value="{{ csrf|e }}"><button type="submit" class="wy-btn wy-btn-primary"{{ store.https ? '' : ' disabled' }}><span class="wy-spin"></span>{{ t.button_connect|e }}</button></form>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="wy-card">
+        <div class="wy-card-head"><h2>{{ t.text_edit|e }}</h2></div>
+        <div class="wy-card-body">
+          <div class="wy-row">
+            <div class="wy-row-text"><strong>{{ t.entry_status|e }}</strong><span>{{ t.help_status|e }}</span></div>
+            <label class="wy-switch"><input type="hidden" name="module_webyar_status" value="0" form="wy-settings"><input type="checkbox" name="module_webyar_status" value="1" form="wy-settings"{{ status ? ' checked' : '' }}><span></span></label>
+          </div>
+          <div class="wy-row">
+            <div class="wy-row-text"><strong>{{ t.entry_orders|e }}</strong><span>{{ t.help_orders|e }}</span></div>
+            <label class="wy-switch"><input type="hidden" name="module_webyar_orders" value="0" form="wy-settings"><input type="checkbox" name="module_webyar_orders" value="1" form="wy-settings"{{ orders ? ' checked' : '' }}><span></span></label>
+          </div>
+          <div class="wy-row">
+            <div class="wy-row-text"><strong>{{ t.entry_reviews|e }}</strong><span>{{ t.help_reviews|e }}</span></div>
+            <label class="wy-switch"><input type="hidden" name="module_webyar_reviews" value="0" form="wy-settings"><input type="checkbox" name="module_webyar_reviews" value="1" form="wy-settings"{{ reviews ? ' checked' : '' }}><span></span></label>
+          </div>
+          <div class="wy-row">
+            <div class="wy-row-text"><strong>{{ t.entry_customer_scope|e }}</strong><span>{{ t.help_customer_scope|e }}</span>
+              <select name="module_webyar_customer_scope" form="wy-settings" class="wy-select">
+                <option value="installation"{{ customer_scope == 'installation' ? ' selected' : '' }}>{{ t.text_scope_installation|e }}</option>
+                <option value="registration_store"{{ customer_scope == 'registration_store' ? ' selected' : '' }}>{{ t.text_scope_registration|e }}</option>
+              </select>
+            </div>
+          </div>
+          <input type="hidden" name="module_webyar_auto_update" value="{{ auto_update ? '1' : '0' }}" form="wy-settings" id="wy-auto-mirror">
+          <div class="wy-save"><button type="submit" form="wy-settings" class="wy-btn wy-btn-primary"><span class="wy-spin"></span>{{ t.button_save|e }}</button></div>
+        </div>
+      </div>
+
+      <div class="wy-card">
+        <div class="wy-card-head"><h2>{{ t.text_updates|e }}</h2></div>
+        <div class="wy-card-body">
+          <div class="wy-row">
+            <div class="wy-row-text"><strong>{{ t.entry_auto_update|e }}</strong><span>{{ t.help_auto_update|e }}</span></div>
+            <label class="wy-switch"><input type="checkbox" id="wy-auto" value="1"{{ auto_update ? ' checked' : '' }}{{ update_supported ? '' : ' disabled' }}><span></span></label>
+          </div>
+          {% if not update_supported %}<div class="wy-alert wy-alert-warn" style="margin-top:10px">{{ t.text_update_unsupported|e }}</div>{% endif %}
+          <div class="wy-kv"><span>{{ t.text_current_version|e }}</span><b>{{ version|e }}</b></div>
+          <div class="wy-kv"><span>{{ t.text_last_check|e }}</span><b>{{ update_checked_at ? update_checked_at|e : t.text_never|e }}</b></div>
+          <div class="wy-save">
+            <form action="{{ update|e }}" method="post" data-wy-ajax="1"><input type="hidden" name="webyar_csrf" value="{{ csrf|e }}"><button type="submit" class="wy-btn wy-btn-ghost"{{ update_supported ? '' : ' disabled' }}><span class="wy-spin"></span>{{ t.button_check_update|e }}</button></form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wy-foot"><span dir="ltr">{{ t.text_version|e }} {{ version|e }} · OpenCart {{ oc_version|e }}</span></div>
+  <div class="wy-toast" id="wy-toast" role="status" aria-live="polite"></div>
+</div>
+</div>
+<script>
+(function () {
+  var toast = document.getElementById('wy-toast'), timer;
+  function show(message, ok) {
+    if (!message) return;
+    toast.textContent = message;
+    toast.className = 'wy-toast show ' + (ok ? 'ok' : 'bad');
+    clearTimeout(timer);
+    timer = setTimeout(function () { toast.className = 'wy-toast'; }, 4200);
+  }
+  function submit(form) {
+    var confirmText = form.getAttribute('data-wy-confirm');
+    if (confirmText && !window.confirm(confirmText)) return;
+    var buttons = [].slice.call(document.querySelectorAll('button[form="' + form.id + '"]')).concat([].slice.call(form.querySelectorAll('button')));
+    buttons.forEach(function (b) { b.disabled = true; b.classList.add('wy-busy'); });
+    fetch(form.action, { method: 'POST', body: new FormData(form), credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.json(); })
+      .then(function (json) {
+        if (json.error) show(json.error, false);
+        if (json.success) show(json.success, true);
+        if (json.redirect) setTimeout(function () { window.location.href = json.redirect; }, json.success ? 700 : 0);
+      })
+      .catch(function () { show('Network error', false); })
+      .then(function () { buttons.forEach(function (b) { b.disabled = false; b.classList.remove('wy-busy'); }); });
+  }
+  document.querySelectorAll('.wy form[data-wy-ajax]').forEach(function (form) {
+    form.addEventListener('submit', function (e) { e.preventDefault(); submit(form); });
+  });
+  document.querySelectorAll('.wy input[data-wy-autosave]').forEach(function (input) {
+    input.addEventListener('change', function () { submit(document.getElementById('wy-settings')); });
+  });
+  var auto = document.getElementById('wy-auto'), mirror = document.getElementById('wy-auto-mirror');
+  if (auto) auto.addEventListener('change', function () { mirror.value = auto.checked ? '1' : '0'; submit(document.getElementById('wy-settings')); });
+})();
+</script>
+{{ footer }}

@@ -74,6 +74,37 @@ export const OPENCART_MAX_IDS = 10;
 export const OPENCART_MAX_RESPONSE_BYTES = 128 * 1024;
 const MIN_RETRY_BUDGET_MS = 1_500;
 
+/**
+ * The extension version this Web Yar release ships (public/downloads/opencart,
+ * signed manifest). A store answering with an older `_meta.connector_version`
+ * is asked — at most once per UPDATE_NUDGE_INTERVAL_MS — to update itself.
+ * Kept equal to core/Protocol.php CONNECTOR_VERSION by a test.
+ */
+export const OPENCART_LATEST_CONNECTOR_VERSION = '1.1.0';
+export const UPDATE_NUDGE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+/** Downloading and swapping a ~100 KB package takes a store a few seconds. */
+const UPDATE_DEADLINE_MS = 45_000;
+const lastUpdateNudge = new Map<string, number>();
+
+/** True when `reported` is a well-formed version older than `latest`. */
+export function isOlderConnector(reported: string | null | undefined, latest = OPENCART_LATEST_CONNECTOR_VERSION): boolean {
+  const parse = (v: string) => (/^\d+\.\d+\.\d+$/.test(v) ? v.split('.').map(Number) : null);
+  const a = parse(String(reported ?? ''));
+  const b = parse(latest);
+  if (!a || !b) return false;
+  for (let i = 0; i < 3; i += 1) if (a[i] !== b[i]) return a[i] < b[i];
+  return false;
+}
+
+/** Once per installation per interval; the store's own lock covers overlap. */
+export function claimUpdateNudge(installationId: string, now = Date.now()): boolean {
+  const last = lastUpdateNudge.get(installationId) ?? 0;
+  if (now - last < UPDATE_NUDGE_INTERVAL_MS) return false;
+  lastUpdateNudge.set(installationId, now);
+  if (lastUpdateNudge.size > 5_000) lastUpdateNudge.delete(lastUpdateNudge.keys().next().value as string);
+  return true;
+}
+
 export function openCartApiRoute(platformVersion: string | null): string {
   return /^3\./.test(String(platformVersion ?? '')) ? 'extension/module/webyar/api' : 'extension/webyar/module/webyar.api';
 }
@@ -169,7 +200,10 @@ export class OpenCartConnector implements DirectCommerceConnector {
         responseBytes: res.bytes ?? 0,
       });
 
-      if (res.status === 200) return json;
+      if (res.status === 200) {
+        if (op !== 'connector/update') this.maybeNudgeUpdate(ctx, meta.connector_version);
+        return json;
+      }
 
       const code = mapOpenCartError(res.status, json.error);
       // Only a server-side failure of a read is worth one more try — never
@@ -178,6 +212,26 @@ export class OpenCartConnector implements DirectCommerceConnector {
       throw new CommerceError(code, `store answered ${res.status}${json.error ? ` ${str(json.error, 40)}` : ''}`);
     }
     throw new CommerceError('commerce_live_unavailable', 'store unavailable');
+  }
+
+  /**
+   * Asks the store to install the newest signed release of the extension
+   * (`connector/update`). The store verifies the release signature and the
+   * package checksum itself and refuses when its owner turned automatic
+   * updates off; Web Yar only says "there is one".
+   */
+  async requestSelfUpdate(ctx: CommerceConnectorContext): Promise<{ status: string; from: string | null; to: string | null }> {
+    const data = await this.call({ ...ctx, deadlineAt: Math.max(ctx.deadlineAt, Date.now() + UPDATE_DEADLINE_MS) }, 'connector/update', {});
+    return { status: str(data.status, 20) || 'unknown', from: strOrNull(data.from, 20), to: strOrNull(data.to, 20) };
+  }
+
+  /** Fire-and-forget: never delays or fails the read that noticed it. */
+  private maybeNudgeUpdate(ctx: CommerceConnectorContext, reported: unknown): void {
+    if (!(ctx.capabilities as string[]).includes('connector.update')) return;
+    if (!isOlderConnector(typeof reported === 'string' ? reported : null)) return;
+    if (!claimUpdateNudge(this.transport.installationId)) return;
+    const correlationId = `update-${ctx.connectionId}`;
+    this.requestSelfUpdate({ ...ctx, correlationId, deadlineAt: Date.now() + UPDATE_DEADLINE_MS }).catch(() => undefined);
   }
 
   // ── normalization ─────────────────────────────────────────────────────

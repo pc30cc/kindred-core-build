@@ -80,4 +80,24 @@ interface Platform {
 	 * @return array<int,array<string,mixed>>
 	 */
 	public function trackingFromExtensions(array $order): array;
+
+	/** The package line this store takes from the release manifest: `4.1.x` or `3.0.5.x`. */
+	public function packageLine(): string;
+
+	/**
+	 * Where each part of this version's package goes: zip path prefix =>
+	 * absolute directory. Empty when a location is not known (OpenCart 3's
+	 * admin folder can be renamed; it is learnt on the first admin visit).
+	 *
+	 * @return array<string,string>
+	 */
+	public function updateTargets(?string $adminDir): array;
+
+	/**
+	 * Records files an update added in OpenCart's own list of the extension's
+	 * files (so uninstalling removes them too) and its version.
+	 *
+	 * @param array<int,string> $zipNames
+	 */
+	public function recordInstalledFiles(array $zipNames, string $version): void;
 }

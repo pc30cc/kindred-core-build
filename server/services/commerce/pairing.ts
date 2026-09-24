@@ -16,7 +16,7 @@ import { CommerceError } from '../../../shared/commerce/types.js';
 import { installPlugin } from '../plugins/state.js';
 import { storeInstallationSecret } from './credentials.js';
 import { getProviderDescriptor, isKnownProvider } from './connectors/registry.js';
-import { OpenCartConnector } from './connectors/opencart.js';
+import { OpenCartConnector, claimUpdateNudge, isOlderConnector } from './connectors/opencart.js';
 import { writeCommerceAudit } from './audit.js';
 
 const PAIRING_TTL_MS = 10 * 60 * 1000;
@@ -509,6 +509,12 @@ async function runOpenCartHandshake(
       last_success_at: now,
       last_health_check_at: now,
     }).eq('id', connection.id);
+
+    // An older extension that can update itself is asked to (in the
+    // background; the store checks the signed release on its own).
+    if (health === 'connected' && handshake.capabilities.includes('connector.update') && isOlderConnector(handshake.connectorVersion) && claimUpdateNudge(connection.installation_id)) {
+      void requestOpenCartUpdate(sb, connection, secret, handshake.platformVersion ?? connection.platform_version);
+    }
   } catch (err) {
     await sb.from('commerce_connections').update({
       health: 'offline',
@@ -516,6 +522,36 @@ async function runOpenCartHandshake(
       last_error_at: now,
       last_health_check_at: now,
     }).eq('id', connection.id);
+  }
+}
+
+async function requestOpenCartUpdate(
+  sb: ReturnType<typeof getServiceClient>,
+  connection: { id: string; installation_id: string; approved_origin: string; workspace_id: string; store_id: string; external_store_id: string | null },
+  secret: string,
+  platformVersion: string | null,
+): Promise<void> {
+  try {
+    const result = await new OpenCartConnector({
+      origin: connection.approved_origin,
+      storeUrl: connection.store_id,
+      externalStoreId: String(connection.external_store_id ?? '0'),
+      installationId: connection.installation_id,
+      secret,
+      platformVersion,
+    }).requestSelfUpdate({
+      workspaceId: connection.workspace_id,
+      connectionId: connection.id,
+      installationId: connection.installation_id,
+      capabilities: [],
+      correlationId: `update-${connection.id}`,
+      deadlineAt: Date.now() + 45_000,
+    });
+    if (result.status === 'updated' && result.to) {
+      await sb.from('commerce_connections').update({ connector_version: result.to }).eq('id', connection.id);
+    }
+  } catch {
+    // The next handshake (or the store's own admin-visit check) tries again.
   }
 }
 

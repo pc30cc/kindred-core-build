@@ -7,8 +7,9 @@
 set -euo pipefail
 MAJOR=$1 BASE=$2 DB=$3 ZIP=$4
 M="mariadb --socket=/tmp/wyoc/my.sock -uroot -N $DB -e"
+VERSION=$(sed -n "s/.*CONNECTOR_VERSION = '\([^']*\)'.*/\1/p" ../../core/Protocol.php)
 A="python3 oc_admin.py $MAJOR $BASE admin Admin12345!"
-$M "UPDATE oc_setting SET value = REPLACE(value, '\"connector\":\"1.0.0\"', '\"connector\":\"0.9.0\"') WHERE \`key\` = 'module_webyar_schema'"
+$M "UPDATE oc_setting SET value = REPLACE(value, '\"connector\":\"$VERSION\"', '\"connector\":\"0.9.0\"') WHERE \`key\` = 'module_webyar_schema'"
 CONN_BEFORE=$($M "SELECT MD5(value) FROM oc_setting WHERE \`key\`='module_webyar_conn' AND store_id=0")
 if [ "$MAJOR" = 4 ]; then $A uninstall >/dev/null; fi   # OC4: remove old files (module + settings stay)
 $A install "$ZIP" >/dev/null
@@ -20,7 +21,7 @@ CONN_AFTER=$($M "SELECT MD5(value) FROM oc_setting WHERE \`key\`='module_webyar_
 TABLE=$($M "SHOW TABLES LIKE 'oc_webyar_nonce'")
 ok=1
 [ "$EVENTS" = 1 ] || { echo "FAIL events=$EVENTS"; ok=0; }
-echo "$SCHEMA" | grep -q '"connector":"1.0.0"' || { echo "FAIL schema not upgraded"; ok=0; }
+echo "$SCHEMA" | grep -q "\"connector\":\"$VERSION\"" || { echo "FAIL schema not upgraded"; ok=0; }
 [ "$CONN_BEFORE" = "$CONN_AFTER" ] || { echo "FAIL connection changed by upgrade"; ok=0; }
 [ -n "$TABLE" ] || { echo "FAIL nonce table missing"; ok=0; }
 curl -s "$BASE/" | grep -c 's.id="gs-widget-loader"' | grep -qx 1 || { echo "FAIL loader count after upgrade"; ok=0; }

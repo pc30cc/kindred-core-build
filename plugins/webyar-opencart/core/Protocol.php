@@ -16,7 +16,7 @@ namespace WebYar\OpenCart;
  */
 final class Protocol {
 	public const PROTOCOL_VERSION = 'webyar-commerce/1';
-	public const CONNECTOR_VERSION = '1.0.0';
+	public const CONNECTOR_VERSION = '1.1.0';
 	public const PATH_PREFIX = '/opencart/v1/';
 	public const CLOCK_SKEW_SECONDS = 300;
 	public const MAX_BODY_BYTES = 65536;
@@ -27,6 +27,13 @@ final class Protocol {
 	public const MAX_TERM_LENGTH = 40;
 	public const ASSERTION_TTL = 120;
 	public const AUDIENCE = 'webyar-widget';
+
+	/**
+	 * Ed25519 public key that release manifests are signed with. The private
+	 * key never leaves the Web Yar release host; an update whose manifest
+	 * does not verify against this key is never installed.
+	 */
+	public const UPDATE_PUBLIC_KEY = 'vbNNY6jM7bZvxmvV39oRSZ4XSZ7EMks/eEyyVcrwPKQ=';
 
 	/** op => [capability, private, plugin toggle key or null] */
 	public const OPS = [
@@ -39,6 +46,9 @@ final class Protocol {
 		'orders/get'          => ['orders.read', true, 'orders'],
 		'orders/tracking'     => ['tracking.read', true, 'orders'],
 		'orders/returns'      => ['returns.read', true, 'orders'],
+		// Web Yar asks the store to update itself; the store fetches the
+		// signed manifest from the fixed Web Yar address and decides.
+		'connector/update'    => ['connector.update', false, 'auto_update'],
 	];
 
 	public const CAPABILITIES = [
@@ -52,6 +62,7 @@ final class Protocol {
 		'customer_context',
 		'widget.bootstrap',
 		'search.direct',
+		'connector.update',
 	];
 
 	public static function canonicalPath(string $op): string {

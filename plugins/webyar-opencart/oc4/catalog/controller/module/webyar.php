@@ -4,8 +4,10 @@ namespace Opencart\Catalog\Controller\Extension\Webyar\Module;
 require_once DIR_EXTENSION . 'webyar/system/library/webyar/autoload.php';
 
 use WebYar\OpenCart\Api;
+use WebYar\OpenCart\CallbackPage;
 use WebYar\OpenCart\Connection;
 use WebYar\OpenCart\Db;
+use WebYar\OpenCart\I18n;
 use WebYar\OpenCart\Identity;
 use WebYar\OpenCart\LocalKey;
 use WebYar\OpenCart\Oc4Platform;
@@ -109,26 +111,38 @@ class Webyar extends \Opencart\System\Engine\Controller {
 	}
 
 	public function callback(): void {
-		$this->load->language('extension/webyar/module/webyar');
 		$key = LocalKey::load(DIR_STORAGE);
+		$state = (string)($this->request->get['state'] ?? '');
 		$ok = false;
+		$error = '';
+		// Read before completing: completing consumes the pending record.
+		$pending = null;
 
 		try {
 			if ($key === null) {
 				throw new \RuntimeException('extension_not_installed');
 			}
 
-			$db = new Db($this->db, DB_PREFIX);
-			(new Pairing(new Settings($db), $key))->complete((string)($this->request->get['state'] ?? ''), (string)($this->request->get['code'] ?? ''), (int)$this->config->get('config_store_id'));
+			$pairing = new Pairing(new Settings(new Db($this->db, DB_PREFIX)), $key);
+			$pending = $pairing->peek($state);
+
+			if (!empty($this->request->get['error'])) {
+				// Declined or cancelled in Web Yar: nothing to exchange.
+				throw new \RuntimeException((string)$this->request->get['error']);
+			}
+
+			$pairing->complete($state, (string)($this->request->get['code'] ?? ''), (int)$this->config->get('config_store_id'));
 			$ok = true;
-			$message = $this->language->get('text_callback_success');
 		} catch (\Throwable $e) {
-			$message = $this->language->get('text_callback_failed') . ' (' . preg_replace('/[^a-z0-9_]/', '', strtolower($e->getMessage())) . ')';
+			$error = substr((string)preg_replace('/[^a-z0-9_]/', '', strtolower($e->getMessage())), 0, 60);
 		}
 
+		$lang = $pending['lang'] ?? I18n::pick((string)$this->config->get('config_language'));
 		$this->response->addHeader('Cache-Control: no-store');
+		$this->response->addHeader('Referrer-Policy: no-referrer');
+		$this->response->addHeader('X-Robots-Tag: noindex, nofollow');
 		$this->response->addHeader('Content-Type: text/html; charset=utf-8');
-		$this->response->setOutput('<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex"><title>Web Yar</title><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem"><h1 style="font-size:1.25rem">' . ($ok ? '✓ ' : '✕ ') . htmlspecialchars($message, ENT_QUOTES, 'UTF-8') . '</h1><p>' . htmlspecialchars($this->language->get('text_callback_return'), ENT_QUOTES, 'UTF-8') . '</p></body>');
+		$this->response->setOutput(CallbackPage::render($ok, $error, $lang, (string)($pending['return_url'] ?? '')));
 	}
 
 	public function order(): void {

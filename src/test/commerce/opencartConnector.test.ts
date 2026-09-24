@@ -209,3 +209,45 @@ describe('signing is byte-identical to the PHP extension', () => {
     })).toBe(v.expectedSignature);
   });
 });
+
+describe('self-update (1.1.0+)', () => {
+  const withUpdate = (ms = 5_000) => ({ ...ctx(ms), capabilities: ['connector.update'] as never[] });
+
+  it('compares versions strictly and ignores malformed ones', async () => {
+    const { isOlderConnector } = await import('../../../server/services/commerce/connectors/opencart.js');
+    expect(isOlderConnector('1.0.0', '1.1.0')).toBe(true);
+    expect(isOlderConnector('1.1.0', '1.1.0')).toBe(false);
+    expect(isOlderConnector('1.10.0', '1.9.0')).toBe(false);
+    expect(isOlderConnector('0.9.9', '1.0.0')).toBe(true);
+    expect(isOlderConnector('1.0', '1.1.0')).toBe(false);
+    expect(isOlderConnector(null, '1.1.0')).toBe(false);
+  });
+
+  it('asks an older store that can update itself — once per interval, in the background', async () => {
+    const { claimUpdateNudge } = await import('../../../server/services/commerce/connectors/opencart.js');
+    const installation = 'aaaaaaaa-1111-4111-8111-111111111111';
+    const c = new OpenCartConnector({ origin: 'https://shop.example', storeUrl: 'https://shop.example/', externalStoreId: '2', installationId: installation, secret: SECRET, platformVersion: '4.1.0.4' });
+    answers.push({ status: 200, json: { categories: [], _meta: { connector_version: '1.0.0' } } });
+    answers.push({ status: 200, json: { status: 'updated', from: '1.0.0', to: '1.1.0' } });
+    await c.listCategories(withUpdate(), {});
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent.map((s) => s.url.match(/op=([^&]+)/)?.[1])).toEqual(['catalog%2Fcategories', 'connector%2Fupdate']);
+    expect(sent[1].headers['X-WebYar-Signature']).toMatch(/^[a-f0-9]{64}$/);
+    expect(sent[1].timeoutMs).toBeGreaterThan(30_000);
+    expect(claimUpdateNudge(installation)).toBe(false);
+  });
+
+  it('does not ask when the store is current or cannot update itself', async () => {
+    answers.push({ status: 200, json: { categories: [], _meta: { connector_version: '1.1.0' } } });
+    answers.push({ status: 200, json: { categories: [], _meta: { connector_version: '1.0.0' } } });
+    await connector().listCategories(withUpdate(), {});
+    await connector().listCategories(ctx(), {});
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent).toHaveLength(2);
+  });
+
+  it('reports what the store did', async () => {
+    answers.push({ status: 200, json: { status: 'up_to_date', from: '1.1.0', to: null } });
+    await expect(connector().requestSelfUpdate(ctx())).resolves.toEqual({ status: 'up_to_date', from: '1.1.0', to: null });
+  });
+});

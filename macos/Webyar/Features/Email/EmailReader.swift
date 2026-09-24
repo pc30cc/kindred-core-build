@@ -42,7 +42,7 @@ enum EmailHTML {
         summary{list-style:none;cursor:pointer;padding:12px 16px;display:flex;gap:12px;align-items:center}
         summary::-webkit-details-marker{display:none}
         .av{flex:none;width:34px;height:34px;border-radius:50%;color:#fff;font-weight:600;font-size:13px;display:flex;align-items:center;justify-content:center}
-        .who{flex:1;min-width:0}
+        .who{flex:1;min-width:0;text-align:\(s.isRightToLeft ? "right" : "left")}
         .from{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .sub{color:\(fg2);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         details[open] .snip{display:none}

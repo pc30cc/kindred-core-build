@@ -27,7 +27,8 @@ const future = new Date(Date.now() + 3_600_000).toISOString();
 
 beforeEach(() => {
   fake.db.commerce_connections = [store('a', 'https://a.example', '2026-01-01'), store('b', 'https://b.example', '2026-09-01')];
-  fake.db.conversations = [{ id: 'conv', workspace_id: WS, visitor_session_id: 'visitor' }];
+  fake.db.conversations = [{ id: 'conv', workspace_id: WS, visitor_session_id: null, metadata: { visitor_id: 'visitor' } }];
+  fake.db.visitor_sessions = [];
   fake.db.commerce_customer_links = [];
   fake.reset();
 });

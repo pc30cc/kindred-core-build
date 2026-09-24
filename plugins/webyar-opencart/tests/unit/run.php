@@ -362,5 +362,17 @@ if (is_file($built)) {
 	check('the real 3.0 package passes its own update checks', in_array('upload/system/library/webyar/Updater.php', $names, true));
 }
 
+// ── compiled template cache after an upgrade ────────────────────────
+$cache = sys_get_temp_dir() . '/wy-cache-' . bin2hex(random_bytes(4));
+mkdir($cache . '/template/ab', 0777, true);
+mkdir($cache . '/template/cd', 0777, true);
+file_put_contents($cache . '/template/ab/1.php', "<?php\n/* extension/webyar/admin/view/template/module/webyar.twig */\nclass A {}");
+file_put_contents($cache . '/template/ab/2.php', "<?php\n/* extension/module/webyar.twig */\nclass B {}");
+file_put_contents($cache . '/template/cd/3.php', "<?php\n/* common/header.twig */\nclass C {}");
+file_put_contents($cache . '/template/cd/4.php', "<?php\n/* extension/webyarsomething/module/other.twig */\nclass D {}");
+check('template cache: only Web Yar pages are dropped (4.1 and 3.0 names)', Updater::clearTemplateCache($cache . '/') === 2 && !is_file($cache . '/template/ab/1.php') && !is_file($cache . '/template/ab/2.php') && is_file($cache . '/template/cd/3.php') && is_file($cache . '/template/cd/4.php'));
+check('template cache: nothing to do is fine', Updater::clearTemplateCache('') === 0 && Updater::clearTemplateCache($cache . '/missing/') === 0);
+array_map('unlink', glob($cache . '/template/*/*.php'));
+
 echo "core unit tests: $passed passed, $failures failed\n";
 exit($failures ? 1 : 0);

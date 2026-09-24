@@ -41,7 +41,7 @@ trait AdminActions {
 
 				if ($result['status'] === 'updated') {
 					// Render with the new code: reload once.
-					$this->response->redirect(str_replace('&amp;', '&', $this->url->link($this->wyRoute(), $token . '&updated=1')));
+					$this->response->redirect($this->wyLink($this->wyRoute(), $token . '&updated=1'));
 
 					return;
 				}
@@ -58,12 +58,12 @@ trait AdminActions {
 			'dir'        => I18n::direction($lang),
 			'font'       => I18n::font($lang),
 			'csrf'       => $this->wyCsrf(),
-			'save'       => $this->url->link($this->wyMethod('save'), $token),
-			'connect'    => $this->url->link($this->wyMethod('connect'), $token),
-			'disconnect' => $this->url->link($this->wyMethod('disconnect'), $token),
-			'test'       => $this->url->link($this->wyMethod('test'), $token),
-			'update'     => $this->url->link($this->wyMethod('update'), $token),
-			'back'       => $this->url->link($this->wyExtensionsRoute(), $token . '&type=module'),
+			'save'       => $this->wyLink($this->wyMethod('save'), $token),
+			'connect'    => $this->wyLink($this->wyMethod('connect'), $token),
+			'disconnect' => $this->wyLink($this->wyMethod('disconnect'), $token),
+			'test'       => $this->wyLink($this->wyMethod('test'), $token),
+			'update'     => $this->wyLink($this->wyMethod('update'), $token),
+			'back'       => $this->wyLink($this->wyExtensionsRoute(), $token . '&type=module'),
 			'dashboard'  => Endpoints::app(),
 			'supported'  => $supported,
 			'text_unsupported' => sprintf($t['text_unsupported'], VERSION),
@@ -157,7 +157,7 @@ trait AdminActions {
 						throw new \RuntimeException($t['error_storage']);
 					}
 
-					$return = str_replace('&amp;', '&', $this->url->link($this->wyRoute(), 'user_token=' . $this->session->data['user_token']));
+					$return = $this->wyLink($this->wyRoute(), 'user_token=' . $this->session->data['user_token']);
 					$pairing = new Pairing(new Settings(new Db($this->db, DB_PREFIX)), $key);
 					$json['redirect'] = $pairing->start($store['store_id'], $store['url'], $this->wyCallbackUrl($store['url']), VERSION, $return, $lang);
 				} catch (\Throwable $e) {
@@ -189,7 +189,7 @@ trait AdminActions {
 			}
 
 			$json['success'] = $t['text_disconnected'];
-			$json['redirect'] = str_replace('&amp;', '&', $this->url->link($this->wyRoute(), 'user_token=' . $this->session->data['user_token']));
+			$json['redirect'] = $this->wyLink($this->wyRoute(), 'user_token=' . $this->session->data['user_token']);
 		}
 
 		$this->wyJson($json);
@@ -244,7 +244,7 @@ trait AdminActions {
 
 			if ($result['status'] === 'updated') {
 				$json['success'] = sprintf($t['text_updated'], (string)$result['to']);
-				$json['redirect'] = str_replace('&amp;', '&', $this->url->link($this->wyRoute(), 'user_token=' . $this->session->data['user_token'] . '&updated=1'));
+				$json['redirect'] = $this->wyLink($this->wyRoute(), 'user_token=' . $this->session->data['user_token'] . '&updated=1');
 			} elseif ($result['status'] === 'up_to_date') {
 				$json['success'] = $t['text_up_to_date'];
 			} elseif ($result['status'] === 'unsupported') {
@@ -324,6 +324,9 @@ trait AdminActions {
 		}
 
 		LocalKey::load(DIR_STORAGE, true);
+		// A hand-copied upgrade keeps the package's fixed file dates, which
+		// OpenCart's template cache would take for "unchanged".
+		Updater::clearTemplateCache(DIR_CACHE);
 		// Delete-then-add: re-running install never leaves two widget events.
 		$this->wyDeleteEvent();
 		$this->wyAddEvent();
@@ -335,6 +338,15 @@ trait AdminActions {
 		if (!is_array($schema) || ($schema['version'] ?? '') !== VERSION || ($schema['connector'] ?? '') !== Protocol::CONNECTOR_VERSION) {
 			$this->wyInstallSteps();
 		}
+	}
+
+	/**
+	 * A plain URL for the template, which escapes every value itself.
+	 * OpenCart's link() already returns "&amp;"; escaped again, the browser
+	 * would post "&amp;user_token=…" and the core would refuse the call.
+	 */
+	private function wyLink(string $route, string $args): string {
+		return str_replace('&amp;', '&', $this->url->link($route, $args));
 	}
 
 	private function wyToggle(string $name): int {

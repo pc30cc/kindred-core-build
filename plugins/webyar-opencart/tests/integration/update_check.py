@@ -76,6 +76,12 @@ def api(op, body=None):
     return call(BASE, MAJOR, '0', INST, SECRET, op, {'store_id': '0', **(body or {})})[:2]
 
 
+# A release left over from an earlier run would be installed by the first
+# admin visit (that is the fallback working); start from none.
+for leftover in ('manifest.json', 'manifest.json.sig'):
+    if os.path.exists(RELEASE + '/downloads/opencart/' + leftover):
+        os.remove(RELEASE + '/downloads/opencart/' + leftover)
+
 start = disk_version()
 st, health = api('health')
 check('health advertises self-update', st == 200 and 'connector.update' in health.get('capabilities', []) and health.get('auto_update') is True, health)

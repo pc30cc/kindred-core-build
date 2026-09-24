@@ -238,7 +238,8 @@ describe('self-update (1.1.0+)', () => {
   });
 
   it('does not ask when the store is current or cannot update itself', async () => {
-    answers.push({ status: 200, json: { categories: [], _meta: { connector_version: '1.1.0' } } });
+    const { OPENCART_LATEST_CONNECTOR_VERSION } = await import('../../../server/services/commerce/connectors/opencart.js');
+    answers.push({ status: 200, json: { categories: [], _meta: { connector_version: OPENCART_LATEST_CONNECTOR_VERSION } } });
     answers.push({ status: 200, json: { categories: [], _meta: { connector_version: '1.0.0' } } });
     await connector().listCategories(withUpdate(), {});
     await connector().listCategories(ctx(), {});

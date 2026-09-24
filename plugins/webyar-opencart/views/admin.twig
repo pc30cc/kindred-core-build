@@ -218,7 +218,7 @@
   </div>
 
   <div class="wy-foot"><span dir="ltr">{{ t.text_version|e }} {{ version|e }} · OpenCart {{ oc_version|e }}</span></div>
-  <div class="wy-toast" id="wy-toast" role="status" aria-live="polite"></div>
+  <div class="wy-toast" id="wy-toast" role="status" aria-live="polite" data-network="{{ t.error_network|e('html_attr') }}"></div>
 </div>
 </div>
 <script>
@@ -243,7 +243,7 @@
         if (json.success) show(json.success, true);
         if (json.redirect) setTimeout(function () { window.location.href = json.redirect; }, json.success ? 700 : 0);
       })
-      .catch(function () { show('Network error', false); })
+      .catch(function () { show(toast.getAttribute('data-network'), false); })
       .then(function () { buttons.forEach(function (b) { b.disabled = false; b.classList.remove('wy-busy'); }); });
   }
   document.querySelectorAll('.wy form[data-wy-ajax]').forEach(function (form) {

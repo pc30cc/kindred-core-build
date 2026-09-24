@@ -66,6 +66,8 @@ p = (js.get('products') or [{}])[0]
 check('guest_search_finds_product', st == 200 and p.get('id') == '40', js)
 check('guest_search_one_catalogue_query', js.get('_meta', {}).get('db', {}).get('reads', 99) <= 2, js.get('_meta'))
 check('guest_sees_public_price_and_special', 'price' in p and 'special' in p, p)
+st, js, _ = api('products/search', {'terms': ['phones']})
+check('a_category_name_finds_its_products', st == 200 and [x['id'] for x in js.get('products', [])] == ['40'] and js.get('_meta', {}).get('db', {}).get('reads', 99) <= 2, js)
 st, js, _ = api('products/get', {'ids': [28, 29, 33, 40]})
 check('disabled_future_and_other_store_hidden', st == 200 and sorted(js.get('not_found', [])) == [28, 29, 33] and [x['id'] for x in js['products']] == ['40'], js)
 check('get_is_not_n_plus_one', js.get('_meta', {}).get('db', {}).get('reads', 99) <= 4, js.get('_meta'))

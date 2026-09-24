@@ -18,6 +18,7 @@ import {
 } from '../../services/commerce/lifecycle.js';
 import { runCapabilityHandshake } from '../../services/commerce/pairing.js';
 import { enqueueSyncJob } from '../../services/commerce/sync.js';
+import { isDirectProvider } from '../../services/commerce/providers.js';
 import { getProviderDescriptor } from '../../services/commerce/connectors/registry.js';
 
 export const commerceConnectionsRouter = Router({ mergeParams: true });
@@ -53,7 +54,7 @@ function serverConfigOf(req: Request): ServerConfig {
 }
 
 const CONNECTION_FIELDS =
-  'id, provider_type, store_id, approved_origin, protocol_version, connector_version, woocommerce_version, wordpress_version, hpos_enabled, capabilities, permissions, health, catalog_ready, direct_live_read, last_seen_at, last_success_at, last_event_at, last_live_read_at, last_sync_at, last_error_code, last_error_at, created_at, rotated_at';
+  'id, provider_type, store_id, approved_origin, protocol_version, connector_version, woocommerce_version, wordpress_version, hpos_enabled, capabilities, permissions, health, catalog_ready, direct_live_read, last_seen_at, last_success_at, last_event_at, last_live_read_at, last_sync_at, last_error_code, last_error_at, created_at, rotated_at, external_store_id, platform_version, last_health_check_at';
 
 /**
  * `platform_version` (WHMCS version) arrives with the WHMCS migration. Read
@@ -137,10 +138,30 @@ commerceConnectionsRouter.post('/:workspaceId/commerce/connections/:connectionId
   }
 });
 
+/** Manual "check connection" for a direct (never-polled) store: once a minute, across replicas. */
+const MANUAL_CHECK_MIN_INTERVAL_MS = 60_000;
+
 commerceConnectionsRouter.post('/:workspaceId/commerce/connections/:connectionId/test', testLimiter, async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   const config = serverConfigOf(req);
+  // A direct store is never polled; its manual check is also bounded across
+  // replicas (the per-caller limiter above is per process).
+  const { data: target } = await getServiceClient(config)
+    .from('commerce_connections')
+    .select('provider_type, last_health_check_at')
+    .eq('id', req.params.connectionId)
+    .eq('workspace_id', req.params.workspaceId)
+    .maybeSingle();
+  // A row outside this workspace falls through to the workspace-scoped
+  // handshake below, which refuses it (and the 404 after it).
+  if (target && isDirectProvider(String(target.provider_type))) {
+    const lastCheckAt = (target as { last_health_check_at?: string | null }).last_health_check_at;
+    const last = lastCheckAt ? new Date(lastCheckAt).getTime() : 0;
+    if (Date.now() - last < MANUAL_CHECK_MIN_INTERVAL_MS) {
+      return res.status(429).json({ error: 'check_rate_limited', retryAfterSeconds: Math.ceil((MANUAL_CHECK_MIN_INTERVAL_MS - (Date.now() - last)) / 1000) });
+    }
+  }
   // Workspace-scoped: the handshake only ever touches this workspace's own
   // connection (it used to accept any connection id it was given).
   await checkOnce(config, req.params.workspaceId, req.params.connectionId);
@@ -187,6 +208,8 @@ const permissionsSchema = z.object({
   tracking: z.boolean().optional(),
   customer_history: z.boolean().optional(),
   coupons: z.boolean().optional(),
+  // Separate switch for public reviews (read live by direct connectors).
+  reviews: z.boolean().optional(),
   // WHMCS sections (shared/commerce/whmcs.ts WHMCS_CONNECTION_PERMISSIONS).
   // `orders` above is shared by both providers.
   catalog: z.boolean().optional(),

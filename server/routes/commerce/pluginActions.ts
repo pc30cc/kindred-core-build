@@ -14,7 +14,7 @@
  * Mounted BEFORE express.json() in server/index.ts (signature verification
  * needs the exact raw bytes) with its own express.raw() parser.
  */
-import { Router, raw } from 'express';
+import { Router, raw, type Request, type Response } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
@@ -23,12 +23,13 @@ import { readInstallationSecret } from '../../services/commerce/credentials.js';
 import { enqueueSyncJob } from '../../services/commerce/sync.js';
 import { runCapabilityHandshake } from '../../services/commerce/pairing.js';
 import { disconnectConnection } from '../../services/commerce/lifecycle.js';
+import { providerProfile } from '../../services/commerce/providers.js';
 import { COMMERCE_PROTOCOL_VERSION } from '../../../shared/commerce/types.js';
 
 export const commercePluginActionsRouter = Router();
 
-function serverConfigOf(req: any): ServerConfig {
-  return req.serverConfig as ServerConfig;
+function serverConfigOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
 }
 
 // A store asking for its own handshake or resync is cheap but not free —
@@ -45,13 +46,13 @@ const actionLimiter = rateLimit({
   keyGenerator: (req) => req.header('X-WebYar-Installation') || ipKeyGenerator(req.ip ?? ''),
 });
 
-type Resolved = { installationId: string; connectionId: string; workspaceId: string };
+type Resolved = { installationId: string; connectionId: string; workspaceId: string; providerType: string };
 
 /**
  * Verifies the signature and resolves the caller's own connection.
  * Returns null after having already answered the request.
  */
-async function authenticate(req: any, res: any, canonicalPath: string): Promise<Resolved | null> {
+async function authenticate(req: Request, res: Response, canonicalPath: string): Promise<Resolved | null> {
   const config = serverConfigOf(req);
   const installationId = req.header('X-WebYar-Installation');
   const timestamp = req.header('X-WebYar-Timestamp');
@@ -100,7 +101,7 @@ async function authenticate(req: any, res: any, canonicalPath: string): Promise<
   const sb = getServiceClient(config);
   const { data: connection, error } = await sb
     .from('commerce_connections')
-    .select('id, workspace_id, revoked_at')
+    .select('id, workspace_id, revoked_at, provider_type')
     .eq('installation_id', installationId)
     .maybeSingle();
   if (error) {
@@ -112,7 +113,7 @@ async function authenticate(req: any, res: any, canonicalPath: string): Promise<
     return null;
   }
 
-  return { installationId, connectionId: connection.id, workspaceId: connection.workspace_id };
+  return { installationId, connectionId: connection.id, workspaceId: connection.workspace_id, providerType: connection.provider_type ?? 'woocommerce' };
 }
 
 const rawJson = raw({ type: '*/*', limit: '8kb' });
@@ -134,6 +135,7 @@ commercePluginActionsRouter.post('/test', rawJson, actionLimiter, async (req, re
 commercePluginActionsRouter.post('/sync', rawJson, actionLimiter, async (req, res) => {
   const who = await authenticate(req, res, '/api/commerce/connection/sync');
   if (!who) return;
+  if (!providerProfile(who.providerType).catalogSync) return res.status(400).json({ error: 'sync_not_applicable' });
   try {
     const job = await enqueueSyncJob(serverConfigOf(req), who.workspaceId, who.connectionId, 'manual_resync');
     res.json({ ok: true, jobId: job?.id ?? null });

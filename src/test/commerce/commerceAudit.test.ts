@@ -12,25 +12,26 @@
  * for and nothing was disclosed is the part of the trail an audit is for.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { ServerConfig } from '../../../server/config.js';
 
 const WS = 'ws-1';
 const CONN = 'conn-1';
 
-const audited: any[] = [];
-let connection: any;
-let indexRows: any[] = [];
-let categories: any[] = [];
+const audited: Record<string, unknown>[] = [];
+let connection: Record<string, unknown>;
+let indexRows: ReturnType<typeof product>[] = [];
+let categories: { name: string; slug: string; productCount: number }[] = [];
 
 vi.mock('../../../server/services/commerce/audit.js', () => ({
-  recordCommerceToolAudit: async (_c: any, row: any) => { audited.push(row); },
+  recordCommerceToolAudit: async (_c: unknown, row: Record<string, unknown>) => { audited.push(row); },
 }));
 // Nothing here reads real rows — the builder just has to be chainable in
 // whatever shape a caller uses, and to answer "found nothing".
 vi.mock('../../../server/supabase.js', () => {
-  const builder: any = new Proxy({}, {
+  const builder: object = new Proxy({}, {
     get(_t, prop) {
       if (prop === 'maybeSingle' || prop === 'single') return async () => ({ data: null, error: null });
-      if (prop === 'then') return (resolve: any) => resolve({ data: [], error: null, count: 0 });
+      if (prop === 'then') return (resolve: (result: { data: unknown[]; error: null; count: number }) => unknown) => resolve({ data: [], error: null, count: 0 });
       return () => builder;
     },
   });
@@ -42,6 +43,7 @@ vi.mock('../../../server/services/commerce/productIndex.js', () => ({
 }));
 vi.mock('../../../server/services/commerce/gateway.js', () => ({
   getActiveConnectionForWorkspace: async () => connection,
+  resolveConversationConnection: async () => connection,
   assertCommerceModuleEntitled: async () => {},
   assertPermission: () => {},
   withCommerceConnector: async () => null,
@@ -49,7 +51,7 @@ vi.mock('../../../server/services/commerce/gateway.js', () => ({
 
 const { runCommerceToolStage } = await import('../../../server/services/ai-agent/commerce-tools/runner.js');
 
-const CONFIG: any = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' };
+const CONFIG = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' } as unknown as ServerConfig;
 const ask = (question: string) =>
   runCommerceToolStage(CONFIG, { workspaceId: WS, conversationId: 'conv-1', question });
 

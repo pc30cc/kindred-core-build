@@ -360,9 +360,12 @@
     if (!binding) return;
     try { window.sessionStorage.setItem(bindingKey(workspaceId), JSON.stringify({ b: binding, t: Date.now() })); } catch (_) {}
   }
-  function bindCommerceIdentity(apiBase, workspaceId, token) {
+  // Credentials of the bootstrap, kept for the LAZY store identity below.
+  var _commerceSession = null;
+  function bindCommerceIdentity(apiBase, workspaceId, token, lazyAssertion) {
+    if (!lazyAssertion) _commerceSession = { apiBase: apiBase, workspaceId: workspaceId, token: token };
     if (_commerceBound) return;   // defence in depth; bootstrap() is not re-entered today
-    var assertion = attr("data-commerce-assertion");
+    var assertion = lazyAssertion || attr("data-commerce-assertion");
     if (!assertion || !apiBase || !workspaceId || !token) return;
     var binding = attr("data-commerce-binding");
     if (alreadyBound(workspaceId, binding)) { _commerceBound = true; log("commerce identity: already linked"); return; }
@@ -395,6 +398,54 @@
         if (r.ok) rememberBinding(workspaceId, binding);
         log("commerce identity:", r.ok ? "linked" : "not linked (" + r.status + ")");
       }).catch(function () { /* offline or blocked — stay anonymous */ });
+    } catch (_) { /* no fetch — stay anonymous */ }
+  }
+
+  // ─── Lazy store identity (OpenCart and any store that opts in) ───
+  // Instead of a signed assertion in the page — which a full-page cache could
+  // hand to the next visitor — the store gives the loader the address of a
+  // same-origin, never-cached endpoint (`data-commerce-context-url`). It is
+  // called ONCE per page, and only when the visitor actually opens the chat:
+  // an idle page makes no identity call at all. A browser that was linked
+  // and now reports nobody signed in (logout) has its link ended, so the
+  // previous customer's orders are not answered in this chat.
+  var _commerceContextChecked = false;
+  var COMMERCE_LINKED_KEY = "gs:commerce-linked:";
+  function commerceContextOnOpen() {
+    if (_commerceContextChecked || !_commerceSession) return;
+    var raw = attr("data-commerce-context-url");
+    if (!raw) return;
+    _commerceContextChecked = true;
+    var url;
+    try {
+      url = new URL(raw, window.location.href);
+      if (url.origin !== window.location.origin) return; // same-origin only, by construction
+    } catch (_) { return; }
+    var ws = _commerceSession.workspaceId;
+    var storageKey = COMMERCE_LINKED_KEY + ws;
+    try {
+      fetch(url.href, { credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (ctx) {
+          if (!ctx) return;
+          if (ctx.assertion) {
+            bindCommerceIdentity(_commerceSession.apiBase, ws, _commerceSession.token, String(ctx.assertion));
+            try { window.sessionStorage.setItem(storageKey, "1"); } catch (_) {}
+            return;
+          }
+          var wasLinked = false;
+          try { wasLinked = window.sessionStorage.getItem(storageKey) === "1"; } catch (_) {}
+          if (ctx.signed_in === false && wasLinked) {
+            try { window.sessionStorage.removeItem(storageKey); } catch (_) {}
+            fetch(_commerceSession.apiBase + "/api/widget/commerce/identity/unlink", {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json", "X-Widget-Token": _commerceSession.token },
+              body: JSON.stringify({ workspaceId: ws }),
+            }).catch(function () {});
+          }
+        })
+        .catch(function () { /* offline or blocked — stay anonymous */ });
     } catch (_) { /* no fetch — stay anonymous */ }
   }
 
@@ -1274,6 +1325,7 @@
 
   function triggerOpen() {
     if (!launcherEl) return;
+    commerceContextOnOpen();
     var inst = runtimeInstanceRef();
     if (runtimeLoaded && inst) {
       try { inst.open(); } catch (_) {}
@@ -1313,6 +1365,7 @@
 
   function onLauncherClick() {
     if (!configData) return;
+    commerceContextOnOpen();
     var inst = runtimeInstanceRef();
     if (runtimeLoaded && inst) {
       try { inst.toggle(); } catch (_) {}

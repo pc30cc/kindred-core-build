@@ -21,6 +21,7 @@ import { pluginsApi } from '@/lib/plugins-api';
 import { TelegramConfigPanel } from '@/components/plugins/TelegramConfigPanel';
 import { WooCommerceConfigPanel } from '@/components/plugins/WooCommerceConfigPanel';
 import { WhmcsConfigPanel } from '@/components/plugins/WhmcsConfigPanel';
+import { OpenCartConfigPanel } from '@/components/plugins/OpenCartConfigPanel';
 import { GmailConfigPanel } from '@/components/plugins/GmailConfigPanel';
 import { YahooConfigPanel } from '@/components/plugins/YahooConfigPanel';
 import { PluginLogo } from '@/components/plugins/PluginLogo';
@@ -190,6 +191,8 @@ export default function PluginDetailPage() {
         <WooCommerceConfigPanel workspaceId={workspaceId} />
       ) : pluginId === 'whmcs' && !blocked ? (
         <WhmcsConfigPanel workspaceId={workspaceId} />
+      ) : pluginId === 'opencart' && !blocked ? (
+        <OpenCartConfigPanel workspaceId={workspaceId} />
       ) : pluginId === 'gmail' && !blocked ? (
         <GmailConfigPanel workspaceId={workspaceId} />
       ) : pluginId === 'yahoomail' && !blocked ? (

@@ -108,8 +108,11 @@ export function startCommerceSyncWorker(): void {
         .from('commerce_connections')
         .select('id, workspace_id')
         .is('revoked_at', null)
-        .in('provider_type', catalogIndexedProviders())
-        .in('health', ['connected', 'degraded', 'offline']);
+        .in('health', ['connected', 'degraded', 'offline'])
+        // Only indexed stores are reconciled. Direct stores (OpenCart) and
+        // billing systems (WHMCS) are never polled or synced: their health
+        // comes from real requests and the manual check.
+        .in('provider_type', catalogIndexedProviders());
       for (const conn of connections ?? []) {
         await runCapabilityHandshake(config, conn.id).catch(() => {});
         await enqueueSyncJob(config, conn.workspace_id, conn.id, 'reconciliation').catch(() => {});

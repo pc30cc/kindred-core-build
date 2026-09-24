@@ -24,9 +24,12 @@ import {
   type StoreInfo,
   type TrackingResult,
 } from '../../../../shared/commerce/types.js';
-import { getActiveConnectionForWorkspace, withCommerceConnector, assertPermission, assertCommerceModuleEntitled, type CommerceConnectionRow, type CommercePermissionKey } from '../../commerce/gateway.js';
+import { resolveConversationConnection, withCommerceConnector, assertPermission, assertCommerceModuleEntitled, type CommerceConnectionRow, type CommercePermissionKey } from '../../commerce/gateway.js';
+import { isDirectProvider } from '../../commerce/providers.js';
+import { recordNoStoreCall } from '../../commerce/metrics.js';
+import { runDirectCommerceStage } from './directRunner.js';
 import { searchIndexedProducts, listIndexedCategories, buildSearchTerms, type IndexedProductRow } from '../../commerce/productIndex.js';
-import { detectCommerceIntent } from './intent.js';
+import { detectCommerceIntent, detectFollowUp } from './intent.js';
 import { MAX_COMMERCE_CALLS_PER_TURN, MAX_RESULTS_PER_TOOL, COMMERCE_TOOL_DEADLINE_MS } from './limits.js';
 import { randomUUID } from 'node:crypto';
 import { recordCommerceToolAudit } from '../../commerce/audit.js';
@@ -36,6 +39,8 @@ export interface CommerceStageInput {
   conversationId: string | null;
   question: string;
   correlationId?: string;
+  /** Conversation language; direct stores answer in their closest language. */
+  locale?: string | null;
   /** The workspace's live connections, when the caller already read them for this turn. */
   connections?: CommerceConnectionRow[];
   /** Validated page context — picks the store the visitor is actually on. */
@@ -46,6 +51,12 @@ export interface CommerceStageInput {
 export interface CommerceStageResult {
   toolResults: ReadOnlyToolResult[];
   toolsUsed: string[];
+  /** Direct connectors: history older than this must not reach the model. */
+  historyCutoffAt?: string | null;
+  /** Direct connectors: store links the model has legitimately been given. */
+  allowedUrls?: string[];
+  /** Direct connectors: store calls / cache hits / evidence bytes of this turn. */
+  directMeta?: Record<string, number>;
 }
 
 /**
@@ -157,13 +168,39 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
   try {
     const keywordIntent = detectCommerceIntent(input.question);
 
-    const connection = await getActiveConnectionForWorkspace(config, input.workspaceId, {
-      family: 'store',
+    const earlyFollowUp = detectFollowUp(input.question);
+    const noSignal = keywordIntent.kind === 'none' && earlyFollowUp.ordinal === null && !earlyFollowUp.more && !earlyFollowUp.lastOrder;
+    const connection = await resolveConversationConnection(config, input.workspaceId, {
+      conversationId: input.conversationId,
       connections: input.connections,
       pageOrigin: input.pageOrigin ?? null,
       pagePath: input.pagePath ?? null,
+      skipLinkLookup: noSignal,
     });
     if (!connection) return empty;
+
+    // Direct connectors (OpenCart) have no index to probe: a turn with no
+    // commerce intent and no reference to an earlier result touches neither
+    // the store nor any further table.
+    if (isDirectProvider(connection.provider_type)) {
+      const followUp = earlyFollowUp;
+      if (noSignal) {
+        recordNoStoreCall();
+        return empty;
+      }
+      const direct = await runDirectCommerceStage(config, {
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        question: input.question,
+        correlationId: input.correlationId,
+        locale: input.locale ?? null,
+        connection,
+        intent: keywordIntent,
+        followUp,
+      });
+      return { toolResults: direct.toolResults, toolsUsed: direct.toolsUsed, historyCutoffAt: direct.historyCutoffAt, allowedUrls: direct.allowedUrls, directMeta: direct.meta };
+    }
+
     await assertCommerceModuleEntitled(config, input.workspaceId); // plan gate — throws CommerceError, caught below
 
     /**

@@ -37,9 +37,14 @@ const registerSchema = z.object({
   redirectUri: z.string().url().max(500),
   storeOrigin: z.string().url().max(300),
   // Optional so every WooCommerce plugin build ever shipped keeps pairing
-  // exactly as before; the WHMCS addon names itself and its base URL.
-  provider: z.enum(['woocommerce', 'whmcs']).optional(),
+  // exactly as before; the WHMCS addon and the OpenCart extension name
+  // themselves and their base URL (OpenCart sends it as `storeUrl`).
+  provider: z.enum(['woocommerce', 'whmcs', 'opencart']).optional(),
   storeBaseUrl: z.string().url().max(300).optional(),
+  storeUrl: z.string().url().max(300).optional(),
+  // OpenCart: which store of a multi-store install, and its version.
+  externalStoreId: z.string().regex(/^\d{1,9}$/).optional(),
+  platformVersion: z.string().max(20).optional(),
 }).strict();
 
 commercePairingRouter.post('/register', pairingLimiter, async (req, res) => {
@@ -51,8 +56,10 @@ commercePairingRouter.post('/register', pairingLimiter, async (req, res) => {
     // marks every field optional (a known zod/TS interaction), which fails
     // assignability against registerPairingRequest's required-field
     // signature even though every field is validated non-empty above.
-    const { state, codeChallenge, redirectUri, storeOrigin, provider, storeBaseUrl } = parsed.data;
-    const result = await registerPairingRequest(serverConfigOf(req), { state, codeChallenge, redirectUri, storeOrigin, provider, storeBaseUrl });
+    const { state, codeChallenge, redirectUri, storeOrigin, provider, storeBaseUrl, storeUrl, externalStoreId, platformVersion } = parsed.data;
+    const result = await registerPairingRequest(serverConfigOf(req), {
+      state, codeChallenge, redirectUri, storeOrigin, provider, storeBaseUrl: storeBaseUrl ?? storeUrl, externalStoreId, platformVersion,
+    });
     res.json({ ok: true, expiresAt: result.expiresAt });
   } catch (err) {
     if (err instanceof PairingError) return res.status(400).json({ error: err.code, message: err.message });
@@ -70,6 +77,7 @@ commercePairingRouter.get('/:state', pairingLimiter, async (req, res) => {
       redirectUri: view.redirectUri,
       requestedOrigin: view.requestedOrigin,
       providerType: view.providerType,
+      storeUrl: view.storeUrl ?? null,
       expired: view.expired,
       alreadyAuthorized: view.alreadyAuthorized,
     });
@@ -131,7 +139,7 @@ commercePairingRouter.post('/exchange', pairingLimiter, async (req, res) => {
     // Neither blocks the plugin's activation request on a network round trip
     // (spec §64 — pairing → handshake → initial sync → catalog_ready).
     //
-    // A live-queried provider (WHMCS) has no catalogue index, so nothing is
+    // A live-queried provider (WHMCS, OpenCart) has no catalogue index, so nothing is
     // queued for it: no initial sync, no periodic reconciliation, no worker.
     void runCapabilityHandshake(config, result.connectionId)
       .then(() => (result.usesCatalogIndex

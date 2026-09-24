@@ -32,6 +32,7 @@ RUN test -f /app/dist/widget/widget-manifest.json || (echo "❌ widget-manifest.
 RUN echo "✅ widget assets:" && ls -la /app/dist/widget/
 RUN test -f /app/dist/downloads/webyar-woocommerce.zip || (echo "❌ webyar-woocommerce.zip missing from build output" && exit 1)
 RUN test -f /app/dist/downloads/webyar-whmcs.zip || (echo "❌ webyar-whmcs.zip missing from build output" && exit 1)
+RUN test -f /app/dist/downloads/opencart/4.1/webyar.ocmod.zip && test -f /app/dist/downloads/opencart/3.0/webyar-oc3.ocmod.zip && test -f /app/dist/downloads/opencart/manifest.json || (echo "❌ OpenCart packages missing from build output" && exit 1)
 
 # ── Serve with nginx ───────────────────────────────────────
 FROM nginx:alpine

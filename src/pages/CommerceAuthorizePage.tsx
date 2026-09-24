@@ -19,6 +19,16 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2 } from 'lucide-react';
 
+/** OpenCart: the owner-facing switches of a direct connector (reviews are separate; orders cover status and history). */
+const OPENCART_DEFAULT_PERMISSIONS: Record<string, boolean> = {
+  products: true,
+  prices: true,
+  stock: true,
+  reviews: true,
+  orders: false,
+  tracking: false,
+};
+
 const DEFAULT_PERMISSIONS: Record<string, boolean> = {
   products: true,
   prices: true,
@@ -45,13 +55,13 @@ export default function CommerceAuthorizePage() {
   const state = searchParams.get('state') || '';
   const { data: workspaces } = useWorkspaces();
   const [workspaceId, setWorkspaceId] = useState<string>('');
-  const [permissions, setPermissions] = useState(DEFAULT_PERMISSIONS);
+  const [permissions, setPermissions] = useState<Record<string, boolean> | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const { data: pairing, isLoading, error: loadError } = useQuery({
     queryKey: ['commerce-pairing', state],
-    queryFn: () => api<{ redirectUri: string; requestedOrigin: string; providerType: string; expired: boolean }>(`/api/commerce/pairing/${state}`),
+    queryFn: () => api<{ redirectUri: string; requestedOrigin: string; providerType: string; storeUrl?: string | null; expired: boolean }>(`/api/commerce/pairing/${state}`),
     enabled: !!state,
     retry: false,
   });
@@ -64,9 +74,11 @@ export default function CommerceAuthorizePage() {
   // WHMCS starts with only its public catalogue enabled (server-side default);
   // private account sections are turned on later, per section, in Plugins → WHMCS.
   const isWhmcs = pairing.providerType === 'whmcs';
+  const opencart = pairing.providerType === 'opencart';
   if (pairing.expired) {
-    return <div className="p-8 text-center text-destructive">{t(isWhmcs ? 'commerceAuthorize.whmcs.expired' : 'commerceAuthorize.expired')}</div>;
+    return <div className="p-8 text-center text-destructive">{t(isWhmcs ? 'commerceAuthorize.whmcs.expired' : opencart ? 'commerceAuthorize.expiredOpencart' : 'commerceAuthorize.expired')}</div>;
   }
+  const effective = permissions ?? (opencart ? OPENCART_DEFAULT_PERMISSIONS : DEFAULT_PERMISSIONS);
 
   const submit = async () => {
     setSubmitting(true);
@@ -75,7 +87,12 @@ export default function CommerceAuthorizePage() {
       const result = await api<{ redirectUrl: string }>(`/api/commerce/pairing/${state}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspaceId: activeWorkspaceId, permissions: isWhmcs ? {} : permissions }),
+        // WHMCS keeps its server-side defaults. OpenCart: the owner's "orders"
+        // switch covers order status and history too.
+        body: JSON.stringify({
+          workspaceId: activeWorkspaceId,
+          permissions: isWhmcs ? {} : opencart ? { ...effective, order_status: !!effective.orders, customer_history: !!effective.orders } : effective,
+        }),
       });
       window.location.href = result.redirectUrl;
     } catch (err) {
@@ -88,10 +105,11 @@ export default function CommerceAuthorizePage() {
     <div className="max-w-lg mx-auto p-6 pt-16">
       <Card>
         <CardHeader>
-          <CardTitle>{t(isWhmcs ? 'commerceAuthorize.whmcs.title' : 'commerceAuthorize.title')}</CardTitle>
+          <CardTitle>{t(isWhmcs ? 'commerceAuthorize.whmcs.title' : opencart ? 'commerceAuthorize.titleOpencart' : 'commerceAuthorize.title')}</CardTitle>
           <CardDescription>
-            {t(isWhmcs ? 'commerceAuthorize.whmcs.description' : 'commerceAuthorize.description', { origin: pairing.requestedOrigin })}
+            {t(isWhmcs ? 'commerceAuthorize.whmcs.description' : 'commerceAuthorize.description', { origin: opencart && pairing.storeUrl ? pairing.storeUrl : pairing.requestedOrigin })}
           </CardDescription>
+          {opencart && <p className="text-xs text-muted-foreground">{t('commerceAuthorize.opencartNote')}</p>}
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
@@ -119,12 +137,12 @@ export default function CommerceAuthorizePage() {
           <div>
             <label className="text-sm font-medium mb-1 block">{t('commerceAuthorize.permissions')}</label>
             <div className="grid grid-cols-2 gap-2 text-sm">
-              {Object.entries(permissions).map(([key, value]) => (
+              {Object.entries(effective).map(([key, value]) => (
                 <label key={key} className="flex items-center gap-2">
                   <input
                     type="checkbox"
                     checked={value}
-                    onChange={(e) => setPermissions((p) => ({ ...p, [key]: e.target.checked }))}
+                    onChange={(e) => setPermissions({ ...effective, [key]: e.target.checked })}
                   />
                   {t(`commerceAuthorize.permission.${key}` as never)}
                 </label>

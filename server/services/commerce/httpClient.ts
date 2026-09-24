@@ -32,6 +32,8 @@ export interface CommerceHttpRequest {
 export interface CommerceHttpResponse {
   status: number;
   json: unknown;
+  /** Bytes actually received — measured, for the resource report. */
+  bytes?: number;
 }
 
 async function fetchOnce(req: CommerceHttpRequest): Promise<CommerceHttpResponse> {
@@ -87,7 +89,7 @@ async function fetchOnce(req: CommerceHttpRequest): Promise<CommerceHttpResponse
       throw new CommerceError('commerce_invalid_response', 'invalid JSON from plugin origin');
     }
 
-    return { status: res.status, json };
+    return { status: res.status, json, bytes: received };
   } catch (err) {
     if (err instanceof CommerceError) throw err;
     if ((err as { name?: unknown } | null)?.name === 'AbortError') throw new CommerceError('commerce_timeout', 'plugin request timed out');

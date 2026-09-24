@@ -173,6 +173,18 @@ export default function SettingsIntegrationsPage() {
           },
         },
         {
+          // A real connector, not a snippet guide: the extension injects the
+          // widget itself and connects under Plugins → OpenCart.
+          id: 'opencart', name: 'OpenCart', status: 'available',
+          cms: {
+            steps: [
+              t('integrationsPage.opencart.step1'),
+              t('integrationsPage.opencart.step2'),
+              t('integrationsPage.opencart.step3'),
+            ],
+          },
+        },
+        {
           id: 'whmcs', name: 'WHMCS', status: 'available',
           cms: {
             steps: [

@@ -223,9 +223,13 @@ export async function runGenerationStage(
   };
   const commerceStage = await runCommerceToolStage(config, {
     workspaceId, conversationId: conversationId || null, question,
-    connections: commerceConnections ?? undefined, ...commerceSite,
-  }).catch(() => ({ toolResults: [], toolsUsed: [] }));
-  const commerceUrls = urlsFromToolResults(commerceStage.toolResults);
+    locale, connections: commerceConnections ?? undefined, ...commerceSite,
+  }).catch(() => ({ toolResults: [], toolsUsed: [] } as Awaited<ReturnType<typeof runCommerceToolStage>>));
+  const commerceUrls = [...urlsFromToolResults(commerceStage.toolResults), ...(commerceStage.allowedUrls ?? [])];
+  // The signed-in store customer changed (or signed out) in this browser:
+  // turns from before that must not carry the previous customer's private
+  // answers into this prompt (combined with the WHMCS cutoff below).
+  const storeCutoffMs = commerceStage.historyCutoffAt ? Date.parse(commerceStage.historyCutoffAt) : NaN;
   if (commerceStage.toolResults.length) {
     const commerceBlock = renderToolResults(commerceStage.toolResults);
     toolResultsBlock = [toolResultsBlock, commerceBlock].filter(Boolean).join('\n');
@@ -252,7 +256,11 @@ export async function runGenerationStage(
   // A different WHMCS subject (other client account, other user, or after a
   // logout) must not see the previous subject's answers in the prompt.
   const whmcsCutoffMs = whmcsAccountTurn && whmcsStage?.historyCutoff ? Date.parse(whmcsStage.historyCutoff) : NaN;
-  const historyCut = Number.isFinite(whmcsCutoffMs);
+  // The later of the two cutoffs applies (a store customer switch, a WHMCS
+  // subject change); NaN when neither does.
+  const cutoffs = [storeCutoffMs, whmcsCutoffMs].filter(Number.isFinite);
+  const historyCutoffMs = cutoffs.length ? Math.max(...cutoffs) : NaN;
+  const historyCut = Number.isFinite(historyCutoffMs);
   // Fast-path misses: when a billing connection is in context for this turn
   // and the deterministic router fetched nothing, the SAME generation may
   // name the account section it needed in its private control block. One
@@ -321,7 +329,7 @@ export async function runGenerationStage(
     }) + (directive ? `\n\n${directive}` : '') + (decisionStage.assistFirstActive
       ? `\n\nTURN DIRECTIVE — the visitor asked for a human. A transfer has NOT happened. Acknowledge the request in one short sentence, then make exactly ONE genuinely useful attempt at their actual problem, and close by offering the transfer. Never imply the transfer is already in progress. Suggested tone: "${assistFirstMessage(locale)}"`
       : '');
-  const historyMessages = messagesFor(turnsSince(whmcsCutoffMs));
+  const historyMessages = messagesFor(turnsSince(historyCutoffMs));
   const userPrompt = composeUserPrompt(toolResultsBlock, whmcsStage?.directive ?? null, historyCut, historyMessages);
 
   let aiResult;
@@ -497,6 +505,8 @@ export async function runGenerationStage(
     ...aiResult,
     text: await verifyStoreLinks(config, workspaceId, aiResult.text || '', {
       connections: commerceConnections ?? undefined, ...commerceSite,
+      conversationId: conversationId || null,
+      allowedUrls: commerceUrls,
     }).catch(() => aiResult.text || ''),
   };
 

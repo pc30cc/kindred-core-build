@@ -1,6 +1,8 @@
 # Commerce Integration Platform — Architecture
 
-Status: Phase 1 (read-only) implemented. WooCommerce is the first connector.
+Status: Phase 1 (read-only) implemented. WooCommerce is the first (indexed)
+connector; OpenCart is the first **direct** connector (see
+[OPENCART.md](./OPENCART.md)).
 
 ## Why this exists
 
@@ -34,7 +36,7 @@ CommerceConnector contract (shared/commerce/types.ts)
    ├── WHMCS connector (server/services/commerce/connectors/whmcs.ts) — billing, live-only, see WHMCS.md
    ├── Shopify        [future — same contract, new adapter]
    ├── PrestaShop      [future]
-   ├── OpenCart        [future]
+   ├── OpenCart connector (server/services/commerce/connectors/opencart.ts) — direct, no index
    ├── EDD             [future]
    └── Sazito          [future]
 ```
@@ -76,6 +78,24 @@ This is not a parallel stack. Concretely:
 | Background jobs | `worker/index.ts` table-polling convention | New `commerce-sync` worker kind, new `commerce_sync_jobs` table, same shape as `ai_source_sync_jobs`. |
 | Money/PII minimization philosophy | N/A (new) | See SECURITY.md — no payment data, no full billing payload, no unbounded PII mirroring. |
 
+## Indexed vs direct stores
+
+A store-family provider either has a catalogue index in Web Yar
+(`usesCatalogIndex: true`, WooCommerce) or is read live per question
+(`false`, OpenCart: a **direct** store). `server/services/commerce/providers.ts`
+derives the operating profile from the registry descriptor, and nothing
+else decides it:
+
+| | WooCommerce (indexed) | OpenCart (direct) |
+|---|---|---|
+| Product search | canonical index in Postgres (`commerce_products`), revalidated live | live, on the store, per question |
+| Catalogue sync / events / reconcile | yes (`commerce-sync` worker) | **none**: the worker's reconcile only sweeps `catalogIndexedProviders()` |
+| Periodic health | yes | **none**: recorded from real calls (transitions only), plus a manual check rate-limited across replicas |
+| `catalog_ready` gate | yes | not applicable |
+| Guest order OTP | yes | no, sign-in only (`guestOtp: false`) |
+| AI stage | `runner.ts` | `directRunner.ts`, from the same `runner.ts` entry point |
+| Connector contract | `CommerceConnector` | `DirectCommerceConnector` (extends it; `isDirectConnector()`) |
+
 ## Data ownership
 
 - **Knowledge Base** stays about policies/FAQ/company knowledge. It never
@@ -86,6 +106,10 @@ This is not a parallel stack. Concretely:
 - **Live Commerce** (price/stock/orders/tracking) is queried live from the
   plugin through the Commerce Gateway when freshness matters; the catalog
   is a search index, not a source of truth for money or stock.
+- **Direct providers (OpenCart)** have no Commerce Catalog rows at all. Web
+  Yar stores connection metadata, identity links, the ids of the last
+  listed products/orders in the conversation's metadata (for follow-ups)
+  and tool audit rows. See OPENCART.md §7 for the full table.
 
 ## AI integration model (important architectural decision)
 
@@ -119,12 +143,13 @@ A workspace may have one shop and one billing system connected at the same
 time. Each provider is described once in
 `server/services/commerce/connectors/registry.ts`:
 
-| Field | WooCommerce | WHMCS |
-|---|---|---|
-| `family` | `store` | `billing` |
-| `usesCatalogIndex` | true — sync worker, `commerce_products`, `catalog_ready` gate | false — queried live, nothing indexed, never swept by the worker |
-| `pluginId` | `woocommerce` | `whmcs` |
-| handshake | `/wp-json/webyar/v1/health` | `health` op on `api.php` |
+| Field | WooCommerce | WHMCS | OpenCart |
+|---|---|---|---|
+| `family` | `store` | `billing` | `store` |
+| `usesCatalogIndex` | true — sync worker, `commerce_products`, `catalog_ready` gate | false — queried live, nothing indexed, never swept by the worker | false — a direct store, read live per question (OPENCART.md) |
+| `guestOtp` | true | false | false — sign in to the store |
+| `pluginId` | `woocommerce` | `whmcs` | `opencart` |
+| handshake | `/wp-json/webyar/v1/health` | `health` op on `api.php` | `health` op on the extension's signed route (plus the clone guard, in `pairing.ts`) |
 
 Which connection a turn is about is decided by
 `server/services/commerce/connectionSelection.ts`, one rule for every
@@ -132,7 +157,10 @@ caller (AI stage, identity binding, link verification): a bound identity →
 the page the visitor is on (origin + base path) → the only connection of
 the requested family → otherwise none. There is no "newest connection"
 fallback; ambiguity selects nothing. The workspace's connections are read
-once per turn and shared by every stage.
+once per turn and shared by every stage. For the store stage
+(`resolveConversationConnection` in `gateway.ts`) the page decides; the store
+the visitor is signed in to is used only to break a tie that the page and
+"the only one" left open (several stores, no page context).
 
 ## Extending to a second connector (e.g. Shopify)
 

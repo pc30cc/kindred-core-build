@@ -17,6 +17,7 @@
  * would have passed throughout.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { ServerConfig } from '../../../server/config.js';
 
 const WS = 'ws-1';
 const CONN = 'conn-1';
@@ -50,7 +51,7 @@ function row(external_id: string, product_type: string, sku: string, title: stri
   };
 }
 
-const CONNECTION: any = {
+const CONNECTION = {
   id: CONN, workspace_id: WS, installation_id: 'inst-1', provider_type: 'woocommerce',
   store_id: 'https://p.webyar.ai', approved_origin: 'https://p.webyar.ai',
   capabilities: ['store.read', 'products.read', 'availability.read', 'reviews.read', 'orders.read'],
@@ -58,22 +59,29 @@ const CONNECTION: any = {
   health: 'connected', catalog_ready: true, revoked_at: null, protocol_version: 'webyar-commerce/1',
 };
 
-let connection: any = CONNECTION;
+let connection: typeof CONNECTION = CONNECTION;
 
 // The index query runs in Postgres; here the rows are supplied directly and
 // the ORing + re-ranking under test happen in searchIndexedProducts itself.
+type IndexRow = ReturnType<typeof row>;
+
+interface FakeQueryBuilder {
+  [method: string]: unknown;
+  _q: string | undefined;
+}
+
 function fakeClient() {
-  const builder: any = {
+  const builder: FakeQueryBuilder = {
     select: () => builder, eq: () => builder, is: () => builder, in: () => builder,
     gte: () => builder, lte: () => builder, contains: () => builder,
     textSearch: (_c: string, q: string) => { builder._q = q; return builder; },
     _q: undefined as string | undefined,
     order: () => builder, limit: () => builder,
     maybeSingle: async () => ({ data: null, error: null }),
-    then: (resolve: any) => {
+    then: (resolve: (result: { data: IndexRow[]; error: null; count: number }) => unknown) => {
       const q: string = builder._q ?? '';
       const terms = q.split('|').map((t) => t.trim()).filter(Boolean);
-      const hay = (r: any) => `${r.title} ${r.short_description} ${r.sku}`;
+      const hay = (r: IndexRow) => `${r.title} ${r.short_description} ${r.sku}`;
       const data = terms.length ? INDEX_ROWS.filter((r) => terms.some((t) => hay(r).includes(t))) : INDEX_ROWS;
       return resolve({ data, error: null, count: data.length });
     },
@@ -83,21 +91,22 @@ function fakeClient() {
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeClient() }));
 vi.mock('../../../server/services/commerce/gateway.js', async (orig) => {
-  const real = await (orig() as Promise<any>);
+  const real = await orig<typeof import('../../../server/services/commerce/gateway.js')>();
   return {
     ...real,
     getActiveConnectionForWorkspace: async () => connection,
+    resolveConversationConnection: async () => connection,
     assertCommerceModuleEntitled: async () => {},
     // Live revalidation: the store answers with the same figures the index
     // holds, which is the normal case for a catalogue nothing just changed.
-    withCommerceConnector: async (_c: any, _w: string, _id: string, opts: any, fn: any) => {
+    withCommerceConnector: async (_c: unknown, _w: string, _id: string, opts: { correlationId?: string }, fn: (connector: unknown, ctx: unknown) => unknown) => {
       const connector = {
-        getProducts: async (_ctx: any, ids: string[]) =>
+        getProducts: async (_ctx: unknown, ids: string[]) =>
           INDEX_ROWS.filter((r) => ids.includes(r.external_id)).map((r) => ({
             externalId: r.external_id, stockState: r.stock_state, currency: r.currency,
             effectivePrice: r.effective_price_minor === null ? null : { amountMinor: String(r.effective_price_minor), currency: 'IRT' },
           })),
-        getAvailability: async (_ctx: any, input: any) => {
+        getAvailability: async (_ctx: unknown, input: { productExternalId: string }) => {
           const r = INDEX_ROWS.find((x) => x.external_id === input.productExternalId)!;
           return {
             stockState: r.stock_state, stockQuantity: r.stock_quantity,
@@ -105,7 +114,7 @@ vi.mock('../../../server/services/commerce/gateway.js', async (orig) => {
           };
         },
         getStoreInfo: async () => ({ name: 'فروشگاه آزمایشی وب‌یار', currency: 'IRT', url: 'https://p.webyar.ai', catalogReady: true, productCount: 11 }),
-        getProductReviews: async (_ctx: any, input: any) => ({
+        getProductReviews: async (_ctx: unknown, input: { productExternalId: string }) => ({
           productExternalId: input.productExternalId,
           averageRating: 4.5,
           reviewCount: 4,
@@ -123,7 +132,7 @@ vi.mock('../../../server/services/commerce/gateway.js', async (orig) => {
 const { runCommerceToolStage } = await import('../../../server/services/ai-agent/commerce-tools/runner.js');
 const { renderToolResults } = await import('../../../server/services/ai-agent/actions/readOnly.js');
 
-const CONFIG: any = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' };
+const CONFIG = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' } as unknown as ServerConfig;
 const ask = (question: string) => runCommerceToolStage(CONFIG, { workspaceId: WS, conversationId: null, question });
 
 beforeEach(() => { connection = { ...CONNECTION }; });

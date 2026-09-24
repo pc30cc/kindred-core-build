@@ -29,12 +29,19 @@ const ROWS = [
   { external_id: '17', canonical_url: POWERBANK },
 ];
 
-let connection: any = { id: CONN, workspace_id: WS, store_id: STORE, provider_type: 'woocommerce' };
+let connection: { id: string; workspace_id: string; store_id: string; provider_type: string } | null = { id: CONN, workspace_id: WS, store_id: STORE, provider_type: 'woocommerce' };
 const seen = { exactLookups: 0, catalogueLoads: 0 };
 
 function fakeClient() {
+  type Result = { data: unknown; error: null };
+  interface Builder {
+    _in: string[] | null;
+    select: () => Builder; eq: () => Builder; is: () => Builder; not: () => Builder; order: () => Builder; limit: () => Builder;
+    in: (col: string, values: string[]) => Builder;
+    then: (resolve: (r: Result) => unknown) => unknown;
+  }
   const make = () => {
-    const b: any = {
+    const b: Builder = {
       _in: null as string[] | null,
       select: () => b,
       eq: () => b,
@@ -43,7 +50,7 @@ function fakeClient() {
       order: () => b,
       limit: () => b,
       in: (_col: string, values: string[]) => { b._in = values; return b; },
-      then: (resolve: any) => {
+      then: (resolve) => {
         if (b._in) {
           seen.exactLookups += 1;
           return resolve({ data: ROWS.filter((r) => b._in!.includes(r.canonical_url)).map((r) => ({ canonical_url: r.canonical_url })), error: null });
@@ -60,11 +67,13 @@ function fakeClient() {
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeClient() }));
 vi.mock('../../../server/services/commerce/gateway.js', () => ({
   getActiveConnectionForWorkspace: async () => connection,
+  // The store connection of the turn (same selection the commerce stage uses).
+  resolveConversationConnection: async () => connection,
 }));
 
 const { verifyStoreLinks } = await import('../../../server/services/ai-agent/commerce-tools/answerLinks.js');
 
-const CONFIG: any = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' };
+const CONFIG = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' } as unknown as Parameters<typeof verifyStoreLinks>[0];
 const verify = (text: string) => verifyStoreLinks(CONFIG, WS, text);
 
 beforeEach(() => {

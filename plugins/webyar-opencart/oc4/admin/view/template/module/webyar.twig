@@ -1,0 +1,141 @@
+{{ header }}{{ column_left }}
+<div id="content">
+  <div class="page-header">
+    <div class="container-fluid">
+      <div class="float-end">
+        <button type="submit" form="form-webyar" data-bs-toggle="tooltip" title="{{ button_save }}" class="btn btn-primary"><i class="fa-solid fa-save"></i></button>
+        <a href="{{ back }}" data-bs-toggle="tooltip" title="{{ button_back }}" class="btn btn-light"><i class="fa-solid fa-reply"></i></a>
+      </div>
+      <h1>{{ heading_title }}</h1>
+      <ol class="breadcrumb">
+        {% for breadcrumb in breadcrumbs %}
+          <li class="breadcrumb-item"><a href="{{ breadcrumb.href }}">{{ breadcrumb.text }}</a></li>
+        {% endfor %}
+      </ol>
+    </div>
+  </div>
+  <div class="container-fluid">
+    {% if not supported %}
+      <div class="alert alert-danger"><i class="fa-solid fa-circle-exclamation"></i> {{ text_unsupported }}</div>
+    {% endif %}
+    {% if not key_ok %}
+      <div class="alert alert-warning"><i class="fa-solid fa-triangle-exclamation"></i> {{ error_storage }}</div>
+    {% endif %}
+    <div class="card mb-3">
+      <div class="card-header"><i class="fa-solid fa-store"></i> {{ text_stores }}</div>
+      <div class="card-body">
+        <p class="text-muted">{{ help_stores }}</p>
+        <div class="table-responsive">
+          <table class="table table-bordered align-middle">
+            <thead>
+              <tr>
+                <th>{{ column_store }}</th>
+                <th>{{ column_status }}</th>
+                <th class="text-center">{{ column_widget }}</th>
+                <th class="text-end">{{ column_action }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for store in stores %}
+                <tr>
+                  <td><strong>{{ store.name }}</strong><br/><small class="text-muted">{{ store.url }}</small> <span class="badge bg-secondary">#{{ store.store_id }}</span></td>
+                  <td>
+                    {% if store.connected %}
+                      <span class="badge bg-success">{{ text_connected }}</span>
+                      <br/><small class="text-muted">{{ text_workspace }}: <code>{{ store.workspace_id }}</code><br/>{{ text_paired_at }}: {{ store.paired_at }}</small>
+                    {% else %}
+                      <span class="badge bg-light text-dark">{{ text_not_connected }}</span>
+                      {% if not store.https %}<br/><small class="text-danger">{{ error_https }}</small>{% endif %}
+                    {% endif %}
+                  </td>
+                  <td class="text-center">
+                    <div class="form-check form-switch d-inline-block">
+                      <input type="hidden" name="widget[{{ store.store_id }}]" value="0" form="form-webyar"/>
+                      <input type="checkbox" name="widget[{{ store.store_id }}]" value="1" form="form-webyar" class="form-check-input"{% if store.widget %} checked{% endif %}/>
+                    </div>
+                  </td>
+                  <td class="text-end">
+                    {% if store.connected %}
+                      <form action="{{ test }}" method="post" data-oc-toggle="ajax" class="d-inline">
+                        <input type="hidden" name="store_id" value="{{ store.store_id }}"/><input type="hidden" name="webyar_csrf" value="{{ csrf }}"/>
+                        <button type="submit" class="btn btn-outline-primary btn-sm">{{ button_test }}</button>
+                      </form>
+                      <form action="{{ connect }}" method="post" data-oc-toggle="ajax" class="d-inline">
+                        <input type="hidden" name="store_id" value="{{ store.store_id }}"/><input type="hidden" name="webyar_csrf" value="{{ csrf }}"/>
+                        <button type="submit" class="btn btn-outline-secondary btn-sm">{{ button_reconnect }}</button>
+                      </form>
+                      <form action="{{ disconnect }}" method="post" data-oc-toggle="ajax" class="d-inline">
+                        <input type="hidden" name="store_id" value="{{ store.store_id }}"/><input type="hidden" name="webyar_csrf" value="{{ csrf }}"/>
+                        <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('{{ text_confirm_disconnect|e('js') }}');">{{ button_disconnect }}</button>
+                      </form>
+                    {% else %}
+                      <form action="{{ connect }}" method="post" data-oc-toggle="ajax" class="d-inline">
+                        <input type="hidden" name="store_id" value="{{ store.store_id }}"/><input type="hidden" name="webyar_csrf" value="{{ csrf }}"/>
+                        <button type="submit" class="btn btn-primary btn-sm"{% if not store.https %} disabled{% endif %}>{{ button_connect }}</button>
+                      </form>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><i class="fa-solid fa-pencil"></i> {{ text_edit }}</div>
+      <div class="card-body">
+        <form id="form-webyar" action="{{ save }}" method="post" data-oc-toggle="ajax">
+          <input type="hidden" name="webyar_csrf" value="{{ csrf }}"/>
+          <div class="row mb-3">
+            <label class="col-sm-3 col-form-label">{{ entry_status }}</label>
+            <div class="col-sm-9"><div class="form-check form-switch form-switch-lg">
+              <input type="hidden" name="module_webyar_status" value="0"/>
+              <input type="checkbox" name="module_webyar_status" value="1" class="form-check-input"{% if module_webyar_status %} checked{% endif %}/>
+            </div></div>
+          </div>
+          <div class="row mb-3">
+            <label for="input-app" class="col-sm-3 col-form-label">{{ entry_app_url }}</label>
+            <div class="col-sm-9">
+              <input type="url" name="module_webyar_app_url" value="{{ module_webyar_app_url }}" id="input-app" class="form-control" placeholder="https://"/>
+              <div class="form-text">{{ help_app_url }}</div>
+            </div>
+          </div>
+          <div class="row mb-3">
+            <label for="input-api" class="col-sm-3 col-form-label">{{ entry_api_url }}</label>
+            <div class="col-sm-9">
+              <input type="url" name="module_webyar_api_url" value="{{ module_webyar_api_url }}" id="input-api" class="form-control" placeholder="https://"/>
+              <div class="form-text">{{ help_api_url }}</div>
+            </div>
+          </div>
+          <div class="row mb-3">
+            <label class="col-sm-3 col-form-label">{{ entry_orders }}</label>
+            <div class="col-sm-9"><div class="form-check form-switch form-switch-lg">
+              <input type="hidden" name="module_webyar_orders" value="0"/>
+              <input type="checkbox" name="module_webyar_orders" value="1" class="form-check-input"{% if module_webyar_orders %} checked{% endif %}/>
+            </div><div class="form-text">{{ help_orders }}</div></div>
+          </div>
+          <div class="row mb-3">
+            <label class="col-sm-3 col-form-label">{{ entry_reviews }}</label>
+            <div class="col-sm-9"><div class="form-check form-switch form-switch-lg">
+              <input type="hidden" name="module_webyar_reviews" value="0"/>
+              <input type="checkbox" name="module_webyar_reviews" value="1" class="form-check-input"{% if module_webyar_reviews %} checked{% endif %}/>
+            </div></div>
+          </div>
+          <div class="row mb-3">
+            <label for="input-scope" class="col-sm-3 col-form-label">{{ entry_customer_scope }}</label>
+            <div class="col-sm-9">
+              <select name="module_webyar_customer_scope" id="input-scope" class="form-select">
+                <option value="installation"{% if module_webyar_customer_scope == 'installation' %} selected{% endif %}>{{ text_scope_installation }}</option>
+                <option value="registration_store"{% if module_webyar_customer_scope == 'registration_store' %} selected{% endif %}>{{ text_scope_registration }}</option>
+              </select>
+              <div class="form-text">{{ help_customer_scope }}</div>
+            </div>
+          </div>
+          <p class="text-muted small mb-0">{{ text_version }} {{ version }} · OpenCart {{ oc_version }}</p>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{{ footer }}

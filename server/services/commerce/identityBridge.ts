@@ -12,9 +12,19 @@ import { getServiceClient } from '../../supabase.js';
 import { CommerceError } from '../../../shared/commerce/types.js';
 import { readInstallationSecret } from './credentials.js';
 import { ensureVisitorContact } from '../widget/anonymousContact.js';
+import { isDirectProvider } from './providers.js';
 
 const ASSERTION_MAX_AGE_MS = 2 * 60 * 1000; // the plugin issues a fresh one every load — matches spec's "short-lived (2 minute)"
 const LINK_TTL_MS = 24 * 60 * 60 * 1000;
+/** A re-bind of the SAME customer and session within this window writes nothing. */
+const LINK_REFRESH_AFTER_MS = LINK_TTL_MS / 2;
+const MAX_SESSION_REF_LENGTH = 1_000;
+
+export interface BindResult {
+  externalCustomerId: string;
+  /** 'unchanged' = no database write happened beyond the replay nonce. */
+  outcome: 'created' | 'unchanged' | 'refreshed' | 'switched';
+}
 
 export interface CustomerContextAssertion {
   installation_id: string;
@@ -31,6 +41,17 @@ export interface CustomerContextAssertion {
   expires_at: number; // epoch seconds
   nonce: string;
   audience: 'webyar-widget';
+  /**
+   * OpenCart (direct connectors): the store inside the installation, the
+   * customer group the store applies, and an OPAQUE session reference the
+   * store encrypted with a key Web Yar does not have. Web Yar stores and
+   * returns it; the store re-validates the live session behind it on every
+   * private read.
+   */
+  provider?: string;
+  store_id?: string;
+  customer_group_id?: string;
+  session_ref?: string;
 }
 
 function base64UrlDecode(input: string): string {
@@ -58,7 +79,8 @@ export async function verifyAndBindCustomerContext(
   connectionId: string | null,
   visitorId: string,
   rawAssertion: string,
-): Promise<{ externalCustomerId: string }> {
+  opts: { requestOrigin?: string | null } = {},
+): Promise<BindResult> {
   const parts = rawAssertion.split('.');
   if (parts.length !== 2) throw new CommerceError('identity_expired', 'malformed assertion');
   const [payloadB64, signatureHex] = parts;
@@ -76,6 +98,21 @@ export async function verifyAndBindCustomerContext(
   if (!connection) throw new CommerceError('commerce_not_connected', 'no active connection for this workspace');
   if (payload.installation_id !== connection.installation_id) {
     throw new CommerceError('identity_expired', 'assertion issued for a different installation');
+  }
+  const direct = isDirectProvider(connection.provider_type);
+  if (direct) {
+    // Bound to the exact store of a multi-store install…
+    if (String(payload.store_id ?? '') !== String(connection.external_store_id ?? '')) {
+      throw new CommerceError('identity_expired', 'assertion issued for a different store');
+    }
+    if (typeof payload.session_ref !== 'string' || !payload.session_ref || payload.session_ref.length > MAX_SESSION_REF_LENGTH) {
+      throw new CommerceError('identity_expired', 'assertion carries no session reference');
+    }
+    // …and to the store's own pages. The browser sets Origin; a cloned or
+    // copied shop on another host cannot introduce customers through it.
+    if (opts.requestOrigin && !sameOrigin(opts.requestOrigin, connection.approved_origin)) {
+      throw new CommerceError('identity_expired', 'assertion posted from another origin');
+    }
   }
 
   const nowSeconds = Math.floor(Date.now() / 1000);
@@ -101,15 +138,59 @@ export async function verifyAndBindCustomerContext(
   });
   if (nonceError) throw new CommerceError('identity_expired', 'assertion replay detected');
 
-  const expiresAt = new Date(Date.now() + LINK_TTL_MS).toISOString();
-  const { error } = await sb.from('commerce_customer_links').insert({
-    workspace_id: workspaceId,
-    connection_id: connection.id,
-    external_customer_id: payload.external_customer_id,
-    visitor_id: visitorId,
-    expires_at: expiresAt,
-  });
-  if (error) throw new Error(`customer link write failed: ${error.message}`);
+  const now = Date.now();
+  const expiresAt = new Date(now + LINK_TTL_MS).toISOString();
+  const externalCustomerId = String(payload.external_customer_id);
+  const sessionRef = direct ? String(payload.session_ref) : null;
+  const customerGroupId = direct && payload.customer_group_id ? String(payload.customer_group_id).slice(0, 20) : null;
+
+  // ONE link per (connection, visitor), updated in place. It used to be one
+  // INSERT per page view of a signed-in shopper; now a repeat of the same
+  // identity writes nothing until the link is half-way to expiry.
+  const { data: existing } = await sb
+    .from('commerce_customer_links')
+    .select('id, external_customer_id, session_ref, expires_at, private_cutoff_at')
+    .eq('connection_id', connection.id)
+    .eq('visitor_id', visitorId)
+    .order('verified_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let outcome: BindResult['outcome'];
+  if (!existing) {
+    const { error } = await sb.from('commerce_customer_links').insert({
+      workspace_id: workspaceId,
+      connection_id: connection.id,
+      external_customer_id: externalCustomerId,
+      visitor_id: visitorId,
+      expires_at: expiresAt,
+      session_ref: sessionRef,
+      customer_group_id: customerGroupId,
+    });
+    if (error) throw new Error(`customer link write failed: ${error.message}`);
+    outcome = 'created';
+  } else {
+    const row = existing as { id: string; external_customer_id: string; session_ref: string | null; expires_at: string; private_cutoff_at: string | null };
+    const sameCustomer = row.external_customer_id === externalCustomerId;
+    const live = new Date(row.expires_at).getTime() > now;
+    if (sameCustomer && live && (row.session_ref ?? null) === sessionRef && new Date(row.expires_at).getTime() - now > LINK_REFRESH_AFTER_MS) {
+      return { externalCustomerId, outcome: 'unchanged' };
+    }
+    const { error } = await sb.from('commerce_customer_links').update({
+      external_customer_id: externalCustomerId,
+      session_ref: sessionRef,
+      customer_group_id: customerGroupId,
+      verified_at: new Date(now).toISOString(),
+      expires_at: expiresAt,
+      updated_at: new Date(now).toISOString(),
+      // A different customer in the same browser: nothing the previous one
+      // was told may reach this customer's prompt.
+      private_cutoff_at: sameCustomer ? row.private_cutoff_at : new Date(now).toISOString(),
+    }).eq('id', row.id);
+    if (error) throw new Error(`customer link write failed: ${error.message}`);
+    outcome = sameCustomer ? 'refreshed' : 'switched';
+    if (sameCustomer) return { externalCustomerId, outcome };
+  }
 
   // Being signed in to the shop IS the verification — the store already
   // knows this person — so the conversation is filed under the real customer
@@ -127,7 +208,37 @@ export async function verifyAndBindCustomerContext(
     return null;
   });
 
-  return { externalCustomerId: payload.external_customer_id };
+  return { externalCustomerId, outcome };
+}
+
+/**
+ * The storefront says nobody is signed in any more (logout seen by the
+ * loader). Ends this visitor's links in the workspace and records the cutoff
+ * so earlier private answers are not fed back into later prompts. The store
+ * would refuse the dead session anyway; this also stops the conversation
+ * from carrying the previous customer's context. One UPDATE, only on a
+ * transition.
+ */
+export async function unbindCustomerContext(config: ServerConfig, workspaceId: string, visitorId: string): Promise<{ ended: number }> {
+  const sb = getServiceClient(config);
+  const nowIso = new Date().toISOString();
+  const { data, error } = await sb
+    .from('commerce_customer_links')
+    .update({ expires_at: nowIso, private_cutoff_at: nowIso, updated_at: nowIso })
+    .eq('workspace_id', workspaceId)
+    .eq('visitor_id', visitorId)
+    .gt('expires_at', nowIso)
+    .select('id');
+  if (error) throw new Error(`customer link end failed: ${error.message}`);
+  return { ended: Array.isArray(data) ? data.length : 0 };
+}
+
+function sameOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -150,20 +261,28 @@ export async function verifyAndBindCustomerContext(
  * two refusals distinct: no live connection at all → `commerce_not_connected`;
  * live connections, none of them this installation → `identity_expired`.
  */
+interface ResolvedConnection {
+  id: string;
+  installation_id: string;
+  provider_type?: string;
+  external_store_id?: string | null;
+  approved_origin?: string;
+}
+
 async function resolveConnection(
   config: ServerConfig,
   workspaceId: string,
   connectionId: string | null,
   installationId: string,
-): Promise<{ id: string; installation_id: string } | null> {
+): Promise<ResolvedConnection | null> {
   const sb = getServiceClient(config);
   const { data } = await sb
     .from('commerce_connections')
-    .select('id, installation_id')
+    .select('id, installation_id, provider_type, external_store_id, approved_origin')
     .eq('workspace_id', workspaceId)
     .is('revoked_at', null)
     .limit(10);
-  const rows = (Array.isArray(data) ? data : data ? [data] : []) as Array<{ id: string; installation_id: string }>;
+  const rows = (Array.isArray(data) ? data : data ? [data] : []) as ResolvedConnection[];
   if (!rows.length) return null;
   const match = rows.find((r) => r.installation_id === installationId);
   if (connectionId) {

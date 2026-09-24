@@ -7,17 +7,20 @@
  * Two provider families share the connection machinery (pairing, the
  * installation secret, signing, the SSRF-guarded gateway, permissions):
  *
- *   - `store`   — a shop with a product catalogue Web Yar indexes
- *                 (WooCommerce). Implements the CommerceConnector contract.
+ *   - `store`   — a shop. Implements the CommerceConnector contract. Either
+ *                 indexed (WooCommerce: Web Yar keeps a catalogue index) or
+ *                 direct (OpenCart: every read is live from the store, no
+ *                 index; implements DirectCommerceConnector as well).
  *   - `billing` — an account/billing system queried live, never indexed
  *                 (WHMCS). Implements its own account contract
  *                 (shared/commerce/whmcs.ts) instead of being bent into the
  *                 order model.
  */
-import type { CommerceConnector, CommerceConnectorContext } from '../../../../shared/commerce/types.js';
+import { CommerceError, type CommerceConnector, type CommerceConnectorContext } from '../../../../shared/commerce/types.js';
 import { WHMCS_DEFAULT_PERMISSIONS, WHMCS_PROVIDER } from '../../../../shared/commerce/whmcs.js';
 import { WooCommerceConnector, type WooCommerceTransport } from './woocommerce.js';
 import { WhmcsConnector } from './whmcs.js';
+import { OpenCartConnector } from './opencart.js';
 import { normalizeHealth } from '../whmcs/normalize.js';
 
 export type ProviderFamily = 'store' | 'billing';
@@ -29,6 +32,10 @@ export interface ConnectionTransport {
   baseUrl: string;
   installationId: string;
   secret: string;
+  /** OpenCart: the store id inside the OpenCart install (multi-store). */
+  externalStoreId?: string | null;
+  /** OpenCart: the platform version, which picks the route shape (3.0 vs 4.1). */
+  platformVersion?: string | null;
 }
 
 export interface HandshakeResult {
@@ -50,8 +57,15 @@ export interface ProviderDescriptor {
   family: ProviderFamily;
   /** plugin_id of the workspace_plugin_installations row this provider's connections hang off. */
   pluginId: string;
-  /** True when Web Yar keeps a catalogue index for it (initial sync + catalog_ready gate). */
+  /**
+   * True when Web Yar keeps a catalogue index for it (initial sync +
+   * catalog_ready gate). A store-family provider without one is a DIRECT
+   * store: read live per question, no sync, no background health
+   * (see ../providers.ts).
+   */
   usesCatalogIndex: boolean;
+  /** True when the guest order path (contact match + OTP) exists for it. */
+  guestOtp: boolean;
   /** Owner permission defaults written at pairing. null = keep the column default. */
   defaultPermissions: Record<string, boolean> | null;
   handshake(transport: ConnectionTransport, ctx: CommerceConnectorContext): Promise<HandshakeResult>;
@@ -63,6 +77,7 @@ const DESCRIPTORS: Record<string, ProviderDescriptor> = {
     family: 'store',
     pluginId: 'woocommerce',
     usesCatalogIndex: true,
+    guestOtp: true,
     defaultPermissions: null,
     async handshake(transport, ctx) {
       const h = await new WooCommerceConnector(toWooTransport(transport)).negotiateCapabilities(ctx);
@@ -83,6 +98,7 @@ const DESCRIPTORS: Record<string, ProviderDescriptor> = {
     family: 'billing',
     pluginId: WHMCS_PROVIDER,
     usesCatalogIndex: false,
+    guestOtp: false,
     defaultPermissions: { ...WHMCS_DEFAULT_PERMISSIONS },
     async handshake(transport, ctx) {
       const { data } = await new WhmcsConnector(transport).call('health', {}, {
@@ -96,6 +112,27 @@ const DESCRIPTORS: Record<string, ProviderDescriptor> = {
         platformVersion: h.whmcsVersion,
         capabilities: h.capabilities,
         schemaOk: h.schemaOk,
+      };
+    },
+  },
+  opencart: {
+    providerType: 'opencart',
+    family: 'store',
+    pluginId: 'opencart',
+    usesCatalogIndex: false,
+    // Private data only for a customer signed in to the store itself.
+    guestOtp: false,
+    // The owner's consent screen chooses them; the column default otherwise.
+    defaultPermissions: null,
+    async handshake(transport, ctx) {
+      // pairing.ts runs the fuller OpenCart handshake (route fallback, clone
+      // guard); this is the same signed `health`, for generic callers.
+      const h = await openCartConnector(transport).negotiateCapabilities(ctx);
+      return {
+        protocolVersion: h.protocolVersion,
+        connectorVersion: h.connectorVersion,
+        platformVersion: h.platformVersion,
+        capabilities: h.capabilities,
       };
     },
   },
@@ -114,6 +151,20 @@ export function isKnownProvider(providerType: unknown): providerType is string {
   return typeof providerType === 'string' && Object.prototype.hasOwnProperty.call(DESCRIPTORS, providerType);
 }
 
+function openCartConnector(transport: ConnectionTransport): OpenCartConnector {
+  if (!transport.baseUrl || transport.externalStoreId === null || transport.externalStoreId === undefined) {
+    throw new CommerceError('commerce_not_connected', 'opencart connection has no store scope');
+  }
+  return new OpenCartConnector({
+    origin: transport.origin,
+    storeUrl: transport.baseUrl,
+    externalStoreId: String(transport.externalStoreId),
+    installationId: transport.installationId,
+    secret: transport.secret,
+    platformVersion: transport.platformVersion ?? null,
+  });
+}
+
 function toWooTransport(transport: ConnectionTransport | WooCommerceTransport): WooCommerceTransport {
   return { origin: transport.origin, installationId: transport.installationId, secret: transport.secret };
 }
@@ -127,6 +178,9 @@ export function resolveConnector(providerType: string, transport: WooCommerceTra
   switch (providerType) {
     case 'woocommerce':
       return new WooCommerceConnector(toWooTransport(transport));
+    case 'opencart':
+      if (!('baseUrl' in transport)) throw new CommerceError('commerce_not_connected', 'opencart connection has no store scope');
+      return openCartConnector(transport);
     default:
       throw new Error(`no store connector registered for provider_type "${providerType}"`);
   }

@@ -283,6 +283,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/213_desktop_apps_service_role_only.sql',
     hosted: 'supabase/migrations/20260924140000_desktop_apps_service_role_only.sql',
   },
+  {
+    label: '214 — OpenCart direct connector: additive metadata columns',
+    selfHost: 'database/migrations/214_commerce_opencart_direct.sql',
+    hosted: 'supabase/migrations/20260924150000_commerce_opencart_direct.sql',
+  },
 
   // intentionally asymmetric, not a drift bug.
 

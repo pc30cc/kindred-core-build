@@ -67,6 +67,14 @@ Or from the command line:
 xcodebuild -project Webyar.xcodeproj -scheme Webyar -configuration Release build
 ```
 
+`WEBYAR_SAMPLE=1` (Debug builds only) answers every API call from memory, so
+every screen can be laid out without a server or an account;
+`WEBYAR_DEBUG_DIR=<folder>` also writes a PNG of each window there and takes
+one-line commands from `<folder>/command.txt` (`route contacts`, `open conv-1`,
+`lang en`, `appearance dark`, `settings`, `ring`) — see `App/DebugTools.swift`.
+`xcodebuild test` runs the Windows app's Core tests, ported with the same
+expected values.
+
 Local builds are signed ad hoc and run on the Mac that built them. Releases
 are built by `.github/workflows/macos.yml`: tag `mac-v<version>` (matching
 `MARKETING_VERSION` in `project.yml`) and it signs with Developer ID,

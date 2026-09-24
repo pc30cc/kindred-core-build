@@ -1,0 +1,6 @@
+Webyar.xcodeproj/
+Webyar/Resources/Info.plist
+Webyar/Resources/Webyar.entitlements
+build/
+DerivedData/
+*.xcuserstate

@@ -1,0 +1,131 @@
+# The native macOS app. Generate the Xcode project with XcodeGen
+# (`brew install xcodegen`, then `xcodegen` in this folder) and open
+# Webyar.xcodeproj — see README.md.
+name: Webyar
+options:
+  bundleIdPrefix: com.webyar
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_HARDENED_RUNTIME: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+    # Local builds are signed ad hoc so they run on this Mac with no Apple
+    # account; the release workflow signs with Developer ID and notarizes.
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+    # Sparkle's EdDSA public key (generate_keys prints it). Empty turns
+    # self-update off, as for any build from source.
+    SPARKLE_PUBLIC_KEY: ""
+    SPARKLE_FEED_URL: "https://raw.githubusercontent.com/pc30cc/webyar-desktop-releases/main/macos/appcast.xml"
+
+packages:
+  # A call needs a real WebRTC stack, and the platform's calls already run on
+  # LiveKit — the web console, the iOS app and the Windows app all join the
+  # same rooms with the same tokens, so the Mac does too.
+  LiveKit:
+    url: https://github.com/livekit/client-sdk-swift
+    from: 2.0.0
+  # The Mac's standard self-updater.
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.6.0
+
+targets:
+  Webyar:
+    type: application
+    platform: macOS
+    dependencies:
+      - package: LiveKit
+      - package: Sparkle
+    sources:
+      - path: Webyar
+        excludes:
+          - "Resources/Info.plist"
+      # The copy is the Windows app's own table, bundled as is, so the two
+      # desktop apps can never word something differently.
+      - path: ../windows-native/src/Webyar.Core/Localization/strings.json
+        buildPhase: resources
+      # IRANSans for Persian, the web console's own font (Regular, Medium, Bold).
+      - path: ../windows-native/src/Webyar.App/Assets/Fonts/IRANSans.ttc
+        buildPhase: resources
+    info:
+      path: Webyar/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Webyar
+        CFBundleName: Webyar
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleIconName: AppIcon
+        LSApplicationCategoryType: public.app-category.business
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSHumanReadableCopyright: Copyright © Webyar
+        NSMicrophoneUsageDescription: >-
+          Webyar uses the microphone when you call a visitor, and when you
+          record a voice note to send into a conversation.
+        NSCameraUsageDescription: >-
+          Webyar uses the camera when you start a video call with a visitor.
+        CFBundleLocalizations:
+          - en
+          - fa
+          - tr
+        ITSAppUsesNonExemptEncryption: false
+        SUFeedURL: $(SPARKLE_FEED_URL)
+        SUPublicEDKey: $(SPARKLE_PUBLIC_KEY)
+        SUEnableInstallerLauncherService: true
+    entitlements:
+      path: Webyar/Resources/Webyar.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+        com.apple.security.device.audio-input: true
+        com.apple.security.device.camera: true
+        com.apple.security.files.user-selected.read-write: true
+        com.apple.security.files.downloads.read-write: true
+        # Sparkle's installer runs as an XPC service outside the sandbox.
+        com.apple.security.temporary-exception.mach-lookup.global-name:
+          - $(PRODUCT_BUNDLE_IDENTIFIER)-spks
+          - $(PRODUCT_BUNDLE_IDENTIFIER)-spki
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.mac
+        PRODUCT_NAME: Webyar
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        COMBINE_HIDPI_IMAGES: YES
+        ENABLE_PREVIEWS: YES
+
+  WebyarTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: Webyar
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.mac.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Webyar.app/Contents/MacOS/Webyar
+        BUNDLE_LOADER: $(TEST_HOST)
+
+schemes:
+  Webyar:
+    build:
+      targets:
+        Webyar: all
+        WebyarTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - WebyarTests

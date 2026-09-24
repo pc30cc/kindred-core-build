@@ -134,6 +134,21 @@ enum Theme {
         /// the transcript in both themes.
         static let bubbleIncoming = Color(uiColor: .secondarySystemGroupedBackground)
         static let bubbleIncomingText = Color(uiColor: .label)
+
+        /// What a bubble is actually filled with.
+        ///
+        /// Outgoing gets the brand gradient rather than the flat tint, which
+        /// is what a message bubble has looked like on this platform since
+        /// iMessage: a solid rectangle of saturated colour reads as a label,
+        /// a graded one reads as a surface. Incoming stays a flat colour --
+        /// it is the page's own surface and has no business catching light.
+        ///
+        /// Erased to `AnyShapeStyle` because the two sides are a gradient and
+        /// a colour, and the call sites choose between them with a ternary.
+        @MainActor
+        static func bubbleFill(isOutgoing: Bool) -> AnyShapeStyle {
+            isOutgoing ? AnyShapeStyle(Gradient.brand) : AnyShapeStyle(bubbleIncoming)
+        }
     }
 
 

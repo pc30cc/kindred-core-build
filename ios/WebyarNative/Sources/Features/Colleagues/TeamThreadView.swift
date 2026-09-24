@@ -414,7 +414,7 @@ private struct TeamMessageRow: View {
                             .padding(.vertical, Theme.Space.sm + 2)
                             .environment(\.layoutDirection, language.layoutDirection)
                             .chatBubble(
-                                isOutgoing ? Theme.Palette.bubbleOutgoing : Theme.Palette.bubbleIncoming,
+                                Theme.Palette.bubbleFill(isOutgoing: isOutgoing),
                                 hasBeak: true,
                                 pointsRight: isOutgoing
                             )

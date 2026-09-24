@@ -570,7 +570,7 @@ struct MessageRow: View {
             // bubble's shape and its place in the column do not.
             .environment(\.layoutDirection, language.layoutDirection)
             .chatBubble(
-                isOutgoing ? Theme.Palette.bubbleOutgoing : Theme.Palette.bubbleIncoming,
+                Theme.Palette.bubbleFill(isOutgoing: isOutgoing),
                 hasBeak: showsAvatar,
                 pointsRight: isOutgoing
             )

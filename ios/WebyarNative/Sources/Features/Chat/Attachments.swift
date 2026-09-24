@@ -249,7 +249,7 @@ private struct VoiceNoteView: View {
         .padding(.vertical, Theme.Space.sm + 2)
         .frame(width: 236)
         .chatBubble(
-            isOutgoing ? Theme.Palette.bubbleOutgoing : Theme.Palette.bubbleIncoming,
+            Theme.Palette.bubbleFill(isOutgoing: isOutgoing),
             hasBeak: hasBeak,
             pointsRight: isOutgoing
         )
@@ -591,7 +591,7 @@ private struct FileCard: View {
         .padding(.vertical, Theme.Space.sm)
         .frame(maxWidth: 236, alignment: .leading)
         .chatBubble(
-            isOutgoing ? Theme.Palette.bubbleOutgoing : Theme.Palette.bubbleIncoming,
+            Theme.Palette.bubbleFill(isOutgoing: isOutgoing),
             hasBeak: hasBeak,
             pointsRight: isOutgoing
         )

@@ -145,19 +145,31 @@ struct SettingsView: View {
                 // setting an operator goes looking for, and the one that
                 // decides whether the app is any use when it is closed.
                 NavigationLink(value: SettingsRoute.notifications) {
-                    Label(Str.notifications(language), systemImage: "bell.badge")
+                    SettingsRowLabel(
+                        title: Str.notifications(language),
+                        systemImage: "bell.badge",
+                        tint: Theme.Palette.danger
+                    )
                 }
 
                 NavigationLink(value: SettingsRoute.security) {
-                    Label(Str.security(language), systemImage: "lock.shield")
+                    SettingsRowLabel(
+                        title: Str.security(language),
+                        systemImage: "lock.shield",
+                        tint: Theme.Palette.brand
+                    )
                 }
 
                 Button {
                     isConfirmingSignOut = true
                 } label: {
                     HStack {
-                        Label(Str.signOut(language), systemImage: "rectangle.portrait.and.arrow.right")
-                            .foregroundStyle(Theme.Palette.danger)
+                        SettingsRowLabel(
+                            title: Str.signOut(language),
+                            systemImage: "rectangle.portrait.and.arrow.right",
+                            tint: Theme.Palette.labelSecondary,
+                            isDestructive: true
+                        )
                         Spacer(minLength: Theme.Space.sm)
                         if isSigningOut {
                             ProgressView()

@@ -23,6 +23,18 @@ packages:
   LiveKit:
     url: https://github.com/livekit/client-sdk-swift
     from: 2.0.0
+  # Micro-animation, and only that.
+  #
+  # SwiftUI gives you springs and SF Symbols give you `symbolEffect`, and
+  # between them they cover most of what this app needs to move. What they do
+  # not give you is a transition with any character: a message arriving is a
+  # fade, a failed sign-in is a fade, everything is a fade. Pow is a set of
+  # transitions and change effects built for exactly that gap, it is pure
+  # SwiftUI with no platform APIs of its own to declare, and it is used here
+  # in three places rather than sprinkled over the app.
+  Pow:
+    url: https://github.com/EmergeTools/Pow
+    from: 0.3.0
 
 targets:
   WebyarNative:
@@ -30,6 +42,7 @@ targets:
     platform: iOS
     dependencies:
       - package: LiveKit
+      - package: Pow
     sources:
       - path: Sources
       - path: Resources

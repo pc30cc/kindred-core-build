@@ -308,3 +308,42 @@ extension View {
         }
     }
 }
+
+// MARK: - Bars
+
+/// A bar pinned to an edge of the screen: the composer over a transcript.
+///
+/// Not `liquidGlass(.chrome, in: Rectangle())` -- a bar reaches the screen's
+/// own edges, so a stroke all the way round it would draw three borders
+/// nobody asked for. This is fill plus a single hairline on the edge that
+/// faces the content, which is the only edge a bar actually has.
+struct GlassBar: ViewModifier {
+    /// Which side the content is on.
+    var edge: VerticalEdge = .top
+
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                if reduceTransparency {
+                    Theme.Palette.surface
+                } else if #available(iOS 26.0, *) {
+                    Rectangle().fill(.clear).glassEffect(.regular, in: Rectangle())
+                } else {
+                    // `.bar` is the system's own bar material and already
+                    // the right answer before 26.
+                    Rectangle().fill(.bar)
+                }
+            }
+            .overlay(alignment: edge == .top ? .top : .bottom) {
+                Divider().opacity(0.6)
+            }
+    }
+}
+
+extension View {
+    func glassBar(edge: VerticalEdge = .top) -> some View {
+        modifier(GlassBar(edge: edge))
+    }
+}

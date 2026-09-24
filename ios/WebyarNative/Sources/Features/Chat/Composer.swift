@@ -78,7 +78,9 @@ struct Composer: View {
         .padding(.horizontal, Theme.screenInset)
         .padding(.top, Theme.Space.xs)
         .padding(.bottom, bottomGap)
-        .background(.bar)
+        // Real chrome: the transcript runs underneath it, so on iOS 26 it
+        // is a lens and the last message genuinely shows through.
+        .glassBar()
         .animation(Theme.Motion.standard, value: isShowingEmoji)
         .animation(Theme.Motion.standard, value: capabilities)
         .animation(Theme.Motion.standard, value: recorder.isRecording)

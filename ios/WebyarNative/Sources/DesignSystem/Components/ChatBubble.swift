@@ -81,7 +81,7 @@ extension View {
     /// Draws this view as a message bubble filled with `color`, reserving room
     /// for the beak when there is one.
     func chatBubble(
-        _ color: Color,
+        _ fill: some ShapeStyle,
         radius: CGFloat = Theme.Radius.xl,
         hasBeak: Bool,
         pointsRight: Bool
@@ -91,7 +91,7 @@ extension View {
         padding(pointsRight ? .trailing : .leading, hasBeak ? ChatBubble.beak : 0)
             .background(
                 ChatBubble(radius: radius, hasBeak: hasBeak, pointsRight: pointsRight)
-                    .fill(color)
+                    .fill(fill)
             )
             .environment(\.layoutDirection, .leftToRight)
     }

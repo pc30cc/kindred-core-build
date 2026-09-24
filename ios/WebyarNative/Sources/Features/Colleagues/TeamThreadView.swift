@@ -78,7 +78,9 @@ final class TeamThreadViewModel {
         let unread = response.messages.contains { $0.senderId == peerID && $0.readAt == nil }
         guard unread else { return }
         try? await api.markTeamThreadRead(workspaceID: workspaceID, peerID: peerID)
-        await ColleagueUnread.shared.refresh(workspaceID: workspaceID)
+        // Forced: the number just moved because of something this screen
+        // did, so the staleness floor must not hold the badge up.
+        await ColleagueUnread.shared.refresh(workspaceID: workspaceID, force: true)
     }
 
     func send(workspaceID: String?, peerID: String, appState: AppState) async {

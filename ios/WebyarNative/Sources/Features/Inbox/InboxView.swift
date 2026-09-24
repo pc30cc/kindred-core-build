@@ -213,7 +213,13 @@ struct InboxView: View {
     private func refreshColleagueUnread(for push: LivePush?) async {
         guard appState.colleaguesVisible else { return }
         guard push == nil || push?.kind == LivePush.teamMessage else { return }
-        await colleagueUnread.refresh(workspaceID: workspaceID)
+        // A doorbell is worth asking about immediately. The foreground and
+        // the fallback timer are not, and on a deployment with no socket the
+        // timer is the one that would otherwise ask every twelve seconds.
+        await colleagueUnread.refresh(
+            workspaceID: workspaceID,
+            force: push?.kind == LivePush.teamMessage
+        )
     }
 
     /// Any change to this reloads the list: switching filter, switching

@@ -13,10 +13,10 @@ struct ShellView: View {
             if let pages {
                 NavigationSplitView(columnVisibility: $columns) {
                     SidebarView()
-                        .navigationSplitViewColumnWidth(min: 200, ideal: 236, max: 300)
+                        .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 300)
                 } content: {
                     PageList(route: app.route, pages: pages)
-                        .navigationSplitViewColumnWidth(min: 290, ideal: 350, max: 460)
+                        .navigationSplitViewColumnWidth(min: 280, ideal: 330, max: 440)
                 } detail: {
                     PageDetail(route: app.route, pages: pages)
                         .safeAreaInset(edge: .top, spacing: 0) { ShellBanners() }

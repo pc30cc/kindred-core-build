@@ -13,7 +13,7 @@ struct WebyarApp: App {
                 .environment(app)
                 .appEnvironment(app)
         }
-        .defaultSize(width: 1280, height: 820)
+        .defaultSize(width: 1440, height: 900)
         .windowToolbarStyle(.unified(showsTitle: false))
         .commands { AppCommands(app: app) }
 

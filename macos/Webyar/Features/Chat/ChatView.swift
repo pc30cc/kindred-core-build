@@ -28,9 +28,11 @@ struct ThreadView: View {
     let chat: ChatModel
     @Environment(AppModel.self) private var app
     @State private var dropping = false
+    /// The whole thread area, details included: the details only show beside a
+    /// thread that has room for both, as on Windows (wider than 820).
+    @State private var width: CGFloat = 1200
 
     var body: some View {
-        @Bindable var app = app
         MessagesView(chat: chat)
             .background(Palette.chatBackground)
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -69,9 +71,16 @@ struct ThreadView: View {
             }
             .animation(.smooth(duration: 0.2), value: chat.notice)
             .toolbar { ThreadToolbar(chat: chat) }
-            .inspector(isPresented: Binding(get: { app.settings.detailsOpen }, set: { app.settings.detailsOpen = $0; app.saveSettings() })) {
+            .inspector(isPresented: Binding(get: { app.settings.detailsOpen && width > 820 }, set: { app.settings.detailsOpen = $0; app.saveSettings() })) {
                 DetailsPanel(chat: chat)
-                    .inspectorColumnWidth(min: 260, ideal: 300, max: 380)
+                    .inspectorColumnWidth(min: 260, ideal: 290, max: 380)
+            }
+            .background {
+                GeometryReader { g in
+                    Color.clear
+                        .onAppear { width = g.size.width }
+                        .onChange(of: g.size.width) { _, w in width = w }
+                }
             }
     }
 }

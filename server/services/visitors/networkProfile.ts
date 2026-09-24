@@ -60,6 +60,57 @@ export interface VisitorNetworkGeo {
   resolved_at: string | null;
 }
 
+/**
+ * A `visitor_sessions` row as SESSION_NETWORK_COLUMNS selects it. Every column
+ * may be absent (callers and tests hand over partial rows); anything else on
+ * the row rides along untouched.
+ */
+export interface SessionNetworkRow {
+  id?: string;
+  visitor_id?: string | null;
+  workspace_id?: string;
+  contact_id?: string | null;
+  browser?: string | null;
+  device?: string | null;
+  os?: string | null;
+  country?: string | null;
+  city?: string | null;
+  ip_hash?: string | null;
+  ip_raw?: string | null;
+  geo_country_code?: string | null;
+  geo_country_name?: string | null;
+  geo_region?: string | null;
+  geo_city?: string | null;
+  geo_latitude?: number | null;
+  geo_longitude?: number | null;
+  geo_timezone?: string | null;
+  geo_source_provider?: string | null;
+  geo_accuracy_level?: VisitorNetworkGeo['accuracy_level'];
+  geo_is_fallback?: boolean | null;
+  geo_resolved_at?: string | null;
+  last_seen_at?: string | null;
+  [column: string]: unknown;
+}
+
+/** A `geo_ip_cache` (or legacy `visitor_geo_cache`) row. */
+export interface IpCacheRow {
+  ip_hash?: string | null;
+  source?: string | null;
+  country_code?: string | null;
+  country_name?: string | null;
+  country?: string | null;
+  region?: string | null;
+  city?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  timezone?: string | null;
+  accuracy_level?: VisitorNetworkGeo['accuracy_level'];
+  is_fallback?: boolean | null;
+  resolved_at?: string | null;
+  expires_at?: string | null;
+  [column: string]: unknown;
+}
+
 export interface VisitorNetworkIp {
   /** Real address. Non-null ONLY for owner/admin with the plan capability. */
   raw: string | null;
@@ -219,7 +270,7 @@ function normalizeCountry(code: unknown, name: unknown): { code: string | null; 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 /** Step 1 — persisted `geo_*`. Authoritative; never overwritten by a fallback. */
-export function geoFromPersistedSession(s: Record<string, any>): VisitorNetworkGeo | null {
+export function geoFromPersistedSession(s: SessionNetworkRow): VisitorNetworkGeo | null {
   const hasAny =
     s.geo_country_code || s.geo_country_name || s.geo_city || s.geo_region ||
     num(s.geo_latitude) !== null || num(s.geo_longitude) !== null;
@@ -240,11 +291,11 @@ export function geoFromPersistedSession(s: Record<string, any>): VisitorNetworkG
     is_fallback: isFallback,
     resolved_at: s.geo_resolved_at ?? null,
   };
-  geo.accuracy_level = (s.geo_accuracy_level as any) ?? accuracyOf(geo);
+  geo.accuracy_level = s.geo_accuracy_level ?? accuracyOf(geo);
   return geo;
 }
 
-function geoFromIpCache(row: Record<string, any>): VisitorNetworkGeo {
+function geoFromIpCache(row: IpCacheRow): VisitorNetworkGeo {
   const c = normalizeCountry(row.country_code, row.country_name ?? row.country);
   const geo: VisitorNetworkGeo = {
     country_code: c.code,
@@ -256,7 +307,7 @@ function geoFromIpCache(row: Record<string, any>): VisitorNetworkGeo {
     timezone: row.timezone ?? null,
     source: 'cache',
     provider: row.source ?? 'cache',
-    accuracy_level: (row.accuracy_level as any) ?? null,
+    accuracy_level: row.accuracy_level ?? null,
     is_fallback: row.is_fallback === true,
     resolved_at: row.resolved_at ?? null,
   };
@@ -265,7 +316,7 @@ function geoFromIpCache(row: Record<string, any>): VisitorNetworkGeo {
 }
 
 /** Step 4 — legacy `country`/`city` columns. Lowest precedence, by design. */
-function geoFromLegacySession(s: Record<string, any>): VisitorNetworkGeo | null {
+function geoFromLegacySession(s: SessionNetworkRow): VisitorNetworkGeo | null {
   if (!s.country && !s.city) return null;
   const c = normalizeCountry(s.country, s.country);
   const geo: VisitorNetworkGeo = {
@@ -298,9 +349,9 @@ export const SESSION_NETWORK_COLUMNS =
  * cache row for its ip_hash. Pure — no I/O, so it is directly unit-testable.
  */
 export function buildNetworkProfile(
-  session: Record<string, any>,
+  session: SessionNetworkRow,
   policy: IpVisibilityPolicy,
-  cacheRow?: Record<string, any> | null,
+  cacheRow?: IpCacheRow | null,
 ): VisitorNetworkProfile {
   // An expired cache row is treated as absent here too, not only in the batch
   // query — otherwise a caller passing a stale row would surface old geo.
@@ -311,9 +362,9 @@ export function buildNetworkProfile(
     geoFromLegacySession(session) ??
     EMPTY_GEO;
   return {
-    visitor_session_id: session.id,
+    visitor_session_id: session.id as string,
     visitor_id: session.visitor_id ?? null,
-    workspace_id: session.workspace_id,
+    workspace_id: session.workspace_id as string,
     ip: buildIpView(session, policy),
     geo,
     device: {
@@ -348,20 +399,20 @@ export async function resolveNetworkProfiles(
     .select(SESSION_NETWORK_COLUMNS)
     .eq('workspace_id', workspaceId)
     .in('id', ids);
-  const rows = (sessions ?? []) as any[];
+  const rows = (sessions ?? []) as unknown as SessionNetworkRow[];
   if (!rows.length) return out;
 
   // Only sessions WITHOUT persisted geo need a cache lookup.
   const needCache = rows.filter((s) => !geoFromPersistedSession(s) && s.ip_hash);
-  const cacheByHash = new Map<string, Record<string, any>>();
+  const cacheByHash = new Map<string, IpCacheRow>();
   if (needCache.length) {
     const hashes = Array.from(new Set(needCache.map((s) => s.ip_hash as string)));
     const { data: ipCache } = await sb
       .from('geo_ip_cache')
       .select('ip_hash, source, country_code, country_name, region, city, latitude, longitude, timezone, accuracy_level, is_fallback, resolved_at, expires_at')
       .in('ip_hash', hashes);
-    for (const r of (ipCache ?? []) as any[]) {
-      if (notExpired(r.expires_at)) cacheByHash.set(r.ip_hash, r);
+    for (const r of (ipCache ?? []) as IpCacheRow[]) {
+      if (r.ip_hash && notExpired(r.expires_at)) cacheByHash.set(r.ip_hash, r);
     }
     const missing = hashes.filter((h) => !cacheByHash.has(h));
     if (missing.length) {
@@ -369,14 +420,14 @@ export async function resolveNetworkProfiles(
         .from('visitor_geo_cache')
         .select('ip_hash, source, country, country_code, region, city, latitude, longitude, resolved_at, expires_at')
         .in('ip_hash', missing);
-      for (const r of (legacyCache ?? []) as any[]) {
-        if (notExpired(r.expires_at)) cacheByHash.set(r.ip_hash, r);
+      for (const r of (legacyCache ?? []) as IpCacheRow[]) {
+        if (r.ip_hash && notExpired(r.expires_at)) cacheByHash.set(r.ip_hash, r);
       }
     }
   }
 
   for (const s of rows) {
-    out.set(s.id, buildNetworkProfile(s, policy, s.ip_hash ? cacheByHash.get(s.ip_hash) ?? null : null));
+    out.set(s.id as string, buildNetworkProfile(s, policy, s.ip_hash ? cacheByHash.get(s.ip_hash) ?? null : null));
   }
   return out;
 }
@@ -462,7 +513,7 @@ export async function resolveConversationSessionIds(
       .order('last_seen_at', { ascending: false })
       .limit(500);
     const latestByContact = new Map<string, string>();
-    for (const s of (sessions ?? []) as any[]) {
+    for (const s of (sessions ?? []) as Array<{ id: string; contact_id: string | null }>) {
       if (!s.contact_id || latestByContact.has(s.contact_id)) continue;
       latestByContact.set(s.contact_id, s.id);
     }
@@ -533,7 +584,7 @@ export async function resolveContactNetworkProfile(
       .eq('contact_id', contactId);
     if (withIp) q = q.not('ip_hash', 'is', null);
     const { data } = await q.order('last_seen_at', { ascending: false }).limit(1).maybeSingle();
-    return ((data as any)?.id as string | null) ?? null;
+    return (data as { id?: string } | null)?.id ?? null;
   };
   const sessionId = (await pick(true)) ?? (await pick(false))
     ?? (await resolveUnlinkedContactSessionIds(config, workspaceId, [contactId])).get(contactId)
@@ -661,7 +712,7 @@ export async function resolveContactsNetworkProfiles(
   // without ip_hash) is already its newest / newest-with-ip session.
   const newestOverall = new Map<string, string>();
   const newestWithIp = new Map<string, string>();
-  for (const s of (sessions ?? []) as any[]) {
+  for (const s of (sessions ?? []) as Array<{ id: string; contact_id: string | null; ip_hash: string | null }>) {
     if (!s.contact_id) continue;
     if (!newestOverall.has(s.contact_id)) newestOverall.set(s.contact_id, s.id);
     if (s.ip_hash && !newestWithIp.has(s.contact_id)) newestWithIp.set(s.contact_id, s.id);

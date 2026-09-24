@@ -2320,10 +2320,16 @@ export default function InboxPage() {
                     <div className={cn('max-w-[82%] sm:max-w-[75%] flex flex-col min-w-0', isAgent ? 'items-end' : 'items-start')}>
                       <div className={cn('flex items-center gap-1 min-w-0 max-w-full', isAgent ? 'flex-row-reverse' : 'flex-row')}>
                       <div dir={dir} className={cn(
-                        'rounded-2xl px-4 py-2.5 text-[14px] leading-[1.7] shadow-sm',
-                        isAgent
-                          ? 'bg-primary/10 text-foreground border border-primary/20 rounded-br-sm dark:bg-primary/15'
-                          : 'bg-secondary text-foreground rounded-bl-sm'
+                        'text-[14px] leading-[1.7]',
+                        (() => {
+                          const m = msg as { attachment?: unknown; attachments?: unknown[] | null };
+                          const hasAtt = !!(m.attachment || (m.attachments && m.attachments.length));
+                          return hasAtt && !(msg.body || '').trim();
+                        })()
+                          ? 'text-foreground'
+                          : cn('rounded-2xl px-4 py-2.5 shadow-sm', isAgent
+                            ? 'bg-primary/10 text-foreground border border-primary/20 rounded-br-sm dark:bg-primary/15'
+                            : 'bg-secondary text-foreground rounded-bl-sm'),
                       )}>
                         {(() => {
                           const m = msg as { attachment?: MessageAttachment | null; attachments?: MessageAttachment[] | null };

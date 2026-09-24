@@ -16,8 +16,14 @@ struct CallView: View {
 
     private var s: Strings { app.strings }
 
-    /// A picture is on screen: the name moves to the corner out of its way.
-    private var videoLive: Bool { call.remoteVideoTrack != nil || call.localVideoTrack != nil }
+    /// The video layout — the picture edge to edge, the name in the corner. Decided by the call,
+    /// not by whether a frame is arriving this instant: a voice call never takes it, and a video
+    /// call keeps it once connected, so a picture that drops for a moment no longer moves the
+    /// face, the name and the buttons back and forth.
+    private var videoLive: Bool {
+        guard call.isVideo else { return false }
+        return call.phase == .connected || call.remoteVideoTrack != nil || call.localVideoTrack != nil
+    }
 
     var body: some View {
         ZStack {
@@ -138,6 +144,11 @@ struct CallView: View {
         GeometryReader { geo in
             ZStack(alignment: .bottomTrailing) {
                 Color.black
+                if call.remoteVideoTrack == nil {
+                    // The visitor's camera is off (or not there yet): their face where the picture goes.
+                    avatar(96)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                }
                 if let remote = call.remoteVideoTrack {
                     // Flipped once, as the web console flips every call video (src/index.css,
                     // "Call video orientation"): the visitor's camera arrives mirrored, and this

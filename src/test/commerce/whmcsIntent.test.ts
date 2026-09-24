@@ -116,7 +116,8 @@ const CORPUS: Array<[string, Label]> = [
 function labelOf(intent: WhmcsIntent): Label {
   if (intent.kind === 'none') return 'none';
   if (intent.kind === 'catalog') return 'catalog';
-  return `${intent.kind}:${intent.resource}`;
+  if (intent.kind === 'public') return `public:${intent.resource}`;
+  return `account:${intent.resource}`;
 }
 
 describe('intent routing on the fa/en/tr corpus', () => {

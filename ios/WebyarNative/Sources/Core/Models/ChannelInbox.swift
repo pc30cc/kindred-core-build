@@ -48,6 +48,18 @@ struct ChannelInbox: Identifiable, Hashable, Sendable {
         }
     }
 
+    /// Every key this app can name and draw.
+    ///
+    /// Used to decide whether a `metadata.source` is a channel or one of the
+    /// many other things that field carries.
+    static func isKnownChannel(_ key: String) -> Bool {
+        [
+            "telegram", "bale", "whatsapp", "instagram",
+            "x", "twitter", "messenger", "facebook", "sms",
+            "widget", "email", "phone",
+        ].contains(key.lowercased())
+    }
+
     /// The colour the console gives this channel, so a thread is the same
     /// shade of blue on a phone as on a desk.
     @MainActor
@@ -98,8 +110,25 @@ extension Conversation {
     /// conversation is never filed under a different channel on the two
     /// surfaces.
     var channelKey: String {
+        // `channel` is a channel field, so it is taken at its word: a
+        // workspace can install a plugin this build has never heard of, and
+        // filing that thread under the widget would be worse than showing a
+        // name we do not have a glyph for.
         if let channel = metadata?["channel"]?.stringValue, !channel.isEmpty { return channel }
-        if let source = metadata?["source"]?.stringValue, !source.isEmpty { return source }
+
+        // `source` is not. It is a provenance field and it carries values
+        // that are not channels at all -- `ai_agent_intro` is written on
+        // every thread the assistant opens by itself, and there are handoff
+        // and fallback variants beside it. Reading it unchecked put
+        // "Ai_agent_intro" on inbox rows as though the robot were a
+        // messaging network.
+        //
+        // So it is only believed when it names a channel we know. This is
+        // the membership test `resolveChannelKey` does in the console, and
+        // the reason that surface never showed the same thing.
+        if let source = metadata?["source"]?.stringValue, ChannelInbox.isKnownChannel(source) {
+            return source
+        }
         return "widget"
     }
 }

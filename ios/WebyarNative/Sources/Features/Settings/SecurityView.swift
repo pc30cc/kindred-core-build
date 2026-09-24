@@ -211,9 +211,13 @@ struct SecurityView: View {
             // root while a screen is open on top of it.
             Section {
                 NavigationLink(value: SettingsRoute.deleteAccount) {
-                    Text(Str.deleteAccount(language))
-                        .foregroundStyle(Theme.Palette.danger)
-                        .frame(minHeight: Theme.Size.minTouchTarget - 10)
+                    SettingsRowLabel(
+                        title: Str.deleteAccount(language),
+                        systemImage: "trash",
+                        tint: Theme.Palette.danger,
+                        isDestructive: true
+                    )
+                    .frame(minHeight: Theme.Size.minTouchTarget - 10)
                 }
                 .accessibilityIdentifier(A11y.deleteAccountRow)
             }

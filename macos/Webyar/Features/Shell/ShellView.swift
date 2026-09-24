@@ -16,7 +16,7 @@ struct ShellView: View {
                         .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 300)
                 } content: {
                     PageList(route: app.route, pages: pages)
-                        .navigationSplitViewColumnWidth(min: 280, ideal: 330, max: 440)
+                        .navigationSplitViewColumnWidth(340)
                 } detail: {
                     PageDetail(route: app.route, pages: pages)
                         .navigationSplitViewColumnWidth(min: 440, ideal: 760)

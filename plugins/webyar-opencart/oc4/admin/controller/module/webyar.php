@@ -150,7 +150,7 @@ class Webyar extends \Opencart\System\Engine\Controller {
 
 					$pairing = new Pairing(new Settings(new Db($this->db, DB_PREFIX)), $key);
 					$callback = $store['url'] . 'index.php?route=extension/webyar/module/webyar.callback';
-					$json['redirect'] = $pairing->start($store['store_id'], $store['url'], $callback, $app, (string)($this->config->get('module_webyar_api_url') ?: $app));
+					$json['redirect'] = $pairing->start($store['store_id'], $store['url'], $callback, $app, (string)($this->config->get('module_webyar_api_url') ?: $app), VERSION);
 				} catch (\Throwable $e) {
 					$json['error'] = sprintf($this->language->get('error_connect'), htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8'));
 				}

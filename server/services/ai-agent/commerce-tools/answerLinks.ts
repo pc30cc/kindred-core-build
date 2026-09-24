@@ -21,7 +21,8 @@
 
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
-import { getActiveConnectionForWorkspace } from '../../commerce/gateway.js';
+import { getActiveConnectionForWorkspace, resolveConversationConnection, type CommerceConnectionRow } from '../../commerce/gateway.js';
+import { isDirectProvider } from '../../commerce/providers.js';
 
 const URL_PATTERN = /https?:\/\/[^\s<>"'`)\]]+/gi;
 const TRAILING_PUNCTUATION = /[.,;:!?؟،؛"'»]+$/;
@@ -179,14 +180,21 @@ export async function verifyStoreLinks(
   config: ServerConfig,
   workspaceId: string,
   text: string,
+  opts: { conversationId?: string | null; pageUrl?: string | null; allowedUrls?: readonly string[] } = {},
 ): Promise<string> {
   const source = String(text ?? '');
   if (!source || source.indexOf('http') === -1) return source;
 
-  const connection = await getActiveConnectionForWorkspace(config, workspaceId).catch(() => null);
+  const connection = opts.conversationId || opts.pageUrl
+    ? await resolveConversationConnection(config, workspaceId, { conversationId: opts.conversationId ?? null, pageUrl: opts.pageUrl ?? null }).catch(() => null)
+    : await getActiveConnectionForWorkspace(config, workspaceId).catch(() => null);
   if (!connection) return source;
   const storeHost = hostOf(String(connection.store_id || ''));
   if (!storeHost) return source;
+
+  if (isDirectProvider(connection.provider_type)) {
+    return verifyDirectStoreLinks(config, workspaceId, source, connection, storeHost, opts);
+  }
 
   const found = source.match(URL_PATTERN) ?? [];
   // The shop's own front page is always a real page — it needs no product to
@@ -243,14 +251,46 @@ export async function verifyStoreLinks(
   return repairCommerceLinks(resolved, [...byExternalId.values(), store, `${store}/`]);
 }
 
+/**
+ * Direct connectors keep no catalogue to check a link against, so the
+ * authority is what the store itself handed out: this turn's tool results
+ * plus the store links already given earlier in the conversation (kept in
+ * conversation metadata by the direct stage). Anything else on the store's
+ * host — an invented slug, a retyped Persian URL — is repaired to the link
+ * it was meant to be, or removed. One indexed read, and only when the answer
+ * actually contains a store link.
+ */
+async function verifyDirectStoreLinks(
+  config: ServerConfig,
+  workspaceId: string,
+  source: string,
+  connection: CommerceConnectionRow,
+  storeHost: string,
+  opts: { conversationId?: string | null; allowedUrls?: readonly string[] },
+): Promise<string> {
+  const onStore = (source.match(URL_PATTERN) ?? []).map(withoutTrailingPunctuation).filter((u) => hostOf(u) === storeHost && !isStoreFrontPage(u));
+  if (!onStore.length) return source;
+  const allowed = new Set<string>(opts.allowedUrls ?? []);
+  if (onStore.some((u) => !allowed.has(u)) && opts.conversationId) {
+    const sb = getServiceClient(config);
+    const { data } = await sb.from('conversations').select('metadata').eq('id', opts.conversationId).eq('workspace_id', workspaceId).maybeSingle();
+    const refs = (data as any)?.metadata?.commerce_refs;
+    if (refs?.connection_id === connection.id && Array.isArray(refs.urls)) for (const u of refs.urls) if (typeof u === 'string') allowed.add(u);
+  }
+  const store = String(connection.store_id || '').replace(/\/+$/, '');
+  return repairCommerceLinks(source, [...allowed, store, `${store}/`]);
+}
+
 /** Every URL this turn's commerce tools put in front of the model. */
 export function urlsFromToolResults(results: readonly { data?: unknown }[]): string[] {
   const out: string[] = [];
   for (const result of results) {
     const data = result?.data;
     if (!data || typeof data !== 'object') continue;
-    const url = (data as { url?: unknown }).url;
-    if (typeof url === 'string' && /^https?:\/\//i.test(url)) out.push(url);
+    for (const key of ['url', 'view_url'] as const) {
+      const url = (data as Record<string, unknown>)[key];
+      if (typeof url === 'string' && /^https?:\/\//i.test(url)) out.push(url);
+    }
   }
   return out;
 }

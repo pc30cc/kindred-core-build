@@ -16,7 +16,9 @@ import {
   updateConnectionPermissions,
 } from '../../services/commerce/lifecycle.js';
 import { runCapabilityHandshake } from '../../services/commerce/pairing.js';
+import { getConnectionForWorkspace } from '../../services/commerce/gateway.js';
 import { enqueueSyncJob } from '../../services/commerce/sync.js';
+import { isDirectProvider, providerProfile } from '../../services/commerce/providers.js';
 
 export const commerceConnectionsRouter = Router({ mergeParams: true });
 
@@ -25,7 +27,7 @@ function serverConfigOf(req: any): ServerConfig {
 }
 
 const CONNECTION_FIELDS =
-  'id, provider_type, store_id, approved_origin, protocol_version, connector_version, woocommerce_version, wordpress_version, hpos_enabled, capabilities, permissions, health, catalog_ready, direct_live_read, last_seen_at, last_success_at, last_event_at, last_live_read_at, last_sync_at, last_error_code, last_error_at, created_at, rotated_at';
+  'id, provider_type, store_id, approved_origin, protocol_version, connector_version, woocommerce_version, wordpress_version, hpos_enabled, capabilities, permissions, health, catalog_ready, direct_live_read, last_seen_at, last_success_at, last_event_at, last_live_read_at, last_sync_at, last_error_code, last_error_at, created_at, rotated_at, external_store_id, platform_version, last_health_check_at';
 
 commerceConnectionsRouter.get('/:workspaceId/commerce/connections', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
@@ -91,16 +93,36 @@ commerceConnectionsRouter.post('/:workspaceId/commerce/connections/:connectionId
   }
 });
 
+/** Manual "check connection" for a direct (never-polled) store: once a minute, across replicas. */
+const MANUAL_CHECK_MIN_INTERVAL_MS = 60_000;
+
 commerceConnectionsRouter.post('/:workspaceId/commerce/connections/:connectionId/test', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
-  await runCapabilityHandshake(serverConfigOf(req), req.params.connectionId);
+  const config = serverConfigOf(req);
+  // Scoped to the caller's workspace: a connection id from another workspace
+  // is "not found", never refreshed.
+  const connection = await getConnectionForWorkspace(config, req.params.workspaceId, req.params.connectionId).catch(() => null);
+  if (!connection) return res.status(404).json({ error: 'not_found' });
+  if (isDirectProvider(connection.provider_type)) {
+    const sb = getServiceClient(config);
+    const { data } = await sb.from('commerce_connections').select('last_health_check_at').eq('id', connection.id).maybeSingle();
+    const last = (data as any)?.last_health_check_at ? new Date((data as any).last_health_check_at).getTime() : 0;
+    if (Date.now() - last < MANUAL_CHECK_MIN_INTERVAL_MS) {
+      return res.status(429).json({ error: 'check_rate_limited', retryAfterSeconds: Math.ceil((MANUAL_CHECK_MIN_INTERVAL_MS - (Date.now() - last)) / 1000) });
+    }
+  }
+  await runCapabilityHandshake(config, connection.id);
   res.json({ ok: true });
 });
 
 commerceConnectionsRouter.post('/:workspaceId/commerce/connections/:connectionId/sync', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
+  const connection = await getConnectionForWorkspace(serverConfigOf(req), req.params.workspaceId, req.params.connectionId).catch(() => null);
+  if (!connection) return res.status(404).json({ error: 'not_found' });
+  // Direct connectors keep no catalogue in Web Yar — there is nothing to sync.
+  if (!providerProfile(connection.provider_type).catalogSync) return res.status(400).json({ error: 'sync_not_applicable' });
   try {
     const job = await enqueueSyncJob(serverConfigOf(req), req.params.workspaceId, req.params.connectionId, 'manual_resync');
     res.json({ ok: true, jobId: job?.id ?? null });
@@ -118,6 +140,8 @@ const permissionsSchema = z.object({
   tracking: z.boolean().optional(),
   customer_history: z.boolean().optional(),
   coupons: z.boolean().optional(),
+  // Separate switch for public reviews (read live by direct connectors).
+  reviews: z.boolean().optional(),
 }).strict();
 
 commerceConnectionsRouter.patch('/:workspaceId/commerce/connections/:connectionId/permissions', async (req, res) => {

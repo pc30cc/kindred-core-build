@@ -21,6 +21,7 @@ import {
   runCapabilityHandshake,
 } from '../../services/commerce/pairing.js';
 import { enqueueSyncJob } from '../../services/commerce/sync.js';
+import { providerProfile } from '../../services/commerce/providers.js';
 
 export const commercePairingRouter = Router();
 
@@ -36,6 +37,11 @@ const registerSchema = z.object({
   codeChallenge: z.string().min(32).max(200),
   redirectUri: z.string().url(),
   storeOrigin: z.string().url(),
+  // Optional and additive: the WooCommerce plugin sends none of these.
+  provider: z.enum(['woocommerce', 'opencart']).optional(),
+  externalStoreId: z.string().regex(/^\d{1,9}$/).optional(),
+  storeUrl: z.string().url().max(500).optional(),
+  platformVersion: z.string().max(20).optional(),
 }).strict();
 
 commercePairingRouter.post('/register', pairingLimiter, async (req, res) => {
@@ -47,8 +53,8 @@ commercePairingRouter.post('/register', pairingLimiter, async (req, res) => {
     // marks every field optional (a known zod/TS interaction), which fails
     // assignability against registerPairingRequest's required-field
     // signature even though every field is validated non-empty above.
-    const { state, codeChallenge, redirectUri, storeOrigin } = parsed.data;
-    const result = await registerPairingRequest(serverConfigOf(req), { state, codeChallenge, redirectUri, storeOrigin });
+    const { state, codeChallenge, redirectUri, storeOrigin, provider, externalStoreId, storeUrl, platformVersion } = parsed.data;
+    const result = await registerPairingRequest(serverConfigOf(req), { state, codeChallenge, redirectUri, storeOrigin, provider, externalStoreId, storeUrl, platformVersion });
     res.json({ ok: true, expiresAt: result.expiresAt });
   } catch (err) {
     if (err instanceof PairingError) return res.status(400).json({ error: err.code, message: err.message });
@@ -66,6 +72,7 @@ commercePairingRouter.get('/:state', pairingLimiter, async (req, res) => {
       redirectUri: view.redirectUri,
       requestedOrigin: view.requestedOrigin,
       providerType: view.providerType,
+      storeUrl: view.storeUrl ?? null,
       expired: view.expired,
       alreadyAuthorized: view.alreadyAuthorized,
     });
@@ -126,8 +133,12 @@ commercePairingRouter.post('/exchange', pairingLimiter, async (req, res) => {
     // moves health to 'connected', then the bounded initial sync begins.
     // Neither blocks the plugin's activation request on a network round trip
     // (spec §64 — pairing → handshake → initial sync → catalog_ready).
+    // Direct connectors (OpenCart) keep no catalogue in Web Yar: handshake
+    // only, never a sync job.
     void runCapabilityHandshake(config, result.connectionId)
-      .then(() => enqueueSyncJob(config, result.workspaceId, result.connectionId, 'initial_sync'))
+      .then(() => (providerProfile(result.providerType).catalogSync
+        ? enqueueSyncJob(config, result.workspaceId, result.connectionId, 'initial_sync')
+        : null))
       .catch(() => {});
     res.json({
       installationId: result.installationId,

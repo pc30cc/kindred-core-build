@@ -42,6 +42,7 @@ vi.mock('../../../server/services/commerce/productIndex.js', () => ({
 }));
 vi.mock('../../../server/services/commerce/gateway.js', () => ({
   getActiveConnectionForWorkspace: async () => connection,
+  resolveConversationConnection: async () => connection,
   assertCommerceModuleEntitled: async () => {},
   assertPermission: () => {},
   withCommerceConnector: async () => null,

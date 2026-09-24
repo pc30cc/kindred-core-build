@@ -13,6 +13,7 @@
  */
 import type { MonitoringCollector } from './types.js';
 import { KNOWN_REALTIME_METRICS } from './constants.js';
+import { renderCommercePrometheus } from '../../commerce/metrics.js';
 
 function escapeLabelValue(v: string): string {
   return v.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
@@ -83,6 +84,9 @@ export function renderPrometheusText(collector: MonitoringCollector): string {
   out.push('# HELP process_uptime_seconds Process uptime in seconds.');
   out.push('# TYPE process_uptime_seconds gauge');
   out.push(`process_uptime_seconds ${proc.uptime_seconds}`);
+
+  // commerce_* — live store reads (provider/op/outcome only; no ids).
+  out.push(...renderCommercePrometheus());
 
   return out.join('\n') + '\n';
 }

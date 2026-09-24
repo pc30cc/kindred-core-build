@@ -55,7 +55,7 @@ final class Identity {
 			'external_customer_id' => (string)$customerId,
 			'store_id'             => (string)$conn->storeId,
 			'customer_group_id'    => (string)(int)$customer['customer_group_id'],
-			'session_ref'          => $this->sessionRef($conn, $sessionId, $customerId, $now),
+			'session_ref'          => $this->sessionRef($conn, $sessionId, $customerId),
 			// Only what files the conversation under the right person.
 			'email'                => (string)$customer['email'],
 			'name'                 => trim($customer['firstname'] . ' ' . $customer['lastname']),
@@ -92,11 +92,8 @@ final class Identity {
 			throw new ApiError('identity_invalid', 401);
 		}
 
-		// A reference never outlives OpenCart's own maximum session lifetime.
-		if ((int)($decoded['iat'] ?? 0) < time() - max(86400, (int)$this->platform->config('session_expire')) * 30) {
-			throw new ApiError('identity_expired', 401);
-		}
-
+		// No age check of our own: the reference is only as alive as the
+		// OpenCart session it names, which is checked right below.
 		$session = (new SessionReader($this->db, $this->platform))->read((string)$decoded['sid']);
 
 		if ($session === null || (int)($session['customer_id'] ?? 0) !== $claimed) {
@@ -128,7 +125,11 @@ final class Identity {
 		return $scope !== 'registration_store' || (int)$customer['store_id'] === $storeId;
 	}
 
-	private function sessionRef(Connection $conn, string $sessionId, int $customerId, int $now): string {
-		return Crypto::encrypt($this->localKey, (string)json_encode(['sid' => $sessionId, 'cid' => $customerId, 'sto' => $conn->storeId, 'iat' => $now]), $conn->installationId);
+	/**
+	 * Same session + same customer + same store → the same reference, so Web
+	 * Yar can tell "nothing changed" by comparing strings and write nothing.
+	 */
+	private function sessionRef(Connection $conn, string $sessionId, int $customerId): string {
+		return Crypto::encryptDeterministic($this->localKey, (string)json_encode(['sid' => $sessionId, 'cid' => $customerId, 'sto' => $conn->storeId]), $conn->installationId);
 	}
 }

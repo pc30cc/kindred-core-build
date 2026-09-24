@@ -16,6 +16,7 @@ import os from 'node:os';
 import { envFlagEnabled, type ServerConfig } from '../../server/config.js';
 import { claimNextSyncJob, runSyncJobOnce, enqueueSyncJob } from '../../server/services/commerce/sync.js';
 import { runCapabilityHandshake } from '../../server/services/commerce/pairing.js';
+import { providersWithBackgroundWork } from '../../server/services/commerce/providers.js';
 import { getServiceClient } from '../../server/supabase.js';
 
 function clampInt(v: string | undefined, def: number, min: number, max: number): number {
@@ -102,7 +103,10 @@ export function startCommerceSyncWorker(): void {
         .from('commerce_connections')
         .select('id, workspace_id')
         .is('revoked_at', null)
-        .in('health', ['connected', 'degraded', 'offline']);
+        .in('health', ['connected', 'degraded', 'offline'])
+        // Direct connectors (OpenCart) are never polled and never synced:
+        // their health comes from real requests and the manual check.
+        .in('provider_type', providersWithBackgroundWork());
       for (const conn of connections ?? []) {
         await runCapabilityHandshake(config, conn.id).catch(() => {});
         await enqueueSyncJob(config, conn.workspace_id, conn.id, 'reconciliation').catch(() => {});

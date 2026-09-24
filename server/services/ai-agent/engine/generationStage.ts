@@ -210,8 +210,13 @@ export async function runGenerationStage(
   // "factual data only" tool-results block get_business_hours already uses.
   const commerceStage = await runCommerceToolStage(config, {
     workspaceId, conversationId: conversationId || null, question,
-  }).catch(() => ({ toolResults: [], toolsUsed: [] }));
-  const commerceUrls = urlsFromToolResults(commerceStage.toolResults);
+    locale, pageUrl: pageContext?.currentPageUrl ?? null,
+  }).catch(() => ({ toolResults: [], toolsUsed: [] } as Awaited<ReturnType<typeof runCommerceToolStage>>));
+  const commerceUrls = [...urlsFromToolResults(commerceStage.toolResults), ...(commerceStage.allowedUrls ?? [])];
+  // The signed-in customer changed (or signed out) in this browser: turns
+  // from before that must not carry the previous customer's private answers
+  // into this prompt.
+  const historyCutoffMs = commerceStage.historyCutoffAt ? new Date(commerceStage.historyCutoffAt).getTime() : NaN;
   if (commerceStage.toolResults.length) {
     const commerceBlock = renderToolResults(commerceStage.toolResults);
     toolResultsBlock = [toolResultsBlock, commerceBlock].filter(Boolean).join('\n');
@@ -254,13 +259,19 @@ export async function runGenerationStage(
   // rendered text block is only used as a fallback for that same context.
   // The current visitor message is delivered separately as `prompt`, so it
   // must never be duplicated as the last history turn.
-  const historyMessages = toModelMessages(built?.contextTurns || [])
+  const cutoffTurns = (built?.contextTurns || []).filter((t) => (
+    // A turn with no timestamp cannot be shown to be after the change, so it
+    // is dropped too once a cutoff applies.
+    Number.isNaN(historyCutoffMs) || (!!t.createdAt && new Date(t.createdAt).getTime() >= historyCutoffMs)
+  ));
+  const historyCutoffApplied = cutoffTurns.length !== (built?.contextTurns || []).length;
+  const historyMessages = toModelMessages(cutoffTurns)
     .filter((m, i, arr) => !(i === arr.length - 1 && m.role === 'user' && m.content.trim() === question));
   const userPrompt = buildUserPrompt(question, sources, strategy, {
     pageContext: pageContext ? { currentPageUrl: pageContext.currentPageUrl, currentPageTitle: pageContext.currentPageTitle } : null,
     pageMatched: pageExact || pagePath,
     // Phase 2.1 — bounded multi-turn context, already tenant-scoped.
-    conversationContext: historyMessages.length ? null : (built?.conversationContext || null),
+    conversationContext: historyMessages.length || historyCutoffApplied ? null : (built?.conversationContext || null),
     // Phase 2.7 — warn the model when sources materially disagree.
     conflictDetected: strategy.conflictDetected,
     toolResults: toolResultsBlock,
@@ -387,7 +398,11 @@ export async function runGenerationStage(
   }
   aiResult = {
     ...aiResult,
-    text: await verifyStoreLinks(config, workspaceId, aiResult.text || '').catch(() => aiResult.text || ''),
+    text: await verifyStoreLinks(config, workspaceId, aiResult.text || '', {
+      conversationId: conversationId || null,
+      pageUrl: pageContext?.currentPageUrl ?? null,
+      allowedUrls: commerceUrls,
+    }).catch(() => aiResult.text || ''),
   };
 
   // Fold model-reported state into the deterministic memory patch. Model

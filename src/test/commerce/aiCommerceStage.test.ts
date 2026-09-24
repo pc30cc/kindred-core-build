@@ -87,6 +87,7 @@ vi.mock('../../../server/services/commerce/gateway.js', async (orig) => {
   return {
     ...real,
     getActiveConnectionForWorkspace: async () => connection,
+    resolveConversationConnection: async () => connection,
     assertCommerceModuleEntitled: async () => {},
     // Live revalidation: the store answers with the same figures the index
     // holds, which is the normal case for a catalogue nothing just changed.

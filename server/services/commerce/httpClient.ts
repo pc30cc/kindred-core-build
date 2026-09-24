@@ -19,11 +19,21 @@ export interface CommerceHttpRequest {
   body?: string;
   /** Only GET-shaped reads may be retried — never a mutating call. */
   retryable?: boolean;
+  /**
+   * Per-request wall-clock cap, clamped to TOTAL_TIMEOUT_MS. Callers that run
+   * under a per-turn deadline pass what is LEFT of it, so one slow store can
+   * never overrun the turn.
+   */
+  timeoutMs?: number;
+  /** Response size cap, clamped to MAX_RESPONSE_BYTES. */
+  maxBytes?: number;
 }
 
 export interface CommerceHttpResponse {
   status: number;
   json: unknown;
+  /** Bytes actually received — measured, for the resource report. */
+  bytes?: number;
 }
 
 async function fetchOnce(req: CommerceHttpRequest): Promise<CommerceHttpResponse> {
@@ -34,7 +44,9 @@ async function fetchOnce(req: CommerceHttpRequest): Promise<CommerceHttpResponse
   if (check.ok === false) throw new CommerceError('commerce_invalid_response', `blocked outbound url: ${check.reason}`);
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS);
+  const timeoutMs = Math.max(1, Math.min(req.timeoutMs ?? TOTAL_TIMEOUT_MS, TOTAL_TIMEOUT_MS));
+  const maxBytes = Math.max(1, Math.min(req.maxBytes ?? MAX_RESPONSE_BYTES, MAX_RESPONSE_BYTES));
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(req.url, {
       method: req.method,
@@ -61,7 +73,7 @@ async function fetchOnce(req: CommerceHttpRequest): Promise<CommerceHttpResponse
         const { done, value } = await reader.read();
         if (done) break;
         received += value.byteLength;
-        if (received > MAX_RESPONSE_BYTES) {
+        if (received > maxBytes) {
           await reader.cancel().catch(() => {});
           throw new CommerceError('commerce_invalid_response', 'response exceeded size limit');
         }
@@ -77,7 +89,7 @@ async function fetchOnce(req: CommerceHttpRequest): Promise<CommerceHttpResponse
       throw new CommerceError('commerce_invalid_response', 'invalid JSON from plugin origin');
     }
 
-    return { status: res.status, json };
+    return { status: res.status, json, bytes: received };
   } catch (err) {
     if (err instanceof CommerceError) throw err;
     if ((err as any)?.name === 'AbortError') throw new CommerceError('commerce_timeout', 'plugin request timed out');

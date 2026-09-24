@@ -25,21 +25,27 @@ export type CommerceIntent =
   | { kind: 'browse_products' }
   | { kind: 'product_reviews'; text: string }
   | { kind: 'list_categories' }
+  | { kind: 'order_returns' }
   | { kind: 'store_info' };
 
-const ORDER_KEYWORDS = /سفارش|پیگیری مرسوله|tracking number|track my order|order status|where.{0,15}my order/i;
-const ORDER_NUMBER_RE = /(?:سفارش|order)\D{0,15}#?\s*(\d{3,12})/i;
+// Turkish (sipariş/kargo/takip) is additive: it only ever turns "no intent"
+// into an order question, never changes how a Persian or English one reads.
+const ORDER_KEYWORDS = /سفارش|پیگیری مرسوله|tracking number|track my order|order status|where.{0,15}my order|my orders|sipariş|kargom|kargo takip|siparişim/i;
+const ORDER_NUMBER_RE = /(?:سفارش|order|sipariş)\D{0,15}#?\s*(\d{3,12})/i;
+// «مرجوعی من کجاست» / "my return status" / «iade durumum» — the customer's OWN
+// returns, not the return POLICY (a knowledge-base question).
+const RETURN_STATUS_KEYWORDS = /(?:مرجوعی|مرجوع|برگشت)\s*(?:من|ام|م\b)|وضعیت\s*(?:مرجوعی|مرجوع)|my returns?\b|return status|iade(?:m|lerim| durum)/i;
 // "«X» دارید؟" is how a Persian shopper asks whether a store stocks
 // something at all — far more common than the word موجود — and it used to
 // produce no commerce intent whatsoever, so the store stayed invisible for
 // the most ordinary question it receives. Bare «داری» is deliberately
 // excluded: it is the second person singular that shows up in phrases like
 // «دوست داری», which are not about stock.
-const AVAILABILITY_KEYWORDS = /موجود(ه|است|ی)?|in stock|available\??|هست؟?$|دارید|دارین|می‌فروشید|میفروشید/i;
+const AVAILABILITY_KEYWORDS = /موجود(ه|است|ی)?|in stock|available\??|هست؟?$|دارید|دارین|می‌فروشید|میفروشید|stokta|stok var|var mı|mevcut mu|do you (?:have|sell|carry|stock)|have you got|got any/i;
 // Checked BEFORE availability, so that the handful of «… دارید؟» questions
 // that are about the shop rather than its catalogue — opening hours,
 // branches, an address — do not get answered with a product's stock level.
-const STORE_INFO_KEYWORDS = /ساعا?ت کاری|فروشگاه شما کجاست|آدرس فروشگاه|شعبه|نمایندگی|store hours|about your store/i;
+const STORE_INFO_KEYWORDS = /ساعا?ت کاری|فروشگاه شما کجاست|آدرس فروشگاه|شعبه|نمایندگی|store hours|about your store|çalışma saatleri|mağaza adresi/i;
 // A shopper asking what the shop sells, rather than for one named thing.
 // «محصولات الان چی دارید ؟» used to match PRODUCT_INTENT_KEYWORDS on the word
 // «محصول» and be run as a NAME search for the word "products" — which matches
@@ -55,12 +61,12 @@ const STORE_INFO_KEYWORDS = /ساعا?ت کاری|فروشگاه شما کجاس
 // missed the most obvious phrasing of all — «نظرات در مورد این محصول چیه».
 // The plural/compound forms are listed instead, which also keeps «نظرت چیه»
 // (the visitor asking the ASSISTANT's opinion) out of it.
-const REVIEW_KEYWORDS = /نظرات|نظرها|نظرهای|نظر مشتری|نظر کاربر|ریویو|reviews?|امتیاز|چند ستاره|ستاره گرفته|rating/i;
-const BROWSE_KEYWORDS = /چی\s*(?:دارید|دارین|داری)|چیا\s*(?:دارید|دارین)|چه\s*محصولات|لیست\s*محصولات|همه[\s\u200c]*محصولات|محصولات\s*(?:شما|تون|خودتون)|what\s+(?:do\s+you\s+)?(?:have|sell)|product\s+list|show\s+me\s+(?:your\s+)?products/i;
+const REVIEW_KEYWORDS = /نظرات|نظرها|نظرهای|نظر مشتری|نظر کاربر|ریویو|reviews?|امتیاز|چند ستاره|ستاره گرفته|rating|yorumlar|yorumları|değerlendirme|kaç yıldız/i;
+const BROWSE_KEYWORDS = /چی\s*(?:دارید|دارین|داری)|چیا\s*(?:دارید|دارین)|چه\s*محصولات|لیست\s*محصولات|همه[\s\u200c]*محصولات|محصولات\s*(?:شما|تون|خودتون)|what\s+(?:do\s+you\s+)?(?:have|sell)|product\s+list|show\s+me\s+(?:your\s+)?products|neler var|ne satıyorsunuz|ürünleriniz|ürün listesi/i;
 // «دسته بندی», «دسته‌بندی» and «دسته‌بندی‌ها» — the space and the ZWNJ are
 // both ordinary spellings of the same word.
-const CATEGORY_KEYWORDS = /دسته[\s\u200c]*بندی|دسته[\s\u200c]*ها\b|categor(?:y|ies)/i;
-const PRODUCT_INTENT_KEYWORDS = /محصول|کفش|لباس|قیمت|خرید|بخرم|می‌خوام|میخوام|می‌خواستم|میخواستم|معرفی کن|پیشنهاد|product|buy|price|recommend|looking for/i;
+const CATEGORY_KEYWORDS = /دسته[\s\u200c]*بندی|دسته[\s\u200c]*ها\b|categor(?:y|ies)|kategori/i;
+const PRODUCT_INTENT_KEYWORDS = /محصول|کفش|لباس|قیمت|خرید|بخرم|می‌خوام|میخوام|می‌خواستم|میخواستم|معرفی کن|پیشنهاد|product|buy|price|recommend|looking for|ürün|fiyat|satın al|önerir misin|arıyorum/i;
 
 const MILLION_TOMAN_RE = /(\d+(?:[.,]\d+)?)\s*میلیون/;
 const THOUSAND_TOMAN_RE = /(\d+(?:[.,]\d+)?)\s*هزار/;
@@ -133,6 +139,7 @@ export function detectCommerceIntent(question: string): CommerceIntent {
 
   const orderNumberMatch = scan.match(ORDER_NUMBER_RE);
   if (orderNumberMatch) return { kind: 'order_lookup', orderNumber: orderNumberMatch[1] };
+  if (RETURN_STATUS_KEYWORDS.test(scan)) return { kind: 'order_returns' };
   if (ORDER_KEYWORDS.test(scan)) return { kind: 'order_status' };
 
   if (STORE_INFO_KEYWORDS.test(scan)) return { kind: 'store_info' };
@@ -172,4 +179,50 @@ export function detectCommerceIntent(question: string): CommerceIntent {
   }
 
   return { kind: 'none' };
+}
+
+// ── Follow-up references (direct connectors) ──────────────────────────
+//
+// «دومی رنگ مشکی داره؟», "the second one", «ikincisi» — a question about a
+// result the assistant listed earlier in THIS conversation. Resolved against
+// the ids kept in conversation metadata (never against text the model wrote),
+// and every order id is re-checked for ownership by the store.
+
+const ORDINALS: Array<[RegExp, number]> = [
+  [/(?:^|\s)(?:اولی|اولین|اوّلی|first(?: one)?|1st|ilki|birinci(?:si)?)(?:\s|$|[؟?.,!])/i, 1],
+  [/(?:^|\s)(?:دومی|دومین|second(?: one)?|2nd|ikinci(?:si)?)(?:\s|$|[؟?.,!])/i, 2],
+  [/(?:^|\s)(?:سومی|سومین|third(?: one)?|3rd|üçüncü(?:sü)?)(?:\s|$|[؟?.,!])/i, 3],
+  [/(?:^|\s)(?:چهارمی|چهارمین|fourth(?: one)?|4th|dördüncü(?:sü)?)(?:\s|$|[؟?.,!])/i, 4],
+  [/(?:^|\s)(?:پنجمی|پنجمین|fifth(?: one)?|5th|beşinci(?:si)?)(?:\s|$|[؟?.,!])/i, 5],
+];
+const LAST_RE = /(?:^|\s)(?:آخری|last one|the last|sonuncu(?:su)?)(?:\s|$|[؟?.,!])/i;
+const MORE_RE = /بیشتر نشون|موارد بیشتر|بقیه(?:ش|ـش)?|بعدی(?:ها)?|ادامه(?:‌|\s)?(?:بده|لیست)|صفحه بعد|show more|more results|next page|any more|daha fazla|devamı|sonraki sayfa/i;
+const LAST_ORDER_RE = /(?:سفارش|خرید)\s*(?:آخر|آخری|قبلی)|آخرین\s*(?:سفارش|خرید)|last order|latest order|most recent order|son sipariş/i;
+const TRACKING_RE = /رهگیری|مرسوله|ارسال\s*(?:شد|شده|میشه|می‌شه)|کی\s*(?:می‌رسه|میرسه|میاد)|پست|پیک|تحویل|tracking|shipped|shipping|delivery|deliver|kargo|takip|teslim/i;
+const FRESHNESS_RE = /الان|همین\s*الان|هنوز|فعلا|فعلاً|currently|right now|still|at the moment|şu an|hala|hâlâ/i;
+const OPTION_RE = /رنگ|سایز|اندازه|مدل|گزینه|ویژگی|مشخصات|color|colour|size|option|variant|spec|renk|beden|boyut|özellik/i;
+
+export interface FollowUp {
+  /** 1-based position in the last listed results, or 'last'. */
+  ordinal: number | 'last' | null;
+  more: boolean;
+  lastOrder: boolean;
+  wantsTracking: boolean;
+  wantsFresh: boolean;
+  aboutOptions: boolean;
+}
+
+export function detectFollowUp(question: string): FollowUp {
+  const text = normalizeDigits((question || '').trim());
+  let ordinal: FollowUp['ordinal'] = null;
+  for (const [re, n] of ORDINALS) if (re.test(` ${text} `)) { ordinal = n; break; }
+  if (ordinal === null && LAST_RE.test(` ${text} `) && !LAST_ORDER_RE.test(text)) ordinal = 'last';
+  return {
+    ordinal,
+    more: MORE_RE.test(text),
+    lastOrder: LAST_ORDER_RE.test(text),
+    wantsTracking: TRACKING_RE.test(text),
+    wantsFresh: FRESHNESS_RE.test(text),
+    aboutOptions: OPTION_RE.test(text),
+  };
 }

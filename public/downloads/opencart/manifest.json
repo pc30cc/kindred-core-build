@@ -12,7 +12,7 @@
       "php": ">=8.1",
       "path": "/downloads/opencart/4.1/webyar.ocmod.zip",
       "file": "webyar.ocmod.zip",
-      "sha256": "73259235455f3a220fa86939a6dbbe2a5b01ee279448faa2555c2f13560b14e9"
+      "sha256": "a15d94f0ff9b956e8bed3325eecc1c2d2eca09b2b81219c315937db21d66ea06"
     },
     {
       "opencart": "3.0.5.x",
@@ -22,7 +22,7 @@
       "php": ">=8.1",
       "path": "/downloads/opencart/3.0/webyar-oc3.ocmod.zip",
       "file": "webyar-oc3.ocmod.zip",
-      "sha256": "2c4fd96ba7c5c10beeb74fdf5749fbbbeaf427242b9c672d0b65dc827ecaedfa"
+      "sha256": "e251614976e98f40d1975ec5ab03598456865dbe1252014ee7c81190a1f4ed6f"
     }
   ]
 }

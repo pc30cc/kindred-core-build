@@ -45,6 +45,25 @@ final class Crypto {
 		return self::base64url($iv . $tag . $cipher);
 	}
 
+	/**
+	 * Deterministic variant: the IV is derived from the key and the
+	 * plaintext, so the same plaintext always yields the same ciphertext.
+	 * Used ONLY for the opaque session reference, where "same session, same
+	 * customer" must be recognisable by equality (so re-opening the widget
+	 * writes nothing on Web Yar's side). It reveals equality and nothing else.
+	 */
+	public static function encryptDeterministic(string $key, string $plain, string $aad = ''): string {
+		$iv = substr(hash_hmac('sha256', $aad . "\0" . $plain, self::key32($key . '|iv'), true), 0, 12);
+		$tag = '';
+		$cipher = openssl_encrypt($plain, 'aes-256-gcm', self::key32($key), OPENSSL_RAW_DATA, $iv, $tag, $aad, 16);
+
+		if ($cipher === false) {
+			throw new \RuntimeException('encryption failed');
+		}
+
+		return self::base64url($iv . $tag . $cipher);
+	}
+
 	public static function decrypt(string $key, string $encoded, string $aad = ''): ?string {
 		$raw = self::base64urlDecode($encoded);
 

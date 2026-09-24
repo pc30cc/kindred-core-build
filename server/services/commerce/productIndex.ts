@@ -161,6 +161,11 @@ const QUESTION_WORDS = new Set([
   'a', 'an', 'the', 'is', 'are', 'do', 'you', 'have', 'got', 'any', 'some', 'me', 'my', 'i',
   'show', 'find', 'want', 'need', 'looking', 'for', 'under', 'over', 'best', 'good', 'cheap',
   'please', 'hi', 'hello', 'what', 'which', 'how', 'much', 'price', 'in', 'stock', 'available',
+  // Persian price/stock phrasing that names no product.
+  'قیمت', 'قیمتش', 'قیمته', 'چنده', 'موجودی', 'داره', 'دارن',
+  // Turkish equivalents (additive; used by every connector's term builder).
+  'var', 'mı', 'mi', 'mu', 'mü', 'ne', 'kaç', 'fiyat', 'fiyatı', 'ürün', 'ürünü', 'bir', 've', 'ile', 'için',
+  'bu', 'şu', 'lütfen', 'merhaba', 'istiyorum', 'arıyorum', 'stokta', 'mevcut', 'en', 'iyi', 'ucuz', 'altında',
 ]);
 
 /**

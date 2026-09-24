@@ -21,6 +21,7 @@ import { CommerceError, type CommerceConnectorContext } from '../../../shared/co
 import { getConnectionForWorkspace } from './gateway.js';
 import { readInstallationSecret } from './credentials.js';
 import { WooCommerceConnector } from './connectors/woocommerce.js';
+import { providerProfile } from './providers.js';
 import {
   requestVerificationChallenge,
   verifyVerificationChallenge,
@@ -39,6 +40,9 @@ export interface StartGuestVerificationInput {
 export async function startGuestOrderVerification(config: ServerConfig, input: StartGuestVerificationInput) {
   const connection = await getConnectionForWorkspace(config, input.workspaceId, input.connectionId);
   if (!connection || connection.revoked_at) throw new CommerceError('commerce_not_connected', 'not connected');
+  // OpenCart guests sign in to the store instead: no contact-match + OTP
+  // path exists for it, and an e-mail or order number alone is never proof.
+  if (!providerProfile(connection.provider_type).guestOtp) throw new CommerceError('identity_required', 'sign in to the store to see orders');
 
   const secret = await readInstallationSecret(config, connection.installation_id);
   if (!secret) throw new CommerceError('commerce_not_connected', 'no installation credential');

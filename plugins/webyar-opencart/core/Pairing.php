@@ -25,7 +25,7 @@ final class Pairing {
 	}
 
 	/** @return string the Web Yar authorize URL to send the admin to */
-	public function start(int $storeId, string $storeUrl, string $callbackUrl, string $appBase, string $apiBase): string {
+	public function start(int $storeId, string $storeUrl, string $callbackUrl, string $appBase, string $apiBase, string $platformVersion = ''): string {
 		$appBase = rtrim($appBase, '/');
 		$apiBase = rtrim($apiBase ?: $appBase, '/');
 
@@ -46,6 +46,7 @@ final class Pairing {
 			'provider'        => 'opencart',
 			'externalStoreId' => (string)$storeId,
 			'storeUrl'        => $storeUrl,
+			'platformVersion' => substr($platformVersion, 0, 20),
 		], JSON_UNESCAPED_SLASHES));
 
 		if ($response['status'] !== 200) {

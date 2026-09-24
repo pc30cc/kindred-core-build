@@ -84,6 +84,10 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
+        # Calls: WebRTC must receive its media (UDP) as well as send it. Without
+        # this the room connects and then its transport fails about ten seconds
+        # later — LiveKit's documented requirement for sandboxed Mac apps.
+        com.apple.security.network.server: true
         com.apple.security.device.audio-input: true
         com.apple.security.device.camera: true
         com.apple.security.files.user-selected.read-write: true

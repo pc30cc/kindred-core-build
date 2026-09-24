@@ -183,6 +183,7 @@ final class LiveCall {
             adaptiveStream: true,
             dynacast: true
         )
+        Log.write("[call] joining \(URL(string: url)?.host ?? "?") ice=\(ice.count) relay=\(relay)")
         do {
             try await room.connect(url: url, token: token, connectOptions: connectOptions, roomOptions: roomOptions)
         } catch {

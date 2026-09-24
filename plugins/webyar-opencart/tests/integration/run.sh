@@ -13,8 +13,9 @@
 #   run.sh test   (once per fresh `up`) for each version: install the built package through the
 #                 real admin, seed, pair (test-only record), then the PHP
 #                 scenarios, the TypeScript end-to-end run, SQL measurement,
-#                 the admin checks, the upgrade check and the self-update
-#                 check. Results land in $WYOC/sp/*.json.
+#                 the admin checks, the settings page clicked in a real
+#                 browser (PW_CHROMIUM=<path> if Playwright's own is not
+#                 installed), the upgrade check and the self-update check. Results land in $WYOC/sp/*.json.
 #   run.sh down   stop every process started by `up` and delete $WYOC.
 #
 # Nothing listens on anything but 127.0.0.1; nothing here ever talks to a
@@ -144,6 +145,9 @@ test_all() {
     python3 admin_checks.py "$major" "http://127.0.0.1:$p0" "$name" >"$SP/admin-$name.json" || status=1
     echo "$ver admin checks: $(python3 -c "import json;d=json.load(open('$SP/admin-$name.json'));print(d['passed'],'/',d['passed']+d['failed'],'page view SQL',d['pageview_queries'])")"
     pair "$name" "$major" 1 "$p1"   # admin_checks disconnected store 1
+
+    (cd "$REPO" && node "$HERE/browser_checks.mjs" "$major" "http://127.0.0.1:$p0" "$SP/browser-$name.png" >"$SP/browser-$name.json" 2>&1) || status=1
+    echo "$ver browser clicks: $(python3 -c "import json;d=json.load(open('$SP/browser-$name.json'));print(d['passed'],'/',d['passed']+d['failed'])" 2>/dev/null || echo FAILED)"
 
     echo "$ver upgrade: $(./upgrade_check.sh "$major" "http://127.0.0.1:$p0" "$name" "$zip" 2>&1 | tail -1)"
 

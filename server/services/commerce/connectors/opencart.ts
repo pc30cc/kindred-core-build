@@ -80,7 +80,7 @@ const MIN_RETRY_BUDGET_MS = 1_500;
  * is asked — at most once per UPDATE_NUDGE_INTERVAL_MS — to update itself.
  * Kept equal to core/Protocol.php CONNECTOR_VERSION by a test.
  */
-export const OPENCART_LATEST_CONNECTOR_VERSION = '1.1.0';
+export const OPENCART_LATEST_CONNECTOR_VERSION = '1.1.1';
 export const UPDATE_NUDGE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 /** Downloading and swapping a ~100 KB package takes a store a few seconds. */
 const UPDATE_DEADLINE_MS = 45_000;

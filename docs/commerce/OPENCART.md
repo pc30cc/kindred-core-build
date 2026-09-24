@@ -122,7 +122,12 @@ update itself).
   too, but uninstalling the module disconnects the store and clears its
   settings, so it must be connected again.
 
-Settings and connections are kept on the copy-over path. The first admin
+Settings and connections are kept on the copy-over path. Every file in a
+package carries one date derived from its version (reproducible, but
+different for each release): PHP's opcache and OpenCart's Twig cache judge
+"changed?" by file date, and unzip / FTP keep it. On a version change the
+extension also drops OpenCart's compiled copies of its own templates (1.1.1+),
+since the package date is older than any compiled copy. The first admin
 visit after the upgrade re-runs the idempotent install steps once: it ensures
 the table, records the schema flags and re-registers the widget event
 (delete, then add, so there are never two). This is tested on all three
@@ -491,7 +496,8 @@ sanitized; a `tracking_url` must be http(s).
 |---|---|---|
 | 68 plugin scenarios (signature, replay, skew, forged; visibility; specials/tiers/options/stock/tax/currency; price hiding; reviews; identity lifecycle: logout, expiry, switch, disabled, cross-store; ownership tampering; custom status; tracking absent; returns; merchant toggles; multi-store) | `plugins/webyar-opencart/tests/integration/scenarios.py` | **Real** OpenCart 4.1.0.4, 4.1.0.0, 3.0.5.1, MariaDB 10.11, PHP 8.4 — all 68 pass on each |
 | Admin: form token, forged token, https rules, widget once per page / never in admin / off switch, 0 extension queries per page view, disconnect one store, credential encrypted | `admin_checks.py` | **Real** installs — 16/16 on each |
-| Install / upgrade / uninstall through OpenCart's own installer | `oc_admin.py`, `upgrade_check.sh` | **Real** installs |
+| Install / upgrade / uninstall; hand upgrade keeping the package's file dates (as unzip / FTP do) must render the new page | `oc_admin.py`, `upgrade_check.sh`, `copy_over.py` | **Real** installs |
+| The settings page clicked in a real browser: every form carries the session token, Save, the autosave widget switch, Check connection, Check for updates, the disconnect confirmation | `browser_checks.mjs` (Playwright) | **Real** installs, real Chromium |
 | Self-update: Web Yar push, admin button, admin-visit fallback; refusals (foreign signature, checksum mismatch, owner switched off); files really swapped, `extension_path` updated, no leftovers, shop still works | `update_check.py` against a loopback release server with a throwaway key | **Real** installs |
 | Update manifest, zip entry rules (traversal, absolute, symlink, file types, targets), I18n, connection result page | `plugins/webyar-opencart/tests/unit/run.php` | Unit, no framework |
 | The committed release is signed and matches its archives | `src/test/commerce/opencartRelease.test.ts` | The real committed files |

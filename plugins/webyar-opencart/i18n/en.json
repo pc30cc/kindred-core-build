@@ -53,6 +53,7 @@
   "text_unsupported": "This extension supports OpenCart {supported} on PHP 8.1 or newer. This shop runs OpenCart %s.",
   "error_permission": "You do not have permission to change the {brand} extension.",
   "error_csrf": "This form has expired. Reload the page and try again.",
+  "error_network": "Could not reach this store's admin. Reload the page and try again.",
   "error_store": "Unknown store.",
   "error_https": "The store address must use https:// to connect.",
   "error_storage": "The extension could not create its key file in OpenCart's storage folder. Check that the storage folder is writable.",

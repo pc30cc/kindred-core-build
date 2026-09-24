@@ -362,6 +362,7 @@ final class Updater {
 		// The new code finishes its own upgrade (schema, event) on its first
 		// admin visit; the schema step it needs for API calls is idempotent.
 		(new Schema($this->db, $this->platform->databaseName()))->install();
+		self::clearTemplateCache(defined('DIR_CACHE') ? (string)constant('DIR_CACHE') : '');
 	}
 
 	/** @param array<string,mixed> $result */
@@ -379,6 +380,42 @@ final class Updater {
 
 	private function unlock(): void {
 		$this->db->row('SELECT RELEASE_LOCK(' . $this->db->str('webyar_update_' . $this->platform->databaseName()) . ') AS `l`');
+	}
+
+	/**
+	 * Drops OpenCart's compiled copies of this extension's templates.
+	 *
+	 * OpenCart's Twig recompiles only when a template is NEWER than its
+	 * compiled copy. Packages carry a fixed file date (reproducible builds),
+	 * and unzip / FTP keep it, so after a hand-copied upgrade the old page
+	 * would keep rendering. Run on every version change; touches only
+	 * compiled files that name a Web Yar template.
+	 *
+	 * @return int compiled files removed
+	 */
+	public static function clearTemplateCache(string $cacheDir): int {
+		$dir = rtrim($cacheDir, '/') . '/template';
+
+		if ($cacheDir === '' || !is_dir($dir)) {
+			return 0;
+		}
+
+		$removed = 0;
+		$files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS));
+
+		foreach ($files as $file) {
+			if (!$file->isFile() || $file->getExtension() !== 'php') {
+				continue;
+			}
+
+			$head = (string)file_get_contents($file->getPathname(), false, null, 0, 4096);
+
+			if (preg_match('#/\* [a-z0-9_/]*module/webyar\.twig \*/#', $head) && unlink($file->getPathname())) {
+				$removed++;
+			}
+		}
+
+		return $removed;
 	}
 
 	private static function existingParent(string $dir): string {

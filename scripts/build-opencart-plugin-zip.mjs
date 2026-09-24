@@ -56,7 +56,16 @@ const BRAND = {
 };
 // Directory names OpenCart language packs commonly use for each locale.
 const LANGUAGE_DIRS = { en: ['en-gb'], fa: ['fa-ir', 'fa'], tr: ['tr-tr', 'tr'] };
-const FIXED_TIME = new Date('2026-01-01T00:00:00Z');
+// Every file carries one date, fixed per VERSION (reproducible builds) but
+// different for every version: PHP's opcache and OpenCart's Twig cache
+// decide "changed?" by file date, and a merchant's unzip / FTP keeps it, so
+// two versions with the same date would keep running the old compiled code.
+// 1.1.1 → 2026-01-01 + 10101 minutes; grows with the version.
+const FIXED_TIME = (() => {
+  const [major, minor, patch] = version.split('.').map(Number);
+  if (minor > 99 || patch > 99) throw new Error('version parts above 99 need a new FIXED_TIME scheme');
+  return new Date(Date.UTC(2026, 0, 1) + (major * 10000 + minor * 100 + patch) * 60_000);
+})();
 
 function phpString(value) {
   return `'${String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;

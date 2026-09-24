@@ -53,6 +53,7 @@
   "text_unsupported": "Bu eklenti PHP 8.1 veya üzeri ile OpenCart {supported} destekler. Bu mağaza OpenCart %s çalıştırıyor.",
   "error_permission": "{brand} eklentisini değiştirme yetkiniz yok.",
   "error_csrf": "Bu formun süresi doldu. Sayfayı yenileyip tekrar deneyin.",
+  "error_network": "Mağaza yönetimine ulaşılamadı. Sayfayı yenileyip tekrar deneyin.",
   "error_store": "Bilinmeyen mağaza.",
   "error_https": "Bağlanmak için mağaza adresi https:// olmalıdır.",
   "error_storage": "Eklenti, OpenCart'ın storage klasöründe anahtar dosyasını oluşturamadı. Klasörün yazılabilir olduğunu kontrol edin.",

@@ -29,6 +29,20 @@ struct AuthBackdrop: View {
                 startRadius: 0,
                 endRadius: 420
             )
+
+            // A second, cooler pool low on the screen.
+            //
+            // One light source lit the top and left the bottom third a flat
+            // slab of one colour, which is exactly where the sign-in button
+            // and the mark sit. Two gives the screen a gradient down its
+            // whole height without either pool being bright enough to notice
+            // as a shape.
+            RadialGradient(
+                colors: [Theme.Palette.brand.opacity(0.08), .clear],
+                center: UnitPoint(x: 0.12, y: 0.94),
+                startRadius: 0,
+                endRadius: 360
+            )
         }
         .ignoresSafeArea()
         .accessibilityHidden(true)
@@ -55,7 +69,9 @@ struct AuthCard<Content: View>: View {
                 RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
                     .strokeBorder(Theme.Palette.separator.opacity(0.55), lineWidth: 0.5)
             )
-            .shadow(color: .black.opacity(0.07), radius: 18, x: 0, y: 8)
+            // The theme's own "this is a card" lift, rather than a fourth
+            // hand-tuned shadow in a codebase that has three names for one.
+            .elevated(.raised)
     }
 }
 
@@ -134,10 +150,13 @@ struct AuthErrorBanner: View {
                 .multilineTextAlignment(.leading)
         }
         .padding(Theme.Space.md)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous)
-                .fill(Theme.Palette.danger.opacity(0.10))
-        )
+        .background {
+            let shape = RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+            shape.fill(Theme.Palette.danger.opacity(0.10))
+                // A wash this pale over a tinted backdrop is a smudge; the
+                // hairline is what makes it a banner.
+                .overlay(shape.strokeBorder(Theme.Palette.danger.opacity(0.25), lineWidth: 0.5))
+        }
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 }

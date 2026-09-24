@@ -8,8 +8,10 @@ struct ChatView: View {
 
     var body: some View {
         if let chat = inbox.chat {
-            ThreadView(chat: chat)
-                .id(chat.id)
+            GeometryReader { g in
+                ThreadView(chat: chat, columnWidth: g.size.width)
+            }
+            .id(chat.id)
         } else {
             VStack(spacing: 18) {
                 EmptyState(systemImage: "bubble.left.and.text.bubble.right", title: app.strings["noConversationSelected"], message: app.strings["noConversationSelectedBody"])
@@ -27,18 +29,20 @@ struct ChatView: View {
 struct ThreadView: View {
     let chat: ChatModel
     @Environment(AppModel.self) private var app
-    @State private var dropping = false
-    /// The whole thread area, details included: the details only show beside a
+    /// The whole column, details included: the details only show beside a
     /// thread that has room for both, as on Windows (wider than 820).
-    @State private var width: CGFloat = 1200
-    @State private var showDetails = true
+    let columnWidth: CGFloat
+    @State private var dropping = false
+
+    private var showDetails: Bool { app.settings.detailsOpen && columnWidth > 820 }
+    private var width: CGFloat { columnWidth - (showDetails ? 290 : 0) }
 
     var body: some View {
         MessagesView(chat: chat)
             .background(Palette.chatBackground)
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
-                ThreadHeader(chat: chat, width: width, roomForDetails: width + (showDetails ? 290 : 0) > 820)
+                ThreadHeader(chat: chat, width: width, roomForDetails: columnWidth > 820)
                 if let notice = chat.notice {
                     Banner(severity: notice.severity, message: notice.message,
                            actionTitle: notice.retry ? app.strings["retry"] : nil,
@@ -74,26 +78,12 @@ struct ThreadView: View {
                 return true
             }
             .animation(.smooth(duration: 0.2), value: chat.notice)
-            .onChange(of: app.settings.detailsOpen) { _, _ in fitDetails() }
-            .inspector(isPresented: Binding(get: { showDetails }, set: { app.settings.detailsOpen = $0; app.saveSettings(); fitDetails() })) {
+            .inspector(isPresented: Binding(get: { showDetails }, set: { app.settings.detailsOpen = $0; app.saveSettings() })) {
                 DetailsPanel(chat: chat)
                     .inspectorColumnWidth(min: 260, ideal: 290, max: 380)
             }
-            .background {
-                GeometryReader { g in
-                    Color.clear
-                        .onAppear { width = g.size.width; fitDetails() }
-                        .onChange(of: g.size.width) { _, w in width = w; fitDetails() }
-                }
-            }
     }
 
-    /// The measured width excludes the details while they show; count them back in.
-    private func fitDetails() {
-        let full = width + (showDetails ? 290 : 0)
-        let next = app.settings.detailsOpen && full > 820
-        if next != showDetails { showDetails = next }
-    }
 }
 
 // MARK: - Header

@@ -26,6 +26,7 @@ struct DetailsPanel: View {
                 notes(s)
             }
             .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

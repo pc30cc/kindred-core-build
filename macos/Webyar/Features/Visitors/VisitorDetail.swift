@@ -62,6 +62,7 @@ struct VisitorPanel: View {
                         historySection(s)
                     }
                     .padding(EdgeInsets(top: 18, leading: 18, bottom: 24, trailing: 18))
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
                 Spacer()

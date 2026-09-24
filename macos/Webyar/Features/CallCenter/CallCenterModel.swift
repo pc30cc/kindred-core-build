@@ -56,7 +56,7 @@ final class CallCenterModel {
     private(set) var addingNote = false
     var noteDraft = ""
     var notice: CallDeskNotice?
-    /// Bumped to move the keyboard into the notes box (wrap-up).
+    /// Bumped to move the keyboard into the notes box (the wrap-up strip's button).
     private(set) var focusNoteRequest = 0
     /// Bumped with the call to scroll the list to.
     private(set) var scrollRequest: String?
@@ -67,7 +67,7 @@ final class CallCenterModel {
     /// As if the in-call window had just hung up the call picked.
     func debugDeskCallEnded(_ part: String = "") {
         switch part {
-        case "notice": notice = CallDeskNotice(severity: .info, title: app.strings["ccWrapUp"], message: app.strings["ccWrapUpHint"])
+        case "notice": notice = CallDeskNotice(severity: .info, title: app.strings["ccWrapUp"], message: app.strings["ccWrapUpHint"], addNote: true)
         case "focus": focusNoteRequest += 1
         default: if let id = selectedId { deskCallEnded(id) }
         }
@@ -492,13 +492,20 @@ final class CallCenterModel {
         }
     }
 
-    /// After the in-call window closes: wrap-up — the notes box is right there.
+    /// After the in-call window closes: wrap-up. The page stays where it is — the
+    /// caller and the details in view — and the strip offers the notes box; taking
+    /// the keyboard there unasked would scroll the page down to it.
     private func deskCallEnded(_ callId: String) {
         if onCallId == callId { onCallId = nil }
         guard callId == selectedId else { return }
         let s = app.strings
-        notice = CallDeskNotice(severity: .info, title: s["ccWrapUp"], message: s["ccWrapUpHint"])
+        notice = CallDeskNotice(severity: .info, title: s["ccWrapUp"], message: s["ccWrapUpHint"], addNote: true)
         detailPoller?.kick()
+    }
+
+    /// The wrap-up strip's button: the keyboard into the notes box.
+    func focusNote() {
+        notice = nil
         focusNoteRequest += 1
     }
 
@@ -512,6 +519,8 @@ struct CallDeskNotice: Equatable {
     var severity: Banner.Severity
     var title: String?
     var message: String
+    /// Wrap-up: offers the notes box.
+    var addNote = false
 }
 
 /// A call waiting in the line, with its rank and the name the desk gives the caller.

@@ -8,17 +8,23 @@ struct CallCenterDetail: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        content
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Palette.chatBackground)
-            .safeAreaInset(edge: .top, spacing: 0) { noticeBar }
-            .animation(.smooth(duration: 0.2), value: model.notice)
-            .onAppear {
-                model.appear()
-                takePendingCall()
-            }
-            .onDisappear { model.disappear() }
-            .onChange(of: pendingKey) { _, _ in takePendingCall() }
+        // The strip sits over the call in the column's own stack. As a top safe-area inset
+        // that comes and goes, it made the whole window give up its title-bar inset — the
+        // page jumped up under the title bar and stayed there until the strip was closed.
+        VStack(spacing: 0) {
+            noticeBar
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Palette.chatBackground)
+        .animation(.smooth(duration: 0.2), value: model.notice)
+        .onAppear {
+            model.appear()
+            takePendingCall()
+        }
+        .onDisappear { model.disappear() }
+        .onChange(of: pendingKey) { _, _ in takePendingCall() }
     }
 
     @ViewBuilder private var content: some View {
@@ -32,7 +38,10 @@ struct CallCenterDetail: View {
 
     @ViewBuilder private var noticeBar: some View {
         if let notice = model.notice {
-            Banner(severity: notice.severity, title: notice.title, message: notice.message, onClose: { model.notice = nil })
+            Banner(severity: notice.severity, title: notice.title, message: notice.message,
+                   actionTitle: notice.addNote ? app.strings["ccAddNote"] : nil,
+                   action: notice.addNote ? { model.focusNote() } : nil,
+                   onClose: { model.notice = nil })
                 .padding(.horizontal, 14)
                 .padding(.top, 8)
                 .transition(.move(edge: .top).combined(with: .opacity))

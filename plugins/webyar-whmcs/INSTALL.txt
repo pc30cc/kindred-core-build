@@ -22,7 +22,7 @@ WHMCS version), HTTPS on the WHMCS System URL.
    After upgrading, click Check connection to refresh supported capabilities.
 
 The widget is added to the client area automatically (can be switched off).
-Nothing runs in the background: no cron, no sync, no polling.
+Customer data is never synced or polled in the background. Addon updates use cron.
 
 Uninstall: Addon Modules → Web Yar → Deactivate. Only the addon's own
 mod_webyar_* tables are removed. No WHMCS client, service, domain, invoice,
@@ -30,3 +30,16 @@ order or ticket data is touched. Then delete modules/addons/webyar/.
 
 Full documentation: docs/commerce/WHMCS.md in the Web Yar repository, or the
 guide linked from Web Yar → Plugins → WHMCS.
+
+AUTOMATIC UPDATES (1.2.0+)
+Install this release once to enable future automatic updates. Connected sites
+check hourly via WHMCS CLI cron. Both the local Automatic updates checkbox and
+Super Admin > Plugins > WHMCS > Automatic addon updates must permit updates.
+Publish a higher addon version and deploy the app ZIP/JSON and API together.
+Requires cURL, ZipArchive, tokenizer, a writable addon parent, and a private
+working directory on the same filesystem. Set WEBYAR_UPDATE_DIR at server level
+to a persistent directory outside the web root when the PHP temp directory is
+on another filesystem. Run cron as the addon owner; keep web OPcache timestamp
+validation enabled. Settings and credentials remain in place. The previous files
+are retained in the private working directory for manual recovery. See
+repository docs/commerce/WHMCS.md for recovery steps and deployment requirements.

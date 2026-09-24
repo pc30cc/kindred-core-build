@@ -20,6 +20,7 @@
  *
  * Run:  node scripts/build-whmcs-addon-zip.mjs
  */
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -70,6 +71,8 @@ function main() {
       slug: SLUG,
       version,
       package: `/downloads/${SLUG}.zip`,
+      sha256: createHash('sha256').update(readFileSync(OUT_FILE)).digest('hex'),
+      size: readFileSync(OUT_FILE).length,
       requires_whmcs: '8.0',
       requires_php: '7.2',
       last_updated: new Date().toISOString(),

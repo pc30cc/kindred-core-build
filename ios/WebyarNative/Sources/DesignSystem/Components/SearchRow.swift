@@ -50,10 +50,18 @@ struct SearchRow: View {
         }
         .padding(.horizontal, Theme.Space.md)
         .frame(height: Theme.Size.minTouchTarget)
-        // Glass rather than a flat fill: the field sits over a list that
-        // scrolls under it, and a tertiary grey on a white list is a
-        // rectangle you have to look for.
-        .liquidGlass(.control, in: Capsule(style: .continuous))
+        // Inline in the list, so a surface rather than glass -- the same
+        // rule the queue chips follow. What it gains over the old tertiary
+        // grey is an edge, which is what made it hard to see as a field.
+        .background {
+            Capsule(style: .continuous)
+                .fill(Theme.Palette.surface)
+                .overlay(
+                    Capsule(style: .continuous)
+                        .strokeBorder(Theme.Palette.separator.opacity(0.7), lineWidth: 0.5)
+                )
+                .elevated(.resting)
+        }
         .animation(Theme.Motion.standard, value: text.isEmpty)
     }
 }

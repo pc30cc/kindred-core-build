@@ -88,20 +88,26 @@ struct FloatingTabBar<Tab: Hashable>: View {
                     // being cut off mid-word.
                     .minimumScaleFactor(0.75)
             }
-            .foregroundStyle(isSelected ? Theme.Palette.brand : Theme.Palette.labelSecondary)
+            // White on the selected capsule, secondary label off it. The
+            // selected item used to be brand blue on a pale brand wash,
+            // which stopped working the moment the capsule became a
+            // saturated fill: blue on blue is not low contrast, it is no
+            // contrast, and the tab lost its icon and its word entirely.
+            .foregroundStyle(isSelected ? Color.white : Theme.Palette.labelSecondary)
             .frame(maxWidth: .infinity)
             .frame(height: Theme.Size.minTouchTarget + 4)
             .background {
                 if isSelected {
-                    // Brand-tinted glass rather than a flat wash. Inside the
-                    // group above, this and the bar are the same liquid: on
-                    // iOS 26 the bubble stretches out of the bar as it
-                    // travels and settles back into it, which is the whole
-                    // reason the tab bar reads as a substance and not as a
-                    // row of buttons.
+                    // A solid brand capsule, not a second piece of glass.
+                    //
+                    // Glass inside glass was tried and is wrong twice over:
+                    // the bar is already a lens, so a lens on top of it
+                    // renders as a muddy blob, and it left the icon and the
+                    // label sitting on a surface the same colour as they
+                    // were. One glass surface, one solid indicator on it.
                     Capsule(style: .continuous)
-                        .fill(.clear)
-                        .liquidGlass(.control, in: Capsule(style: .continuous), tint: Theme.Palette.brand)
+                        .fill(Theme.Gradient.brand)
+                        .elevated(.resting)
                         .matchedGeometryEffect(id: "selection", in: bubble)
                 }
             }

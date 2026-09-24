@@ -166,9 +166,22 @@ struct FilterPicker: View {
                         .elevated(.resting)
                         .matchedGeometryEffect(id: "chip", in: chip)
                 } else {
+                    // A real surface, not glass.
+                    //
+                    // Glass is for chrome that content moves beneath -- the
+                    // tab bar, a toolbar, the composer. These chips are a
+                    // row *inside* the list, sitting still on an opaque page;
+                    // a lens over an opaque page has nothing to refract and
+                    // renders as a pale smear that its own label cannot be
+                    // read on. White with a hairline is what an inline
+                    // control on iOS actually looks like.
                     Capsule(style: .continuous)
-                        .fill(.clear)
-                        .liquidGlass(.control, in: Capsule(style: .continuous))
+                        .fill(Theme.Palette.surface)
+                        .overlay(
+                            Capsule(style: .continuous)
+                                .strokeBorder(Theme.Palette.separator.opacity(0.7), lineWidth: 0.5)
+                        )
+                        .elevated(.resting)
                 }
             }
             .contentShape(Capsule())

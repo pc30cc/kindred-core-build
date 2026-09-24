@@ -22,6 +22,23 @@ import SwiftUI
 ///
 /// Because the branch lives here, a screen writes `.liquidGlass(.card, in:)`
 /// and never learns which iOS it is running on.
+///
+/// ## Where glass belongs
+///
+/// On chrome that content moves underneath: the tab bar, a toolbar, a
+/// composer pinned over a transcript, a sheet's grabber area. Nowhere else.
+///
+/// This is not a matter of taste. A lens works by refracting what is behind
+/// it, so over an opaque page at rest it has nothing to bend and renders as a
+/// pale smear -- and a smear is a terrible thing to put a label on. The queue
+/// chips and the search field were both built on glass first and both lost
+/// their own text to it. They are inline rows on a still page, so they use
+/// `Theme.Palette.surface` with a hairline instead, which is what an inline
+/// control on iOS has always looked like.
+///
+/// The same reasoning rules out glass on glass. A tinted lens laid on the
+/// tab bar's lens was muddy, and it left the selected tab's blue icon on a
+/// blue surface. One glass surface, and a solid indicator on top of it.
 
 // MARK: - Roles
 

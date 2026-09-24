@@ -24,8 +24,6 @@ import {
   normalizeMacos,
   MACOS_APP_BOUNDS,
   MACOS_APP_DEFAULTS,
-  MACOS_APPEARANCES,
-  MACOS_LANGUAGES,
   MACOS_MAX_BLOCKED_VERSIONS,
   VERSION_RE,
 } from '../services/desktopApp/macosSettings.js';
@@ -99,8 +97,8 @@ export const macosAppSettingsSchema = z
     dock_badge_enabled: z.boolean(),
     notifications_enabled: z.boolean(),
 
-    default_language: z.enum(MACOS_LANGUAGES as [string, ...string[]]),
-    default_appearance: z.enum(MACOS_APPEARANCES as [string, ...string[]]),
+    default_language: z.enum(['system', 'fa', 'en', 'tr']),
+    default_appearance: z.enum(['system', 'light', 'dark']),
     default_close_to_menu_bar: z.boolean(),
     default_launch_at_login: z.boolean(),
 

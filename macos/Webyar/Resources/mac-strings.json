@@ -51,7 +51,11 @@
   "removedFromSpam": "Removed from spam",
   "callMarkSpamTip": "Mark this call as spam: a waiting call leaves the line, and the caller is flagged (not blocked)",
   "callMarkedSpam": "Call marked as spam",
-  "callSpam": "Spam"
+  "callSpam": "Spam",
+  "presenceOutsideSchedule": "Outside your hours",
+  "presenceDayOff": "Not a working day",
+  "scheduleOfflineNote": "You are outside the hours in your weekly schedule, so visitors and colleagues see you offline.",
+  "scheduleOffAction": "Be available whenever I am online"
  },
  "fa": {
   "jumpToLatest": "رفتن به آخرین پیام",
@@ -105,7 +109,11 @@
   "removedFromSpam": "از هرزنامه خارج شد",
   "callMarkSpamTip": "علامت هرزنامه برای این تماس: تماسِ در صف از صف خارج می‌شود و تماس‌گیرنده علامت می‌خورد (مسدود نمی‌شود)",
   "callMarkedSpam": "تماس به‌عنوان هرزنامه علامت خورد",
-  "callSpam": "هرزنامه"
+  "callSpam": "هرزنامه",
+  "presenceOutsideSchedule": "خارج از ساعت کاری",
+  "presenceDayOff": "امروز روز کاری نیست",
+  "scheduleOfflineNote": "بیرون از ساعت‌های برنامهٔ هفتگی‌تان هستید؛ برای همین بازدیدکنندگان و همکاران شما را آفلاین می‌بینند.",
+  "scheduleOffAction": "همیشه در دسترس باشم (زمان‌بندی خاموش)"
  },
  "tr": {
   "jumpToLatest": "En son mesaja git",
@@ -159,6 +167,10 @@
   "removedFromSpam": "Spam’den çıkarıldı",
   "callMarkSpamTip": "Bu aramayı spam olarak işaretle: bekleyen arama sıradan çıkar, arayan işaretlenir (engellenmez)",
   "callMarkedSpam": "Arama spam olarak işaretlendi",
-  "callSpam": "Spam"
+  "callSpam": "Spam",
+  "presenceOutsideSchedule": "Çalışma saatleri dışında",
+  "presenceDayOff": "Çalışma günü değil",
+  "scheduleOfflineNote": "Haftalık programınızdaki saatlerin dışındasınız; bu yüzden ziyaretçiler ve ekip sizi çevrimdışı görüyor.",
+  "scheduleOffAction": "Çevrimiçiyken her zaman müsait ol"
  }
 }

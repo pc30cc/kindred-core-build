@@ -236,6 +236,11 @@ final class WebyarAPI {
         try await client.send("PATCH", "/api/availability", body: ["force_offline": offline])
     }
 
+    /// Whether the weekly schedule decides when visitors see this operator; off means always, while not invisible.
+    func setScheduleEnabled(_ on: Bool) async throws -> Availability {
+        try await client.send("PATCH", "/api/availability", body: ["schedule_enabled": on])
+    }
+
     func teamPresence(workspaceId: String) async throws -> [TeamPresence] {
         let r: TeamPresenceResponse = try await client.get("/api/availability/team/\(Self.e(workspaceId))")
         return r.presence ?? []

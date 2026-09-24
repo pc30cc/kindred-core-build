@@ -54,12 +54,8 @@ struct AccountSettingsTab: View {
 
     private var email: String { app.user?.email ?? "" }
 
-    /// Presence as teammates see it, and "Invisible" beside it when visitors do not.
-    private var presenceText: String {
-        let label = app.presenceLabel(app.myState)
-        if app.presence?.isInvisible == true { return "\(label) · \(app.strings["statusInvisible"])" }
-        return label
-    }
+    /// Presence as teammates see it, and why beside it when visitors do not see them.
+    private var presenceText: String { app.myStatusLine }
 
     private var accountRow: some View {
         HStack(spacing: 16) {

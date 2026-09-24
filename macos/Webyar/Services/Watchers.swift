@@ -53,6 +53,18 @@ final class PresenceService {
         team?.kick()
     }
 
+    /// Why visitors (and so teammates) see this operator offline though they are not
+    /// invisible: outside their hours, or a day off in their weekly schedule.
+    var offScheduleReason: String? {
+        guard !isInvisible, let status = availability?.status, !status.isOnline else { return nil }
+        return status.reason == "outside_schedule" || status.reason == "day_disabled" ? status.reason : nil
+    }
+
+    func setScheduleEnabled(_ on: Bool) async throws {
+        availability = try await app.api.setScheduleEnabled(on)
+        team?.kick()
+    }
+
     private func beat() async throws {
         let did = interacted
         interacted = false

@@ -325,7 +325,8 @@ struct AccountCorner: View {
         .popover(isPresented: $open, arrowEdge: .top) {
             AccountMenu(close: { open = false },
                         signOut: { open = false; confirmSignOut = true },
-                        setInvisible: setInvisible)
+                        setInvisible: setInvisible,
+                        scheduleOff: scheduleOff)
                 // A popover is a window of its own: set the reading direction again, and
                 // a solid card rather than the popover's see-through material.
                 .environment(\.layoutDirection, s.isRightToLeft ? .rightToLeft : .leftToRight)
@@ -349,13 +350,14 @@ struct AccountCorner: View {
         }
     }
 
-    private var statusLine: String {
-        let label = app.presenceLabel(app.myState)
-        return app.presence?.isInvisible == true ? "\(label) · \(app.strings["statusInvisible"])" : label
-    }
+    private var statusLine: String { app.myStatusLine }
 
     private func setInvisible(_ on: Bool) {
         Task { statusError = await app.setInvisible(on) }
+    }
+
+    private func scheduleOff() {
+        Task { statusError = await app.turnScheduleOff() }
     }
 }
 
@@ -364,6 +366,7 @@ private struct AccountMenu: View {
     let close: () -> Void
     let signOut: () -> Void
     let setInvisible: (Bool) -> Void
+    let scheduleOff: () -> Void
     @Environment(AppModel.self) private var app
 
     var body: some View {
@@ -376,7 +379,7 @@ private struct AccountMenu: View {
                     if let email = app.user?.email {
                         Text(verbatim: email).appFont(11.5).foregroundStyle(Palette.text2).lineLimit(1)
                     }
-                    Text(app.presenceLabel(app.myState)).appFont(11).foregroundStyle(presenceColor).lineLimit(1)
+                    Text(app.myStatusLine).appFont(11).foregroundStyle(presenceColor).lineLimit(1)
                 }
                 Spacer(minLength: 0)
             }
@@ -384,7 +387,25 @@ private struct AccountMenu: View {
             Divider()
             if let presence = app.presence {
                 heading(s["statusHeader"])
-                AccountMenuRow(title: s["statusOnlineForVisitors"], icon: "circle.fill", tint: Palette.success, checked: !presence.isInvisible) {
+                if presence.offScheduleReason != nil {
+                    // Not invisible, yet offline: the weekly schedule says so. Say it, and offer the way out.
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label(s["scheduleOfflineNote"], systemImage: "clock.badge.exclamationmark")
+                            .appFont(11.5)
+                            .foregroundStyle(Palette.warning)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button(s["scheduleOffAction"], action: scheduleOff)
+                            .controlSize(.small)
+                            .glassButton()
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Palette.warningSoft, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                }
+                AccountMenuRow(title: s["statusOnlineForVisitors"], icon: "circle.fill",
+                               tint: presence.offScheduleReason == nil ? Palette.success : Palette.text3, checked: !presence.isInvisible) {
                     setInvisible(false)
                 }
                 AccountMenuRow(title: s["statusInvisible"], icon: "eye.slash", tint: Palette.text2, checked: presence.isInvisible) {
@@ -417,6 +438,7 @@ private struct AccountMenu: View {
     }
 
     private var presenceColor: Color {
+        if app.presence?.offScheduleReason != nil { return Palette.warning }
         switch app.myState {
         case PresenceState.active: return Palette.success
         case PresenceState.away: return Palette.warning

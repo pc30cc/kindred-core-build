@@ -819,6 +819,29 @@ final class AppModel {
         }
     }
 
+    /// The operator's state as a line: the state, and why when the schedule keeps them offline.
+    var myStatusLine: String {
+        var parts = [presenceLabel(myState)]
+        if let reason = presence?.offScheduleReason {
+            parts.append(strings[reason == "day_disabled" ? "presenceDayOff" : "presenceOutsideSchedule"])
+        } else if presence?.isInvisible == true {
+            parts.append(strings["statusInvisible"])
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Turns the weekly schedule off, so visitors see the operator whenever they are not invisible.
+    func turnScheduleOff() async -> String? {
+        guard let presence else { return nil }
+        do {
+            try await presence.setScheduleEnabled(false)
+            return nil
+        } catch {
+            Log.error("schedule off", error)
+            return ErrorText.of(error, strings)
+        }
+    }
+
     func refreshNotificationPermission() async {
         let allowed = await notifier.refreshAuthorization()
         notificationsBlocked = showsNotifications && !allowed

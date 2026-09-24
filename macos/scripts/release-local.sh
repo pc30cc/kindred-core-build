@@ -2,8 +2,8 @@
 # Publishes a Webyar for Mac update from this Mac to pc30cc/mac-os, the
 # public repository the installed apps update from:
 #
-#   appcast.xml                    Sparkle's feed (SUFeedURL, and the default
-#                                  appcast in Super Admin → macOS app)
+#   appcast.xml                    Sparkle's feed — the default appcast in
+#                                  Super Admin → macOS app, which tells the apps
 #   releases/<version>/Webyar-<version>.zip   what Sparkle downloads
 #   releases/<version>/Webyar-<version>.dmg   what a person downloads
 #   releases/<version>/item.xml    this version's appcast entry

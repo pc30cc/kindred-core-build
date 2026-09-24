@@ -38,6 +38,8 @@ final class ColleaguesModel {
     private(set) var peer: Colleague?
     var peerId: String? { peer?.userId }
     private(set) var rows: [ChatRow] = []
+    /// Bumped each time this operator sends, so the thread scrolls to the bottom.
+    private(set) var sentCount = 0
     private(set) var threadLoading = false
     var notice: Notice?
 
@@ -248,6 +250,7 @@ final class ColleaguesModel {
         let body = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let file = pendingFile
         guard !body.isEmpty || file != nil, let to = peer?.userId, let ws = app.workspace else { return }
+        sentCount += 1
         let s = app.strings
         draft = ""
         pendingFile = nil

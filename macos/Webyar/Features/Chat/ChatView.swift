@@ -258,28 +258,13 @@ struct MessagesView: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(chat.rows) { row in
-                        MessageRowView(row: row, conversation: chat.conversation)
-                            .id(row.id)
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity)
-            }
-            .defaultScrollAnchor(.bottom)
-            // Bubbles sit left/right physically, as the web thread; text inside follows its
-            // own direction. Set on the scroll view itself: a right-to-left scroll view around
-            // left-to-right content draws it shifted sideways.
-            .environment(\.layoutDirection, .leftToRight)
-            .overlay { if chat.loading && chat.rows.isEmpty { ProgressView() } }
-            .onChange(of: chat.rows.last?.id) { _, id in
-                if let id { withAnimation(.smooth(duration: 0.25)) { proxy.scrollTo(id, anchor: .bottom) } }
+        PinnedMessageList(threadId: chat.id, lastId: chat.rows.last?.id, sentCount: chat.sentCount, isEmpty: chat.rows.isEmpty) {
+            ForEach(chat.rows) { row in
+                MessageRowView(row: row, conversation: chat.conversation)
+                    .id(row.id)
             }
         }
+        .overlay { if chat.loading && chat.rows.isEmpty { ProgressView() } }
     }
 }
 

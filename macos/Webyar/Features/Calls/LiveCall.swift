@@ -125,9 +125,16 @@ final class LiveCall {
         }
         guard let conversation else { return }
         do {
-            let inv = try await app.api.inviteToCall(conversationId: conversation.id, workspaceId: workspaceId, channel: channel)
+            // Not cancelled with the call: hung up while this is on its way, the server may still
+            // make the invitation, and it is withdrawn below rather than left ringing the visitor.
+            let api = app.api, conversationId = conversation.id, workspaceId = workspaceId, channel = channel
+            let inv = try await Task { try await api.inviteToCall(conversationId: conversationId, workspaceId: workspaceId, channel: channel) }.value
             invitation = inv
             Log.write("[call] invited \(inv.id) \(channel)")
+            if ended {
+                try? await api.cancelInvitation(inv.id)
+                return
+            }
             // Two seconds for as long as the invitation lives — cheaper than a realtime channel for one wait.
             while !Task.isCancelled && !ended {
                 let current = try await app.api.invitation(inv.id)
@@ -183,6 +190,7 @@ final class LiveCall {
             adaptiveStream: true,
             dynacast: true
         )
+        Log.write("[call] joining \(URL(string: url)?.host ?? "?") ice=\(ice.count) relay=\(relay)")
         do {
             try await room.connect(url: url, token: token, connectOptions: connectOptions, roomOptions: roomOptions)
         } catch {

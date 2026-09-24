@@ -80,6 +80,8 @@ final class ChatModel {
     let id: String
     private(set) var conversation: Conversation?
     private(set) var rows: [ChatRow] = []
+    /// Bumped each time this operator sends, so the thread scrolls to the bottom.
+    private(set) var sentCount = 0
     private(set) var loading = true
     private(set) var busy = false
 
@@ -108,7 +110,16 @@ final class ChatModel {
 
     var aiMode: Bool { conversation?.isAiManaged == true }
 
+    #if DEBUG
+    /// The thread on screen, for the debug command file.
+    nonisolated(unsafe) static weak var debugCurrent: ChatModel?
+    func debugRefresh() { poller?.kick() }
+    #endif
+
     func start() {
+        #if DEBUG
+        Self.debugCurrent = self
+        #endif
         poller = Poller("thread", interval: { [weak self] in
             guard let self else { return 5 }
             return self.app.pollInterval(Double(min(5, self.app.config.pollIntervalSeconds)))
@@ -203,6 +214,7 @@ final class ChatModel {
         let body = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let file = pendingFile
         guard !body.isEmpty || file != nil, let ws = app.workspace else { return }
+        sentCount += 1
         if aiMode {
             if !body.isEmpty { Task { await sayNow(body) } }
             return

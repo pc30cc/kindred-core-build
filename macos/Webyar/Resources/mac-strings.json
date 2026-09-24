@@ -1,5 +1,6 @@
 {
  "en": {
+  "jumpToLatest": "Jump to the latest message",
   "startWithWindows": "Open at login",
   "startWithWindowsHint": "Opens quietly in the menu bar when you log in to your Mac.",
   "closeToTray": "Keep running in the menu bar",
@@ -43,6 +44,7 @@
   "notificationsOffByPlatform": "The platform administrator has turned off Mac notifications. New messages and calls still show inside the app."
  },
  "fa": {
+  "jumpToLatest": "رفتن به آخرین پیام",
   "startWithWindows": "باز شدن هنگام ورود به مک",
   "startWithWindowsHint": "هنگام ورود به مک، بی‌صدا در نوار منو باز می‌شود.",
   "closeToTray": "ادامهٔ کار در نوار منو",
@@ -86,6 +88,7 @@
   "notificationsOffByPlatform": "مدیر پلتفرم اعلان‌های مک را خاموش کرده است. پیام‌ها و تماس‌های تازه همچنان داخل برنامه نمایش داده می‌شوند."
  },
  "tr": {
+  "jumpToLatest": "En son mesaja git",
   "startWithWindows": "Oturum açıldığında başlat",
   "startWithWindowsHint": "Mac’inize giriş yaptığınızda menü çubuğunda sessizce açılır.",
   "closeToTray": "Menü çubuğunda çalışmaya devam et",

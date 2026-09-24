@@ -80,6 +80,26 @@ enum DebugTools {
             }
         case "open": app.openConversation(arg)
         case "mail": EmailModel.debugCurrent?.select(arg)
+        case "cc":
+            CallCenterModel.debugCurrent?.select(arg)
+        case "deskend":
+            CallCenterModel.debugCurrent?.debugDeskCallEnded(arg)
+        case "scrollup":
+            // As if the operator scrolled the open thread up to read.
+            for w in NSApp.windows { for sv in scrollViews(w.contentView) where sv.documentView.map({ $0.frame.height > sv.contentView.bounds.height + 200 }) ?? false {
+                sv.contentView.scroll(to: .zero)
+                sv.reflectScrolledClipView(sv.contentView)
+            } }
+        case "visitor":
+            if let chat = ChatModel.debugCurrent {
+                SampleBackend.visitorSays(chat.id, "A new message from the visitor at \(Date().formatted(date: .omitted, time: .standard))")
+                chat.debugRefresh()
+            }
+        case "say":
+            if let chat = ChatModel.debugCurrent {
+                chat.draft = "Sent by the operator at \(Date().formatted(date: .omitted, time: .standard))"
+                chat.send()
+            }
         case "compose": EmailModel.debugCurrent?.composing = arg != "off"
         case "replymode": EmailModel.debugCurrent?.replyMode = ReplyMode(rawValue: arg) ?? .reply
         case "lang": if let l = Language.parse(arg) { app.setLanguage(l) }
@@ -114,6 +134,12 @@ enum DebugTools {
             } }
         default: break
         }
+    }
+
+    private static func scrollViews(_ view: NSView?) -> [NSScrollView] {
+        guard let view else { return [] }
+        let own = (view as? NSScrollView).map { [$0] } ?? []
+        return own + view.subviews.flatMap { scrollViews($0) }
     }
 
     private static func webViews(_ view: NSView?) -> [WKWebView] {

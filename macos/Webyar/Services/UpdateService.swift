@@ -5,10 +5,14 @@ import Sparkle
 
 /// Self-update through Sparkle, the Mac's standard updater: it reads the
 /// appcast, downloads the new build, checks its EdDSA signature and replaces
-/// the app. Super Admin → macOS app decides the appcast (Info.plist's
-/// SUFeedURL otherwise), the channel, whether it checks and downloads by
-/// itself, how often, and which builds may keep running — one below the
-/// minimum, or one withdrawn outright, gets a banner that cannot be closed.
+/// the app. Super Admin → macOS app decides the appcast, and nothing else
+/// does: the app carries no address of its own and does not reuse one
+/// remembered from an earlier launch, so it looks only where the platform
+/// says right now — and until the platform has answered in this launch, it
+/// does not look at all. The platform also decides the channel, whether it
+/// checks and downloads by itself, how often, and which builds may keep
+/// running: one below the minimum, or one withdrawn outright, gets a banner
+/// that cannot be closed.
 ///
 /// A build without a public key (a local build from source) has nothing to
 /// verify an update against, so updating is off there, as on Windows when
@@ -48,15 +52,16 @@ final class UpdateService: NSObject {
     }
 
     /// Applies the platform's settings; safe to call again whenever they are re-read.
-    func configure(_ settings: UpdateSettings) {
+    /// `live` is false for the answer remembered from an earlier launch: its
+    /// appcast is never used.
+    func configure(_ settings: UpdateSettings, live: Bool) {
         requirement = settings.requirement(for: currentVersion)
         downloadUrl = settings.downloadUrl
-        feed.withLock { $0 = (settings.appcastUrl, settings.channel == "beta") }
+        if live { feed.withLock { $0 = (settings.appcastUrl, settings.channel == "beta") } }
         guard let controller else { return }
         if !started {
-            let plist = (Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String) ?? ""
-            // Nowhere to look at all: nothing to start.
-            guard settings.appcastUrl != nil || !plist.isEmpty else { return }
+            // The platform has not said where to look in this launch: nothing to start.
+            guard live, settings.appcastUrl != nil else { return }
             started = true
             controller.startUpdater()
         }
@@ -73,7 +78,7 @@ final class UpdateService: NSObject {
 }
 
 extension UpdateService: SPUUpdaterDelegate {
-    /// The platform's appcast; nil falls back to SUFeedURL.
+    /// The appcast the platform gave in this launch — the only one; the updater is not started without it.
     nonisolated func feedURLString(for updater: SPUUpdater) -> String? {
         feed.withLock { $0.url }
     }

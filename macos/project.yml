@@ -12,8 +12,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.10"
-    MARKETING_VERSION: "1.0.0"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "1.0.1"
+    CURRENT_PROJECT_VERSION: "2"
     ENABLE_HARDENED_RUNTIME: YES
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     DEAD_CODE_STRIPPING: YES
@@ -25,7 +25,6 @@ settings:
     # Sparkle's EdDSA public key (generate_keys prints it). Empty turns
     # self-update off, as for any build from source.
     SPARKLE_PUBLIC_KEY: "9PfemqCNjPl8N7vYtWgNn1cB/NCf4XMfNiaEdW7JxIA="
-    SPARKLE_FEED_URL: "https://raw.githubusercontent.com/pc30cc/mac-os/main/appcast.xml"
 
 packages:
   # A call needs a real WebRTC stack, and the platform's calls already run on
@@ -78,7 +77,6 @@ targets:
           - fa
           - tr
         ITSAppUsesNonExemptEncryption: false
-        SUFeedURL: $(SPARKLE_FEED_URL)
         SUPublicEDKey: $(SPARKLE_PUBLIC_KEY)
         SUEnableInstallerLauncherService: true
     entitlements:
@@ -86,6 +84,10 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
+        # Calls: WebRTC must receive its media (UDP) as well as send it. Without
+        # this the room connects and then its transport fails about ten seconds
+        # later — LiveKit's documented requirement for sandboxed Mac apps.
+        com.apple.security.network.server: true
         com.apple.security.device.audio-input: true
         com.apple.security.device.camera: true
         com.apple.security.files.user-selected.read-write: true

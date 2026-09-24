@@ -29,6 +29,13 @@ struct ConversationMenu: View {
     var isAIManaged: Bool = false
     var onTakeOver: () -> Void = {}
 
+    /// Whether the call section has anything in it at all. Without this the
+    /// section renders empty on an AI-managed thread -- a divider with
+    /// nothing under it.
+    private var canCall: Bool {
+        (channels.voice || channels.video) && !isAIManaged
+    }
+
     var body: some View {
         Menu {
             if isAIManaged {
@@ -105,19 +112,27 @@ struct ConversationMenu: View {
                 }
             }
 
-            // Only drawn when the plan grants it. An operator on a plan
-            // without calls never learns the buttons exist, which is the
-            // behaviour the web sidebar already has.
-            if channels.any {
+            // Only drawn when the plan grants it AND the thread is the
+            // operator's to act on.
+            //
+            // An operator on a plan without calls never learns the buttons
+            // exist, which is the behaviour the web sidebar already has. The
+            // second half is the AI queue: while the assistant owns a thread
+            // there is no operator on this end to put on a call, so offering
+            // one is offering something that cannot happen. Taking the thread
+            // over clears `isAIManaged`, and the buttons arrive with it --
+            // which is the right moment, because that is when there is
+            // somebody to talk.
+            if canCall {
                 Section {
-                    if channels.voice {
+                    if channels.voice && !isAIManaged {
                         Button {
                             onInvite(.audio)
                         } label: {
                             Label(Str.voiceCall(language), systemImage: CallChannel.audio.icon)
                         }
                     }
-                    if channels.video {
+                    if channels.video && !isAIManaged {
                         Button {
                             onInvite(.video)
                         } label: {

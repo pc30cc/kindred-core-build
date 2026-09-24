@@ -16,6 +16,9 @@ final class ChatViewModel {
     private(set) var sendFailed = false
     /// Device and location behind this thread, for the header avatar.
     private(set) var visitor: VisitorProfile?
+    /// Whether that read is still outstanding, so the header can show a
+    /// skeleton rather than initials it is about to replace.
+    private(set) var isResolvingVisitor = true
 
     var draft = ""
 
@@ -61,6 +64,7 @@ final class ChatViewModel {
                 workspaceID: conversation.workspaceId,
                 conversationIDs: [conversation.id]
             )[conversation.id]
+            isResolvingVisitor = false
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()
         } catch let error as APIError {

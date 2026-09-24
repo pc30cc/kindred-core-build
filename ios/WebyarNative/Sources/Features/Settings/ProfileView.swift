@@ -7,9 +7,7 @@ import Observation
 final class ProfileViewModel {
     private(set) var account: Account?
     private(set) var isLoading = true
-    private(set) var isSaving = false
     private(set) var isUploadingPhoto = false
-    var name = ""
     var message: Banner?
 
     struct Banner: Identifiable, Equatable {
@@ -25,16 +23,11 @@ final class ProfileViewModel {
         self.api = api
     }
 
-    var hasUnsavedName: Bool {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed != (account?.profile?.fullName ?? "") && !trimmed.isEmpty
-    }
-
     func load(appState: AppState) async {
         do {
             let loaded = try await api.account()
             account = loaded
-            name = loaded.profile?.fullName ?? ""
+
             // Everywhere else reads the operator's photograph from here —
             // Settings' header, and their own face in the internal chat — so
             // uploading or removing one has to update the shared copy too.
@@ -47,22 +40,6 @@ final class ProfileViewModel {
         isLoading = false
     }
 
-    func saveName(appState: AppState) async {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        isSaving = true
-        do {
-            account = try await api.updateProfile(fullName: trimmed, preferredLocale: nil)
-            message = Banner(text: Str.saved(appState.language), tone: .success)
-            Haptics.success()
-        } catch APIError.unauthorized {
-            await appState.handleUnauthorized()
-        } catch {
-            message = Banner(text: Str.saveFailed(appState.language), tone: .failure)
-        }
-        isSaving = false
-    }
 
     /// Sends a new profile photo.
     ///
@@ -117,7 +94,6 @@ struct ProfileView: View {
     @Environment(AppState.self) private var appState
     @State private var model = ProfileViewModel()
     @State private var photoItem: PhotosPickerItem?
-    @FocusState private var nameFocused: Bool
 
     private var language: Language { appState.language }
 
@@ -145,10 +121,25 @@ struct ProfileView: View {
     }
 
     private var displayName: String {
-        let typed = model.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !typed.isEmpty { return typed }
-        return model.account?.displayName ?? appState.session.user?.displayName ?? "—"
+        model.account?.displayName ?? appState.session.user?.displayName ?? "—"
     }
+
+    /// First word of the full name, and everything after it.
+    ///
+    /// The same rule as `splitName` in `src/pages/app/settings/ProfilePage.tsx`,
+    /// so a person whose name is three words is broken in the same place on
+    /// the phone as in the console rather than two different ways.
+    private var nameParts: (given: String, family: String) {
+        let full = (model.account?.profile?.fullName ?? displayName)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = full.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard let first = parts.first else { return ("—", "—") }
+        let rest = parts.dropFirst().joined(separator: " ")
+        return (first, rest.isEmpty ? "—" : rest)
+    }
+
+    private var givenName: String { nameParts.given }
+    private var familyName: String { nameParts.family }
 
     var body: some View {
         @Bindable var model = model
@@ -163,7 +154,8 @@ struct ProfileView: View {
                         name: displayName,
                         imageURL: avatarURL,
                         size: Theme.Size.avatarLarge,
-                        isBusy: isAvatarUnknown
+                        isBusy: isAvatarUnknown,
+                        emptyStyle: .person
                     )
 
                     ChangePhotoButton(
@@ -189,19 +181,18 @@ struct ProfileView: View {
             }
 
             Section {
-                HStack(spacing: Theme.Space.lg) {
-                    Text(Str.displayName(language))
-                        .foregroundStyle(Theme.Palette.label)
-                        .layoutPriority(1)
-                        .fixedSize(horizontal: true, vertical: false)
-
-                    TextField(Str.displayName(language), text: $model.name)
-                        .multilineTextAlignment(.trailing)
-                        .focused($nameFocused)
-                        .submitLabel(.done)
-                        .onSubmit { Task { await model.saveName(appState: appState) } }
-                }
-                .frame(minHeight: Theme.Size.minTouchTarget - 10)
+                // Given name and family name, separately, the way the console
+                // asks for them -- and read-only, because this screen is not
+                // where they are changed.
+                //
+                // The two are one `full_name` column underneath: the server
+                // accepts `first_name`/`last_name` on a PATCH and joins them
+                // before writing, and hands back only the joined value. So
+                // the split here is the same split the console does for
+                // display -- first word, then the rest -- rather than two
+                // fields that exist in the database.
+                DetailRow(label: Str.firstName(language), value: givenName)
+                DetailRow(label: Str.lastName(language), value: familyName)
 
                 if let email = model.account?.email ?? appState.session.user?.email {
                     DetailRow(label: Str.emailLabel(language), value: email, isLatin: true)
@@ -214,24 +205,6 @@ struct ProfileView: View {
                 }
             } header: {
                 Text(Str.profile(language))
-            } footer: {
-                // The save control only appears once there is something to
-                // save, so the form never shows a button that would do nothing.
-                if model.hasUnsavedName {
-                    Button {
-                        nameFocused = false
-                        Task { await model.saveName(appState: appState) }
-                    } label: {
-                        HStack(spacing: Theme.Space.sm) {
-                            if model.isSaving { ProgressView().controlSize(.small) }
-                            Text(Str.save(language))
-                        }
-                        .font(.app(.subheadline, weight: .semibold))
-                        .frame(minHeight: Theme.Size.minTouchTarget - 8)
-                    }
-                    .disabled(model.isSaving)
-                    .padding(.top, Theme.Space.xs)
-                }
             }
         }
         .listStyle(.insetGrouped)

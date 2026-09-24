@@ -117,6 +117,7 @@ struct ChatView: View {
                         title: title,
                         avatarURL: conversation.contact?.avatarURL,
                         visitor: model.visitor,
+                        isResolvingVisitor: model.isResolvingVisitor,
                         aiState: AIState.resolve(conversation),
                         language: language
                     )
@@ -351,6 +352,8 @@ struct ChatHeader: View {
     let avatarURL: String?
     let visitor: VisitorProfile?
     let aiState: AIState?
+    /// The device behind this thread has been asked for and has not landed.
+    var isResolvingVisitor: Bool = false
     let language: Language
 
     /// Where they are and what they are on, when the server resolved it.
@@ -368,6 +371,7 @@ struct ChatHeader: View {
                 name: title,
                 imageURL: avatarURL,
                 size: Theme.Size.avatarSmall,
+                isResolvingIdentity: isResolvingVisitor,
                 os: visitor?.device?.os,
                 device: visitor?.device?.device,
                 countryCode: visitor?.geo?.countryCode

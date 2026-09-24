@@ -7,6 +7,9 @@ final class ContactsViewModel {
     private(set) var state: LoadState<[Contact]> = .loading
     /// Device and location per contact id, for the avatar's OS mark and flag.
     private(set) var visitors: [String: VisitorProfile] = [:]
+    /// Whether that one batch read is still outstanding. Every row is waiting
+    /// on the same request, so this is one flag rather than one per row.
+    private(set) var isResolvingVisitors = true
     var searchText = ""
 
     private let api: any WebyarAPI
@@ -67,6 +70,7 @@ final class ContactsViewModel {
             workspaceID: workspaceID,
             contactIDs: contacts.map(\.id)
         )) ?? [:]
+        isResolvingVisitors = false
     }
 }
 
@@ -151,7 +155,8 @@ struct ContactsView: View {
                             ContactRow(
                                 contact: contact,
                                 language: language,
-                                visitor: model.visitors[contact.id]
+                                visitor: model.visitors[contact.id],
+                                isResolvingVisitor: model.isResolvingVisitors
                             )
                         }
                         // The first row is what the list rests on.
@@ -176,6 +181,7 @@ struct ContactRow: View {
     let language: Language
     /// Device and country behind this contact, when the server knew them.
     var visitor: VisitorProfile?
+    var isResolvingVisitor = false
 
     private var displayName: String {
         Format.contactName(
@@ -200,6 +206,7 @@ struct ContactRow: View {
                 name: displayName,
                 imageURL: contact.avatarURL,
                 size: Theme.Size.avatarMedium,
+                isResolvingIdentity: isResolvingVisitor,
                 os: visitor?.device?.os,
                 device: visitor?.device?.device,
                 countryCode: visitor?.geo?.countryCode

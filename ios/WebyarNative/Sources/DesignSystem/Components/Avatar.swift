@@ -29,6 +29,31 @@ struct Avatar: View {
     /// vocabulary.
     var isBusy: Bool = false
 
+    /// The device and country behind this face have been asked for and have
+    /// not come back yet.
+    ///
+    /// This is the difference between "there is no operating system" and "we
+    /// do not know it yet", and without it the two look identical: the header
+    /// of a conversation drew the visitor's initials, then swapped them for
+    /// the Windows mark a moment later when the intel landed. Initials are
+    /// not a loading state -- they look like the answer -- so that swap read
+    /// as the row changing its mind. While the answer is outstanding this is
+    /// a skeleton, the same as a picture that has not arrived.
+    var isResolvingIdentity: Bool = false
+
+    /// What to draw when there is no picture and no operating system.
+    var emptyStyle: EmptyStyle = .initials
+
+    enum EmptyStyle {
+        /// Two letters on a colour derived from the name. For a contact or a
+        /// visitor, where the letters are a real clue to who it is.
+        case initials
+        /// A person glyph on the skeleton surface. For the operator's own
+        /// face, where initials are not identification -- they already know
+        /// who they are -- and the slot is an invitation to add a photo.
+        case person
+    }
+
     /// Visitor operating system, e.g. "Windows", "macOS", "Android".
     var os: String?
     /// Visitor device class — "desktop", "mobile", "tablet".
@@ -142,6 +167,10 @@ struct Avatar: View {
     private var face: some View {
         if isBusy {
             SkeletonFill()
+        } else if isResolvingIdentity && imageURL == nil {
+            // Nothing is known yet and nothing is on its way to be drawn, so
+            // the honest thing on screen is "coming".
+            SkeletonFill()
         } else if let imageURL, let url = URL(string: imageURL) {
             RemoteImage(url: url, maxPixel: pixels) { fallback }
         } else {
@@ -175,6 +204,13 @@ struct Avatar: View {
                 )
                 OSGlyph(kind: osKind, size: size * 0.5)
                     .shadow(color: .black.opacity(0.35), radius: 1, x: 0, y: 1)
+            }
+        } else if emptyStyle == .person {
+            ZStack {
+                SkeletonFill()
+                Image(systemName: "person.fill")
+                    .font(.system(size: size * 0.42))
+                    .foregroundStyle(Theme.Palette.labelTertiary)
             }
         } else {
             ZStack {

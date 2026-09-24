@@ -281,6 +281,17 @@ final class SampleBackend: URLProtocol {
                         ["id": "m3", "direction": "inbound", "fromAddress": "Dana Wu <cfo@verylongcompanyname-international.com>", "toAddresses": ["support@webyar.ai"], "ccAddresses": ["alex.k.richardson@verylongcompanyname-international.com"],
                          "textBody": "Hello,\n\nCould you send over a formal quote including the call center add-on and annual billing? We'd like to sign before the end of the quarter.\n\nhttps://verylongcompanyname-international.com/procurement\n\nDana Wu\nCFO", "snippet": "Could you send over a formal quote", "sentAt": ago(95), "deliveryStatus": "sent"],
                     ]
+                } else if id == "e-3" {
+                    messages = [
+                        ["id": "m1", "direction": "inbound", "fromAddress": "ayse@example.com.tr", "toAddresses": ["support@webyar.ai"],
+                         "textBody": "Merhaba,\n\nFaturamı aldım, teşekkürler. Her şey yolunda.\n\nAyşe", "snippet": "Teşekkürler, her şey yolunda.", "sentAt": ago(1500), "deliveryStatus": "sent"],
+                    ]
+                } else if id == "e-4" {
+                    messages = [
+                        ["id": "m1", "direction": "inbound", "fromAddress": "Webyar Reports <reports@webyar.ai>", "toAddresses": ["support@webyar.ai"],
+                         "htmlBody": "<div style=\"font-family:-apple-system,sans-serif\"><h2 style=\"margin:0 0 8px;color:#2f6ae0\">Your week on Webyar</h2><p style=\"color:#555\">Sep 15 – Sep 21</p><table style=\"border-collapse:collapse;width:100%\"><tr><td style=\"padding:10px;border-bottom:1px solid #eee\">Conversations</td><td style=\"padding:10px;border-bottom:1px solid #eee;text-align:right\"><b>128</b></td></tr><tr><td style=\"padding:10px;border-bottom:1px solid #eee\">Answered within 2 minutes</td><td style=\"padding:10px;border-bottom:1px solid #eee;text-align:right\"><b>94%</b></td></tr><tr><td style=\"padding:10px\">Customer rating</td><td style=\"padding:10px;text-align:right\"><b>4.8 ★</b></td></tr></table><p><a href=\"https://webyar.ai\">Open the full report</a></p></div>",
+                         "snippet": "128 conversations, 94% answered within 2 minutes.", "sentAt": ago(4000), "deliveryStatus": "sent"],
+                    ]
                 } else {
                     messages = [
                         ["id": "m1", "direction": "inbound", "fromAddress": "مریم احمدی <maryam@example.com>", "toAddresses": ["support@webyar.ai"],

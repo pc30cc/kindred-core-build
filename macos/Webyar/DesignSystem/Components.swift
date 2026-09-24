@@ -224,7 +224,7 @@ struct Banner: View {
             Image(systemName: icon).foregroundStyle(color).font(.system(size: 15))
             VStack(alignment: .leading, spacing: 2) {
                 if let title, !title.isEmpty { Text(title).appFont(12.5, .semibold) }
-                if !message.isEmpty { Text(message).appFont(12).foregroundStyle(Palette.text2).fixedSize(horizontal: false, vertical: true) }
+                if !message.isEmpty { Text(message).appFont(12).foregroundStyle(Palette.text2).lineLimit(4) }
             }
             Spacer(minLength: 8)
             if let actionTitle, let action {

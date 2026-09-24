@@ -1061,3 +1061,12 @@ html.native-app [data-selectable='true'] {
   content: ""; position: absolute; inset-block: 8px; inset-inline-start: -12px; width: 3px; border-radius: 9999px;
   background-image: var(--gradient-brand); box-shadow: 0 0 12px hsl(var(--brand-teal) / .6);
 }
+
+/* BlurFade (Magic UI): children rise in from a blur, staggered */
+@keyframes wy-blur-fade { from { opacity: 0; filter: blur(8px); transform: translateY(10px); } to { opacity: 1; filter: blur(0); transform: none; } }
+.blur-fade-stagger > * { animation: wy-blur-fade .6s cubic-bezier(.2,.7,.2,1) both; }
+.blur-fade-stagger > *:nth-child(2) { animation-delay: .08s; }
+.blur-fade-stagger > *:nth-child(3) { animation-delay: .16s; }
+.blur-fade-stagger > *:nth-child(4) { animation-delay: .24s; }
+.blur-fade-stagger > *:nth-child(5) { animation-delay: .32s; }
+@media (prefers-reduced-motion: reduce) { .blur-fade-stagger > * { animation: none; } }

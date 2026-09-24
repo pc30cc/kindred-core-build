@@ -307,6 +307,11 @@ final class CallCenterModel {
     func show(callId: String) -> Bool {
         if showHistory { showHistory = false }
         guard let item = queueItem(callId) else {
+            // The call this operator is on: long gone from the line, still the one to show.
+            if let desk = CallCoordinator.shared.call?.desk, desk.callId == callId {
+                if selectedId != callId { open(id: callId, call: desk.session, entry: nil) }
+                return true
+            }
             showNotice(app.strings["callTakenElsewhere"], severity: .info)
             return false
         }

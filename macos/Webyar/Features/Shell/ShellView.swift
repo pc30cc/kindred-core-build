@@ -147,7 +147,15 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .top, spacing: 0) { WorkspaceHeader().padding(.horizontal, 10).padding(.bottom, 6) }
-        .safeAreaInset(edge: .bottom, spacing: 0) { AccountCorner().padding(8) }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 8) {
+                // The call, while the operator is on a page other than its own.
+                CallBar()
+                AccountCorner()
+            }
+            .padding(8)
+            .animation(.smooth(duration: 0.3), value: CallCoordinator.shared.showsCallBar)
+        }
     }
 
     private func row(_ route: Route, _ title: String, _ icon: String, badge: Int, color: Color) -> some View {

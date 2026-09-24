@@ -63,6 +63,8 @@ final class LiveCall {
     struct Desk {
         let callId: String
         let accept: CallAccept
+        /// The call as the desk knew it when answered: to show it again from elsewhere.
+        var session: CallSession?
     }
 
     @ObservationIgnored unowned let app: AppModel

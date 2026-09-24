@@ -25,7 +25,11 @@
     "callHandedFrom": "From {name}",
     "callJoin": "Join the call",
     "callHandedFailed": "Couldn't join the call",
-    "callTransferFailed": "Transfer failed"
+    "callTransferFailed": "Transfer failed",
+    "callFullScreen": "Full screen",
+    "callPopOut": "Open in its own window",
+    "callDockBack": "Back into the page",
+    "callBackToCall": "Back to the call"
   },
   "fa": {
     "callKeepOnTop": "پنجرهٔ تماس همیشه روی پنجره‌های دیگر بماند",
@@ -53,7 +57,11 @@
     "callHandedFrom": "از طرف {name}",
     "callJoin": "پیوستن به تماس",
     "callHandedFailed": "پیوستن به تماس انجام نشد",
-    "callTransferFailed": "ارجاع انجام نشد"
+    "callTransferFailed": "ارجاع انجام نشد",
+    "callFullScreen": "تمام صفحه",
+    "callPopOut": "باز کردن در پنجرهٔ جدا",
+    "callDockBack": "برگرداندن به داخل صفحه",
+    "callBackToCall": "بازگشت به تماس"
   },
   "tr": {
     "callKeepOnTop": "Arama penceresini üstte tut",
@@ -81,6 +89,10 @@
     "callHandedFrom": "{name} aktardı",
     "callJoin": "Aramaya katıl",
     "callHandedFailed": "Aramaya katılınamadı",
-    "callTransferFailed": "Aktarılamadı"
+    "callTransferFailed": "Aktarılamadı",
+    "callFullScreen": "Tam ekran",
+    "callPopOut": "Ayrı pencerede aç",
+    "callDockBack": "Sayfaya geri al",
+    "callBackToCall": "Aramaya dön"
   }
 }

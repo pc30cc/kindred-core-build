@@ -108,77 +108,17 @@ struct CallView: View {
     }
 
     private func avatar(_ size: CGFloat) -> some View {
-        let c = call.conversation
-        return AvatarView(name: c == nil ? call.name : c?.contacts?.name, email: c?.contacts?.email, os: c?.visitorOs,
-                          countryCode: c?.visitorCountryCode, imageURL: c?.contacts?.avatarUrl, size: size)
+        CallAvatar(call: call, size: size)
     }
 
-    private var statusColor: Color {
-        call.phase == .connected ? Palette.success : Color(hex: 0x98A2B3)
-    }
+    private var statusColor: Color { CallStatusText.color(call) }
 
-    @ViewBuilder
-    private var statusLine: some View {
-        switch call.phase {
-        case .waiting:
-            Text(s[call.desk == nil ? "callWaiting" : "connectingCall"])
-        case .connecting:
-            Text(s["connectingCall"])
-        case .connected:
-            if let at = call.connectedAt {
-                TimelineView(.periodic(from: at, by: 1)) { context in
-                    Text(Display.duration(Int(context.date.timeIntervalSince(at)), s.language))
-                        .monospacedDigit()
-                }
-            } else {
-                Text(Display.duration(0, s.language))
-            }
-        case .ended(let outcome):
-            Text(s[outcome.textKey])
-        }
-    }
+    private var statusLine: some View { CallStatusText(call: call) }
 
     // MARK: Video
 
     private var videoLayer: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .bottomTrailing) {
-                Color.black
-                if call.remoteVideoTrack == nil {
-                    // The visitor's camera is off (or not there yet): their face where the picture goes.
-                    avatar(96)
-                        .frame(width: geo.size.width, height: geo.size.height)
-                }
-                if let remote = call.remoteVideoTrack {
-                    // Flipped once, as the web console flips every call video (src/index.css,
-                    // "Call video orientation"): the visitor's camera arrives mirrored, and this
-                    // shows them the way they really are. Pinned left to right so a right-to-left
-                    // window never adds a second flip.
-                    SwiftUIVideoView(remote, layoutMode: .fill, mirrorMode: .mirror)
-                        .environment(\.layoutDirection, .leftToRight)
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .clipped()
-                }
-                if let local = call.localVideoTrack {
-                    localPreview(local, width: min(geo.size.width * 0.26, 260))
-                }
-            }
-            .frame(width: geo.size.width, height: geo.size.height)
-        }
-    }
-
-    /// The operator's own camera, mirrored the way every selfie camera is.
-    private func localPreview(_ track: VideoTrack, width: CGFloat) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
-        return SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: .mirror)
-            // Mirrored exactly once, whatever the window's direction (see the visitor's video).
-            .environment(\.layoutDirection, .leftToRight)
-            .frame(width: width, height: width / 1.6)
-            .clipShape(shape)
-            .overlay { shape.strokeBorder(Color.white.opacity(0.18), lineWidth: 2) }
-            .shadow(color: .black.opacity(0.5), radius: 16, y: 12)
-            .padding(.bottom, 96)
-            .padding(.trailing, 18)
+        CallVideoStage(call: call, previewBottom: 96)
     }
 
     // MARK: Notices
@@ -228,20 +168,30 @@ struct CallView: View {
     }
 
     private func openPrivacySettings(_ type: AVMediaType) {
-        let pane = type == .video ? "Privacy_Camera" : "Privacy_Microphone"
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
-            NSWorkspace.shared.open(url)
-        }
+        CallVideoStage.openPrivacySettings(type)
     }
 
     // MARK: Window
 
+    /// Back into the page, full screen, keep on top.
     private var pinButton: some View {
-        let on = CallCoordinator.shared.isFloating
-        return Button {
-            CallCoordinator.shared.setFloating(!on)
-        } label: {
-            Image(systemName: on ? "pin.fill" : "pin")
+        let co = CallCoordinator.shared
+        return HStack(spacing: 8) {
+            if call.isVideo {
+                windowButton(icon: "arrow.up.left.and.arrow.down.right", help: s["callFullScreen"]) { co.toggleFullScreen() }
+            }
+            windowButton(icon: "pip.enter", help: s["callDockBack"]) { co.dockBack() }
+            windowButton(icon: co.isFloating ? "pin.fill" : "pin", help: s["callKeepOnTop"], on: co.isFloating) {
+                co.setFloating(!co.isFloating)
+            }
+        }
+        .padding(.top, 12)
+        .padding(.horizontal, 14)
+    }
+
+    private func windowButton(icon: String, help: String, on: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(on ? Palette.brand : Color.white.opacity(0.85))
                 .frame(width: 30, height: 30)
@@ -249,9 +199,7 @@ struct CallView: View {
         }
         .buttonStyle(.plain)
         .glass(Circle(), interactive: true)
-        .help(s["callKeepOnTop"])
-        .padding(.top, 12)
-        .padding(.horizontal, 14)
+        .help(help)
     }
 
     // MARK: Controls
@@ -318,7 +266,7 @@ struct CallView: View {
     }
 }
 
-private extension View {
+extension View {
     /// DebugTools' `callui` command: opens a panel as if its button had been clicked.
     @ViewBuilder
     func callDebugHooks(_ call: LiveCall, _ open: @escaping (String) -> Void) -> some View {
@@ -338,7 +286,7 @@ private extension View {
 
 /// The call's notes beside it: read every few seconds, so what a colleague writes shows up,
 /// and what is written here is there for whoever the call is handed to.
-private struct CallNotesPanel: View {
+struct CallNotesPanel: View {
     static let width: CGFloat = 300
 
     @Bindable var call: LiveCall
@@ -451,7 +399,7 @@ private struct CallNotesPanel: View {
 // MARK: - Transfer
 
 /// Who the call can go to — operators with their state and load, or a department — and why.
-private struct CallTransferPanel: View {
+struct CallTransferPanel: View {
     let call: LiveCall
     let done: () -> Void
     @Environment(AppModel.self) private var app
@@ -649,10 +597,12 @@ private struct CallTransferPanel: View {
 }
 
 /// One round control: glass, or a solid disc when switched off (white) or for hanging up (red).
-private struct CallControlButton: View {
+struct CallControlButton: View {
     let icon: String
     let help: String
     var solid: Color?
+    /// 56 in the call window; smaller where the call sits inside a page.
+    var size: CGFloat = 56
     let action: () -> Void
 
     var body: some View {
@@ -667,9 +617,9 @@ private struct CallControlButton: View {
     @ViewBuilder
     private var face: some View {
         let glyph = Image(systemName: icon)
-            .font(.system(size: 20, weight: .medium))
+            .font(.system(size: size * 0.36, weight: .medium))
             .foregroundStyle(solid == Color.white ? Color(hex: 0x0C0E14) : Color.white)
-            .frame(width: 56, height: 56)
+            .frame(width: size, height: size)
             .contentShape(Circle())
         if let solid {
             glyph.background(Circle().fill(solid))
@@ -680,7 +630,7 @@ private struct CallControlButton: View {
 }
 
 /// Soft rings around the face while the visitor is being rung.
-private struct CallPulse: View {
+struct CallPulse: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -706,5 +656,110 @@ private struct CallPulse: View {
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Shared by the call window, the panel in the page and the call bar
+
+/// The visitor's face (or the caller's, on the desk).
+struct CallAvatar: View {
+    let call: LiveCall
+    let size: CGFloat
+
+    var body: some View {
+        let c = call.conversation
+        AvatarView(name: c == nil ? call.name : c?.contacts?.name, email: c?.contacts?.email, os: c?.visitorOs,
+                   countryCode: c?.visitorCountryCode, imageURL: c?.contacts?.avatarUrl, size: size)
+    }
+}
+
+/// Ringing, connecting, the running time, or how it ended — coloured green while connected.
+struct CallStatusText: View {
+    let call: LiveCall
+    @Environment(AppModel.self) private var app
+
+    static func color(_ call: LiveCall) -> Color {
+        call.phase == .connected ? Palette.success : Color(hex: 0x98A2B3)
+    }
+
+    var body: some View {
+        let s = app.strings
+        Group {
+            switch call.phase {
+            case .waiting:
+                Text(s[call.desk == nil ? "callWaiting" : "connectingCall"])
+            case .connecting:
+                Text(s["connectingCall"])
+            case .connected:
+                if let at = call.connectedAt {
+                    TimelineView(.periodic(from: at, by: 1)) { context in
+                        Text(Display.duration(Int(context.date.timeIntervalSince(at)), s.language))
+                            .monospacedDigit()
+                    }
+                } else {
+                    Text(Display.duration(0, s.language))
+                }
+            case .ended(let outcome):
+                Text(s[outcome.textKey])
+            }
+        }
+        .foregroundStyle(Self.color(call))
+    }
+}
+
+/// The picture: the visitor's camera edge to edge (their face while it is off), the
+/// operator's own camera inset in the corner.
+struct CallVideoStage: View {
+    let call: LiveCall
+    /// Room below the operator's camera for the controls laid over the picture.
+    var previewBottom: CGFloat = 96
+    var previewMaxWidth: CGFloat = 260
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .bottomTrailing) {
+                Color.black
+                if call.remoteVideoTrack == nil {
+                    // The visitor's camera is off (or not there yet): their face where the picture goes.
+                    CallAvatar(call: call, size: min(96, geo.size.height * 0.4))
+                        .frame(width: geo.size.width, height: geo.size.height)
+                }
+                if let remote = call.remoteVideoTrack {
+                    // Flipped once, as the web console flips every call video (src/index.css,
+                    // "Call video orientation"): the visitor's camera arrives mirrored, and this
+                    // shows them the way they really are. Pinned left to right so a right-to-left
+                    // window never adds a second flip.
+                    SwiftUIVideoView(remote, layoutMode: .fill, mirrorMode: .mirror)
+                        .environment(\.layoutDirection, .leftToRight)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .clipped()
+                }
+                if let local = call.localVideoTrack {
+                    localPreview(local, width: min(geo.size.width * 0.26, previewMaxWidth))
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+    }
+
+    /// The operator's own camera, mirrored the way every selfie camera is.
+    private func localPreview(_ track: VideoTrack, width: CGFloat) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        return SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: .mirror)
+            // Mirrored exactly once, whatever the window's direction (see the visitor's video).
+            .environment(\.layoutDirection, .leftToRight)
+            .frame(width: width, height: width / 1.6)
+            .clipShape(shape)
+            .overlay { shape.strokeBorder(Color.white.opacity(0.18), lineWidth: 2) }
+            .shadow(color: .black.opacity(0.5), radius: 16, y: 12)
+            .padding(.bottom, previewBottom)
+            .padding(.trailing, 14)
+    }
+
+    static func openPrivacySettings(_ type: AVMediaType) {
+        let pane = type == .video ? "Privacy_Camera" : "Privacy_Microphone"
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
+            NSWorkspace.shared.open(url)
+        }
     }
 }

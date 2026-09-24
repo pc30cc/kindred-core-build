@@ -10,6 +10,17 @@ struct CallCenterDetail: View {
     var body: some View {
         VStack(spacing: 0) {
             noticeBar
+            // The call answered here slides down over it, and back up when it ends.
+            VStack(spacing: 0) {
+                if let call = CallCoordinator.shared.docksHere(deskCallId: model.selectedId) {
+                    DockedCallPanel(call: call)
+                        .frame(maxWidth: 760)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .clipped()
+            .animation(.smooth(duration: 0.32), value: CallCoordinator.shared.docksHere(deskCallId: model.selectedId) != nil)
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

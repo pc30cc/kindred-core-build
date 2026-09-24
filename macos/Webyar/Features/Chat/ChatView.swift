@@ -59,6 +59,15 @@ struct ThreadView: View {
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
                 ThreadHeader(chat: chat, width: width, roomForDetails: columnWidth > 820)
+                // This conversation's call slides down from under the header, and back up when it ends.
+                VStack(spacing: 0) {
+                    if let call = CallCoordinator.shared.docksHere(conversationId: chat.conversation?.id) {
+                        DockedCallPanel(call: call)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
+                .clipped()
+                .animation(.smooth(duration: 0.32), value: CallCoordinator.shared.docksHere(conversationId: chat.conversation?.id) != nil)
                 if let notice = chat.notice {
                     Banner(severity: notice.severity, message: notice.message,
                            actionTitle: notice.retry ? app.strings["retry"] : nil,

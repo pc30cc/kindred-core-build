@@ -94,6 +94,9 @@ enum DebugTools {
             CallCoordinator.shared.joinAccepted(app: app, accept: CallAccept(ok: true), call: call, callId: "cs-1")
         case "callui": CallCoordinator.shared.call?.debugOpen = arg
         case "hangup": CallCoordinator.shared.call?.hangUp()
+        case "popout": CallCoordinator.shared.popOut()
+        case "dockback": CallCoordinator.shared.dockBack()
+        case "fullscreen": CallCoordinator.shared.toggleFullScreen()
         case "handed": SampleBackend.handed = arg != "off"
         case "deskend":
             CallCenterModel.debugCurrent?.debugDeskCallEnded(arg)

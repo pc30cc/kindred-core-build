@@ -21,11 +21,13 @@ use WHMCS\Database\Capsule;
  */
 final class WhmcsDb
 {
+    private static $capsule;
     /** WHMCS tables the seed writes to — emptied before each test in real-database mode. */
     const SEEDED_TABLES = array(
         'tblclients', 'tblcurrencies', 'tblusers_clients', 'tblproductgroups', 'tblproducts', 'tblhosting',
         'tbldomains', 'tblinvoices', 'tblinvoiceitems', 'tblaccounts', 'tblorders', 'tbltickets',
         'tblticketreplies', 'tblticketnotes', 'tblticketdepartments',
+        'tblannouncements', 'tblknowledgebase', 'tblknowledgebasecats', 'tblknowledgebaselinks', 'tblnetworkissues',
     );
 
     const SECRET = 'test-installation-secret-0123456789abcdef';
@@ -35,7 +37,9 @@ final class WhmcsDb
 
     public static function boot()
     {
+        if (self::$capsule) { self::$capsule->getConnection()->disconnect(); }
         $capsule = new Capsule();
+        self::$capsule = $capsule;
         $real = self::realDatabase();
         $capsule->addConnection($real ?: array('driver' => 'sqlite', 'database' => ':memory:', 'prefix' => ''));
         $capsule->setAsGlobal();
@@ -111,6 +115,25 @@ final class WhmcsDb
     private static function createSqliteTables()
     {
         $schema = Capsule::schema();
+        $schema->create('tblannouncements', function ($t) {
+            $t->increments('id'); $t->dateTime('date'); $t->text('title'); $t->text('announcement');
+            $t->integer('published')->default(1); $t->integer('parentid')->default(0); $t->text('language')->default('');
+        });
+        $schema->create('tblknowledgebase', function ($t) {
+            $t->increments('id'); $t->text('title'); $t->text('article'); $t->text('private')->default('');
+            $t->integer('parentid')->default(0); $t->text('language')->default(''); $t->integer('views')->default(0);
+        });
+        $schema->create('tblknowledgebasecats', function ($t) {
+            $t->increments('id'); $t->integer('parentid')->default(0); $t->integer('catid')->default(0);
+            $t->text('hidden')->default(''); $t->text('name')->default('');
+        });
+        $schema->create('tblknowledgebaselinks', function ($t) {
+            $t->increments('id'); $t->integer('categoryid'); $t->integer('articleid');
+        });
+        $schema->create('tblnetworkissues', function ($t) {
+            $t->increments('id'); $t->text('title'); $t->text('description'); $t->text('status');
+            $t->dateTime('startdate'); $t->dateTime('lastupdate'); $t->integer('server')->default(0);
+        });
         $schema->create('tblclients', function ($t) {
             $t->increments('id');
             $t->integer('currency');

@@ -8533,6 +8533,7 @@ const tr: TranslationKeys = {
     },
     whmcs: {
       name: 'WHMCS',
+      platform: { title: "Tüm çalışma alanlarında WHMCS özellikleri", description: "Kapatılan özellik, önbellekteki yanıtlar dahil tüm çalışma alanlarında engellenir. Diğer işlemler değişikliği 15 saniye içinde alır. Çalışma alanı ve WHMCS izinleri de gereklidir." },
       description: 'Yapay zekâ asistanının, oturum açmış bir müşterinin kendi hizmetleri, alan adları, faturaları, siparişleri ve destek talepleri hakkındaki sorularını doğrudan WHMCS’inizden canlı okuyarak yanıtlamasını sağlar.',
       connect: {
         title: 'WHMCS’i bağla',
@@ -8541,7 +8542,7 @@ const tr: TranslationKeys = {
         stepsTitle: 'Kurulum adımları',
         step1: 'Arşivi WHMCS kök klasörünüze çıkarın. Yalnızca modules/addons/webyar/ klasörünü ekler.',
         step2: 'WHMCS yönetiminde: System Settings → Addon Modules → Web Yar → Activate; ardından Configure ile eklentiyi yönetebilecek yönetici rollerini işaretleyin.',
-        step3: 'Addons → Web Yar sayfasını açın ve bu Web Yar adresini girin:',
+        step3: "Addons → Web Yar menüsünü açın ve gösterilen Web Yar adresini doğrulayın:",
         step4: '“Connect to Web Yar”a tıklayın, bu çalışma alanını seçip onaylayın. WHMCS’e “Bağlı” durumuyla dönersiniz.',
         step5: 'Buraya dönün ve asistanın okuyabileceği hesap bölümlerini açın. Sohbet penceresi müşteri alanına otomatik olarak eklenir.',
         requirements: 'WHMCS 8.0+, PHP 7.2+ (WHMCS sürümünüzün desteklediği ölçüde) ve WHMCS System URL üzerinde HTTPS gerekir.',
@@ -8577,6 +8578,12 @@ const tr: TranslationKeys = {
         other: 'Son hata: {{code}}',
       },
       permissions: {
+        announcements: "Duyurular",
+        announcementsHint: "Yalnızca yayımlanmış duyurular; bellekte en fazla beş dakika önbelleklenir.",
+        knowledgebase: "Bilgi bankası",
+        knowledgebaseHint: "Görünür kategorilerdeki herkese açık makaleler; özetler bellekte en fazla on dakika tutulur.",
+        networkstatus: "Ağ durumu",
+        networkstatusHint: "Güncel olaylar canlı okunur. WHMCS oturum açma kuralları uygulanır.",
         title: 'Asistanın okuyabilecekleri',
         description: 'Değişiklikler bir sonraki mesajdan itibaren geçerli olur. Özel bölümler yalnızca ait oldukları, oturum açmış müşteriye gösterilir ve yalnızca WHMCS kullanıcısının o izni varsa.',
         catalog: 'Ürünler ve fiyatlar',

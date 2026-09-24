@@ -34,6 +34,9 @@ export const WHMCS_ASSERTION_PREFIX = 'whmcs1' as const;
  */
 export const WHMCS_CONNECTION_PERMISSIONS = [
   'catalog',
+  'announcements',
+  'knowledgebase',
+  'networkstatus',
   'services',
   'domains',
   'invoices',
@@ -44,6 +47,9 @@ export type WhmcsConnectionPermission = (typeof WHMCS_CONNECTION_PERMISSIONS)[nu
 
 export const WHMCS_DEFAULT_PERMISSIONS: Record<WhmcsConnectionPermission, boolean> = {
   catalog: true,
+  announcements: false,
+  knowledgebase: false,
+  networkstatus: false,
   services: false,
   domains: false,
   invoices: false,
@@ -63,7 +69,9 @@ export const WHMCS_USER_PERMISSIONS = [
 ] as const;
 export type WhmcsUserPermission = (typeof WHMCS_USER_PERMISSIONS)[number];
 
-export type WhmcsAccountResource = Exclude<WhmcsConnectionPermission, 'catalog'>;
+export const WHMCS_PUBLIC_RESOURCES = ['announcements', 'knowledgebase', 'networkstatus'] as const;
+export type WhmcsPublicResource = (typeof WHMCS_PUBLIC_RESOURCES)[number];
+export type WhmcsAccountResource = Exclude<WhmcsConnectionPermission, 'catalog' | WhmcsPublicResource>;
 
 /** Which WHMCS user permission a resource needs on the selected Client Account. */
 export const WHMCS_RESOURCE_USER_PERMISSION: Record<WhmcsAccountResource, WhmcsUserPermission> = {
@@ -77,6 +85,9 @@ export const WHMCS_RESOURCE_USER_PERMISSION: Record<WhmcsAccountResource, WhmcsU
 /** The complete, closed set of operations the addon answers. There is no generic proxy. */
 export const WHMCS_OPS = [
   'health',
+  'content.announcements',
+  'content.knowledgebase',
+  'content.networkstatus',
   'catalog.search',
   'catalog.browse',
   'session.check',
@@ -261,4 +272,15 @@ export interface WhmcsHealth {
   capabilities: string[];
   schemaOk: boolean;
   systemUrl: string | null;
+}
+
+/** Ephemeral public-content excerpt; never mirrored into WebYar storage. */
+export interface WhmcsContentItem {
+  id: string;
+  title: string;
+  excerpt: string | null;
+  url: string | null;
+  publishedAt: string | null;
+  updatedAt: string | null;
+  status: string | null;
 }

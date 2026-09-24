@@ -8548,6 +8548,7 @@ const en = {
     },
     whmcs: {
       name: 'WHMCS',
+      platform: { title: "WHMCS features across all workspaces", description: "A disabled feature is blocked for every workspace, including cached answers. Changes take effect within 15 seconds. Workspace and WHMCS permissions still apply." },
       description: 'Lets the AI Assistant answer a signed-in client\'s questions about their own services, domains, invoices, orders and tickets, read live from your WHMCS.',
       connect: {
         title: 'Connect WHMCS',
@@ -8556,7 +8557,7 @@ const en = {
         stepsTitle: 'Installation steps',
         step1: 'Extract the archive into your WHMCS root folder. It only adds modules/addons/webyar/.',
         step2: 'In WHMCS admin: System Settings → Addon Modules → Web Yar → Activate, then Configure and tick the admin roles that may manage it.',
-        step3: 'Open Addons → Web Yar and enter this Web Yar URL:',
+        step3: "Open Addons → Web Yar and verify the displayed Web Yar address:",
         step4: 'Click \'Connect to Web Yar\', choose this workspace and approve. You return to WHMCS with a Connected status.',
         step5: 'Come back here and turn on the account sections the assistant may read. The chat widget is added to the client area automatically.',
         requirements: 'Requires WHMCS 8.0+, PHP 7.2+ (as supported by your WHMCS version) and HTTPS on the WHMCS System URL.',
@@ -8592,6 +8593,12 @@ const en = {
         other: 'Last error: {{code}}',
       },
       permissions: {
+        announcements: "Announcements",
+        announcementsHint: "Published announcements only. Cached in memory for up to five minutes.",
+        knowledgebase: "Knowledge base",
+        knowledgebaseHint: "Public articles in visible categories. Excerpts are cached in memory for up to ten minutes.",
+        networkstatus: "Network status",
+        networkstatusHint: "Current published incidents, read live. WHMCS login requirements are respected.",
         title: 'What the assistant may read',
         description: 'Changes apply from the next message. Private sections are only ever shown to the signed-in client they belong to, and only if their WHMCS user has that permission.',
         catalog: 'Products and prices',

@@ -1,3 +1,4 @@
+import { WHMCS_CONNECTION_PERMISSIONS } from '../../../shared/commerce/whmcs';
 /**
  * Super Admin — single plugin control page (never a dialog).
  *
@@ -47,8 +48,8 @@ export default function AdminPluginDetailPage() {
       toast({ title: t('plugins.admin.saved') });
       qc.invalidateQueries({ queryKey: ['admin', 'plugins'] });
     },
-    onError: (err: any) =>
-      toast({ variant: 'destructive', title: t('plugins.admin.saveFailed'), description: err?.message }),
+    onError: (err: unknown) =>
+      toast({ variant: 'destructive', title: t('plugins.admin.saveFailed'), description: err instanceof Error ? err.message : undefined }),
   });
 
   if (isLoading) {
@@ -123,7 +124,7 @@ export default function AdminPluginDetailPage() {
                 <Switch
                   checked={!!current}
                   disabled={update.isPending}
-                  onCheckedChange={(v) => update.mutate({ [field]: v } as any)}
+                  onCheckedChange={(v) => update.mutate({ [field]: v })}
                 />
               </div>
             ))}
@@ -146,6 +147,25 @@ export default function AdminPluginDetailPage() {
                   }
                 />
               </div>
+            )}
+
+            {item.id === 'whmcs' && (
+              <section className="space-y-4 border-t pt-4">
+                <div>
+                  <h2 className="font-medium">{t('plugins.whmcs.platform.title')}</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">{t('plugins.whmcs.platform.description')}</p>
+                </div>
+                {WHMCS_CONNECTION_PERMISSIONS.map((section) => {
+                  const sections = (item.policy?.whmcsSections ?? {}) as Record<string, boolean>;
+                  return (
+                    <div key={section} className="flex items-center justify-between gap-3">
+                      <Label htmlFor={`whmcs-${section}`}>{t(`plugins.whmcs.permissions.${section}` as never)}</Label>
+                      <Switch id={`whmcs-${section}`} checked={sections[section] !== false} disabled={update.isPending}
+                        onCheckedChange={(value) => update.mutate({ policy: { ...(item.policy ?? {}), whmcsSections: { ...sections, [section]: value } } })} />
+                    </div>
+                  );
+                })}
+              </section>
             )}
 
             {(item.id === 'telegram' || item.id === 'bale') && (

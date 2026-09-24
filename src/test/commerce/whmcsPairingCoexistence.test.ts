@@ -73,7 +73,7 @@ describe('pairing a WHMCS install', () => {
     expect(installed).toEqual([{ workspaceId: WS, pluginId: 'whmcs' }]);
     const conn = db.tables.commerce_connections[0];
     expect(conn).toMatchObject({ provider_type: 'whmcs', store_id: BASE, approved_origin: ORIGIN, catalog_ready: false });
-    expect(conn.permissions).toEqual({ catalog: true, services: false, domains: false, invoices: false, orders: false, tickets: false });
+    expect(conn.permissions).toEqual({ announcements: false, knowledgebase: false, networkstatus: false, catalog: true, services: false, domains: false, invoices: false, orders: false, tickets: false });
     // Nothing queued for a live-queried provider.
     expect(db.tables.commerce_sync_jobs ?? []).toEqual([]);
   });

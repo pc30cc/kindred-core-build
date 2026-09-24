@@ -243,7 +243,7 @@ export async function runGenerationStage(
     .slice(-4);
   const whmcsStage: WhmcsStageResult | null = commerceConnections && commerceConnections.some((c) => c.provider_type === 'whmcs')
     ? await runWhmcsToolStage(config, {
-        workspaceId, conversationId: conversationId || null, question,
+        workspaceId, conversationId: conversationId || null, question, locale,
         connections: commerceConnections, ...commerceSite, previousVisitorTurns,
       }).catch(() => null)
     : null;
@@ -443,7 +443,7 @@ export async function runGenerationStage(
     decisionTimeline.push(`whmcs_model_requested_${aiControl.accountData}`);
     generationMeta.whmcs_fallback = 'requested';
     whmcsFallback = await runWhmcsToolStage(config, {
-      workspaceId, conversationId: conversationId || null, question,
+      workspaceId, conversationId: conversationId || null, question, locale,
       connections: commerceConnections, ...commerceSite, previousVisitorTurns,
       forcedIntent: intentForAccountData(aiControl.accountData, question),
     }).catch(() => null);

@@ -1,13 +1,15 @@
 # WHMCS Connector
 
-Status: implemented on branch `claude/magical-gates-bl0ilr`, **not deployed,
-and not yet run against a real WHMCS installation** (see §Testing). Read-only.
+Status: addon **1.1.0**, read-only. Tested on the isolated WHMCS 9.0.1 /
+PHP 8.3 installation and its MariaDB schema (see §Testing).
 
 A signed-in WHMCS client can ask the Web Yar widget about **their own**
 services, domains, invoices, orders and support tickets, and any visitor can
-ask about the public product catalogue. The assistant answers from WHMCS,
-read live for that question. Nothing is written to WHMCS and no WHMCS
-records are copied into Web Yar.
+ask about the public product catalogue, published announcements and public
+knowledge articles. Network notices respect WHMCS’s login requirement. The assistant answers from WHMCS,
+read on demand for that question. No customer or content rows are modified,
+and no source mirror, index or per-turn tool audit is stored in Web Yar.
+WHMCS still stores the short-lived security nonces and identity grants.
 
 ```
 plugins/webyar-whmcs/                      the WHMCS addon (PHP, zero runtime deps)
@@ -27,12 +29,16 @@ HTTPS on the WHMCS System URL, and the Web Yar `commerce` plan module.
 2. Extract the archive into the WHMCS root. It adds `modules/addons/webyar/` only.
 3. WHMCS admin → *System Settings → Addon Modules → Web Yar* → **Activate**, then
    **Configure** and tick the admin roles that may manage it.
-4. *Addons → Web Yar*: enter the Web Yar URL (and API URL if separate), Save,
-   then **Connect to Web Yar**. Log in, pick the workspace, approve. You land
+4. *Addons → Web Yar*: the preconfigured Web/API addresses are read-only.
+   Server operators can override `WEBYAR_APP_URL` / `WEBYAR_API_URL` in PHP;
+   earlier saved addresses remain a fallback. Click **Connect to Web Yar**. Log in, pick the workspace, approve. You land
    back in WHMCS with a *Connected* status.
 5. Web Yar → **Plugins → WHMCS**: turn on the account sections the assistant
    may read. **Only the public catalogue is on after pairing**; services,
-   domains, invoices, orders and tickets start off.
+   domains, invoices, orders, tickets and the three new content sources start off.
+6. Super Admin → **Plugins → WHMCS** has a master switch, an AI switch and
+   nine section switches. They apply before cache reads and merchant requests.
+   Workers refresh the cached policy within 15 seconds. Maintenance mode also stops AI reads.
 
 The chat widget is added to the client area automatically (an addon setting
 can turn this off). Pairing is the same authorization-code + PKCE flow as
@@ -40,7 +46,9 @@ WooCommerce (SECURITY.md §Pairing); the consent page shows the real WHMCS
 defaults instead of toggles.
 
 **Upgrade**: upload the new archive over the old folder; WHMCS runs the
-addon's `upgrade` function, which only ever adds tables/columns.
+addon's `upgrade` function, which only ever adds tables/columns. Click
+**Check connection** afterward to negotiate the three new content capabilities,
+then enable the desired sources in the workspace. No content migration is needed.
 
 **Uninstall**: *Addon Modules → Web Yar → Deactivate* drops the addon's own
 `mod_webyar_*` tables only. No WHMCS client, service, domain, invoice, order
@@ -152,14 +160,17 @@ or `commerce_customer_history` by section, all existing capability keys).
 | Section (owner switch) | WHMCS user permission | Plan entitlement |
 |---|---|---|
 | catalog | — (public) | commerce_catalog |
+| announcements / knowledgebase | — (public content only) | commerce_catalog |
+| networkstatus | live grant if WHMCS requires login | commerce_catalog |
 | services | `products` | commerce_customer_history |
 | domains | `domains` | commerce_customer_history |
 | invoices | `invoices` | commerce_customer_history |
 | orders | `orders` | commerce_orders |
 | tickets | `tickets` | commerce_customer_history |
 
-The API is a closed list of 14 operations (`health`, `catalog.search`,
-`catalog.browse`, `session.check`, and `list`/`get` for each section). There
+The API is a closed list of 17 operations (`health`, `catalog.search`,
+`catalog.browse`, `session.check`, three `content.*` reads, and `list`/`get`
+for each account section). There
 is no generic API proxy, no SQL passthrough and no write operation: no pay,
 renew, cancel, DNS, password, reboot, suspend or ticket submission.
 
@@ -174,15 +185,15 @@ renew, cancel, DNS, password, reboot, suspend or ticket submission.
 | `commerce_customer_links` (one row per visitor who signed in and chatted) | WHMCS client id, user id, grant id, subject_since, expiry, revoked_at | which grant to ask WHMCS about |
 | `commerce_nonce_cache` | assertion `jti`, until expiry | replay protection |
 | `contacts` (existing, on first binding only) | the WHMCS user's name and email on the chatting visitor's contact | the operator sees who they are talking to (same as the WooCommerce identity bridge) |
-| `commerce_tool_audit` (one row per turn with an account read or a live call) | tool name, duration, success, error code, cache-hit flag, result count | audit, with no content |
 | conversation messages and `ai_agent_runs` (existing) | the visitor's question and the assistant's reply | the chat transcript, like any other reply. A reply may quote a figure it was given, such as an invoice balance |
 | process memory only | cache entries (§8), rate/breaker counters, per-turn metric event | cost control; gone on restart |
 
-### Queried live, never stored
+### Queried on demand, no separate source storage
 
 Services, domains, invoices (with line items), orders, tickets (with up to
 3 reply excerpts of ≤ 600 chars), the product catalogue and prices, the
-client's WHMCS permissions, and whether the grant is still live. Raw WHMCS
+client's WHMCS permissions, whether the grant is still live, and bounded
+announcement / knowledgebase / network excerpts. Raw WHMCS
 responses, the evidence block given to the model, and ticket text are not
 persisted, logged or put in metrics. Logs carry error codes only.
 
@@ -250,7 +261,9 @@ entry, single-flight for identical in-flight reads (≤ 1000 keys).
 
 | Data | TTL | Notes |
 |---|---|---|
-| public catalogue | 5 min | keyed by installation + workspace + owner permissions + query |
+| public catalogue / announcements | 5 min | keyed by installation + workspace + owner permissions + query + locale |
+| public knowledge articles | 10 min | same isolation; bounded excerpts only |
+| network notices | no response cache | login settings and grant are checked live on every request; concurrent identical calls coalesce |
 | services / orders | 60 s | private: served only after that turn's live `session.check` |
 | domains | 120 s | 〃 |
 | tickets | 30 s | 〃 |
@@ -294,19 +307,25 @@ Web Yar, per chat turn, added on top of the existing pipeline
 | Scenario | WHMCS HTTP | DB select | DB insert | DB update | evidence bytes |
 |---|---|---|---|---|---|
 | general question (no WHMCS intent) | 0 | 0 | 0 | 0 | 0 |
-| guest asks for invoices | 0 | 2 | 1 (audit) | 0 | 143 |
-| plans, cold cache | 1 | 1 | 1 | 1 | 718 |
+| platform disabled | 0 | 1 | 0 | 0 | 0 |
+| guest asks for invoices | 0 | 3 | 0 | 0 | 143 |
+| announcements / knowledgebase, cold | 1 | 2 | 0 | 0 | 273 |
+| network notices, guest conversation | 1 | 4 | 0 | 0 | 284 |
+| source disabled in Super Admin | 0 | 1 | 0 | 0 | 55 |
+| plans, cold cache | 1 | 2 | 0 | 1 | 718 |
 | plans, warm cache | 0 | 0 | 0 | 0 | 752 |
-| customer lists services (cold) | 1 | 3 | 1 | 1 | 814 |
-| same, warm cache | 1 (`session.check`) | 3 | 1 | 0 | 848 |
-| follow-up "the second one" | 2 | 3 | 1 | 0 | 470 |
-| another customer's invoice id | 1 | 3 | 1 | 0 | 47 |
-| WHMCS unreachable | 2 (one retry) | 3 | 1 | 0 | 54 |
+| customer lists services (cold) | 1 | 4 | 0 | 1 | 814 |
+| same, warm cache | 1 (`session.check`) | 3 | 0 | 0 | 848 |
+| follow-up "the second one" | 2 | 3 | 0 | 0 | 470 |
+| another customer's invoice id | 1 | 4 | 0 | 0 | 47 |
+| WHMCS unreachable | 2 (one retry) | 4 | 0 | 0 | 54 |
 | 5 identical concurrent questions | 1 total | – | – | – | – |
-| shop page, account question | 0 | 0 | 0 | 0 | 0 |
 
-The `DB update` is the connection's `last_seen_at`, written at most once
-per 15 min, so it is 0 on most turns.
+Counts include a cold platform policy lookup where applicable. Policy is
+coalesced and held in process for 15 seconds. The `DB update` for existing
+account/catalog reads is the connection's `last_seen_at`, at most once per
+15 minutes. **Content reads perform zero Web Yar inserts/updates**, including
+on failure. There is no WHMCS tool-audit insert on any path.
 
 Identity binding (`whmcsIdentity.test.ts`): the first bind costs link +
 nonce + contact writes. Every later page load with the same grant costs
@@ -352,8 +371,8 @@ Web Yar memory (bounded by the cache caps above: ≤ 8 MB plus limiter maps).
 
 | Suite | What it proves |
 |---|---|
-| `plugins/webyar-whmcs/tests` (PHPUnit, 46 tests) | the real addon readers and API on SQLite shaped like WHMCS: signature, replay, grant lifecycle, WHMCS user permissions, ownership (another client's id is not found), closed accounts, column allow-lists, catalogue visibility, widget injection, statement counts |
-| the same 46 tests with `WEBYAR_TEST_DB=mysql` ([`tests/realdb`](../../plugins/webyar-whmcs/tests/realdb/README.md)) | every addon query against MariaDB/MySQL holding WHMCS's own `install.sql` schema plus the reconstructed later tables: real column types (`INT ZEROFILL` ids, `DECIMAL` amounts, `DATE` columns), collation and SQL dialect |
+| `plugins/webyar-whmcs/tests` (PHPUnit, 55 tests) | the real addon readers and API on SQLite shaped like WHMCS: signature, replay, grant lifecycle, WHMCS user permissions, ownership (another client's id is not found), closed accounts, column allow-lists, catalogue visibility, widget injection, statement counts |
+| the same 55 tests with `WEBYAR_TEST_DB=mysql` ([`tests/realdb`](../../plugins/webyar-whmcs/tests/realdb/README.md)) | every addon query against MariaDB/MySQL holding WHMCS's own `install.sql` schema plus the reconstructed later tables: real column types (`INT ZEROFILL` ids, `DECIMAL` amounts, `DATE` columns), collation and SQL dialect |
 | `src/test/commerce/whmcsProtocol.test.ts` | TS and PHP sign byte-identical requests and assertions (shared vectors) |
 | `whmcsIdentity`, `whmcsGateway`, `whmcsStage`, `whmcsIntent`, `connectionSelection`, `whmcsPairingCoexistence`, `connectionsRoute`, `whmcsConfigPanel` | forged/expired/replayed assertions, cross-workspace/installation isolation, logout/switch/permission change, cache isolation, limits, breaker, deadlines, fa/en/tr routing, pairing, panel behaviour |
 | `src/test/ai-agent/whmcsAccountFallback.test.ts` | the bounded fallback through the real engine (model faked) |
@@ -361,16 +380,34 @@ Web Yar memory (bounded by the cache caps above: ≤ 8 MB plus limiter maps).
 Run: `npx vitest run src/test/commerce src/test/ai-agent/whmcsAccountFallback.test.ts`
 and, in `plugins/webyar-whmcs`, `composer install && vendor/bin/phpunit`.
 
-The MySQL mode was run on MariaDB 11.8 with the base schema of WHMCS 9.0.9:
-46/46 pass. Its first run found that WHMCS returns `INT ZEROFILL` ids padded
-(`0000000102`); the addon now emits every id as a plain decimal (`102`).
+Validation on 2026-09-24:
 
-**Not proven**: behaviour on a real WHMCS install (no licensed instance was
-available, and none was installed on any server), the exact WHMCS 9 shape of
-the tables its encoded upgrades add (reconstructed from the developer docs),
-WHMCS hook timing in a live client area, real network latency, and the recall
-of the model-signalled fallback with a real LLM. The simulator and fakes are
-test doubles, not a benchmark.
+- TypeScript: **397 passed, 41 skipped** (unconfigured unrelated live integration
+  suites); the WHMCS-specific set has **107 passing tests**. Client/server
+  typechecks pass. The model fallback test uses a simulated model.
+- PHP 8.3.33: **55 tests / 322 assertions pass** on SQLite and on MariaDB 11
+  with a separate, empty schema copied from the isolated installed WHMCS 9.0.1.
+  The tests never truncate the installed WHMCS database.
+- Installed signed HTTPS endpoint: unsigned request 401, valid health 200,
+  replay 401, announcements 200, knowledgebase 200, guest network status 403
+  with `NetworkIssuesRequireLogin=on`. Addon reports 1.1.0 and 9 capabilities.
+- Actual addon page rendered in English and Persian. Automated checks cover
+  direction, Google font choice, icon, locked addresses, forged URL POSTs and
+  CSRF. The release zip builds successfully.
+
+Content readers return at most five items, each with a title, up to 700
+characters of excerpt and a scoped source link. Body selection is limited to
+4096 characters. Knowledge search also checks translations, excludes private
+articles, hidden category ancestors, orphan/cyclic categories and mixed hidden
+links. More than 512 categories fails closed with an explicit limit result.
+Announcements exclude drafts and future publications/translations. Network
+results contain unresolved published notices, never server ids; no incidents
+is not a guarantee of uptime. Reader tests confirm no view-counter writes.
+
+Not proven by this release validation: every supported WHMCS/PHP version,
+real-model natural-language recall, or production load/latency. Existing
+held-out intent recall metrics remain documented by the intent suite; passing
+unit tests do not imply perfect routing for every phrasing.
 
 ## 12. WooCommerce changes made alongside
 

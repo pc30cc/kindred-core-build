@@ -40,12 +40,14 @@ import { WhmcsConnector, WhmcsHttpError, type WhmcsTransport } from '../connecto
 import { BoundedTtlCache } from './cache.js';
 import { CircuitBreaker, ConcurrencyLimiter, TokenBucketLimiter } from './guard.js';
 import { normalizeSession, type LinkScope } from './normalize.js';
+import { getWhmcsPolicy, invalidateWhmcsPolicy } from './policy.js';
+import { WHMCS_PUBLIC_RESOURCES, type WhmcsAccountResource } from '../../../../shared/commerce/whmcs.js';
 
 // ── Bounds (documented in docs/commerce/WHMCS.md §Limits) ─────────────────
 export const WHMCS_MAX_CALLS_PER_TURN = 3;
 export const WHMCS_TURN_DEADLINE_MS = 6_000;
 export const PUBLIC_CATALOG_TTL_MS = 5 * 60_000;
-export const PRIVATE_TTL_MS: Record<Exclude<WhmcsConnectionPermission, 'catalog'>, number> = {
+export const PRIVATE_TTL_MS: Record<WhmcsAccountResource, number> = {
   services: 60_000,
   domains: 120_000,
   invoices: 15_000,
@@ -56,6 +58,9 @@ const LAST_SEEN_MIN_INTERVAL_MS = 15 * 60_000;
 
 const OP_CAPABILITY: Record<WhmcsOp, CommerceCapability | null> = {
   'health': null,
+  'content.announcements': 'content.announcements.read',
+  'content.knowledgebase': 'content.knowledgebase.read',
+  'content.networkstatus': 'content.networkstatus.read',
   'catalog.search': 'catalog.read',
   'catalog.browse': 'catalog.read',
   'session.check': 'identity.grant',
@@ -72,7 +77,7 @@ const OP_CAPABILITY: Record<WhmcsOp, CommerceCapability | null> = {
 };
 
 function entitlementFor(permission: WhmcsConnectionPermission): string {
-  if (permission === 'catalog') return 'commerce_catalog';
+  if (permission === 'catalog' || WHMCS_PUBLIC_RESOURCES.some((p) => p === permission)) return 'commerce_catalog';
   if (permission === 'orders') return 'commerce_orders';
   return 'commerce_customer_history';
 }
@@ -103,6 +108,7 @@ export function whmcsRuntimeStats() {
 
 /** Test hook — never called by production code. */
 export function __resetWhmcsRuntimeForTests(): void {
+  invalidateWhmcsPolicy();
   cache.clear();
   lastSeenWritten.clear();
   breaker.clear();
@@ -302,11 +308,13 @@ async function liveCall(
     const result = await connector.call(op, params, { deadlineAt: ctx.deadlineAt, correlationId: ctx.correlationId, grant });
     ctx.metrics.httpCalls += result.attempts - 1;
     ctx.metrics.bytesIn += result.bytes;
-    noteSuccess(ctx);
+    if (!op.startsWith('content.')) noteSuccess(ctx);
+    else breaker.onSuccess(installKey);
     return result.data;
   } catch (err) {
     const safe = err instanceof CommerceError ? err : new CommerceError('commerce_invalid_response', 'WHMCS call failed');
-    noteFailure(ctx, safe);
+    if (!op.startsWith('content.')) noteFailure(ctx, safe);
+    else if (safe.code === 'commerce_live_unavailable' || safe.code === 'commerce_timeout') breaker.onFailure(ctx.connection.installation_id);
     throw safe;
   } finally {
     releaseIdentity();
@@ -368,7 +376,12 @@ async function confirmAccess(ctx: WhmcsTurnContext, grant: WhmcsGrantRef): Promi
 export async function whmcsRead<T>(ctx: WhmcsTurnContext, req: WhmcsReadRequest<T>): Promise<WhmcsReadResult<T>> {
   const { connection, workspaceId } = ctx;
   const grant = req.grant ?? null;
-  const isPrivate = req.permission !== 'catalog';
+  const isContent = WHMCS_PUBLIC_RESOURCES.some((p) => p === req.permission);
+  const isPrivate = !isContent && req.permission !== 'catalog';
+  const platform = await getWhmcsPolicy(ctx.config);
+  if (!platform.enabled || platform.sections[req.permission] === false) {
+    throw new CommerceError('commerce_permission_denied', 'disabled by platform');
+  }
 
   assertConnectionUsable(connection);
   assertCapability(connection, req.op);
@@ -377,9 +390,11 @@ export async function whmcsRead<T>(ctx: WhmcsTurnContext, req: WhmcsReadRequest<
   await assertEntitled(ctx, req.permission);
 
   const key = whmcsCacheKey(connection, workspaceId, grant, req.op, req.params);
-  const ttl = isPrivate ? PRIVATE_TTL_MS[req.permission as keyof typeof PRIVATE_TTL_MS] : PUBLIC_CATALOG_TTL_MS;
+  const ttl = req.permission === 'knowledgebase' ? 10 * 60_000 : isPrivate ? PRIVATE_TTL_MS[req.permission as keyof typeof PRIVATE_TTL_MS] : PUBLIC_CATALOG_TTL_MS;
 
-  if (!req.freshOnly) {
+  // Network visibility can require login and change at any time. Always check
+  // WHMCS live; concurrent identical reads are still coalesced.
+  if (!req.freshOnly && req.permission !== 'networkstatus') {
     const hit = cache.get(key);
     if (hit) {
       if (isPrivate) {
@@ -409,6 +424,6 @@ export async function whmcsRead<T>(ctx: WhmcsTurnContext, req: WhmcsReadRequest<
     }
     throw err;
   }
-  cache.set(key, value, ttl, Buffer.byteLength(JSON.stringify(value ?? null), 'utf8'));
+  if (req.permission !== 'networkstatus') cache.set(key, value, ttl, Buffer.byteLength(JSON.stringify(value ?? null), 'utf8'));
   return { value, source: 'live', ageMs: 0 };
 }

@@ -114,11 +114,11 @@ describe('permissions', () => {
     renderWith(<WhmcsConfigPanel workspaceId={WS} />);
     await screen.findByText('https://billing.example.com/whmcs');
     const switches = screen.getAllByRole('switch');
-    expect(switches).toHaveLength(6);
-    fireEvent.click(switches[1]); // services
+    expect(switches).toHaveLength(9);
+    fireEvent.click(switches[4]); // services
     await waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true));
     const patch = calls.find((c) => c.method === 'PATCH');
     expect(patch?.url).toBe(`/api/workspaces/${WS}/commerce/connections/conn-whmcs/permissions`);
-    expect(patch?.body).toEqual({ catalog: true, services: true, domains: false, invoices: true, orders: false, tickets: false });
+    expect(patch?.body).toEqual({ announcements: false, knowledgebase: false, networkstatus: false, catalog: true, services: true, domains: false, invoices: true, orders: false, tickets: false });
   });
 });

@@ -59,7 +59,7 @@ const CORPUS: Array<[string, Label]> = [
   ['چطور وارد سی پنل بشم', 'none'],
   ['چطور وردپرس نصب کنم', 'none'],
   ['ممنون', 'none'],
-  ['آموزش انتقال سایت', 'none'],
+  ['آموزش انتقال سایت', 'public:knowledgebase'],
   // ── English ──
   ['show my services', 'account:services'],
   ['when does my hosting renew?', 'account:services'],
@@ -114,7 +114,7 @@ const CORPUS: Array<[string, Label]> = [
 function labelOf(intent: WhmcsIntent): Label {
   if (intent.kind === 'none') return 'none';
   if (intent.kind === 'catalog') return 'catalog';
-  return `account:${intent.resource}`;
+  return `${intent.kind}:${intent.resource}`;
 }
 
 describe('intent routing on the fa/en/tr corpus', () => {

@@ -6,6 +6,7 @@ use WebYar\Whmcs\Grants;
 use WebYar\Whmcs\Permissions;
 use WebYar\Whmcs\Platform;
 use WebYar\Whmcs\Readers\Catalog;
+use WebYar\Whmcs\Readers\Content;
 use WebYar\Whmcs\Readers\Domains;
 use WebYar\Whmcs\Readers\Invoices;
 use WebYar\Whmcs\Readers\Orders;
@@ -31,6 +32,9 @@ use WebYar\Whmcs\Version;
 final class Router
 {
     const OPS = array(
+        'content.announcements' => array('section' => 'announcements', 'capability' => 'content.announcements.read', 'permission' => null),
+        'content.knowledgebase' => array('section' => 'knowledgebase', 'capability' => 'content.knowledgebase.read', 'permission' => null),
+        'content.networkstatus' => array('section' => 'networkstatus', 'capability' => 'content.networkstatus.read', 'permission' => null),
         'health' => array('section' => null, 'capability' => null, 'permission' => null),
         'catalog.search' => array('section' => 'catalog', 'capability' => 'catalog.read', 'permission' => null),
         'catalog.browse' => array('section' => 'catalog', 'capability' => 'catalog.read', 'permission' => null),
@@ -77,6 +81,20 @@ final class Router
                 return self::ok(Catalog::search($query, self::limit($params, Catalog::MAX_RESULTS)));
             }
             return self::ok(Catalog::browse(self::limit($params, Catalog::MAX_BROWSE)));
+        }
+
+        if (strpos($op, 'content.') === 0) {
+            if ($spec['section'] === 'networkstatus' && Platform::setting('NetworkIssuesRequireLogin') !== '') {
+                // Unknown configuration fails closed too. Network issues may
+                // require login even though they are shared across customers.
+                $grant = isset($request['grant']) && is_array($request['grant']) ? $request['grant'] : array();
+                if (!isset($grant['id'], $grant['uid'], $grant['cid'])
+                    || !Grants::validate((string) $grant['id'], (string) $grant['uid'], (string) $grant['cid'])
+                    || !Permissions::clientIsActive((string) $grant['cid'])) {
+                    return self::error(403, 'grant_invalid');
+                }
+            }
+            return self::ok(Content::read($spec['section'], $params));
         }
 
         // ── Everything below is account data: the grant is mandatory. ──
@@ -172,6 +190,9 @@ final class Router
     {
         $map = array(
             'catalog.read' => 'catalog',
+            'content.announcements.read' => 'announcements',
+            'content.knowledgebase.read' => 'knowledgebase',
+            'content.networkstatus.read' => 'networkstatus',
             'account.services.read' => 'services',
             'account.domains.read' => 'domains',
             'account.invoices.read' => 'invoices',

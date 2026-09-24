@@ -23,6 +23,8 @@ final class WebyarAPI {
     private struct AgentsResponse: Decodable { var agents: [AgentCallStatus]? }
     private struct CallsResponse: Decodable { var calls: [CallSession]? }
     private struct CallNotesResponse: Decodable { var notes: [CallNote]? }
+    private struct CallPresenceResponse: Decodable { var presence: [CallAgentPresence]? }
+    private struct CallDepartmentsResponse: Decodable { var departments: [CallDepartment]? }
     private struct MembersResponse: Decodable { var members: [WorkspaceMember]? }
     private struct NotesResponse: Decodable { var notes: [ConversationNote]? }
     private struct ContactsResponse: Decodable { var contacts: [Contact]? }
@@ -301,6 +303,33 @@ final class WebyarAPI {
 
     func addCallNote(workspaceId: String, callId: String, note: String) async throws {
         try await client.call("POST", "/api/call-center/calls/\(Self.e(callId))/notes", body: ["note": note], query: [("workspaceId", workspaceId)])
+    }
+
+    /// The calls under way — to notice one a colleague has just handed to this operator.
+    func activeCalls(workspaceId: String) async throws -> [CallSession] {
+        let r: CallsResponse = try await client.get("/api/call-center/calls", query: [("workspaceId", workspaceId), ("status", "active"), ("limit", "20")])
+        return r.calls ?? []
+    }
+
+    /// Who is on the desk and how busy, for the transfer menu.
+    func callAgentPresence(workspaceId: String) async throws -> [CallAgentPresence] {
+        let r: CallPresenceResponse = try await client.get("/api/call-center/agents/presence", query: [("workspaceId", workspaceId)])
+        return r.presence ?? []
+    }
+
+    func callDepartments(workspaceId: String) async throws -> [CallDepartment] {
+        let r: CallDepartmentsResponse = try await client.get("/api/call-center/departments", query: [("workspaceId", workspaceId)])
+        return r.departments ?? []
+    }
+
+    /// Hands a live call to another operator or to a department. The call stays up: the new
+    /// operator joins the same room, and the one handing it on leaves without ending it.
+    func transferCall(workspaceId: String, callId: String, toAgentId: String?, toDepartmentId: String?, reason: String?) async throws {
+        var body: [String: Any?] = ["workspaceId": workspaceId]
+        if let toAgentId { body["to_agent_id"] = toAgentId }
+        if let toDepartmentId { body["to_department_id"] = toDepartmentId }
+        if let reason, !reason.isEmpty { body["reason"] = reason }
+        try await client.call("POST", "/api/call-center/calls/\(Self.e(callId))/transfer", body: body, query: [("workspaceId", workspaceId)])
     }
 
     // MARK: People and notes

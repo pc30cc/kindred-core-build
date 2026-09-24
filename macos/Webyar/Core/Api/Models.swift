@@ -636,6 +636,9 @@ struct CallSession: Codable, Hashable, Sendable, Identifiable {
     var visitorSessionId: String?
     var contactId: String?
     var assignedAgentId: String?
+    /// Set by a transfer: who handed the call on, and why.
+    var transferFromAgentId: String?
+    var transferReason: String?
     var metadata: JSONValue?
 
     var isVideo: Bool { callType == "video" }
@@ -707,6 +710,25 @@ struct CallEvent: Codable, Hashable, Sendable {
 struct CallDetail: Codable, Sendable {
     var call: CallSession
     var events: [CallEvent]?
+}
+
+/// `GET /api/call-center/agents/presence`: an operator the transfer menu can offer.
+struct CallAgentPresence: Codable, Hashable, Sendable {
+    var userId: String
+    /// available | busy | away | offline
+    var status: String?
+    @Lenient var activeCallCount: Int? = nil
+    var fullName: String?
+    var email: String?
+}
+
+/// `GET /api/call-center/departments`: a department a call can be handed to.
+struct CallDepartment: Codable, Hashable, Sendable, Identifiable {
+    var id: String
+    var name: String?
+    var enabled: Bool?
+    var ccVoiceEnabled: Bool?
+    var ccVideoEnabled: Bool?
 }
 
 struct CallNote: Codable, Hashable, Sendable, Identifiable {

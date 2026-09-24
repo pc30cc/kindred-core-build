@@ -82,6 +82,19 @@ enum DebugTools {
         case "mail": EmailModel.debugCurrent?.select(arg)
         case "cc":
             CallCenterModel.debugCurrent?.select(arg)
+        case "chatcall":
+            // A call from the open conversation, as its phone / camera button would start it.
+            if let c = ChatModel.debugCurrent?.conversation {
+                CallCoordinator.shared.start(app: app, conversation: c, channel: arg == "video" ? "video" : "audio")
+            }
+        case "deskcall":
+            // A desk call answered: sample mode shows it connected.
+            let video = arg == "video"
+            let call = CallSession(id: "cs-1", callType: video ? "video" : "voice", visitorName: "Ayşe Yılmaz", visitorEmail: "ayse@example.com.tr", pageTitle: "Pricing — Webyar")
+            CallCoordinator.shared.joinAccepted(app: app, accept: CallAccept(ok: true), call: call, callId: "cs-1")
+        case "callui": CallCoordinator.shared.call?.debugOpen = arg
+        case "hangup": CallCoordinator.shared.call?.hangUp()
+        case "handed": SampleBackend.handed = arg != "off"
         case "deskend":
             CallCenterModel.debugCurrent?.debugDeskCallEnded(arg)
         case "scrollup":

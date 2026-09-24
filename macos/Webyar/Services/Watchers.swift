@@ -87,12 +87,16 @@ final class CallQueueWatcher {
     @ObservationIgnored private var poller: Poller?
     @ObservationIgnored private var primed = false
     @ObservationIgnored private var disabled = false
+    @ObservationIgnored private var polls = 0
 
     /// The waiting line, newest poll; the call center page reads it too.
     private(set) var queue: [QueueEntry] = []
 
     /// Called for each call that newly joins the line.
     @ObservationIgnored var onRinging: ((QueueEntry) -> Void)?
+    /// Called with the calls under way, every other poll: one a colleague handed to
+    /// this operator has left the line long ago, so the line alone never shows it.
+    @ObservationIgnored var onActiveCalls: (([CallSession]) -> Void)?
 
     init(app: AppModel, workspaceId: String) {
         self.app = app
@@ -127,6 +131,11 @@ final class CallQueueWatcher {
             disabled = true
             queue = []
             return
+        }
+        polls += 1
+        if polls % 2 == 1, let onActiveCalls {
+            // Best-effort: the line is what matters here, so a failure is only logged.
+            do { onActiveCalls(try await app.api.activeCalls(workspaceId: workspaceId)) } catch { Log.error("active calls", error) }
         }
         let fresh = list.filter { !known.contains($0.callSessionId) }
         known = Set(list.map(\.callSessionId))

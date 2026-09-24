@@ -28,6 +28,8 @@ final class CallCoordinator {
 
     @ObservationIgnored private var window: NSWindow?
     @ObservationIgnored private var windowDelegate: CallWindowDelegate?
+    /// The width a voice call had before the notes widened it.
+    @ObservationIgnored private var narrowWidth: CGFloat?
 
     /// The operator calls the visitor from a conversation.
     func start(app: AppModel, conversation: Conversation, channel: String) {
@@ -56,6 +58,25 @@ final class CallCoordinator {
     func setFloating(_ on: Bool) {
         isFloating = on
         window?.level = on ? .floating : .normal
+    }
+
+    /// Makes room for the notes beside a narrow (voice) call, and gives it back when they close.
+    func fitSidePanel(_ open: Bool) {
+        guard let window else { return }
+        let wide: CGFloat = 780
+        var frame = window.frame
+        if open {
+            guard frame.width < wide else { return }
+            narrowWidth = frame.width
+            frame.origin.x -= (wide - frame.width) / 2
+            frame.size.width = wide
+        } else {
+            guard let narrow = narrowWidth else { return }
+            narrowWidth = nil
+            frame.origin.x += (frame.width - narrow) / 2
+            frame.size.width = narrow
+        }
+        window.setFrame(frame, display: true, animate: true)
     }
 
     // MARK: Window
@@ -128,6 +149,7 @@ final class CallCoordinator {
         c.onFinished = nil
         let deskId = c.desk?.callId
         call = nil
+        narrowWidth = nil
         window?.delegate = nil
         window = nil
         windowDelegate = nil

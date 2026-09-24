@@ -87,6 +87,11 @@ final class AppModel {
 
     /// The call ringing in the banner, if any.
     private(set) var ringing: QueueEntry?
+    /// A call a colleague handed to this operator, waiting for them to join it.
+    private(set) var handedCall: CallSession?
+    private(set) var joiningHandedCall = false
+    private(set) var handedCallError: String?
+    @ObservationIgnored private var handedSeen = Set<String>()
     @ObservationIgnored private var ringSince = Date()
     @ObservationIgnored private var ringTimer: Timer?
     /// The server treats a 45 s ring as missed.
@@ -421,6 +426,7 @@ final class AppModel {
         p.start()
         let q = CallQueueWatcher(app: self, workspaceId: ws.id)
         q.onRinging = { [weak self] entry in self?.ring(entry) }
+        q.onActiveCalls = { [weak self] calls in self?.noticeHandedCalls(calls) }
         callQueue = q
         q.start()
     }
@@ -545,6 +551,63 @@ final class AppModel {
             let now = Date()
             if let next = q.queue.first(where: { $0.createdAt.map { now.timeIntervalSince($0) < ringFor } ?? false }) { ring(next) }
         }
+    }
+
+    // MARK: Calls handed over by a colleague
+
+    /// A transfer leaves the call assigned to this operator and live, with the colleague
+    /// still in the room until this operator joins; the banner offers to join it.
+    private func noticeHandedCalls(_ calls: [CallSession]) {
+        guard let me = user?.id else { return }
+        let mine = calls.filter { c in
+            c.assignedAgentId == me && c.transferFromAgentId != nil && c.transferFromAgentId != me
+                && CallCoordinator.shared.activeCallId != c.id
+        }
+        // Over, or joined from somewhere else: the banner goes.
+        if let h = handedCall, !mine.contains(where: { $0.id == h.id }) {
+            handedCall = nil
+            handedCallError = nil
+        }
+        guard handedCall == nil, let fresh = mine.first(where: { !handedSeen.contains($0.id) }) else { return }
+        handedSeen.insert(fresh.id)
+        Log.write("[calls] handed over \(fresh.id)")
+        handedCall = fresh
+        handedCallError = nil
+        if settings.notificationSound { Chime.play() }
+        if showsNotifications, !isForeground {
+            let from = fresh.transferFromAgentId.map { memberName($0) } ?? ""
+            notifier.show(title: strings["callHandedTitle"], body: from.isEmpty ? CallNames.caller(fresh, fallbackId: fresh.id, strings) : strings.get("callHandedFrom", "name", from),
+                          silent: true, arguments: ["page": "calls"])
+        }
+    }
+
+    /// Joins the handed-over call: the desk's accept gives this operator a token for the same room.
+    func joinHandedCall() async {
+        guard let c = handedCall, let ws = workspace, !joiningHandedCall else { return }
+        if CallCoordinator.shared.isBusy {
+            handedCallError = strings["ccOnCall"]
+            return
+        }
+        joiningHandedCall = true
+        handedCallError = nil
+        defer { joiningHandedCall = false }
+        do {
+            let accept = try await api.acceptCall(workspaceId: ws.id, callId: c.id)
+            guard accept.connect?.supported == true else {
+                handedCallError = strings["ccAcceptedNoMediaHint"]
+                return
+            }
+            handedCall = nil
+            CallCoordinator.shared.joinAccepted(app: self, accept: accept, call: c, callId: c.id)
+        } catch {
+            Log.error("join handed call", error)
+            handedCallError = ErrorText.of(error, strings)
+        }
+    }
+
+    func dismissHandedCall() {
+        handedCall = nil
+        handedCallError = nil
     }
 
     #if DEBUG

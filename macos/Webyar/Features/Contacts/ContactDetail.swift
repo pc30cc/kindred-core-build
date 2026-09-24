@@ -109,7 +109,7 @@ struct ContactHeaderCard: View {
         let tags: [String] = Array((contact.tags ?? []).prefix(4))
         return HStack(alignment: .center, spacing: 18) {
             AvatarView(name: item.name, email: contact.email, os: item.os, countryCode: item.countryCode,
-                       imageURL: contact.avatarUrl, size: 76)
+                       imageURL: contact.avatarUrl, size: 76, faceless: true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(verbatim: item.name).appFont(22, .bold).fixedSize(horizontal: false, vertical: true)
                 if !subtitle.isEmpty {

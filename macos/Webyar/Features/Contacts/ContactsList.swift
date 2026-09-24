@@ -102,7 +102,7 @@ struct ContactRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             AvatarView(name: item.name, email: item.email, os: item.os, countryCode: item.countryCode,
-                       imageURL: item.avatarUrl, size: 40)
+                       imageURL: item.avatarUrl, size: 40, faceless: true)
             VStack(alignment: .leading, spacing: 1) {
                 Text(verbatim: item.name).appFont(13.5, .semibold).lineLimit(1)
                 if !item.subtitle.isEmpty {

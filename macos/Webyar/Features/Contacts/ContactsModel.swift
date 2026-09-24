@@ -145,16 +145,25 @@ final class ContactsModel {
             guard gen == listGeneration else { return }
             // Like the web table, rows wait for the network profiles, so the
             // avatars appear once, with the OS and flag, instead of changing.
-            let profiles = await app.api.contactProfiles(workspaceId: ws.id, contactIds: contacts.map(\.id))
+            var profiles = await app.api.contactProfiles(workspaceId: ws.id, contactIds: contacts.map(\.id))
             guard gen == listGeneration else { return }
+            // Many anonymous widget contacts have no session linked back to them, so the
+            // server finds no device; the session the widget recorded on the contact
+            // (metadata.session_id) still knows it.
+            let orphans = contacts.filter { profiles[$0.id]?.device?.os == nil }
+            let sessionOf = Dictionary(orphans.compactMap { c in c.metaString("session_id").map { (c.id, $0) } }, uniquingKeysWith: { a, _ in a })
+            if !sessionOf.isEmpty {
+                let bySession = await app.api.sessionProfiles(workspaceId: ws.id, sessionIds: Array(Set(sessionOf.values)))
+                guard gen == listGeneration else { return }
+                for (contactId, sessionId) in sessionOf {
+                    if let p = bySession[sessionId], p.device?.os != nil || profiles[contactId] == nil { profiles[contactId] = p }
+                }
+            }
+            #if DEBUG
+            Log.write("[contacts] devices \(contacts.filter { profiles[$0.id]?.device?.os != nil }.count) of \(contacts.count); \(orphans.count) needed the session fallback")
+            #endif
             let sorted: [Contact] = contacts.sorted { Self.stamp($0) > Self.stamp($1) }
             raw = sorted.map { c -> (Contact, VisitorProfile?) in (c, profiles[c.id]) }
-            #if DEBUG
-            for c in sorted.prefix(60) {
-                let p = profiles[c.id]
-                Log.write("[contacts-debug] \(c.id.prefix(8)) name=\(c.name ?? "-") profile=\(p != nil) os=\(p?.device?.os ?? "-") browser=\(p?.device?.browser ?? "-") cc=\(p?.geo?.countryCode ?? "-") avatar=\(c.avatarUrl != nil) visitor=\(c.visitorCode ?? "-") meta=\(c.metadata?.object?.keys.sorted().joined(separator: ",") ?? "-")")
-            }
-            #endif
             relabel()
             error = nil
             loading = false

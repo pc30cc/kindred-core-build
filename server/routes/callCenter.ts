@@ -56,6 +56,8 @@ import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspace
 import { validateSessionToken, SESSION_COOKIE_NAME } from '../services/auth/sessions.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
 import { cancelRing } from '../services/push/callRing.js';
+import { publishOperatorEvent } from '../services/realtime/publish.js';
+import { flagContactAsSpam, clearContactSpamFlag } from '../services/spam/state.js';
 import {
   CALL_CENTER_ENTRY_SOURCES,
   WIDGET_ONLY_ENTRY_SOURCE,
@@ -656,11 +658,18 @@ async function transitionCall(
   patch: Record<string, unknown>,
   eventType: 'call_accepted' | 'call_rejected' | 'call_ended',
   actorId: string,
+  opts: { expectedState?: string } = {},
 ) {
   const sb = getServiceClient(config);
-  const { data: updated, error } = await sb.from('call_sessions')
-    .update(patch).eq('id', callId).eq('workspace_id', wid).select('*').maybeSingle();
+  let q = sb.from('call_sessions')
+    .update(patch).eq('id', callId).eq('workspace_id', wid);
+  // Optional guard: only transition if the call is still in this state.
+  // When it has moved on (e.g. answered meanwhile) nothing is written and
+  // no events fire; the caller sees `null`.
+  if (opts.expectedState) q = q.eq('state', opts.expectedState);
+  const { data: updated, error } = await q.select('*').maybeSingle();
   if (error) throw error;
+  if (opts.expectedState && !updated) return null;
   await sb.from('call_events').insert({
     call_session_id: callId, event_type: eventType, actor_type: 'operator', actor_id: actorId, payload: patch,
   });
@@ -882,6 +891,46 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
   }
 });
 
+/**
+ * Take a call out of the line: cancel the session, record the detailed
+ * reason in `metadata.call_center_reason` and close its queue entry.
+ * Shared by reject and mark-as-spam so both leave the call in the same
+ * shape. `call_sessions.end_reason` is CHECK-constrained to four canonical
+ * values, so the specific reason lives in metadata (and in the queue
+ * entry's free-text `ended_reason`).
+ */
+async function removeCallFromQueue(
+  config: ServerConfig,
+  wid: string,
+  callId: string,
+  actorId: string,
+  reasons: { callCenterReason: string; queueEndedReason: string },
+  opts: { expectedState?: string } = {},
+): Promise<boolean> {
+  const sb = getServiceClient(config);
+  const updated = await transitionCall(config, wid, callId, {
+    state: 'cancelled',
+    ended_at: new Date().toISOString(),
+    end_reason: 'operator_ended',
+    ended_by: 'operator',
+    ended_by_user_id: actorId,
+  }, 'call_rejected', actorId, opts);
+  // Guarded transition lost the race (call moved on) — leave it alone.
+  if (opts.expectedState && !updated) return false;
+  // Annotate detailed reason in metadata (constraint allows 4 canonical
+  // values only). Compare-and-set so a concurrent metadata writer (notes,
+  // spam flag, recording pipeline) is never clobbered.
+  try {
+    await patchCallMetadataCas(sb, wid, callId, (meta) => ({
+      ...meta, call_center_reason: reasons.callCenterReason,
+    }));
+  } catch {/* best-effort */}
+  await sb.from('call_queue_entries').update({
+    state: 'cancelled', ended_at: new Date().toISOString(), ended_reason: reasons.queueEndedReason,
+  }).eq('call_session_id', callId).eq('workspace_id', wid);
+  return true;
+}
+
 callCenterRouter.post('/calls/:id/reject', async (req, res) => {
   const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
   const ctx = await requireCallOperator(req, res, wid);
@@ -908,24 +957,10 @@ callCenterRouter.post('/calls/:id/reject', async (req, res) => {
       if (sendOwnershipError(res, e)) return;
       throw e;
     }
-    await transitionCall(ctx.config, wid, req.params.id, {
-      state: 'cancelled',
-      ended_at: new Date().toISOString(),
-      end_reason: 'operator_ended',
-      ended_by: 'operator',
-      ended_by_user_id: ctx.userId,
-    }, 'call_rejected', ctx.userId);
-    // Annotate detailed reason in metadata (constraint allows 4 canonical values only).
-    try {
-      const { data: prev } = await sb.from('call_sessions').select('metadata').eq('id', req.params.id).maybeSingle();
-      const meta = (prev?.metadata as Record<string, unknown> | null) || {};
-      await sb.from('call_sessions').update({
-        metadata: { ...meta, call_center_reason: 'operator_rejected' },
-      }).eq('id', req.params.id);
-    } catch {/* best-effort */}
-    await sb.from('call_queue_entries').update({
-      state: 'cancelled', ended_at: new Date().toISOString(), ended_reason: 'rejected',
-    }).eq('call_session_id', req.params.id).eq('workspace_id', wid);
+    await removeCallFromQueue(ctx.config, wid, req.params.id, ctx.userId, {
+      callCenterReason: 'operator_rejected',
+      queueEndedReason: 'rejected',
+    });
     // Reject only decrements active_call_count if this operator had actually
     // accepted the call previously (call was in active/connecting/ringing
     // and assigned to them). Pre-accept reject does NOT touch the counter.
@@ -2267,6 +2302,266 @@ callCenterRouter.post('/calls/:id/notes', async (req, res) => {
   }
 
   return res.status(409).json({ error: 'note_write_conflict' });
+});
+
+// ── Shared metadata compare-and-set ───────────────────────────────────────
+// Same pattern as POST /calls/:id/notes above: `metadata` is one jsonb
+// column shared with the recording pipeline, so every read-modify-write
+// compares on `updated_at` (bumped by `trg_call_sessions_updated_at`) and
+// re-reads on a lost race instead of clobbering the other writer's keys.
+const CALL_METADATA_CAS_ATTEMPTS = 4;
+
+interface CallMetadataCasRow {
+  id: string;
+  entry_source: string | null;
+  state: string | null;
+  connected_at: string | null;
+  metadata: Record<string, unknown> | null;
+  updated_at: string;
+}
+
+type CallMetadataCasOutcome =
+  | { status: 'ok'; call: CallMetadataCasRow; metadata: Record<string, unknown> }
+  | { status: 'not_found' }
+  | { status: 'wrong_entry_source' }
+  | { status: 'conflict' }
+  | { status: 'error'; message: string };
+
+async function patchCallMetadataCas(
+  sb: ReturnType<typeof getServiceClient>,
+  wid: string,
+  callId: string,
+  mutate: (metadata: Record<string, unknown>) => Record<string, unknown>,
+  opts: { entrySource?: string } = {},
+): Promise<CallMetadataCasOutcome> {
+  for (let attempt = 0; attempt < CALL_METADATA_CAS_ATTEMPTS; attempt++) {
+    const { data: callRaw } = await sb
+      .from('call_sessions')
+      .select('id, entry_source, state, connected_at, metadata, updated_at')
+      .eq('id', callId)
+      .eq('workspace_id', wid)
+      .maybeSingle();
+    if (!callRaw) return { status: 'not_found' };
+    const call = callRaw as CallMetadataCasRow;
+    if (opts.entrySource && call.entry_source !== opts.entrySource) {
+      return { status: 'wrong_entry_source' };
+    }
+
+    const metadata = mutate({ ...((call.metadata || {}) as Record<string, unknown>) });
+
+    const { data: updated, error } = await sb
+      .from('call_sessions')
+      .update({ metadata })
+      .eq('id', callId)
+      .eq('workspace_id', wid)
+      .eq('updated_at', call.updated_at)
+      .select('id')
+      .maybeSingle();
+    if (error) return { status: 'error', message: error.message };
+    // No row matched — another writer touched `metadata` between the read
+    // and the write. Re-read and merge onto the newer value.
+    if (!updated) continue;
+    return { status: 'ok', call, metadata };
+  }
+  return { status: 'conflict' };
+}
+
+// ── Spam (mark / unmark) ──────────────────────────────────────────────────
+// POST /calls/:id/spam      → flag the call (+ its contact identity)
+// POST /calls/:id/not-spam  → clear the flag (+ the contact flag)
+//
+// Mirrors POST /api/conversations/spam and /not-spam:
+//   - The call carries `metadata.spam = { marked_at, marked_by }` (removed
+//     again on not-spam). Written via the metadata CAS above.
+//   - If the call is tied to a contact, the contact identity is flagged
+//     exactly as conversation spam does (contacts.is_spam + every
+//     conversation of that contact) through the shared spam-state helper;
+//     not-spam clears only the contact flag, never sibling conversations.
+//   - A call still waiting in the queue is taken out of the line through the
+//     same path as reject (`removeCallFromQueue`). An answered call is left
+//     running — ending it stays a deliberate operator action.
+//   - Standalone Call Center only (entry_source = 'call_widget').
+/** A call-center call sits in `pending` until an operator accepts it. */
+const WAITING_CALL_STATE = 'pending';
+const QUEUE_WAITING_STATES = new Set(['queued', 'offered']);
+
+interface CallSpamMeta {
+  marked_at: string;
+  marked_by: string;
+}
+
+/**
+ * The contact behind a call-center call. `call_sessions` has no contact
+ * column — the widget records it in `metadata.contact_id` and on the queue
+ * entry. Only a contact that exists in this workspace is returned.
+ */
+async function resolveCallContactId(
+  sb: ReturnType<typeof getServiceClient>,
+  wid: string,
+  metadata: Record<string, unknown> | null,
+  queueContactId: string | null,
+): Promise<string | null> {
+  const fromMeta = metadata && typeof metadata.contact_id === 'string' ? metadata.contact_id : null;
+  const candidate = fromMeta || queueContactId;
+  if (!candidate) return null;
+  const { data: contact } = await sb
+    .from('contacts')
+    .select('id')
+    .eq('id', candidate)
+    .eq('workspace_id', wid)
+    .maybeSingle();
+  return contact ? candidate : null;
+}
+
+function sendSpamCasError(res: Response, outcome: CallMetadataCasOutcome, errorCode: string): boolean {
+  switch (outcome.status) {
+    case 'ok': return false;
+    case 'not_found': res.status(404).json({ error: 'not_found' }); return true;
+    case 'wrong_entry_source': res.status(403).json({ error: 'wrong_entry_source' }); return true;
+    case 'conflict': res.status(409).json({ error: 'spam_write_conflict' }); return true;
+    case 'error': res.status(500).json({ error: errorCode, message: outcome.message }); return true;
+  }
+}
+
+callCenterRouter.post('/calls/:id/spam', async (req, res) => {
+  const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireCallOperator(req, res, wid);
+  if (!ctx) return;
+  const callId = req.params.id;
+  try {
+    const sb = getServiceClient(ctx.config);
+    const spam: CallSpamMeta = { marked_at: new Date().toISOString(), marked_by: ctx.userId };
+    const outcome = await patchCallMetadataCas(
+      sb, wid, callId, (meta) => ({ ...meta, spam }), { entrySource: WIDGET_ONLY_ENTRY_SOURCE },
+    );
+    if (sendSpamCasError(res, outcome, 'spam_save_failed')) return;
+    if (outcome.status !== 'ok') return;
+    const call = outcome.call;
+
+    const { data: queueRaw } = await sb.from('call_queue_entries')
+      .select('id, state, contact_id')
+      .eq('call_session_id', callId).eq('workspace_id', wid).maybeSingle();
+    const queueRow = queueRaw as { id: string; state: string | null; contact_id: string | null } | null;
+
+    // Flag the contact identity (and all their conversations), exactly as
+    // conversation spam does.
+    const contactId = await resolveCallContactId(sb, wid, call.metadata, queueRow?.contact_id ?? null);
+    const conversationIds = contactId
+      ? await flagContactAsSpam(ctx.config, {
+        workspaceId: wid, contactId, operatorId: ctx.userId, now: spam.marked_at,
+      })
+      : [];
+
+    // Still waiting in line (never answered)? Take it out, the same way a
+    // reject does. An answered call keeps running.
+    // The transition is guarded on state = 'pending', so a call answered
+    // between the read above and this write is never cancelled.
+    const waiting = String(call.state || '') === WAITING_CALL_STATE
+      && !call.connected_at
+      && (!queueRow || QUEUE_WAITING_STATES.has(String(queueRow.state || '')));
+    let removedFromQueue = false;
+    if (waiting) {
+      removedFromQueue = await removeCallFromQueue(ctx.config, wid, callId, ctx.userId, {
+        callCenterReason: 'operator_marked_spam',
+        queueEndedReason: 'spam',
+      }, { expectedState: WAITING_CALL_STATE });
+      // A reject silences only the rejecting operator's phone; spam removes
+      // the call for everybody, so stop every phone still ringing for it.
+      if (removedFromQueue) {
+        void cancelRing(ctx.config, { workspaceId: wid, callSessionId: callId, reason: 'cancelled' });
+      }
+    }
+
+    try {
+      await sb.from('call_events').insert({
+        call_session_id: callId,
+        event_type: 'call_marked_spam',
+        actor_type: 'operator',
+        actor_id: ctx.userId,
+        payload: { contact_id: contactId, removed_from_queue: removedFromQueue },
+      });
+    } catch { /* best-effort: the flag itself is already persisted */ }
+
+    for (const cid of conversationIds) {
+      void publishOperatorEvent(ctx.config, {
+        kind: 'spam_changed',
+        conversation_id: cid,
+        workspace_id: wid,
+        actor_id: ctx.userId,
+        is_spam: true,
+        contact_id: contactId,
+      });
+    }
+
+    return res.json({
+      ok: true,
+      call_id: callId,
+      contact_id: contactId,
+      conversation_ids: conversationIds,
+      spam: true,
+      removed_from_queue: removedFromQueue,
+    });
+  } catch (e) {
+    return res.status(500).json({ error: 'spam_failed', message: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+callCenterRouter.post('/calls/:id/not-spam', async (req, res) => {
+  const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireCallOperator(req, res, wid);
+  if (!ctx) return;
+  const callId = req.params.id;
+  try {
+    const sb = getServiceClient(ctx.config);
+    const outcome = await patchCallMetadataCas(
+      sb, wid, callId,
+      (meta) => {
+        const next = { ...meta };
+        delete next.spam;
+        return next;
+      },
+      { entrySource: WIDGET_ONLY_ENTRY_SOURCE },
+    );
+    if (sendSpamCasError(res, outcome, 'spam_save_failed')) return;
+    if (outcome.status !== 'ok') return;
+
+    const { data: queueRaw } = await sb.from('call_queue_entries')
+      .select('contact_id')
+      .eq('call_session_id', callId).eq('workspace_id', wid).maybeSingle();
+    const queueContactId = (queueRaw as { contact_id: string | null } | null)?.contact_id ?? null;
+
+    // Clear the contact flag only — sibling conversations are left alone,
+    // the same as conversation not-spam.
+    const contactId = await resolveCallContactId(sb, wid, outcome.call.metadata, queueContactId);
+    if (contactId) {
+      await clearContactSpamFlag(ctx.config, { workspaceId: wid, contactId });
+    }
+
+    try {
+      await sb.from('call_events').insert({
+        call_session_id: callId,
+        event_type: 'call_unmarked_spam',
+        actor_type: 'operator',
+        actor_id: ctx.userId,
+        payload: { contact_id: contactId },
+      });
+    } catch { /* best-effort */ }
+
+    // No conversation changes queue here (their flags are untouched), so
+    // there is no `spam_changed` event to publish.
+    const conversationIds: string[] = [];
+    return res.json({
+      ok: true,
+      call_id: callId,
+      contact_id: contactId,
+      conversation_ids: conversationIds,
+      spam: false,
+    });
+  } catch (e) {
+    return res.status(500).json({ error: 'not_spam_failed', message: e instanceof Error ? e.message : String(e) });
+  }
 });
 
 // ── Assignment + transfer ─────────────────────────────────────────────────

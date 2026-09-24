@@ -5,7 +5,7 @@ import {
   Database, Crown, MessageSquare, MapPin, PhoneCall,
   ChevronLeft, ChevronRight, LogOut, ArrowLeft, ArrowRight, Activity, Video, Sparkles,
   KeyRound, X, ShieldCheck, Radar, SlidersHorizontal, DatabaseBackup,
-  Smartphone, Bell, Monitor,
+  Smartphone, Bell, Monitor, Apple,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/features/auth/AuthContext';
@@ -26,6 +26,7 @@ const adminNav = [
   { group: 'experience', key: 'seoIntegrations', path: '/admin/seo-integrations', icon: Radar },
   { group: 'experience', key: 'mobileApp', path: '/admin/mobile-app', icon: Smartphone },
   { group: 'experience', key: 'desktopApp', path: '/admin/desktop-app', icon: Monitor },
+  { group: 'experience', key: 'macosApp', path: '/admin/macos-app', icon: Apple },
   { group: 'experience', key: 'notifications', path: '/admin/notifications', icon: Bell },
   { group: 'operations', key: 'system', path: '/admin/system', icon: Server },
   { group: 'operations', key: 'observability', path: '/admin/observability', icon: Activity },

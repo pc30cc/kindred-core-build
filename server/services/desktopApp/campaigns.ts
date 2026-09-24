@@ -1,5 +1,5 @@
 /**
- * DESKTOP APP CAMPAIGNS — ads and announcements for the Windows app.
+ * DESKTOP APP CAMPAIGNS — ads and announcements for the Windows and Mac apps.
  *
  * Rows live in `desktop_app_campaigns` (database/migrations/208). This module
  * owns the vocabulary (placements, severities), normalises rows, and
@@ -8,6 +8,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import type { DesktopPlatform } from './live.js';
 
 /** Where the Windows app can draw a campaign. */
 export const DESKTOP_PLACEMENTS = [
@@ -30,6 +31,8 @@ export interface CampaignRow {
   name: string;
   placements: string[];
   target_plans: string[];
+  /// Which desktop apps show it ('windows', 'macos'); empty means both.
+  platforms?: string[] | null;
   text: Record<string, { title?: string; body?: string; cta_label?: string }>;
   image_url: string | null;
   cta_url: string | null;
@@ -81,6 +84,12 @@ export function targetsPlan(row: Pick<CampaignRow, 'target_plans'>, planSlug: st
   const plans = (row.target_plans ?? []).filter(Boolean);
   if (plans.length === 0) return true;
   return planSlug != null && plans.includes(planSlug);
+}
+
+/** Empty (or missing, on rows older than migration 211) `platforms` means every desktop app. */
+export function targetsPlatform(row: Pick<CampaignRow, 'platforms'>, platform: DesktopPlatform): boolean {
+  const list = (row.platforms ?? []).filter(Boolean);
+  return list.length === 0 || list.includes(platform);
 }
 
 /** One locale of a row, falling back to Persian then English; null when there is nothing to say. */

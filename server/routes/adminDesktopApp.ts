@@ -28,8 +28,16 @@ import {
   CAMPAIGN_SEVERITIES,
   DESKTOP_PLACEMENTS,
   invalidateCampaignCache,
+  targetsPlatform,
 } from '../services/desktopApp/campaigns.js';
-import { addBroadcast, listBroadcasts, removeBroadcast, summary } from '../services/desktopApp/live.js';
+import {
+  addBroadcast,
+  listBroadcasts,
+  removeBroadcast,
+  summary,
+  DESKTOP_PLATFORMS,
+  type DesktopPlatform,
+} from '../services/desktopApp/live.js';
 
 export const adminDesktopAppRouter = Router();
 
@@ -178,6 +186,12 @@ export const campaignSchema = z.object({
   kind: z.enum(['ad', 'announcement']),
   name: optionalText(CAMPAIGN_LIMITS.name).transform((v) => v ?? ''),
   placements: z.array(z.enum(DESKTOP_PLACEMENTS)).min(1, 'choose at least one placement'),
+  /// Which desktop apps show it; empty means both.
+  platforms: z
+    .array(z.enum(DESKTOP_PLATFORMS))
+    .max(DESKTOP_PLATFORMS.length)
+    .default([])
+    .transform((list) => [...new Set(list)]),
   target_plans: z.array(z.string().trim().min(1).max(80)).max(50).default([]),
   text: localeMap,
   image_url: OPTIONAL_HTTPS.optional(),
@@ -203,8 +217,14 @@ export function invalidInput(error: z.ZodError) {
   return { error: detail ? `Invalid input — ${detail}` : 'Invalid input', issues };
 }
 
+/** `?platform=windows|macos` narrows a list to what that app shows; anything else means all. */
+function platformQuery(raw: unknown): DesktopPlatform | undefined {
+  return (DESKTOP_PLATFORMS as readonly string[]).includes(String(raw)) ? (raw as DesktopPlatform) : undefined;
+}
+
 adminDesktopAppRouter.get('/campaigns', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
+  const platform = platformQuery(req.query.platform);
   const sb = getServiceClient(serverConfigOf(req));
   const { data, error } = await sb
     .from('desktop_app_campaigns')
@@ -212,7 +232,9 @@ adminDesktopAppRouter.get('/campaigns', async (req, res) => {
     .order('priority', { ascending: false })
     .order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ campaigns: data ?? [], placements: DESKTOP_PLACEMENTS });
+  const rows = (data ?? []) as Array<{ platforms?: string[] | null }>;
+  const campaigns = platform ? rows.filter((r) => targetsPlatform(r, platform)) : rows;
+  return res.json({ campaigns, placements: DESKTOP_PLACEMENTS, platforms: DESKTOP_PLATFORMS });
 });
 
 adminDesktopAppRouter.post('/campaigns', async (req, res) => {
@@ -262,7 +284,8 @@ adminDesktopAppRouter.delete('/campaigns/:id', async (req, res) => {
 
 adminDesktopAppRouter.get('/live', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
-  return res.json({ live: summary(), broadcasts: listBroadcasts() });
+  const platform = platformQuery(req.query.platform);
+  return res.json({ live: summary(platform), broadcasts: listBroadcasts(platform) });
 });
 
 const broadcastSchema = z.object({
@@ -270,6 +293,8 @@ const broadcastSchema = z.object({
   body: z.string().trim().max(600).default(''),
   severity: z.enum(CAMPAIGN_SEVERITIES).default('info'),
   url: OPTIONAL_HTTPS.optional(),
+  /// Which desktop apps receive it; empty means both.
+  platforms: z.array(z.enum(DESKTOP_PLATFORMS)).max(DESKTOP_PLATFORMS.length).default([]),
 });
 
 adminDesktopAppRouter.post('/broadcasts', async (req, res) => {
@@ -285,9 +310,10 @@ adminDesktopAppRouter.post('/broadcasts', async (req, res) => {
     body: d.body ?? '',
     severity: d.severity ?? 'info',
     url: d.url ?? null,
+    platforms: d.platforms ?? [],
     createdBy: actorId,
   });
-  return res.json({ success: true, broadcast: b, live: summary() });
+  return res.json({ success: true, broadcast: b, live: summary(platformQuery(req.query.platform)) });
 });
 
 adminDesktopAppRouter.delete('/broadcasts/:id', async (req, res) => {

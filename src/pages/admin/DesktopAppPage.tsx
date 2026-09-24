@@ -137,12 +137,13 @@ export default function DesktopAppPage() {
         <TabsContent value="behaviour" className="space-y-4">
           <DesktopBehaviourTab draft={draft} set={set} />
         </TabsContent>
-        {/* These two save on their own (each row / each broadcast), not through the draft bar. */}
+        {/* These two save on their own (each row / each broadcast), not through the draft bar.
+            Both pools are shared with the Mac app; `platform` scopes them to Windows. */}
         <TabsContent value="campaigns" className="space-y-4">
-          <DesktopCampaignsTab />
+          <DesktopCampaignsTab platform="windows" />
         </TabsContent>
         <TabsContent value="live" className="space-y-4">
-          <DesktopLiveTab />
+          <DesktopLiveTab platform="windows" />
         </TabsContent>
       </Tabs>
 

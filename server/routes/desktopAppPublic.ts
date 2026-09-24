@@ -32,6 +32,12 @@ import {
   DESKTOP_APP_DEFAULTS,
   type DesktopAppPublicConfig,
 } from '../services/desktopApp/settings.js';
+import {
+  loadMacosAppSettings,
+  toPublicMacosAppConfig,
+  MACOS_APP_DEFAULTS,
+  type MacosAppPublicConfig,
+} from '../services/desktopApp/macosSettings.js';
 
 export const desktopAppPublicRouter = Router();
 
@@ -43,10 +49,19 @@ const TTL_MS = 60_000;
 let cache: DesktopAppPublicConfig | null = null;
 let cachedAt = 0;
 
+let macCache: MacosAppPublicConfig | null = null;
+let macCachedAt = 0;
+
 /** Called by the admin PUT so a saved change is served on the next launch. */
 export function invalidateDesktopAppPublicCache(): void {
   cache = null;
   cachedAt = 0;
+}
+
+/** Called by the macOS admin PUT. */
+export function invalidateMacosAppPublicCache(): void {
+  macCache = null;
+  macCachedAt = 0;
 }
 
 desktopAppPublicRouter.get('/desktop-app', async (req, res) => {
@@ -62,5 +77,27 @@ desktopAppPublicRouter.get('/desktop-app', async (req, res) => {
     return res.json(cache);
   } catch {
     return res.json(toPublicDesktopAppConfig(DESKTOP_APP_DEFAULTS));
+  }
+});
+
+/**
+ *   GET /api/platform/macos-app
+ *   → { update, realtime, polling, features, system, defaults, maintenance, links }
+ *
+ * The Mac app's counterpart of /desktop-app, from Super Admin → macOS app
+ * (server/services/desktopApp/macosSettings.ts). Same rules: public, never
+ * secret, never 5xx — the defaults are what the app shipped with.
+ */
+desktopAppPublicRouter.get('/macos-app', async (req, res) => {
+  if (macCache && Date.now() - macCachedAt < TTL_MS) {
+    return res.json(macCache);
+  }
+  try {
+    const settings = await loadMacosAppSettings(serverConfigOf(req));
+    macCache = toPublicMacosAppConfig(settings);
+    macCachedAt = Date.now();
+    return res.json(macCache);
+  } catch {
+    return res.json(toPublicMacosAppConfig(MACOS_APP_DEFAULTS));
   }
 });

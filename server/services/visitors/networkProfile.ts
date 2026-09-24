@@ -535,9 +535,77 @@ export async function resolveContactNetworkProfile(
     const { data } = await q.order('last_seen_at', { ascending: false }).limit(1).maybeSingle();
     return ((data as any)?.id as string | null) ?? null;
   };
-  const sessionId = (await pick(true)) ?? (await pick(false));
+  const sessionId = (await pick(true)) ?? (await pick(false))
+    ?? (await resolveUnlinkedContactSessionIds(config, workspaceId, [contactId])).get(contactId)
+    ?? null;
   if (!sessionId) return null;
   return resolveNetworkProfile(config, workspaceId, sessionId, policy);
+}
+
+/**
+ * The session behind a contact that no visitor_session points back to.
+ *
+ * `visitor_sessions.contact_id` is only stamped on the sessions that exist
+ * when the contact is created or matched, so many widget contacts end up
+ * with no linked session at all even though their visit is on record. For
+ * those, in order:
+ *   1. the session of their newest conversation (`conversations.visitor_session_id`,
+ *      the same link the Inbox resolves through), then
+ *   2. the session the widget recorded on the contact (`contacts.metadata.session_id`).
+ * Every id returned is a session of this workspace.
+ */
+export async function resolveUnlinkedContactSessionIds(
+  config: ServerConfig,
+  workspaceId: string,
+  contactIds: string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const ids = Array.from(new Set(contactIds.filter(Boolean)));
+  if (!ids.length) return out;
+  const sb = getServiceClient(config);
+
+  const candidates = new Map<string, string[]>();
+  const add = (contactId: string, sessionId: unknown) => {
+    if (typeof sessionId !== 'string' || !sessionId) return;
+    const list = candidates.get(contactId) ?? [];
+    if (!list.includes(sessionId)) list.push(sessionId);
+    candidates.set(contactId, list);
+  };
+
+  const { data: convos } = await sb
+    .from('conversations')
+    .select('contact_id, visitor_session_id, updated_at')
+    .eq('workspace_id', workspaceId)
+    .in('contact_id', ids)
+    .not('visitor_session_id', 'is', null)
+    .order('updated_at', { ascending: false })
+    .limit(1000);
+  for (const c of (convos ?? []) as Array<{ contact_id: string; visitor_session_id: string | null }>) {
+    add(c.contact_id, c.visitor_session_id);
+  }
+
+  const { data: contacts } = await sb
+    .from('contacts')
+    .select('id, metadata')
+    .eq('workspace_id', workspaceId)
+    .in('id', ids);
+  for (const c of (contacts ?? []) as Array<{ id: string; metadata: Record<string, unknown> | null }>) {
+    add(c.id, c.metadata?.session_id);
+  }
+
+  const all = Array.from(new Set(Array.from(candidates.values()).flat()));
+  if (!all.length) return out;
+  const { data: sessions } = await sb
+    .from('visitor_sessions')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .in('id', all);
+  const known = new Set(((sessions ?? []) as Array<{ id: string }>).map((s) => s.id));
+  for (const [contactId, list] of candidates) {
+    const first = list.find((id) => known.has(id));
+    if (first) out.set(contactId, first);
+  }
+  return out;
 }
 
 /**
@@ -581,6 +649,12 @@ export async function resolveContactsNetworkProfiles(
   for (const cid of ids) {
     const best = newestWithIp.get(cid) ?? newestOverall.get(cid);
     if (best) bestSessionByContact.set(cid, best);
+  }
+  // Contacts no session points back to: their conversation's session, or the one on record.
+  const unlinked = ids.filter((cid) => !bestSessionByContact.has(cid));
+  if (unlinked.length) {
+    const fallback = await resolveUnlinkedContactSessionIds(config, workspaceId, unlinked);
+    for (const [cid, sid] of fallback) bestSessionByContact.set(cid, sid);
   }
   const sessionIds = Array.from(new Set(bestSessionByContact.values()));
   if (!sessionIds.length) return out;

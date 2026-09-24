@@ -32,7 +32,12 @@ struct TeamThreadView: View {
     var body: some View {
         TeamMessagesView(model: model, peer: peer)
             .background(Palette.chatBackground)
-            .safeAreaInset(edge: .top, spacing: 0) { noticeBar }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                VStack(spacing: 0) {
+                    headerBar
+                    noticeBar
+                }
+            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 TeamComposer(model: model)
                     .padding(.horizontal, 16)
@@ -42,7 +47,25 @@ struct TeamThreadView: View {
             .overlay { dropOverlay }
             .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in drop(providers) }
             .animation(.smooth(duration: 0.2), value: model.notice)
-            .toolbar { ColleagueToolbar(model: model, peer: peer) }
+    }
+
+    /// Who, and how to reach them: a glass bar over the thread, like the visitor thread's.
+    private var headerBar: some View {
+        HStack(spacing: 12) {
+            ColleagueHeader(peer: peer, presence: model.presence(of: peer.userId))
+            Spacer(minLength: 8)
+            if !(peer.email ?? "").isEmpty {
+                Button { model.mail() } label: { Image(systemName: "envelope").frame(width: 18, height: 18) }
+                    .glassButton()
+                    .buttonBorderShape(.circle)
+                    .help(app.strings["contactSendEmail"])
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .glassCard(18)
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
     }
 
     @ViewBuilder private var noticeBar: some View {
@@ -81,25 +104,6 @@ struct TeamThreadView: View {
 }
 
 // MARK: - Header
-
-struct ColleagueToolbar: ToolbarContent {
-    let model: ColleaguesModel
-    let peer: Colleague
-    @Environment(AppModel.self) private var app
-
-    var body: some ToolbarContent {
-        ToolbarItem(placement: .navigation) {
-            ColleagueHeader(peer: peer, presence: model.presence(of: peer.userId))
-                .padding(.horizontal, 4)
-        }
-        if !(peer.email ?? "").isEmpty {
-            ToolbarItem(placement: .primaryAction) {
-                Button { model.mail() } label: { Image(systemName: "envelope") }
-                    .help(app.strings["contactSendEmail"])
-            }
-        }
-    }
-}
 
 struct ColleagueHeader: View {
     let peer: Colleague

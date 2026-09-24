@@ -67,11 +67,6 @@ struct ContactProfileView: View {
             .frame(maxWidth: 980)
             .frame(maxWidth: .infinity)
         }
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Text(verbatim: item.name).appFont(13.5, .bold).lineLimit(1).padding(.horizontal, 4)
-            }
-        }
     }
 
     @ViewBuilder private var tabContent: some View {

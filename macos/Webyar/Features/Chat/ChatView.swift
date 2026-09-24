@@ -36,6 +36,8 @@ struct ThreadView: View {
         MessagesView(chat: chat)
             .background(Palette.chatBackground)
             .safeAreaInset(edge: .top, spacing: 0) {
+                VStack(spacing: 0) {
+                ThreadHeader(chat: chat, width: width)
                 if let notice = chat.notice {
                     Banner(severity: notice.severity, message: notice.message,
                            actionTitle: notice.retry ? app.strings["retry"] : nil,
@@ -44,6 +46,7 @@ struct ThreadView: View {
                         .padding(.horizontal, 14)
                         .padding(.top, 8)
                         .transition(.move(edge: .top).combined(with: .opacity))
+                }
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -70,7 +73,6 @@ struct ThreadView: View {
                 return true
             }
             .animation(.smooth(duration: 0.2), value: chat.notice)
-            .toolbar { ThreadToolbar(chat: chat) }
             .inspector(isPresented: Binding(get: { app.settings.detailsOpen && width > 820 }, set: { app.settings.detailsOpen = $0; app.saveSettings() })) {
                 DetailsPanel(chat: chat)
                     .inspectorColumnWidth(min: 260, ideal: 290, max: 380)
@@ -87,75 +89,114 @@ struct ThreadView: View {
 
 // MARK: - Header
 
-struct ThreadToolbar: ToolbarContent {
+struct ThreadHeader: View {
     let chat: ChatModel
+    /// The thread area's width: the action labels fold into icons when it is narrow.
+    var width: CGFloat
     @Environment(AppModel.self) private var app
 
-    var body: some ToolbarContent {
+    var body: some View {
         let s = app.strings
         let c = chat.conversation
-        ToolbarItem(placement: .navigation) {
-            HStack(spacing: 10) {
-                AvatarView(name: c?.contacts?.name, email: c?.contacts?.email, os: c?.visitorOs, countryCode: c?.visitorCountryCode,
-                           imageURL: c?.contacts?.avatarUrl, size: 32, presence: c?.status)
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 6) {
-                        Text(c.map { Display.conversationName($0, s) } ?? s["unknownVisitor"]).appFont(13.5, .bold).lineLimit(1)
-                        if let c {
-                            let st = Palette.status(c.status)
-                            Chip(text: Display.statusLabel(c.status, s), foreground: st.0, background: st.1)
-                            if [ConversationPriority.high, ConversationPriority.urgent, ConversationPriority.low].contains(c.priority ?? "") {
-                                let p = Palette.priority(c.priority)
-                                Chip(text: Display.priorityLabel(c.priority, s), foreground: p.0, background: p.1)
-                            }
-                            if c.isAiManaged {
-                                Chip(text: s["navInboxAi"], foreground: Palette.ai, background: Palette.aiSoft, systemImage: "sparkles")
-                            }
-                        }
-                    }
-                    if let c {
-                        let sub = [c.contacts?.email, app.assigneeName(c.assignedTo)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-                        Text(sub).appFont(11).foregroundStyle(Palette.text2).lineLimit(1)
-                    }
+        HStack(spacing: 12) {
+            AvatarView(name: c?.contacts?.name, email: c?.contacts?.email, os: c?.visitorOs, countryCode: c?.visitorCountryCode,
+                       imageURL: c?.contacts?.avatarUrl, size: 40, presence: c?.status)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(c.map { Display.conversationName($0, s) } ?? s["unknownVisitor"]).appFont(14.5, .bold).lineLimit(1)
+                    if let c { chips(c, s) }
+                }
+                if let c {
+                    let sub = [c.contacts?.email, app.assigneeName(c.assignedTo)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+                    Text(sub).appFont(11.5).foregroundStyle(Palette.text2).lineLimit(1)
                 }
             }
-            .padding(.horizontal, 4)
+            .layoutPriority(1)
+            Spacer(minLength: 8)
+            if let c { actions(c, s) }
+            Button {
+                app.settings.detailsOpen.toggle()
+                app.saveSettings()
+            } label: {
+                Image(systemName: "sidebar.trailing").frame(width: 18, height: 18)
+            }
+            .glassButton()
+            .buttonBorderShape(.circle)
+            .help(s["details"])
+            .keyboardShortcut("i", modifiers: [.command, .option])
+            .disabled(width <= 820)
         }
-        ToolbarItemGroup(placement: .primaryAction) {
-            if let c {
-                // No calls while the AI has the visitor, and only what the plan allows.
-                let calls = app.config.callsEnabled && !c.isResolved && !c.isAiManaged
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .glassCard(18)
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+    }
+
+    @ViewBuilder private func chips(_ c: Conversation, _ s: Strings) -> some View {
+        let st = Palette.status(c.status)
+        Chip(text: Display.statusLabel(c.status, s), foreground: st.0, background: st.1)
+        if [ConversationPriority.high, ConversationPriority.urgent, ConversationPriority.low].contains(c.priority ?? "") {
+            let p = Palette.priority(c.priority)
+            Chip(text: Display.priorityLabel(c.priority, s), foreground: p.0, background: p.1)
+        }
+        if c.isAiManaged {
+            Chip(text: s["navInboxAi"], foreground: Palette.ai, background: Palette.aiSoft, systemImage: "sparkles")
+        }
+    }
+
+    @ViewBuilder private func actions(_ c: Conversation, _ s: Strings) -> some View {
+        let wide = width > 900
+        // No calls while the AI has the visitor, and only what the plan allows.
+        let calls = app.config.callsEnabled && !c.isResolved && !c.isAiManaged
+        GlassGroup(spacing: 6) {
+            HStack(spacing: 6) {
                 if calls && app.plan.voiceCalls {
-                    Button { CallCoordinator.shared.start(app: app, conversation: c, channel: "audio") } label: { Image(systemName: "phone") }
-                        .help(s["voiceCall"])
+                    Button { CallCoordinator.shared.start(app: app, conversation: c, channel: "audio") } label: {
+                        Image(systemName: "phone").frame(width: 18, height: 18)
+                    }
+                    .glassButton()
+                    .buttonBorderShape(.circle)
+                    .help(s["voiceCall"])
                 }
                 if calls && app.plan.videoCalls {
-                    Button { CallCoordinator.shared.start(app: app, conversation: c, channel: "video") } label: { Image(systemName: "video") }
-                        .help(s["videoCall"])
+                    Button { CallCoordinator.shared.start(app: app, conversation: c, channel: "video") } label: {
+                        Image(systemName: "video").frame(width: 18, height: 18)
+                    }
+                    .glassButton()
+                    .buttonBorderShape(.circle)
+                    .help(s["videoCall"])
                 }
                 if !c.isResolved && (c.isAiManaged || c.assignedTo != app.user?.id) && app.user != nil {
                     Button { chat.assignToMe() } label: {
                         Label(c.isAiManaged ? s["takeOver"] : s["assignToMe"], systemImage: c.isAiManaged ? "person.wave.2" : "person.badge.plus")
-                            .labelStyle(.titleAndIcon)
+                            .labelStyle(AdaptiveLabelStyle(showTitle: wide))
                     }
+                    .glassButton()
+                    .help(c.isAiManaged ? s["takeOver"] : s["assignToMe"])
                     .disabled(chat.busy)
                 }
                 Button { chat.toggleStatus() } label: {
                     Label(c.isResolved ? s["reopen"] : s["markResolved"], systemImage: c.isResolved ? "arrow.uturn.backward" : "checkmark")
-                        .labelStyle(.titleAndIcon)
+                        .labelStyle(AdaptiveLabelStyle(showTitle: wide))
                 }
+                .prominentButton(tint: c.isResolved ? Palette.brand : Palette.success)
+                .help(c.isResolved ? s["reopen"] : s["markResolved"])
                 .disabled(chat.busy)
                 .keyboardShortcut("e", modifiers: [.command, .shift])
                 ConversationMenu(chat: chat, conversation: c)
             }
         }
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                app.settings.detailsOpen.toggle()
-                app.saveSettings()
-            } label: { Image(systemName: "sidebar.trailing") }
-                .help(s["details"])
-                .keyboardShortcut("i", modifiers: [.command, .option])
+    }
+}
+
+/// Icon and title, or the icon alone when there is no room.
+struct AdaptiveLabelStyle: LabelStyle {
+    var showTitle: Bool
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 6) {
+            configuration.icon
+            if showTitle { configuration.title }
         }
     }
 }
@@ -187,8 +228,12 @@ struct ConversationMenu: View {
                 Button { chat.unassign() } label: { Label(s["unassigned"], systemImage: "person.crop.circle.badge.xmark") }
             }
         } label: {
-            Image(systemName: "ellipsis")
+            Image(systemName: "ellipsis").frame(width: 18, height: 18)
         }
+        .menuIndicator(.hidden)
+        .glassButton()
+        .buttonBorderShape(.circle)
+        .fixedSize()
         .help(s["conversationActions"])
         .task { members = (try? await app.loadMembers()) ?? [] }
     }

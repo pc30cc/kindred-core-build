@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useLiveUsageRefresh } from '@/hooks/useLiveUsageRefresh';
 
 import { Link } from 'react-router-dom';
+import { NumberTicker } from '@/components/magic/NumberTicker';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
@@ -226,7 +227,7 @@ export default function OverviewPage() {
   const recent = list.slice(0, 6);
 
   return (
-    <div dir={dir} className="space-y-6 animate-fade-in">
+    <div dir={dir} className="blur-fade-stagger space-y-6">
       {/* ── Hero ─────────────────────────────────────────── */}
       <section className="relative overflow-hidden beam-border rounded-3xl border border-border/60 bg-brand-soft p-6 shadow-glow sm:p-7">
         <div className="pointer-events-none absolute -top-24 end-[-4rem] h-64 w-64 rounded-full bg-brand-violet/25 blur-3xl animate-aurora" />
@@ -316,7 +317,7 @@ export default function OverviewPage() {
                   <s.icon className="h-4 w-4" />
                 </span>
                 <div className="min-w-0">
-                  <div className="text-lg font-bold leading-none tabular-nums text-foreground">{fmt(s.value)}</div>
+                  <div className="text-lg font-bold leading-none tabular-nums text-foreground">{typeof s.value === 'number' ? <NumberTicker value={s.value} format={(n) => fmt(n)} /> : fmt(s.value)}</div>
                   <div className="mt-1 truncate text-[11px] font-medium text-muted-foreground">{s.label}</div>
                 </div>
               </div>

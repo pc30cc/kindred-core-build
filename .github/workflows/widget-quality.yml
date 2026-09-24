@@ -20,7 +20,7 @@ jobs:
   # immediately visible and can be made a required status check.
   widget-guard:
     name: widget-guard
-    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["self-hosted","linux","x64","android"]') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
@@ -43,7 +43,7 @@ jobs:
   # the repository is genuinely red.
   typecheck-test-build:
     name: typecheck-test-build
-    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["self-hosted","linux","x64","android"]') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:

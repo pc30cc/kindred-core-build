@@ -1,5 +1,7 @@
 name: Windows app (native)
 
+# Public repository: standard GitHub-hosted runners are used.
+
 # Builds the native Windows app (windows-native/, WinUI 3 + Velopack) on a
 # Windows runner — its UI cannot compile anywhere else. Every push that
 # touches it runs the Core tests and produces an installer as a build

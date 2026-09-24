@@ -20,6 +20,17 @@ final class InboxAlert {
 
     private(set) var isRinging = false
 
+    init() {
+        #if DEBUG
+        // Staging, for the one state that cannot be reached from outside the
+        // app: the sample backend has no socket, and no test can make a
+        // visitor write. Same shape as `-WebyarHoldLaunch` — Debug-only,
+        // off unless asked for by launch argument, and physically absent
+        // from a Release build, which has no sample backend either.
+        isRinging = ProcessInfo.processInfo.arguments.contains("-WebyarInboxDot")
+        #endif
+    }
+
     /// A push landed on the workspace inbox channel.
     ///
     /// `isLookingAtInbox` is passed in rather than read from here because

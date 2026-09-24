@@ -575,16 +575,16 @@ export async function resolveUnlinkedContactSessionIds(
     candidates.set(contactId, list);
   };
 
+  // Plain filters only (no .not/.limit), so every caller's client can answer it;
+  // rows without a session are skipped here.
   const { data: convos } = await sb
     .from('conversations')
     .select('contact_id, visitor_session_id, updated_at')
     .eq('workspace_id', workspaceId)
     .in('contact_id', ids)
-    .not('visitor_session_id', 'is', null)
-    .order('updated_at', { ascending: false })
-    .limit(1000);
+    .order('updated_at', { ascending: false });
   for (const c of (convos ?? []) as Array<{ contact_id: string; visitor_session_id: string | null }>) {
-    add(c.contact_id, c.visitor_session_id);
+    if (c.visitor_session_id) add(c.contact_id, c.visitor_session_id);
   }
 
   const { data: contactsRaw } = await sb
@@ -605,8 +605,7 @@ export async function resolveUnlinkedContactSessionIds(
       .select('id, visitor_id, last_seen_at')
       .eq('workspace_id', workspaceId)
       .in('visitor_id', Array.from(new Set(visitorOf.values())))
-      .order('last_seen_at', { ascending: false })
-      .limit(1000);
+      .order('last_seen_at', { ascending: false });
     const newestByVisitor = new Map<string, string>();
     for (const s of (byVisitor ?? []) as Array<{ id: string; visitor_id: string }>) {
       if (!newestByVisitor.has(s.visitor_id)) newestByVisitor.set(s.visitor_id, s.id);

@@ -150,7 +150,7 @@ extension View {
 extension View {
     /// Liquid Glass on macOS 26, the nearest material before it.
     @ViewBuilder
-    func glass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
+    func glass<S: InsettableShape>(_ shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
         if #available(macOS 26.0, *) {
             glassEffect(Glass.regular.tint(tint).interactive(interactive), in: shape)
         } else {

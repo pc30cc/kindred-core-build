@@ -26,11 +26,19 @@ final class AIThreadTests: UITestCase {
             "the awaiting-customer queue is missing from the inbox switcher"
         )
 
-        // And the queues it sits between are still there, so a pass cannot
-        // mean "the sheet now contains one row".
-        for other in ["حل‌شده", "هرزنامه"] {
-            XCTAssertTrue(app.buttons[other].exists, "\(other) went missing from the inbox switcher")
+        // And the queues below it are still there, so a pass cannot mean
+        // "the sheet now contains one row". They are below the fold at the
+        // sheet's first height, and a `List` does not build rows nobody can
+        // see — so this scrolls to them rather than asserting they are
+        // already in the tree, which is what a menu would have let it do.
+        let spam = app.buttons["هرزنامه"]
+        var swipes = 0
+        while !spam.exists && swipes < 4 {
+            app.swipeUp()
+            swipes += 1
         }
+        XCTAssertTrue(spam.exists, "the spam queue went missing from the inbox switcher")
+        XCTAssertTrue(app.buttons["حل‌شده"].exists, "the resolved queue went missing")
     }
 
     /// The whole reason the switcher stopped being a `Menu`.
@@ -50,8 +58,10 @@ final class AIThreadTests: UITestCase {
         // A sheet the app drew, so its rows sit inside the app's own window
         // and have a real frame. A menu's rows are in another one.
         XCTAssertTrue(row.frame.height > 0, "the switcher row has no frame of its own")
+        // `.firstMatch`: the inbox behind the sheet carries the same word on
+        // its own bar, and an ambiguous query throws rather than failing.
         XCTAssertTrue(
-            app.navigationBars["صندوق"].waitForExistence(timeout: 3),
+            app.navigationBars["صندوق"].firstMatch.waitForExistence(timeout: 3),
             "the switcher sheet has no title of its own"
         )
     }

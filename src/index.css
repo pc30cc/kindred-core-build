@@ -1034,3 +1034,5 @@ html.native-app [data-selectable='true'] {
 @media (prefers-reduced-motion: reduce) {
   .animate-aurora, .animate-ping-soft, .btn-shimmer::after, .beam-border::before, .text-shine, .animate-marquee { animation: none !important; }
 }
+
+.auth-shell .auth-aurora { background: none; min-height: auto; }

@@ -44,10 +44,14 @@ enum CallOutcome: Equatable {
 /// A note shown beside the call: the call's own notes on the desk, the
 /// conversation's internal notes on a call made from a conversation.
 struct CallWindowNote: Identifiable, Hashable {
+    enum Sending: Hashable { case no, going, failed }
+
     let id: String
     let text: String
     let author: String?
     let at: Date?
+    /// A note of this operator's on its way to the server, or one that did not get there.
+    var sending: Sending = .no
 }
 
 /// One call with a visitor, from the invitation to the room closing — the
@@ -101,8 +105,15 @@ final class LiveCall {
     /// Newest read of the notes; nil until the first one arrives.
     private(set) var notes: [CallWindowNote]?
     var noteDraft = ""
-    private(set) var addingNote = false
+    /// This operator's notes not yet on the server: shown at once, then swapped for the saved copy.
+    private(set) var outbox: [CallWindowNote] = []
     private(set) var noteError: String?
+
+    /// The notes on show: the saved ones, then those still on their way.
+    var shownNotes: [CallWindowNote]? {
+        guard let notes else { return outbox.isEmpty ? nil : outbox }
+        return notes + outbox
+    }
     @ObservationIgnored private var transferTargetId: String?
     @ObservationIgnored private var notesTask: Task<Void, Never>?
     @ObservationIgnored private var handoverTask: Task<Void, Never>?
@@ -479,22 +490,44 @@ final class LiveCall {
         }
     }
 
-    func addNote() async {
+    /// Sends the draft. The note shows at once and the box empties; if it does not
+    /// reach the server it stays, marked, to send again.
+    func addNote() {
         let text = noteDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !addingNote else { return }
-        addingNote = true
+        guard !text.isEmpty else { return }
+        noteDraft = ""
+        let note = CallWindowNote(id: "local-\(UUID().uuidString)", text: text, author: app.myName, at: Date(), sending: .going)
+        outbox.append(note)
+        Task { await deliver(note) }
+    }
+
+    /// Sends a note that did not get through again.
+    func retryNote(_ id: String) {
+        guard let i = outbox.firstIndex(where: { $0.id == id }), outbox[i].sending == .failed else { return }
+        outbox[i].sending = .going
+        let note = outbox[i]
+        Task { await deliver(note) }
+    }
+
+    /// Drops a note that did not get through.
+    func discardNote(_ id: String) {
+        outbox.removeAll { $0.id == id && $0.sending == .failed }
+        if !outbox.contains(where: { $0.sending == .failed }) { noteError = nil }
+    }
+
+    private func deliver(_ note: CallWindowNote) async {
         noteError = nil
-        defer { addingNote = false }
         do {
             if let callId = desk?.callId {
-                try await app.api.addCallNote(workspaceId: workspaceId, callId: callId, note: text)
+                try await app.api.addCallNote(workspaceId: workspaceId, callId: callId, note: note.text)
             } else if let conversation {
-                try await app.api.addNote(conversationId: conversation.id, workspaceId: workspaceId, body: text)
+                try await app.api.addNote(conversationId: conversation.id, workspaceId: workspaceId, body: note.text)
             }
-            noteDraft = ""
             await loadNotes()
+            outbox.removeAll { $0.id == note.id }
         } catch {
             Log.error("call note", error)
+            if let i = outbox.firstIndex(where: { $0.id == note.id }) { outbox[i].sending = .failed }
             noteError = ErrorText.of(error, app.strings)
         }
     }

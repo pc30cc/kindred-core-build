@@ -37,7 +37,7 @@ final class WebyarAPI {
 
     /// `byConversation` / `byContact` are keyed by ids; decoded raw so the
     /// snake-to-camel key conversion never touches an id.
-    private func profiles(_ body: [String: Any?]) async throws -> (byConversation: [String: VisitorProfile], byContact: [String: VisitorProfile]) {
+    private func profiles(_ body: [String: Any?]) async throws -> (byConversation: [String: VisitorProfile], byContact: [String: VisitorProfile], bySession: [String: VisitorProfile]) {
         let root: JSONValue = try await client.post("/api/visitor-intel/network/batch", body: body)
         func map(_ v: JSONValue?) -> [String: VisitorProfile] {
             var out: [String: VisitorProfile] = [:]
@@ -49,7 +49,7 @@ final class WebyarAPI {
             }
             return out
         }
-        return (map(root["by_conversation"]), map(root["by_contact"]))
+        return (map(root["by_conversation"]), map(root["by_contact"]), map(root["by_session"]))
     }
 
     // MARK: Session
@@ -367,6 +367,20 @@ final class WebyarAPI {
         do {
             return try await profiles(["workspace_id": workspaceId, "conversation_ids": Array(conversationIds.prefix(500))]).byConversation
         } catch {
+            return [:]
+        }
+    }
+
+    /// The call center's enrichment: OS and country per caller's visitor session.
+    /// Decorative: a failure means "no detail".
+    func sessionProfiles(workspaceId: String, sessionIds: [String]) async -> [String: VisitorProfile] {
+        // The server takes UUIDs only, and one odd id would sink the batch.
+        let ids = sessionIds.filter { UUID(uuidString: $0) != nil }
+        guard !ids.isEmpty else { return [:] }
+        do {
+            return try await profiles(["workspace_id": workspaceId, "session_ids": Array(ids.prefix(500))]).bySession
+        } catch {
+            Log.error("caller devices", error)
             return [:]
         }
     }

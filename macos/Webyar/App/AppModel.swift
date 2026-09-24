@@ -350,6 +350,8 @@ final class AppModel {
         workspacePlan = .loading
         members = nil
         profiles = [:]
+        sessionProfiles = [:]
+        sessionProfilesAsked = []
         channelsLoaded = false
         channels = []
         counts = SidebarCounts()
@@ -750,6 +752,40 @@ final class AppModel {
             c.visitorCity = p.geo?.city
             c.visitorRegion = p.geo?.region
             return c
+        }
+    }
+
+    // MARK: Callers' devices
+
+    /// A caller's OS and country by visitor session, for the call center's faces;
+    /// a session in `sessionProfilesAsked` but not here has none to give.
+    private(set) var sessionProfiles: [String: VisitorProfile] = [:]
+    private(set) var sessionProfilesAsked: Set<String> = []
+    @ObservationIgnored private var sessionProfilesWanted: Set<String> = []
+    @ObservationIgnored private var sessionProfilesTask: Task<Void, Never>?
+
+    /// Asks for a caller's device once; the faces on screen in the same moment go in one call, as the web desk does.
+    func wantSessionProfile(_ sessionId: String?) {
+        guard let id = sessionId, !id.isEmpty, !sessionProfilesAsked.contains(id) else { return }
+        sessionProfilesWanted.insert(id)
+        guard sessionProfilesTask == nil else { return }
+        sessionProfilesTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            await self?.loadSessionProfiles()
+        }
+    }
+
+    private func loadSessionProfiles() async {
+        defer { sessionProfilesTask = nil }
+        let ids = Array(sessionProfilesWanted)
+        sessionProfilesWanted = []
+        guard let ws = workspace, !ids.isEmpty else { return }
+        let got = await api.sessionProfiles(workspaceId: ws.id, sessionIds: ids)
+        sessionProfiles.merge(got) { _, b in b }
+        sessionProfilesAsked.formUnion(ids)
+        // Asked for while this batch was out.
+        if !sessionProfilesWanted.isEmpty {
+            sessionProfilesTask = Task { [weak self] in await self?.loadSessionProfiles() }
         }
     }
 

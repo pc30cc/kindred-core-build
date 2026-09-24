@@ -93,6 +93,10 @@ enum DebugTools {
             let call = CallSession(id: "cs-1", callType: video ? "video" : "voice", visitorName: "Ayşe Yılmaz", visitorEmail: "ayse@example.com.tr", pageTitle: "Pricing — Webyar")
             CallCoordinator.shared.joinAccepted(app: app, accept: CallAccept(ok: true), call: call, callId: "cs-1")
         case "callui": CallCoordinator.shared.call?.debugOpen = arg
+        case "callnote":
+            // As if the operator typed a note in the call's notes and sent it.
+            if let call = CallCoordinator.shared.call { call.noteDraft = arg; call.addNote() }
+        case "notesdown": SampleBackend.notesDown = arg != "off"
         case "hangup": CallCoordinator.shared.call?.hangUp()
         case "popout": CallCoordinator.shared.popOut()
         case "dockback": CallCoordinator.shared.dockBack()

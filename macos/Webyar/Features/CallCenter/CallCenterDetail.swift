@@ -149,7 +149,7 @@ private struct CallDeskCallerCard: View {
         let colors = CallDeskText.stateColors(state)
         let video = model.shownIsVideo
         return HStack(spacing: 18) {
-            AvatarView(name: call.visitorName, email: call.visitorEmail, size: 64)
+            CallerAvatar(call: call, size: 64)
             VStack(alignment: .leading, spacing: 4) {
                 Text(model.shownName).appFont(19, .bold).lineLimit(1).textSelection(.enabled)
                 HStack(spacing: 8) {

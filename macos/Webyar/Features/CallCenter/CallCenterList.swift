@@ -332,7 +332,7 @@ private struct CallDeskQueueRow: View {
         let s = app.strings
         let c = item.entry.callSession
         HStack(alignment: .center, spacing: 12) {
-            AvatarView(name: c?.visitorName, email: c?.visitorEmail, size: 42)
+            CallerAvatar(call: c, sessionId: item.entry.visitorSessionId, size: 42)
                 .overlay(alignment: .bottomTrailing) { channelBadge }
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -421,11 +421,16 @@ private struct CallDeskHistoryRow: View {
         let c = call
         let colors = CallDeskText.stateColors(c.state)
         HStack(alignment: .center, spacing: 12) {
-            Image(systemName: CallDeskText.channelIcon(video: c.isVideo))
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(colors.0)
-                .frame(width: 36, height: 36)
-                .background(colors.1, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            CallerAvatar(call: c, size: 36)
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: CallDeskText.channelIcon(video: c.isVideo))
+                        .font(.system(size: 7.5, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 16, height: 16)
+                        .background(colors.0, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Palette.surface, lineWidth: 2))
+                        .offset(x: 4, y: 4)
+                }
             VStack(alignment: .leading, spacing: 1) {
                 Text(CallNames.caller(c, fallbackId: c.contactId ?? c.visitorSessionId ?? c.id, s))
                     .appFont(13, .semibold)

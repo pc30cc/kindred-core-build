@@ -64,7 +64,7 @@ struct AccountSettingsTab: View {
     private var accountRow: some View {
         HStack(spacing: 16) {
             AvatarView(name: name.isEmpty ? email : name, email: email, imageURL: app.account?.avatarUrl,
-                       size: 60, kind: .operator, presence: app.myState)
+                       size: 60, kind: .operator, presence: app.myState, faceless: true)
             VStack(alignment: .leading, spacing: 2) {
                 if !name.isEmpty {
                     Text(name).appFont(17, .semibold).lineLimit(1).truncationMode(.tail)

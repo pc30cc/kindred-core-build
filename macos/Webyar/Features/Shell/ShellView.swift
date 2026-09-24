@@ -266,7 +266,7 @@ struct AccountCorner: View {
             Button(role: .destructive) { confirmSignOut = true } label: { Label(s["signOut"], systemImage: "rectangle.portrait.and.arrow.right") }
         } label: {
             HStack(spacing: 10) {
-                AvatarView(name: app.myName, imageURL: app.account?.avatarUrl, size: 30, kind: .operator, presence: app.myState)
+                AvatarView(name: app.myName, imageURL: app.account?.avatarUrl, size: 30, kind: .operator, presence: app.myState, faceless: true)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(app.myName).appFont(12.5, .semibold).lineLimit(1)
                     Text(statusLine).appFont(11).foregroundStyle(Palette.text2).lineLimit(1)
@@ -398,7 +398,7 @@ struct IncomingCallCard: View {
             let c = entry.callSession
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
-                    AvatarView(name: c?.visitorName, email: c?.visitorEmail, size: 44)
+                    CallerAvatar(call: c, sessionId: entry.visitorSessionId, size: 44)
                         .overlay(RingPulse())
                     VStack(alignment: .leading, spacing: 2) {
                         Label(s[entry.isVideo ? "incomingVideoCall" : "incomingVoiceCall"], systemImage: entry.isVideo ? "video.fill" : "phone.fill")
@@ -462,7 +462,7 @@ private struct HandedCallCard: View {
             let from = c.transferFromAgentId.map { app.memberName($0) } ?? ""
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
-                    AvatarView(name: c.visitorName, email: c.visitorEmail, size: 44)
+                    CallerAvatar(call: c, size: 44)
                     VStack(alignment: .leading, spacing: 2) {
                         Label(s["callHandedTitle"], systemImage: "arrow.left.arrow.right")
                             .appFont(11.5, .semibold)

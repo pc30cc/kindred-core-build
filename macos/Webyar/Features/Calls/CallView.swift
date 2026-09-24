@@ -275,14 +275,26 @@ private struct CallPanelChrome: ViewModifier {
     }
 }
 
+/// A popover is a window of its own and does not carry the page's reading
+/// direction with it: set it again, so Persian reads right to left there too.
+private struct CallPopoverStyle: ViewModifier {
+    @Environment(AppModel.self) private var app
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.colorScheme, .dark)
+            .environment(\.layoutDirection, app.strings.isRightToLeft ? .rightToLeft : .leftToRight)
+            .foregroundStyle(Color(hex: 0xE8ECF4))
+            .background(Color(hex: 0x14171F))
+            .presentationBackground(Color(hex: 0x14171F))
+    }
+}
+
 extension View {
     /// A popover off a call (notes, transfer): the call's own solid dark, edge to edge —
     /// not the system's grey popover material with a second, lighter card inside it.
     func callPopover() -> some View {
-        environment(\.colorScheme, .dark)
-            .foregroundStyle(Color(hex: 0xE8ECF4))
-            .background(Color(hex: 0x14171F))
-            .presentationBackground(Color(hex: 0x14171F))
+        modifier(CallPopoverStyle())
     }
 
     /// DebugTools' `callui` command: opens a panel as if its button had been clicked.
@@ -335,7 +347,7 @@ struct CallNotesPanel: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
-                        if let notes = call.notes {
+                        if let notes = call.shownNotes {
                             if notes.isEmpty {
                                 Text(s["callNotesEmpty"])
                                     .appFont(12)
@@ -351,7 +363,7 @@ struct CallNotesPanel: View {
                     }
                 }
                 .scrollIndicators(.hidden)
-                .onChange(of: call.notes?.last?.id, initial: true) { _, id in
+                .onChange(of: call.shownNotes?.last?.id, initial: true) { _, id in
                     guard let id else { return }
                     withAnimation(.smooth(duration: 0.2)) { proxy.scrollTo(id, anchor: .bottom) }
                 }
@@ -373,21 +385,29 @@ struct CallNotesPanel: View {
                     .onChange(of: call.noteDraft) { _, text in
                         if text.count > 2000 { call.noteDraft = String(text.prefix(2000)) }
                     }
-                Button {
-                    Task { await call.addNote() }
-                } label: {
-                    if call.addingNote {
-                        ProgressView().controlSize(.small).frame(width: 28, height: 28)
-                    } else {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 26))
-                            .foregroundStyle(draftEmpty ? Color.white.opacity(0.25) : Palette.brand)
+                    .onKeyPress(.return, phases: .down) { press in
+                        // Enter adds the note; Shift+Enter starts a new line, as in the chat composer.
+                        if press.modifiers.contains(.shift) || press.modifiers.contains(.option) {
+                            call.noteDraft += "\n"
+                            return .handled
+                        }
+                        call.addNote()
+                        return .handled
                     }
+                Button {
+                    call.addNote()
+                    focused = true
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 26))
+                        .foregroundStyle(draftEmpty ? Color.white.opacity(0.25) : Palette.brand)
+                        .frame(width: 30, height: 30)
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut(.return, modifiers: .command)
-                .disabled(draftEmpty || call.addingNote)
+                .disabled(draftEmpty)
                 .help(s["callNoteSend"])
+                .accessibilityLabel(s["callNoteSend"])
             }
         }
         .padding(14)
@@ -408,11 +428,35 @@ struct CallNotesPanel: View {
                 .appFont(12.5)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
+            switch n.sending {
+            case .no:
+                EmptyView()
+            case .going:
+                HStack(spacing: 5) {
+                    ProgressView().controlSize(.mini)
+                    Text(s["callNoteSending"])
+                }
+                .appFont(11)
+                .foregroundStyle(Color(hex: 0x98A2B3))
+            case .failed:
+                HStack(spacing: 10) {
+                    Label(s["callNoteFailed"], systemImage: "exclamationmark.circle.fill")
+                        .foregroundStyle(Palette.danger)
+                    Button(s["callNoteRetry"]) { call.retryNote(n.id) }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Palette.brand)
+                    Button(s["callNoteDiscard"]) { call.discardNote(n.id) }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color(hex: 0x98A2B3))
+                }
+                .appFont(11, .semibold)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color.white.opacity(n.sending == .no ? 0.07 : 0.045), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .opacity(n.sending == .going ? 0.75 : 1)
     }
 }
 
@@ -691,9 +735,31 @@ struct CallAvatar: View {
     let size: CGFloat
 
     var body: some View {
-        let c = call.conversation
-        AvatarView(name: c == nil ? call.name : c?.contacts?.name, email: c?.contacts?.email, os: c?.visitorOs,
-                   countryCode: c?.visitorCountryCode, imageURL: c?.contacts?.avatarUrl, size: size)
+        if let c = call.conversation {
+            AvatarView(name: c.contacts?.name, email: c.contacts?.email, os: c.visitorOs,
+                       countryCode: c.visitorCountryCode, imageURL: c.contacts?.avatarUrl, size: size)
+        } else {
+            CallerAvatar(call: call.desk?.session, size: size)
+        }
+    }
+}
+
+/// A call-center caller's face, drawn as everywhere else: their device's logo
+/// on its gradient and their flag, looked up by visitor session as the web desk
+/// does. Until that is known, or when it cannot be, a grey disc with a person.
+struct CallerAvatar: View {
+    let call: CallSession?
+    /// The queue's own note of the session, when its copy of the call lacks one.
+    var sessionId: String? = nil
+    var size: CGFloat = 42
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let sid = call?.visitorSessionId ?? sessionId
+        let p = sid.flatMap { app.sessionProfiles[$0] }
+        AvatarView(name: call?.visitorName, email: call?.visitorEmail, os: p?.device?.os,
+                   countryCode: p?.geo?.countryCode, size: size, faceless: true)
+            .task(id: sid) { app.wantSessionProfile(sid) }
     }
 }
 

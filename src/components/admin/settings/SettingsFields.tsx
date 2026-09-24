@@ -115,6 +115,8 @@ export function TextAreaField({
   placeholder,
   counter,
   maxLength,
+  dir,
+  invalid,
 }: {
   label: string;
   hint?: string;
@@ -125,6 +127,9 @@ export function TextAreaField({
   /** Live "n / max" counter — Apple truncates long purpose strings. */
   counter?: number;
   maxLength?: number;
+  /** Writing direction of the text itself, e.g. `rtl` for a Persian message on an English screen. */
+  dir?: 'ltr' | 'rtl';
+  invalid?: boolean;
 }) {
   return (
     <div className="grid gap-1.5">
@@ -141,7 +146,15 @@ export function TextAreaField({
           </span>
         )}
       </div>
-      <Textarea rows={rows} value={value} placeholder={placeholder} maxLength={maxLength} onChange={(e) => onChange(e.target.value)} />
+      <Textarea
+        rows={rows}
+        value={value}
+        dir={dir}
+        placeholder={placeholder}
+        maxLength={maxLength}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn(invalid && 'border-destructive focus-visible:ring-destructive')}
+      />
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );

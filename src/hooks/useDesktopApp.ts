@@ -57,6 +57,20 @@ export function useSaveDesktopAppSettings() {
   });
 }
 
+// ── Shared by both desktop apps ──────────────────────────────────────────
+
+/**
+ * Which desktop app a campaign, a broadcast or a live copy belongs to. Ads,
+ * announcements, live usage and broadcasts are one pool under
+ * /api/admin/desktop-app, targeted per app: an empty `platforms` list means
+ * every desktop app.
+ */
+export type DesktopPlatform = 'windows' | 'macos';
+export const DESKTOP_PLATFORMS: readonly DesktopPlatform[] = ['windows', 'macos'];
+
+/** `?platform=…` for a scoped list, nothing for the unscoped one. */
+const platformQuery = (platform?: DesktopPlatform) => (platform ? `?platform=${platform}` : '');
+
 // ── Ads & announcements ──────────────────────────────────────────────────
 
 export type DesktopPlacement = 'banner' | 'inbox_list' | 'colleagues_list' | 'contacts_list' | 'chat_empty' | 'settings';
@@ -75,6 +89,8 @@ export interface DesktopCampaign {
   name: string;
   placements: DesktopPlacement[];
   target_plans: string[];
+  /** Which desktop apps show it; empty (or missing on rows older than migration 211) means both. */
+  platforms?: DesktopPlatform[] | null;
   text: Partial<Record<CampaignLocale, CampaignText>>;
   image_url: string | null;
   cta_url: string | null;
@@ -88,14 +104,20 @@ export interface DesktopCampaign {
   updated_at?: string;
 }
 
-export type DesktopCampaignInput = Omit<DesktopCampaign, 'id' | 'created_at' | 'updated_at'>;
+/** What the editor sends: `platforms` is always a list here, since the server refuses null. */
+export type DesktopCampaignInput = Omit<DesktopCampaign, 'id' | 'created_at' | 'updated_at' | 'platforms'> & {
+  platforms: DesktopPlatform[];
+};
 
+/** Prefix of every campaign list; invalidating it refreshes each app's scoped list at once. */
 const CAMPAIGNS_KEY = ['admin', 'desktop-app', 'campaigns'] as const;
 
-export function useDesktopCampaigns() {
+/** Without a platform: every row. With one: only the rows that app shows (its own and the shared ones). */
+export function useDesktopCampaigns(platform?: DesktopPlatform) {
   return useQuery({
-    queryKey: CAMPAIGNS_KEY,
-    queryFn: () => adminFetch<{ campaigns: DesktopCampaign[] }>('/api/admin/desktop-app/campaigns'),
+    queryKey: [...CAMPAIGNS_KEY, platform ?? 'all'],
+    queryFn: () =>
+      adminFetch<{ campaigns: DesktopCampaign[] }>(`/api/admin/desktop-app/campaigns${platformQuery(platform)}`),
   });
 }
 
@@ -141,6 +163,10 @@ export interface DesktopLiveSummary {
   users: number;
   workspaces: number;
   versions: Array<{ version: string; count: number }>;
+  /** Copies per app, whatever platform the summary was asked for. */
+  platforms: Record<DesktopPlatform, number>;
+  /** OS releases among the counted copies, most common first. */
+  oses: Array<{ os: string; count: number }>;
   heartbeatSeconds: number;
   since: string;
 }
@@ -151,24 +177,44 @@ export interface DesktopBroadcast {
   body: string;
   severity: CampaignSeverity;
   url: string | null;
+  /** Which apps show it; empty means every desktop app. */
+  platforms?: DesktopPlatform[];
   createdAt: string;
 }
 
+export interface DesktopBroadcastInput {
+  title: string;
+  body: string;
+  severity: CampaignSeverity;
+  url: string;
+  /** Empty sends to every desktop app. */
+  platforms?: DesktopPlatform[];
+}
+
+/** Prefix of every live query; invalidating it refreshes each app's view at once. */
 const LIVE_KEY = ['admin', 'desktop-app', 'live'] as const;
 
-export function useDesktopLive() {
+/** Without a platform: every running copy. With one: that app's copies and the broadcasts it shows. */
+export function useDesktopLive(platform?: DesktopPlatform) {
   return useQuery({
-    queryKey: LIVE_KEY,
-    queryFn: () => adminFetch<{ live: DesktopLiveSummary; broadcasts: DesktopBroadcast[] }>('/api/admin/desktop-app/live'),
+    queryKey: [...LIVE_KEY, platform ?? 'all'],
+    queryFn: () =>
+      adminFetch<{ live: DesktopLiveSummary; broadcasts: DesktopBroadcast[] }>(
+        `/api/admin/desktop-app/live${platformQuery(platform)}`,
+      ),
     refetchInterval: 15_000,
   });
 }
 
-export function useSendDesktopBroadcast() {
+/** `platform` only scopes the live summary the server answers with; who receives it is `input.platforms`. */
+export function useSendDesktopBroadcast(platform?: DesktopPlatform) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { title: string; body: string; severity: CampaignSeverity; url: string }) =>
-      adminFetch('/api/admin/desktop-app/broadcasts', { method: 'POST', body: JSON.stringify(input) }),
+    mutationFn: (input: DesktopBroadcastInput) =>
+      adminFetch(`/api/admin/desktop-app/broadcasts${platformQuery(platform)}`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: LIVE_KEY }),
   });
 }

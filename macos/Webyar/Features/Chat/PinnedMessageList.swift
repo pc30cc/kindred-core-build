@@ -18,6 +18,9 @@ struct PinnedMessageList<Rows: View>: View {
     /// Bumped by the model each time this operator sends.
     let sentCount: Int
     let isEmpty: Bool
+    /// Changes when something above the list takes or gives back room (a call panel sliding
+    /// in or out): a list that was at the bottom goes back there.
+    var refit: Bool = false
     @ViewBuilder let rows: () -> Rows
 
     @Environment(AppModel.self) private var app
@@ -70,14 +73,7 @@ struct PinnedMessageList<Rows: View>: View {
             .animation(.smooth(duration: 0.2), value: atBottom)
             // The space for the list changed (a call panel sliding in or out above it): one that
             // was at the bottom stays there, rather than being left part-way up.
-            .background {
-                GeometryReader { geo in
-                    // The visible height: the frame less what the header and the call panel take.
-                    Color.clear.onChange(of: geo.size.height - geo.safeAreaInsets.top - geo.safeAreaInsets.bottom) { old, new in
-                        keepAtBottom(proxy, old, new)
-                    }
-                }
-            }
+            .onChange(of: refit) { _, _ in keepAtBottom(proxy) }
             .onChange(of: threadId, initial: true) { _, _ in
                 unseen = 0
                 landing = true
@@ -124,14 +120,17 @@ struct PinnedMessageList<Rows: View>: View {
         }
     }
 
-    private func keepAtBottom(_ proxy: ScrollViewProxy, _ old: CGFloat, _ new: CGFloat) {
-        guard old != new, !landing, !isEmpty else { return }
+    private func keepAtBottom(_ proxy: ScrollViewProxy) {
+        guard !landing, !isEmpty else { return }
+        // At the bottom a moment ago counts: the room change itself may have pushed it out of view.
         let justLeft = leftBottomAt.map { Date().timeIntervalSince($0) < 0.8 } ?? false
         guard atBottom || justLeft else { return }
         Task { @MainActor in
-            scrollToBottom(proxy, animated: false)
-            try? await Task.sleep(nanoseconds: 380_000_000)
-            scrollToBottom(proxy, animated: false)
+            // Now, as the panel slides, and once it has settled.
+            for delay: UInt64 in [0, 120_000_000, 400_000_000] {
+                if delay > 0 { try? await Task.sleep(nanoseconds: delay) }
+                scrollToBottom(proxy, animated: false)
+            }
         }
     }
 

@@ -267,7 +267,8 @@ struct MessagesView: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        PinnedMessageList(threadId: chat.id, lastId: chat.rows.last?.id, sentCount: chat.sentCount, isEmpty: chat.rows.isEmpty) {
+        PinnedMessageList(threadId: chat.id, lastId: chat.rows.last?.id, sentCount: chat.sentCount, isEmpty: chat.rows.isEmpty,
+                          refit: CallCoordinator.shared.docksHere(conversationId: chat.conversation?.id) != nil) {
             ForEach(chat.rows) { row in
                 MessageRowView(row: row, conversation: chat.conversation)
                     .id(row.id)

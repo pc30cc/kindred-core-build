@@ -19,7 +19,8 @@ import {
   type CommerceConnectorContext,
 } from '../../../shared/commerce/types.js';
 import { readInstallationSecret } from './credentials.js';
-import { resolveConnector } from './connectors/registry.js';
+import { getProviderDescriptor, resolveConnector, type ProviderFamily } from './connectors/registry.js';
+import { listWorkspaceConnections, selectConnection } from './connectionSelection.js';
 import { recordCommerceToolAudit } from './audit.js';
 import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 
@@ -29,13 +30,14 @@ export type CommercePermissionKey =
 
 export interface CommerceConnectionRow {
   id: string;
+  created_at?: string;
   workspace_id: string;
   installation_id: string;
   provider_type: string;
   store_id: string;
   approved_origin: string;
   capabilities: string[];
-  permissions: Record<CommercePermissionKey, boolean>;
+  permissions: Partial<Record<CommercePermissionKey | string, boolean>>;
   health: string;
   catalog_ready: boolean;
   revoked_at: string | null;
@@ -60,21 +62,25 @@ export async function getConnectionForWorkspace(
   return (data as CommerceConnectionRow | null) ?? null;
 }
 
+/**
+ * The STORE connection (catalogue/orders) in context for a workspace.
+ *
+ * Used to be "newest un-revoked connection of any kind", which broke as soon
+ * as a workspace had a WooCommerce store and a WHMCS installation side by
+ * side. Now delegates to connectionSelection.ts: bound identity → the page's
+ * own site → the only connection of that family. Ambiguous → null.
+ */
 export async function getActiveConnectionForWorkspace(
   config: ServerConfig,
   workspaceId: string,
+  opts: { family?: ProviderFamily; pageOrigin?: string | null; pagePath?: string | null; connections?: CommerceConnectionRow[] } = {},
 ): Promise<CommerceConnectionRow | null> {
-  const sb = getServiceClient(config);
-  const { data, error } = await sb
-    .from('commerce_connections')
-    .select('id, workspace_id, installation_id, provider_type, store_id, approved_origin, capabilities, permissions, health, catalog_ready, revoked_at, protocol_version')
-    .eq('workspace_id', workspaceId)
-    .is('revoked_at', null)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(`commerce connection read failed: ${error.message}`);
-  return (data as CommerceConnectionRow | null) ?? null;
+  const rows = opts.connections ?? await listWorkspaceConnections(config, workspaceId);
+  return selectConnection(rows, {
+    family: opts.family ?? 'store',
+    pageOrigin: opts.pageOrigin ?? null,
+    pagePath: opts.pagePath ?? null,
+  }).connection;
 }
 
 function assertUsable(connection: CommerceConnectionRow): void {
@@ -166,7 +172,11 @@ export async function withCommerceConnector<T>(
     assertCapability(connection, options.capability);
     if (options.permission) assertPermission(connection, options.permission);
     await assertEntitled(config, workspaceId, options.permission);
-    if (!connection.catalog_ready) throw new CommerceError('catalog_syncing', 'initial catalog sync not complete');
+    // Only a provider Web Yar keeps a catalogue index for can be "still
+    // syncing". A billing system is queried live and has no index to wait on.
+    if (getProviderDescriptor(connection.provider_type)?.usesCatalogIndex !== false && !connection.catalog_ready) {
+      throw new CommerceError('catalog_syncing', 'initial catalog sync not complete');
+    }
 
     const secret = await readInstallationSecret(config, connection.installation_id);
     if (!secret) throw new CommerceError('commerce_not_connected', 'no installation credential on file');

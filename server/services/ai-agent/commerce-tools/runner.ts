@@ -10,8 +10,21 @@
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import type { ReadOnlyToolResult } from '../actions/readOnly.js';
-import { CommerceError, type CommerceErrorCode } from '../../../../shared/commerce/types.js';
-import { getActiveConnectionForWorkspace, withCommerceConnector, assertPermission, assertCommerceModuleEntitled, type CommerceConnectionRow } from '../../commerce/gateway.js';
+import {
+  CommerceError,
+  type AvailabilityResult,
+  type CommerceCapability,
+  type CommerceConnector,
+  type CommerceConnectorContext,
+  type CommerceErrorCode,
+  type CommerceOrder,
+  type CommerceOrderSummary,
+  type CommerceProduct,
+  type ProductReviewsResult,
+  type StoreInfo,
+  type TrackingResult,
+} from '../../../../shared/commerce/types.js';
+import { getActiveConnectionForWorkspace, withCommerceConnector, assertPermission, assertCommerceModuleEntitled, type CommerceConnectionRow, type CommercePermissionKey } from '../../commerce/gateway.js';
 import { searchIndexedProducts, listIndexedCategories, buildSearchTerms, type IndexedProductRow } from '../../commerce/productIndex.js';
 import { detectCommerceIntent } from './intent.js';
 import { MAX_COMMERCE_CALLS_PER_TURN, MAX_RESULTS_PER_TOOL, COMMERCE_TOOL_DEADLINE_MS } from './limits.js';
@@ -23,6 +36,11 @@ export interface CommerceStageInput {
   conversationId: string | null;
   question: string;
   correlationId?: string;
+  /** The workspace's live connections, when the caller already read them for this turn. */
+  connections?: CommerceConnectionRow[];
+  /** Validated page context — picks the store the visitor is actually on. */
+  pageOrigin?: string | null;
+  pagePath?: string | null;
 }
 
 export interface CommerceStageResult {
@@ -139,7 +157,12 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
   try {
     const keywordIntent = detectCommerceIntent(input.question);
 
-    const connection = await getActiveConnectionForWorkspace(config, input.workspaceId);
+    const connection = await getActiveConnectionForWorkspace(config, input.workspaceId, {
+      family: 'store',
+      connections: input.connections,
+      pageOrigin: input.pageOrigin ?? null,
+      pagePath: input.pagePath ?? null,
+    });
     if (!connection) return empty;
     await assertCommerceModuleEntitled(config, input.workspaceId); // plan gate — throws CommerceError, caught below
 
@@ -210,7 +233,12 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
       });
     };
 
-    const callGateway = async <T>(toolName: string, permission: Parameters<typeof assertPermission>[1], capability: any, fn: any): Promise<T | null> => {
+    const callGateway = async <T>(
+      toolName: string,
+      permission: CommercePermissionKey | undefined,
+      capability: CommerceCapability,
+      fn: (connector: CommerceConnector, ctx: CommerceConnectorContext) => Promise<T>,
+    ): Promise<T | null> => {
       if (calls >= MAX_COMMERCE_CALLS_PER_TURN || Date.now() >= deadlineAt) return null;
       calls += 1;
       toolsUsed.push(toolName);
@@ -233,7 +261,7 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
 
     switch (intent.kind) {
       case 'store_info': {
-        const info = await callGateway<any>('commerce.get_store_info', undefined as any, 'store.read', (c: any, ctx: any) => c.getStoreInfo(ctx));
+        const info = await callGateway<StoreInfo>('commerce.get_store_info', undefined, 'store.read', (c, ctx) => c.getStoreInfo(ctx));
         if (info) results.push({ name: 'commerce.get_store_info', data: { name: info.name, currency: info.currency, catalog_ready: info.catalogReady } });
         break;
       }
@@ -267,7 +295,7 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
           auditIndexRead('commerce.get_reviews', reviewsStartedAt, { resultCount: 0, errorCode: 'product_not_found' });
           break;
         }
-        const reviews = await callGateway<any>('commerce.get_reviews', 'products', 'reviews.read', (c: any, ctx: any) =>
+        const reviews = await callGateway<ProductReviewsResult | null>('commerce.get_reviews', 'products', 'reviews.read', (c, ctx) =>
           (c.getProductReviews
             ? c.getProductReviews(ctx, { productExternalId: subject.external_id, limit: MAX_RESULTS_PER_TOOL })
             : Promise.resolve(null)));
@@ -324,7 +352,7 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
         // volatile fields.
         if (bounded.length && connection.permissions?.stock) {
           const ids = bounded.slice(0, 5).map((r) => r.external_id);
-          const live = await callGateway<any[]>('commerce.get_product', 'stock', 'products.read', (c: any, ctx: any) => c.getProducts(ctx, ids));
+          const live = await callGateway<CommerceProduct[]>('commerce.get_product', 'stock', 'products.read', (c, ctx) => c.getProducts(ctx, ids));
           for (const p of live ?? []) {
             results.push({ name: 'commerce.get_product_live', data: {
               external_id: p.externalId,
@@ -346,7 +374,7 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
           auditIndexRead('commerce.get_availability', availabilityStartedAt, { resultCount: 0, errorCode: 'product_not_found' });
           break;
         }
-        const avail = await callGateway<any>('commerce.get_availability', 'stock', 'availability.read', (c: any, ctx: any) => c.getAvailability(ctx, { productExternalId: top.external_id }));
+        const avail = await callGateway<AvailabilityResult>('commerce.get_availability', 'stock', 'availability.read', (c, ctx) => c.getAvailability(ctx, { productExternalId: top.external_id }));
         if (avail) results.push({ name: 'commerce.get_availability', data: { product: top.title, stock_state: avail.stockState, stock_quantity: avail.stockQuantity, price: avail.effectivePrice?.amountMinor ?? null } });
         break;
       }
@@ -368,13 +396,13 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
           break;
         }
         if (intent.kind === 'order_status') {
-          const orders = await callGateway<any[]>('commerce.get_customer_orders', 'customer_history', 'orders.read', (c: any, ctx: any) =>
+          const orders = await callGateway<CommerceOrderSummary[]>('commerce.get_customer_orders', 'customer_history', 'orders.read', (c, ctx) =>
             c.getCustomerOrders(ctx, { kind: 'verified_customer', installationId: connection.installation_id, externalCustomerId, limit: 1 }));
           const latest = orders?.[0];
           if (latest) {
             results.push({ name: 'commerce.get_customer_orders', data: { external_id: latest.externalId, status: latest.status, total: latest.total?.amountMinor ?? null, created_at: latest.createdAt } });
             if (connection.permissions?.tracking) {
-              const tracking = await callGateway<any>('commerce.get_tracking', 'tracking', 'tracking.read', (c: any, ctx: any) =>
+              const tracking = await callGateway<TrackingResult>('commerce.get_tracking', 'tracking', 'tracking.read', (c, ctx) =>
                 c.getTracking(ctx, { kind: 'verified_customer', installationId: connection.installation_id, externalCustomerId, externalOrderId: latest.externalId }));
               if (tracking) results.push({ name: 'commerce.get_tracking', data: { carrier: tracking.carrier, tracking_number: tracking.trackingNumber, status: tracking.status } });
             }
@@ -382,8 +410,9 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
             results.push({ name: 'commerce.get_customer_orders', data: { error_code: 'order_not_found' } });
           }
         } else {
-          const order = await callGateway<any>('commerce.get_order_status', 'order_status', 'orders.read', (c: any, ctx: any) =>
-            c.getOrder(ctx, { kind: 'verified_customer', installationId: connection.installation_id, externalCustomerId, externalOrderId: (intent as any).orderNumber }));
+          const orderNumber = intent.kind === 'order_lookup' ? intent.orderNumber : '';
+          const order = await callGateway<CommerceOrder>('commerce.get_order_status', 'order_status', 'orders.read', (c, ctx) =>
+            c.getOrder(ctx, { kind: 'verified_customer', installationId: connection.installation_id, externalCustomerId, externalOrderId: orderNumber }));
           if (order) results.push({ name: 'commerce.get_order_status', data: { external_id: order.externalId, status: order.status, total: order.total?.amountMinor ?? null } });
         }
         break;

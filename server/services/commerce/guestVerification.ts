@@ -20,7 +20,7 @@ import type { ServerConfig } from '../../config.js';
 import { CommerceError, type CommerceConnectorContext } from '../../../shared/commerce/types.js';
 import { getConnectionForWorkspace } from './gateway.js';
 import { readInstallationSecret } from './credentials.js';
-import { WooCommerceConnector } from './connectors/woocommerce.js';
+import { getProviderDescriptor, resolveConnector } from './connectors/registry.js';
 import {
   requestVerificationChallenge,
   verifyVerificationChallenge,
@@ -43,10 +43,16 @@ export async function startGuestOrderVerification(config: ServerConfig, input: S
   const secret = await readInstallationSecret(config, connection.installation_id);
   if (!secret) throw new CommerceError('commerce_not_connected', 'no installation credential');
 
-  const connector = new WooCommerceConnector({ origin: connection.approved_origin, installationId: connection.installation_id, secret });
+  // Guest order verification is a STORE-family flow (an order number plus the
+  // contact on that order). A billing connection has no such lookup; it is
+  // refused here rather than handed to the wrong connector.
+  if (getProviderDescriptor(connection.provider_type)?.family !== 'store') {
+    throw new CommerceError('commerce_permission_denied', 'guest order verification is not available for this connection');
+  }
+  const connector = resolveConnector(connection.provider_type, { origin: connection.approved_origin, installationId: connection.installation_id, secret });
   const ctx: CommerceConnectorContext = {
     workspaceId: input.workspaceId, connectionId: connection.id, installationId: connection.installation_id,
-    capabilities: connection.capabilities as any, correlationId: `guest-verify-${input.externalOrderId}`, deadlineAt: Date.now() + 8000,
+    capabilities: connection.capabilities as CommerceConnectorContext['capabilities'], correlationId: `guest-verify-${input.externalOrderId}`, deadlineAt: Date.now() + 8000,
   };
 
   // Contact-match FIRST — a boolean only, never unmasked order details

@@ -38,6 +38,22 @@ struct ThreadView: View {
     private var width: CGFloat { columnWidth - (showDetails ? 290 : 0) }
 
     var body: some View {
+        // Beside the thread, at its end edge. Not `.inspector`: in a right-to-left
+        // window it reserves the space on one side and draws on the other.
+        HStack(spacing: 0) {
+            thread
+            if showDetails {
+                Divider()
+                DetailsPanel(chat: chat)
+                    .frame(width: 290)
+                    .background(Palette.surface2.opacity(0.6))
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .animation(.smooth(duration: 0.22), value: showDetails)
+    }
+
+    private var thread: some View {
         MessagesView(chat: chat)
             .background(Palette.chatBackground)
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -78,10 +94,6 @@ struct ThreadView: View {
                 return true
             }
             .animation(.smooth(duration: 0.2), value: chat.notice)
-            .inspector(isPresented: Binding(get: { showDetails }, set: { app.settings.detailsOpen = $0; app.saveSettings() })) {
-                DetailsPanel(chat: chat)
-                    .inspectorColumnWidth(min: 260, ideal: 290, max: 380)
-            }
     }
 
 }

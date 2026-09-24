@@ -242,8 +242,8 @@ export default function OverviewPage() {
               <Sparkles className="h-3 w-3 text-violet-500" />
               <bdi>{formatLongDate(new Date())}</bdi>
             </div>
-            <h1 className="text-2xl font-bold tracking-tight sm:text-[32px]">
-              <span className="bg-gradient-to-br from-indigo-600 via-violet-600 to-cyan-500 bg-clip-text text-transparent dark:from-indigo-300 dark:via-violet-300 dark:to-cyan-200">
+            <h1 className="text-2xl font-bold tracking-tight sm:text-[34px]">
+              <span className="text-brand">
                 {greeting}{userName ? `، ${userName}` : ''}
               </span>
             </h1>
@@ -257,7 +257,7 @@ export default function OverviewPage() {
           {canSeeBilling && (
           <Link
             to={wsPath('/billing')}
-            className="group flex items-center gap-3 rounded-2xl border border-border/60 bg-card/80 px-4 py-3 shadow-sm backdrop-blur transition-all hover:-translate-y-0.5 hover:border-violet-500/40 hover:shadow-md"
+            className="group flex items-center gap-3 rounded-2xl border border-border/60 bg-card/80 px-4 py-3 shadow-sm backdrop-blur transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
           >
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-md shadow-violet-500/25">
               <Sparkles className="h-4 w-4" />
@@ -297,14 +297,14 @@ export default function OverviewPage() {
       </section>
 
       {/* ── KPI cards ────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         {stats.map((s) => {
           const a = AI_ACCENT[s.accent];
           return (
             <Link
               key={s.label}
               to={wsPath(s.path)}
-              className="group relative overflow-hidden rounded-xl border border-border/60 bg-card px-3 py-2.5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+              className="group magic-card spotlight px-4 py-3.5 hover:-translate-y-1"
             >
               <span className={cn('pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r', a.grad)} />
               <span className={cn('pointer-events-none absolute -top-10 -end-8 h-20 w-20 rounded-full blur-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100', a.glow)} />
@@ -329,7 +329,7 @@ export default function OverviewPage() {
       {/* ── Main grid ────────────────────────────────────── */}
       <div className="grid gap-4 xl:grid-cols-3">
         {/* Chart */}
-        <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 shadow-sm xl:col-span-2">
+        <div className="relative overflow-hidden magic-card spotlight p-5 xl:col-span-2">
           <div className="pointer-events-none absolute -top-16 -start-10 h-40 w-40 rounded-full bg-indigo-500/15 blur-3xl" />
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-3">
@@ -388,7 +388,7 @@ export default function OverviewPage() {
 
         {/* Plan & usage — admins/owners only */}
         {canSeeBilling && (
-        <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
+        <div className="relative overflow-hidden magic-card spotlight p-5">
           <div className="pointer-events-none absolute -top-16 -end-10 h-40 w-40 rounded-full bg-emerald-500/15 blur-3xl" />
           <div className="relative mb-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -403,7 +403,7 @@ export default function OverviewPage() {
             </Link>
           </div>
 
-          <div className="relative rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 to-teal-500/5 p-3.5">
+          <div className="relative rounded-2xl border border-primary/20 bg-brand-soft p-3.5">
             <p className="text-[11px] text-muted-foreground">{tr('dashboard.currentPlan')}</p>
             <p className="text-lg font-bold text-foreground">{planName}</p>
           </div>
@@ -439,7 +439,7 @@ export default function OverviewPage() {
 
 
               ].map((m) => (
-                <div key={m.label} className="rounded-xl border border-border/50 bg-card px-2.5 py-2 text-center">
+                <div key={m.label} className="rounded-2xl border border-border/50 bg-card/70 px-2.5 py-2.5 text-center backdrop-blur">
                   <div className="text-sm font-bold tabular-nums text-foreground">{m.value}</div>
                   <div className="mt-0.5 truncate text-[10px] text-muted-foreground">{m.label}</div>
                 </div>
@@ -481,7 +481,7 @@ export default function OverviewPage() {
       {/* ── Recent + team ────────────────────────────────── */}
       <div className="grid gap-4 xl:grid-cols-3">
         {/* Recent conversations */}
-        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm xl:col-span-2">
+        <div className="magic-card spotlight xl:col-span-2">
           <div className="flex items-center justify-between border-b border-border/60 bg-gradient-to-r from-sky-500/[0.10] to-transparent px-5 py-3.5">
             <div className="flex items-center gap-3">
               <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-blue-500 text-white shadow-md shadow-sky-500/25">
@@ -557,7 +557,7 @@ export default function OverviewPage() {
         </div>
 
         {/* Team presence */}
-        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm">
+        <div className="magic-card spotlight">
           <div className="flex items-center justify-between border-b border-border/60 bg-gradient-to-r from-rose-500/[0.10] to-transparent px-5 py-3.5">
             <div className="flex items-center gap-3">
               <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 text-white shadow-md shadow-rose-500/25">

@@ -293,12 +293,26 @@ export function AppLayout() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // Strict: if slug doesn't match any workspace, show 404
+  useEffect(() => {
+    // Mouse-follow light for .spotlight cards (Magic UI style)
+    const onMove = (e: PointerEvent) => {
+      const el = (e.target as HTMLElement | null)?.closest?.('.spotlight') as HTMLElement | null;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      el.style.setProperty('--mx', `${e.clientX - r.left}px`);
+      el.style.setProperty('--my', `${e.clientY - r.top}px`);
+    };
+    window.addEventListener('pointermove', onMove, { passive: true });
+    return () => window.removeEventListener('pointermove', onMove);
+  }, []);
+
   if (!isLoading && notFound) {
     return <WorkspaceNotFound />;
   }
 
   // Hold the chrome back until the workspace and its plan are known, so the
   // sidebar never paints gated items that disappear a moment later.
+
   if (!shellReady) {
     return <AppShellSkeleton />;
   }

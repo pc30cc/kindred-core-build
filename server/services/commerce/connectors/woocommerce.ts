@@ -306,13 +306,18 @@ export class WooCommerceConnector implements CommerceConnector {
       authorization: input,
     });
     if (!data || data.found === false) throw new CommerceError('order_not_found', 'order not found');
+    // TrackingResolver (and the `webyar_commerce_tracking_payload` filter it
+    // documents for shipping plugins) emits camelCase keys; snake_case is
+    // still read for plugin builds that sent it.
+    const trackingNumber = data.trackingNumber ?? data.tracking_number;
+    const updatedAt = data.updatedAt ?? data.updated_at;
     return {
       externalOrderId: input.externalOrderId,
       carrier: sanitizeCommerceText(data.carrier, 80),
-      trackingNumber: typeof data.tracking_number === 'string' ? data.tracking_number.slice(0, 80) : null,
-      trackingUrl: sanitizeUrl(data.tracking_url),
+      trackingNumber: typeof trackingNumber === 'string' || typeof trackingNumber === 'number' ? String(trackingNumber).slice(0, 80) : null,
+      trackingUrl: sanitizeUrl(data.trackingUrl ?? data.tracking_url),
       status: sanitizeCommerceText(data.status, 80),
-      updatedAt: typeof data.updated_at === 'string' ? data.updated_at : null,
+      updatedAt: typeof updatedAt === 'string' ? updatedAt : null,
     };
   }
 

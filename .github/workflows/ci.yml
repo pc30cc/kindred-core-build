@@ -24,7 +24,7 @@ env:
 jobs:
   validate:
     name: Validate (typecheck, lint, tests, build)
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["self-hosted","linux","x64","android"]') }}
     timeout-minutes: 30
 
     steps:
@@ -97,7 +97,7 @@ jobs:
 
   integration:
     name: Integration (PostgreSQL)
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["self-hosted","linux","x64","android"]') }}
     timeout-minutes: 20
 
     services:
@@ -159,7 +159,7 @@ jobs:
   # green on absent financial tests.
   ai-billing-db:
     name: AI Billing financial tests (PostgreSQL, mandatory)
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["self-hosted","linux","x64","android"]') }}
     timeout-minutes: 20
 
     services:
@@ -275,7 +275,7 @@ jobs:
 
   ai-kb-tail-migration:
     name: AI-KB tail migration compatibility
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["self-hosted","linux","x64","android"]') }}
     timeout-minutes: 20
 
     services:
@@ -322,7 +322,7 @@ jobs:
 
   hosted-supabase-chain:
     name: Hosted Supabase full migration chain
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["self-hosted","linux","x64","android"]') }}
     timeout-minutes: 40
 
     steps:
@@ -400,7 +400,7 @@ jobs:
 
   selfhost-chain:
     name: Self-host full migration chain
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["self-hosted","linux","x64","android"]') }}
     timeout-minutes: 30
 
     # The documented self-host database image. It ships the Supabase `auth`

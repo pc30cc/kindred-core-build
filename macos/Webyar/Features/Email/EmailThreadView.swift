@@ -335,6 +335,13 @@ struct EmailComposeSheet: View {
             TextEditor(text: $text)
                 .font(Typeface.font(13.5))
                 .scrollContentBackground(.hidden)
+                .overlay(alignment: .topLeading) {
+                    if text.isEmpty {
+                        Text(s["emailComposePlaceholder"]).appFont(13.5).foregroundStyle(Palette.text3)
+                            .padding(.leading, 5)
+                            .allowsHitTesting(false)
+                    }
+                }
                 .padding(12)
                 .frame(minHeight: 240)
             if !files.isEmpty {

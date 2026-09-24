@@ -1,5 +1,6 @@
 {
  "en": {
+  "emailComposePlaceholder": "Write your message",
   "emailConnectedAs": "Connected as {email}",
   "emailDate": "Date",
   "emailFolderAll": "All",
@@ -18,6 +19,7 @@
   "emailUnstar": "Remove star"
  },
  "fa": {
+  "emailComposePlaceholder": "متن پیام را بنویسید",
   "emailConnectedAs": "متصل با {email}",
   "emailDate": "تاریخ",
   "emailFolderAll": "همه",
@@ -36,6 +38,7 @@
   "emailUnstar": "برداشتن ستاره"
  },
  "tr": {
+  "emailComposePlaceholder": "Mesajınızı yazın",
   "emailConnectedAs": "{email} olarak bağlı",
   "emailDate": "Tarih",
   "emailFolderAll": "Tümü",

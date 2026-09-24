@@ -14,8 +14,10 @@ struct RootView: View {
             case .signedOut:
                 LoginView()
             case .signedIn:
+                // Rebuilt for another workspace, and for another language so the
+                // columns change sides with the text direction, as Windows rebuilds its page.
                 ShellView()
-                    .id(app.workspace?.id ?? "none")
+                    .id("\(app.workspace?.id ?? "none")-\(app.strings.language.code)")
             }
         }
         .frame(minWidth: 960, minHeight: 600)

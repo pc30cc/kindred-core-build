@@ -48,6 +48,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let app: AppModel
 
     override init() {
+        // The columns start at their designed widths each launch: a width
+        // AppKit saved from an earlier layout (another language, another
+        // window size) would otherwise win over them.
+        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("NSSplitView Subview Frames") {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
         Typeface.register()
         app = AppModel()
         super.init()

@@ -1,4 +1,4 @@
-{{ header }}{{ column_left }}
+{{ header }}{{ column_left }}<div id="content">
 {#
   Web Yar settings page — ONE template for OpenCart 4.1 and 3.0 (copied into
   both packages by scripts/build-opencart-plugin-zip.mjs). Self-contained:
@@ -89,7 +89,6 @@
 .wy-busy .wy-spin{display:inline-block}
 @keyframes wy-spin{to{transform:rotate(360deg)}}
 </style>
-<div id="content">
 <div class="wy" dir="{{ dir|e }}" lang="{{ lang|e }}">
 
   <div class="wy-hero">

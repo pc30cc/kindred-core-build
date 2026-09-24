@@ -150,9 +150,9 @@ test_all() {
     python3 update_check.py "$major" "http://127.0.0.1:$p0" "$name" "$SP/sites/$name" "$SP/release/$name" "http://127.0.0.1:$RELEASE_PORT/$name" \
       "$(cat "$SP/release-key")" "$INST0" "$(secret "$major" 0)" >"$SP/update-$name.json" || status=1
     echo "$ver self-update: $(python3 -c "import json;d=json.load(open('$SP/update-$name.json'));print(d['passed'],'/',d['passed']+d['failed'])")"
-    # Back to the real package for the next run.
-    if [ "$major" = 4 ]; then $A uninstall >/dev/null; fi
-    $A install "$zip" >/dev/null && $A page >/dev/null
+    # Back to the real package for the next run (4.1: copy over, see upgrade_check.sh).
+    if [ "$major" = 4 ]; then python3 -c "import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$zip" "$SP/sites/$name/extension/webyar"; else $A install "$zip" >/dev/null; fi
+    $A page >/dev/null
   done
   echo "overall: $( [ $status = 0 ] && echo PASS || echo FAIL )"
   return $status

@@ -109,16 +109,25 @@ the owner turns **Update automatically** off (on by default):
   archives byte for byte. `src/test/commerce/opencartRelease.test.ts` fails CI
   when the committed signature, archives and version disagree.
 
-**Upgrade by hand** (automatic updates off, or from 1.0.0, which cannot update itself).
+**Upgrade by hand** (automatic updates off, or once from 1.0.0, which cannot
+update itself).
 
-- OpenCart 4.1: Installer → uninstall the old files → upload the new zip → Install.
-- OpenCart 3: upload the new zip over the old one.
+- OpenCart 3: upload the new zip in Extensions → Installer; it overwrites the
+  old files.
+- OpenCart 4.1: OpenCart's installer never overwrites existing files and will
+  not remove them while the module is installed. To keep the connection, copy
+  the contents of the new `webyar.ocmod.zip` over `extension/webyar/` (FTP or
+  the host's file manager). The installer route (Modules → Uninstall,
+  Installer → Uninstall → Delete, upload, Install, Modules → Install) works
+  too, but uninstalling the module disconnects the store and clears its
+  settings, so it must be connected again.
 
-In both cases the module stays installed and its settings and connections are
-kept. The first admin visit after the upgrade re-runs the idempotent install
-steps once: it ensures the table, records the schema flags and re-registers
-the widget event (delete, then add, so there are never two). This is tested
-on all three versions (`tests/integration/upgrade_check.sh`).
+Settings and connections are kept on the copy-over path. The first admin
+visit after the upgrade re-runs the idempotent install steps once: it ensures
+the table, records the schema flags and re-registers the widget event
+(delete, then add, so there are never two). This is tested on all three
+versions, including that the files really changed
+(`tests/integration/upgrade_check.sh`).
 
 **Uninstall** (Modules → Web Yar → Uninstall) removes only what the extension
 created:

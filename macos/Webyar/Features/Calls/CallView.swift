@@ -240,7 +240,7 @@ struct CallView: View {
                     .disabled(!live)
                     .popover(isPresented: $showTransfer, arrowEdge: .top) {
                         CallTransferPanel(call: call) { showTransfer = false }
-                            .environment(\.colorScheme, .dark)
+                            .callPopover()
                     }
                 }
                 if call.transferredTo != nil {
@@ -267,7 +267,24 @@ struct CallView: View {
     }
 }
 
+/// The notes' glass card, when they stand beside the call rather than in a popover.
+private struct CallPanelChrome: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View {
+        if on { content.glassCard(18) } else { content }
+    }
+}
+
 extension View {
+    /// A popover off a call (notes, transfer): the call's own solid dark, edge to edge —
+    /// not the system's grey popover material with a second, lighter card inside it.
+    func callPopover() -> some View {
+        environment(\.colorScheme, .dark)
+            .foregroundStyle(Color(hex: 0xE8ECF4))
+            .background(Color(hex: 0x14171F))
+            .presentationBackground(Color(hex: 0x14171F))
+    }
+
     /// DebugTools' `callui` command: opens a panel as if its button had been clicked.
     @ViewBuilder
     func callDebugHooks(_ call: LiveCall, _ open: @escaping (String) -> Void) -> some View {
@@ -293,6 +310,8 @@ struct CallNotesPanel: View {
     @Bindable var call: LiveCall
     let s: Strings
     let close: () -> Void
+    /// Its own glass card beside the call; none in a popover, which is the card.
+    var chrome = true
     @FocusState private var focused: Bool
 
     private var draftEmpty: Bool { call.noteDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -374,7 +393,7 @@ struct CallNotesPanel: View {
         .padding(14)
         .frame(width: Self.width)
         .frame(maxHeight: .infinity, alignment: .top)
-        .glassCard(18)
+        .modifier(CallPanelChrome(on: chrome))
         .onAppear { focused = true }
     }
 
@@ -456,7 +475,11 @@ struct CallTransferPanel: View {
             }
             .frame(height: 220)
             TextField(s["callTransferReason"], text: $reason)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
+                .appFont(13)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .onChange(of: reason) { _, text in
                     if text.count > 200 { reason = String(text.prefix(200)) }
                 }
@@ -589,7 +612,7 @@ struct CallTransferPanel: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(selected ? Palette.brand.opacity(0.18) : Color.white.opacity(0.04),
+            .background(selected ? Palette.brand.opacity(0.24) : Color.white.opacity(0.06),
                         in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .contentShape(Rectangle())
         }

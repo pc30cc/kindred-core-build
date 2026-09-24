@@ -138,10 +138,9 @@ struct DockedCallPanel: View {
                         showNotes.toggle()
                     }
                     .popover(isPresented: $showNotes, arrowEdge: .bottom) {
-                        CallNotesPanel(call: call, s: s) { showNotes = false }
+                        CallNotesPanel(call: call, s: s, close: { showNotes = false }, chrome: false)
                             .frame(height: 420)
-                            .padding(6)
-                            .environment(\.colorScheme, .dark)
+                            .callPopover()
                     }
                 }
                 if call.canTransfer && call.transferredTo == nil {
@@ -151,7 +150,7 @@ struct DockedCallPanel: View {
                     .disabled(!live)
                     .popover(isPresented: $showTransfer, arrowEdge: .bottom) {
                         CallTransferPanel(call: call) { showTransfer = false }
-                            .environment(\.colorScheme, .dark)
+                            .callPopover()
                     }
                 }
                 if call.transferredTo != nil {

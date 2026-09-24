@@ -60,7 +60,7 @@ struct Strings: Sendable {
 
     var isRightToLeft: Bool { language.isRightToLeft }
 
-    subscript(_ key: String) -> String { get(key) }
+    subscript(_ key: String) -> String { self.get(key) }
 
     func get(_ key: String, _ args: [String: Any] = [:]) -> String {
         let raw = lookup(language, key) ?? lookup(.en, key) ?? key
@@ -107,9 +107,15 @@ struct Strings: Sendable {
 
     private static func load() -> [String: [String: String]] {
         var table: [String: [String: String]] = [:]
-        for name in ["strings", "mac-strings"] {
-            guard let url = Bundle.main.url(forResource: name, withExtension: "json") ?? Bundle(for: BundleToken.self).url(forResource: name, withExtension: "json"),
-                  let data = try? Data(contentsOf: url),
+        // The shared table first, then every "*-strings.json" the Mac app adds on top.
+        let bundle = Bundle.main
+        var urls: [URL] = []
+        if let base = bundle.url(forResource: "strings", withExtension: "json") { urls.append(base) }
+        urls += (bundle.urls(forResourcesWithExtension: "json", subdirectory: nil) ?? [])
+            .filter { $0.deletingPathExtension().lastPathComponent.hasSuffix("-strings") }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        for url in urls {
+            guard let data = try? Data(contentsOf: url),
                   let raw = try? JSONSerialization.jsonObject(with: data) as? [String: [String: String]] else { continue }
             for (code, dict) in raw { table[code, default: [:]].merge(dict) { _, new in new } }
         }
@@ -117,7 +123,6 @@ struct Strings: Sendable {
     }
 }
 
-private final class BundleToken {}
 
 /// Western digits to Persian ones, the way every Persian UI in the product writes numbers.
 enum Digits {

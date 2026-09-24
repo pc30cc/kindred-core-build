@@ -24,10 +24,16 @@ final class Pairing {
 		$this->localKey = $localKey;
 	}
 
-	/** @return string the Web Yar authorize URL to send the admin to */
-	public function start(int $storeId, string $storeUrl, string $callbackUrl, string $appBase, string $apiBase, string $platformVersion = ''): string {
-		$appBase = rtrim($appBase, '/');
-		$apiBase = rtrim($apiBase ?: $appBase, '/');
+	/**
+	 * @param string $returnUrl the admin page to come back to after approval
+	 *        (carries the admin's user_token, so it is kept encrypted and only
+	 *        shown on the callback of THIS pairing)
+	 * @param string $lang the language the owner sees the result page in
+	 * @return string the Web Yar authorize URL to send the admin to
+	 */
+	public function start(int $storeId, string $storeUrl, string $callbackUrl, string $platformVersion = '', string $returnUrl = '', string $lang = 'en'): string {
+		$appBase = Endpoints::app();
+		$apiBase = Endpoints::api();
 
 		if (!Http::allowedUrl($appBase) || !Http::allowedUrl($apiBase)) {
 			throw new \RuntimeException('invalid_webyar_url');
@@ -61,10 +67,30 @@ final class Pairing {
 			'store_url'    => $storeUrl,
 			'app_base'     => $appBase,
 			'api_base'     => $apiBase,
+			'lang'         => in_array($lang, I18n::LANGUAGES, true) ? $lang : 'en',
+			'return_enc'   => $returnUrl !== '' ? Crypto::encrypt($this->localKey, $returnUrl, $state . '|return') : '',
 		];
 		$this->savePending(array_slice($pending, -self::MAX_PENDING, null, true));
 
 		return $appBase . '/commerce/authorize?state=' . rawurlencode($state);
+	}
+
+	/**
+	 * What the result page needs, read WITHOUT consuming the pairing: the
+	 * owner's language and the admin page to return to.
+	 *
+	 * @return array{lang:string,return_url:string}|null
+	 */
+	public function peek(string $state): ?array {
+		$record = $this->pending()[$state] ?? null;
+
+		if (!$record) {
+			return null;
+		}
+
+		$return = (string)($record['return_enc'] ?? '') !== '' ? Crypto::decrypt($this->localKey, (string)$record['return_enc'], $state . '|return') : null;
+
+		return ['lang' => (string)($record['lang'] ?? 'en'), 'return_url' => (string)$return];
 	}
 
 	/** Completes the pairing; returns the store id that is now connected. */

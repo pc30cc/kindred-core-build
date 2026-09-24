@@ -136,6 +136,12 @@ final class Api {
 			return $this->health($conn);
 		}
 
+		if ($op === 'connector/update') {
+			// Web Yar only asks; the store verifies the signed release itself
+			// and decides. Never forced: a recent "up to date" is reused.
+			return (new Updater($this->db, $this->settings, $this->platform))->run(false);
+		}
+
 		$ctx = Context::apply($this->platform, $input, $verified);
 		$catalog = new Catalog($this->db, $this->platform, $ctx, $this->schema);
 
@@ -193,6 +199,10 @@ final class Api {
 				return (bool)$this->platform->config('module_webyar_widget');
 			}
 
+			if ($cap === 'connector.update') {
+				return $this->toggleOn('auto_update') && Updater::supported();
+			}
+
 			return true;
 		}));
 
@@ -214,6 +224,7 @@ final class Api {
 				'currencies'       => array_keys($this->platform->currencies()),
 			],
 			'capabilities'      => $capabilities,
+			'auto_update'       => $this->toggleOn('auto_update') && Updater::supported(),
 			'search'            => ['strategy' => 'direct', 'mode' => 'store_sql_like', 'max_page_size' => Protocol::MAX_PAGE_SIZE],
 			'store_policy'      => [
 				'prices_require_login' => (bool)$this->platform->config('config_customer_price'),

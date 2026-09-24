@@ -59,20 +59,75 @@ price SQL fragments, because how a percentage discount becomes a price
    - OpenCart 4.1: click **Install** next to the uploaded file.
    - OpenCart 3: the installer copies the files.
 3. **Extensions → Extensions → Modules → Web Yar** → **Install**, then **Edit**.
-4. Enter the Web Yar address (and the API address, if yours is separate) and save.
-5. Next to each store, click **Connect to Web Yar**. Pick the workspace and permissions on the Web Yar consent screen, then approve. You return to the store's own page with a confirmation.
-6. Turn on **Show chat widget** for the store and save.
+4. Next to each store, click **Connect to Web Yar**. Pick the workspace and permissions on the Web Yar consent screen, then approve. You land on a result page on the store's own address, in the owner's language, with a **Back to the module** button; after a successful connection it returns to the module by itself after a few seconds.
+5. Turn on the chat widget switch for the store (saved at once).
 
-**Upgrade.**
+The Web Yar addresses (`https://app.webyar.ai`, `https://api.webyar.ai`) are
+part of the package (`core/Endpoints.php`); there is nothing to type. A
+staging or test install can point the extension elsewhere by defining
+`WEBYAR_APP_URL`, `WEBYAR_API_URL` and `WEBYAR_UPDATE_PUBLIC_KEY` in
+OpenCart's `config.php` (writing that file already means full control of the
+shop, so this opens nothing new). Settings left over from 1.0.0
+(`module_webyar_app_url` / `_api_url`) are deleted on the first admin visit.
 
-- OpenCart 4.1: Installer → uninstall the old files → upload the new zip → Install.
-- OpenCart 3: upload the new zip over the old one.
+**Language and look.** The settings page and the connection result page speak
+the admin's language when the extension has it (fa, tr), otherwise the store's
+default language, otherwise English. Persian pages are right-to-left in
+Vazirmatn, others use Inter, both loaded from Google Fonts. One template
+(`views/admin.twig`) serves 4.1 and 3.0 with its own styles, so it looks the
+same on Bootstrap 5 and 3; every value in it is escaped explicitly.
 
-In both cases the module stays installed and its settings and connections are
-kept. The first admin visit after the upgrade re-runs the idempotent install
-steps once: it ensures the table, records the schema flags and re-registers
-the widget event (delete, then add, so there are never two). This is tested
-on all three versions (`tests/integration/upgrade_check.sh`).
+**Automatic updates (1.1.0+).** A connected store keeps itself current unless
+the owner turns **Update automatically** off (on by default):
+
+- *Triggers.* Web Yar asks the store (signed `connector/update`) when it sees
+  an older `_meta.connector_version` in any answer or at the handshake, at most
+  once per 6 hours per store; the owner opening the settings page checks at
+  most every 12 hours; **Check for updates** checks at once. There is no cron
+  and no polling.
+- *What is installed.* Only a release whose `manifest.json` carries a valid
+  Ed25519 signature (`manifest.json.sig`) from Web Yar's release key. The
+  public key is built into the extension; the private key lives only on the
+  release host, never in the repository. The manifest must be strictly newer,
+  on the same protocol, with a package for this OpenCart line at a fixed
+  `/downloads/opencart/…zip` path, and the package must match its signed
+  sha256 byte for byte.
+- *How.* Every zip entry must be a plain file with an allowed extension under
+  the extension's own folders (4.1: `extension/webyar/`; 3.0:
+  `upload/{admin,catalog,system}/`) — no `..`, absolute paths or links —
+  within size and count limits. Files are written one by one (staged, then
+  renamed); the originals are backed up and restored if any write fails; a
+  database lock allows one update at a time. OpenCart 4.1's
+  `extension_path` / `extension_install` rows are updated so a later
+  uninstall still removes everything.
+- *Needs* PHP `sodium`, `zip` and `curl`, and write access to those folders;
+  without them the page says so and the owner updates by hand as below.
+- *Releasing.* `npm run build:opencart-plugin-zip` builds the packages and
+  `manifest.json`; the manifest is then signed on the release host
+  (`openssl pkeyutl -sign -rawin -inkey <key> -in manifest.json | base64 -w0 >
+  manifest.json.sig`). A signed version is frozen: rebuilding keeps the signed
+  archives byte for byte. `src/test/commerce/opencartRelease.test.ts` fails CI
+  when the committed signature, archives and version disagree.
+
+**Upgrade by hand** (automatic updates off, or once from 1.0.0, which cannot
+update itself).
+
+- OpenCart 3: upload the new zip in Extensions → Installer; it overwrites the
+  old files.
+- OpenCart 4.1: OpenCart's installer never overwrites existing files and will
+  not remove them while the module is installed. To keep the connection, copy
+  the contents of the new `webyar.ocmod.zip` over `extension/webyar/` (FTP or
+  the host's file manager). The installer route (Modules → Uninstall,
+  Installer → Uninstall → Delete, upload, Install, Modules → Install) works
+  too, but uninstalling the module disconnects the store and clears its
+  settings, so it must be connected again.
+
+Settings and connections are kept on the copy-over path. The first admin
+visit after the upgrade re-runs the idempotent install steps once: it ensures
+the table, records the schema flags and re-registers the widget event
+(delete, then add, so there are never two). This is tested on all three
+versions, including that the files really changed
+(`tests/integration/upgrade_check.sh`).
 
 **Uninstall** (Modules → Web Yar → Uninstall) removes only what the extension
 created:
@@ -420,7 +475,9 @@ sanitized; a `tracking_url` must be http(s).
 | Symptom | Cause / fix |
 |---|---|
 | "The store address must use https://" | OpenCart store URL is http; switch the store to https (Settings → Server) and reconnect. |
-| Connect says `invalid_redirect` / `unsafe_origin` | Web Yar address wrong, or the store resolves to a private address. |
+| Connect says `invalid_redirect` / `unsafe_origin` | The store resolves to a private address, or its URL differs from the address the browser returns to. |
+| Update says `signature_invalid` / `package_checksum_mismatch` | The release was not signed by Web Yar or was altered on the way; nothing was installed. |
+| Update says `not_writable` | PHP cannot write the extension's folders; fix permissions or update by hand. |
 | Connection `stale_origin` | The store now reports another base URL or store id (clone, domain change). Reconnect from the OpenCart admin. |
 | Connection `offline` after a check | Web Yar could not reach `index.php?route=…api`. Check maintenance mode (it answers HTML), firewalls and WAF rules for POST with `X-WebYar-*` headers. |
 | `commerce_permission_denied` on every call | Signature refused: clock skew > 5 min on the store, or the credential was replaced (reconnect). |
@@ -435,6 +492,9 @@ sanitized; a `tracking_url` must be http(s).
 | 68 plugin scenarios (signature, replay, skew, forged; visibility; specials/tiers/options/stock/tax/currency; price hiding; reviews; identity lifecycle: logout, expiry, switch, disabled, cross-store; ownership tampering; custom status; tracking absent; returns; merchant toggles; multi-store) | `plugins/webyar-opencart/tests/integration/scenarios.py` | **Real** OpenCart 4.1.0.4, 4.1.0.0, 3.0.5.1, MariaDB 10.11, PHP 8.4 — all 68 pass on each |
 | Admin: form token, forged token, https rules, widget once per page / never in admin / off switch, 0 extension queries per page view, disconnect one store, credential encrypted | `admin_checks.py` | **Real** installs — 16/16 on each |
 | Install / upgrade / uninstall through OpenCart's own installer | `oc_admin.py`, `upgrade_check.sh` | **Real** installs |
+| Self-update: Web Yar push, admin button, admin-visit fallback; refusals (foreign signature, checksum mismatch, owner switched off); files really swapped, `extension_path` updated, no leftovers, shop still works | `update_check.py` against a loopback release server with a throwaway key | **Real** installs |
+| Update manifest, zip entry rules (traversal, absolute, symlink, file types, targets), I18n, connection result page | `plugins/webyar-opencart/tests/unit/run.php` | Unit, no framework |
+| The committed release is signed and matches its archives | `src/test/commerce/opencartRelease.test.ts` | The real committed files |
 | Web Yar connector + gateway + identity bridge + AI stage against the store (17 steps incl. timeout, circuit and a one-store workspace) | `src/test/commerce/opencartLive.e2e.test.ts` (opt-in: `OPENCART_E2E_BASE`) | **Real** store; Web Yar DB is an in-memory **counting** stand-in; SSRF guard allows loopback |
 | Connector, cache/breaker, direct stage, identity binding, pairing, intents, panel, loader | `src/test/commerce/opencart*.test.ts`, `liveGuard.test.ts`, `openCartConfigPanel.test.tsx`, `src/test/widget/commerceLazyContext.test.ts` | Unit tests with stand-ins |
 | PHP core (signing vector shared with TS, crypto, identity, widget) | `plugins/webyar-opencart/tests/unit/run.php` | Unit, no framework |
@@ -449,9 +509,10 @@ plugins/webyar-opencart/tests/integration/run.sh down   # stop everything, delet
 
 **Not tested:**
 
-- A real pairing round trip. Web Yar requires an https, non-private store,
-  and the local stores were http on loopback; the credential was written with
-  `fake_pair.php`, which uses the extension's own classes.
+- A real pairing round trip in the local run. Web Yar requires an https,
+  non-private store, and the local stores are http on loopback; the credential
+  is written with `fake_pair.php`, which uses the extension's own classes.
+  (The demo store at open.webyar.ai pairs for real.)
 - Third-party themes and page caches.
 - Real LLM answers: the tests check what the model is *given*, not what it writes.
 - Staging or production.

@@ -158,8 +158,6 @@ export function OpenCartConfigPanel({ workspaceId }: { workspaceId: string }) {
     );
   }
 
-  const webYarUrl = typeof window !== 'undefined' ? window.location.origin : '';
-
   return (
     <div className="space-y-6">
       <Card>
@@ -190,10 +188,7 @@ export function OpenCartConfigPanel({ workspaceId }: { workspaceId: string }) {
               <li>{t('plugins.opencart.connect.step1')}</li>
               <li>{t('plugins.opencart.connect.step2')}</li>
               <li>{t('plugins.opencart.connect.step3')}</li>
-              <li>
-                {t('plugins.opencart.connect.step4')}{' '}
-                {webYarUrl && <code className="bg-muted px-1.5 py-0.5 rounded" dir="ltr">{webYarUrl}</code>}
-              </li>
+              <li>{t('plugins.opencart.connect.step4')}</li>
               <li>{t('plugins.opencart.connect.step5')}</li>
               <li>{t('plugins.opencart.connect.step6')}</li>
             </ol>

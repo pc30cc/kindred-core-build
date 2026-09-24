@@ -161,4 +161,48 @@ final class Oc3Platform implements Platform {
 
 		return is_array($shipments) ? $shipments : [];
 	}
+
+	public function packageLine(): string {
+		return '3.0.5.x';
+	}
+
+	public function updateTargets(?string $adminDir): array {
+		// OpenCart 3 installs into the shop's own folders; the admin folder
+		// may be renamed, so its location is the one the admin reported.
+		if ($adminDir === null || $adminDir === '' || !is_dir($adminDir)) {
+			return [];
+		}
+
+		$catalog = defined('DIR_CATALOG') ? DIR_CATALOG : DIR_APPLICATION;
+
+		return [
+			'upload/admin/'   => rtrim($adminDir, '/') . '/',
+			'upload/catalog/' => rtrim($catalog, '/') . '/',
+			'upload/system/'  => rtrim(DIR_SYSTEM, '/') . '/',
+		];
+	}
+
+	public function recordInstalledFiles(array $zipNames, string $version): void {
+		$db = $this->get('db');
+		$row = $db->query("SELECT `extension_install_id` FROM `" . DB_PREFIX . "extension_install` WHERE `filename` LIKE 'webyar%' ORDER BY `extension_install_id` DESC LIMIT 1")->row;
+
+		if (!$row) {
+			return;
+		}
+
+		$id = (int)$row['extension_install_id'];
+		$known = [];
+
+		foreach ($db->query("SELECT `path` FROM `" . DB_PREFIX . "extension_path` WHERE `extension_install_id` = '" . $id . "'")->rows as $existing) {
+			$known[$existing['path']] = true;
+		}
+
+		foreach ($zipNames as $name) {
+			$path = preg_replace('#^upload/#', '', $name);
+
+			if (!isset($known[$path])) {
+				$db->query("INSERT INTO `" . DB_PREFIX . "extension_path` SET `extension_install_id` = '" . $id . "', `path` = '" . $db->escape($path) . "', `date_added` = NOW()");
+			}
+		}
+	}
 }

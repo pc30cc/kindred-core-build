@@ -11,6 +11,9 @@
 require __DIR__ . '/../../core/autoload.php';
 
 use WebYar\OpenCart\ApiError;
+use WebYar\OpenCart\CallbackPage;
+use WebYar\OpenCart\I18n;
+use WebYar\OpenCart\Updater;
 use WebYar\OpenCart\Connection;
 use WebYar\OpenCart\Crypto;
 use WebYar\OpenCart\Db;
@@ -101,6 +104,9 @@ final class FakePlatform implements Platform {
 	public function extensionLink(string $method, array $args = []): string { return $this->link('extension/webyar/module/webyar.' . $method, $args); }
 	public function imageUrl(string $path): ?string { return null; }
 	public function trackingFromExtensions(array $order): array { return []; }
+	public function packageLine(): string { return '4.1.x'; }
+	public function updateTargets(?string $adminDir): array { return ['' => sys_get_temp_dir() . '/webyar-fake/']; }
+	public function recordInstalledFiles(array $zipNames, string $version): void {}
 }
 
 // ── signing: byte-identical to server/services/commerce/signing.ts ─────
@@ -227,6 +233,134 @@ $platform->config['session_engine'] = 'db';
 $platform->config['module_webyar_customer_scope'] = 'registration_store';
 $oc->customers[101]['store_id'] = 1;
 check('registration-store scope is enforced', $fails(fn () => $identity->verifyCustomer($conn, $ref)) === 'customer_out_of_store_scope');
+
+// ── I18n ────────────────────────────────────────────────────────────
+check('Persian admin → fa', I18n::pick('fa-ir', 'en-gb') === 'fa');
+check('English admin, Persian store → fa (the store default wins over English)', I18n::pick('en-gb', 'fa-ir') === 'fa');
+check('English everywhere → en', I18n::pick('en-gb', 'en-gb') === 'en');
+check('unknown language → en', I18n::pick('de-de') === 'en');
+check('fa is right-to-left with Vazirmatn', I18n::direction('fa') === 'rtl' && I18n::font('fa') === 'Vazirmatn' && I18n::font('en') === 'Inter');
+$en = I18n::strings('en');
+$fa = I18n::strings('fa');
+$tr = I18n::strings('tr');
+check('every language has every key', array_keys($en) == array_keys(json_decode((string)file_get_contents(__DIR__ . '/../../i18n/fa.json'), true)) && array_keys($en) == array_keys(json_decode((string)file_get_contents(__DIR__ . '/../../i18n/tr.json'), true)));
+check('fa strings are Persian', preg_match('/\p{Arabic}/u', $fa['button_back_to_module']) === 1);
+check('no editable Web Yar address remains', !isset($en['entry_app_url']) && !isset($en['entry_api_url']));
+check('sprintf placeholders match across languages', (function () use ($en, $fa, $tr) {
+	foreach ($en as $k => $v) {
+		foreach ([$fa, $tr] as $other) {
+			if (substr_count($v, '%s') !== substr_count($other[$k], '%s')) {
+				return false;
+			}
+		}
+	}
+
+	return true;
+})());
+
+// ── connection result page ──────────────────────────────────────────
+$page = CallbackPage::render(true, '', 'fa', 'https://shop.example/admin/index.php?route=x&user_token=abc');
+check('result page: Persian, rtl, Vazirmatn', strpos($page, 'dir="rtl"') !== false && strpos($page, 'family=Vazirmatn') !== false && strpos($page, $fa['button_back_to_module']) !== false);
+check('result page: back button links to the module (escaped)', strpos($page, 'href="https://shop.example/admin/index.php?route=x&amp;user_token=abc"') !== false);
+check('result page: success returns by itself, sends no referrer, is not indexed', strpos($page, 'http-equiv="refresh"') !== false && strpos($page, 'name="referrer" content="no-referrer"') !== false && strpos($page, 'noindex') !== false);
+$page = CallbackPage::render(false, 'pairing_expired', 'en', 'https://shop.example/admin/');
+check('result page: failure shows the reason, the button, no auto-return', strpos($page, 'pairing_expired') !== false && strpos($page, $en['button_back_to_module']) !== false && strpos($page, 'http-equiv') === false && strpos($page, 'dir="ltr"') !== false);
+$page = CallbackPage::render(false, '', 'en', 'javascript:alert(1)');
+check('result page: only an http(s) return link is used', strpos($page, 'javascript:') === false && strpos($page, $en['text_callback_return']) !== false);
+$page = CallbackPage::render(true, '', 'en', 'https://x.example/"><script>');
+check('result page: a return url with markup is refused', strpos($page, '<script>') === false);
+
+// ── self-update: signed manifest ────────────────────────────────────
+$pair = sodium_crypto_sign_keypair();
+$sk = sodium_crypto_sign_secretkey($pair);
+$pk = base64_encode(sodium_crypto_sign_publickey($pair));
+$sha = str_repeat('ab', 32);
+$manifest = fn (array $over = []) => json_encode($over + ['slug' => 'webyar-opencart', 'version' => '9.0.0', 'protocol' => Protocol::PROTOCOL_VERSION, 'packages' => [
+	['opencart' => '4.1.x', 'path' => '/downloads/opencart/4.1/webyar.ocmod.zip', 'sha256' => $sha],
+	['opencart' => '3.0.5.x', 'path' => '/downloads/opencart/3.0/webyar-oc3.ocmod.zip', 'sha256' => $sha],
+]]);
+$sign = fn (string $body) => base64_encode(sodium_crypto_sign_detached($body, $sk));
+$parseFails = function (string $body, string $sig, string $key = '', string $current = '1.1.0', string $line = '4.1.x') use ($pk): ?string {
+	try {
+		Updater::parseManifest($body, $sig, $key ?: $pk, $current, $line);
+
+		return null;
+	} catch (\Throwable $e) {
+		return $e->getMessage();
+	}
+};
+$body = $manifest();
+$release = Updater::parseManifest($body, $sign($body), $pk, '1.1.0', '4.1.x');
+check('a signed, newer release is accepted for this line', $release === ['version' => '9.0.0', 'path' => '/downloads/opencart/4.1/webyar.ocmod.zip', 'sha256' => $sha]);
+check('the 3.0 line gets its own package', Updater::parseManifest($body, $sign($body), $pk, '1.1.0', '3.0.5.x')['path'] === '/downloads/opencart/3.0/webyar-oc3.ocmod.zip');
+check('same or older version → nothing to do', Updater::parseManifest($body, $sign($body), $pk, '9.0.0', '4.1.x') === null && Updater::parseManifest($body, $sign($body), $pk, '9.1.0', '4.1.x') === null);
+check('a tampered manifest is refused', $parseFails(str_replace('9.0.0', '9.0.1', $body), $sign($body)) === 'signature_invalid');
+check('another key\'s signature is refused', $parseFails($body, $sign($body), base64_encode(sodium_crypto_sign_publickey(sodium_crypto_sign_keypair()))) === 'signature_invalid');
+check('a malformed signature is refused', $parseFails($body, 'not-base64!') === 'bad_signature_format' && $parseFails($body, base64_encode('short')) === 'bad_signature_format');
+$b = $manifest(['protocol' => 'webyar-commerce/2']);
+check('another protocol is refused', $parseFails($b, $sign($b)) === 'manifest_incompatible');
+$b = $manifest(['slug' => 'something-else']);
+check('another product is refused', $parseFails($b, $sign($b)) === 'manifest_invalid');
+$b = $manifest(['packages' => [['opencart' => '4.1.x', 'path' => 'https://evil.example/x.zip', 'sha256' => $sha]]]);
+check('a package off the fixed path is refused', $parseFails($b, $sign($b)) === 'package_invalid');
+$b = $manifest(['packages' => [['opencart' => '4.1.x', 'path' => '/downloads/opencart/../../x.zip', 'sha256' => $sha]]]);
+check('a traversing package path is refused', $parseFails($b, $sign($b)) === 'package_invalid');
+$b = $manifest(['packages' => [['opencart' => '4.1.x', 'path' => '/downloads/opencart/4.1/webyar.ocmod.zip', 'sha256' => 'nope']]]);
+check('a package without a proper checksum is refused', $parseFails($b, $sign($b)) === 'package_invalid');
+check('no package for this line → refused', $parseFails($body, $sign($body), '', '1.1.0', '2.0.x') === 'no_package_for_2.0.x');
+check('the built-in key is a 32-byte Ed25519 key', strlen((string)base64_decode(Protocol::UPDATE_PUBLIC_KEY, true)) === 32);
+
+// ── self-update: package contents ───────────────────────────────────
+$zipOf = function (array $entries, array $links = []): string {
+	$file = tempnam(sys_get_temp_dir(), 'wyt');
+	$zip = new \ZipArchive();
+	$zip->open($file, \ZipArchive::OVERWRITE);
+
+	foreach ($entries as $name => $data) {
+		$zip->addFromString($name, $data);
+	}
+
+	foreach ($links as $name) {
+		$zip->addFromString($name, '/etc/passwd');
+		$zip->setExternalAttributesName($name, \ZipArchive::OPSYS_UNIX, (0120777) << 16);
+	}
+
+	$zip->close();
+	$bytes = (string)file_get_contents($file);
+	unlink($file);
+
+	return $bytes;
+};
+$unpackFails = function (string $bytes, array $targets): ?string {
+	try {
+		Updater::unpackFor($bytes, $targets);
+
+		return null;
+	} catch (\Throwable $e) {
+		return $e->getMessage();
+	}
+};
+$oc4 = ['' => '/srv/oc/extension/webyar/'];
+$oc3 = ['upload/admin/' => '/srv/oc/admin/', 'upload/catalog/' => '/srv/oc/catalog/', 'upload/system/' => '/srv/oc/system/'];
+$files = Updater::unpackFor($zipOf(['install.json' => '{}', 'system/library/webyar/Api.php' => '<?php', 'admin/view/template/module/webyar.twig' => 'x']), $oc4);
+check('4.1: files map into the extension folder only', array_column($files, 'path') === ['/srv/oc/extension/webyar/install.json', '/srv/oc/extension/webyar/system/library/webyar/Api.php', '/srv/oc/extension/webyar/admin/view/template/module/webyar.twig']);
+$files = Updater::unpackFor($zipOf(['upload/admin/controller/extension/module/webyar.php' => '<?php', 'upload/system/library/webyar/i18n/fa.json' => '{}']), $oc3);
+check('3.0: upload/ maps onto the real admin, catalog and system folders', array_column($files, 'path') === ['/srv/oc/admin/controller/extension/module/webyar.php', '/srv/oc/system/library/webyar/i18n/fa.json']);
+check('3.0: anything outside upload/{admin,catalog,system} is refused', $unpackFails($zipOf(['upload/image/x.png' => 'x']), $oc3) === 'package_outside_extension' && $unpackFails($zipOf(['install.xml' => 'x']), $oc3) === 'package_file_type');
+check('".." entries are refused', $unpackFails($zipOf(['system/../../../index.php' => 'x']), $oc4) === 'package_bad_path');
+check('absolute entries are refused', $unpackFails($zipOf(['/etc/cron.d/x.php' => 'x']), $oc4) === 'package_bad_path');
+check('symlinks are refused', $unpackFails($zipOf(['a.php' => '<?php'], ['link.php']), $oc4) === 'package_symlink');
+check('unexpected file types are refused', $unpackFails($zipOf(['shell.phtml' => 'x']), $oc4) === 'package_file_type' && $unpackFails($zipOf(['.htaccess' => 'x']), $oc4) === 'package_file_type');
+check('a non-zip is refused', $unpackFails('not a zip', $oc4) === 'package_unreadable');
+check('unknown targets refuse everything', $unpackFails($zipOf(['a.php' => 'x']), []) === 'update_targets_unknown');
+$built = __DIR__ . '/../../../../public/downloads/opencart/4.1/webyar.ocmod.zip';
+
+if (is_file($built)) {
+	$names = array_column(Updater::unpackFor((string)file_get_contents($built), $oc4), 'name');
+	check('the real 4.1 package passes its own update checks', in_array('system/library/webyar/Updater.php', $names, true) && in_array('admin/view/template/module/webyar.twig', $names, true));
+	$names = array_column(Updater::unpackFor((string)file_get_contents(dirname($built, 2) . '/3.0/webyar-oc3.ocmod.zip'), $oc3), 'name');
+	check('the real 3.0 package passes its own update checks', in_array('upload/system/library/webyar/Updater.php', $names, true));
+}
 
 echo "core unit tests: $passed passed, $failures failed\n";
 exit($failures ? 1 : 0);

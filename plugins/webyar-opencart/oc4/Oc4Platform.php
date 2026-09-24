@@ -165,4 +165,47 @@ final class Oc4Platform implements Platform {
 
 		return is_array($shipments) ? $shipments : [];
 	}
+
+	public function packageLine(): string {
+		return '4.1.x';
+	}
+
+	public function updateTargets(?string $adminDir): array {
+		// The whole package lives in the extension's own folder.
+		return defined('DIR_EXTENSION') ? ['' => DIR_EXTENSION . 'webyar/'] : [];
+	}
+
+	public function recordInstalledFiles(array $zipNames, string $version): void {
+		$db = $this->get('db');
+		$row = $db->query("SELECT `extension_install_id` FROM `" . DB_PREFIX . "extension_install` WHERE `code` = 'webyar' ORDER BY `extension_install_id` DESC LIMIT 1")->row;
+
+		if (!$row) {
+			return;
+		}
+
+		$id = (int)$row['extension_install_id'];
+		$paths = [];
+
+		foreach ($zipNames as $name) {
+			$parts = explode('/', 'webyar/' . $name);
+
+			for ($i = 1; $i <= count($parts); $i++) {
+				$paths[implode('/', array_slice($parts, 0, $i))] = true; // folders too, as the installer records them
+			}
+		}
+
+		$known = [];
+
+		foreach ($db->query("SELECT `path` FROM `" . DB_PREFIX . "extension_path` WHERE `extension_install_id` = '" . $id . "'")->rows as $existing) {
+			$known[$existing['path']] = true;
+		}
+
+		foreach (array_keys($paths) as $path) {
+			if (!isset($known[$path])) {
+				$db->query("INSERT INTO `" . DB_PREFIX . "extension_path` SET `extension_install_id` = '" . $id . "', `path` = '" . $db->escape($path) . "'");
+			}
+		}
+
+		$db->query("UPDATE `" . DB_PREFIX . "extension_install` SET `version` = '" . $db->escape($version) . "' WHERE `extension_install_id` = '" . $id . "'");
+	}
 }

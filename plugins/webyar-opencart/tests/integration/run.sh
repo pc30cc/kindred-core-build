@@ -6,11 +6,15 @@
 #                 + OpenCart 4.1.0.4, 3.0.5.1 and 4.1.0.0 installed by their
 #                 own CLI installers, each served for two stores by `php -S`
 #                 + a "store" that never answers in time (8099)
+#                 + a loopback "Web Yar" release server (8097) with a
+#                   throwaway signing key; each store's config.php points
+#                   the extension at it (WEBYAR_APP_URL, WEBYAR_API_URL,
+#                   WEBYAR_UPDATE_PUBLIC_KEY)
 #   run.sh test   (once per fresh `up`) for each version: install the built package through the
 #                 real admin, seed, pair (test-only record), then the PHP
 #                 scenarios, the TypeScript end-to-end run, SQL measurement,
-#                 the admin checks and the upgrade check. Results land in
-#                 $WYOC/sp/*.json.
+#                 the admin checks, the upgrade check and the self-update
+#                 check. Results land in $WYOC/sp/*.json.
 #   run.sh down   stop every process started by `up` and delete $WYOC.
 #
 # Nothing listens on anything but 127.0.0.1; nothing here ever talks to a
@@ -34,6 +38,7 @@ SITES=(
   "oc40 4 4.1.0.0 8043 8044"
 )
 SLOW_PORT=8099
+RELEASE_PORT=8097
 WS=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
 INST0=11111111-1111-4111-8111-111111111111
 INST1=22222222-2222-4222-8222-222222222222
@@ -52,6 +57,19 @@ pair() { # name major store_id port
   [ "$3" = 0 ] && { inst=$INST0; conn=cccccccc-cccc-4ccc-8ccc-cccccccccccc; } || { inst=$INST1; conn=dddddddd-dddd-4ddd-8ddd-dddddddddddd; }
   php "$HERE/fake_pair.php" "$1" oc_ "$site/system/storage/" "$3" "$inst" "$(secret "$2" "$3")" $WS $conn "http://127.0.0.1:$4/" http://127.0.0.1:9999 >/dev/null
 }
+# The extension talks to the loopback release server, never to a real Web Yar.
+point_at_loopback() { # name site
+  local pk; pk=$(cat "$SP/release-key.pub")
+  for cfg in "$2/config.php" "$2/admin/config.php"; do
+    grep -q WEBYAR_APP_URL "$cfg" || cat >>"$cfg" <<PHP
+
+// TEST ONLY (run.sh): loopback Web Yar and a throwaway release key.
+define('WEBYAR_APP_URL', 'http://127.0.0.1:$RELEASE_PORT/$1');
+define('WEBYAR_API_URL', 'http://127.0.0.1:9999');
+define('WEBYAR_UPDATE_PUBLIC_KEY', '$pk');
+PHP
+  done
+}
 fresh_data() { # name major second-store-port
   (cd "$HERE" && ./seed.sh "$2" "$1" "$SP/sites/$1" "http://127.0.0.1:$3/" >/dev/null)
   rm -f "$SP/sites/$1"/system/storage/cache/cache.*
@@ -67,6 +85,10 @@ up() {
     --performance-schema=OFF </dev/null >"$SP/mysqld.log" 2>&1 &
   for _ in $(seq 30); do [ -S $SOCK ] && sql -e 'SELECT 1' >/dev/null 2>&1 && break; sleep 1; done
   sql -e "CREATE USER IF NOT EXISTS 'oc'@'127.0.0.1' IDENTIFIED BY 'ocpass';"
+  if [ ! -f "$SP/release-key" ]; then
+    php -r '$k = sodium_crypto_sign_keypair(); file_put_contents($argv[1], base64_encode(sodium_crypto_sign_secretkey($k))); file_put_contents($argv[1] . ".pub", base64_encode(sodium_crypto_sign_publickey($k)));' "$SP/release-key"
+  fi
+  mkdir -p "$SP/release"
 
   for s in "${SITES[@]}"; do
     set -- $s; local name=$1 major=$2 ver=$3 p0=$4 p1=$5 site=$SP/sites/$1
@@ -78,6 +100,7 @@ up() {
       --http_server "http://127.0.0.1:$p0/" --db_driver mysqli --db_hostname 127.0.0.1 --db_username oc --db_password ocpass \
       --db_database "$name" --db_port 33306 --db_prefix oc_ >"$SP/install-$name.log" 2>&1)
     rm -rf "$site/install"
+    point_at_loopback "$name" "$site"
     serve "$site" "$p0"; serve "$site" "$p1"
     echo "OpenCart $ver: http://127.0.0.1:$p0/ (store 0), http://127.0.0.1:$p1/ (store 1)"
   done
@@ -90,6 +113,7 @@ header('Content-Type: application/json');
 echo '{}';
 PHP
   serve "$SP/slow" $SLOW_PORT -t . router.php
+  serve "$SP/release" $RELEASE_PORT
 }
 
 test_all() {
@@ -122,6 +146,13 @@ test_all() {
     pair "$name" "$major" 1 "$p1"   # admin_checks disconnected store 1
 
     echo "$ver upgrade: $(./upgrade_check.sh "$major" "http://127.0.0.1:$p0" "$name" "$zip" 2>&1 | tail -1)"
+
+    python3 update_check.py "$major" "http://127.0.0.1:$p0" "$name" "$SP/sites/$name" "$SP/release/$name" "http://127.0.0.1:$RELEASE_PORT/$name" \
+      "$(cat "$SP/release-key")" "$INST0" "$(secret "$major" 0)" >"$SP/update-$name.json" || status=1
+    echo "$ver self-update: $(python3 -c "import json;d=json.load(open('$SP/update-$name.json'));print(d['passed'],'/',d['passed']+d['failed'])")"
+    # Back to the real package for the next run (4.1: copy over, see upgrade_check.sh).
+    if [ "$major" = 4 ]; then python3 -c "import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$zip" "$SP/sites/$name/extension/webyar"; else $A install "$zip" >/dev/null; fi
+    $A page >/dev/null
   done
   echo "overall: $( [ $status = 0 ] && echo PASS || echo FAIL )"
   return $status

@@ -2,6 +2,7 @@
 #if DEBUG
 import AppKit
 import SwiftUI
+import WebKit
 
 /// Development aids, off unless asked for by environment:
 ///
@@ -92,8 +93,29 @@ enum DebugTools {
             if wh.count == 2, let w = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 500 }) {
                 w.setFrame(NSRect(x: 60, y: 40, width: wh[0], height: wh[1]), display: true, animate: false)
             }
+        case "websnap":
+            // What a web view itself drew, apart from the window capture.
+            for w in NSApp.windows { for web in webViews(w.contentView) {
+                web.takeSnapshot(with: nil) { image, error in
+                    guard let tiff = image?.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+                          let png = rep.representation(using: .png, properties: [:]) else {
+                        try? "no image: \(String(describing: error))".write(to: folder.appendingPathComponent("web.txt"), atomically: true, encoding: .utf8)
+                        return
+                    }
+                    try? png.write(to: folder.appendingPathComponent("web-snap.png"))
+                }
+                if let html = (web.navigationDelegate as? MailWebView.Coordinator)?.shown {
+                    try? html.write(to: folder.appendingPathComponent("web.html"), atomically: true, encoding: .utf8)
+                }
+            } }
         default: break
         }
+    }
+
+    private static func webViews(_ view: NSView?) -> [WKWebView] {
+        guard let view else { return [] }
+        if let web = view as? WKWebView { return [web] }
+        return view.subviews.flatMap { webViews($0) }
     }
 }
 #endif

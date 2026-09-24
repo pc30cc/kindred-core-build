@@ -2297,10 +2297,8 @@ export default function InboxPage() {
                             <img src={senderAvatar} alt={agentLabel} className="w-full h-full object-cover" />
                           ) : isAi ? (
                             <Bot className="w-[18px] h-[18px]" />
-                          ) : senderName ? (
-                            <span>{getInitials(senderName)}</span>
                           ) : (
-                            <User className="w-[18px] h-[18px]" />
+                            <Headset className="w-[18px] h-[18px]" />
                           )}
                         </div>
                       ) : (

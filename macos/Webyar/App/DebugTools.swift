@@ -33,7 +33,7 @@ enum DebugTools {
     private static func snapshot(_ folder: URL) {
         for (i, window) in NSApp.windows.enumerated() where window.isVisible && window.windowNumber > 0 {
             // An app may always capture its own windows; no screen-recording permission is involved.
-            guard let image = capture(CGWindowID(window.windowNumber)) else { continue }
+            guard let id = CGWindowID(exactly: window.windowNumber), let image = capture(id) else { continue }
             let rep = NSBitmapImageRep(cgImage: image)
             guard let png = rep.representation(using: .png, properties: [:]) else { continue }
             let name = window.identifier?.rawValue.replacingOccurrences(of: "/", with: "_") ?? "window"

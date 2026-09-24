@@ -10,11 +10,19 @@ struct VisitorDetail: View {
 
     var body: some View {
         let s = app.strings
-        VisitorsMap(model: model)
-            .inspector(isPresented: Binding(get: { model.selectedId != nil }, set: { if !$0 { model.closeDetail() } })) {
+        // A panel at the end edge, not `.inspector`: in a right-to-left window
+        // that reserves the space on one side and draws on the other.
+        HStack(spacing: 0) {
+            VisitorsMap(model: model)
+            if model.selectedId != nil {
+                Divider()
                 VisitorPanel(model: model)
-                    .inspectorColumnWidth(min: 300, ideal: 360, max: 460)
+                    .frame(width: 340)
+                    .background(Palette.surface2.opacity(0.6))
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
             }
+        }
+        .animation(.smooth(duration: 0.22), value: model.selectedId != nil)
             .onAppear { model.start() }
             .onDisappear { if app.route != .visitors { model.stop() } }
             .alert(s["visitorStartChat"], isPresented: Binding(get: { model.chatError != nil }, set: { if !$0 { model.chatError = nil } })) {

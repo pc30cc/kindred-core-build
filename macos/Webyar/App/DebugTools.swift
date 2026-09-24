@@ -97,6 +97,7 @@ enum DebugTools {
         case "popout": CallCoordinator.shared.popOut()
         case "dockback": CallCoordinator.shared.dockBack()
         case "fullscreen": CallCoordinator.shared.toggleFullScreen()
+        case "callpage": CallCoordinator.shared.showCallPage()
         case "handed": SampleBackend.handed = arg != "off"
         case "deskend":
             CallCenterModel.debugCurrent?.debugDeskCallEnded(arg)

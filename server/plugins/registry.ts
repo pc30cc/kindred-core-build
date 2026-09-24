@@ -286,6 +286,35 @@ export const PLUGIN_REGISTRY: readonly PluginDefinition[] = Object.freeze([
     planModuleKey: 'commerce',
     planChannelKey: null,
   },
+  {
+    // WHMCS — billing-system connector. The addon (plugins/webyar-whmcs/) is
+    // queried live and read-only; nothing from WHMCS is mirrored into Web
+    // Yar. See docs/commerce/WHMCS.md.
+    id: 'whmcs',
+    slug: 'whmcs',
+    version: '1.0.0',
+    category: 'commerce',
+    status: 'available',
+    capabilities: [
+      'catalog.read',
+      'account.services.read',
+      'account.domains.read',
+      'account.invoices.read',
+      'account.orders.read',
+      'account.tickets.read',
+      'identity.grant',
+      'widget.bootstrap',
+    ],
+    workspaceInstallable: true,
+    hasSettings: true,
+    hasSecrets: true,
+    supportsInbox: false,
+    supportsAI: true,
+    supportsMedia: false,
+    supportsWebhook: false,
+    planModuleKey: 'commerce',
+    planChannelKey: null,
+  },
   comingSoon('hubspot', 'crm'),
   comingSoon('webhooks', 'developer'),
 ]);

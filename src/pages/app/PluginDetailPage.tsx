@@ -20,6 +20,7 @@ import { toast } from '@/hooks/use-toast';
 import { pluginsApi } from '@/lib/plugins-api';
 import { TelegramConfigPanel } from '@/components/plugins/TelegramConfigPanel';
 import { WooCommerceConfigPanel } from '@/components/plugins/WooCommerceConfigPanel';
+import { WhmcsConfigPanel } from '@/components/plugins/WhmcsConfigPanel';
 import { GmailConfigPanel } from '@/components/plugins/GmailConfigPanel';
 import { YahooConfigPanel } from '@/components/plugins/YahooConfigPanel';
 import { PluginLogo } from '@/components/plugins/PluginLogo';
@@ -53,7 +54,7 @@ export default function PluginDetailPage() {
       toast({ title: t('plugins.badge.installed') });
       qc.invalidateQueries({ queryKey: ['plugins'] });
     },
-    onError: (err: any) =>
+    onError: (err: Error) =>
       toast({ variant: 'destructive', title: t('plugins.error.generic'), description: err?.message }),
   });
 
@@ -64,7 +65,7 @@ export default function PluginDetailPage() {
       qc.invalidateQueries({ queryKey: ['plugins'] });
       navigate(`/${slug}/plugins`);
     },
-    onError: (err: any) =>
+    onError: (err: Error) =>
       toast({ variant: 'destructive', title: t('plugins.error.generic'), description: err?.message }),
   });
 
@@ -187,6 +188,8 @@ export default function PluginDetailPage() {
         </Tabs>
       ) : pluginId === 'woocommerce' && !blocked ? (
         <WooCommerceConfigPanel workspaceId={workspaceId} />
+      ) : pluginId === 'whmcs' && !blocked ? (
+        <WhmcsConfigPanel workspaceId={workspaceId} />
       ) : pluginId === 'gmail' && !blocked ? (
         <GmailConfigPanel workspaceId={workspaceId} />
       ) : pluginId === 'yahoomail' && !blocked ? (

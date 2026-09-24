@@ -1,5 +1,5 @@
 /**
- * /commerce/authorize?state=...&provider=woocommerce
+ * /commerce/authorize?state=...&provider=woocommerce|whmcs
  *
  * The consent screen the WordPress plugin opens in the admin's browser
  * (docs/commerce/SECURITY.md §Pairing, step "user logs in → select
@@ -61,7 +61,12 @@ export default function CommerceAuthorizePage() {
   if (!state) return <div className="p-8 text-center text-muted-foreground">{t('commerceAuthorize.missing')}</div>;
   if (isLoading) return <div className="p-8 flex justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div>;
   if (loadError || !pairing) return <div className="p-8 text-center text-destructive">{t('commerceAuthorize.invalid')}</div>;
-  if (pairing.expired) return <div className="p-8 text-center text-destructive">{t('commerceAuthorize.expired')}</div>;
+  // WHMCS starts with only its public catalogue enabled (server-side default);
+  // private account sections are turned on later, per section, in Plugins → WHMCS.
+  const isWhmcs = pairing.providerType === 'whmcs';
+  if (pairing.expired) {
+    return <div className="p-8 text-center text-destructive">{t(isWhmcs ? 'commerceAuthorize.whmcs.expired' : 'commerceAuthorize.expired')}</div>;
+  }
 
   const submit = async () => {
     setSubmitting(true);
@@ -70,7 +75,7 @@ export default function CommerceAuthorizePage() {
       const result = await api<{ redirectUrl: string }>(`/api/commerce/pairing/${state}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspaceId: activeWorkspaceId, permissions }),
+        body: JSON.stringify({ workspaceId: activeWorkspaceId, permissions: isWhmcs ? {} : permissions }),
       });
       window.location.href = result.redirectUrl;
     } catch (err) {
@@ -83,9 +88,9 @@ export default function CommerceAuthorizePage() {
     <div className="max-w-lg mx-auto p-6 pt-16">
       <Card>
         <CardHeader>
-          <CardTitle>{t('commerceAuthorize.title')}</CardTitle>
+          <CardTitle>{t(isWhmcs ? 'commerceAuthorize.whmcs.title' : 'commerceAuthorize.title')}</CardTitle>
           <CardDescription>
-            {t('commerceAuthorize.description', { origin: pairing.requestedOrigin })}
+            {t(isWhmcs ? 'commerceAuthorize.whmcs.description' : 'commerceAuthorize.description', { origin: pairing.requestedOrigin })}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -101,6 +106,16 @@ export default function CommerceAuthorizePage() {
             </Select>
           </div>
 
+          {isWhmcs ? (
+            <div>
+              <label className="text-sm font-medium mb-1 block">{t('commerceAuthorize.permissions')}</label>
+              <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
+                <li>{t('commerceAuthorize.whmcs.catalog')}</li>
+                <li>{t('commerceAuthorize.whmcs.private')}</li>
+                <li>{t('commerceAuthorize.whmcs.readOnly')}</li>
+              </ul>
+            </div>
+          ) : (
           <div>
             <label className="text-sm font-medium mb-1 block">{t('commerceAuthorize.permissions')}</label>
             <div className="grid grid-cols-2 gap-2 text-sm">
@@ -116,6 +131,7 @@ export default function CommerceAuthorizePage() {
               ))}
             </div>
           </div>
+          )}
 
           {error && <p className="text-sm text-destructive">{error}</p>}
 

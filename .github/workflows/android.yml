@@ -26,21 +26,23 @@ concurrency:
 
 jobs:
   build:
-    name: Build (self-hosted)
-    runs-on: [self-hosted, linux, x64, android]
+    name: Build (GitHub-hosted)
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     env:
-      ANDROID_HOME: /opt/android-sdk
-      ANDROID_SDK_ROOT: /opt/android-sdk
-      JAVA_HOME: /usr/lib/jvm/java-21-openjdk-amd64
-      # No daemon in CI: this host has 2GB from ci.slice and nothing should
-      # outlive the job holding any of it.
       GRADLE_OPTS: -Dorg.gradle.daemon=false
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
 
       - name: Toolchain
         run: |

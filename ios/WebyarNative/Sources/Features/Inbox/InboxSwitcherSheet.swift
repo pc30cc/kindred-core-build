@@ -39,6 +39,7 @@ struct InboxSwitcherSheet: View {
                 Section {
                     ForEach(filters) { filter in
                         row(
+                            key: filter.rawValue,
                             title: filter.title(language),
                             icon: filter.icon,
                             count: counts?.count(for: filter),
@@ -54,6 +55,7 @@ struct InboxSwitcherSheet: View {
                     Section(Str.otherInboxes(language)) {
                         ForEach(channels) { channel in
                             row(
+                                key: channel.key,
                                 title: channel.title(language),
                                 icon: channel.icon,
                                 count: nil,
@@ -70,6 +72,7 @@ struct InboxSwitcherSheet: View {
                     Section {
                         if showsColleagues {
                             row(
+                                key: "colleagues",
                                 title: Str.colleagues(language),
                                 icon: "person.2",
                                 count: nil,
@@ -84,6 +87,7 @@ struct InboxSwitcherSheet: View {
                         }
                         if showsEmail {
                             row(
+                                key: "email",
                                 title: Str.emailInbox(language),
                                 icon: "envelope",
                                 count: nil,
@@ -113,6 +117,7 @@ struct InboxSwitcherSheet: View {
     }
 
     private func row(
+        key: String,
         title: String,
         icon: String,
         count: Int?,
@@ -151,6 +156,7 @@ struct InboxSwitcherSheet: View {
         }
         .buttonStyle(.plain)
         .frame(minHeight: Theme.Size.minTouchTarget)
+        .accessibilityIdentifier(A11y.switcherRow(key))
         .accessibilityAddTraits(isCurrent ? [.isSelected, .isButton] : .isButton)
     }
 }

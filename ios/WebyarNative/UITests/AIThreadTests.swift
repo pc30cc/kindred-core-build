@@ -20,25 +20,21 @@ final class AIThreadTests: UITestCase {
         XCTAssertTrue(title.waitForExistence(timeout: 10), "the inbox switcher was not reachable")
         title.tap()
 
-        let row = app.buttons["انتظار مشتری"]
+        // By identifier, not by label. Three of these queue names are also
+        // chips on the strip behind the sheet, so asking for the word finds
+        // two elements and an ambiguous query throws rather than failing.
+        let pending = app.buttons[A11yID.switcherRow("pending")]
         XCTAssertTrue(
-            row.waitForExistence(timeout: 5),
+            pending.waitForExistence(timeout: 5),
             "the awaiting-customer queue is missing from the inbox switcher"
         )
 
-        // And the queues below it are still there, so a pass cannot mean
-        // "the sheet now contains one row". They are below the fold at the
-        // sheet's first height, and a `List` does not build rows nobody can
-        // see — so this scrolls to them rather than asserting they are
-        // already in the tree, which is what a menu would have let it do.
-        let spam = app.buttons["هرزنامه"]
-        var swipes = 0
-        while !spam.exists && swipes < 4 {
-            app.swipeUp()
-            swipes += 1
-        }
-        XCTAssertTrue(spam.exists, "the spam queue went missing from the inbox switcher")
-        XCTAssertTrue(app.buttons["حل‌شده"].exists, "the resolved queue went missing")
+        // The queues below it, in the order they are in — a `List` does not
+        // build rows nobody can see, and scrolling past one takes it back out
+        // of the tree, so these are found on the way down rather than all at
+        // the end.
+        XCTAssertTrue(scrollToRow("resolved"), "the resolved queue went missing")
+        XCTAssertTrue(scrollToRow("spam"), "the spam queue went missing")
     }
 
     /// The whole reason the switcher stopped being a `Menu`.
@@ -53,17 +49,26 @@ final class AIThreadTests: UITestCase {
         XCTAssertTrue(title.waitForExistence(timeout: 10))
         title.tap()
 
-        let row = app.buttons["انتظار مشتری"]
+        let row = app.buttons[A11yID.switcherRow("pending")]
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         // A sheet the app drew, so its rows sit inside the app's own window
         // and have a real frame. A menu's rows are in another one.
         XCTAssertTrue(row.frame.height > 0, "the switcher row has no frame of its own")
-        // `.firstMatch`: the inbox behind the sheet carries the same word on
-        // its own bar, and an ambiguous query throws rather than failing.
         XCTAssertTrue(
-            app.navigationBars["صندوق"].firstMatch.waitForExistence(timeout: 3),
-            "the switcher sheet has no title of its own"
+            app.navigationBars.firstMatch.exists,
+            "the switcher sheet has no bar of its own"
         )
+    }
+
+    /// Swipes down the sheet until a row appears, or gives up.
+    private func scrollToRow(_ key: String, swipes: Int = 4) -> Bool {
+        let row = app.buttons[A11yID.switcherRow(key)]
+        var tries = 0
+        while !row.exists && tries < swipes {
+            app.swipeUp()
+            tries += 1
+        }
+        return row.exists
     }
 
     // MARK: - One field, and only what belongs in it

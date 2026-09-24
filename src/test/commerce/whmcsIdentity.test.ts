@@ -57,7 +57,7 @@ beforeEach(() => {
       { id: 'conn-whmcs', workspace_id: WS, installation_id: INSTALL, provider_type: 'whmcs', revoked_at: null },
       { id: 'conn-woo', workspace_id: WS, installation_id: WOO_INSTALL, provider_type: 'woocommerce', revoked_at: null },
     ],
-    conversations: [{ id: 'conv-a', workspace_id: WS, visitor_session_id: VISITOR_A }],
+    conversations: [{ id: 'conv-a', workspace_id: WS, visitor_session_id: null, metadata: { visitor_id: VISITOR_A } }],
   });
 });
 
@@ -164,5 +164,86 @@ describe('reading the binding for a turn', () => {
   it('never resolves across workspaces', async () => {
     await verifyAndBindWhmcsIdentity(CONFIG, WS, VISITOR_A, assertion());
     expect((await resolveWhmcsBinding(CONFIG, { workspaceId: OTHER_WS, connectionId: 'conn-whmcs', conversationId: 'conv-a' })).state).toBe('none');
+  });
+});
+
+describe('conversation visitor ownership regression', () => {
+  const input = { workspaceId: WS, connectionId: 'conn-whmcs', conversationId: 'conv-a' };
+  beforeEach(async () => {
+    await verifyAndBindWhmcsIdentity(CONFIG, WS, VISITOR_A, assertion());
+    db.reset();
+  });
+
+  it('resolves an intro conversation without a session in two reads and zero writes', async () => {
+    expect((await resolveWhmcsBinding(CONFIG, input)).state).toBe('bound');
+    expect(db.ops).toEqual([
+      { table: 'conversations', verb: 'select' },
+      { table: 'commerce_customer_links', verb: 'select' },
+    ]);
+  });
+
+  it('resolves a legacy session through its visitor_id, not its primary key', async () => {
+    db.tables.conversations[0].metadata = {};
+    db.tables.conversations[0].visitor_session_id = 'session-a';
+    db.tables.visitor_sessions = [{ id: 'session-a', workspace_id: WS, visitor_id: VISITOR_A }];
+    expect((await resolveWhmcsBinding(CONFIG, input)).state).toBe('bound');
+    expect(db.ops).toEqual([
+      { table: 'conversations', verb: 'select' },
+      { table: 'visitor_sessions', verb: 'select' },
+      { table: 'commerce_customer_links', verb: 'select' },
+    ]);
+  });
+
+  it('prefers the canonical conversation visitor over a stale session', async () => {
+    db.tables.conversations[0].visitor_session_id = 'session-b';
+    db.tables.visitor_sessions = [{ id: 'session-b', workspace_id: WS, visitor_id: VISITOR_B }];
+    expect((await resolveWhmcsBinding(CONFIG, input)).state).toBe('bound');
+    expect(db.count('select', 'visitor_sessions')).toBe(0);
+  });
+
+  it('never treats a missing session row as a visitor id', async () => {
+    db.tables.conversations[0].metadata = null;
+    db.tables.conversations[0].visitor_session_id = VISITOR_A;
+    expect((await resolveWhmcsBinding(CONFIG, input)).state).toBe('none');
+    expect(db.count('select', 'commerce_customer_links')).toBe(0);
+  });
+
+  it('does not fall back to another account when the canonical visitor has no binding', async () => {
+    db.tables.conversations[0].metadata = { visitor_id: VISITOR_B };
+    db.tables.conversations[0].visitor_session_id = 'session-a';
+    db.tables.visitor_sessions = [{ id: 'session-a', workspace_id: WS, visitor_id: VISITOR_A }];
+    expect((await resolveWhmcsBinding(CONFIG, input)).state).toBe('none');
+    expect(db.count('select', 'visitor_sessions')).toBe(0);
+  });
+
+  it.each([null, {}, { visitor_id: '' }, { visitor_id: 42 }, { visitor_id: [VISITOR_A] }])(
+    'fails closed with missing or malformed metadata %j', async (metadata) => {
+      db.tables.conversations[0].metadata = metadata;
+      expect((await resolveWhmcsBinding(CONFIG, input)).state).toBe('none');
+      expect(db.count('select', 'commerce_customer_links')).toBe(0);
+    },
+  );
+
+  it('cannot resolve a session belonging to another workspace', async () => {
+    db.tables.conversations[0].metadata = {};
+    db.tables.conversations[0].visitor_session_id = 'session-a';
+    db.tables.visitor_sessions = [{ id: 'session-a', workspace_id: OTHER_WS, visitor_id: VISITOR_A }];
+    expect((await resolveWhmcsBinding(CONFIG, input)).state).toBe('none');
+  });
+
+  it('cannot use a link from another workspace or connection', async () => {
+    expect((await resolveWhmcsBinding(CONFIG, { ...input, connectionId: 'conn-woo' })).state).toBe('none');
+    db.tables.commerce_customer_links[0].workspace_id = OTHER_WS;
+    expect((await resolveWhmcsBinding(CONFIG, input)).state).toBe('none');
+  });
+
+  it('does not resolve an expired binding', async () => {
+    db.tables.commerce_customer_links[0].expires_at = new Date(Date.now() - 1000).toISOString();
+    expect((await resolveWhmcsBinding(CONFIG, input)).state).toBe('revoked');
+  });
+
+  it('does no database work without a conversation', async () => {
+    expect((await resolveWhmcsBinding(CONFIG, { ...input, conversationId: null })).state).toBe('none');
+    expect(db.ops).toEqual([]);
   });
 });

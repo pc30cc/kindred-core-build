@@ -85,7 +85,18 @@ final class Settings
             return null;
         }
         $plain = Platform::decrypt($cipher);
-        $data = $plain !== null ? json_decode($plain, true) : null;
+        // WHMCS localAPI may HTML-escape JSON before EncryptPassword sees it.
+        // Encode new payloads as an ASCII envelope before encryption, and
+        // continue reading credentials stored by earlier addon versions.
+        if (is_string($plain) && strpos($plain, 'webyar-json-v1:') === 0) {
+            $decoded = base64_decode(substr($plain, strlen('webyar-json-v1:')), true);
+            $data = $decoded !== false ? json_decode($decoded, true) : null;
+        } else {
+            $data = $plain !== null ? json_decode($plain, true) : null;
+            if (!is_array($data) && is_string($plain)) {
+                $data = json_decode(html_entity_decode($plain, ENT_QUOTES, 'UTF-8'), true);
+            }
+        }
         if (!is_array($data) || empty($data['installation_id']) || empty($data['secret']) || empty($data['workspace_id'])) {
             return null;
         }
@@ -100,12 +111,12 @@ final class Settings
 
     public static function storeCredential(array $credential)
     {
-        self::set('credential', Platform::encrypt(json_encode(array(
+        self::set('credential', Platform::encrypt('webyar-json-v1:' . base64_encode(json_encode(array(
             'installation_id' => (string) $credential['installation_id'],
             'secret' => (string) $credential['secret'],
             'workspace_id' => (string) $credential['workspace_id'],
             'connection_id' => isset($credential['connection_id']) ? (string) $credential['connection_id'] : '',
-        ))));
+        )))));
     }
 
     public static function appUrl()

@@ -262,7 +262,8 @@ export type WhmcsBinding =
 
 /**
  * The binding for a conversation's visitor on one connection. Two indexed
- * reads; used only on turns that actually ask about the account.
+ * reads on the metadata path (three for legacy session-only conversations);
+ * used only on turns that actually ask about the account.
  */
 export async function resolveWhmcsBinding(
   config: ServerConfig,
@@ -272,16 +273,37 @@ export async function resolveWhmcsBinding(
   const sb = getServiceClient(config);
   const { data: conv } = await sb
     .from('conversations')
-    .select('visitor_session_id')
+    .select('visitor_session_id, metadata')
     .eq('id', input.conversationId)
     .eq('workspace_id', input.workspaceId)
     .maybeSingle();
-  const visitorId = conv?.visitor_session_id;
+  if (!conv) return { state: 'none' };
+
+  // AI-intro conversations can predate a visitor session. Their server-authored
+  // metadata is the canonical owner, also used by widget ownership checks.
+  // A session primary key is never a visitor ID. Legacy conversations need
+  // one indexed session lookup, scoped to the same workspace.
+  const metadataVisitorId = conv.metadata?.visitor_id;
+  let visitorId = typeof metadataVisitorId === 'string' && metadataVisitorId.trim()
+    ? metadataVisitorId
+    : null;
+  if (!visitorId && conv.visitor_session_id) {
+    const { data: session } = await sb
+      .from('visitor_sessions')
+      .select('visitor_id')
+      .eq('id', conv.visitor_session_id)
+      .eq('workspace_id', input.workspaceId)
+      .maybeSingle();
+    visitorId = typeof session?.visitor_id === 'string' && session.visitor_id.trim()
+      ? session.visitor_id
+      : null;
+  }
   if (!visitorId) return { state: 'none' };
 
   const { data } = await sb
     .from('commerce_customer_links')
     .select('id, grant_ref, external_user_id, external_customer_id, subject_since, revoked_at, expires_at')
+    .eq('workspace_id', input.workspaceId)
     .eq('connection_id', input.connectionId)
     .eq('visitor_id', visitorId)
     .not('grant_ref', 'is', null)

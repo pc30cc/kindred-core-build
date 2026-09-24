@@ -20,6 +20,17 @@ struct FloatingTabBar<Tab: Hashable>: View {
         let icon: String
         /// The filled counterpart, shown when it is.
         let selectedIcon: String
+        /// Something is waiting on this tab that has not been looked at.
+        ///
+        /// A dot and nothing else. The bar is three items wide inside a
+        /// glass capsule, and every screen behind it already carries its own
+        /// counters — the queue chips, the counter on each row. A fourth
+        /// number here would be the least readable of the four.
+        var isMarked: Bool = false
+        /// What VoiceOver says when it is marked. Held here rather than
+        /// looked up inside, because this component knows nothing about the
+        /// operator's language — its title arrives the same way.
+        var markLabel: String = ""
 
         var id: Tab { tab }
     }
@@ -80,6 +91,14 @@ struct FloatingTabBar<Tab: Hashable>: View {
                     // scale: SF Symbols know how their own strokes should
                     // move, and `reduceMotion` already suppresses it.
                     .symbolEffect(.bounce, value: isSelected)
+                    // Overlaid rather than placed in the stack: a dot that
+                    // took up layout would move the icon and the word every
+                    // time it appeared, and the whole bar would twitch each
+                    // time a visitor wrote.
+                    .overlay(alignment: .topTrailing) {
+                        if item.isMarked { dot }
+                    }
+                    .animation(reduceMotion ? nil : Theme.Motion.standard, value: item.isMarked)
 
                 Text(item.title)
                     .font(.app(size: 11, weight: isSelected ? .semibold : .medium))
@@ -115,7 +134,30 @@ struct FloatingTabBar<Tab: Hashable>: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(item.title)
+        // Said rather than drawn. A red circle four points across is not
+        // something VoiceOver can describe on its own, and it is the only
+        // thing on this bar that carries news.
+        .accessibilityValue(item.isMarked ? item.markLabel : "")
         .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
+    }
+
+    /// The mark itself: a dot with a ring the colour of what is behind it.
+    ///
+    /// The ring is why it reads on both states. Without it the dot sits on a
+    /// saturated brand capsule when the tab is selected and on glass when it
+    /// is not, and red on either is legible but neither looks deliberate.
+    private var dot: some View {
+        Circle()
+            .fill(Theme.Palette.danger)
+            .frame(width: 7, height: 7)
+            .overlay(Circle().strokeBorder(Theme.Palette.surface, lineWidth: 1.5))
+            .frame(width: 10, height: 10)
+            .offset(x: 5, y: -3)
+            .transition(
+                reduceMotion
+                    ? .opacity
+                    : .scale(scale: 0.4).combined(with: .opacity)
+            )
     }
 }
 

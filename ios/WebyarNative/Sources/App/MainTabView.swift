@@ -38,6 +38,12 @@ struct MainTabView: View {
     /// Promotions live here rather than in the inbox so the full-screen card
     /// covers the whole shell — and so a tab change cannot leave one behind.
     @State private var promotions = PromotionCenter()
+    /// Whether the inbox has something in it that has not been looked at.
+    ///
+    /// Owned by the shell, not by the inbox, because the whole point of it
+    /// is to be readable from the other tabs — and because the inbox's own
+    /// `.task` is cancelled the moment its tab goes off screen.
+    @State private var inboxAlert = InboxAlert()
 
     typealias Tab = AppTab
 
@@ -55,12 +61,20 @@ struct MainTabView: View {
         return tabs
     }
 
+    /// The workspace's inbox channel, or nothing while there is no
+    /// workspace to name one after.
+    private var inboxChannel: LiveChannel? {
+        appState.selectedWorkspace.map { LiveChannel.inbox(workspaceID: $0.id) }
+    }
+
     private var items: [FloatingTabBar<Tab>.Item] {
         tabs.map { tab in
             switch tab {
             case .inbox:
                 .init(tab: .inbox, title: Str.tabInbox(language),
-                      icon: "tray", selectedIcon: "tray.fill")
+                      icon: "tray", selectedIcon: "tray.fill",
+                      isMarked: inboxAlert.isRinging,
+                      markLabel: Str.tabUnseenActivity(language))
             case .contacts:
                 .init(tab: .contacts, title: Str.tabContacts(language),
                       icon: "person.2", selectedIcon: "person.2.fill")
@@ -127,6 +141,30 @@ struct MainTabView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        // The shell listens too, and that is deliberate.
+        //
+        // The inbox already subscribes to this channel for its own list, but
+        // its subscription lives and dies with its tab: step into Settings
+        // and the app stops hearing anything until you step back. The dot
+        // exists precisely for the minutes you are not looking, so the
+        // listener that feeds it has to outlive the screen.
+        //
+        // Two listeners, one subscription — `LiveUpdates` keeps the channel
+        // open while anybody is still reading it, which means leaving the
+        // inbox tab and returning no longer costs a fresh subscribe either.
+        //
+        // `nil` means the app came back to the foreground or a fallback timer
+        // ticked. Neither tells us anything a dot could act on, so neither
+        // does anything here.
+        .liveUpdates(on: inboxChannel) { push in
+            guard let push else { return }
+            inboxAlert.note(push, isLookingAtInbox: selection == .inbox && inboxPath.isEmpty)
+        }
+        // Looking at the list is what clears it — including arriving there
+        // from a notification, which selects the tab on the way in.
+        .onChange(of: selection) { _, now in
+            if now == .inbox { inboxAlert.clear() }
+        }
         // The keyboard must not take the tab bar with it.
         //
         // SwiftUI treats the keyboard as a bottom safe area, so anything
@@ -187,6 +225,7 @@ struct MainTabView: View {
         intent = tab
         selection = tab
         appState.selectedTab = tab
+        if tab == .inbox { inboxAlert.clear() }
     }
 
     /// Opens a detail screen on launch when a Debug run asked for one, so a

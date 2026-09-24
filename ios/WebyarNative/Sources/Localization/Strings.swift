@@ -576,6 +576,15 @@ enum Str {
         }
     }
 
+    /// Spoken, never drawn: what the dot on the inbox tab means.
+    static func tabUnseenActivity(_ l: Language) -> String {
+        switch l {
+        case .en: "New messages"
+        case .fa: "پیام‌های جدید"
+        case .tr: "Yeni mesajlar"
+        }
+    }
+
     static func tabContacts(_ l: Language) -> String {
         switch l {
         case .en: "Contacts"

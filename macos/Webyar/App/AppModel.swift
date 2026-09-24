@@ -95,7 +95,17 @@ final class AppModel {
         strings = Strings(settings.resolvedLanguage)
         Typeface.persian = settings.resolvedLanguage == .fa
         let origin = settings.apiOrigin.flatMap(URL.init(string:))
+        #if DEBUG
+        if DebugTools.sample {
+            let config = URLSessionConfiguration.ephemeral
+            config.protocolClasses = [SampleBackend.self]
+            client = ApiClient(store: MemorySessionStore("sample"), origin: origin, appVersion: Self.version, session: URLSession(configuration: config))
+        } else {
+            client = ApiClient(store: KeychainSessionStore(), origin: origin, appVersion: Self.version)
+        }
+        #else
         client = ApiClient(store: KeychainSessionStore(), origin: origin, appVersion: Self.version)
+        #endif
         api = WebyarAPI(client: client)
         AttachmentStore.shared.api = api
         engagement = EngagementService(app: self)
@@ -439,6 +449,14 @@ final class AppModel {
             if let next = q.queue.first(where: { $0.createdAt.map { now.timeIntervalSince($0) < ringFor } ?? false }) { ring(next) }
         }
     }
+
+    #if DEBUG
+    /// A sample call in the banner, for DebugTools.
+    func debugRing() {
+        ring(QueueEntry(id: "q-debug", callSessionId: "cs-debug", channel: "voice", createdAt: Date(),
+                        callSession: CallSession(id: "cs-debug", callType: "voice", visitorName: "Ayşe Yılmaz", visitorEmail: "ayse@example.com.tr", pageTitle: "Pricing — Webyar")))
+    }
+    #endif
 
     func stopRinging() {
         ringTimer?.invalidate()

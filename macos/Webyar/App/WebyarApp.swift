@@ -59,6 +59,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if LoginItem.launchedAtLogin {
             NSApp.windows.forEach { $0.orderOut(nil) }
         }
+        #if DEBUG
+        DebugTools.start(app: app)
+        #endif
         Task { await app.start() }
     }
 

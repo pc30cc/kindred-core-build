@@ -38,9 +38,9 @@ export default function EmailConfirmedPage() {
   const NavArrow = isRtl ? ArrowLeft : ArrowRight;
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4" dir={dir}>
+    <div className="auth-aurora min-h-screen flex items-center justify-center p-4" dir={dir}>
       <div className="w-full max-w-lg">
-        <div className="bg-card border border-border rounded-2xl shadow-lg p-8 md:p-10 text-center">
+        <div className="glass beam-border rounded-3xl shadow-glow p-8 md:p-10 text-center">
           {/* Loading */}
           {status === 'loading' && (
             <div className="space-y-6">

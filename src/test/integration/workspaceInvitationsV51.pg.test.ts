@@ -299,7 +299,8 @@ let baseUrl: string;
 
 /** Response JSON. Assertions reach into arbitrary shapes, so this stays
  *  deliberately loose — but `unknown`-loose, not `any`-loose. */
-type JsonBody = Record<string, unknown>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type JsonBody = Record<string, any>;
 
 type Res = { status: number; json: JsonBody; setCookie: string[] };
 

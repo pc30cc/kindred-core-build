@@ -71,7 +71,7 @@ export default function ResetPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4" dir={dir}>
+    <div className="auth-aurora min-h-screen flex items-center justify-center p-4" dir={dir}>
       <div className="w-full max-w-md space-y-8">
         <div className="text-center space-y-2">
           <BrandLogo className="w-14 h-14 rounded-xl mx-auto" />
@@ -79,7 +79,7 @@ export default function ResetPasswordPage() {
           <p className="text-sm text-muted-foreground">{t('auth.resetSubtitle')}</p>
         </div>
 
-        <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
+        <div className="glass beam-border rounded-3xl shadow-glow p-6 shadow-sm">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="password">{t('auth.newPassword')}</Label>
@@ -108,7 +108,7 @@ export default function ResetPasswordPage() {
                 )}
               </div>
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="btn-shimmer w-full" disabled={loading}>
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
               <span className={isRtl ? 'mr-2' : 'ml-2'}>{t('auth.saveNewPassword')}</span>
             </Button>

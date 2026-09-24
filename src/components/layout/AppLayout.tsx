@@ -304,7 +304,7 @@ export function AppLayout() {
   }
 
   return (
-    <div dir={dir} className="app-scope flex h-screen h-dvh overflow-hidden bg-background text-foreground">
+    <div dir={dir} className="app-scope app-aurora flex h-screen h-dvh overflow-hidden bg-background text-foreground">
       <OperatorCallProvider>
         <CommandPalette />
         {isMobile ? (

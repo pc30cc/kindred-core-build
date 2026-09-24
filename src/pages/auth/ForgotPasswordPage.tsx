@@ -38,7 +38,7 @@ export default function ForgotPasswordPage() {
   const BackIcon = isRtl ? ArrowLeft : ArrowRight;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4" dir={dir}>
+    <div className="auth-aurora min-h-screen flex items-center justify-center p-4" dir={dir}>
       <div className="w-full max-w-md space-y-8">
         <div className="text-center space-y-2">
           <BrandLogo className="w-14 h-14 rounded-xl mx-auto" />
@@ -46,7 +46,7 @@ export default function ForgotPasswordPage() {
           <p className="text-sm text-muted-foreground">{t('auth.forgotSubtitle')}</p>
         </div>
 
-        <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
+        <div className="glass beam-border rounded-3xl shadow-glow p-6 shadow-sm">
           {sent ? (
             <div className="text-center space-y-4 py-4">
               <Mail className="w-12 h-12 text-primary mx-auto" />
@@ -58,7 +58,7 @@ export default function ForgotPasswordPage() {
                 <Label htmlFor="email">{t('auth.email')}</Label>
                 <Input id="email" type="email" placeholder="email@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required dir="ltr" className="text-left" />
               </div>
-              <Button type="submit" className="w-full" disabled={loading}>
+              <Button type="submit" className="btn-shimmer w-full" disabled={loading}>
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
                 <span className={isRtl ? 'mr-2' : 'ml-2'}>{t('auth.sendResetLink')}</span>
               </Button>

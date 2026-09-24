@@ -33,9 +33,9 @@ export default function CheckEmailPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4" dir={dir}>
+    <div className="auth-aurora min-h-screen flex items-center justify-center p-4" dir={dir}>
       <div className="w-full max-w-lg">
-        <div className="bg-card border border-border rounded-2xl shadow-lg p-8 md:p-10 text-center space-y-7">
+        <div className="glass beam-border rounded-3xl shadow-glow p-8 md:p-10 text-center space-y-7">
           {/* Icon */}
           <div className="mx-auto w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center">
             <Mail className="w-12 h-12 text-primary" />

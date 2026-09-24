@@ -546,7 +546,7 @@ export function AppSidebar({
           className={cn(
             'flex items-center rounded-lg px-3 py-2 text-sm font-semibold transition-all',
             isActive('')
-              ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm'
+              ? 'bg-brand text-white shadow-glow'
               : 'text-sidebar-foreground hover:bg-sidebar-accent/50',
             collapsed && 'justify-center px-0'
           )}

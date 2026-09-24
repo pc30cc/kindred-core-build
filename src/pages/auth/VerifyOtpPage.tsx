@@ -112,9 +112,9 @@ export default function VerifyOtpPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4" dir={dir}>
+    <div className="auth-aurora min-h-screen flex items-center justify-center p-4" dir={dir}>
       <div className="w-full max-w-md">
-        <div className="bg-card border border-border rounded-2xl shadow-lg p-8 space-y-6 text-center">
+        <div className="glass beam-border rounded-3xl shadow-glow p-8 space-y-6 text-center">
           <div className="mx-auto w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
             <ShieldCheck className="w-10 h-10 text-primary" />
           </div>
@@ -148,7 +148,7 @@ export default function VerifyOtpPage() {
               {error && <p className="text-sm text-destructive">{error}</p>}
               <Button
                 type="submit"
-                className="w-full h-12 text-base font-semibold"
+                className="btn-shimmer w-full h-12 text-base font-semibold"
                 disabled={submitting || code.length !== CODE_LENGTH || !challenge}
               >
                 {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : t('auth.otpVerifyButton')}

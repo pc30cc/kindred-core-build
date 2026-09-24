@@ -26,14 +26,8 @@ enum A11y {
     static func workspaceRow(_ id: String) -> String { "settings.workspace.\(id)" }
     /// The composer's lightning bolt, which opens the saved replies.
     static let shortcutsButton = "composer.shortcuts"
-    /// The button behind the inbox title, which opens the switcher sheet.
+    /// The menu behind the inbox title, listing every queue and inbox.
     static let inboxTitleMenu = "inbox.title.menu"
-    /// One row in that sheet.
-    ///
-    /// Needed because the queue names are not unique on screen: three of them
-    /// are also chips on the strip behind the sheet, so a test asking for a
-    /// label finds two elements and the query throws rather than failing.
-    static func switcherRow(_ key: String) -> String { "switcher.\(key)" }
     /// The three-line menu in the chat header.
     static let conversationMenu = "chat.menu"
     /// The composer's send button.

@@ -10,65 +10,28 @@ final class AIThreadTests: UITestCase {
 
     // MARK: - The inbox switcher
 
-    func testTheInboxSwitcherOffersTheAwaitingCustomerQueue() {
+    func testTheInboxMenuOffersTheAwaitingCustomerQueue() {
         launchToInbox()
 
-        // Behind the screen's own title, which is where every queue that is
-        // not a chip lives. A sheet since the menu could not be made to take
-        // the operator's typeface — see `InboxSwitcherSheet`.
+        // The menu behind the screen's own title, which is where every queue
+        // that is not a chip lives.
         let title = app.buttons[A11yID.inboxTitleMenu].firstMatch
-        XCTAssertTrue(title.waitForExistence(timeout: 10), "the inbox switcher was not reachable")
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "the inbox title menu was not reachable")
         title.tap()
 
-        // By identifier, not by label. Three of these queue names are also
-        // chips on the strip behind the sheet, so asking for the word finds
-        // two elements and an ambiguous query throws rather than failing.
-        let pending = app.buttons[A11yID.switcherRow("pending")]
+        // The strip's shorter name is only for the strip; the menu still
+        // lists the queue by its full one.
+        let row = app.buttons["انتظار مشتری"]
         XCTAssertTrue(
-            pending.waitForExistence(timeout: 5),
-            "the awaiting-customer queue is missing from the inbox switcher"
+            row.waitForExistence(timeout: 5),
+            "the awaiting-customer queue is missing from the inbox menu"
         )
 
-        // The queues below it, in the order they are in — a `List` does not
-        // build rows nobody can see, and scrolling past one takes it back out
-        // of the tree, so these are found on the way down rather than all at
-        // the end.
-        XCTAssertTrue(scrollToRow("resolved"), "the resolved queue went missing")
-        XCTAssertTrue(scrollToRow("spam"), "the spam queue went missing")
-    }
-
-    /// The whole reason the switcher stopped being a `Menu`.
-    ///
-    /// A row drawn by the app can be asked what it is; a `UIMenu`'s cannot,
-    /// and its typeface was the system's whatever the app asked for. This
-    /// cannot read a font, but it can prove the rows belong to the app —
-    /// which is the thing that was not true before.
-    func testTheSwitcherRowsBelongToTheApp() {
-        launchToInbox()
-        let title = app.buttons[A11yID.inboxTitleMenu].firstMatch
-        XCTAssertTrue(title.waitForExistence(timeout: 10))
-        title.tap()
-
-        let row = app.buttons[A11yID.switcherRow("pending")]
-        XCTAssertTrue(row.waitForExistence(timeout: 5))
-        // A sheet the app drew, so its rows sit inside the app's own window
-        // and have a real frame. A menu's rows are in another one.
-        XCTAssertTrue(row.frame.height > 0, "the switcher row has no frame of its own")
-        XCTAssertTrue(
-            app.navigationBars.firstMatch.exists,
-            "the switcher sheet has no bar of its own"
-        )
-    }
-
-    /// Swipes down the sheet until a row appears, or gives up.
-    private func scrollToRow(_ key: String, swipes: Int = 4) -> Bool {
-        let row = app.buttons[A11yID.switcherRow(key)]
-        var tries = 0
-        while !row.exists && tries < swipes {
-            app.swipeUp()
-            tries += 1
+        // And the queues it sits between are still there, so a pass cannot
+        // mean "the menu now contains one row".
+        for other in ["حل‌شده", "هرزنامه"] {
+            XCTAssertTrue(app.buttons[other].exists, "\(other) went missing from the inbox menu")
         }
-        return row.exists
     }
 
     // MARK: - One field, and only what belongs in it

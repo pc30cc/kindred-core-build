@@ -21,7 +21,6 @@ struct InboxView: View {
     @State private var model = InboxViewModel()
     @State private var isSearching = false
     @State private var isFiltering = false
-    @State private var isSwitchingInbox = false
 
     @State private var push = PushController.shared
     @State private var isAskingAboutNotifications = false
@@ -47,22 +46,6 @@ struct InboxView: View {
             .floatingTabBarInset()
             .sheet(isPresented: $isFiltering) {
                 InboxFilterSheet(filter: $model.fieldFilter, language: language)
-            }
-            .sheet(isPresented: $isSwitchingInbox) {
-                InboxSwitcherSheet(
-                    filters: appState.inboxFilters,
-                    channels: model.channels,
-                    counts: model.counts,
-                    language: language,
-                    currentFilter: model.filter,
-                    currentChannel: model.channel,
-                    showsColleagues: appState.colleaguesVisible,
-                    showsEmail: appState.emailInboxVisible,
-                    onFilter: { model.open($0) },
-                    onChannel: { model.open($0) },
-                    onColleagues: { path.append(InboxRoute.colleagues) },
-                    onEmail: { path.append(InboxRoute.email) }
-                )
             }
             .refreshable {
                 await model.refresh(workspaceID: workspaceID, appState: appState)
@@ -321,41 +304,73 @@ struct InboxView: View {
         }
     }
 
-    /// The screen's title, and the list of every inbox behind it.
+    /// The screen's title, and the menu of every inbox behind it.
     ///
-    /// The strip above the list keeps the queues an operator moves between
-    /// all day; everything else — the AI handover queue, Resolved, Spam, the
-    /// channels and the mailbox — lives here, which is how the console
-    /// arranges it too.
-    ///
-    /// A button opening a sheet rather than a `Menu`, and the reason is in
-    /// `InboxSwitcherSheet`: a `Menu` is drawn by UIKit and will not take the
-    /// app's typeface, which left this the one Persian surface in the app
-    /// rendered in the system face.
+    /// The strip above the list keeps the two queues an operator moves between
+    /// all day; everything else — the AI handover queue, Resolved, Spam, and
+    /// the mailbox — lives here, which is how the console arranges it too.
     private var inboxMenu: some View {
-        Button {
-            isSwitchingInbox = true
+        Menu {
+            // The queues, then the channels the workspace actually runs, then
+            // the two inboxes that are their own screens. A `Picker` would
+            // draw the checkmark for us but only over one set of values, and
+            // these are three sets that behave as one list — so the mark is
+            // put where it belongs by hand.
+            Section {
+                ForEach(appState.inboxFilters) { filter in
+                    Button {
+                        model.open(filter)
+                    } label: {
+                        Label(
+                            filter.title(language),
+                            systemImage: isCurrent(filter) ? "checkmark" : filter.icon
+                        )
+                    }
+                }
+            }
+
+            if !model.channels.isEmpty {
+                Section(Str.otherInboxes(language)) {
+                    ForEach(model.channels) { channel in
+                        Button {
+                            model.open(channel)
+                        } label: {
+                            Label(
+                                channel.title(language),
+                                systemImage: model.channel == channel ? "checkmark" : channel.icon
+                            )
+                        }
+                    }
+                }
+            }
+
+            Section {
+                if appState.colleaguesVisible {
+                    Button {
+                        path.append(InboxRoute.colleagues)
+                    } label: {
+                        Label(Str.colleagues(language), systemImage: "person.2")
+                    }
+                }
+                if appState.emailInboxVisible {
+                    Button {
+                        path.append(InboxRoute.email)
+                    } label: {
+                        Label(Str.emailInbox(language), systemImage: "envelope")
+                    }
+                }
+            }
         } label: {
             HStack(spacing: Theme.Space.xs) {
                 Text(model.channel?.title(language) ?? model.filter.headerTitle(language))
                     .font(.app(.headline))
                     .foregroundStyle(Theme.Palette.label)
-                    .lineLimit(1)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(Theme.Palette.labelSecondary)
             }
-            // Its ideal width, and no less.
-            //
-            // A `Menu` in a toolbar got this for free; a `Button` does not —
-            // it is handed a width and squeezes its label to fit, which
-            // turned the screen's own name into an ellipsis the moment the
-            // menu became a sheet. Nothing else about the swap was visible,
-            // which is exactly why it was worth photographing.
-            .fixedSize(horizontal: true, vertical: false)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .accessibilityLabel(Str.allInboxes(language))
         .accessibilityIdentifier(A11y.inboxTitleMenu)
     }
@@ -387,7 +402,13 @@ struct InboxView: View {
         }
     }
 
+    /// A queue is current only when no channel is laid over it.
+    private func isCurrent(_ filter: InboxFilter) -> Bool {
+        model.channel == nil && model.filter == filter
+    }
+
     /// The row the list rests on, leaving the search field just above the fold.
+
     private var filterInsets: EdgeInsets {
         EdgeInsets(
             top: Theme.Space.xs,

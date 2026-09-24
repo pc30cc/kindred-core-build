@@ -322,7 +322,6 @@ enum A11yID {
     static let attachButton = "composer.attach"
     static func messageRow(_ id: String) -> String { "message.\(id)" }
     static let inboxTitleMenu = "inbox.title.menu"
-    static func switcherRow(_ key: String) -> String { "switcher.\(key)" }
     static let conversationMenu = "chat.menu"
     static let composerSend = "composer.send"
     static let sayNowVoice = "sayNow.voice"

@@ -1,6 +1,6 @@
 <?php
 /**
- * Web Yar hooks. Deliberately few, and none of them does network I/O.
+ * Web Yar hooks. Client hooks never do network I/O; the CLI cron checks for updates hourly.
  *
  *   ClientAreaFooterOutput — the existing Web Yar widget loader; on a
  *                            logged-in page also a short-lived signed
@@ -51,3 +51,7 @@ $webyarEndClient = function ($vars) {
 };
 add_hook('ClientClose', 1, $webyarEndClient);
 add_hook('ClientDelete', 1, $webyarEndClient);
+
+add_hook('AfterCronJob', 1, function () {
+    try { \WebYar\Whmcs\Updater::run(); } catch (\Throwable $e) { /* Never interrupt WHMCS automation. */ }
+});

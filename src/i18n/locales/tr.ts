@@ -8532,6 +8532,8 @@ const tr: TranslationKeys = {
       },
     },
     whmcs: {
+      autoUpdate: 'Otomatik eklenti güncellemeleri',
+      autoUpdateHint: 'Bağlı WHMCS siteleri her saat kontrol eder. Yeni güncellemeleri durdurmak için kapatın.',
       name: 'WHMCS',
       platform: { title: "Tüm çalışma alanlarında WHMCS özellikleri", description: "Kapatılan özellik, önbellekteki yanıtlar dahil tüm çalışma alanlarında engellenir. Diğer işlemler değişikliği 15 saniye içinde alır. Çalışma alanı ve WHMCS izinleri de gereklidir." },
       description: 'Yapay zekâ asistanının, oturum açmış bir müşterinin kendi hizmetleri, alan adları, faturaları, siparişleri ve destek talepleri hakkındaki sorularını doğrudan WHMCS’inizden canlı okuyarak yanıtlamasını sağlar.',
@@ -8546,7 +8548,7 @@ const tr: TranslationKeys = {
         step4: '“Connect to Web Yar”a tıklayın, bu çalışma alanını seçip onaylayın. WHMCS’e “Bağlı” durumuyla dönersiniz.',
         step5: 'Buraya dönün ve asistanın okuyabileceği hesap bölümlerini açın. Sohbet penceresi müşteri alanına otomatik olarak eklenir.',
         requirements: 'WHMCS 8.0+, PHP 7.2+ (WHMCS sürümünüzün desteklediği ölçüde) ve WHMCS System URL üzerinde HTTPS gerekir.',
-        noBackground: 'Arka planda hiçbir şey çalışmaz: cron, eşitleme veya periyodik sorgu yoktur. WHMCS’e yalnızca bir müşteri onu gerektiren bir soru sorduğunda başvurulur.',
+        noBackground: 'Müşteri verileri gerektiğinde okunur, arka planda eşitlenmez. Etkinse eklenti güncellemeleri WHMCS cron ile saatte bir kontrol edilir.',
       },
       connection: {
         title: 'Bağlantı',

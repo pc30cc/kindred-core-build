@@ -52,6 +52,7 @@ import { webAnalyticsRouter } from './routes/webAnalytics.js';
 import { botAnalyticsRouter } from './routes/botAnalytics.js';
 import { brandRadarRouter } from './routes/brandRadar.js';
 import { plansRouter } from './routes/plans.js';
+import { whmcsUpdatesRouter } from './routes/whmcsUpdates.js';
 import { pluginsRouter, adminPluginsRouter } from './routes/plugins.js';
 import { internalChannelsRouter } from './routes/internalChannels.js';
 import { emailInboxRouter } from './routes/emailInbox.js';
@@ -478,6 +479,7 @@ app.use('/api/plans', plansRouter);
 // Plugin Platform — workspace marketplace + Super Admin controls.
 // Both surfaces authorize inside the router before any service-role query.
 app.use('/api/plugins/admin', adminRateLimiter, adminPluginsRouter);
+app.use('/api/plugins/whmcs/updates', whmcsUpdatesRouter);
 app.use('/api/plugins', pluginsRouter);
 
 // Email Inbox — dedicated, not the unified chat Inbox, and NOT the same

@@ -65,6 +65,7 @@ final class Page
     {
         switch ($action) {
             case 'save':
+                Settings::set('auto_update', !empty($_POST['auto_update']) ? '1' : '0');
                 Settings::set('auto_widget', !empty($_POST['auto_widget']) ? '1' : '0');
                 Settings::set('share_contact', !empty($_POST['share_contact']) ? '1' : '0');
                 foreach (Settings::SECTIONS as $section) {
@@ -136,6 +137,10 @@ final class Page
         echo '<div class="panel panel-default"><div class="panel-heading"><h3 class="panel-title">' . $e(self::t($lang, 'settings')) . '</h3></div><div class="panel-body">';
         echo '<div class="form-group"><label>' . $e(self::t($lang, 'webyar_url')) . '</label><div class="wy-readonly" dir="ltr">' . $e(Settings::appUrl()) . '</div></div>';
         echo '<div class="form-group"><label>' . $e(self::t($lang, 'api_url')) . '</label><div class="wy-readonly" dir="ltr">' . $e(Settings::apiUrl()) . '</div></div>';
+        echo self::checkbox('auto_update', Settings::flag('auto_update', true), self::t($lang, 'auto_update'));
+        $updateStatus = \WebYar\Whmcs\Updater::readStatus();
+        echo '<p class="help-block">' . $e(self::t($lang, 'update_help')) . '</p>';
+        echo '<p>' . $e(self::t($lang, 'update_status')) . ': ' . $e(self::t($lang, 'update_' . $updateStatus['code'], self::t($lang, 'update_failed'))) . '</p>';
         echo self::checkbox('auto_widget', Settings::autoWidget(), self::t($lang, 'auto_widget'));
         echo self::checkbox('share_contact', Settings::shareContact(), self::t($lang, 'share_contact'));
         echo '<h4>' . $e(self::t($lang, 'sections')) . '</h4><p class="help-block">' . $e(self::t($lang, 'sections_help')) . '</p>';

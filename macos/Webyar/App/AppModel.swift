@@ -501,23 +501,19 @@ final class AppModel {
     func setLanguage(_ language: Language) {
         settings.language = language.code
         saveSettings()
+        Self.forgetSplitFrames()
         strings = Strings(language)
         Typeface.persian = language == .fa
         engagement.refresh()
         background?.kick()
-        relayoutWindows()
     }
 
-    /// When the direction flips, the split view keeps its columns' old frames
-    /// until the window next changes size — so change it, by a point and back.
-    private func relayoutWindows() {
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(80))
-            for w in NSApp.windows where w.isVisible && w.styleMask.contains(.resizable) && w.frame.width > 500 {
-                let f = w.frame
-                w.setFrame(NSRect(x: f.minX, y: f.minY, width: f.width + 1, height: f.height), display: false)
-                w.setFrame(f, display: true)
-            }
+    /// Column frames AppKit saved for the split view. Forgotten at launch and
+    /// before the shell is rebuilt for another language: frames saved in one
+    /// direction lay the columns out wrongly in the other.
+    static func forgetSplitFrames() {
+        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("NSSplitView Subview Frames") {
+            UserDefaults.standard.removeObject(forKey: key)
         }
     }
 

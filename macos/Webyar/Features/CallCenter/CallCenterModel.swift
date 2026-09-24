@@ -65,7 +65,13 @@ final class CallCenterModel {
     /// The call center on screen, for the debug command file.
     nonisolated(unsafe) static weak var debugCurrent: CallCenterModel?
     /// As if the in-call window had just hung up the call picked.
-    func debugDeskCallEnded() { if let id = selectedId { deskCallEnded(id) } }
+    func debugDeskCallEnded(_ part: String = "") {
+        switch part {
+        case "notice": notice = CallDeskNotice(severity: .info, title: app.strings["ccWrapUp"], message: app.strings["ccWrapUpHint"])
+        case "focus": focusNoteRequest += 1
+        default: if let id = selectedId { deskCallEnded(id) }
+        }
+    }
     #endif
 
     init(app: AppModel) {

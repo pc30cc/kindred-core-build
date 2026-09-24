@@ -78,8 +78,8 @@ enum DebugTools {
         case "ring": app.debugRing()
         case "size":
             let wh = arg.split(separator: "x").compactMap { Double($0) }
-            if wh.count == 2, let w = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }) {
-                w.setContentSize(NSSize(width: wh[0], height: wh[1]))
+            if wh.count == 2, let w = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 500 }) {
+                w.setFrame(NSRect(x: 60, y: 40, width: wh[0], height: wh[1]), display: true, animate: false)
             }
         default: break
         }

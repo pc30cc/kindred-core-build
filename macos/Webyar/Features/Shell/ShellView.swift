@@ -19,6 +19,7 @@ struct ShellView: View {
                         .navigationSplitViewColumnWidth(min: 280, ideal: 330, max: 440)
                 } detail: {
                     PageDetail(route: app.route, pages: pages)
+                        .navigationSplitViewColumnWidth(min: 440, ideal: 760)
                         .safeAreaInset(edge: .top, spacing: 0) { ShellBanners() }
                 }
                 .overlay(alignment: .bottomTrailing) {

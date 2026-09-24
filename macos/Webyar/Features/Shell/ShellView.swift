@@ -396,7 +396,7 @@ private struct AccountMenu: View {
                             .fixedSize(horizontal: false, vertical: true)
                         Button(s["scheduleOffAction"], action: scheduleOff)
                             .controlSize(.small)
-                            .glassButton()
+                            .prominentButton(tint: Palette.warning)
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)

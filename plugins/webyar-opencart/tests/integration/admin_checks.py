@@ -23,13 +23,19 @@ def q(sql):
     return subprocess.run(['mariadb', '--socket=/tmp/wyoc/my.sock', '-uroot', '-N', DB, '-e', sql], capture_output=True, text=True).stdout.strip()
 
 def count_queries(url, cookies=None):
-    """Every SQL statement MariaDB saw while serving one page view."""
-    import os, time
+    """Every SQL statement MariaDB saw while serving one page view — after a
+    warm-up view (a cold file cache adds currency/language/information reads),
+    and without OpenCart's own probabilistic session GC (`DELETE FROM session
+    WHERE expire < …` + `OPTIMIZE TABLE session`), which lands on a random
+    request whether the widget is on or off."""
+    import os, re, time
+    requests.get(url, cookies=cookies)
     path = f'/tmp/wyoc/sp/pageview-{time.time_ns()}.log'
     subprocess.run(['mariadb', '--socket=/tmp/wyoc/my.sock', '-uroot', '-e', f"SET GLOBAL general_log_file='{path}'; SET GLOBAL general_log=1;"])
     html = requests.get(url, cookies=cookies).text
     subprocess.run(['mariadb', '--socket=/tmp/wyoc/my.sock', '-uroot', '-e', 'SET GLOBAL general_log=0;'])
-    lines = [l for l in open(path, errors='ignore') if 'Query\t' in l and 'general_log' not in l]
+    session_gc = re.compile(r'Query\t(DELETE FROM `?\w*session`? WHERE `?expire`? <|OPTIMIZE TABLE `?\w*session`?)')
+    lines = [l for l in open(path, errors='ignore') if 'Query\t' in l and 'general_log' not in l and not session_gc.search(l)]
     os.remove(path)
     webyar = [l for l in lines if 'webyar' in l.lower()]
     return html, len(lines), len(webyar)

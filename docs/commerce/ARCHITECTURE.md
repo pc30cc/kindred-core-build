@@ -1,6 +1,8 @@
 # Commerce Integration Platform — Architecture
 
-Status: Phase 1 (read-only) implemented. WooCommerce is the first connector.
+Status: Phase 1 (read-only) implemented. WooCommerce is the first (indexed)
+connector; OpenCart is the first **direct** connector (see
+[OPENCART.md](./OPENCART.md)).
 
 ## Why this exists
 
@@ -33,7 +35,7 @@ CommerceConnector contract (shared/commerce/types.ts)
    ├── WooCommerce connector (server/services/commerce/connectors/woocommerce.ts)
    ├── Shopify        [future — same contract, new adapter]
    ├── PrestaShop      [future]
-   ├── OpenCart        [future]
+   ├── OpenCart connector (server/services/commerce/connectors/opencart.ts) — direct, no index
    ├── EDD             [future]
    └── Sazito          [future]
 ```
@@ -75,6 +77,26 @@ This is not a parallel stack. Concretely:
 | Background jobs | `worker/index.ts` table-polling convention | New `commerce-sync` worker kind, new `commerce_sync_jobs` table, same shape as `ai_source_sync_jobs`. |
 | Money/PII minimization philosophy | N/A (new) | See SECURITY.md — no payment data, no full billing payload, no unbounded PII mirroring. |
 
+## Two search strategies (provider profiles)
+
+`server/services/commerce/providers.ts` declares, per provider, what Web Yar
+does in the background for it. Nothing else decides this.
+
+| | WooCommerce (`indexed`) | OpenCart (`direct`) |
+|---|---|---|
+| Product search | canonical index in Postgres (`commerce_products`), revalidated live | live, on the store, per question |
+| Catalogue sync / events / reconcile | yes (`commerce-sync` worker) | **none**: the worker's reconcile query filters by `providersWithBackgroundWork()` |
+| Periodic health | yes | **none**: health is recorded from real calls (transitions only) plus a rate-limited manual check |
+| `catalog_ready` gate | yes | not applicable; direct calls skip it |
+| Guest order OTP | yes | no, sign-in only (`guestOtp: false`) |
+| AI stage | `runner.ts` (KB-like stage) | `directRunner.ts`, called from the same `runner.ts` entry point |
+| Connector contract | `CommerceConnector` | `DirectCommerceConnector` (extends it; `isDirectConnector()`) |
+
+Connection choice per conversation (`resolveConversationConnection`): the
+page URL's store, then the store the visitor is signed in to, then the only
+store, then the newest (the previous behaviour). A link or a URL can only
+choose among the workspace's own rows.
+
 ## Data ownership
 
 - **Knowledge Base** stays about policies/FAQ/company knowledge. It never
@@ -85,6 +107,10 @@ This is not a parallel stack. Concretely:
 - **Live Commerce** (price/stock/orders/tracking) is queried live from the
   plugin through the Commerce Gateway when freshness matters; the catalog
   is a search index, not a source of truth for money or stock.
+- **Direct providers (OpenCart)** have no Commerce Catalog rows at all. Web
+  Yar stores connection metadata, identity links, the ids of the last
+  listed products/orders in the conversation's metadata (for follow-ups)
+  and tool audit rows. See OPENCART.md §7 for the full table.
 
 ## AI integration model (important architectural decision)
 

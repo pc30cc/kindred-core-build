@@ -128,6 +128,36 @@ cookie). A tampered, expired, wrong-audience, or replayed assertion is
 rejected outright; the browser is never trusted to submit a raw
 `customer_id`.
 
+### Direct providers (OpenCart): lazy, session-bound identity
+
+- The page never carries an assertion. The widget asks the store's own
+  same-origin, `no-store` endpoint for one **when the visitor opens the
+  chat**, at most once per page. The endpoint is rate limited in the
+  shopper's session. A page nobody interacts with makes no identity call.
+- The assertion (120 s) carries `store_id` and an opaque `session_ref`. The
+  `session_ref` is an AES-GCM encryption of the OpenCart session id under a
+  store-local key (`DIR_STORAGE/webyar/local.key`), bound to the
+  installation id. It is deterministic, so re-opening the chat in the same
+  session changes nothing in Web Yar.
+- Web Yar checks the schema, the signature, the audience, `iat`/`exp`, the
+  maximum age, the installation, the workspace, the store id, and that the
+  request origin is the connection's approved origin, plus replay
+  (`commerce_nonce_cache`). It then keeps **one link row per
+  (connection, visitor)**: created, unchanged, refreshed, or switched to
+  another customer. A switch or a sign-out sets `private_cutoff_at`, and
+  the model's history before it is dropped for later turns.
+- The link is **not** a permission. Every private read sends `session_ref`
+  to the store. The store re-reads the session (read-only; `db` and `file`
+  engines), requires the same customer, still active, in this store's
+  scope, and filters every order query by `customer_id`, `store_id` and a
+  visible status. Logout, session expiry, another account, a disabled
+  customer, another store or a revoked connection all fail closed.
+- There is no guest OTP for direct providers (`guestOtp: false`). An email,
+  phone or order number alone never unlocks anything; the guest is asked to
+  sign in to the store.
+- A cloned store (another origin or store id answering with the same
+  credential) is marked `stale_origin` and must be reconnected.
+
 ## Guest order verification
 
 Reuses the Generic Verification Core (`server/services/verification/`) —

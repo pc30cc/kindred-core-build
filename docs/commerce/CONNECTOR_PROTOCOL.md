@@ -50,6 +50,52 @@ limiting. `products/resolve` and `products/availability` accept **arrays**
 of ids so a 5-product live-revalidation batch is one HTTP round trip, not
 five.
 
+## Direct connectors (OpenCart)
+
+A provider whose profile says `searchStrategy: 'direct'`
+(`server/services/commerce/providers.ts`) has no catalogue export, no
+events and no sync. Its extension exposes ONE signed route and a whitelist
+of operations. The signature is the same `webyar-commerce/1` HMAC, over the
+canonical path `/opencart/v1/<op>`:
+
+```
+POST {storeUrl}index.php?route=extension/webyar/module/webyar.api&op=<op>&store_id=<id>   OpenCart 4.1.x
+POST {storeUrl}index.php?route=extension/module/webyar/api&op=<op>&store_id=<id>          OpenCart 3.0.5.x
+
+health · products/search · products/get · products/reviews · catalog/categories
+orders/list · orders/get · orders/tracking · orders/returns
+```
+
+Differences from the indexed (WooCommerce) surface:
+
+- **Capabilities** add `reviews.read`, `returns.read` and `search.direct`.
+  They do not include `catalog.export` or `events.push`. There is no
+  `catalog_ready`.
+- **Store scope**: the body carries `store_id`. The extension refuses a body
+  whose store differs from the one OpenCart resolved for the request (one
+  installation per OpenCart store; multi-store is several connections).
+- **Private operations** carry `customer: { id, session_ref }` in the signed
+  body. `session_ref` is opaque: it is encrypted under a key that never
+  leaves the store. The extension decrypts it, re-reads that OpenCart
+  session (read-only) and checks that the same customer is still signed in,
+  active and in scope, on every call. A Web Yar-side link alone grants nothing.
+- **Pagination**: `page` / `page_size`, at most 10. Summaries first, details
+  for at most 10 ids in one call.
+- **Every response** carries `_meta.db` (queries, reads, writes, ms) so the
+  store-side cost is observable.
+- **Money**: the store returns `{ amount, currency, formatted, tax_included }`
+  in the context it actually used: language, currency, customer group and
+  tax address. The formatted string is passed through untouched.
+- **Errors** map to the same taxonomy below. Identity failures are
+  `identity_required` / `identity_expired` / `order_access_denied`. An auth
+  or identity error never falls back to cached private data.
+
+Per-turn bounds for direct providers: at most `MAX_COMMERCE_CALLS_PER_TURN`
+(3) store calls in one `COMMERCE_TOOL_DEADLINE_MS` (6 s) budget, each call
+given only the time left. At most one retry, only for a transient transport
+error or a 5xx (re-signed with a new nonce). Evidence given to the model is
+capped at 7,000 bytes. See OPENCART.md §4, §6 and §9.
+
 ## Money
 
 ```ts
@@ -137,7 +183,7 @@ the existing `MAX_ACTIONS_PER_TURN` bounding philosophy in
 `commerce_invalid_response`, `product_not_found`,
 `variation_not_available`, `identity_required`, `identity_expired`,
 `order_not_found`, `order_access_denied`, `connector_outdated`,
-`protocol_mismatch`, `catalog_syncing`. These are the only strings the AI
+`protocol_mismatch`, `catalog_syncing` (indexed providers only). These are the only strings the AI
 tool layer ever sees for a failure; underlying exceptions/stack traces are
 logged server-side only, never forwarded.
 

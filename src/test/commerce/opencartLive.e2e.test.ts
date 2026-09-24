@@ -36,6 +36,8 @@ const INST0 = '11111111-1111-4111-8111-111111111111';
 const INST1 = '22222222-2222-4222-8222-222222222222';
 const VISITOR = '00000000-0000-4000-8000-0000000000b1';
 const CONV = '00000000-0000-4000-8000-0000000000d1';
+const CONV_SINGLE = '00000000-0000-4000-8000-0000000000d2';
+const VISITOR_SINGLE = '00000000-0000-4000-8000-0000000000b2';
 
 const fake = createCountingSupabase();
 let contactUpserts = 0;
@@ -299,6 +301,19 @@ run('OpenCart live store, end to end', () => {
     expect(JSON.stringify(fast.toolResults)).toContain('commerce_live_unavailable');
     fake.db.commerce_connections = [{ ...connection(CONN0, INST0, BASE, '0'), health: 'connected', capabilities: caps }];
   }, 60_000);
+
+  it('a workspace with ONE store needs no store-selection reads', async () => {
+    const caps = ['store.read', 'products.read', 'availability.read', 'reviews.read', 'orders.read', 'tracking.read', 'returns.read', 'customer_context', 'widget.bootstrap', 'search.direct'];
+    fake.db.commerce_connections = [{ ...connection(CONN0, INST0, BASE, '0'), health: 'connected', capabilities: caps }];
+    fake.db.conversations.push({ id: CONV_SINGLE, workspace_id: WS, visitor_session_id: VISITOR_SINGLE, metadata: {} });
+    guard.connectionGuard.reset();
+    guard.publicCache.clear();
+    const r = await measure('product search (guest), workspace with one store', () => runStage(CONFIG, { workspaceId: WS, conversationId: CONV_SINGLE, question: 'do you have iphone?', locale: 'en' }));
+    expect(r.toolsUsed).toContain('commerce.search_products');
+    const db = report[report.length - 1].webyarDb as { select: number; insert: number; update: number };
+    // connection row · conversation · link lookup · refs re-read ; audit ; refs
+    expect(db).toMatchObject({ select: 4, insert: 1, update: 1 });
+  });
 
   it('the cache stays bounded under many distinct questions', async () => {
     guard.connectionGuard.reset();

@@ -82,8 +82,8 @@ struct ChatView: View {
             title: title,
             avatarURL: conversation.contact?.avatarURL,
             visitor: model.visitor,
-            isResolvingVisitor: model.isResolvingVisitor,
             aiState: AIState.resolve(conversation),
+            isResolvingVisitor: model.isResolvingVisitor,
             language: language
         )
     }

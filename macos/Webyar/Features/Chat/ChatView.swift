@@ -31,13 +31,14 @@ struct ThreadView: View {
     /// The whole thread area, details included: the details only show beside a
     /// thread that has room for both, as on Windows (wider than 820).
     @State private var width: CGFloat = 1200
+    @State private var showDetails = true
 
     var body: some View {
         MessagesView(chat: chat)
             .background(Palette.chatBackground)
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
-                ThreadHeader(chat: chat, width: width)
+                ThreadHeader(chat: chat, width: width, roomForDetails: width + (showDetails ? 290 : 0) > 820)
                 if let notice = chat.notice {
                     Banner(severity: notice.severity, message: notice.message,
                            actionTitle: notice.retry ? app.strings["retry"] : nil,
@@ -73,17 +74,25 @@ struct ThreadView: View {
                 return true
             }
             .animation(.smooth(duration: 0.2), value: chat.notice)
-            .inspector(isPresented: Binding(get: { app.settings.detailsOpen && width > 820 }, set: { app.settings.detailsOpen = $0; app.saveSettings() })) {
+            .onChange(of: app.settings.detailsOpen) { _, _ in fitDetails() }
+            .inspector(isPresented: Binding(get: { showDetails }, set: { app.settings.detailsOpen = $0; app.saveSettings(); fitDetails() })) {
                 DetailsPanel(chat: chat)
                     .inspectorColumnWidth(min: 260, ideal: 290, max: 380)
             }
             .background {
                 GeometryReader { g in
                     Color.clear
-                        .onAppear { width = g.size.width }
-                        .onChange(of: g.size.width) { _, w in width = w }
+                        .onAppear { width = g.size.width; fitDetails() }
+                        .onChange(of: g.size.width) { _, w in width = w; fitDetails() }
                 }
             }
+    }
+
+    /// The measured width excludes the details while they show; count them back in.
+    private func fitDetails() {
+        let full = width + (showDetails ? 290 : 0)
+        let next = app.settings.detailsOpen && full > 820
+        if next != showDetails { showDetails = next }
     }
 }
 
@@ -93,6 +102,7 @@ struct ThreadHeader: View {
     let chat: ChatModel
     /// The thread area's width: the action labels fold into icons when it is narrow.
     var width: CGFloat
+    var roomForDetails = true
     @Environment(AppModel.self) private var app
 
     var body: some View {
@@ -124,7 +134,7 @@ struct ThreadHeader: View {
             .buttonBorderShape(.circle)
             .help(s["details"])
             .keyboardShortcut("i", modifiers: [.command, .option])
-            .disabled(width <= 820)
+            .disabled(!roomForDetails)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)

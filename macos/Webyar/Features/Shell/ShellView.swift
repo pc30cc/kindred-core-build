@@ -379,6 +379,13 @@ struct IncomingCallCard: View {
     @State private var pulse = false
 
     var body: some View {
+        VStack(alignment: .trailing, spacing: 12) {
+            HandedCallCard()
+            ringingCard
+        }
+    }
+
+    @ViewBuilder private var ringingCard: some View {
         if let entry = app.ringing {
             let s = app.strings
             let c = entry.callSession
@@ -417,6 +424,58 @@ struct IncomingCallCard: View {
             .shadow(color: .black.opacity(0.18), radius: 24, y: 10)
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .onAppear { withAnimation(.easeOut(duration: 1.2).repeatForever(autoreverses: false)) { pulse = true } }
+        }
+    }
+}
+
+/// A call a colleague handed over: who it is, from whom and why, and a button to join it.
+private struct HandedCallCard: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        if let c = app.handedCall {
+            let s = app.strings
+            let from = c.transferFromAgentId.map { app.memberName($0) } ?? ""
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    AvatarView(name: c.visitorName, email: c.visitorEmail, size: 44)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label(s["callHandedTitle"], systemImage: "arrow.left.arrow.right")
+                            .appFont(11.5, .semibold)
+                            .foregroundStyle(Palette.brand)
+                        Text(CallNames.caller(c, fallbackId: c.contactId ?? c.visitorSessionId ?? c.id, s))
+                            .appFont(15, .semibold)
+                            .lineLimit(1)
+                        let meta = [from.isEmpty ? nil : s.get("callHandedFrom", "name", from), c.transferReason]
+                            .compactMap { $0 }.filter { !$0.isEmpty }
+                        if !meta.isEmpty {
+                            Text(meta.joined(separator: " · ")).appFont(11.5).foregroundStyle(Palette.text2).lineLimit(2)
+                        }
+                    }
+                }
+                if let error = app.handedCallError {
+                    Text(error).appFont(11.5).foregroundStyle(Palette.danger).lineLimit(3)
+                }
+                GlassGroup(spacing: 8) {
+                    HStack(spacing: 8) {
+                        Button(s["close"]) { app.dismissHandedCall() }
+                            .glassButton()
+                        Spacer(minLength: 8)
+                        Button {
+                            Task { await app.joinHandedCall() }
+                        } label: {
+                            Label(s["callJoin"], systemImage: c.isVideo ? "video.fill" : "phone.fill")
+                        }
+                        .prominentButton(tint: Palette.success)
+                        .disabled(app.joiningHandedCall)
+                    }
+                }
+            }
+            .padding(16)
+            .frame(width: 380)
+            .glassCard(22, tint: Palette.brand.opacity(0.10))
+            .shadow(color: .black.opacity(0.18), radius: 24, y: 10)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 }

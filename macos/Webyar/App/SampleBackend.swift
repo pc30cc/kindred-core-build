@@ -14,12 +14,20 @@ final class SampleBackend: URLProtocol {
     nonisolated(unsafe) private static var sent: [String: [[String: Any]]] = [:]
     nonisolated(unsafe) private static var notes: [String: [[String: Any]]] = [:]
     nonisolated(unsafe) private static var maintenanceOn = false
+    nonisolated(unsafe) private static var callNotes: [String: [[String: Any]]] = [:]
+    nonisolated(unsafe) private static var handedOn = false
 
     /// A visitor's message arriving in a conversation, for DebugTools' `visitor <id>`.
     static func visitorSays(_ conversationId: String, _ body: String) {
         lock.lock()
         sent[conversationId, default: []].append(["id": "visitor-\(UUID().uuidString)", "conversation_id": conversationId, "sender_type": "contact", "body": body, "created_at": ago(0)])
         lock.unlock()
+    }
+
+    /// A colleague handing a live call to this operator, for DebugTools' `handed`.
+    static var handed: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return handedOn }
+        set { lock.lock(); handedOn = newValue; lock.unlock() }
     }
 
     /// Super Admin's maintenance switch, for DebugTools' `maintenance on|off`.
@@ -274,6 +282,32 @@ final class SampleBackend: URLProtocol {
         case ("GET", "/api/call-center/overview"):
             return (200, ["today_calls": 38, "waiting_calls": 2, "active_calls": 1, "missed_today": 3, "callbacks_pending": 1, "provider": ["provider": "livekit", "ready": true]])
         case ("GET", "/api/call-center/agent-status"): return (200, ["agents": [["user_id": "u-1", "status": "available"]]])
+        case ("GET", "/api/call-center/calls") where q["status"] == "active":
+            guard handed else { return (200, ["calls": [[String: Any]]()]) }
+            return (200, ["calls": [["id": "cs-7", "state": "active", "call_type": "video", "visitor_name": "Deniz Yılmaz", "visitor_email": "deniz@example.com",
+                                     "assigned_agent_id": "u-1", "transfer_from_agent_id": "u-2", "transfer_reason": "مشکل پرداخت؛ نیاز به پیگیری مالی", "created_at": ago(3)]]])
+        case ("GET", "/api/call-center/agents/presence"):
+            return (200, ["presence": [
+                ["user_id": "u-2", "status": "available", "active_call_count": 0, "full_name": "رضا محمدی"],
+                ["user_id": "u-3", "status": "busy", "active_call_count": 1, "full_name": "Emre Demir"],
+                ["user_id": "u-4", "status": "away", "active_call_count": 0, "full_name": "نگار صالحی"],
+            ]])
+        case ("GET", "/api/call-center/departments"):
+            return (200, ["departments": [
+                ["id": "d-1", "name": "فروش", "enabled": true, "cc_voice_enabled": true, "cc_video_enabled": true],
+                ["id": "d-2", "name": "پشتیبانی فنی", "enabled": true, "cc_voice_enabled": true, "cc_video_enabled": true],
+            ]])
+        case ("POST", "/api/call-invitations"):
+            // As the server does: the invitation also lands in the thread as a system message.
+            let id = "inv-\(UUID().uuidString.prefix(8))"
+            let conversation = body["conversation_id"] as? String ?? ""
+            let channel = body["channel"] as? String ?? "audio"
+            lock.lock()
+            sent[conversation, default: []].append(["id": "sys-\(id)", "conversation_id": conversation, "sender_type": "system", "body": "You have been invited to a call.",
+                                                    "metadata": ["kind": "call_invitation", "status": "pending", "channel": channel, "invitation_id": id, "operator_name": "Sara Karimi"],
+                                                    "created_at": ago(0)])
+            lock.unlock()
+            return (200, ["invitation": ["id": id, "status": "pending", "channel": channel, "conversation_id": conversation, "expires_at": ago(-5)]])
         case ("GET", "/api/call-center/calls"):
             return (200, ["calls": [
                 ["id": "cs-9", "state": "ended", "call_type": "voice", "visitor_name": "مریم احمدی", "created_at": ago(90), "duration_seconds": 312],
@@ -354,6 +388,24 @@ final class SampleBackend: URLProtocol {
             if parts.count == 4, parts[3] == "attachments" { return (200, ["storageKey": UUID().uuidString, "filename": q["filename"] ?? "file", "contentType": q["content_type"] ?? "application/octet-stream", "sizeBytes": 1000]) }
         }
         // Parametrised paths.
+        if parts.count == 3, parts[1] == "call-invitations", method == "GET" {
+            // The visitor never answers: the call window stays on "calling".
+            return (200, ["invitation": ["id": parts[2], "status": "pending"]])
+        }
+        if parts.count >= 5, parts[1] == "call-center", parts[2] == "calls" {
+            let id = parts[3]
+            switch (method, parts[4]) {
+            case ("GET", "notes"):
+                lock.lock(); defer { lock.unlock() }
+                return (200, ["notes": [["id": "cn-1", "note": "مشتری دربارهٔ تمدید اشتراک سؤال دارد؛ فاکتور قبلی را دیده.", "author_name": "رضا محمدی", "created_at": ago(6)]] + (callNotes[id] ?? [])])
+            case ("POST", "notes"):
+                lock.lock(); callNotes[id, default: []].append(["id": UUID().uuidString, "note": body["note"] as? String ?? "", "author_name": "Sara Karimi", "created_at": ago(0)]); lock.unlock()
+                return (200, ["ok": true])
+            case ("POST", "transfer"):
+                return (200, ["ok": true, "assigned_agent_id": body["to_agent_id"] ?? NSNull(), "handoff": "manual"])
+            default: break
+            }
+        }
         if parts.count >= 4, parts[1] == "conversations" {
             let id = parts[2]
             switch (method, parts[3]) {

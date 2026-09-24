@@ -27,6 +27,8 @@ enum CallOutcome: Equatable {
     case declined
     case expired
     case failed
+    /// Handed to a colleague: this operator left, the call goes on without them.
+    case transferred
 
     var textKey: String {
         switch self {
@@ -34,8 +36,18 @@ enum CallOutcome: Equatable {
         case .expired: return "callNoAnswer"
         case .failed: return "callFailed"
         case .hungUp, .visitorLeft: return "callEnded"
+        case .transferred: return "callTransferredOut"
         }
     }
+}
+
+/// A note shown beside the call: the call's own notes on the desk, the
+/// conversation's internal notes on a call made from a conversation.
+struct CallWindowNote: Identifiable, Hashable {
+    let id: String
+    let text: String
+    let author: String?
+    let at: Date?
 }
 
 /// One call with a visitor, from the invitation to the room closing — the
@@ -75,6 +87,29 @@ final class LiveCall {
     private(set) var remoteVideoTrack: VideoTrack?
     private(set) var localVideoTrack: VideoTrack?
 
+    // Transfer and notes
+
+    /// Handed to this colleague (or department): the window says so and stays until they join.
+    private(set) var transferredTo: String?
+    private(set) var transferring = false
+    /// Why the last transfer failed, for the transfer panel.
+    private(set) var transferError: String?
+    /// The colleague the call was handed to is in the room: this operator is about to leave.
+    private(set) var handoverJoined = false
+    /// Newest read of the notes; nil until the first one arrives.
+    private(set) var notes: [CallWindowNote]?
+    var noteDraft = ""
+    private(set) var addingNote = false
+    private(set) var noteError: String?
+    @ObservationIgnored private var transferTargetId: String?
+    @ObservationIgnored private var notesTask: Task<Void, Never>?
+    @ObservationIgnored private var handoverTask: Task<Void, Never>?
+
+    /// Only a call-center call can be handed on (the server's transfer is the desk's).
+    var canTransfer: Bool { desk != nil }
+    /// The desk call has its own notes; a conversation call shows the conversation's.
+    var hasNotes: Bool { desk != nil || conversation != nil }
+
     /// Called once the ended call has shown why for a moment: closes the window.
     @ObservationIgnored var onFinished: (() -> Void)?
 
@@ -109,9 +144,18 @@ final class LiveCall {
         let video = isVideo
         accessTask = Task { await Self.requestAccess(video: video) }
         runTask = Task { [weak self] in await self?.run() }
+        if hasNotes { startNotes() }
     }
 
     private func run() async {
+        #if DEBUG
+        if desk != nil, DebugTools.sample {
+            // Sample mode has no media server: show the desk call as if it had connected.
+            phase = .connected
+            connectedAt = Date()
+            return
+        }
+        #endif
         if let desk {
             // Accepted on the desk: the server made the room and gave us its token.
             guard desk.accept.connect?.supported == true,
@@ -285,9 +329,124 @@ final class LiveCall {
             localVideoTrack = nil
             return
         }
-        let remote: [TrackPublication] = room.remoteParticipants.values.flatMap { $0.videoTracks }
+        // The visitor's camera first: a colleague joining a handed-over call is not who the operator is talking to.
+        let people = room.remoteParticipants.values.sorted { !Self.isOperator($0) && Self.isOperator($1) }
+        let remote: [TrackPublication] = people.flatMap { $0.videoTracks }
         remoteVideoTrack = remote.first { $0.isSubscribed && !$0.isMuted }?.track as? VideoTrack
         localVideoTrack = room.localParticipant.videoTracks.first { !$0.isMuted }?.track as? VideoTrack
+        checkHandover()
+    }
+
+    /// Operators join as `operator:<user id>` (the server's LiveKit identity); visitors as something else.
+    private static func isOperator(_ p: Participant) -> Bool {
+        p.identity?.stringValue.hasPrefix("operator:") == true
+    }
+
+    #if DEBUG
+    /// A panel of the call window to open, for DebugTools (`callui notes|transfer`).
+    var debugOpen: String?
+    #endif
+
+    // MARK: Transfer
+
+    /// Hands the desk call to a colleague or a department. The call goes on: whoever takes it
+    /// joins this same room, and this operator leaves once they are in (or when they choose).
+    @discardableResult
+    func transfer(toAgent agentId: String?, department departmentId: String?, name: String, reason: String?) async -> Bool {
+        guard let callId = desk?.callId, !transferring, !ended else { return false }
+        transferring = true
+        transferError = nil
+        defer { transferring = false }
+        do {
+            try await app.api.transferCall(workspaceId: workspaceId, callId: callId, toAgentId: agentId,
+                                           toDepartmentId: departmentId, reason: reason)
+            Log.write("[call] transferred \(callId) to \(agentId ?? departmentId ?? "?")")
+            transferTargetId = agentId
+            transferredTo = name
+            checkHandover()
+            return true
+        } catch {
+            Log.error("call transfer", error)
+            transferError = ErrorText.of(error, app.strings)
+            return false
+        }
+    }
+
+    /// Leaves a handed-over call without ending it for the visitor and the colleague.
+    func leave() {
+        finish(.transferred, nil)
+    }
+
+    /// After a transfer: the colleague is in the room, so step out a moment later.
+    private func checkHandover() {
+        guard transferredTo != nil, !handoverJoined, !ended, let room else { return }
+        let me = room.localParticipant.identity?.stringValue
+        let joined = room.remoteParticipants.values.contains { p in
+            guard Self.isOperator(p), let id = p.identity?.stringValue, id != me else { return false }
+            return transferTargetId.map { id == "operator:\($0)" } ?? true
+        }
+        guard joined else { return }
+        handoverJoined = true
+        Log.write("[call] colleague joined, leaving")
+        handoverTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard !Task.isCancelled else { return }
+            self?.leave()
+        }
+    }
+
+    // MARK: Notes
+
+    /// Reads the notes now and every few seconds, so a note a colleague adds shows up here.
+    private func startNotes() {
+        notesTask?.cancel()
+        notesTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.loadNotes()
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+            }
+        }
+    }
+
+    func loadNotes() async {
+        do {
+            var list: [CallWindowNote] = []
+            if let callId = desk?.callId {
+                list = try await app.api.callNotes(workspaceId: workspaceId, callId: callId)
+                    .map { CallWindowNote(id: $0.id, text: $0.note, author: $0.authorName, at: $0.createdAt) }
+            } else if let conversation {
+                list = try await app.api.notes(conversationId: conversation.id, workspaceId: workspaceId)
+                    .map { n in
+                        let author = n.author?.fullName ?? n.author?.email ?? n.authorId.map { app.memberName($0) }
+                        return CallWindowNote(id: n.id, text: n.body, author: author, at: n.createdAt)
+                    }
+            }
+            notes = list.sorted { ($0.at ?? .distantPast) < ($1.at ?? .distantPast) }
+        } catch {
+            if error is CancellationError { return }
+            if notes == nil { notes = [] }
+            Log.error("call notes", error)
+        }
+    }
+
+    func addNote() async {
+        let text = noteDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !addingNote else { return }
+        addingNote = true
+        noteError = nil
+        defer { addingNote = false }
+        do {
+            if let callId = desk?.callId {
+                try await app.api.addCallNote(workspaceId: workspaceId, callId: callId, note: text)
+            } else if let conversation {
+                try await app.api.addNote(conversationId: conversation.id, workspaceId: workspaceId, body: text)
+            }
+            noteDraft = ""
+            await loadNotes()
+        } catch {
+            Log.error("call note", error)
+            noteError = ErrorText.of(error, app.strings)
+        }
     }
 
     // MARK: Ending
@@ -299,6 +458,8 @@ final class LiveCall {
         ended = true
         runTask?.cancel()
         leftTask?.cancel()
+        handoverTask?.cancel()
+        notesTask?.cancel()
         Log.write("[call] ended \(outcome) \(detail ?? "")")
         phase = .ended(outcome)
         let room = self.room
@@ -319,7 +480,9 @@ final class LiveCall {
     private func tellServer(_ outcome: CallOutcome) async {
         // Ending is idempotent server-side, so a race with the visitor's own hang-up is harmless.
         do {
-            if let desk {
+            if outcome == .transferred {
+                // Handed on: the call is the colleague's now, and it goes on without this operator.
+            } else if let desk {
                 try await app.api.endCall(workspaceId: workspaceId, callId: desk.callId)
             } else if let sessionId {
                 try await app.api.hangUp(callSessionId: sessionId)

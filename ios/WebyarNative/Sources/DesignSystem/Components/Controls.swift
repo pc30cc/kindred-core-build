@@ -30,17 +30,35 @@ struct PrimaryButton: View {
             .frame(maxWidth: .infinity)
             .frame(height: Theme.Size.minTouchTarget + 6)
             .foregroundStyle(.white)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+            .background {
+                let shape = RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                // A gradient rather than a flat fill, and only here: the one
+                // committing action on a screen is the only thing in this app
+                // allowed to carry the brand as a surface.
+                shape.fill(Theme.Gradient.brand)
                     // Fading the whole button takes the white label down with
                     // it and leaves the title barely readable. Dimming only
                     // the fill keeps the text at full contrast, so a disabled
                     // button still says plainly what it will do.
-                    .fill(Theme.Palette.brand.opacity(isEnabled && !isLoading ? 1 : 0.4))
-            )
+                    .opacity(isEnabled && !isLoading ? 1 : 0.4)
+                    .overlay {
+                        // The lit top edge every raised iOS surface has. It
+                        // is what stops a filled rectangle reading as a flat
+                        // coloured box.
+                        shape.strokeBorder(
+                            LinearGradient(
+                                colors: [.white.opacity(0.34), .white.opacity(0.04)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 0.75
+                        )
+                    }
+                    .elevated(isEnabled && !isLoading ? .raised : .resting)
+            }
         }
         .disabled(!isEnabled || isLoading)
-        .buttonStyle(.plain)
+        .buttonStyle(PressableButtonStyle())
         .animation(Theme.Motion.standard, value: isLoading)
         .animation(Theme.Motion.standard, value: isEnabled)
     }
@@ -70,14 +88,113 @@ struct FilterPicker: View {
         return "\(title) (\(Format.number(count, language: language)))"
     }
 
+    @Namespace private var chip
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        Picker("", selection: $selection) {
-            ForEach(filters) { filter in
-                Text(label(for: filter)).tag(filter)
+        // Chips rather than a segmented control.
+        //
+        // `Picker(.segmented)` divides the width it is given equally, which
+        // is fine for two short words and wrong for what this screen
+        // actually shows: five queue names in Turkish, each with a count
+        // riding in the label. Everything shrank to fit the longest one and
+        // the counts -- the reason to glance at the control at all -- came
+        // out at eight points. A scrolling row gives every chip the width of
+        // its own words and the queue with forty waiting conversations can
+        // say so.
+        ScrollView(.horizontal) {
+            LiquidGlassGroup(spacing: Theme.Space.lg) {
+                HStack(spacing: Theme.Space.sm) {
+                    ForEach(filters) { filter in
+                        chipButton(for: filter)
+                    }
+                }
+                // Room for the glass edge and its shadow, which would
+                // otherwise be shaved off by the scroll view's bounds.
+                .padding(.vertical, Theme.Space.xs)
+                .padding(.horizontal, Theme.Space.xxs)
             }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
+        .scrollIndicators(.hidden)
+        // The shadow under a chip belongs outside the scroll view's clip.
+        .scrollClipDisabled()
+        .accessibilityElement(children: .contain)
+    }
+
+    private func chipButton(for filter: InboxFilter) -> some View {
+        let isSelected = filter == selection
+        let count = counts?.count(for: filter) ?? 0
+
+        return Button {
+            guard !isSelected else { return }
+            Haptics.selection()
+            withAnimation(reduceMotion ? nil : Theme.Motion.morph) {
+                selection = filter
+            }
+        } label: {
+            HStack(spacing: Theme.Space.xs) {
+                Text(filter.title(language))
+                    .font(.system(.subheadline, weight: isSelected ? .semibold : .medium))
+                    .lineLimit(1)
+
+                if count > 0 {
+                    Text(Format.number(count, language: language))
+                        .font(Theme.Typo.metaEmphasis)
+                        .monospacedDigit()
+                        // The count changes under the operator's eyes as
+                        // conversations arrive; rolling the digits says that
+                        // plainly where a cross-fade just flickers.
+                        .contentTransition(.numericText())
+                        .padding(.horizontal, Theme.Space.xs)
+                        .frame(minWidth: 20, minHeight: 19)
+                        .background(
+                            Capsule().fill(
+                                isSelected
+                                    ? Color.white.opacity(0.22)
+                                    : Theme.Palette.brand.opacity(0.13)
+                            )
+                        )
+                }
+            }
+            .foregroundStyle(isSelected ? Color.white : Theme.Palette.label)
+            .padding(.horizontal, Theme.Space.md)
+            .frame(height: 36)
+            .background {
+                if isSelected {
+                    Capsule(style: .continuous)
+                        .fill(Theme.Gradient.brand)
+                        .elevated(.resting)
+                        .matchedGeometryEffect(id: "chip", in: chip)
+                } else {
+                    Capsule(style: .continuous)
+                        .fill(.clear)
+                        .liquidGlass(.control, in: Capsule(style: .continuous))
+                }
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(PressableButtonStyle())
+        .accessibilityLabel(label(for: filter))
+        .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
+    }
+}
+
+// MARK: - Press feedback
+
+/// A tap that the thumb can feel.
+///
+/// `.plain` leaves a custom-drawn button completely inert under the finger,
+/// which on iOS reads as a tap that did not land -- the reason people tap a
+/// second time. Every hand-drawn control in this app uses this instead, so
+/// they all answer the same way.
+struct PressableButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
+            .opacity(configuration.isPressed ? 0.9 : 1)
+            .animation(.spring(response: 0.22, dampingFraction: 0.72), value: configuration.isPressed)
     }
 }
 
@@ -96,8 +213,14 @@ struct EmptyStateView: View {
     var body: some View {
         VStack(spacing: Theme.Space.md) {
             Image(systemName: systemImage)
-                .font(.system(size: 44, weight: .light))
-                .foregroundStyle(Theme.Palette.labelTertiary)
+                .font(.system(size: 34, weight: .light))
+                .foregroundStyle(Theme.Palette.brand)
+                .symbolRenderingMode(.hierarchical)
+                .frame(width: 76, height: 76)
+                // The glyph sits on its own disc rather than floating loose
+                // in the middle of the screen. An empty state is still a
+                // composed screen, not an absence of one.
+                .liquidGlass(.card, in: Circle())
 
             VStack(spacing: Theme.Space.xs) {
                 Text(title)
@@ -174,9 +297,10 @@ struct UnreadBadge: View {
             .font(Theme.Typo.metaEmphasis)
             .monospacedDigit()
             .foregroundStyle(.white)
+            .contentTransition(.numericText())
             .padding(.horizontal, Theme.Space.sm)
             .frame(minWidth: 22, minHeight: 20)
-            .background(Capsule().fill(Theme.Palette.brand))
+            .background(Capsule().fill(Theme.Gradient.brand).elevated(.resting))
             // The digits themselves localize with the reader's language; this
             // only stops the capped form rendering as "+99" under RTL.
             .environment(\.layoutDirection, .leftToRight)
@@ -194,7 +318,12 @@ struct StatusPill: View {
             .foregroundStyle(tint)
             .padding(.horizontal, Theme.Space.sm)
             .padding(.vertical, Theme.Space.xxs)
-            .background(Capsule().fill(tint.opacity(0.14)))
+            .background {
+                Capsule().fill(tint.opacity(0.13))
+                    // A hairline of the same colour keeps the pill legible
+                    // where the fill alone is nearly the page behind it.
+                    .overlay(Capsule().strokeBorder(tint.opacity(0.22), lineWidth: 0.5))
+            }
     }
 }
 

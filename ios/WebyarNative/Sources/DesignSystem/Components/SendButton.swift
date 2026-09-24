@@ -38,7 +38,13 @@ struct SendButton: View {
         Button(action: action) {
             ZStack {
                 Circle()
-                    .fill(Theme.Palette.brand.opacity(isEnabled && !isSending ? 1 : 0.35))
+                    .fill(Theme.Gradient.brand)
+                    .opacity(isEnabled && !isSending ? 1 : 0.35)
+                    .overlay(
+                        Circle().strokeBorder(.white.opacity(0.28), lineWidth: 0.75)
+                            .opacity(isEnabled && !isSending ? 1 : 0)
+                    )
+                    .elevated(isEnabled && !isSending ? .resting : .resting)
 
                 if isSending {
                     ProgressView()
@@ -48,6 +54,11 @@ struct SendButton: View {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(.white)
+                        // The arrow lifts the moment there is something to
+                        // send. One frame of movement is the difference
+                        // between a control that woke up and one that just
+                        // changed colour.
+                        .symbolEffect(.bounce, value: isEnabled)
                 }
             }
             .frame(width: Self.diameter, height: Self.diameter)

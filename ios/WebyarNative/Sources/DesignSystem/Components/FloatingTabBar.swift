@@ -31,24 +31,19 @@ struct FloatingTabBar<Tab: Hashable>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: Theme.Space.xs) {
-            ForEach(items) { item in
-                button(for: item)
+        LiquidGlassGroup(spacing: Theme.Space.xl) {
+            HStack(spacing: Theme.Space.xs) {
+                ForEach(items) { item in
+                    button(for: item)
+                }
             }
         }
         .padding(.horizontal, Theme.Space.sm)
         .padding(.vertical, Theme.Space.sm)
-        .background(
-            Capsule(style: .continuous)
-                .fill(.ultraThinMaterial)
-        )
-        .overlay(
-            // A hairline keeps the capsule's edge defined against a light
-            // background, where the material alone almost disappears.
-            Capsule(style: .continuous)
-                .strokeBorder(Theme.Palette.separator.opacity(0.35), lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.14), radius: 18, x: 0, y: 6)
+        // One call, three behaviours: Apple's glass on iOS 26, a material
+        // with a lit edge and a shadow before it, and a plain opaque bar for
+        // a reader who has asked for less transparency.
+        .liquidGlass(.chrome, in: Capsule(style: .continuous))
         .padding(.horizontal, Theme.Space.xl)
         // Measured from the bottom of the screen rather than from the bottom
         // of the safe area, which is why this is usually negative: the bar
@@ -81,6 +76,10 @@ struct FloatingTabBar<Tab: Hashable>: View {
                 Image(systemName: isSelected ? item.selectedIcon : item.icon)
                     .font(.system(size: 18, weight: .medium))
                     .symbolRenderingMode(.hierarchical)
+                    // The system's own micro-animation, not a hand-rolled
+                    // scale: SF Symbols know how their own strokes should
+                    // move, and `reduceMotion` already suppresses it.
+                    .symbolEffect(.bounce, value: isSelected)
 
                 Text(item.title)
                     .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
@@ -94,8 +93,15 @@ struct FloatingTabBar<Tab: Hashable>: View {
             .frame(height: Theme.Size.minTouchTarget + 4)
             .background {
                 if isSelected {
+                    // Brand-tinted glass rather than a flat wash. Inside the
+                    // group above, this and the bar are the same liquid: on
+                    // iOS 26 the bubble stretches out of the bar as it
+                    // travels and settles back into it, which is the whole
+                    // reason the tab bar reads as a substance and not as a
+                    // row of buttons.
                     Capsule(style: .continuous)
-                        .fill(Theme.Palette.brand.opacity(0.14))
+                        .fill(.clear)
+                        .liquidGlass(.control, in: Capsule(style: .continuous), tint: Theme.Palette.brand)
                         .matchedGeometryEffect(id: "selection", in: bubble)
                 }
             }

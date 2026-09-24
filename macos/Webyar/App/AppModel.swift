@@ -55,7 +55,7 @@ final class AppModel {
     /// The workspace's plan as the server sent it.
     private(set) var workspacePlan = WorkspacePlan.loading
     /// What this operator may see: the plan, less what the platform switched off for the Mac app.
-    var plan: WorkspacePlan { workspacePlan.limited(to: config.features) }
+    var plan: WorkspacePlan { workspacePlan }
     private(set) var presence: PresenceService?
     private(set) var callQueue: CallQueueWatcher?
     private(set) var realtimeConnected = false

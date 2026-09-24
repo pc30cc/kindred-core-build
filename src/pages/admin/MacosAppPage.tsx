@@ -20,7 +20,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Apple, LayoutDashboard, Download, SlidersHorizontal, Blocks, AppWindowMac, Wrench, Megaphone, Activity,
+  Apple, LayoutDashboard, Download, SlidersHorizontal, AppWindowMac, Wrench, Megaphone, Activity,
   Loader2, AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -37,7 +37,6 @@ import {
 import { MacosOverviewTab } from '@/components/admin/macos/MacosOverviewTab';
 import { MacosUpdatesTab } from '@/components/admin/macos/MacosUpdatesTab';
 import { MacosBehaviourTab } from '@/components/admin/macos/MacosBehaviourTab';
-import { MacosFeaturesTab } from '@/components/admin/macos/MacosFeaturesTab';
 import { MacosIntegrationTab } from '@/components/admin/macos/MacosIntegrationTab';
 import { MacosMaintenanceTab } from '@/components/admin/macos/MacosMaintenanceTab';
 import { macosProblems, maintenanceShowing, type MacosTab } from '@/components/admin/macos/macosModel';
@@ -48,7 +47,6 @@ const TABS: ReadonlyArray<{ value: MacosTab; icon: typeof Download }> = [
   { value: 'overview', icon: LayoutDashboard },
   { value: 'updates', icon: Download },
   { value: 'behaviour', icon: SlidersHorizontal },
-  { value: 'features', icon: Blocks },
   { value: 'integration', icon: AppWindowMac },
   { value: 'maintenance', icon: Wrench },
   { value: 'campaigns', icon: Megaphone },
@@ -174,9 +172,6 @@ export default function MacosAppPage() {
         </TabsContent>
         <TabsContent value="behaviour" className="space-y-4">
           <MacosBehaviourTab draft={draft} set={set} />
-        </TabsContent>
-        <TabsContent value="features" className="space-y-4">
-          <MacosFeaturesTab draft={draft} set={set} />
         </TabsContent>
         <TabsContent value="integration" className="space-y-4">
           <MacosIntegrationTab draft={draft} set={set} />

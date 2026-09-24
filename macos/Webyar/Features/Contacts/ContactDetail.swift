@@ -450,7 +450,7 @@ struct ContactCallRow: View {
             } else {
                 Chip(text: s["callStateEnded"], foreground: Palette.success, background: Palette.successSoft)
             }
-            if call.recordingAvailable == true {
+            if call.recordingAvailable == true && app.plan.callRecordings {
                 Chip(text: s["callRecorded"], foreground: Palette.ai, background: Palette.aiSoft, systemImage: "record.circle")
             }
         }

@@ -135,7 +135,7 @@ struct SidebarView: View {
                     if plan.emailInbox { sub(.email, s["emailInbox"], "envelope", badge: 0, color: Palette.brand) }
                     // The other inboxes (Telegram, WhatsApp, …) are pages of the inbox too.
                     if plan.isAdmin {
-                        ForEach(app.channels, id: \.self) { key in
+                        ForEach(app.channels.filter { plan.channelInbox($0) }, id: \.self) { key in
                             sub(.channel(key), Display.channelLabel(key, s), channelIcon(key), badge: 0, color: Palette.brand)
                         }
                     }

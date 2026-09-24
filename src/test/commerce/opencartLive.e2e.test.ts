@@ -121,7 +121,10 @@ run('OpenCart live store, end to end', () => {
       return res;
     }) as typeof fetch;
     fake.db.commerce_connections = [connection(CONN0, INST0, BASE, '0'), ...(BASE1 ? [connection(CONN1, INST1, BASE1, '1')] : [])];
-    fake.db.conversations = [{ id: CONV, workspace_id: WS, visitor_session_id: VISITOR, metadata: {} }];
+    // As production writes them: the visitor is in metadata; AI-started
+    // conversations have no visitor session.
+    fake.db.conversations = [{ id: CONV, workspace_id: WS, visitor_session_id: null, metadata: { visitor_id: VISITOR } }];
+    fake.db.visitor_sessions = [];
     ({ runCommerceToolStage: runStage } = await import('../../../server/services/ai-agent/commerce-tools/runner.js'));
     ({ verifyAndBindCustomerContext: bind, unbindCustomerContext: unbind } = await import('../../../server/services/commerce/identityBridge.js'));
     ({ runCapabilityHandshake: handshake } = await import('../../../server/services/commerce/pairing.js'));
@@ -308,7 +311,7 @@ run('OpenCart live store, end to end', () => {
   it('a workspace with ONE store needs no store-selection reads', async () => {
     const caps = ['store.read', 'products.read', 'availability.read', 'reviews.read', 'orders.read', 'tracking.read', 'returns.read', 'customer_context', 'widget.bootstrap', 'search.direct'];
     fake.db.commerce_connections = [{ ...connection(CONN0, INST0, BASE, '0'), health: 'connected', capabilities: caps }];
-    fake.db.conversations.push({ id: CONV_SINGLE, workspace_id: WS, visitor_session_id: VISITOR_SINGLE, metadata: {} });
+    fake.db.conversations.push({ id: CONV_SINGLE, workspace_id: WS, visitor_session_id: null, metadata: { visitor_id: VISITOR_SINGLE } });
     guard.connectionGuard.reset();
     guard.publicCache.clear();
     const r = await measure('product search (guest), workspace with one store', () => runStage(CONFIG, { workspaceId: WS, conversationId: CONV_SINGLE, question: 'do you have iphone?', locale: 'en' }));

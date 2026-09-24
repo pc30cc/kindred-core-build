@@ -18,6 +18,7 @@ import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { OperatorAvatarFallback } from '@/components/ui/operator-avatar-fallback';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
@@ -276,7 +277,7 @@ export default function TeamChatPanel() {
                   <div className="relative shrink-0">
                     <Avatar className="w-10 h-10">
                       <AvatarImage src={c.avatar_url ?? undefined} alt={c.full_name || c.email || ''} />
-                      <AvatarFallback className="text-[11px] font-semibold">{initials(c.full_name, c.email)}</AvatarFallback>
+                      <OperatorAvatarFallback />
                     </Avatar>
                     <span className={cn(
                       'absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card',
@@ -345,7 +346,7 @@ export default function TeamChatPanel() {
               <div className="relative">
                 <Avatar className="w-9 h-9">
                   <AvatarImage src={peer.avatar_url ?? undefined} alt={peer.full_name || ''} />
-                  <AvatarFallback className="text-[11px] font-semibold">{initials(peer.full_name, peer.email)}</AvatarFallback>
+                  <OperatorAvatarFallback />
                 </Avatar>
                 <span className={cn(
                   'absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card',

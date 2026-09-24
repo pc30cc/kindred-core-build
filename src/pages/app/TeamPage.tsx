@@ -15,6 +15,7 @@ import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
 import { PRESENCE_DOT_CLASS, presenceHintKey, presenceStateOf } from '@/lib/presenceState';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { OperatorAvatarFallback } from '@/components/ui/operator-avatar-fallback';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -66,9 +67,7 @@ export default function TeamPage() {
                     <div className="relative">
                       <Avatar className="h-9 w-9">
                         {m.avatar_url && <AvatarImage src={m.avatar_url} alt="" />}
-                        <AvatarFallback className="text-xs">
-                          {initials(m.full_name, m.email)}
-                        </AvatarFallback>
+                        <OperatorAvatarFallback />
                       </Avatar>
                       <span
                         className={cn(

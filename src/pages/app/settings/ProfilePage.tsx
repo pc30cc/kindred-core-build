@@ -32,6 +32,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { OperatorAvatarFallback } from '@/components/ui/operator-avatar-fallback';
 import {
   Dialog,
   DialogContent,
@@ -312,9 +313,7 @@ export default function SettingsProfilePage() {
           <div className="relative">
             <Avatar className="h-24 w-24 ring-1 ring-border/60">
               {avatarUrl ? <AvatarImage src={avatarUrl} alt={fullName || me?.email || ''} /> : null}
-              <AvatarFallback className="bg-gradient-to-br from-primary/15 to-primary/5 text-lg font-semibold text-primary">
-                {getInitials(fullName, me?.email)}
-              </AvatarFallback>
+              <OperatorAvatarFallback />
             </Avatar>
             <button
               type="button"

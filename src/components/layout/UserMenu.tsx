@@ -8,6 +8,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { OperatorAvatarFallback } from '@/components/ui/operator-avatar-fallback';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useProfile } from '@/hooks/useProfile';
 import { useWorkspacePath, useCurrentWorkspace } from '@/hooks/useWorkspace';
@@ -77,9 +78,7 @@ export function UserMenu() {
         <div className="relative">
           <Avatar className="h-10 w-10 shrink-0">
             {userAvatarUrl ? <AvatarImage src={userAvatarUrl} alt={userName} /> : null}
-            <AvatarFallback className="bg-primary text-xs font-bold text-primary-foreground">
-              {userName.charAt(0).toUpperCase()}
-            </AvatarFallback>
+            <OperatorAvatarFallback />
           </Avatar>
           <span className="absolute -bottom-0.5 -end-0.5 h-2.5 w-2.5 rounded-full border-2 border-background bg-success" />
         </div>
@@ -97,9 +96,7 @@ export function UserMenu() {
           <div className="flex items-center gap-3 border-b border-border px-4 py-3">
             <Avatar className="h-10 w-10 shrink-0">
               {userAvatarUrl ? <AvatarImage src={userAvatarUrl} alt={userName} /> : null}
-              <AvatarFallback className="bg-primary text-sm font-bold text-primary-foreground">
-                {userName.charAt(0).toUpperCase()}
-              </AvatarFallback>
+              <OperatorAvatarFallback />
             </Avatar>
             <div className="min-w-0">
               <p className="truncate text-sm font-bold text-foreground">{userName}</p>

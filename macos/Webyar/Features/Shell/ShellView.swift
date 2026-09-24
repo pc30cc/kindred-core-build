@@ -14,13 +14,19 @@ struct ShellView: View {
                 NavigationSplitView(columnVisibility: $columns) {
                     SidebarView()
                         .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 300)
-                } content: {
-                    PageList(route: app.route, pages: pages)
-                        .navigationSplitViewColumnWidth(340)
                 } detail: {
-                    PageDetail(route: app.route, pages: pages)
-                        .navigationSplitViewColumnWidth(min: 440, ideal: 760)
-                        .safeAreaInset(edge: .top, spacing: 0) { ShellBanners() }
+                    // The page: its list at a fixed width beside its detail, as on
+                    // Windows (a 340 column, then the rest). A plain stack rather than
+                    // a third split column, so a wider window widens the detail.
+                    HStack(spacing: 0) {
+                        PageList(route: app.route, pages: pages)
+                            .frame(width: 340)
+                            .frame(maxHeight: .infinity)
+                        Divider()
+                        PageDetail(route: app.route, pages: pages)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .safeAreaInset(edge: .top, spacing: 0) { ShellBanners() }
+                    }
                 }
                 .overlay(alignment: .bottomTrailing) {
                     IncomingCallCard()

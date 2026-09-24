@@ -505,6 +505,20 @@ final class AppModel {
         Typeface.persian = language == .fa
         engagement.refresh()
         background?.kick()
+        relayoutWindows()
+    }
+
+    /// When the direction flips, the split view keeps its columns' old frames
+    /// until the window next changes size — so change it, by a point and back.
+    private func relayoutWindows() {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(80))
+            for w in NSApp.windows where w.isVisible && w.styleMask.contains(.resizable) && w.frame.width > 500 {
+                let f = w.frame
+                w.setFrame(NSRect(x: f.minX, y: f.minY, width: f.width + 1, height: f.height), display: false)
+                w.setFrame(f, display: true)
+            }
+        }
     }
 
     func setAppearance(_ appearance: Appearance) {

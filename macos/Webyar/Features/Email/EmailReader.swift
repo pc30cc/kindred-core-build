@@ -77,7 +77,7 @@ enum EmailHTML {
             html += "<details\(open ? " open" : "")><summary>"
             html += "<div class=\"av\" style=\"background:linear-gradient(135deg,\(c1),\(c2))\">\(escape(art.initials))</div>"
             html += "<div class=\"who\"><div class=\"from\" dir=\"auto\">\(escape(from.display))"
-            if from.name != nil { html += " <span class=\"sub\">&lt;\(escape(from.email))&gt;</span>" }
+            if from.name != nil { html += " <span class=\"sub\" dir=\"ltr\">&lt;\(escape(from.email))&gt;</span>" }
             html += "</div><div class=\"sub full\" dir=\"auto\">\(escape(recipients))</div>"
             html += "<div class=\"sub snip\" dir=\"auto\">\(escape(snippet))</div></div>"
             html += "<div class=\"when\">\(escape(when))</div></summary>"

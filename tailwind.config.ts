@@ -30,6 +30,12 @@ export default {
         display: ['var(--font-heading)', 'var(--font-primary)', 'IRANSans', 'InterWY', 'system-ui', 'sans-serif'],
       },
       colors: {
+        brand: {
+          teal: "hsl(var(--brand-teal))",
+          sky: "hsl(var(--brand-sky))",
+          violet: "hsl(var(--brand-violet))",
+          coral: "hsl(var(--brand-coral))",
+        },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",

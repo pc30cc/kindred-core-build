@@ -104,6 +104,8 @@ final class LiveCall {
     @ObservationIgnored private var transferTargetId: String?
     @ObservationIgnored private var notesTask: Task<Void, Never>?
     @ObservationIgnored private var handoverTask: Task<Void, Never>?
+    @ObservationIgnored private var remoteVideoGone: Task<Void, Never>?
+    @ObservationIgnored private var lastRoomLine = ""
 
     /// Only a call-center call can be handed on (the server's transfer is the desk's).
     var canTransfer: Bool { desk != nil }
@@ -149,8 +151,14 @@ final class LiveCall {
 
     private func run() async {
         #if DEBUG
-        if desk != nil, DebugTools.sample {
-            // Sample mode has no media server: show the desk call as if it had connected.
+        if DebugTools.sample {
+            // Sample mode has no media server: show the call as if it had connected — a call from a
+            // conversation after a moment of ringing, and with the server's "no relay" warning, as
+            // production sends it when no TURN server is configured.
+            if desk == nil {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                warningKey = "callRelayWarning"
+            }
             phase = .connected
             connectedAt = Date()
             return
@@ -329,12 +337,52 @@ final class LiveCall {
             localVideoTrack = nil
             return
         }
-        // The visitor's camera first: a colleague joining a handed-over call is not who the operator is talking to.
-        let people = room.remoteParticipants.values.sorted { !Self.isOperator($0) && Self.isOperator($1) }
-        let remote: [TrackPublication] = people.flatMap { $0.videoTracks }
-        remoteVideoTrack = remote.first { $0.isSubscribed && !$0.isMuted }?.track as? VideoTrack
-        localVideoTrack = room.localParticipant.videoTracks.first { !$0.isMuted }?.track as? VideoTrack
+        // Only the visitor's camera, in a fixed order: an operator in the room (a colleague taking a
+        // handed-over call, or this operator's own web console) is not who the call shows, and picking
+        // among participants in the dictionary's changing order made the picture come and go.
+        let visitors = room.remoteParticipants.values
+            .filter { !Self.isOperator($0) }
+            .sorted { ($0.identity?.stringValue ?? "") < ($1.identity?.stringValue ?? "") }
+        let remote = visitors.flatMap { $0.videoTracks }.first { $0.isSubscribed && !$0.isMuted }?.track as? VideoTrack
+        setRemoteVideo(remote)
+        localVideoTrack = isVideo ? room.localParticipant.videoTracks.first { !$0.isMuted }?.track as? VideoTrack : nil
+        logRoom(room)
         checkHandover()
+    }
+
+    /// A picture that goes away is let go only if it stays away a moment: a track that is
+    /// re-published or briefly unsubscribed must not flip the window's layout back and forth.
+    private func setRemoteVideo(_ track: VideoTrack?) {
+        if let track {
+            remoteVideoGone?.cancel()
+            remoteVideoGone = nil
+            if remoteVideoTrack !== track { remoteVideoTrack = track }
+            return
+        }
+        guard remoteVideoTrack != nil, remoteVideoGone == nil else { return }
+        remoteVideoGone = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.remoteVideoGone = nil
+            self.remoteVideoTrack = nil
+            // Re-read, in case it came back without an event.
+            self.syncTracks()
+        }
+    }
+
+    /// Who is in the room and what they send, logged whenever it changes — how a call really went.
+    private func logRoom(_ room: Room) {
+        let people = room.remoteParticipants.values.map { p -> String in
+            let id = p.identity?.stringValue ?? "?"
+            let who = id.hasPrefix("operator:") ? "operator" : String(id.prefix(while: { $0 != ":" }))
+            let video = p.videoTracks.map { "\($0.isSubscribed ? "sub" : "unsub")\($0.isMuted ? "/muted" : "")" }.joined(separator: ",")
+            let audio = p.audioTracks.isEmpty ? "" : " audio"
+            return "\(who)[\(video)\(audio)]"
+        }.sorted().joined(separator: " ")
+        let line = "remote: \(people.isEmpty ? "none" : people) local video: \(localVideoTrack != nil)"
+        guard line != lastRoomLine else { return }
+        lastRoomLine = line
+        Log.write("[call] \(line)")
     }
 
     /// Operators join as `operator:<user id>` (the server's LiveKit identity); visitors as something else.
@@ -460,6 +508,7 @@ final class LiveCall {
         leftTask?.cancel()
         handoverTask?.cancel()
         notesTask?.cancel()
+        remoteVideoGone?.cancel()
         Log.write("[call] ended \(outcome) \(detail ?? "")")
         phase = .ended(outcome)
         let room = self.room

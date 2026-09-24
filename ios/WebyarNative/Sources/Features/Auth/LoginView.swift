@@ -8,6 +8,12 @@ struct LoginView: View {
     @State private var showPassword = false
     @State private var isSubmitting = false
     @State private var errorMessage: String?
+    /// How many times this screen has been told no.
+    ///
+    /// A counter rather than the message, because two wrong passwords in a
+    /// row produce the same string and comparing strings would animate only
+    /// the first of them.
+    @State private var rejections = 0
 
     @FocusState private var focus: Field?
     private enum Field { case email, password }
@@ -38,6 +44,9 @@ struct LoginView: View {
 
                         AuthCard { fields }
                             .padding(.top, Theme.Space.xxl)
+                            // What a wrong password looks like before the
+                            // sentence under it has been read.
+                            .shakesOnChange(rejections)
 
                         if let errorMessage {
                             AuthErrorBanner(message: errorMessage)
@@ -198,10 +207,12 @@ struct LoginView: View {
                 withAnimation(Theme.Motion.standard) {
                     errorMessage = message(for: error)
                 }
+                rejections += 1
             } catch {
                 withAnimation(Theme.Motion.standard) {
                     errorMessage = Str.loginFailed(language)
                 }
+                rejections += 1
             }
             isSubmitting = false
         }

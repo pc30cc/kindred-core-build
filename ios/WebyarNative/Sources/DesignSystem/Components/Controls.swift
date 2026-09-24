@@ -314,6 +314,9 @@ struct UnreadBadge: View {
             .padding(.horizontal, Theme.Space.sm)
             .frame(minWidth: 22, minHeight: 20)
             .background(Capsule().fill(Theme.Gradient.brand).elevated(.resting))
+            // A conversation just arrived in a queue the operator is looking
+            // at. The digits already roll; this is the badge itself noticing.
+            .jumpsOnChange(count)
             // The digits themselves localize with the reader's language; this
             // only stops the capped form rendering as "+99" under RTL.
             .environment(\.layoutDirection, .leftToRight)

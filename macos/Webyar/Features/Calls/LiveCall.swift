@@ -149,8 +149,14 @@ final class LiveCall {
 
     private func run() async {
         #if DEBUG
-        if desk != nil, DebugTools.sample {
-            // Sample mode has no media server: show the desk call as if it had connected.
+        if DebugTools.sample {
+            // Sample mode has no media server: show the call as if it had connected — a call from a
+            // conversation after a moment of ringing, and with the server's "no relay" warning, as
+            // production sends it when no TURN server is configured.
+            if desk == nil {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                warningKey = "callRelayWarning"
+            }
             phase = .connected
             connectedAt = Date()
             return

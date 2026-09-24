@@ -99,6 +99,7 @@ final class AppModel {
 
     @ObservationIgnored private var countsPoller: Poller?
     @ObservationIgnored private var planPoller: Poller?
+    @ObservationIgnored private var planAskedAt = Date.distantPast
     @ObservationIgnored private var platformTimer: Timer?
     @ObservationIgnored private var background: BackgroundNotifier?
     @ObservationIgnored private var channelsLoaded = false
@@ -447,9 +448,10 @@ final class AppModel {
         guard let ws = workspace else { return }
         countsPoller = Poller("sidebar counts", interval: { 15 }) { [weak self] in try await self?.loadSidebar(ws.id) }
         countsPoller?.start()
-        // The super admin can change the plan at any time; pick it up without a restart.
-        planPoller = Poller("plan", interval: { 180 }) { [weak self] in
-            try await Task.sleep(nanoseconds: 180 * 1_000_000_000)
+        // The super admin can change the plan at any time, and nothing announces it:
+        // ask again about every two minutes, and whenever the window comes forward.
+        planPoller = Poller("plan", interval: { 60 }) { [weak self] in
+            try await Task.sleep(nanoseconds: 60 * 1_000_000_000)
             await self?.loadPlan()
         }
         planPoller?.start()
@@ -641,8 +643,14 @@ final class AppModel {
     // MARK: Window
 
     func setForeground(_ on: Bool) {
+        let cameForward = on && !isForeground
         isForeground = on
         if on { presence?.noteInteraction() }
+        // What the plan offers may have changed while the app was behind other windows.
+        if cameForward, Date().timeIntervalSince(planAskedAt) > 30 {
+            planAskedAt = Date()
+            Task { await loadPlan() }
+        }
     }
 
     func noteInteraction() { presence?.noteInteraction() }

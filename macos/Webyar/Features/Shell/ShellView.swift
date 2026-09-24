@@ -326,8 +326,11 @@ struct AccountCorner: View {
             AccountMenu(close: { open = false },
                         signOut: { open = false; confirmSignOut = true },
                         setInvisible: setInvisible)
-                // A popover is a window of its own: set the reading direction again.
+                // A popover is a window of its own: set the reading direction again, and
+                // a solid card rather than the popover's see-through material.
                 .environment(\.layoutDirection, s.isRightToLeft ? .rightToLeft : .leftToRight)
+                .background(Palette.surface)
+                .presentationBackground(Palette.surface)
         }
         #if DEBUG
         // DebugTools' `account`: opens the card as a click would.

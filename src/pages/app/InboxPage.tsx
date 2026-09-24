@@ -65,7 +65,7 @@ import { interpolate } from '@/components/canned-responses/interpolation';
 import { useTrackCannedResponseUse } from '@/hooks/useCannedResponses';
 import type { CannedLocale, CannedResponse } from '@/lib/canned-responses-api';
 import { useProfile } from '@/hooks/useProfile';
-import { Zap } from 'lucide-react';
+import { Zap, Headset } from 'lucide-react';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { MessageAttachmentView, humanSize } from '@/components/inbox/MessageAttachmentView';
 import { ChannelBadge, ChannelIdentityCard, resolveChannelKey } from '@/components/inbox/ChannelBadge';

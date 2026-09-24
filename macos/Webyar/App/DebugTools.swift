@@ -90,7 +90,8 @@ enum DebugTools {
         case "deskcall":
             // A desk call answered: sample mode shows it connected.
             let video = arg == "video"
-            let call = CallSession(id: "cs-1", callType: video ? "video" : "voice", visitorName: "Ayşe Yılmaz", visitorEmail: "ayse@example.com.tr", pageTitle: "Pricing — Webyar")
+            let call = CallSession(id: "cs-1", callType: video ? "video" : "voice", visitorName: "Ayşe Yılmaz", visitorEmail: "ayse@example.com.tr", pageTitle: "Pricing — Webyar",
+                                   visitorSessionId: "00000000-0000-4000-8000-000000000002")
             CallCoordinator.shared.joinAccepted(app: app, accept: CallAccept(ok: true), call: call, callId: "cs-1")
         case "callui": CallCoordinator.shared.call?.debugOpen = arg
         case "callnote":

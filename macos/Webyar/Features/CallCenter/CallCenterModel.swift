@@ -443,6 +443,8 @@ final class CallCenterModel {
             } else {
                 var call = item.entry.callSession ?? Self.session(for: item.entry)
                 if item.entry.isVideo { call.callType = "video" }
+                // The caller's face on the call is looked up by their visitor session.
+                if call.visitorSessionId == nil { call.visitorSessionId = item.entry.visitorSessionId }
                 CallCoordinator.shared.joinAccepted(app: app, accept: accept, call: call, callId: id)
             }
             app.callQueue?.kick()

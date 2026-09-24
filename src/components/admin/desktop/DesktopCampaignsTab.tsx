@@ -1,12 +1,18 @@
 /**
- * Super Admin → Desktop app → Ads & announcements.
+ * Super Admin → Desktop app / macOS app → Ads & announcements.
  *
- * Each row is one creative the Windows app shows: an ad card in the
+ * Each row is one creative a desktop app shows: an ad card in the
  * placements ticked here, or an announcement in the banner strip at the top
- * of the app. Targeting is by billing plan (none ticked = every plan) and by
- * schedule; texts are per locale with Persian, then English, as fallbacks.
+ * of the app. Targeting is by app, by billing plan (none ticked = every
+ * plan) and by schedule; texts are per locale with Persian, then English, as
+ * fallbacks.
  * The app fetches GET /api/desktop-app/campaigns every few minutes, so a
  * change here reaches running copies without a restart.
+ *
+ * The pool is shared by the Windows and the Mac app. With a `platform`, the
+ * tab lists only what that app shows (its own rows and the shared ones) and
+ * new items start targeted at it; each row can still be pointed at either
+ * app, or both, from the editor's "Show on" control.
  */
 import { useMemo, useState } from 'react';
 import { Megaphone, Plus, Pencil, Trash2, Loader2, CalendarClock, Target, Image as ImageIcon, Bell } from 'lucide-react';
@@ -36,7 +42,9 @@ import {
   type DesktopCampaign,
   type DesktopCampaignInput,
   type DesktopPlacement,
+  type DesktopPlatform,
 } from '@/hooks/useDesktopApp';
+import { PlatformBadge, PlatformTargetPicker } from '@/components/admin/desktop/DesktopPlatformTargets';
 import { cn } from '@/lib/utils';
 
 const AD_PLACEMENTS: DesktopPlacement[] = ['inbox_list', 'colleagues_list', 'contacts_list', 'chat_empty', 'settings'];
@@ -51,10 +59,12 @@ const SEVERITY_TONE: Record<CampaignSeverity, string> = {
   critical: 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30',
 };
 
-const blank = (kind: 'ad' | 'announcement'): DesktopCampaignInput => ({
+const blank = (kind: 'ad' | 'announcement', platform?: DesktopPlatform): DesktopCampaignInput => ({
   kind,
   name: '',
   placements: kind === 'ad' ? ['inbox_list'] : ['banner'],
+  // Created from one app's panel → shown on that app only, until widened in "Show on".
+  platforms: platform ? [platform] : [],
   target_plans: [],
   text: { fa: {}, en: {}, tr: {} },
   image_url: null,
@@ -108,9 +118,9 @@ function status(c: DesktopCampaign): 'live' | 'scheduled' | 'ended' | 'off' {
   return 'live';
 }
 
-export function DesktopCampaignsTab() {
+export function DesktopCampaignsTab({ platform }: { platform?: DesktopPlatform } = {}) {
   const { t, locale } = useTranslation();
-  const { data, isLoading } = useDesktopCampaigns();
+  const { data, isLoading } = useDesktopCampaigns(platform);
   const plans = useAdminPlanOptions();
   const save = useSaveDesktopCampaign();
   const remove = useDeleteDesktopCampaign();
@@ -169,9 +179,15 @@ export function DesktopCampaignsTab() {
     <SettingsSection
       icon={kind === 'ad' ? Megaphone : Bell}
       heading={t(kind === 'ad' ? 'admin.desktopApp.campaigns.adsTitle' : 'admin.desktopApp.campaigns.announcementsTitle')}
-      caption={t(kind === 'ad' ? 'admin.desktopApp.campaigns.adsCaption' : 'admin.desktopApp.campaigns.announcementsCaption')}
+      caption={t(
+        kind === 'announcement'
+          ? 'admin.desktopApp.campaigns.announcementsCaption'
+          : platform === 'macos'
+            ? 'admin.desktopApp.campaigns.adsCaptionMacos'
+            : 'admin.desktopApp.campaigns.adsCaption',
+      )}
       action={
-        <Button size="sm" onClick={() => setEditing({ input: blank(kind) })}>
+        <Button size="sm" onClick={() => setEditing({ input: blank(kind, platform) })}>
           <Plus className="me-1.5 h-4 w-4" />
           {t(kind === 'ad' ? 'admin.desktopApp.campaigns.newAd' : 'admin.desktopApp.campaigns.newAnnouncement')}
         </Button>
@@ -226,6 +242,7 @@ export function DesktopCampaignsTab() {
                     {c.text?.[locale as CampaignLocale]?.body || c.text?.fa?.body || c.text?.en?.body}
                   </p>
                   <div className="flex flex-wrap gap-1.5 text-xs">
+                    <PlatformBadge platforms={c.platforms} />
                     {c.placements.map((p) => (
                       <Badge key={p} variant="secondary" className="font-normal">
                         {t(`admin.desktopApp.campaigns.placement.${p}` as TranslationKey)}
@@ -253,8 +270,11 @@ export function DesktopCampaignsTab() {
                     variant="ghost"
                     className="rounded-full"
                     onClick={() => {
-                      const { id, created_at, updated_at, ...input } = c;
-                      setEditing({ id, input: { ...input, text: { fa: {}, en: {}, tr: {}, ...input.text } } });
+                      const { id, created_at, updated_at, platforms, ...input } = c;
+                      setEditing({
+                        id,
+                        input: { ...input, platforms: platforms ?? [], text: { fa: {}, en: {}, tr: {}, ...input.text } },
+                      });
                     }}
                   >
                     <Pencil className="h-4 w-4" />
@@ -472,6 +492,8 @@ function CampaignEditor({
           <p className="text-xs text-destructive">{t('admin.desktopApp.campaigns.placementRequired')}</p>
         )}
       </div>
+
+      <PlatformTargetPicker value={value.platforms} onChange={(platforms) => set({ platforms })} />
 
       <div className="grid gap-2">
         <Label className="flex items-center gap-1.5">

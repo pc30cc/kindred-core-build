@@ -12,6 +12,17 @@ const files = [
   'src/pages/admin/DesktopAppPage.tsx',
   'src/components/admin/desktop/DesktopUpdatesTab.tsx',
   'src/components/admin/desktop/DesktopBehaviourTab.tsx',
+  'src/components/admin/desktop/DesktopCampaignsTab.tsx',
+  'src/components/admin/desktop/DesktopLiveTab.tsx',
+  'src/components/admin/desktop/DesktopPlatformTargets.tsx',
+  'src/pages/admin/MacosAppPage.tsx',
+  'src/components/admin/macos/MacosOverviewTab.tsx',
+  'src/components/admin/macos/MacosUpdatesTab.tsx',
+  'src/components/admin/macos/MacosBehaviourTab.tsx',
+  'src/components/admin/macos/MacosFeaturesTab.tsx',
+  'src/components/admin/macos/MacosIntegrationTab.tsx',
+  'src/components/admin/macos/MacosMaintenanceTab.tsx',
+  'src/components/admin/macos/MacosNote.tsx',
   'src/components/admin/mobile/MobileOverviewTab.tsx',
   'src/components/admin/mobile/MobileIdentityTab.tsx',
   'src/components/admin/mobile/MobileBuildTab.tsx',
@@ -38,6 +49,8 @@ const files = [
 const technicalCopy = new Set([
   'Info.plist', 'PrivacyInfo.xcprivacy', 'App.entitlements', 'GoogleService-Info.plist',
   'ios/generated.xcconfig', 'config/ios-app.json', 'npm run ios:sync',
+  // The scheme every link field requires, shown as its placeholder.
+  'https://',
 ]);
 
 const visibleProps = new Set([
@@ -73,7 +86,7 @@ function untranslated(path: string): string[] {
 }
 
 describe('Super Admin phase 17 localization', () => {
-  it.each(['mobileApp', 'desktopApp', 'notifications'] as const)(
+  it.each(['mobileApp', 'desktopApp', 'macosApp', 'notifications'] as const)(
     'keeps the complete %s key tree identical in all locales',
     (namespace) => {
       const branch = (locale: typeof en) =>
@@ -89,6 +102,7 @@ describe('Super Admin phase 17 localization', () => {
       const nav = (locale.admin as unknown as { nav: Record<string, string> }).nav;
       expect(nav.mobileApp).toBeTruthy();
       expect(nav.desktopApp).toBeTruthy();
+      expect(nav.macosApp).toBeTruthy();
       expect(nav.notifications).toBeTruthy();
     }
   });

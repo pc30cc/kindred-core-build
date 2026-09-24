@@ -1,13 +1,14 @@
 /**
- * WINDOWS APP — signed-in endpoints beyond the public config.
+ * DESKTOP APPS (Windows, macOS) — signed-in endpoints beyond the public config.
  *
- *   GET  /api/desktop-app/campaigns?workspace_id=&locale=
+ *   GET  /api/desktop-app/campaigns?workspace_id=&locale=&platform=
  *        → { campaigns: ClientCampaign[] }  ads + announcements for this
- *          workspace's plan, already in one locale. Never an error state:
- *          a failure is an empty list.
+ *          workspace's plan and this app (platform: windows | macos; the
+ *          Windows app, which predates it, sends none), already in one
+ *          locale. Never an error state: a failure is an empty list.
  *
  *   POST /api/desktop-app/heartbeat
- *        { session_id, workspace_id?, version?, os?, after_seq? }
+ *        { session_id, workspace_id?, version?, os?, platform?, after_seq? }
  *        → { interval_seconds, broadcasts: [...], latest_seq }
  *        Counts this copy as running (in memory, see services/desktopApp/
  *        live.ts) and hands back any Super Admin broadcast it has not seen.
@@ -20,8 +21,8 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { authorizeWorkspaceAccess, requireUser } from '../lib/workspaceAuth.js';
 import { getWorkspacePlanInfo } from '../middleware/featureGating.js';
-import { loadLiveCampaigns, pickLocale, targetsPlan, toClient } from '../services/desktopApp/campaigns.js';
-import { broadcastsAfter, goodbye, heartbeat, HEARTBEAT_SECONDS } from '../services/desktopApp/live.js';
+import { loadLiveCampaigns, pickLocale, targetsPlan, targetsPlatform, toClient } from '../services/desktopApp/campaigns.js';
+import { broadcastsAfter, goodbye, heartbeat, HEARTBEAT_SECONDS, platformOf } from '../services/desktopApp/live.js';
 
 export const desktopAppClientRouter = Router();
 
@@ -45,8 +46,9 @@ desktopAppClientRouter.get('/campaigns', async (req, res) => {
       planSlug = null;
     }
     const locale = pickLocale(req.query.locale);
+    const platform = platformOf(req.query.platform, null);
     const campaigns = rows
-      .filter((r) => targetsPlan(r, planSlug))
+      .filter((r) => targetsPlatform(r, platform) && targetsPlan(r, planSlug))
       .map((r) => toClient(r, locale))
       .filter((c): c is NonNullable<typeof c> => c !== null);
     return res.json({ campaigns });
@@ -60,6 +62,7 @@ const heartbeatSchema = z.object({
   workspace_id: z.string().uuid().nullable().optional(),
   version: z.string().trim().max(40).nullable().optional(),
   os: z.string().trim().max(80).nullable().optional(),
+  platform: z.enum(['windows', 'macos']).optional(),
   after_seq: z.coerce.number().int().optional(),
 });
 
@@ -69,14 +72,16 @@ desktopAppClientRouter.post('/heartbeat', async (req, res) => {
   const parsed = heartbeatSchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
   const b = parsed.data;
+  const platform = platformOf(b.platform, b.os);
   heartbeat({
     sessionId: b.session_id,
     userId,
     workspaceId: b.workspace_id ?? null,
     version: b.version ?? null,
     os: b.os ?? null,
+    platform,
   });
-  const { items, latest } = broadcastsAfter(b.after_seq ?? -1);
+  const { items, latest } = broadcastsAfter(b.after_seq ?? -1, platform);
   return res.json({
     interval_seconds: HEARTBEAT_SECONDS,
     latest_seq: latest,

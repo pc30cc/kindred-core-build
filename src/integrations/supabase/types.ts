@@ -8725,6 +8725,7 @@ export type Database = {
           kind: string
           name: string
           placements: string[]
+          platforms: string[]
           priority: number
           severity: string
           starts_at: string | null
@@ -8743,6 +8744,7 @@ export type Database = {
           kind?: string
           name?: string
           placements?: string[]
+          platforms?: string[]
           priority?: number
           severity?: string
           starts_at?: string | null
@@ -8761,6 +8763,7 @@ export type Database = {
           kind?: string
           name?: string
           placements?: string[]
+          platforms?: string[]
           priority?: number
           severity?: string
           starts_at?: string | null
@@ -9905,6 +9908,135 @@ export type Database = {
           id?: string
           ip_address?: string
           success?: boolean
+        }
+        Relationships: []
+      }
+      macos_app_settings: {
+        Row: {
+          appcast_url: string | null
+          attachments_enabled: boolean
+          auto_download_enabled: boolean
+          auto_update_enabled: boolean
+          blocked_versions: string[]
+          call_center_enabled: boolean
+          calls_enabled: boolean
+          colleagues_enabled: boolean
+          contacts_enabled: boolean
+          created_at: string
+          default_appearance: string
+          default_close_to_menu_bar: boolean
+          default_language: string
+          default_launch_at_login: boolean
+          dock_badge_enabled: boolean
+          download_url: string | null
+          email_enabled: boolean
+          id: string
+          latest_version: string | null
+          launch_at_login_enabled: boolean
+          maintenance_enabled: boolean
+          maintenance_message: Json
+          maintenance_until: string | null
+          menu_bar_extra_enabled: boolean
+          minimum_supported_version: string | null
+          notifications_enabled: boolean
+          poll_interval_realtime_seconds: number
+          poll_interval_seconds: number
+          privacy_url: string | null
+          realtime_enabled: boolean
+          release_notes: string | null
+          status_page_url: string | null
+          support_url: string | null
+          terms_url: string | null
+          update_channel: string
+          update_check_interval_minutes: number
+          updated_at: string
+          video_calls_enabled: boolean
+          visitors_enabled: boolean
+          voice_notes_enabled: boolean
+        }
+        Insert: {
+          appcast_url?: string | null
+          attachments_enabled?: boolean
+          auto_download_enabled?: boolean
+          auto_update_enabled?: boolean
+          blocked_versions?: string[]
+          call_center_enabled?: boolean
+          calls_enabled?: boolean
+          colleagues_enabled?: boolean
+          contacts_enabled?: boolean
+          created_at?: string
+          default_appearance?: string
+          default_close_to_menu_bar?: boolean
+          default_language?: string
+          default_launch_at_login?: boolean
+          dock_badge_enabled?: boolean
+          download_url?: string | null
+          email_enabled?: boolean
+          id?: string
+          latest_version?: string | null
+          launch_at_login_enabled?: boolean
+          maintenance_enabled?: boolean
+          maintenance_message?: Json
+          maintenance_until?: string | null
+          menu_bar_extra_enabled?: boolean
+          minimum_supported_version?: string | null
+          notifications_enabled?: boolean
+          poll_interval_realtime_seconds?: number
+          poll_interval_seconds?: number
+          privacy_url?: string | null
+          realtime_enabled?: boolean
+          release_notes?: string | null
+          status_page_url?: string | null
+          support_url?: string | null
+          terms_url?: string | null
+          update_channel?: string
+          update_check_interval_minutes?: number
+          updated_at?: string
+          video_calls_enabled?: boolean
+          visitors_enabled?: boolean
+          voice_notes_enabled?: boolean
+        }
+        Update: {
+          appcast_url?: string | null
+          attachments_enabled?: boolean
+          auto_download_enabled?: boolean
+          auto_update_enabled?: boolean
+          blocked_versions?: string[]
+          call_center_enabled?: boolean
+          calls_enabled?: boolean
+          colleagues_enabled?: boolean
+          contacts_enabled?: boolean
+          created_at?: string
+          default_appearance?: string
+          default_close_to_menu_bar?: boolean
+          default_language?: string
+          default_launch_at_login?: boolean
+          dock_badge_enabled?: boolean
+          download_url?: string | null
+          email_enabled?: boolean
+          id?: string
+          latest_version?: string | null
+          launch_at_login_enabled?: boolean
+          maintenance_enabled?: boolean
+          maintenance_message?: Json
+          maintenance_until?: string | null
+          menu_bar_extra_enabled?: boolean
+          minimum_supported_version?: string | null
+          notifications_enabled?: boolean
+          poll_interval_realtime_seconds?: number
+          poll_interval_seconds?: number
+          privacy_url?: string | null
+          realtime_enabled?: boolean
+          release_notes?: string | null
+          status_page_url?: string | null
+          support_url?: string | null
+          terms_url?: string | null
+          update_channel?: string
+          update_check_interval_minutes?: number
+          updated_at?: string
+          video_calls_enabled?: boolean
+          visitors_enabled?: boolean
+          voice_notes_enabled?: boolean
         }
         Relationships: []
       }

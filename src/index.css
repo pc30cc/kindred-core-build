@@ -21,40 +21,40 @@
 
 
     /* Cloud White — crisp whites, blue-tinted grays, electric blue accent */
-    --background: 213 30% 96%;
-    --foreground: 217 40% 9%;
+    --background: 45 33% 98%;
+    --foreground: 232 35% 14%;
 
     --card: 0 0% 100%;
-    --card-foreground: 217 40% 9%;
+    --card-foreground: 232 35% 14%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 217 40% 9%;
+    --popover-foreground: 232 35% 14%;
 
-    --primary: 217 91% 60%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 178 84% 30%;
+    --primary-foreground: 180 40% 99%;
 
-    --secondary: 213 30% 91%;
-    --secondary-foreground: 217 33% 16%;
+    --secondary: 220 40% 96%;
+    --secondary-foreground: 232 30% 18%;
 
-    --muted: 213 28% 92%;
-    --muted-foreground: 215 20% 38%;
+    --muted: 45 22% 95%;
+    --muted-foreground: 232 12% 42%;
 
-    --accent: 217 91% 96%;
-    --accent-foreground: 217 80% 42%;
+    --accent: 178 60% 95%;
+    --accent-foreground: 178 84% 24%;
 
-    --gold: 217 91% 60%;
+    --gold: 178 84% 30%;
     --gold-foreground: 0 0% 100%;
 
-    --destructive: 0 84% 60%;
+    --destructive: 0 72% 52%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 152 42% 42%;
+    --success: 152 60% 34%;
     --success-foreground: 0 0% 100%;
 
-    --warning: 38 65% 52%;
+    --warning: 36 90% 50%;
     --warning-foreground: 225 14% 10%;
 
-    --info: 212 55% 52%;
+    --info: 214 72% 52%;
     --info-foreground: 0 0% 100%;
 
     /* Plan card accents — rotated per plan card in the billing plans tab */
@@ -65,35 +65,42 @@
     --plan-5: 340 78% 58%;
 
 
-    --border: 214 25% 84%;
-    --input: 214 25% 82%;
-    --ring: 217 91% 60%;
+    --border: 232 20% 90%;
+    --input: 232 18% 87%;
+    --ring: 178 84% 30%;
 
     --radius: 0.75rem;
 
-    --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 217 33% 12%;
-    --sidebar-primary: 217 91% 60%;
+    --sidebar-background: 45 30% 99%;
+    --sidebar-foreground: 232 30% 16%;
+    --sidebar-primary: 178 84% 30%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 217 91% 96%;
-    --sidebar-accent-foreground: 217 80% 42%;
-    --sidebar-border: 214 28% 93%;
-    --sidebar-ring: 217 91% 60%;
-    --sidebar-muted-foreground: 215 18% 50%;
+    --sidebar-accent: 178 50% 94%;
+    --sidebar-accent-foreground: 178 84% 22%;
+    --sidebar-border: 232 18% 91%;
+    --sidebar-ring: 178 84% 30%;
+    --sidebar-muted-foreground: 232 12% 48%;
 
     --surface-elevated: 0 0% 100%;
-    --surface-sunken: 213 30% 97%;
+    --surface-sunken: 45 25% 96%;
 
     /* Gradients & Shadows */
-    --gradient-primary: linear-gradient(135deg, hsl(217 91% 60%), hsl(224 84% 52%));
-    --gradient-gold: linear-gradient(135deg, hsl(217 91% 62%), hsl(224 84% 52%));
-    --gradient-auth-hero: linear-gradient(135deg, hsl(221 83% 53%), hsl(250 80% 55%), hsl(221 83% 45%));
+    --gradient-primary: linear-gradient(120deg, hsl(178 84% 32%), hsl(214 80% 52%));
+    --brand-teal: 178 84% 32%;
+    --brand-sky: 214 80% 54%;
+    --brand-violet: 266 72% 58%;
+    --brand-coral: 14 85% 60%;
+    --gradient-brand: linear-gradient(120deg, hsl(178 84% 34%), hsl(214 80% 52%) 45%, hsl(266 72% 58%) 80%, hsl(14 85% 60%));
+    --gradient-soft: linear-gradient(160deg, hsl(178 60% 95%), hsl(266 70% 96%));
+
+    --gradient-gold: var(--gradient-primary);
+    --gradient-auth-hero: linear-gradient(135deg, hsl(232 38% 9%), hsl(245 35% 14%));
     --gradient-sidebar: linear-gradient(180deg, hsl(0 0% 100%), hsl(213 30% 98%));
     --gradient-card-hover: linear-gradient(135deg, hsl(213 30% 98%), hsl(213 26% 95%));
     --gradient-surface: linear-gradient(180deg, hsl(0 0% 100%), hsl(213 30% 98.5%));
 
-    --shadow-card: 0 1px 2px 0 hsl(215 30% 60% / 0.06), 0 4px 14px -6px hsl(215 30% 55% / 0.12);
-    --shadow-glow: 0 0 0 1px hsl(217 91% 60% / 0.12), 0 8px 24px -10px hsl(217 91% 60% / 0.28);
+    --shadow-card: 0 1px 2px hsl(232 40% 20% / 0.06), 0 24px 50px -28px hsl(245 40% 30% / 0.3);
+    --shadow-glow: 0 18px 44px -16px hsl(214 80% 52% / 0.45);
     --shadow-elevated: 0 8px 30px -10px hsl(215 30% 45% / 0.18);
 
     /* Admin panel tokens */
@@ -118,29 +125,29 @@
   }
 
   .dark {
-    --background: 217 32% 7%;
-    --foreground: 213 30% 96%;
+    --background: 232 32% 8%;
+    --foreground: 230 20% 96%;
 
-    --card: 217 26% 12%;
-    --card-foreground: 213 30% 96%;
+    --card: 232 26% 12%;
+    --card-foreground: 230 20% 96%;
 
-    --popover: 217 26% 12%;
-    --popover-foreground: 213 30% 96%;
+    --popover: 232 26% 13%;
+    --popover-foreground: 230 20% 96%;
 
-    --primary: 217 91% 62%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 170 65% 52%;
+    --primary-foreground: 200 50% 8%;
 
-    --secondary: 217 22% 20%;
-    --secondary-foreground: 213 20% 85%;
+    --secondary: 232 22% 17%;
+    --secondary-foreground: 230 18% 90%;
 
-    --muted: 217 22% 19%;
-    --muted-foreground: 215 18% 70%;
+    --muted: 232 20% 16%;
+    --muted-foreground: 230 15% 70%;
 
-    --accent: 217 24% 19%;
-    --accent-foreground: 213 25% 94%;
+    --accent: 170 35% 16%;
+    --accent-foreground: 170 65% 78%;
 
-    --gold: 217 91% 62%;
-    --gold-foreground: 0 0% 100%;
+    --gold: 170 65% 52%;
+    --gold-foreground: 200 50% 8%;
 
     --destructive: 0 50% 52%;
     --destructive-foreground: 0 0% 98%;
@@ -161,32 +168,39 @@
     --plan-5: 340 72% 64%;
 
 
-    --border: 217 20% 27%;
-    --input: 217 20% 29%;
-    --ring: 217 91% 62%;
+    --border: 232 20% 20%;
+    --input: 232 18% 23%;
+    --ring: 170 65% 52%;
 
-    --sidebar-background: 217 30% 8%;
-    --sidebar-foreground: 215 16% 70%;
-    --sidebar-primary: 217 91% 62%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 217 24% 15%;
-    --sidebar-accent-foreground: 213 22% 88%;
-    --sidebar-border: 217 20% 16%;
-    --sidebar-ring: 217 91% 62%;
+    --sidebar-background: 232 32% 9%;
+    --sidebar-foreground: 230 16% 78%;
+    --sidebar-primary: 170 65% 52%;
+    --sidebar-primary-foreground: 200 50% 8%;
+    --sidebar-accent: 232 22% 16%;
+    --sidebar-accent-foreground: 230 20% 94%;
+    --sidebar-border: 232 20% 15%;
+    --sidebar-ring: 170 65% 52%;
     --sidebar-muted-foreground: 215 16% 58%;
 
-    --surface-elevated: 217 24% 16%;
-    --surface-sunken: 217 30% 8%;
+    --surface-elevated: 232 24% 15%;
+    --surface-sunken: 232 32% 7%;
 
-    --gradient-primary: linear-gradient(135deg, hsl(217 91% 62%), hsl(224 84% 50%));
-    --gradient-gold: linear-gradient(135deg, hsl(217 91% 62%), hsl(224 84% 50%));
-    --gradient-auth-hero: linear-gradient(135deg, hsl(221 70% 40%), hsl(250 60% 42%), hsl(221 70% 32%));
+    --gradient-primary: linear-gradient(120deg, hsl(170 65% 50%), hsl(210 85% 58%));
+    --brand-teal: 170 65% 55%;
+    --brand-sky: 210 85% 64%;
+    --brand-violet: 272 85% 70%;
+    --brand-coral: 18 90% 66%;
+    --gradient-brand: linear-gradient(120deg, hsl(170 65% 56%), hsl(210 85% 62%) 45%, hsl(272 80% 68%));
+    --gradient-soft: linear-gradient(160deg, hsl(190 45% 13%), hsl(275 40% 14%));
+
+    --gradient-gold: var(--gradient-primary);
+    --gradient-auth-hero: linear-gradient(135deg, hsl(232 38% 7%), hsl(245 35% 11%));
     --gradient-sidebar: linear-gradient(180deg, hsl(217 30% 10%), hsl(217 30% 8%));
     --gradient-card-hover: linear-gradient(135deg, hsl(217 24% 16%), hsl(217 22% 18%));
     --gradient-surface: linear-gradient(180deg, hsl(217 26% 14%), hsl(217 28% 12%));
 
     --shadow-card: 0 2px 14px -6px hsl(217 40% 3% / 0.5);
-    --shadow-glow: 0 0 0 1px hsl(217 91% 62% / 0.22), 0 10px 28px -12px hsl(217 91% 62% / 0.35);
+    --shadow-glow: 0 20px 60px -20px hsl(170 65% 52% / 0.4);
     --shadow-elevated: 0 10px 34px -12px hsl(217 40% 3% / 0.65);
 
     --call-stage: 225 15% 4%;
@@ -935,4 +949,88 @@ html.native-app [data-selectable='true'] {
 @keyframes nav-fade {
   from { opacity: 0; }
   to   { opacity: 1; }
+}
+
+
+/* ─── Magic UI layer (aurora, glass, beam, shimmer, grid) ─────────── */
+@layer utilities {
+  .bg-brand { background-image: var(--gradient-brand); }
+  .bg-brand-soft { background-image: var(--gradient-soft); }
+  .text-brand { background-image: var(--gradient-brand); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .shadow-glow { box-shadow: var(--shadow-glow); }
+  .glass {
+    background-color: hsl(var(--card) / 0.68);
+    backdrop-filter: blur(18px) saturate(160%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    border: 1px solid hsl(var(--border) / 0.8);
+  }
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, hsl(var(--foreground) / 0.05) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--foreground) / 0.05) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+  }
+  .bg-dots { background-image: radial-gradient(hsl(var(--foreground) / 0.12) 1px, transparent 1px); background-size: 22px 22px; }
+  .text-shine {
+    background-image: linear-gradient(110deg, hsl(var(--foreground)) 35%, hsl(var(--primary)) 50%, hsl(var(--foreground)) 65%);
+    background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: wy-shine 5s linear infinite;
+  }
+  .animate-aurora { animation: wy-aurora 18s ease-in-out infinite; }
+  .animate-ping-soft { animation: wy-ping-soft 2.2s cubic-bezier(0,0,.2,1) infinite; }
+}
+
+/* Soft aurora canvas used behind auth pages and the panel shell */
+.auth-aurora, .app-aurora { position: relative; isolation: isolate; }
+.auth-aurora {
+  background-color: hsl(var(--background));
+  background-image:
+    radial-gradient(60rem 30rem at 100% -5%, hsl(var(--brand-teal) / 0.18), transparent 60%),
+    radial-gradient(50rem 28rem at -10% 30%, hsl(var(--brand-violet) / 0.14), transparent 60%),
+    radial-gradient(40rem 24rem at 60% 110%, hsl(var(--brand-coral) / 0.12), transparent 60%);
+}
+.app-aurora {
+  background-image:
+    radial-gradient(55rem 26rem at 100% -10%, hsl(var(--brand-teal) / 0.08), transparent 60%),
+    radial-gradient(45rem 24rem at -10% 40%, hsl(var(--brand-violet) / 0.06), transparent 60%);
+}
+
+/* Rotating light border (Border Beam) */
+@property --beam-angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+.beam-border { position: relative; isolation: isolate; }
+.beam-border::before {
+  content: ""; position: absolute; inset: -1px; z-index: -1; border-radius: inherit; padding: 1px;
+  background: conic-gradient(from var(--beam-angle, 0deg), transparent 0 70%, hsl(var(--brand-teal)) 80%, hsl(var(--brand-violet)) 90%, transparent 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: wy-beam 6s linear infinite; pointer-events: none;
+}
+
+/* Shimmer button */
+.btn-shimmer { position: relative; overflow: hidden; background-image: var(--gradient-brand) !important; color: hsl(0 0% 100%) !important; box-shadow: var(--shadow-glow); border: 0; }
+.btn-shimmer::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(110deg, transparent 30%, hsl(0 0% 100% / 0.4) 50%, transparent 70%);
+  transform: translateX(-120%); animation: wy-shimmer 3.2s ease-in-out infinite;
+}
+
+/* Mouse-follow spotlight */
+.spotlight { position: relative; }
+.spotlight::after {
+  content: ""; pointer-events: none; position: absolute; inset: 0; border-radius: inherit; opacity: 0; transition: opacity .3s;
+  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 50%), hsl(var(--primary) / 0.12), transparent 45%);
+}
+.spotlight:hover::after { opacity: 1; }
+
+@keyframes wy-shine { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+@keyframes wy-aurora { 0%,100% { transform: translate(0,0) scale(1); } 33% { transform: translate(6%,-8%) scale(1.12); } 66% { transform: translate(-6%,6%) scale(.95); } }
+@keyframes wy-ping-soft { 0% { transform: scale(1); opacity: .6; } 100% { transform: scale(2.4); opacity: 0; } }
+@keyframes wy-beam { to { --beam-angle: 360deg; } }
+@keyframes wy-shimmer { 0%,60% { transform: translateX(120%); } 100% { transform: translateX(-120%); } }
+@keyframes wy-marquee { from { transform: translateX(0); } to { transform: translateX(50%); } }
+.animate-marquee { animation: wy-marquee 40s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-aurora, .animate-ping-soft, .btn-shimmer::after, .beam-border::before, .text-shine, .animate-marquee { animation: none !important; }
 }

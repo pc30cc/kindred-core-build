@@ -121,7 +121,12 @@ struct CallView: View {
             ZStack(alignment: .bottomTrailing) {
                 Color.black
                 if let remote = call.remoteVideoTrack {
-                    SwiftUIVideoView(remote, layoutMode: .fill)
+                    // Flipped once, as the web console flips every call video (src/index.css,
+                    // "Call video orientation"): the visitor's camera arrives mirrored, and this
+                    // shows them the way they really are. Pinned left to right so a right-to-left
+                    // window never adds a second flip.
+                    SwiftUIVideoView(remote, layoutMode: .fill, mirrorMode: .mirror)
+                        .environment(\.layoutDirection, .leftToRight)
                         .frame(width: geo.size.width, height: geo.size.height)
                         .clipped()
                 }
@@ -137,6 +142,8 @@ struct CallView: View {
     private func localPreview(_ track: VideoTrack, width: CGFloat) -> some View {
         let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         return SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: .mirror)
+            // Mirrored exactly once, whatever the window's direction (see the visitor's video).
+            .environment(\.layoutDirection, .leftToRight)
             .frame(width: width, height: width / 1.6)
             .clipShape(shape)
             .overlay { shape.strokeBorder(Color.white.opacity(0.18), lineWidth: 2) }

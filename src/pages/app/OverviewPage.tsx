@@ -233,15 +233,18 @@ export default function OverviewPage() {
         <div className="pointer-events-none absolute -top-24 end-[-4rem] h-64 w-64 rounded-full bg-brand-violet/25 blur-3xl animate-aurora" />
         <div className="pointer-events-none absolute bottom-[-7rem] start-1/4 h-56 w-56 rounded-full bg-brand-teal/25 blur-3xl animate-aurora" />
         <div className="pointer-events-none absolute -bottom-16 end-1/3 h-40 w-40 rounded-full bg-brand-coral/15 blur-3xl" />
-        <div className="bg-grid pointer-events-none absolute inset-0" />
+        <div className="bg-dots pointer-events-none absolute inset-0 opacity-60 [mask-image:radial-gradient(ellipse_at_top_right,black,transparent_70%)]" />
+        <span aria-hidden className="meteor" style={{ top: 10, insetInlineEnd: 80 }} />
+        <span aria-hidden className="meteor" style={{ top: 40, insetInlineEnd: 260, animationDelay: "2.4s" }} />
+        <span aria-hidden className="meteor" style={{ top: 0, insetInlineEnd: 420, animationDelay: "4.8s" }} />
         <div className="relative flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div
               dir={dir}
               className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/70 px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur"
             >
-              <Sparkles className="h-3 w-3 text-violet-500" />
-              <bdi>{formatLongDate(new Date())}</bdi>
+              <Sparkles className="h-3 w-3 text-primary" />
+              <bdi className="text-shine">{formatLongDate(new Date())}</bdi>
             </div>
             <h1 className="text-2xl font-bold tracking-tight sm:text-[34px]">
               <span className="text-brand">

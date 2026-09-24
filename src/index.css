@@ -1070,3 +1070,12 @@ html.native-app [data-selectable='true'] {
 .blur-fade-stagger > *:nth-child(4) { animation-delay: .24s; }
 .blur-fade-stagger > *:nth-child(5) { animation-delay: .32s; }
 @media (prefers-reduced-motion: reduce) { .blur-fade-stagger > * { animation: none; } }
+
+/* Meteors (Magic UI) */
+.meteor { position: absolute; width: 2px; height: 2px; border-radius: 9999px; pointer-events: none;
+  background: hsl(var(--primary)); box-shadow: 0 0 0 1px hsl(var(--primary) / .1);
+  transform: rotate(215deg); animation: wy-meteor 7s linear infinite; opacity: 0; }
+.meteor::before { content: ""; position: absolute; top: 50%; transform: translateY(-50%); width: 60px; height: 1px;
+  background: linear-gradient(90deg, hsl(var(--brand-teal)), transparent); }
+@keyframes wy-meteor { 0% { transform: rotate(215deg) translateX(0); opacity: 0; } 5% { opacity: 1; } 60% { opacity: 1; } 100% { transform: rotate(215deg) translateX(-420px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .meteor { display: none; } }

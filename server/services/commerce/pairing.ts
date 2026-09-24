@@ -409,7 +409,9 @@ export async function runCapabilityHandshake(
       health,
       last_seen_at: now,
       last_success_at: now,
-      ...(handshake.schemaOk === false ? { last_error_code: 'schema_unsupported', last_error_at: now } : {}),
+      ...(health === 'connected'
+        ? { last_error_code: null, last_error_at: null }
+        : handshake.schemaOk === false ? { last_error_code: 'schema_unsupported', last_error_at: now } : {}),
     };
     const providerFields = descriptor.usesCatalogIndex
       ? {

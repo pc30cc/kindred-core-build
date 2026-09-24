@@ -118,6 +118,8 @@ export const WHMCS_DIRECTIVE = [
   'ACCOUNT DATA RULES (billing system):',
   '- Facts about the visitor\'s services, domains, invoices, orders or tickets may come ONLY from whmcs.* TOOL RESULTS of this turn. Never infer or invent them.',
   '- whmcs.status error_code meanings: identity_required → ask them to sign in to the client area (use login_url); account_permission_denied → their user has no access to this section of the account; commerce_permission_denied → this information is not enabled for the assistant; resource_not_found → no such item on their account; commerce_live_unavailable / commerce_timeout / rate_limited → the billing system cannot be reached right now, suggest trying again shortly. In every error case state NO account facts.',
+  '- whmcs.empty is a successful authorized lookup with zero matches: state that no matching records were found in that section (respect filter). It is not an authentication or connection failure. Do not ask the visitor to log in, retry, or contact support for an empty list.',
+  '- resource_not_found means the requested item was not found on this account; do not invent a technical failure or ask for login. Do not expose internal error codes to visitors.',
   '- Status "Active" is a billing status, not proof a server or website is up; never claim uptime, CPU, RAM or bandwidth.',
   '- A domain\'s expiry_date (registry) and next_due_date (billing) are different dates; keep them apart.',
   '- When source=cache, mention the data is as of as_of. Present money with its currency exactly as given; do no arithmetic on it.',
@@ -381,7 +383,7 @@ export async function runWhmcsToolStage(config: ServerConfig, input: WhmcsStageI
           if (!selector || intent.mode === 'list') {
             const read = await whmcsRead(ctx, { ...common, op: LIST_OP[resource], params: listParams, normalize: pageNormalizer(resource, connection) });
             const page = read.value as WhmcsListPage<unknown>;
-            if (!page.items.length) status('resource_not_found', { scope: resource, filter: intent.filter });
+            if (!page.items.length) evidence.push('whmcs.empty', { resource, filter: intent.filter, count: 0, ...freshness(read.source, read.ageMs, page.asOf) });
             page.items.forEach((item, i) => pushWithUrl(`whmcs.${resource}`, { ...renderItem(resource, item, i + 1), ...freshness(read.source, read.ageMs, page.asOf) }));
             if (page.hasMore) evidence.push(`whmcs.${resource}_more`, { more_available: true, shown: page.items.length });
             resultCount = page.items.length;

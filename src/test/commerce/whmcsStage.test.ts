@@ -257,3 +257,23 @@ describe('audit and metrics volume', () => {
     expect(metrics[0]).toMatchObject({ metric: 'commerce_whmcs_turn' });
   });
 });
+
+describe('empty account lists are successful evidence', () => {
+  it.each([
+    ['domains', 'show my domains'],
+    ['services', 'show my services'],
+    ['invoices', 'show my invoices'],
+    ['orders', 'show my orders'],
+    ['tickets', 'show my tickets'],
+  ])('reports no matching %s without asking the customer to sign in', async (resource, question) => {
+    db.tables.commerce_customer_links[0].external_customer_id = '999';
+    whmcs.grants.set(ALICE_GRANT, { uid: '1', cid: '999', valid: true });
+    whmcs.permissions.set('1:999', ['products', 'invoices', 'domains', 'orders', 'tickets']);
+    const r = await ask('empty ' + resource, { question });
+    expect(status(r)).toBeUndefined();
+    expect(rows(r, 'whmcs.empty')).toEqual([expect.objectContaining({ resource, count: 0 })]);
+    expect(r.directive).toContain('not an authentication or connection failure');
+    expect(db.tables.commerce_tool_audit[0]).toMatchObject({ success: true, safe_error_code: null, result_count: 0 });
+    expect(whmcs.calls).toHaveLength(1);
+  });
+});

@@ -13,7 +13,6 @@ struct CallCenterList: View { let model: CallCenterModel; var body: some View { 
 struct CallCenterDetail: View { let model: CallCenterModel; var body: some View { Text("Call") } }
 struct ColleaguesList: View { let model: ColleaguesModel; var body: some View { Text("Colleagues") } }
 struct ColleagueThread: View { let model: ColleaguesModel; var body: some View { Text("Thread") } }
-struct SettingsView: View { var body: some View { Text("Settings").frame(width: 400, height: 300) } }
 
 @MainActor final class CallCoordinator {
     static let shared = CallCoordinator()

@@ -44,7 +44,7 @@ struct AttachmentInfo: Identifiable, Hashable, Sendable {
     }
 
     /// A file the operator picked and is sending now.
-    static func local(name: String, mime: String, data: Data, _ s: Strings) -> AttachmentInfo {
+    @MainActor static func local(name: String, mime: String, data: Data, _ s: Strings) -> AttachmentInfo {
         let id = "local:" + UUID().uuidString
         AttachmentStore.shared.remember(id, data)
         return AttachmentInfo(MessageAttachment(id: id, fileName: name, mimeType: mime, sizeBytes: Int64(data.count)), s)

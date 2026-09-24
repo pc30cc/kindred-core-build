@@ -156,7 +156,7 @@ final class LiveCall {
             // conversation after a moment of ringing, and with the server's "no relay" warning, as
             // production sends it when no TURN server is configured.
             if desk == nil {
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                try? await Task.sleep(nanoseconds: 16_000_000_000)
                 warningKey = "callRelayWarning"
             }
             phase = .connected

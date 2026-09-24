@@ -1,3 +1,4 @@
+import type { WhmcsPublicResource } from '../../../../shared/commerce/whmcs.js';
 /**
  * WHMCS intent detection — deterministic, no model call, no I/O.
  *
@@ -34,6 +35,7 @@ export type WhmcsFilter = 'unpaid' | 'overdue' | 'open' | null;
 
 export type WhmcsIntent =
   | { kind: 'none' }
+  | { kind: 'public'; resource: WhmcsPublicResource; query: string }
   | { kind: 'catalog'; mode: 'search' | 'browse'; query: string }
   | {
       kind: 'account';
@@ -248,6 +250,18 @@ function catalogQuery(original: string): string {
 export function detectWhmcsIntent(question: string): WhmcsIntent {
   const normalized = normalizeForIntent(question);
   if (!normalized) return { kind: 'none' };
+  // Route named WHMCS content without an extra LLM or database lookup.
+  if (/اعلان|اطلاعیه|اخبار|announcement|latest news|duyuru|haberler/.test(normalized)) {
+    return { kind: 'public', resource: 'announcements', query: '' };
+  }
+  if (/وضعیت شبکه|قطعی|اختلال|network ?status|network issues?|outage|service status|ağ durumu|kesinti/.test(normalized)) {
+    return { kind: 'public', resource: 'networkstatus', query: '' };
+  }
+  if (/پایگاه دانش|دانشنامه|آموزش|راهنمای|knowledge ?base|tutorial|bilgi bankası|kılavuz/.test(normalized)) {
+    const query = normalized.replace(/پایگاه دانش|دانشنامه|آموزش|راهنمای|knowledge ?base|tutorials?|bilgi bankası|kılavuz/gu, ' ').trim().slice(0, 80);
+    return { kind: 'public', resource: 'knowledgebase', query };
+  }
+
 
   const { resources, possessive: suffixPossessive } = resourcesIn(normalized);
   const possessive = suffixPossessive

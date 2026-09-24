@@ -60,3 +60,24 @@ ALTER TABLE `tbltickets` ADD COLUMN IF NOT EXISTS `merged_ticket_id` int(10) uns
 -- The base schema has tbltickets.tid as int(6); WHMCS 8/9 store the public
 -- ticket number ("ABC-123456") as text.
 ALTER TABLE `tbltickets` MODIFY `tid` varchar(128) COLLATE utf8_unicode_ci NOT NULL DEFAULT '';
+
+-- Public-content columns verified against the isolated installed WHMCS 9.0.1
+-- schema. Only the fields the addon selects are needed in this fixture.
+ALTER TABLE `tblannouncements` ADD COLUMN IF NOT EXISTS `published` tinyint(1) NOT NULL DEFAULT 1;
+ALTER TABLE `tblannouncements` ADD COLUMN IF NOT EXISTS `parentid` int NOT NULL DEFAULT 0;
+ALTER TABLE `tblannouncements` ADD COLUMN IF NOT EXISTS `language` text NOT NULL;
+ALTER TABLE `tblknowledgebase` ADD COLUMN IF NOT EXISTS `parentid` int NOT NULL DEFAULT 0;
+ALTER TABLE `tblknowledgebase` ADD COLUMN IF NOT EXISTS `language` text NOT NULL;
+ALTER TABLE `tblknowledgebase` ADD COLUMN IF NOT EXISTS `private` text NOT NULL;
+ALTER TABLE `tblknowledgebasecats` ADD COLUMN IF NOT EXISTS `hidden` text NOT NULL;
+ALTER TABLE `tblknowledgebasecats` ADD COLUMN IF NOT EXISTS `catid` int NOT NULL DEFAULT 0;
+ALTER TABLE `tblknowledgebasecats` ADD COLUMN IF NOT EXISTS `parentid` int NOT NULL DEFAULT 0;
+ALTER TABLE `tbladmins` ADD COLUMN IF NOT EXISTS `language` text NOT NULL;
+CREATE TABLE IF NOT EXISTS `tblknowledgebaselinks` (
+  `id` int NOT NULL AUTO_INCREMENT PRIMARY KEY, `categoryid` int NOT NULL, `articleid` int NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+CREATE TABLE IF NOT EXISTS `tblnetworkissues` (
+  `id` int NOT NULL AUTO_INCREMENT PRIMARY KEY, `title` varchar(150) NOT NULL,
+  `description` text NOT NULL, `status` varchar(32) NOT NULL,
+  `startdate` datetime NOT NULL, `lastupdate` datetime NOT NULL, `server` int NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;

@@ -249,6 +249,9 @@ export const COMMERCE_CAPABILITIES = [
   // advertises these, and every gated call treats an absent capability as
   // absent — see shared/commerce/whmcs.ts for the account contract.
   'catalog.read',
+  'content.announcements.read',
+  'content.knowledgebase.read',
+  'content.networkstatus.read',
   'account.services.read',
   'account.domains.read',
   'account.invoices.read',

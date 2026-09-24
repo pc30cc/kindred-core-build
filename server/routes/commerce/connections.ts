@@ -213,6 +213,9 @@ const permissionsSchema = z.object({
   // WHMCS sections (shared/commerce/whmcs.ts WHMCS_CONNECTION_PERMISSIONS).
   // `orders` above is shared by both providers.
   catalog: z.boolean().optional(),
+  announcements: z.boolean().optional(),
+  knowledgebase: z.boolean().optional(),
+  networkstatus: z.boolean().optional(),
   services: z.boolean().optional(),
   domains: z.boolean().optional(),
   invoices: z.boolean().optional(),

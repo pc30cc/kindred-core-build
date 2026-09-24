@@ -30,6 +30,7 @@ export interface FakeWhmcs {
   mode: 'ok' | 'down' | 'error500' | 'slow';
   /** Sections the WHMCS admin switched off in the addon settings (403 feature_disabled). */
   disabledSections: Set<string>;
+  networkRequiresLogin: boolean;
   requester: (req: CommerceHttpRequest) => Promise<CommerceHttpResponse>;
 }
 
@@ -83,6 +84,7 @@ export function createFakeWhmcs(secret: string, installationId: string): FakeWhm
     bytesOut: 0,
     mode: 'ok',
     disabledSections: new Set(),
+    networkRequiresLogin: false,
     requester: async () => json(500, null),
   };
 
@@ -120,7 +122,7 @@ export function createFakeWhmcs(secret: string, installationId: string): FakeWhm
     if (state.mode === 'error500') return respond(500, { ok: false, error: 'internal_error' });
 
     const op = body.op;
-    const section = op.startsWith('catalog.') ? 'catalog' : op.split('.')[0];
+    const section = op.startsWith('content.') ? op.split('.')[1] : op.startsWith('catalog.') ? 'catalog' : op.split('.')[0];
     if (state.disabledSections.has(section)) return respond(403, { ok: false, error: 'feature_disabled' });
     if (op === 'health') {
       return respond(200, { ok: true, data: { protocol_version: 'webyar-commerce/1', addon_version: '1.0.0', whmcs_version: '8.13.1', php_version: '8.2.0', capabilities: [], schema_ok: true, system_url: BASE } });
@@ -129,6 +131,18 @@ export function createFakeWhmcs(secret: string, installationId: string): FakeWhm
       const q = String(body.params?.q ?? '').toLowerCase();
       const items = op === 'catalog.browse' ? products : products.filter((p) => q.split(/\s+/).some((w) => w.length > 2 && p.name.toLowerCase().includes(w)));
       return respond(200, { ok: true, data: { items, has_more: false, as_of: '2026-09-21T14:13:20+00:00', tax_mode: 'exclusive' } });
+    }
+
+    if (op.startsWith('content.')) {
+      const grant = body.grant && state.grants.get(body.grant.id);
+      if (section === 'networkstatus' && state.networkRequiresLogin &&
+          (!grant?.valid || grant.uid !== body.grant?.uid || grant.cid !== body.grant?.cid)) {
+        return respond(403, { ok: false, error: 'grant_invalid' });
+      }
+      return respond(200, { ok: true, data: { items: [{
+        id: '1', title: `${section} title`, excerpt: 'A bounded public excerpt',
+        url: `${BASE}/${section}.php?id=1`, published_at: '2026-09-21', status: section === 'networkstatus' ? 'Investigating' : null,
+      }], has_more: false, as_of: '2026-09-21T14:13:20+00:00' } });
     }
 
     const g = body.grant ? state.grants.get(body.grant.id) : undefined;

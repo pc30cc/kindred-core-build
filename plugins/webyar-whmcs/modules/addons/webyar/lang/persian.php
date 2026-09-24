@@ -3,14 +3,14 @@ if (!defined('WHMCS')) {
     die('This file cannot be accessed directly');
 }
 $_ADDONLANG['title'] = 'وب‌یار';
-$_ADDONLANG['intro'] = 'دستیار هوشمند وب‌یار به مشتری واردشده دربارهٔ سرویس‌ها، دامنه‌ها، فاکتورها، سفارش‌ها و تیکت‌های خودش، و به همه دربارهٔ پلن‌های عمومی پاسخ می‌دهد. اطلاعات به‌صورت زنده و فقط‌خواندنی استعلام می‌شود و چیزی از WHMCS کپی نمی‌شود.';
+$_ADDONLANG['intro'] = 'دستیار هوشمند وب‌یار به مشتری واردشده دربارهٔ سرویس‌ها، دامنه‌ها، فاکتورها، سفارش‌ها و تیکت‌های خودش، و دربارهٔ پلن‌ها، اطلاعیه‌ها، مقاله‌های عمومی و وضعیت شبکه پاسخ می‌دهد. اطلاعات به‌صورت زنده و فقط‌خواندنی استعلام می‌شود و چیزی از WHMCS کپی نمی‌شود.';
 $_ADDONLANG['no_access'] = 'به این صفحه دسترسی ندارید.';
 $_ADDONLANG['connection'] = 'اتصال';
 $_ADDONLANG['status_connected'] = 'متصل';
 $_ADDONLANG['status_not_connected'] = 'متصل نیست';
 $_ADDONLANG['workspace'] = 'ورک‌اسپیس';
 $_ADDONLANG['connect'] = 'اتصال به وب‌یار';
-$_ADDONLANG['connect_help'] = 'ابتدا WEBYAR_APP_URL را در محیط PHP سرور WHMCS تنظیم کنید. به وب‌یار منتقل می‌شوید تا ورک‌اسپیس را انتخاب و تأیید کنید؛ کلیدی برای کپی‌کردن وجود ندارد.';
+$_ADDONLANG['connect_help'] = 'با انتخاب اتصال به وب‌یار، وارد حساب خود شوید و فضای کاری را تأیید کنید. نشانی‌های اتصال از پیش تنظیم شده‌اند.';
 $_ADDONLANG['check_connection'] = 'بررسی اتصال';
 $_ADDONLANG['check_help'] = 'از وب‌یار می‌خواهد همین حالا با این WHMCS تماس بگیرد و نتیجه را گزارش می‌کند. هیچ کاری در پس‌زمینه اجرا نمی‌شود.';
 $_ADDONLANG['revoke_grants'] = 'خروج همهٔ مشتریان از دستیار';
@@ -23,7 +23,7 @@ $_ADDONLANG['api_url_help'] = 'فقط اگر API وب‌یار روی نشانی
 $_ADDONLANG['auto_widget'] = 'افزودن خودکار ویجت وب‌یار به ناحیهٔ کاربری';
 $_ADDONLANG['share_contact'] = 'نام و ایمیل کاربر واردشده برای صندوق گفتگوهای تیم شما ارسال شود';
 $_ADDONLANG['sections'] = 'دستیار چه چیزهایی را می‌تواند بخواند';
-$_ADDONLANG['sections_help'] = 'هر بخش علاوه بر این، به مجوز متناظر در وب‌یار و مجوز کاربر WHMCS خود مشتری نیاز دارد.';
+$_ADDONLANG['sections_help'] = 'هر بخش باید در وب‌یار هم فعال باشد. اطلاعات حساب به مجوز مشتری نیاز دارد؛ وضعیت شبکه نیز از تنظیم الزام ورود در WHMCS پیروی می‌کند.';
 $_ADDONLANG['section_catalog'] = 'پلن‌ها و قیمت‌های عمومی';
 $_ADDONLANG['section_services'] = 'سرویس‌ها';
 $_ADDONLANG['section_domains'] = 'دامنه‌ها';
@@ -37,7 +37,7 @@ $_ADDONLANG['diagnostics'] = 'عیب‌یابی';
 $_ADDONLANG['addon_version'] = 'نسخهٔ افزونه';
 $_ADDONLANG['whmcs_version'] = 'نسخهٔ WHMCS';
 $_ADDONLANG['php_version'] = 'نسخهٔ PHP';
-$_ADDONLANG['system_url'] = 'System URL';
+$_ADDONLANG['system_url'] = 'نشانی سامانه';
 $_ADDONLANG['schema'] = 'بخش‌های پشتیبانی‌شده';
 $_ADDONLANG['active_grants'] = 'مشتریان شناخته‌شده در این لحظه';
 $_ADDONLANG['connected'] = 'به وب‌یار متصل شد.';
@@ -56,3 +56,8 @@ $_ADDONLANG['error_pairing_expired'] = 'درخواست اتصال منقضی ش�
 $_ADDONLANG['error_no_pairing_in_progress'] = 'هیچ درخواست اتصالی در جریان نیست.';
 $_ADDONLANG['error_invalid_code'] = 'وب‌یار کد نامعتبری برگرداند.';
 $_ADDONLANG['error_exchange_failed'] = 'وب‌یار نتوانست اتصال را کامل کند.';
+
+$_ADDONLANG['section_announcements'] = 'اطلاعیه‌ها';
+$_ADDONLANG['section_knowledgebase'] = 'پایگاه دانش';
+$_ADDONLANG['section_networkstatus'] = 'وضعیت شبکه';
+$_ADDONLANG['operation_failed'] = 'عملیات انجام نشد. اتصال را بررسی کنید و دوباره تلاش کنید.';

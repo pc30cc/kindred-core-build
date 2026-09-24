@@ -36,8 +36,8 @@ const CONFIG = { supabaseUrl: 'x', supabaseServiceRoleKey: 'k' } as Parameters<t
 function connection(over: Partial<CommerceConnectionRow> = {}): CommerceConnectionRow {
   return {
     id: 'conn-whmcs', workspace_id: WS, installation_id: INSTALL, provider_type: 'whmcs', store_id: BASE, approved_origin: ORIGIN,
-    capabilities: ['catalog.read', 'identity.grant', 'account.services.read', 'account.invoices.read', 'account.domains.read', 'account.orders.read', 'account.tickets.read'],
-    permissions: { catalog: true, services: true, invoices: true, domains: true, orders: true, tickets: true },
+    capabilities: ['content.announcements.read', 'content.knowledgebase.read', 'content.networkstatus.read', 'catalog.read', 'identity.grant', 'account.services.read', 'account.invoices.read', 'account.domains.read', 'account.orders.read', 'account.tickets.read'],
+    permissions: { announcements: true, knowledgebase: true, networkstatus: true, catalog: true, services: true, invoices: true, domains: true, orders: true, tickets: true },
     health: 'connected', catalog_ready: false, revoked_at: null, protocol_version: 'webyar-commerce/1', ...over,
   };
 }
@@ -76,6 +76,55 @@ describe('public catalogue cache', () => {
     expect(first.source).toBe('live');
     expect(second.source).toBe('cache');
     expect(whmcs.calls.map((c) => c.op)).toEqual(['catalog.browse']);
+  });
+});
+
+describe('public content and platform gates', () => {
+  const request = (resource: 'announcements' | 'knowledgebase' | 'networkstatus') => ({
+    op: `content.${resource}` as const, permission: resource, params: { limit: 5, locale: 'fa' },
+    normalize: (d: unknown) => normalize.normalizeContent(d, scope),
+  });
+
+  it.each(['announcements', 'knowledgebase'] as const)('%s coalesces, caches and never writes WebYar data', async (resource) => {
+    const req = request(resource);
+    await Promise.all(Array.from({ length: 6 }, () => gateway.whmcsRead(turn(), req)));
+    expect((await gateway.whmcsRead(turn(), req)).source).toBe('cache');
+    expect(whmcs.calls).toHaveLength(1);
+    expect(db.ops.filter((o) => o.verb !== 'select')).toEqual([]);
+    // Locale is part of the cache key.
+    await gateway.whmcsRead(turn(), { ...req, params: { limit: 5, locale: 'en' } });
+    expect(whmcs.calls).toHaveLength(2);
+  });
+
+  it('platform section off blocks warm cache; other sections remain available', async () => {
+    await gateway.whmcsRead(turn(), request('announcements'));
+    db.tables.plugin_platform_state = [{ plugin_id: 'whmcs', enabled: true, maintenance_mode: false, policy: { whmcsSections: { announcements: false } } }];
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 15_001);
+    try {
+      await expect(gateway.whmcsRead(turn(), request('announcements'))).rejects.toMatchObject({ code: 'commerce_permission_denied' });
+    } finally { clock.mockRestore(); }
+    expect(whmcs.calls).toHaveLength(1);
+    await gateway.whmcsRead(turn(), request('knowledgebase'));
+    expect(whmcs.calls).toHaveLength(2);
+  });
+
+  it('network status is live so a login requirement or revoked grant cannot reuse old content', async () => {
+    const req = request('networkstatus');
+    expect((await gateway.whmcsRead(turn(), req)).source).toBe('live');
+    expect((await gateway.whmcsRead(turn(), req)).source).toBe('live');
+    whmcs.networkRequiresLogin = true;
+    await expect(gateway.whmcsRead(turn(), req)).rejects.toMatchObject({ code: 'identity_expired' });
+    await gateway.whmcsRead(turn(), { ...req, grant: alice });
+    whmcs.grants.get(alice.grantId)!.valid = false;
+    await expect(gateway.whmcsRead(turn(), { ...req, grant: alice })).rejects.toMatchObject({ code: 'identity_expired' });
+    expect(whmcs.calls).toHaveLength(5);
+    expect(db.ops.filter((o) => o.verb !== 'select')).toEqual([]);
+  });
+
+  it('failed content requests do not persist health or audit logs', async () => {
+    whmcs.mode = 'down';
+    await expect(gateway.whmcsRead(turn(), request('announcements'))).rejects.toMatchObject({ code: 'commerce_live_unavailable' });
+    expect(db.ops.filter((o) => o.verb !== 'select')).toEqual([]);
   });
 });
 

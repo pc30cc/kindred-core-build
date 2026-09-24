@@ -40,8 +40,8 @@ const CONFIG = { supabaseUrl: 'x', supabaseServiceRoleKey: 'k' } as Parameters<t
 
 const whmcsConn: Row = {
   id: 'conn-whmcs', workspace_id: WS, installation_id: INSTALL, provider_type: 'whmcs', store_id: BASE, approved_origin: ORIGIN,
-  capabilities: ['catalog.read', 'identity.grant', 'account.services.read', 'account.invoices.read', 'account.domains.read', 'account.orders.read', 'account.tickets.read'],
-  permissions: { catalog: true, services: true, invoices: true, domains: true, orders: true, tickets: true },
+  capabilities: ['content.announcements.read', 'content.knowledgebase.read', 'content.networkstatus.read', 'catalog.read', 'identity.grant', 'account.services.read', 'account.invoices.read', 'account.domains.read', 'account.orders.read', 'account.tickets.read'],
+  permissions: { announcements: true, knowledgebase: true, networkstatus: true, catalog: true, services: true, invoices: true, domains: true, orders: true, tickets: true },
   health: 'connected', catalog_ready: false, revoked_at: null, protocol_version: 'webyar-commerce/1', created_at: '2026-09-01',
 };
 const wooConn: Row = {
@@ -119,6 +119,38 @@ describe('Super Admin master switch', () => {
     const result = await ask('platform disabled', { question: 'show my services' });
     expect(result.toolsUsed).toEqual([]);
     expect(whmcs.calls).toHaveLength(0);
+  });
+});
+
+describe('on-demand public content', () => {
+  it.each([
+    ['آخرین اخبار و اطلاعیه ها', 'announcements'],
+    ['راهنمای تنظیم دامنه', 'knowledgebase'],
+    ['وضعیت شبکه چطوره؟', 'networkstatus'],
+  ])('routes %s to one bounded source without database writes', async (question, resource) => {
+    const result = await ask(`public ${resource}`, { question, locale: 'fa', conversationId: 'conv-g' });
+    expect(result.intent).toBe('public');
+    expect(rows(result, `whmcs.${resource}`)).toHaveLength(1);
+    expect(whmcs.calls.map((c) => c.op)).toEqual([`content.${resource}`]);
+    expect(result.urls[0]).toContain(BASE);
+    expect(db.ops.filter((o) => o.verb !== 'select')).toEqual([]);
+  });
+
+  it('asks for login only when network notices require it', async () => {
+    whmcs.networkRequiresLogin = true;
+    const guest = await ask('network requires login', { question: 'network status', conversationId: 'conv-g' });
+    expect(status(guest)?.error_code).toBe('identity_required');
+    expect(rows(guest, 'whmcs.networkstatus')).toEqual([]);
+    const member = await ask('network signed in', { question: 'network status' });
+    expect(rows(member, 'whmcs.networkstatus')).toHaveLength(1);
+  });
+
+  it('disabled section returns a clear status before binding or HTTP work', async () => {
+    db.tables.plugin_platform_state = [{ plugin_id: 'whmcs', enabled: true, maintenance_mode: false, policy: { whmcsSections: { networkstatus: false } } }];
+    const result = await ask('network disabled', { question: 'network status' });
+    expect(status(result)?.error_code).toBe('commerce_permission_denied');
+    expect(whmcs.calls).toEqual([]);
+    expect(db.ops.map((o) => o.table)).toEqual(['plugin_platform_state']);
   });
 });
 

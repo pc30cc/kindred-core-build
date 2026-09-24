@@ -12,6 +12,7 @@
  * Pure functions, no I/O — unit-tested directly (src/test/commerce/whmcs*).
  */
 import type {
+  WhmcsContentItem,
   WhmcsDomain,
   WhmcsHealth,
   WhmcsInvoice,
@@ -314,4 +315,18 @@ export function normalizeHealth(input: unknown): WhmcsHealth {
     schemaOk: raw.schema_ok === true,
     systemUrl: typeof raw.system_url === 'string' ? raw.system_url.slice(0, 300) : null,
   };
+}
+
+/** Public content is untrusted text, with no HTML or arbitrary external URLs. */
+export function normalizeContent(raw: unknown, scope: LinkScope): WhmcsListPage<WhmcsContentItem> & { limited: boolean } {
+  const r = rec(raw);
+  const result = page<WhmcsContentItem>(raw, (value) => {
+    const item = rec(value);
+    const itemId = id(item.id);
+    const title = text(item.title, 160);
+    if (!itemId || !title) return null;
+    return { id: itemId, title, excerpt: text(item.excerpt, 700), url: scopedUrl(item.url, scope),
+      publishedAt: date(item.published_at), updatedAt: date(item.updated_at), status: text(item.status, 40) };
+  });
+  return { ...result, items: result.items.slice(0, 5), limited: r.limited === true };
 }

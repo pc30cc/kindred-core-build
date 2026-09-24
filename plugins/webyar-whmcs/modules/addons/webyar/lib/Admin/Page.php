@@ -27,13 +27,11 @@ final class Page
     /** @param array<string,mixed> $vars WHMCS addon _output vars */
     public static function render(array $vars)
     {
-        $lang = isset($vars['_lang']) && is_array($vars['_lang']) ? $vars['_lang'] : array();
-        // The WHMCS addon default is English; use the logged-in admin's
-        // preference so the whole page follows WHMCS when it is Persian.
-        if (self::isPersian()) {
-            require __DIR__ . '/../../lang/farsi.php';
-            $lang = array_merge($lang, $_ADDONLANG);
-        }
+        $rtl = self::isPersian();
+        // Resolve the admin preference once. WHMCS may provide addon strings
+        // in the system default language, which can differ from this admin.
+        require __DIR__ . '/../../lang/' . ($rtl ? 'farsi' : 'english') . '.php';
+        $lang = $_ADDONLANG;
         $moduleLink = isset($vars['modulelink']) ? (string) $vars['modulelink'] : 'addonmodules.php?module=webyar';
         $notice = null;
 
@@ -47,7 +45,7 @@ final class Page
             $code = isset($_GET['code']) ? (string) $_GET['code'] : '';
             $state = isset($_GET['state']) ? (string) $_GET['state'] : '';
             $result = Pairing::complete($code, $state);
-            $notice = $result['ok'] ? array('success', self::t($lang, 'connected')) : array('danger', self::t($lang, 'error_' . $result['error'], $result['error']));
+            $notice = $result['ok'] ? array('success', self::t($lang, 'connected')) : array('danger', self::t($lang, 'error_' . $result['error'], self::t($lang, 'operation_failed')));
         } elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && $action !== '') {
             if (!self::csrfValid(isset($_POST['token_webyar']) ? (string) $_POST['token_webyar'] : '')) {
                 $notice = array('danger', self::t($lang, 'csrf_failed'));
@@ -59,7 +57,7 @@ final class Page
             }
         }
 
-        self::view($moduleLink, $lang, $notice);
+        self::view($moduleLink, $lang, $notice, $rtl);
     }
 
     /** @return array{0:string,1:string}|string|null */
@@ -80,7 +78,7 @@ final class Page
                     echo '<a href="' . htmlspecialchars($result['redirect'], ENT_QUOTES) . '">' . self::t($lang, 'continue') . '</a>';
                     return 'redirected';
                 }
-                return array('danger', self::t($lang, 'error_' . $result['error'], $result['error']));
+                return array('danger', self::t($lang, 'error_' . $result['error'], self::t($lang, 'operation_failed')));
             case 'test':
                 Schema::resetCache();
                 Schema::supportedCapabilities(false);
@@ -96,18 +94,17 @@ final class Page
         return null;
     }
 
-    private static function view($moduleLink, array $lang, $notice)
+    private static function view($moduleLink, array $lang, $notice, $rtl)
     {
         $e = function ($value) {
             return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         };
         $token = self::csrfToken();
         $credential = Settings::credential();
-        $rtl = self::isPersian();
         $logo = '../modules/addons/webyar/assets/icon.png';
         echo '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>';
         echo '<link href="https://fonts.googleapis.com/css2?family=' . ($rtl ? 'Vazirmatn' : 'Inter') . ':wght@400;500;600;700&display=swap" rel="stylesheet">';
-        echo '<style>.webyar-whmcs{font-family:' . ($rtl ? 'Vazirmatn' : 'Inter') . ',sans-serif;max-width:1080px;margin:24px auto;padding:28px;border-radius:24px;background:#f6f8fc;color:#14213d;box-shadow:0 18px 60px rgba(20,33,61,.08)}.webyar-whmcs .wy-head{display:flex;align-items:center;gap:16px;margin-bottom:26px}.webyar-whmcs .wy-head img{width:58px;height:58px;border-radius:16px;object-fit:contain;background:#fff;padding:8px}.webyar-whmcs .wy-head h2{margin:0;font-weight:700}.webyar-whmcs .wy-head p{margin:6px 0 0;color:#55657b;line-height:1.8}.webyar-whmcs .panel{border:1px solid #e6ecf5;border-radius:17px;overflow:hidden;box-shadow:0 8px 25px rgba(20,33,61,.04);margin-bottom:20px}.webyar-whmcs .panel-heading{background:white;border-bottom:1px solid #eef2f7;padding:17px 22px}.webyar-whmcs .panel-title{font-weight:700}.webyar-whmcs .panel-body{padding:22px}.webyar-whmcs .btn{border-radius:9px;margin:3px;padding:9px 15px}.webyar-whmcs .btn-primary{background:#2764d8;border-color:#2764d8}.webyar-whmcs .checkbox{padding:5px 0}.webyar-whmcs .checkbox label{font-weight:500}.webyar-whmcs .help-block{line-height:1.7}.webyar-whmcs .wy-readonly{direction:ltr;unicode-bidi:plaintext;overflow-wrap:anywhere;background:#f6f8fc;padding:11px;border-radius:8px}</style>';
+        echo '<style>.webyar-whmcs{font-family:' . ($rtl ? 'Vazirmatn' : 'Inter') . ',sans-serif;max-width:1080px;margin:24px auto;padding:28px;border-radius:24px;background:#f6f8fc;color:#14213d;box-shadow:0 18px 60px rgba(20,33,61,.08)}.webyar-whmcs .wy-head{display:flex;align-items:center;gap:16px;margin-bottom:26px}.webyar-whmcs .wy-head img{width:58px;height:58px;border-radius:16px;object-fit:contain;background:#fff;padding:8px}.webyar-whmcs .wy-head h2{margin:0;font-weight:700}.webyar-whmcs .wy-head p{margin:6px 0 0;color:#55657b;line-height:1.8}.webyar-whmcs .panel{border:1px solid #e6ecf5;border-radius:17px;overflow:hidden;box-shadow:0 8px 25px rgba(20,33,61,.04);margin-bottom:20px}.webyar-whmcs .panel-heading{background:white;border-bottom:1px solid #eef2f7;padding:17px 22px}.webyar-whmcs .panel-title{font-weight:700}.webyar-whmcs .panel-body{padding:22px}.webyar-whmcs .btn{border-radius:9px;margin:3px;padding:9px 15px}.webyar-whmcs .btn-primary{background:#2764d8;border-color:#2764d8}.webyar-whmcs .checkbox{padding:5px 0}.webyar-whmcs .checkbox label{font-weight:500}.webyar-whmcs .help-block{line-height:1.7}.webyar-whmcs .wy-readonly{direction:ltr;unicode-bidi:plaintext;overflow-wrap:anywhere;background:#f6f8fc;padding:11px;border-radius:8px}.webyar-whmcs *{box-sizing:border-box}.webyar-whmcs .panel{background:#fff}.webyar-whmcs .checkbox label{display:flex;align-items:center;gap:10px;padding:0;line-height:1.8;cursor:pointer}.webyar-whmcs .checkbox input{position:static;float:none;flex:none;margin:0;accent-color:#2764d8;width:17px;height:17px}.webyar-whmcs .wy-sections{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:18px 0}.webyar-whmcs .wy-sections .checkbox{border:1px solid #e6ecf5;border-radius:10px;padding:12px;margin:0}.webyar-whmcs .wy-sections .checkbox:focus-within{outline:2px solid #2764d8;outline-offset:2px}.webyar-whmcs .table{width:100%;table-layout:fixed}.webyar-whmcs th{text-align:start}.webyar-whmcs td{overflow-wrap:anywhere}.webyar-whmcs .btn:focus-visible{outline:2px solid #2764d8;outline-offset:3px}@media(max-width:640px){.webyar-whmcs{margin:12px 0;padding:14px;border-radius:16px}.webyar-whmcs .panel-body{padding:16px}.webyar-whmcs .wy-sections{grid-template-columns:1fr}.webyar-whmcs .wy-head{align-items:flex-start}} </style>';
         $capabilities = Schema::supportedCapabilities();
         // Admin language controls direction; URL and ids stay LTR.
         echo '<div class="webyar-whmcs" dir="' . ($rtl ? 'rtl' : 'ltr') . '">';
@@ -142,10 +139,11 @@ final class Page
         echo self::checkbox('auto_widget', Settings::autoWidget(), self::t($lang, 'auto_widget'));
         echo self::checkbox('share_contact', Settings::shareContact(), self::t($lang, 'share_contact'));
         echo '<h4>' . $e(self::t($lang, 'sections')) . '</h4><p class="help-block">' . $e(self::t($lang, 'sections_help')) . '</p>';
+        echo '<div class="wy-sections">';
         foreach (Settings::SECTIONS as $section) {
             echo self::checkbox('section_' . $section, Settings::sectionEnabled($section), self::t($lang, 'section_' . $section));
         }
-        echo '<button type="submit" class="btn btn-primary">' . $e(self::t($lang, 'save')) . '</button>';
+        echo '</div><button type="submit" class="btn btn-primary">' . $e(self::t($lang, 'save')) . '</button>';
         echo '</div></div></form>';
 
         // ── Diagnostics (cheap: settings + one COUNT) ──

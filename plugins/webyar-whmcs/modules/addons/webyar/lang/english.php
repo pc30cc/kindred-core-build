@@ -3,14 +3,14 @@ if (!defined('WHMCS')) {
     die('This file cannot be accessed directly');
 }
 $_ADDONLANG['title'] = 'Web Yar';
-$_ADDONLANG['intro'] = 'Lets the Web Yar AI assistant answer signed-in customers about their own services, domains, invoices, orders and tickets, and anyone about your public plans. It reads live and read-only; nothing is copied out of WHMCS.';
+$_ADDONLANG['intro'] = 'Lets the Web Yar AI assistant answer signed-in customers about their own services, domains, invoices, orders and tickets, and about public plans, announcements, knowledge articles and network notices. It reads live and read-only; nothing is copied out of WHMCS.';
 $_ADDONLANG['no_access'] = 'You do not have access to this page.';
 $_ADDONLANG['connection'] = 'Connection';
 $_ADDONLANG['status_connected'] = 'Connected';
 $_ADDONLANG['status_not_connected'] = 'Not connected';
 $_ADDONLANG['workspace'] = 'Workspace';
 $_ADDONLANG['connect'] = 'Connect to Web Yar';
-$_ADDONLANG['connect_help'] = 'Set WEBYAR_APP_URL in the WHMCS PHP environment first. Then choose a workspace in Web Yar and approve; there is no key to copy.';
+$_ADDONLANG['connect_help'] = 'Connect to Web Yar, sign in and approve your workspace. Connection addresses are preconfigured.';
 $_ADDONLANG['check_connection'] = 'Check connection';
 $_ADDONLANG['check_help'] = 'Asks Web Yar to contact this WHMCS now and reports what it saw. Nothing runs in the background.';
 $_ADDONLANG['revoke_grants'] = 'Sign out all customers from the assistant';
@@ -23,7 +23,7 @@ $_ADDONLANG['api_url_help'] = 'Only if your Web Yar API runs on a different addr
 $_ADDONLANG['auto_widget'] = 'Add the Web Yar widget to the client area automatically';
 $_ADDONLANG['share_contact'] = 'Let the assistant know the signed-in user’s name and email (for your team’s inbox)';
 $_ADDONLANG['sections'] = 'What the assistant may read';
-$_ADDONLANG['sections_help'] = 'Each section also needs the matching permission in Web Yar, and the customer’s own WHMCS user permission.';
+$_ADDONLANG['sections_help'] = 'Each section must also be enabled in Web Yar. Account information needs customer permissions; network notices follow the WHMCS login requirement.';
 $_ADDONLANG['section_catalog'] = 'Public plans and prices';
 $_ADDONLANG['section_services'] = 'Services';
 $_ADDONLANG['section_domains'] = 'Domains';
@@ -56,3 +56,8 @@ $_ADDONLANG['error_pairing_expired'] = 'The connection request expired. Start ag
 $_ADDONLANG['error_no_pairing_in_progress'] = 'No connection request is in progress.';
 $_ADDONLANG['error_invalid_code'] = 'Web Yar returned an invalid code.';
 $_ADDONLANG['error_exchange_failed'] = 'Web Yar could not complete the connection.';
+
+$_ADDONLANG['section_announcements'] = 'Announcements';
+$_ADDONLANG['section_knowledgebase'] = 'Knowledge base';
+$_ADDONLANG['section_networkstatus'] = 'Network status';
+$_ADDONLANG['operation_failed'] = 'The operation could not be completed. Please check the connection and try again.';

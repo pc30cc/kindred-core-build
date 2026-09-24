@@ -1,6 +1,6 @@
 # Addon tests against a real MariaDB/MySQL
 
-The default suite runs on in-memory SQLite. This mode runs the same 45 tests
+The default suite runs on in-memory SQLite. This mode runs the same 55 tests
 against a real MariaDB/MySQL database that holds the WHMCS schema, so every
 seed row and every addon query meets WHMCS's real column types, defaults,
 collation and SQL dialect.
@@ -15,7 +15,7 @@ It is **not** a WHMCS installation: no WHMCS code runs and no licence is used.
   WHMCS creates `tblcurrencies`, `tblusers` and `tblusers_clients`, and some
   newer columns, through encoded upgrade scripts that only run in a licensed
   install. This file reconstructs the ones the addon reads, from the WHMCS
-  developer documentation. It is not a dump of a live WHMCS 9 database.
+  developer documentation. The public-content fields were also checked against an isolated WHMCS 9.0.1 installation.
 
 ## Run
 
@@ -32,3 +32,7 @@ tests/realdb/run.sh
 runs. It then runs PHPUnit with `WEBYAR_TEST_DB=mysql`. Between tests the
 harness empties the seeded WHMCS tables and drops the addon's `mod_webyar_*`
 tables; it never creates WHMCS tables itself.
+
+For release 1.1.0 the suite also passed on a dedicated empty database made
+from the installed WHMCS 9.0.1 schema (55 tests, 322 assertions). Use a
+separate test database: this harness truncates seeded tables between tests.

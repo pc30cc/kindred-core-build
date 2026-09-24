@@ -23,6 +23,11 @@ final class Schema
 {
     /** @var array<string,string[]> */
     const REQUIRED = array(
+        'tblannouncements' => array('id', 'date', 'title', 'announcement', 'published', 'parentid', 'language'),
+        'tblknowledgebase' => array('id', 'title', 'article', 'private', 'parentid', 'language'),
+        'tblknowledgebasecats' => array('id', 'parentid', 'catid', 'hidden'),
+        'tblknowledgebaselinks' => array('categoryid', 'articleid'),
+        'tblnetworkissues' => array('id', 'title', 'description', 'status', 'startdate', 'lastupdate'),
         'tblclients' => array('id', 'currency', 'status'),
         'tblcurrencies' => array('id', 'code', 'prefix', 'suffix', 'default'),
         'tblhosting' => array('id', 'userid', 'orderid', 'packageid', 'domain', 'domainstatus', 'billingcycle', 'nextduedate', 'amount', 'firstpaymentamount', 'regdate', 'suspendreason'),
@@ -40,6 +45,9 @@ final class Schema
 
     /** Which capability each core table backs. */
     const CAPABILITY_TABLES = array(
+        'content.announcements.read' => array('tblannouncements'),
+        'content.knowledgebase.read' => array('tblknowledgebase', 'tblknowledgebasecats', 'tblknowledgebaselinks'),
+        'content.networkstatus.read' => array('tblnetworkissues'),
         'catalog.read' => array('tblproducts', 'tblproductgroups', 'tblcurrencies'),
         'account.services.read' => array('tblhosting', 'tblproducts', 'tblclients', 'tblcurrencies'),
         'account.domains.read' => array('tbldomains', 'tblclients', 'tblcurrencies'),

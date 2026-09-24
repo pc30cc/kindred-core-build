@@ -292,11 +292,14 @@ export const PLUGIN_REGISTRY: readonly PluginDefinition[] = Object.freeze([
     // Yar. See docs/commerce/WHMCS.md.
     id: 'whmcs',
     slug: 'whmcs',
-    version: '1.0.0',
+    version: '1.1.0',
     category: 'commerce',
     status: 'available',
     capabilities: [
       'catalog.read',
+      'content.announcements.read',
+      'content.knowledgebase.read',
+      'content.networkstatus.read',
       'account.services.read',
       'account.domains.read',
       'account.invoices.read',

@@ -56,3 +56,8 @@ $_ADDONLANG['error_pairing_expired'] = 'Bağlantı isteğinin süresi doldu. Ba�
 $_ADDONLANG['error_no_pairing_in_progress'] = 'Devam eden bir bağlantı isteği yok.';
 $_ADDONLANG['error_invalid_code'] = 'Web Yar geçersiz bir kod döndürdü.';
 $_ADDONLANG['error_exchange_failed'] = 'Web Yar bağlantıyı tamamlayamadı.';
+
+$_ADDONLANG['section_announcements'] = 'Duyurular';
+$_ADDONLANG['section_knowledgebase'] = 'Bilgi bankası';
+$_ADDONLANG['section_networkstatus'] = 'Ağ durumu';
+$_ADDONLANG['operation_failed'] = 'İşlem tamamlanamadı. Bağlantıyı kontrol edip tekrar deneyin.';

@@ -12,7 +12,7 @@ use WHMCS\Database\Capsule;
  */
 final class Settings
 {
-    const SECTIONS = array('catalog', 'services', 'domains', 'invoices', 'orders', 'tickets');
+    const SECTIONS = array('catalog', 'services', 'domains', 'invoices', 'orders', 'tickets', 'announcements', 'knowledgebase', 'networkstatus');
 
     /** @var array<string,string|null>|null per-request memo of the whole (tiny) table */
     private static $memo = null;
@@ -122,7 +122,7 @@ final class Settings
     public static function appUrl()
     {
         $configured = getenv('WEBYAR_APP_URL');
-        return rtrim($configured !== false && $configured !== '' ? $configured : (string) self::get('webyar_url'), '/');
+        return rtrim($configured !== false && $configured !== '' ? $configured : (self::get('webyar_url') ?: 'https://app.webyar.ai'), '/');
     }
 
     /** API base; falls back to the app URL (the documented single-host deployment). */
@@ -130,7 +130,7 @@ final class Settings
     {
         $configured = getenv('WEBYAR_API_URL');
         $api = rtrim($configured !== false && $configured !== '' ? $configured : (string) self::get('api_url'), '/');
-        return $api !== '' ? $api : self::appUrl();
+        return $api !== '' ? $api : (self::appUrl() === 'https://app.webyar.ai' ? 'https://api.webyar.ai' : self::appUrl());
     }
 
     public static function flag($name, $default)

@@ -9,13 +9,17 @@ WHMCS version), HTTPS on the WHMCS System URL.
 2. WHMCS admin → System Settings → Addon Modules → "Web Yar" → Activate.
    Then "Configure" → Access Control: tick the admin roles that may manage it.
 3. Addons → Web Yar:
-   - configure WEBYAR_APP_URL in the WHMCS PHP environment and optionally
-     WEBYAR_API_URL if the API has a separate host (restart PHP-FPM);
+   - Web/API addresses are preconfigured for app.webyar.ai / api.webyar.ai.
+     Server operators can override WEBYAR_APP_URL / WEBYAR_API_URL in PHP;
    - click "Connect to Web Yar", choose the workspace, approve.
    - existing installations keep their previously saved URL as a fallback.
      URLs are displayed to administrators but cannot be changed in this page.
 4. In Web Yar → Plugins → WHMCS, turn on the sections the assistant may read
-   (services, domains, invoices, orders, tickets). Private sections start OFF.
+   (services, domains, invoices, orders, tickets, announcements, knowledge
+   base and network status). All except the public catalogue start OFF.
+5. Super Admin -> Plugins -> WHMCS controls the overall plugin, AI access
+   and each section for all workspaces. Disabled sections bypass even cache.
+   After upgrading, click Check connection to refresh supported capabilities.
 
 The widget is added to the client area automatically (can be switched off).
 Nothing runs in the background: no cron, no sync, no polling.

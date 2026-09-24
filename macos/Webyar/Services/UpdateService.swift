@@ -5,10 +5,12 @@ import Sparkle
 
 /// Self-update through Sparkle, the Mac's standard updater: it reads the
 /// appcast, downloads the new build, checks its EdDSA signature and replaces
-/// the app. Super Admin → macOS app decides the appcast (Info.plist's
-/// SUFeedURL otherwise), the channel, whether it checks and downloads by
-/// itself, how often, and which builds may keep running — one below the
-/// minimum, or one withdrawn outright, gets a banner that cannot be closed.
+/// the app. Super Admin → macOS app decides the appcast — the app carries no
+/// address of its own, so moving the feed never needs a new build — and the
+/// channel, whether it checks and downloads by itself, how often, and which
+/// builds may keep running: one below the minimum, or one withdrawn
+/// outright, gets a banner that cannot be closed. Without the platform's
+/// answer (nor a remembered one from an earlier launch) it waits.
 ///
 /// A build without a public key (a local build from source) has nothing to
 /// verify an update against, so updating is off there, as on Windows when
@@ -54,9 +56,8 @@ final class UpdateService: NSObject {
         feed.withLock { $0 = (settings.appcastUrl, settings.channel == "beta") }
         guard let controller else { return }
         if !started {
-            let plist = (Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String) ?? ""
-            // Nowhere to look at all: nothing to start.
-            guard settings.appcastUrl != nil || !plist.isEmpty else { return }
+            // The platform has not said where to look yet: nothing to start.
+            guard settings.appcastUrl != nil else { return }
             started = true
             controller.startUpdater()
         }
@@ -73,7 +74,7 @@ final class UpdateService: NSObject {
 }
 
 extension UpdateService: SPUUpdaterDelegate {
-    /// The platform's appcast; nil falls back to SUFeedURL.
+    /// The platform's appcast — the only one; the updater is not started without it.
     nonisolated func feedURLString(for updater: SPUUpdater) -> String? {
         feed.withLock { $0.url }
     }

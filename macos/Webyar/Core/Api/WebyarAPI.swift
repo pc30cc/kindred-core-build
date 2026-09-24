@@ -485,4 +485,16 @@ final class WebyarAPI {
     func hangUp(callSessionId: String) async throws {
         try await client.call("POST", "/api/calls/\(Self.e(callSessionId))/hangup")
     }
+
+    // MARK: Visitors map
+
+    /// The web Visitors page's map markers: `{ markers: [{ id, lat, lng, status, city, country, current_page }] }`.
+    func visitorMap(workspaceId: String) async throws -> JSONValue {
+        try await client.get("/api/visitor-intel/map", query: [("workspace_id", workspaceId)])
+    }
+
+    /// The map's settings: `enabled` (false hides the map) and `default_center` `{ lat, lng, zoom }`.
+    func visitorMapConfig(workspaceId: String) async throws -> JSONValue {
+        try await client.get("/api/visitor-intel/map-config", query: [("workspace_id", workspaceId)])
+    }
 }

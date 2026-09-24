@@ -69,6 +69,8 @@ final class AppModel {
     /// The call center should select (or answer) this call when it appears.
     var pendingCall: (id: String, answer: Bool)?
     private(set) var isForeground = true
+    /// SwiftUI's openSettings, handed over by the window (macOS 14 has no selector for it).
+    @ObservationIgnored var showSettings: (() -> Void)?
 
     private(set) var unread = 0
     private(set) var counts = SidebarCounts()
@@ -216,6 +218,10 @@ final class AppModel {
         guard let fresh = try? await api.workspaces(), !fresh.isEmpty else { return }
         if fresh.map(\.id) != workspaces.map(\.id) || fresh != workspaces { workspaces = fresh }
     }
+
+    #if DEBUG
+    func debugSignOut() { client.discardSession(); signedOut() }
+    #endif
 
     func signOut() async {
         do {
@@ -398,7 +404,7 @@ final class AppModel {
         case "visitors": route = .visitors
         case "calls": route = .calls
         case "colleagues": route = .colleagues
-        case "settings": NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        case "settings": showSettings?()
         default: route = .inbox(.open)
         }
     }

@@ -79,7 +79,8 @@ enum DebugTools {
         case "open": app.openConversation(arg)
         case "lang": if let l = Language.parse(arg) { app.setLanguage(l) }
         case "appearance": app.setAppearance(Appearance(rawValue: arg) ?? .system)
-        case "settings": NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        case "settings": app.showSettings?()
+        case "signout": app.debugSignOut()
         case "details": app.settings.detailsOpen = arg != "off"
         case "ring": app.debugRing()
         case "size":

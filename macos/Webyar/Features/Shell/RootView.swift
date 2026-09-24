@@ -5,6 +5,7 @@ import SwiftUI
 struct RootView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.controlActiveState) private var active
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Group {
@@ -22,7 +23,10 @@ struct RootView: View {
         }
         .frame(minWidth: 960, minHeight: 600)
         .animation(.smooth(duration: 0.25), value: app.phase)
-        .onAppear { Typeface.persian = app.strings.language == .fa }
+        .onAppear {
+            Typeface.persian = app.strings.language == .fa
+            app.showSettings = { openSettings() }
+        }
         .onChange(of: app.strings.language) { _, l in Typeface.persian = l == .fa }
         .onContinuousHover { _ in app.noteInteraction() }
         .navigationTitle(app.workspace?.name.isEmpty == false ? app.workspace!.name : app.strings["appName"])

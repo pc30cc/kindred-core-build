@@ -2172,6 +2172,23 @@ extension Str {
         }
     }
 
+    /// What the console calls the chat widget in its channel badge.
+    static func channelWidget(_ l: Language) -> String {
+        switch l {
+        case .en: "Chat widget"
+        case .fa: "ویجت چت"
+        case .tr: "Sohbet widget\u{27}ı"
+        }
+    }
+
+    static func channelPhone(_ l: Language) -> String {
+        switch l {
+        case .en: "Phone"
+        case .fa: "تلفن"
+        case .tr: "Telefon"
+        }
+    }
+
     static func visitorLocation(_ l: Language) -> String {
         switch l {
         case .en: "Location"

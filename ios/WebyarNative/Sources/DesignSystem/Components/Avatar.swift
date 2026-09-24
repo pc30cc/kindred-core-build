@@ -42,16 +42,27 @@ struct Avatar: View {
     var isResolvingIdentity: Bool = false
 
     /// What to draw when there is no picture and no operating system.
-    var emptyStyle: EmptyStyle = .initials
+    var emptyStyle: EmptyStyle = .person
 
     enum EmptyStyle {
-        /// Two letters on a colour derived from the name. For a contact or a
-        /// visitor, where the letters are a real clue to who it is.
+        /// Two letters on a colour derived from the name. For something that
+        /// is not a person -- a workspace, where a person glyph would be a
+        /// lie and the letters are the mark.
         case initials
-        /// A person glyph on the skeleton surface. For the operator's own
-        /// face, where initials are not identification -- they already know
-        /// who they are -- and the slot is an invitation to add a photo.
+        /// A person glyph on that same name-derived colour. The default, and
+        /// what a contact with no picture and no known device gets.
+        ///
+        /// The colour is the point. A plain grey figure repeated down a list
+        /// reads as one icon printed six times, and four visitors arriving
+        /// together become indistinguishable. Keeping the hash-picked hue
+        /// means the row still says *which* person it is at a glance -- the
+        /// same thing the initials were doing -- without pretending two
+        /// letters of a name we may not even have is identification.
         case person
+        /// A person glyph on the neutral skeleton, no colour at all. For the
+        /// operator's own face, where the slot is not an identity to
+        /// recognise but an empty space inviting a photograph.
+        case personPlain
     }
 
     /// Visitor operating system, e.g. "Windows", "macOS", "Android".
@@ -205,12 +216,27 @@ struct Avatar: View {
                 OSGlyph(kind: osKind, size: size * 0.5)
                     .shadow(color: .black.opacity(0.35), radius: 1, x: 0, y: 1)
             }
-        } else if emptyStyle == .person {
+        } else if emptyStyle == .personPlain {
             ZStack {
                 SkeletonFill()
                 Image(systemName: "person.fill")
                     .font(.system(size: size * 0.42))
                     .foregroundStyle(Theme.Palette.labelTertiary)
+            }
+        } else if emptyStyle == .person {
+            ZStack {
+                initialsGradient
+                // The same soft top-light the operating-system marks carry,
+                // so a figure and a Windows logo sit at the same depth.
+                LinearGradient(
+                    colors: [.white.opacity(0.28), .clear],
+                    startPoint: .top,
+                    endPoint: .center
+                )
+                Image(systemName: "person.fill")
+                    .font(.system(size: size * 0.42))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.25), radius: 1, x: 0, y: 1)
             }
         } else {
             ZStack {

@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 
 /// A messaging channel the workspace has actually installed — Telegram, Bale,
 /// WhatsApp and the rest.
@@ -25,6 +25,11 @@ struct ChannelInbox: Identifiable, Hashable, Sendable {
         case "x", "twitter": return "X"
         case "messenger", "facebook": return "Messenger"
         case "sms": return language == .fa ? "پیامک" : "SMS"
+        // Not plugins, so never in the switcher -- but a conversation can
+        // arrive on any of them, and the inbox row names where it came from.
+        case "widget": return Str.channelWidget(language)
+        case "email": return Str.emailLabel(language)
+        case "phone": return Str.channelPhone(language)
         default: return key.prefix(1).uppercased() + key.dropFirst()
         }
     }
@@ -36,7 +41,25 @@ struct ChannelInbox: Identifiable, Hashable, Sendable {
         case "instagram": "camera"
         case "x", "twitter": "at"
         case "sms": "text.bubble"
+        case "widget": "bubble.left"
+        case "email": "envelope"
+        case "phone": "phone"
         default: "square.grid.2x2"
+        }
+    }
+
+    /// The colour the console gives this channel, so a thread is the same
+    /// shade of blue on a phone as on a desk.
+    @MainActor
+    var tint: Color {
+        switch key {
+        case "telegram": Color(hue: 200 / 360, saturation: 0.90, brightness: 0.78)
+        case "bale": Color(hue: 150 / 360, saturation: 0.60, brightness: 0.62)
+        case "whatsapp": Theme.Palette.success
+        case "instagram": Color(hue: 330 / 360, saturation: 0.75, brightness: 0.78)
+        case "x", "twitter": Theme.Palette.label
+        case "widget": Theme.Palette.brand
+        default: Theme.Palette.labelSecondary
         }
     }
 }

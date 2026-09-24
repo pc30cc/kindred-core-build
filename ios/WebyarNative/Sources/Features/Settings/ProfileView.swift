@@ -155,7 +155,7 @@ struct ProfileView: View {
                         imageURL: avatarURL,
                         size: Theme.Size.avatarLarge,
                         isBusy: isAvatarUnknown,
-                        emptyStyle: .person
+                        emptyStyle: .personPlain
                     )
 
                     ChangePhotoButton(

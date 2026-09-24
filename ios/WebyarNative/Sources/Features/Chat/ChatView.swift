@@ -501,11 +501,16 @@ struct MessageRow: View {
                 if isAI {
                     AIAvatar(size: Theme.Size.avatarSmall - 4)
                 } else if isOutgoing {
-                    // The operator's own uploaded photo when there is one.
+                    // The operator's own uploaded photo when there is one,
+                    // and the empty slot when there is not -- the same figure
+                    // on the same neutral skeleton their own Settings row
+                    // shows, so the gap reads as "add a photo" in both places
+                    // rather than as initials in one and a face in the other.
                     Avatar(
                         name: message.senderName ?? "—",
                         imageURL: message.senderAvatar,
-                        size: Theme.Size.avatarSmall - 4
+                        size: Theme.Size.avatarSmall - 4,
+                        emptyStyle: .personPlain
                     )
                 } else {
                     Avatar(

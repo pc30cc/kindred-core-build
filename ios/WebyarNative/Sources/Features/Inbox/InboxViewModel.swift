@@ -35,6 +35,10 @@ final class InboxViewModel {
     /// Decorative, exactly as in the web: the list renders without it, so a
     /// failure here never becomes an error state.
     private(set) var visitors: [String: VisitorProfile] = [:]
+    /// Whether that batch read is still out. Until it lands a row cannot tell
+    /// "no operating system" from "not known yet", and guessing shows
+    /// initials it is about to replace.
+    private(set) var isResolvingVisitors = true
     var filter: InboxFilter = .open
     /// A channel inbox laid over the queue — Telegram, Bale, and the rest.
     ///
@@ -189,7 +193,9 @@ final class InboxViewModel {
             workspaceID: workspaceID,
             conversationIDs: conversations.map(\.id)
         )
-        guard let profiles, !Task.isCancelled else { return }
+        guard !Task.isCancelled else { return }
+        isResolvingVisitors = false
+        guard let profiles else { return }
         // Merged rather than replaced: switching queue re-uses what is already
         // known about a thread instead of blanking its avatar for a moment.
         visitors.merge(profiles) { _, new in new }

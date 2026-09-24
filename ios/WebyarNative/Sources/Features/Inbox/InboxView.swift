@@ -239,6 +239,7 @@ struct InboxView: View {
                             ConversationRow(
                                 conversation: conversation,
                                 visitor: model.visitor(for: conversation),
+                                isResolvingVisitor: model.isResolvingVisitors,
                                 language: language,
                                 locale: locale,
                                 currentUserID: appState.session.user?.id
@@ -441,6 +442,7 @@ struct ConversationRow: View {
     let conversation: Conversation
     /// Device and country behind this thread, when the server knew them.
     var visitor: VisitorProfile?
+    var isResolvingVisitor = false
     let language: Language
     let locale: Locale
     /// Who is signed in, so a thread assigned to them can say so. Assignment
@@ -504,6 +506,7 @@ struct ConversationRow: View {
                 name: displayName,
                 imageURL: conversation.contact?.avatarURL,
                 size: Theme.Size.avatarMedium,
+                isResolvingIdentity: isResolvingVisitor,
                 os: visitor?.device?.os,
                 device: visitor?.device?.device,
                 countryCode: visitor?.geo?.countryCode
@@ -517,6 +520,8 @@ struct ConversationRow: View {
                         .lineLimit(1)
 
                     Spacer(minLength: Theme.Space.xs)
+
+                    ChannelMark(key: conversation.channelKey, language: language)
 
                     Text(Format.listTimestamp(conversation.lastActivity, locale: locale))
                         .font(Theme.Typo.meta)

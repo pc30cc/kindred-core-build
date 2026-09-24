@@ -70,7 +70,7 @@ struct SettingsView: View {
                             // them nothing they do not know, and a coloured
                             // disc with two letters in it looks like a
                             // finished avatar rather than an empty slot.
-                            emptyStyle: .person
+                            emptyStyle: .personPlain
                         )
 
                         VStack(alignment: .leading, spacing: Theme.Space.xxs) {
@@ -283,7 +283,14 @@ private struct WorkspaceRow: View {
 
     private var content: some View {
         HStack(spacing: Theme.Space.sm) {
-            Avatar(name: workspace.name, imageURL: workspace.logoURL, size: Theme.Size.avatarSmall)
+            // A workspace is not a person: a figure in the slot would be a
+            // lie, so this is the one place initials are still the mark.
+            Avatar(
+                name: workspace.name,
+                imageURL: workspace.logoURL,
+                size: Theme.Size.avatarSmall,
+                emptyStyle: .initials
+            )
 
             VStack(alignment: .leading, spacing: 1) {
                 if isOnly {

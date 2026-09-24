@@ -1,4 +1,4 @@
--- 211_commerce_whmcs.sql
+-- 212_commerce_whmcs.sql
 --
 -- WHMCS connector (docs/commerce/WHMCS.md). ADDITIVE ONLY: new nullable
 -- columns and partial indexes on the existing commerce tables. Nothing is

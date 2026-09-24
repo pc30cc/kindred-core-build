@@ -350,7 +350,7 @@ struct AttachmentView: View {
             }
         }
         .contextMenu {
-            Button(app.strings["open"]) { open() }
+            Button(app.strings["openFile"]) { open() }
             Button(app.strings["save"] + "…") { Task { await AttachmentStore.shared.save(attachment) } }
         }
     }

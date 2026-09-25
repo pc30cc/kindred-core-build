@@ -230,6 +230,14 @@ extension WebyarAPI {
 
     /// An attachment's bytes: its storage URL, fetched with the session when it is the API's own.
     func emailAttachmentData(_ a: EmailAttachmentView) async throws -> Data {
+        // Opened before: from the disk, as chat files are.
+        if let cached = FileCache.read(a.id) { return cached }
+        let data = try await fetchEmailAttachment(a)
+        FileCache.write(a.id, data)
+        return data
+    }
+
+    private func fetchEmailAttachment(_ a: EmailAttachmentView) async throws -> Data {
         // The signed-in route first: it works for any provider (no public URL, private buckets) and
         // after a provider or CDN change. The public link is only for servers without it.
         if let path = a.downloadPath, path.hasPrefix("/api/") { return try await client.bytes(path) }

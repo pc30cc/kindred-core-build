@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import CryptoKit
 import Foundation
 import Security
 
@@ -282,6 +283,25 @@ enum FileCache {
     static func write(_ id: String, _ data: Data) {
         guard valid(id), !data.isEmpty else { return }
         try? data.write(to: path(id), options: .atomic)
+    }
+
+    // Files known by a link rather than an id (avatars, logos, campaign art): kept under a hash
+    // of the whole link, so the provider's new links after a change are simply new entries.
+    private static func path(key: String) -> URL {
+        let digest = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
+        return folder.appendingPathComponent("k-" + digest + ".bin")
+    }
+
+    static func read(key: String) -> Data? {
+        let url = path(key: key)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
+        return data
+    }
+
+    static func write(key: String, _ data: Data) {
+        guard !data.isEmpty else { return }
+        try? data.write(to: path(key: key), options: .atomic)
     }
 
     /// Total size and file count, for the settings page.

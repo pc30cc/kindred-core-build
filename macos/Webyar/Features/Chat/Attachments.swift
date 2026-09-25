@@ -57,17 +57,29 @@ struct AttachmentInfo: Identifiable, Hashable, Sendable {
 final class AttachmentStore {
     static let shared = AttachmentStore()
 
-    private var bytes: [String: Data] = [:]
-    private var images: [String: NSImage] = [:]
+    // Bounded: the disk cache keeps everything; memory only what is being looked at.
+    private let byteCache: NSCache<NSString, NSData> = {
+        let c = NSCache<NSString, NSData>()
+        c.totalCostLimit = 150 * 1024 * 1024
+        return c
+    }()
+    private let imageCache: NSCache<NSString, NSImage> = {
+        let c = NSCache<NSString, NSImage>()
+        c.countLimit = 300
+        return c
+    }()
     private var inflight: [String: Task<Data, Error>] = [:]
     weak var api: WebyarAPI?
 
-    func remember(_ id: String, _ data: Data) { bytes[id] = data }
+    private func getBytes(_ id: String) -> Data? { byteCache.object(forKey: id as NSString) as Data? }
+    private func setBytes(_ id: String, _ d: Data) { byteCache.setObject(d as NSData, forKey: id as NSString, cost: d.count) }
 
-    func cachedImage(_ id: String) -> NSImage? { images[id] }
+    func remember(_ id: String, _ data: Data) { setBytes(id, data) }
+
+    func cachedImage(_ id: String) -> NSImage? { imageCache.object(forKey: id as NSString) }
 
     func data(_ id: String) async throws -> Data {
-        if let d = bytes[id] { return d }
+        if let d = getBytes(id) { return d }
         if let t = inflight[id] { return try await t.value }
         let task = Task<Data, Error> { [weak self] in
             if let d = FileCache.read(id) { return d }
@@ -79,25 +91,25 @@ final class AttachmentStore {
         inflight[id] = task
         defer { inflight[id] = nil }
         let d = try await task.value
-        bytes[id] = d
+        setBytes(id, d)
         return d
     }
 
     func image(_ id: String) async -> NSImage? {
-        if let i = images[id] { return i }
+        if let i = imageCache.object(forKey: id as NSString) { return i }
         guard let d = try? await data(id), let i = NSImage(data: d) else { return nil }
-        images[id] = i
+        imageCache.setObject(i, forKey: id as NSString)
         return i
     }
 
     /// A file the operator just sent now has its server id: the bytes and the
     /// decoded photo carry over, so the confirmed message does not reload it.
     func alias(_ local: String, _ server: String) {
-        if let d = bytes[local] {
-            bytes[server] = d
+        if let d = getBytes(local) {
+            setBytes(server, d)
             FileCache.write(server, d)
         }
-        if let i = images[local] { images[server] = i }
+        if let i = imageCache.object(forKey: local as NSString) { imageCache.setObject(i, forKey: server as NSString) }
     }
 
     /// Forgets the in-memory copies too, after the disk cache is cleared.

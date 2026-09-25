@@ -344,3 +344,68 @@ describe('DELETE /api/conversations — delete-all is destructive, so it require
     expect(db.conversations.find((c) => c.id === convForeign)).toBeDefined();
   });
 });
+
+describe('GET /api/conversations/:id — one conversation, as a row of the list', () => {
+  it('returns the conversation with the same enrichment the list gives it', async () => {
+    db.conversation_messages.push(
+      { id: crypto.randomUUID(), conversation_id: convOpen, sender_type: 'contact', body: 'first', seen_at: null, created_at: '2026-01-01T00:00:00Z' },
+      { id: crypto.randomUUID(), conversation_id: convOpen, sender_type: 'contact', body: 'second', seen_at: null, created_at: '2026-01-01T00:01:00Z' },
+    );
+    const one = await call('GET', `/api/conversations/${convOpen}`, { token: 'member-token' });
+    expect(one.status).toBe(200);
+    expect(one.json.conversation.id).toBe(convOpen);
+    expect(one.json.conversation.unread_count).toBe(2);
+
+    const list = await call('GET', `/api/conversations?workspace_id=${WS}&queue=main`, { token: 'member-token' });
+    const row = (list.json.conversations as Row[]).find((c) => c.id === convOpen);
+    expect(one.json.conversation.unread_count).toBe(row.unread_count);
+    expect(one.json.conversation.last_message).toEqual(row.last_message);
+  });
+
+  it('finds a conversation whatever queue it is in (spam, automated)', async () => {
+    const spam = await call('GET', `/api/conversations/${convSpam}`, { token: 'member-token' });
+    expect(spam.status).toBe(200);
+    const automated = await call('GET', `/api/conversations/${convAutomated}`, { token: 'member-token' });
+    expect(automated.status).toBe(200);
+  });
+
+  it('authorizes against the conversation\'s own workspace', async () => {
+    const res = await call('GET', `/api/conversations/${convForeign}`, { token: 'member-token' });
+    expect(res.status).toBe(403);
+  });
+
+  it('rejects an unauthenticated caller and a non-member', async () => {
+    expect((await call('GET', `/api/conversations/${convOpen}`)).status).toBe(401);
+    expect((await call('GET', `/api/conversations/${convOpen}`, { token: 'outsider-token' })).status).toBe(403);
+  });
+
+  it('404s an unknown id and 400s a malformed one', async () => {
+    expect((await call('GET', `/api/conversations/${crypto.randomUUID()}`, { token: 'member-token' })).status).toBe(404);
+    expect((await call('GET', '/api/conversations/not-a-uuid', { token: 'member-token' })).status).toBe(400);
+  });
+
+  it('never shadows the literal routes registered before it', async () => {
+    const res = await call('GET', `/api/conversations/inbox-counts?workspace_id=${WS}`, { token: 'member-token' });
+    expect(res.status).toBe(200);
+    expect(res.json.main).toBe(3);
+  });
+
+  it('withholds a thread assigned to someone else from a plain operator, as the list does', async () => {
+    db.workspace_members[0].role = 'agent';
+    const other = crypto.randomUUID();
+    db.conversations.find((c) => c.id === convOpen)!.assigned_to = other;
+    expect((await call('GET', `/api/conversations/${convOpen}`, { token: 'member-token' })).status).toBe(404);
+    // Unassigned and own threads stay visible.
+    expect((await call('GET', `/api/conversations/${convPending}`, { token: 'member-token' })).status).toBe(200);
+    db.conversations.find((c) => c.id === convOpen)!.assigned_to = MEMBER;
+    expect((await call('GET', `/api/conversations/${convOpen}`, { token: 'member-token' })).status).toBe(200);
+  });
+
+  it('withholds a finished thread another operator handled from a plain operator', async () => {
+    db.workspace_members[0].role = 'agent';
+    const other = crypto.randomUUID();
+    db.conversations.find((c) => c.id === convOpen)!.status = 'resolved';
+    db.conversation_messages.push({ id: crypto.randomUUID(), conversation_id: convOpen, sender_type: 'agent', sender_id: other, body: 'done', created_at: '2026-01-01T00:00:00Z' });
+    expect((await call('GET', `/api/conversations/${convOpen}`, { token: 'member-token' })).status).toBe(404);
+  });
+});

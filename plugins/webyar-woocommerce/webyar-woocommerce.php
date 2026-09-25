@@ -3,7 +3,7 @@
  * Plugin Name:       اتصال‌دهنده‌ی وب‌یار برای ووکامرس
  * Plugin URI:        https://webyar.ai
  * Description:       پل ارتباطی سبک و امن میان فروشگاه ووکامرس شما و دستیار هوش مصنوعی وب‌یار. بدون موتور هوش مصنوعی، بدون ساخت پرامپت، بدون نمایه‌سازی محصولات — فقط داده‌ی نوع‌دار و امضاشده برای محصولات، موجودی، سفارش‌ها و رهگیری مرسوله. تمام هوش مصنوعی روی سرورهای وب‌یار اجرا می‌شود.
- * Version:           1.2.1
+ * Version:           1.2.2
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * WC requires at least: 8.0
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // No direct access.
 }
 
-define( 'WEBYAR_WC_VERSION', '1.2.1' );
+define( 'WEBYAR_WC_VERSION', '1.2.2' );
 define( 'WEBYAR_WC_PROTOCOL_VERSION', 'webyar-commerce/1' );
 define( 'WEBYAR_WC_FILE', __FILE__ );
 define( 'WEBYAR_WC_DIR', plugin_dir_path( __FILE__ ) );

@@ -54,6 +54,13 @@ final class UpdaterTest extends TestCase {
 		);
 	}
 
+	public function test_another_port_or_userinfo_is_refused(): void {
+		$this->assertNull( $this->resolve( 'https://app.example.com:8443/p.zip', 'https://app.example.com' ) );
+		$this->assertNull( $this->resolve( 'https://user@app.example.com/p.zip', 'https://app.example.com' ) );
+		$this->assertNull( $this->resolve( 'https://app.example.com/p.zip#fragment', 'https://app.example.com' ) );
+		$this->assertSame( 'https://app.example.com:8443/p.zip', $this->resolve( '/p.zip', 'https://app.example.com:8443' ) );
+	}
+
 	public function test_plain_http_is_refused(): void {
 		// Otherwise anyone on the network path can swap the archive.
 		$this->assertNull(
@@ -131,7 +138,7 @@ final class UpdaterTest extends TestCase {
 	public function test_a_manifest_pointing_at_another_host_is_ignored_entirely(): void {
 		$out = $this->check( array( 'package' => 'https://evil.example.net/p.zip' ) );
 		$this->assertArrayNotHasKey( $this->key(), $out->response );
-		$this->assertArrayNotHasKey( $this->key(), $out->no_update );
+		$this->assertArrayHasKey( $this->key(), $out->no_update );
 	}
 
 	public function test_a_version_string_that_is_not_a_version_is_ignored(): void {

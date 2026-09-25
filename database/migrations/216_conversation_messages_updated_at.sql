@@ -21,9 +21,19 @@
 ALTER TABLE public.conversation_messages
   ADD COLUMN IF NOT EXISTS updated_at timestamptz;
 
-UPDATE public.conversation_messages
-   SET updated_at = GREATEST(created_at, COALESCE(seen_at, created_at))
- WHERE updated_at IS NULL;
+-- seen_at is not in every chain (self-host lacks it): used only where it exists.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'conversation_messages' AND column_name = 'seen_at') THEN
+    EXECUTE 'UPDATE public.conversation_messages
+                SET updated_at = GREATEST(created_at, COALESCE(seen_at, created_at))
+              WHERE updated_at IS NULL';
+  ELSE
+    UPDATE public.conversation_messages SET updated_at = created_at WHERE updated_at IS NULL;
+  END IF;
+END;
+$$;
 
 ALTER TABLE public.conversation_messages
   ALTER COLUMN updated_at SET DEFAULT now();

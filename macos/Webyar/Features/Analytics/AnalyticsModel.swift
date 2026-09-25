@@ -37,10 +37,15 @@ enum AnalyticsRange: Int, CaseIterable, Identifiable, Sendable {
     var id: Int { rawValue }
 
     /// YYYY-MM-DD bounds, in UTC as the server counts days.
-    var bounds: (start: String, end: String) {
+    var bounds: (start: String, end: String) { bounds(endingDaysAgo: 0) }
+
+    /// The same number of days just before, for "compared with the period before".
+    var previousBounds: (start: String, end: String) { bounds(endingDaysAgo: rawValue) }
+
+    private func bounds(endingDaysAgo offset: Int) -> (start: String, end: String) {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(identifier: "UTC")!
-        let end = Date()
+        let end = cal.date(byAdding: .day, value: -offset, to: Date()) ?? Date()
         let start = cal.date(byAdding: .day, value: -(rawValue - 1), to: end) ?? end
         let f = DateFormatter()
         f.calendar = cal
@@ -73,6 +78,8 @@ final class AnalyticsModel {
     var geoDimension = "country" { didSet { if geoDimension != oldValue { load() } } }
 
     private(set) var overview: WebAnalyticsOverview?
+    /// The same report for the days just before the range, for the headline numbers' change.
+    private(set) var previous: WebAnalyticsOverview?
     /// Report rows by "report.dimension", for the range on show.
     private(set) var breakdowns: [String: WebAnalyticsRows<WebAnalyticsRow>] = [:]
     private(set) var pageLists: [String: WebAnalyticsRows<WebAnalyticsPage>] = [:]
@@ -123,6 +130,7 @@ final class AnalyticsModel {
         range = r
         generation += 1
         overview = nil
+        previous = nil
         breakdowns = [:]
         pageLists = [:]
         events = nil
@@ -133,6 +141,7 @@ final class AnalyticsModel {
     func refresh() {
         generation += 1
         overview = nil
+        previous = nil
         breakdowns = [:]
         pageLists = [:]
         events = nil
@@ -148,6 +157,10 @@ final class AnalyticsModel {
         case .overview:
             if overview == nil {
                 fetch("overview", { api, ws, a, b in try await api.analyticsOverview(workspaceId: ws, start: a, end: b) }) { self.overview = $0 }
+            }
+            if previous == nil {
+                let (a, b) = range.previousBounds
+                fetch("overview.previous", quiet: true, { api, ws, _, _ in try await api.analyticsOverview(workspaceId: ws, start: a, end: b) }) { self.previous = $0 }
             }
         case .sources:
             let key = "sources.\(sourceDimension)", dim = sourceDimension
@@ -181,7 +194,9 @@ final class AnalyticsModel {
     func isLoading(_ key: String) -> Bool { loading.contains(key) }
 
     /// One report for the range on show; its answer is kept only if the range is still the same.
+    /// A `quiet` report is only an extra: when it fails the page shows without it.
     private func fetch<T>(_ key: String,
+                          quiet: Bool = false,
                           _ request: @escaping (WebyarAPI, String, String, String) async throws -> T,
                           apply: @escaping (T) -> Void) {
         guard let ws = app.workspace, !loading.contains(key) else { return }
@@ -189,7 +204,7 @@ final class AnalyticsModel {
         let (start, end) = range.bounds
         let api = app.api
         loading.insert(key)
-        error = nil
+        if !quiet { error = nil }
         Task {
             defer { if gen == generation { loading.remove(key) } }
             do {
@@ -198,12 +213,12 @@ final class AnalyticsModel {
                 apply(value)
                 locked = false
             } catch let e as ApiError where e.status == 403 {
-                guard gen == generation else { return }
+                guard gen == generation, !quiet else { return }
                 // The plan no longer carries it: say so, and have the sidebar look again.
                 locked = true
                 Task { await app.loadPlan() }
             } catch {
-                guard gen == generation, !(error is CancellationError) else { return }
+                guard gen == generation, !quiet, !(error is CancellationError) else { return }
                 Log.error("web analytics \(key)", error)
                 self.error = ErrorText.of(error, app.strings)
             }

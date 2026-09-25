@@ -224,7 +224,9 @@ final class SampleBackend: URLProtocol {
             let trend: [[String: Any]] = (0..<days).map { i in
                 let d = start.addingTimeInterval(Double(i) * 86_400)
                 let weekday = Calendar(identifier: .gregorian).component(.weekday, from: d)
-                let base = 420 + Double(i) * 4 + 90 * sin(Double(i) / 2.3) + (weekday == 6 || weekday == 7 ? -110 : 0)
+                // Grows with the calendar, so a range reads a little better than the one before it.
+                let n = Double(Int(d.timeIntervalSince1970 / 86_400) % 1000)
+                let base = 60 + n * 0.9 + 90 * sin(n / 2.3) + (weekday == 6 || weekday == 7 ? -110 : 0)
                 let sessions = Int(max(40, base))
                 return ["date": f.string(from: d), "sessions": sessions, "pageviews": Int(Double(sessions) * (2.6 + 0.4 * cos(Double(i) / 3)))]
             }
@@ -232,7 +234,8 @@ final class SampleBackend: URLProtocol {
             let pageviews = trend.reduce(0) { $0 + ($1["pageviews"] as? Int ?? 0) }
             return (200, [
                 "sessions": sessions, "pageviews": pageviews, "uniqueVisitors": Int(Double(sessions) * 0.71),
-                "avgPagesPerSession": Double(pageviews) / Double(max(1, sessions)), "bounceRate": 41.6, "avgVisitDurationSeconds": 168,
+                "avgPagesPerSession": Double(pageviews) / Double(max(1, sessions)), "bounceRate": 38 + Double(days % 5) + Double(Int(start.timeIntervalSince1970 / 86_400) % 3),
+                "avgVisitDurationSeconds": 150 + Int(start.timeIntervalSince1970 / 86_400) % 40,
                 "trend": trend,
                 "topChannels": [
                     ["key": "organic_search", "label": "Organic Search", "sessions": sessions * 44 / 100, "pageviews": 0],

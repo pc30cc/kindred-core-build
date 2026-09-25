@@ -62,7 +62,15 @@
   "waLocked": "Website analytics is not in your plan",
   "waLockedHint": "The workspace owner can add it by upgrading the plan.",
   "waMinutes": "m",
-  "waSeconds": "s"
+  "waSeconds": "s",
+  "waVsPrevious": "Compared with the {count} days before",
+  "waTotal": "Total",
+  "waLeader": "Top",
+  "waDistinct": "Different items",
+  "waBestEvent": "Best converting",
+  "waDevice_desktop": "Desktop",
+  "waDevice_mobile": "Mobile",
+  "waDevice_tablet": "Tablet"
  },
  "fa": {
   "navAnalytics": "تحلیل وب‌سایت",
@@ -127,7 +135,15 @@
   "waLocked": "تحلیل وب‌سایت در پلن شما نیست",
   "waLockedHint": "مالک فضای کاری می‌تواند با ارتقای پلن آن را فعال کند.",
   "waMinutes": "دقیقه",
-  "waSeconds": "ثانیه"
+  "waSeconds": "ثانیه",
+  "waVsPrevious": "در مقایسه با {count} روز قبل از آن",
+  "waTotal": "مجموع",
+  "waLeader": "در صدر",
+  "waDistinct": "تعداد موارد",
+  "waBestEvent": "بیشترین نرخ تبدیل",
+  "waDevice_desktop": "دسکتاپ",
+  "waDevice_mobile": "موبایل",
+  "waDevice_tablet": "تبلت"
  },
  "tr": {
   "navAnalytics": "Web sitesi analitiği",
@@ -192,6 +208,14 @@
   "waLocked": "Web sitesi analitiği planınızda yok",
   "waLockedHint": "Çalışma alanı sahibi planı yükselterek ekleyebilir.",
   "waMinutes": "dk",
-  "waSeconds": "sn"
+  "waSeconds": "sn",
+  "waVsPrevious": "Önceki {count} günle karşılaştırıldığında",
+  "waTotal": "Toplam",
+  "waLeader": "Zirvede",
+  "waDistinct": "Farklı öğe",
+  "waBestEvent": "En yüksek dönüşüm",
+  "waDevice_desktop": "Masaüstü",
+  "waDevice_mobile": "Mobil",
+  "waDevice_tablet": "Tablet"
  }
 }

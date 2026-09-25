@@ -233,6 +233,13 @@ enum AnalyticsFormat {
         s.language.locale.localizedString(forIdentifier: tag.replacingOccurrences(of: "-", with: "_")) ?? tag
     }
 
+    /// "mobile" → "Mobile" in the reader's language.
+    static func device(_ key: String, _ s: Strings) -> String {
+        let k = "waDevice_\(key.lowercased())"
+        let v = s[k]
+        return v == k ? key : v
+    }
+
     static func deviceIcon(_ key: String) -> String {
         let k = key.lowercased()
         if k.contains("mobile") || k.contains("phone") { return "iphone" }

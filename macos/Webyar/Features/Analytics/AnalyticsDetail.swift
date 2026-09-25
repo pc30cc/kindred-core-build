@@ -86,21 +86,28 @@ private struct AnalyticsOverviewView: View {
 
     var body: some View {
         let s = app.strings
-        let o = model.overview
+        let o = model.overview, p = model.previous
+        let vs = s.get("waVsPrevious", "count", AnalyticsFormat.count(model.range.rawValue, s))
         VStack(alignment: .leading, spacing: 16) {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 12)], spacing: 12) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 150), spacing: 12), count: 3), spacing: 12) {
                 KPITile(icon: "person.2.fill", tint: Palette.brand, label: s["waVisitors"],
-                        value: o.map { AnalyticsFormat.count($0.uniqueVisitors ?? 0, s) })
+                        value: o.map { AnalyticsFormat.count($0.uniqueVisitors ?? 0, s) },
+                        change: change(o?.uniqueVisitors.map(Double.init), p?.uniqueVisitors.map(Double.init)), changeHelp: vs)
                 KPITile(icon: "rectangle.stack.fill", tint: Color(hex: 0x6E56CF), label: s["waSessions"],
-                        value: o.map { AnalyticsFormat.count($0.sessions ?? 0, s) })
+                        value: o.map { AnalyticsFormat.count($0.sessions ?? 0, s) },
+                        change: change(o?.sessions.map(Double.init), p?.sessions.map(Double.init)), changeHelp: vs)
                 KPITile(icon: "eye.fill", tint: Color(hex: 0x0EA5A4), label: s["waPageviews"],
-                        value: o.map { AnalyticsFormat.count($0.pageviews ?? 0, s) })
+                        value: o.map { AnalyticsFormat.count($0.pageviews ?? 0, s) },
+                        change: change(o?.pageviews.map(Double.init), p?.pageviews.map(Double.init)), changeHelp: vs)
                 KPITile(icon: "doc.on.doc.fill", tint: Color(hex: 0x30A46C), label: s["waPagesPerSession"],
-                        value: o.map { AnalyticsFormat.decimal($0.avgPagesPerSession ?? 0, s) })
+                        value: o.map { AnalyticsFormat.decimal($0.avgPagesPerSession ?? 0, s) },
+                        change: change(o?.avgPagesPerSession, p?.avgPagesPerSession), changeHelp: vs)
                 KPITile(icon: "arrow.uturn.backward", tint: Color(hex: 0xF76B15), label: s["waBounceRate"],
-                        value: o.map { AnalyticsFormat.percent(($0.bounceRate ?? 0) / 100, s) })
+                        value: o.map { AnalyticsFormat.percent(($0.bounceRate ?? 0) / 100, s) },
+                        change: change(o?.bounceRate, p?.bounceRate), higherIsBetter: false, changeHelp: vs)
                 KPITile(icon: "clock.fill", tint: Color(hex: 0xD6409F), label: s["waAvgDuration"],
-                        value: o.map { AnalyticsFormat.duration($0.avgVisitDurationSeconds ?? 0, s) })
+                        value: o.map { AnalyticsFormat.duration($0.avgVisitDurationSeconds ?? 0, s) },
+                        change: change(o?.avgVisitDurationSeconds, p?.avgVisitDurationSeconds), changeHelp: vs)
             }
             TrendCard(overview: o, loading: model.isLoading("overview"))
             ViewThatFits(in: .horizontal) {
@@ -108,6 +115,12 @@ private struct AnalyticsOverviewView: View {
                 VStack(spacing: 16) { channels(o); pages(o) }
             }
         }
+    }
+
+    /// The relative change from the period before, when both are known and the old one is not zero.
+    private func change(_ now: Double?, _ before: Double?) -> Double? {
+        guard let now, let before, before > 0 else { return nil }
+        return (now - before) / before
     }
 
     private func channels(_ o: WebAnalyticsOverview?) -> some View {
@@ -135,14 +148,24 @@ private struct KPITile: View {
     let tint: Color
     let label: String
     let value: String?
+    /// The change from the period before (0.12 = 12% more).
+    var change: Double? = nil
+    /// False where less is better, as for the bounce rate.
+    var higherIsBetter = true
+    var changeHelp = ""
+    @Environment(AppModel.self) private var app
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 28, height: 28)
-                .background(tint.opacity(0.14), in: Circle())
+            HStack(alignment: .center) {
+                Image(systemName: icon)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 28, height: 28)
+                    .background(tint.opacity(0.14), in: Circle())
+                Spacer(minLength: 4)
+                if let change, value != nil { changeChip(change) }
+            }
             VStack(alignment: .leading, spacing: 3) {
                 if let value {
                     Text(value).appFont(24, .bold).monospacedDigit().lineLimit(1).minimumScaleFactor(0.6)
@@ -155,6 +178,24 @@ private struct KPITile: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .panel(14)
+    }
+
+    /// "▲ 12%": green when the number moved the good way, red when the bad way, grey when flat.
+    private func changeChip(_ change: Double) -> some View {
+        let flat = abs(change) < 0.005
+        let good = (change > 0) == higherIsBetter
+        let color = flat ? Palette.text2 : good ? Palette.success : Palette.danger
+        return HStack(spacing: 3) {
+            Image(systemName: flat ? "equal" : change > 0 ? "arrow.up.right" : "arrow.down.right")
+                .font(.system(size: 9, weight: .bold))
+            Text(AnalyticsFormat.percent(abs(change), app.strings)).appFont(11, .semibold).monospacedDigit()
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(color.opacity(0.12), in: Capsule())
+        .environment(\.layoutDirection, .leftToRight)
+        .help(changeHelp)
     }
 }
 
@@ -287,6 +328,7 @@ private struct AnalyticsSourcesView: View {
         } content: {
             BarList(items: rows, loading: result == nil, unit: s["waVisitsUnit"], limit: 25, tint: AnalyticsSection.sources.tint)
         }
+        .insights(rows, loaded: result != nil, total: s["waTotal"], tint: AnalyticsSection.sources.tint)
     }
 }
 
@@ -311,6 +353,7 @@ private struct AnalyticsPagesView: View {
         } content: {
             BarList(items: rows, loading: result == nil, unit: s["waViews"], limit: 25, tint: AnalyticsSection.pages.tint)
         }
+        .insights(rows, loaded: result != nil, total: s["waPageviews"], tint: AnalyticsSection.pages.tint)
     }
 }
 
@@ -346,6 +389,7 @@ private struct AnalyticsGeographyView: View {
         } content: {
             BarList(items: rows, loading: result == nil, unit: s["waVisitsUnit"], limit: 25, tint: AnalyticsSection.geography.tint)
         }
+        .insights(rows, loaded: result != nil, total: s["waTotal"], tint: AnalyticsSection.geography.tint)
     }
 }
 
@@ -356,18 +400,19 @@ private struct AnalyticsTechnologyView: View {
     var body: some View {
         let s = app.strings
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 16, alignment: .top)], spacing: 16) {
-            card("device", title: s["waDevice"], icon: "laptopcomputer.and.iphone") { AnalyticsFormat.deviceIcon($0) }
-            card("os", title: s["waOs"], icon: "gearshape.2") { AnalyticsFormat.osIcon($0) }
-            card("browser", title: s["waBrowser"], icon: "safari") { _ in "globe" }
+            card("device", title: s["waDevice"], icon: "laptopcomputer.and.iphone", symbol: AnalyticsFormat.deviceIcon, name: { AnalyticsFormat.device($0, s) })
+            card("os", title: s["waOs"], icon: "gearshape.2", symbol: AnalyticsFormat.osIcon)
+            card("browser", title: s["waBrowser"], icon: "safari")
         }
     }
 
-    private func card(_ dim: String, title: String, icon: String, symbol: @escaping (String) -> String) -> some View {
+    private func card(_ dim: String, title: String, icon: String,
+                      symbol: ((String) -> String)? = nil, name: ((String) -> String)? = nil) -> some View {
         let s = app.strings
         let tint = AnalyticsSection.technology.tint
         let result = model.breakdowns["tech.\(dim)"]
         let rows = (result?.rows ?? []).map { r in
-            BarItem(id: r.key, label: AnalyticsFormat.unknown(r.label ?? r.key, s), value: r.sessions ?? 0, symbol: symbol(r.key))
+            BarItem(id: r.key, label: AnalyticsFormat.unknown(name?(r.key) ?? r.label ?? r.key, s), value: r.sessions ?? 0, symbol: symbol?(r.key))
         }
         return AnalyticsCard(title: title, icon: icon, tint: tint) {
             BarList(items: rows, loading: result == nil, unit: s["waVisitsUnit"], limit: 8, tint: tint)
@@ -383,6 +428,7 @@ private struct AnalyticsEventsView: View {
         let s = app.strings
         let tint = AnalyticsSection.events.tint
         let rows = model.events?.rows ?? []
+        let best = max(0.0001, rows.compactMap(\.conversionRate).max() ?? 0)
         AnalyticsCard(title: s["waEvents"], icon: AnalyticsSection.events.icon, tint: tint) {
             if model.events == nil {
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity, minHeight: 120)
@@ -411,7 +457,7 @@ private struct AnalyticsEventsView: View {
                             Text(AnalyticsFormat.count(e.count ?? 0, s)).appFont(13).monospacedDigit().frame(width: 90, alignment: .trailing)
                             Text(AnalyticsFormat.count(e.uniqueSessions ?? 0, s)).appFont(13).monospacedDigit().frame(width: 90, alignment: .trailing)
                             HStack(spacing: 8) {
-                                ShareBar(fraction: e.conversionRate ?? 0, tint: tint).frame(width: 70)
+                                ShareBar(fraction: (e.conversionRate ?? 0) / best, tint: tint).frame(width: 70)
                                 Text(AnalyticsFormat.percent(e.conversionRate ?? 0, s)).appFont(13, .semibold).monospacedDigit()
                             }
                             .frame(width: 150, alignment: .trailing)
@@ -560,5 +606,70 @@ extension AnalyticsFormat {
     /// The server's "(unknown)" bucket, in the reader's language.
     static func unknown(_ label: String, _ s: Strings) -> String {
         label == "(unknown)" || label.isEmpty ? s["waUnknown"] : label
+    }
+}
+
+extension View {
+    /// Three tiles above a ranked report: its total, the line in first place and how many lines there are.
+    fileprivate func insights(_ items: [BarItem], loaded: Bool, total: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if loaded, !items.isEmpty { InsightStrip(items: items, totalLabel: total, tint: tint) }
+            self
+        }
+    }
+}
+
+private struct InsightStrip: View {
+    let items: [BarItem]
+    let totalLabel: String
+    let tint: Color
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let s = app.strings
+        let total = items.reduce(0) { $0 + $1.value }
+        let top = items.max { $0.value < $1.value }
+        HStack(spacing: 12) {
+            tile(icon: "sum", label: totalLabel) {
+                Text(AnalyticsFormat.count(total, s)).appFont(20, .bold).monospacedDigit()
+            }
+            tile(icon: "crown.fill", label: s["waLeader"]) {
+                if let top {
+                    HStack(spacing: 6) {
+                        if let flag = top.leading { Text(flag).font(.system(size: 15)) }
+                        Text(top.label)
+                            .appFont(15, .bold)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .environment(\.layoutDirection, top.ltr ? .leftToRight : (s.isRightToLeft ? .rightToLeft : .leftToRight))
+                        Text(AnalyticsFormat.percent(Double(top.value) / Double(max(1, total)), s))
+                            .appFont(12, .semibold)
+                            .foregroundStyle(Palette.text2)
+                            .monospacedDigit()
+                    }
+                }
+            }
+            tile(icon: "list.number", label: s["waDistinct"]) {
+                Text(AnalyticsFormat.count(items.count, s)).appFont(20, .bold).monospacedDigit()
+            }
+        }
+    }
+
+    private func tile<V: View>(icon: String, label: String, @ViewBuilder value: () -> V) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 30, height: 30)
+                .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                value().frame(height: 24, alignment: .leading)
+                Text(label).appFont(11.5).foregroundStyle(Palette.text2).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity)
+        .panel(14)
     }
 }

@@ -189,13 +189,15 @@ struct VisitorFact: View {
                 .background(Palette.brandSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             VStack(alignment: .leading, spacing: 1) {
                 Text(label).appFont(11.5).foregroundStyle(Palette.text3)
+                // Set out in its own direction, but kept on the reading side of the panel.
                 Text(value)
                     .appFont(13)
                     .foregroundStyle(Palette.text)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(valueDirection == direction ? .leading : .trailing)
                     .environment(\.layoutDirection, valueDirection)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -226,9 +228,9 @@ struct VisitStepRow: View {
                     .appFont(12)
                     .foregroundStyle(Palette.text2)
                     .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .truncationMode(.middle)
                     .environment(\.layoutDirection, .leftToRight)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .help(step.url ?? "")
                 if let when = step.when {
                     Text(VisitorText.ago(when, now: now, s)).appFont(11).foregroundStyle(Palette.text3)

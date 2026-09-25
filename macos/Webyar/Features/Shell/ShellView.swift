@@ -13,7 +13,7 @@ struct ShellView: View {
             if let pages {
                 NavigationSplitView(columnVisibility: $columns) {
                     SidebarView()
-                        .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 300)
+                        .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 300)
                 } detail: {
                     // The page: its list at a fixed width beside its detail, as on
                     // Windows (a 340 column, then the rest). A plain stack rather than
@@ -238,7 +238,7 @@ private struct SidebarSection: View {
                     in: RoundedRectangle(cornerRadius: 7, style: .continuous)
                 )
                 .shadow(color: tint.opacity(0.28), radius: 2, y: 1)
-            Text(title).appFont(13.5, .semibold).lineLimit(1)
+            Text(title).appFont(13.5, .semibold).lineLimit(1).minimumScaleFactor(0.85)
             Spacer(minLength: 6)
             CountBadge(count: badge, color: color)
         }

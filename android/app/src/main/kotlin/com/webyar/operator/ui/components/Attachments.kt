@@ -145,7 +145,9 @@ private fun ImageAttachment(
     source: AttachmentSource,
 ) {
     var tapped by remember(attachment.id) { mutableStateOf(false) }
-    val bytes = rememberImageBytes(attachment, source, allowNetwork = source.autoLoadImages || tapped)
+    // Asked once per bubble, not on every recomposition: it is a system call.
+    val autoLoad = remember(source) { source.autoLoadImages }
+    val bytes = rememberImageBytes(attachment, source, allowNetwork = autoLoad || tapped)
     val density = LocalDensity.current
     // Decoded for the bubble, not for the photo: the box is at most
     // 240x260dp, and a 4000px camera frame decoded whole for it is 64 MB of

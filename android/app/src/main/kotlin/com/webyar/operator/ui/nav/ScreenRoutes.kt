@@ -1163,10 +1163,13 @@ fun SettingsRoute(
                 // On the app's scope, not this screen's: a clear that is
                 // half done because the operator tapped Back is worse than
                 // one that finishes.
+                // The application context, not the screen's: this can finish
+                // after the screen is gone and must not hold its Activity.
+                val appContext = context.applicationContext
                 g.appScope.launch {
                     g.clearCache()
                     storage = g.storageUsage()
-                    android.widget.Toast.makeText(context, StrAndroid.cacheCleared(language), android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(appContext, StrAndroid.cacheCleared(language), android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
         },

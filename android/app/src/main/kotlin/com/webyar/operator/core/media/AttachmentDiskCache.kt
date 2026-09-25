@@ -10,6 +10,7 @@ import com.webyar.operator.core.cache.CacheScope
 import com.webyar.operator.core.model.MessageAttachment
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -118,8 +119,13 @@ class AttachmentDiskCache(
 
         val result = try {
             fetchInto(final, attachment, download)
+        } catch (e: Throwable) {
+            // Whoever is waiting on this download must not wait forever
+            // because the screen that started it went away.
+            mine.complete(null)
+            throw e
         } finally {
-            lock.withLock { inFlight.remove(key) }
+            withContext(NonCancellable) { lock.withLock { inFlight.remove(key) } }
         }
         mine.complete(result)
         result

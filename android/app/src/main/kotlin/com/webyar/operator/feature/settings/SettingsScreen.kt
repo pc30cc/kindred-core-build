@@ -3,8 +3,6 @@ package com.webyar.operator.feature.settings
 import com.webyar.operator.StorageUsage
 import com.webyar.operator.i18n.StrAndroid
 import com.webyar.operator.i18n.Format
-import androidx.compose.ui.platform.testTag
-import com.webyar.operator.ui.A11y
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.selection.selectable

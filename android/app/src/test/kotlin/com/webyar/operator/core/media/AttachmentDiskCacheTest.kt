@@ -81,6 +81,26 @@ class AttachmentDiskCacheTest {
     }
 
     @Test
+    fun `a download abandoned by its screen does not strand the one waiting on it`() = runBlocking {
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val slow: suspend (File) -> Unit = {
+            started.complete(Unit)
+            delay(10_000)
+            it.writeBytes(bytes(10))
+        }
+        val owner = async { cache.file(scope, attachment("a1"), slow) }
+        started.await()
+        val waiter = async { cache.file(scope, attachment("a1")) { it.writeBytes(bytes(10)) } }
+        delay(20)
+
+        owner.cancel()
+
+        assertNull(kotlinx.coroutines.withTimeout(2_000) { waiter.await() })
+        // Nothing left in flight: the next ask downloads afresh.
+        assertNotNull(cache.file(scope, attachment("a1")) { it.writeBytes(bytes(10)) })
+    }
+
+    @Test
     fun `files are scoped, and another operator's copy is never served`() = runBlocking {
         cache.file(scope, attachment("a1")) { it.writeBytes(bytes(10)) }
 

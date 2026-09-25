@@ -150,7 +150,21 @@ enum DebugTools {
         case "replymode": EmailModel.debugCurrent?.replyMode = ReplyMode(rawValue: arg) ?? .reply
         case "lang": if let l = Language.parse(arg) { app.setLanguage(l) }
         case "appearance": app.setAppearance(Appearance(rawValue: arg) ?? .system)
-        case "settings": app.showSettings?()
+        case "settings":
+            app.showSettings?()
+            if !arg.isEmpty { NotificationCenter.default.post(name: Notification.Name("WebyarDebugSettingsPane"), object: arg) }
+        case "photo":
+            // "photo on" uploads a sample picture as the operator's photo, "photo off" removes it.
+            Task {
+                if arg == "off" { try? await app.removeAvatar(); return }
+                let image = NSImage(size: NSSize(width: 64, height: 64), flipped: false) { r in
+                    NSColor.systemTeal.setFill(); r.fill(); return true
+                }
+                if let data = AppModel.avatarJPEG(image) {
+                    try? await app.api.uploadAvatar(data: data, contentType: "image/jpeg", fileName: "avatar.jpg")
+                    await app.reloadAccount()
+                }
+            }
         case "signout": app.debugSignOut()
         case "details": app.settings.detailsOpen = arg != "off"
         case "ring": app.debugRing()

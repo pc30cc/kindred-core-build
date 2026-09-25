@@ -7,7 +7,7 @@ namespace Webyar.Core.Api;
 /// desktop client's `api` object (windows/src/renderer/src/api/client.ts) and
 /// the iOS `APIClient`, so the three stay easy to compare.
 /// </summary>
-public sealed class WebyarApi
+public sealed partial class WebyarApi
 {
     private readonly ApiClient _client;
 

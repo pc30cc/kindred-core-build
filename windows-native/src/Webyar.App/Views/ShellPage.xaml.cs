@@ -66,7 +66,7 @@ public sealed partial class ShellPage : Page
             _notifier.UnreadChanged += SetUnread;
             _notifier.Start();
         }
-        // Webyar.exe --page=contacts|visitors|calls|settings opens straight on that section.
+        // Webyar.exe --page=contacts|visitors|analytics|calls|settings opens straight on that section.
         var page = Environment.GetCommandLineArgs().FirstOrDefault(a => a.StartsWith("--page=", StringComparison.Ordinal))?[7..];
         OpenPage(page);
     }
@@ -112,7 +112,7 @@ public sealed partial class ShellPage : Page
         Nav.SelectedItem = InboxOpenItem;
     }
 
-    /// <summary>Shows a section by its tag: inbox, contacts, visitors, calls or settings.</summary>
+    /// <summary>Shows a section by its tag: inbox, contacts, visitors, analytics, calls or settings.</summary>
     public void OpenPage(string? tag)
     {
         // The settings item only exists once the pane's template is applied.
@@ -125,6 +125,7 @@ public sealed partial class ShellPage : Page
         {
             "contacts" => ContactsItem,
             "visitors" => VisitorsItem,
+            "analytics" => AnalyticsItem,
             "calls" => CallCenterItem,
             "colleagues" => ColleaguesItem,
             "email" => EmailItem,
@@ -154,6 +155,7 @@ public sealed partial class ShellPage : Page
             "settings" => typeof(SettingsPage),
             "contacts" => typeof(ContactsPage),
             "visitors" => typeof(VisitorsPage),
+            "analytics" => typeof(AnalyticsPage),
             "calls" => typeof(CallCenterPage),
             "colleagues" => typeof(ColleaguesPage),
             "email" => typeof(EmailPage),
@@ -252,6 +254,7 @@ public sealed partial class ShellPage : Page
         static Visibility V(bool on) => on ? Visibility.Visible : Visibility.Collapsed;
         ContactsItem.Visibility = V(plan.Contacts);
         VisitorsItem.Visibility = V(plan.Visitors);
+        AnalyticsItem.Visibility = V(plan.WebAnalytics);
         CallCenterItem.Visibility = V(plan.CallCenter);
         EmailItem.Visibility = V(plan.EmailInbox);
         InboxAiItem.Visibility = V(plan.AiQueue(_automated));
@@ -299,6 +302,7 @@ public sealed partial class ShellPage : Page
         {
             "contacts" => plan.Contacts,
             "visitors" => plan.Visitors,
+            "analytics" => plan.WebAnalytics,
             "calls" => plan.CallCenter,
             "colleagues" => plan.TeamChat,
             "email" => plan.EmailInbox,
@@ -514,6 +518,7 @@ public sealed partial class ShellPage : Page
             SettingsPage => Nav.SettingsItem,
             ContactsPage => ContactsItem,
             VisitorsPage => VisitorsItem,
+            AnalyticsPage => AnalyticsItem,
             CallCenterPage => CallCenterItem,
             ColleaguesPage => ColleaguesItem,
             EmailPage => EmailItem,
@@ -683,6 +688,7 @@ public sealed partial class ShellPage : Page
         if (Inbox is { } inbox && Nav.SelectedItem is NavigationViewItem { Tag: string tag }) ShowInbox(inbox, tag);
         ContactsItem.Content = s["tabContacts"];
         VisitorsItem.Content = s["navVisitors"];
+        AnalyticsItem.Content = s["navAnalytics"];
         CallCenterItem.Content = s["navCallCenter"];
         EmailItem.Content = s["emailInbox"];
         if (Nav.SettingsItem is NavigationViewItem settings) settings.Content = s["tabSettings"];

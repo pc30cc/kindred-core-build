@@ -148,6 +148,12 @@
                     <InfoBadge x:Name="VisitorsBadge" Visibility="Collapsed" Style="{ThemeResource SuccessValueInfoBadgeStyle}" />
                 </NavigationViewItem.InfoBadge>
             </NavigationViewItem>
+            <!-- Website analytics: owners and admins whose plan has the Web Analytics module, as in the web sidebar. -->
+            <NavigationViewItem x:Name="AnalyticsItem" Tag="analytics" Visibility="Collapsed">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE9D2;" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
             <NavigationViewItem x:Name="CallCenterItem" Tag="calls">
                 <NavigationViewItem.Icon>
                     <FontIcon Glyph="&#xE717;" />

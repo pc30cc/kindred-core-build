@@ -26,14 +26,19 @@ import {
   timestampToMicros,
 } from '../../../server/services/messageSync.js';
 
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
+/** The fake query builder: a chain of filters ending in a thenable, like supabase-js. */
+type Builder = Record<string, unknown> & { then: (resolve: (r: unknown) => unknown) => unknown };
+type Json = { [key: string]: unknown };
+type Answer = { status: number; json: Json; headers: http.IncomingHttpHeaders; bytes: number };
+const ids = (list: unknown): unknown[] => (list as Array<{ id: unknown }>).map((m) => m.id);
 const db: Record<string, Row[]> = {};
 const flags = { menuVisible: true, noUpdatedAtColumn: false };
 
-function field(row: Row, col: string): any {
+function field(row: Row, col: string): unknown {
   const json = /^(\w+)->>(\w+)$/.exec(col);
   if (json) {
-    const v = row[json[1]]?.[json[2]];
+    const v = (row[json[1]] as Row | null | undefined)?.[json[2]];
     return v === undefined || v === null ? null : String(v);
   }
   return row[col];
@@ -75,15 +80,15 @@ function fakeClient() {
       let failure: { code: string; message: string } | null = null;
       let orderCol: string | null = null;
       let limitN: number | null = null;
-      const builder: any = {
+      const builder: Builder = {
         select: (_cols?: string, opts?: { count?: string; head?: boolean }) => {
           if (opts?.head) countMode = true;
           return builder;
         },
-        eq(col: string, val: any) { filters.push((r) => r[col] === val); return builder; },
-        neq(col: string, val: any) { filters.push((r) => r[col] !== val); return builder; },
-        is(col: string, val: any) { filters.push((r) => (val === null ? r[col] == null : r[col] === val)); return builder; },
-        in(col: string, vals: any[]) { filters.push((r) => vals.includes(r[col])); return builder; },
+        eq(col: string, val: unknown) { filters.push((r) => r[col] === val); return builder; },
+        neq(col: string, val: unknown) { filters.push((r) => r[col] !== val); return builder; },
+        is(col: string, val: unknown) { filters.push((r) => (val === null ? r[col] == null : r[col] === val)); return builder; },
+        in(col: string, vals: unknown[]) { filters.push((r) => vals.includes(r[col])); return builder; },
         gt(col: string, val: string) {
           if (flags.noUpdatedAtColumn && col === 'updated_at') failure = { code: '42703', message: 'column does not exist' };
           const bound = timestampToMicros(val)!;
@@ -100,7 +105,7 @@ function fakeClient() {
           const matched = rows.filter((r) => filters.every((f) => f(r)));
           return { data: matched[0] ?? null, error: null };
         },
-        then(resolve: any) {
+        then(resolve: (r: unknown) => unknown) {
           if (failure) return resolve({ data: null, error: failure, count: null });
           let matched = rows.filter((r) => filters.every((f) => f(r)));
           for (const group of orGroups) matched = matched.filter((r) => group.some((c) => evalOrClause(r, c)));
@@ -118,7 +123,7 @@ function fakeClient() {
       };
       return builder;
     },
-    rpc: async (name: string, args: any) => {
+    rpc: async (name: string, args: Record<string, unknown>) => {
       if (name === 'is_workspace_member') {
         const member = (db.workspace_members || []).find(
           (m) => m.workspace_id === args._workspace_id && m.user_id === args._user_id,
@@ -147,7 +152,7 @@ vi.mock('../../../server/services/auth/sessions.js', () => ({
 vi.mock('../../../server/services/realtime/publish.js', () => ({
   publishConversationEvent: async () => ({ ok: false, reason: 'not_configured' }),
   publishOperatorEvent: async () => ({ ok: false }),
-  buildMessageEnvelope: (m: any) => ({ type: 'message', payload: m }),
+  buildMessageEnvelope: (m: unknown) => ({ type: 'message', payload: m }),
 }));
 vi.mock('../../../server/services/billing/conversationLimit.js', () => ({
   enforceMaxConversationsLimit: async () => true,
@@ -157,7 +162,7 @@ const { conversationsRouter } = await import('../../../server/routes/conversatio
 
 const app = express();
 app.use((req, _res, next) => {
-  (req as any).serverConfig = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'] };
+  (req as unknown as { serverConfig: unknown }).serverConfig = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'] };
   next();
 });
 app.use(cookieParser());
@@ -165,9 +170,9 @@ app.use(express.json());
 app.use('/api/conversations', conversationsRouter);
 
 const server = http.createServer(app).listen(0);
-const port = () => (server.address() as any).port;
+const port = () => (server.address() as { port: number }).port;
 
-function call(path: string, opts: { token?: string; headers?: Record<string, string> } = {}): Promise<{ status: number; json: any; headers: http.IncomingHttpHeaders; bytes: number }> {
+function call(path: string, opts: { token?: string; headers?: Record<string, string> } = {}): Promise<Answer> {
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
@@ -178,7 +183,7 @@ function call(path: string, opts: { token?: string; headers?: Record<string, str
         let d = '';
         res.on('data', (c) => (d += c));
         res.on('end', () => {
-          let json: any = {};
+          let json: Json = {};
           try { json = JSON.parse(d || '{}'); } catch { json = { raw: d }; }
           resolve({ status: res.statusCode || 0, json, headers: res.headers, bytes: Buffer.byteLength(d) });
         });
@@ -242,7 +247,7 @@ describe('cursor arithmetic', () => {
     expect(nextCursor([{ updated_at: recent }], null, now)).toBe(now - SAFETY_LAG_MICROS);
     expect(nextCursor([{ updated_at: OLD(5) }], null, now)).toBe(timestampToMicros(OLD(5)));
     expect(nextCursor([], now, now)).toBe(now); // a cursor from the future stays put
-    expect(nextCursor([{ id: 'x' } as any], null, now)).toBeNull(); // no column → no cursor
+    expect(nextCursor([{ id: 'x' } as { updated_at?: unknown }], null, now)).toBeNull(); // no column → no cursor
   });
 });
 
@@ -250,7 +255,7 @@ describe('GET /:id/messages — full answers keep their shape', () => {
   it('returns the whole thread plus an additive sync block', async () => {
     const res = await call(`/api/conversations/${conv}/messages`, { token: 'member-token' });
     expect(res.status).toBe(200);
-    expect(res.json.messages.map((m: any) => m.id)).toEqual(['a', 'b', 'c']);
+    expect(ids(res.json.messages)).toEqual(['a', 'b', 'c']);
     expect(res.json.sync.mode).toBe('full');
     expect(res.json.sync.total).toBe(3);
     expect(decodeCursor(res.json.sync.cursor)).toBe(timestampToMicros(OLD(3)));
@@ -278,19 +283,24 @@ describe('GET /:id/messages?since= — deltas', () => {
     return res.json.sync.cursor as string;
   }
 
-  it('nothing changed → empty delta, same cursor, total unchanged', async () => {
+  it('nothing changed → empty delta, total unchanged, cursor only moves forward', async () => {
     const cursor = await cursorNow();
     const res = await call(`/api/conversations/${conv}/messages?since=${cursor}`, { token: 'member-token' });
     expect(res.status).toBe(200);
-    expect(res.json.sync).toEqual({ mode: 'delta', cursor, total: 3 });
     expect(res.json.messages).toEqual([]);
+    expect(res.json.sync.mode).toBe('delta');
+    expect(res.json.sync.total).toBe(3);
+    // Nothing changed up to now - SAFETY_LAG, so the cursor may advance to it (never past it).
+    const next = decodeCursor(res.json.sync.cursor)!;
+    expect(next).toBeGreaterThanOrEqual(decodeCursor(cursor)!);
+    expect(next).toBeLessThanOrEqual(BigInt(Date.now()) * 1000n - SAFETY_LAG_MICROS);
   });
 
   it('one new message → only that message', async () => {
     const cursor = await cursorNow();
     db.conversation_messages.push(message('d', 4));
     const res = await call(`/api/conversations/${conv}/messages?since=${cursor}`, { token: 'member-token' });
-    expect(res.json.messages.map((m: any) => m.id)).toEqual(['d']);
+    expect(ids(res.json.messages)).toEqual(['d']);
     expect(res.json.sync.total).toBe(4);
     expect(decodeCursor(res.json.sync.cursor)).toBe(timestampToMicros(OLD(4)));
   });
@@ -328,11 +338,11 @@ describe('GET /:id/messages?since= — deltas', () => {
     db.conversation_messages.push(message('menu', 5, { metadata: { channel_menu_event: true } }));
     db.conversation_messages.push(message('e', 6));
     const res = await call(`/api/conversations/${conv}/messages?since=${cursor}`, { token: 'member-token' });
-    expect(res.json.messages.map((m: any) => m.id)).toEqual(['e']);
+    expect(ids(res.json.messages)).toEqual(['e']);
     expect(res.json.sync.total).toBe(4);
     const full = await call(`/api/conversations/${conv}/messages`, { token: 'member-token' });
     expect(full.json.sync.total).toBe(full.json.messages.length);
-    expect(full.json.messages.map((m: any) => m.id)).not.toContain('menu');
+    expect(ids(full.json.messages)).not.toContain('menu');
   });
 
   it('a very recent change is re-sent until it is older than the safety lag', async () => {
@@ -340,9 +350,9 @@ describe('GET /:id/messages?since= — deltas', () => {
     const fresh = new Date().toISOString().replace('Z', '000+00:00');
     db.conversation_messages.push(message('z', 7, { created_at: fresh, updated_at: fresh }));
     const first = await call(`/api/conversations/${conv}/messages?since=${cursor}`, { token: 'member-token' });
-    expect(first.json.messages.map((m: any) => m.id)).toEqual(['z']);
+    expect(ids(first.json.messages)).toEqual(['z']);
     const second = await call(`/api/conversations/${conv}/messages?since=${first.json.sync.cursor}`, { token: 'member-token' });
-    expect(second.json.messages.map((m: any) => m.id)).toEqual(['z']); // upserted again by id: harmless
+    expect(ids(second.json.messages)).toEqual(['z']); // upserted again by id: harmless
     expect(decodeCursor(first.json.sync.cursor)!).toBeGreaterThanOrEqual(decodeCursor(cursor)!);
   });
 

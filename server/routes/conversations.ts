@@ -1458,7 +1458,18 @@ conversationsRouter.get('/inbox-tab-counts', async (req, res) => {
 // back to a full fetch. Without `since` — every existing client — the
 // thread is returned in full exactly as before.
 // ═══════════════════════════════════════════════════════════════════
-async function enrichThreadMessages(config: ServerConfig, sb: ReturnType<typeof getServiceClient>, messages: any[]) {
+/** A conversation_messages row as read with select('*'); only the fields used here are named. */
+type ThreadMessageRow = {
+  id?: string;
+  sender_type?: string;
+  sender_id?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  metadata?: { attachment_id?: unknown; [key: string]: unknown } | null;
+  [key: string]: unknown;
+};
+
+async function enrichThreadMessages(config: ServerConfig, sb: ReturnType<typeof getServiceClient>, messages: ThreadMessageRow[]) {
   const ids = new Set<string>();
   const fromMeta = new Set<string>();
   for (const m of messages) {
@@ -1535,7 +1546,7 @@ async function loadThreadDelta(
   sb: ReturnType<typeof getServiceClient>,
   conversationId: string,
   since: bigint,
-): Promise<{ messages: any[]; total: number } | null> {
+): Promise<{ messages: ThreadMessageRow[]; total: number } | null> {
   const menuVisible = await isTelegramMenuEventsVisible(config);
   // Counted BEFORE the delta is read: a message landing in between then
   // shows up in the delta and makes the client's sum one too many, which
@@ -1558,7 +1569,7 @@ async function loadThreadDelta(
     .order('updated_at', { ascending: true })
     .limit(MAX_DELTA_ROWS + 1);
   if (error) return null;
-  const rows = data || [];
+  const rows: ThreadMessageRow[] = data || [];
   if (rows.length > MAX_DELTA_ROWS) return null;
   const visible = menuVisible ? rows : rows.filter((m) => !isMenuEvent(m));
   visible.sort((a, b) => String(a.created_at ?? '').localeCompare(String(b.created_at ?? '')));
@@ -1601,7 +1612,7 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: true });
     if (error) return res.status(500).json({ error: error.message });
-    let messages = (data || []);
+    let messages: ThreadMessageRow[] = (data || []);
 
     // Super Admin can hide Telegram bot menu taps from operator threads.
     if (messages.some((m) => isMenuEvent(m))) {

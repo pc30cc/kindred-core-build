@@ -25,8 +25,8 @@ public sealed record RetentionPolicy(
     public static readonly RetentionPolicy Default = new(TimeSpan.FromDays(30), 300, 5000, 256L * 1024 * 1024);
 }
 
-/// <summary>A thread as the PC last saw it.</summary>
-public sealed record CachedThread(IReadOnlyList<Message> Messages, string? Cursor, int? Total, string? ETag);
+/// <summary>A thread as the PC last saw it, and when it was last read in full (the authoritative check for deletes).</summary>
+public sealed record CachedThread(IReadOnlyList<Message> Messages, string? Cursor, int? Total, string? ETag, DateTimeOffset? ReconciledAt = null);
 
 /// <summary>A queue as the PC last saw it, and the tag of the answer it came from.</summary>
 public sealed record CachedList(IReadOnlyList<Conversation> Conversations, string? ETag, DateTimeOffset SavedAt);
@@ -73,6 +73,7 @@ public sealed class LocalStore : IAsyncDisposable
             total INTEGER,
             etag TEXT,
             synced_at INTEGER NOT NULL,
+            reconciled_at INTEGER,
             accessed_at INTEGER NOT NULL,
             PRIMARY KEY (workspace_id, conversation_id));
         CREATE TABLE IF NOT EXISTS messages (
@@ -367,13 +368,15 @@ public sealed class LocalStore : IAsyncDisposable
             string? cursor;
             int? total;
             string? etag;
-            using (var cmd = Command("SELECT cursor, total, etag FROM threads WHERE workspace_id = $ws AND conversation_id = $c;", ("$ws", workspaceId), ("$c", conversationId)))
+            DateTimeOffset? reconciled;
+            using (var cmd = Command("SELECT cursor, total, etag, reconciled_at FROM threads WHERE workspace_id = $ws AND conversation_id = $c;", ("$ws", workspaceId), ("$c", conversationId)))
             using (var r = cmd.ExecuteReader())
             {
                 if (!r.Read()) return null;
                 cursor = r.IsDBNull(0) ? null : r.GetString(0);
                 total = r.IsDBNull(1) ? null : r.GetInt32(1);
                 etag = r.IsDBNull(2) ? null : r.GetString(2);
+                reconciled = r.IsDBNull(3) ? null : DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(3));
             }
             var messages = new List<Message>();
             using (var cmd = Command("SELECT json FROM messages WHERE workspace_id = $ws AND conversation_id = $c ORDER BY created_at, id;", ("$ws", workspaceId), ("$c", conversationId)))
@@ -389,14 +392,14 @@ public sealed class LocalStore : IAsyncDisposable
             {
                 touch.ExecuteNonQuery();
             }
-            return new CachedThread(messages, cursor, total, etag);
+            return new CachedThread(messages, cursor, total, etag, reconciled);
         }, null, ct);
 
     /// <summary>
     /// Writes a sync result. <paramref name="replace"/>: the messages are the
-    /// whole thread (anything else stored for it goes). Otherwise they are
-    /// upserted by id, and a row never goes back to an older version of
-    /// itself (updated_at decides).
+    /// whole thread (anything else stored for it goes) and it counts as a
+    /// reconciliation. Otherwise they are upserted by id, and a row never goes
+    /// back to an older version of itself (updated_at decides).
     /// </summary>
     public Task SaveThreadAsync(string workspaceId, string conversationId, bool replace, IReadOnlyList<Message> messages, string? cursor, int? total, string? etag, CancellationToken ct = default) =>
         RunAsync("save thread", db =>
@@ -425,9 +428,10 @@ public sealed class LocalStore : IAsyncDisposable
                 cmd.ExecuteNonQuery();
             }
             using (var state = Command("""
-                INSERT INTO threads (workspace_id, conversation_id, cursor, total, etag, synced_at, accessed_at) VALUES ($ws, $c, $cursor, $total, $etag, $now, $now)
-                ON CONFLICT (workspace_id, conversation_id) DO UPDATE SET cursor = excluded.cursor, total = excluded.total, etag = excluded.etag, synced_at = excluded.synced_at;
-                """, tx, ("$ws", workspaceId), ("$c", conversationId), ("$cursor", cursor), ("$total", total), ("$etag", etag), ("$now", now)))
+                INSERT INTO threads (workspace_id, conversation_id, cursor, total, etag, synced_at, reconciled_at, accessed_at) VALUES ($ws, $c, $cursor, $total, $etag, $now, $reconciled, $now)
+                ON CONFLICT (workspace_id, conversation_id) DO UPDATE SET cursor = excluded.cursor, total = excluded.total, etag = excluded.etag, synced_at = excluded.synced_at,
+                    reconciled_at = COALESCE(excluded.reconciled_at, threads.reconciled_at);
+                """, tx, ("$ws", workspaceId), ("$c", conversationId), ("$cursor", cursor), ("$total", total), ("$etag", etag), ("$now", now), ("$reconciled", replace ? now : null)))
             {
                 state.ExecuteNonQuery();
             }

@@ -39,15 +39,6 @@ import {
 } from '../services/conversationEvents.js';
 import { isActionActive } from '../services/observability/autoActionsCache.js';
 import { isTelegramMenuEventsVisible } from '../services/channels/telegram/settings.js';
-import {
-  decodeCursor,
-  encodeCursor,
-  isMenuEvent,
-  MAX_DELTA_ROWS,
-  microsToTimestamp,
-  nextCursor,
-  nowMicros,
-} from '../services/messageSync.js';
 import { emitLog } from '../services/observability/metrics.js';
 import { markHumanTakeover } from '../services/ai-agent/handoffState.js';
 import { maybeCreateLearningCandidateFromOperatorReply } from '../services/ai-agent/learning/candidates.js';
@@ -1450,132 +1441,7 @@ conversationsRouter.get('/inbox-tab-counts', async (req, res) => {
 // Authorization derives from the conversation's OWN workspace_id, not
 // a client-supplied one — a caller cannot probe an arbitrary
 // conversation id by guessing/forging a workspace_id query param.
-//
-// Incremental sync (additive, see services/messageSync.ts): every answer
-// also carries `sync: { mode, cursor, total }`. A client that sends the
-// cursor back as `?since=` gets only the rows created or changed after it
-// (mode "delta"), plus `total` so it can tell a delete or a miss and fall
-// back to a full fetch. Without `since` — every existing client — the
-// thread is returned in full exactly as before.
 // ═══════════════════════════════════════════════════════════════════
-/** A conversation_messages row as read with select('*'); only the fields used here are named. */
-type ThreadMessageRow = {
-  id?: string;
-  sender_type?: string;
-  sender_id?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  metadata?: { attachment_id?: unknown; [key: string]: unknown } | null;
-  [key: string]: unknown;
-};
-
-async function enrichThreadMessages(config: ServerConfig, sb: ReturnType<typeof getServiceClient>, messages: ThreadMessageRow[]) {
-  const ids = new Set<string>();
-  const fromMeta = new Set<string>();
-  for (const m of messages) {
-    if (m?.id) ids.add(m.id);
-    const aid = m?.metadata?.attachment_id;
-    if (typeof aid === 'string') fromMeta.add(aid);
-  }
-  const attMap: Record<string, MessageAttachment> = {};
-  // A single inbound channel message can carry SEVERAL media parts
-  // (WhatsApp album, Telegram document + caption, …) so this is a list.
-  const byMsg: Record<string, MessageAttachment[]> = {};
-  if (ids.size || fromMeta.size) {
-    const orFilters: string[] = [];
-    if (ids.size) orFilters.push(`message_id.in.(${Array.from(ids).join(',')})`);
-    if (fromMeta.size) orFilters.push(`id.in.(${Array.from(fromMeta).join(',')})`);
-    const { data: atts } = await sb
-      .from('conversation_attachments')
-      .select('id, file_name, mime_type, size_bytes, status, message_id, created_at')
-      .or(orFilters.join(','));
-    for (const a of (atts || [])) {
-      if (a.status !== 'attached' && a.status !== 'uploaded') continue;
-      const mime = String(a.mime_type || '');
-      const meta = {
-        id: a.id, file_name: a.file_name, mime_type: a.mime_type, size_bytes: a.size_bytes,
-        kind: mime.startsWith('image/')
-          ? 'image'
-          : mime.startsWith('audio/')
-            ? 'audio'
-            : mime.startsWith('video/')
-              ? 'video'
-              : 'file',
-      };
-      attMap[a.id] = meta;
-      if (a.message_id) (byMsg[a.message_id] ||= []).push(meta);
-    }
-  }
-
-  const senderIds = Array.from(new Set(
-    messages.filter((m) => (m.sender_type === 'agent' || m.sender_type === 'ai') && m.sender_id).map((m) => m.sender_id),
-  ));
-  const senderMap: Record<string, { name: string | null; avatar: string | null }> = {};
-  if (senderIds.length) {
-    const { data: profiles } = await sb.from('profiles').select('id, full_name, avatar_storage_key').in('id', senderIds);
-    for (const p of await hydrateUserAvatars(config, profiles || [])) {
-      senderMap[p.id] = { name: p.full_name || null, avatar: p.avatar_url || null };
-    }
-  }
-
-  return messages.map((m) => {
-    const aid = m?.metadata?.attachment_id;
-    const list: unknown[] = [];
-    const seen = new Set<string>();
-    if (typeof aid === 'string' && attMap[aid]) { list.push(attMap[aid]); seen.add(aid); }
-    for (const a of (m.id && byMsg[m.id]) || []) {
-      if (!seen.has(a.id)) { list.push(a); seen.add(a.id); }
-    }
-    const prof = m.sender_id ? senderMap[m.sender_id] : null;
-    return {
-      ...m,
-      // `attachment` kept for backwards compatibility with older clients.
-      ...(list.length ? { attachment: list[0], attachments: list } : {}),
-      sender_name: prof?.name ?? null,
-      sender_avatar: prof?.avatar ?? null,
-    };
-  });
-}
-
-/**
- * Only the rows changed after `since`, or null when a delta cannot answer
- * (the column is missing, or so much changed that a snapshot is cheaper).
- */
-async function loadThreadDelta(
-  config: ServerConfig,
-  sb: ReturnType<typeof getServiceClient>,
-  conversationId: string,
-  since: bigint,
-): Promise<{ messages: ThreadMessageRow[]; total: number } | null> {
-  const menuVisible = await isTelegramMenuEventsVisible(config);
-  // Counted BEFORE the delta is read: a message landing in between then
-  // shows up in the delta and makes the client's sum one too many, which
-  // it treats as "fetch in full" — never as a silent miss.
-  let countQuery = sb
-    .from('conversation_messages')
-    .select('id', { count: 'exact', head: true })
-    .eq('conversation_id', conversationId);
-  if (!menuVisible) {
-    countQuery = countQuery.or('metadata->>channel_menu_event.is.null,metadata->>channel_menu_event.neq.true');
-  }
-  const { count, error: countError } = await countQuery;
-  if (countError || typeof count !== 'number') return null;
-
-  const { data, error } = await sb
-    .from('conversation_messages')
-    .select('*')
-    .eq('conversation_id', conversationId)
-    .gt('updated_at', microsToTimestamp(since))
-    .order('updated_at', { ascending: true })
-    .limit(MAX_DELTA_ROWS + 1);
-  if (error) return null;
-  const rows: ThreadMessageRow[] = data || [];
-  if (rows.length > MAX_DELTA_ROWS) return null;
-  const visible = menuVisible ? rows : rows.filter((m) => !isMenuEvent(m));
-  visible.sort((a, b) => String(a.created_at ?? '').localeCompare(String(b.created_at ?? '')));
-  return { messages: visible, total: count };
-}
-
 conversationsRouter.get('/:id/messages', async (req, res) => {
   try {
     const config: ServerConfig = serverConfigOf(req);
@@ -1592,45 +1458,92 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
     const auth = await authorizeWorkspaceMember(req, res, config, conv.workspace_id);
     if (!auth) return;
 
-    const since = decodeCursor(req.query.since);
-    if (since !== null) {
-      const delta = await loadThreadDelta(config, sb, conversationId, since);
-      if (delta) {
-        const cursor = nextCursor(delta.messages, since, nowMicros());
-        const enriched = await enrichThreadMessages(config, sb, delta.messages);
-        return res.json({
-          messages: enriched,
-          sync: { mode: 'delta', cursor: cursor === null ? null : encodeCursor(cursor), total: delta.total },
-        });
-      }
-      // Fall through: answer with the whole thread, flagged as such.
-    }
-
     const { data, error } = await sb
       .from('conversation_messages')
       .select('*')
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: true });
     if (error) return res.status(500).json({ error: error.message });
-    let messages: ThreadMessageRow[] = (data || []);
+    let messages = (data || []);
 
     // Super Admin can hide Telegram bot menu taps from operator threads.
-    if (messages.some((m) => isMenuEvent(m))) {
+    if (messages.some((m) => String(m?.metadata?.channel_menu_event ?? '') === 'true')) {
       const menuVisible = await isTelegramMenuEventsVisible(config);
       if (!menuVisible) {
-        messages = messages.filter((m) => !isMenuEvent(m));
+        messages = messages.filter(
+          (m) => String(m?.metadata?.channel_menu_event ?? '') !== 'true',
+        );
       }
     }
 
-    // The cursor covers every row read (hidden ones included): a hidden row
-    // that later becomes visible changes `total`, which forces a full fetch.
-    const cursor = nextCursor(data || [], null, nowMicros());
-    const enriched = await enrichThreadMessages(config, sb, messages);
+    const ids = new Set<string>();
+    const fromMeta = new Set<string>();
+    for (const m of messages) {
+      if (m?.id) ids.add(m.id);
+      const aid = m?.metadata?.attachment_id;
+      if (typeof aid === 'string') fromMeta.add(aid);
+    }
+    const attMap: Record<string, MessageAttachment> = {};
+    // A single inbound channel message can carry SEVERAL media parts
+    // (WhatsApp album, Telegram document + caption, …) so this is a list.
+    const byMsg: Record<string, MessageAttachment[]> = {};
+    if (ids.size || fromMeta.size) {
+      const orFilters: string[] = [];
+      if (ids.size) orFilters.push(`message_id.in.(${Array.from(ids).join(',')})`);
+      if (fromMeta.size) orFilters.push(`id.in.(${Array.from(fromMeta).join(',')})`);
+      const { data: atts } = await sb
+        .from('conversation_attachments')
+        .select('id, file_name, mime_type, size_bytes, status, message_id, created_at')
+        .or(orFilters.join(','));
+      for (const a of (atts || [])) {
+        if (a.status !== 'attached' && a.status !== 'uploaded') continue;
+        const mime = String(a.mime_type || '');
+        const meta = {
+          id: a.id, file_name: a.file_name, mime_type: a.mime_type, size_bytes: a.size_bytes,
+          kind: mime.startsWith('image/')
+            ? 'image'
+            : mime.startsWith('audio/')
+              ? 'audio'
+              : mime.startsWith('video/')
+                ? 'video'
+                : 'file',
+        };
+        attMap[a.id] = meta;
+        if (a.message_id) (byMsg[a.message_id] ||= []).push(meta);
+      }
+    }
 
-    return res.json({
-      messages: enriched,
-      sync: { mode: 'full', cursor: cursor === null ? null : encodeCursor(cursor), total: enriched.length },
+    const senderIds = Array.from(new Set(
+      messages.filter((m) => (m.sender_type === 'agent' || m.sender_type === 'ai') && m.sender_id).map((m) => m.sender_id),
+    ));
+    const senderMap: Record<string, { name: string | null; avatar: string | null }> = {};
+    if (senderIds.length) {
+      const { data: profiles } = await sb.from('profiles').select('id, full_name, avatar_storage_key').in('id', senderIds);
+      for (const p of await hydrateUserAvatars(config, profiles || [])) {
+        senderMap[p.id] = { name: p.full_name || null, avatar: p.avatar_url || null };
+      }
+    }
+
+    const enriched = messages.map((m) => {
+      const aid = m?.metadata?.attachment_id;
+      const list: unknown[] = [];
+      const seen = new Set<string>();
+      if (typeof aid === 'string' && attMap[aid]) { list.push(attMap[aid]); seen.add(aid); }
+      for (const a of (m.id && byMsg[m.id]) || []) {
+        if (!seen.has(a.id)) { list.push(a); seen.add(a.id); }
+      }
+      const prof = m.sender_id ? senderMap[m.sender_id] : null;
+      return {
+        ...m,
+        // `attachment` kept for backwards compatibility with older clients.
+        ...(list.length ? { attachment: list[0], attachments: list } : {}),
+        sender_name: prof?.name ?? null,
+        sender_avatar: prof?.avatar ?? null,
+      };
     });
+
+
+    return res.json({ messages: enriched });
   } catch (err) {
     console.error('[conversations messages] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });

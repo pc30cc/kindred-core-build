@@ -50,7 +50,8 @@ public class ThreadSyncTests
         Assert.Equal(201, snap.Messages.Count);
         Assert.Equal("m201", snap.Messages[^1].Id);
         var deltaBytes = server.BytesSent - before;
-        Assert.True(deltaBytes < 1000, $"a one-message delta cost {deltaBytes} bytes");
+        // The new message plus the one the 10 s overlap sends again.
+        Assert.True(deltaBytes < 1500, $"a one-message delta cost {deltaBytes} bytes");
         Assert.Equal(1, sync.Stats.DeltaMessages);
     }
 
@@ -105,9 +106,43 @@ public class ThreadSyncTests
     }
 
     [Fact]
-    public async Task A_deleted_message_is_found_by_the_total_and_removed_by_a_full_reconciliation()
+    public async Task A_deleted_message_is_removed_by_the_periodic_full_reconciliation()
+    {
+        var (server, store, _, dir) = await Setup();
+        using var _ = dir;
+        await using var __ = store;
+        var now = DateTimeOffset.UtcNow;
+        var sync = new ThreadSync(server.Api(), store, reconcileEvery: TimeSpan.FromHours(1), clock: () => now);
+        await sync.SyncAsync("w1", "c1");
+        server.Delete("c1", "m2");
+        // The delta protocol has no tombstones: within the hour the copy keeps it …
+        Assert.Equal(ThreadSource.Delta, (await sync.SyncAsync("w1", "c1")).Source);
+        now = now.AddMinutes(61);
+        // … and the next sync after it is a full read that drops it, on the PC too.
+        var snap = await sync.SyncAsync("w1", "c1");
+        Assert.Equal(ThreadSource.Full, snap.Source);
+        Assert.Equal(["m1", "m3"], snap.Messages.Select(m => m.Id));
+        Assert.DoesNotContain((await store.LoadThreadAsync("w1", "c1"))!.Messages, m => m.Id == "m2");
+        // Reconciled: back to deltas.
+        Assert.Equal(ThreadSource.Delta, (await sync.SyncAsync("w1", "c1")).Source);
+    }
+
+    [Fact]
+    public async Task The_reconciliation_time_survives_a_restart()
     {
         var (server, store, sync, dir) = await Setup();
+        using var _ = dir;
+        await using var __ = store;
+        await sync.SyncAsync("w1", "c1");
+        var relaunched = new ThreadSync(server.Api(), store);
+        Assert.Equal(ThreadSource.Delta, (await relaunched.SyncAsync("w1", "c1")).Source); // not a full download per launch
+    }
+
+    [Fact]
+    public async Task A_server_that_reports_the_total_lets_a_delete_be_found_at_once()
+    {
+        var (server, store, sync, dir) = await Setup();
+        server.SendsTotal = true;
         using var _ = dir;
         await using var __ = store;
         await sync.SyncAsync("w1", "c1");

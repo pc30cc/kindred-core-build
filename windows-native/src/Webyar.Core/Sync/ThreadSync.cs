@@ -23,10 +23,16 @@ public sealed record ThreadSnapshot(string WorkspaceId, string ConversationId, I
 ///
 /// <code>
 /// PC copy → shown at once
-/// sync:  cursor known → GET ?since=cursor → merge the delta
-///        the merged copy must add up to the server's total, else ↓
-///        no cursor / no delta support → full GET (If-None-Match → 304)
+/// sync:  cursor known → GET ?since=cursor → merge the delta (upsert by id)
+///        a server that reports the thread's total: the copy must add up, else ↓
+///        no cursor, no delta support, or the last full read is older than
+///        <see cref="ReconcileEvery"/> → full GET (If-None-Match → 304)
 /// </code>
+///
+/// The delta protocol (server/services/messageSync.ts) has no tombstones: a
+/// deleted or newly hidden message is simply not sent again. The periodic
+/// full read is the authoritative reconciliation that removes it from the PC
+/// (and a 403/404 removes the whole thread at once).
 ///
 /// Syncs of one thread run one at a time, so a slow answer can never be
 /// applied after a newer one, and a cursor only ever moves forward. Each
@@ -47,13 +53,24 @@ public sealed class ThreadSync
     private readonly object _lock = new();
     private bool _closed;
 
-    public ThreadSync(WebyarApi api, LocalStore? store, RetentionPolicy? policy = null, Action<string>? log = null)
+    public ThreadSync(WebyarApi api, LocalStore? store, RetentionPolicy? policy = null, Action<string>? log = null, TimeSpan? reconcileEvery = null, Func<DateTimeOffset>? clock = null)
     {
         _api = api;
         _store = store;
         _policy = policy ?? RetentionPolicy.Default;
         _log = log;
+        ReconcileEvery = reconcileEvery ?? TimeSpan.FromHours(1);
+        _clock = clock ?? (() => DateTimeOffset.UtcNow);
     }
+
+    private readonly Func<DateTimeOffset> _clock;
+
+    /// <summary>
+    /// How old a thread's last full read may be before the next sync is a full
+    /// read again. Deletes are rare (retention, a Super Admin visibility switch),
+    /// so an hour keeps them bounded without re-downloading open threads.
+    /// </summary>
+    public TimeSpan ReconcileEvery { get; }
 
     /// <summary>Counters for the log and the measurements.</summary>
     public ThreadSyncStats Stats { get; } = new();
@@ -80,20 +97,24 @@ public sealed class ThreadSync
         {
             var state = await StateAsync(workspaceId, conversationId, ct).ConfigureAwait(false);
             var revalidate = state?.ETag;
+            var due = state?.ReconciledAt is not { } at || _clock() - at >= ReconcileEvery;
             try
             {
-                if (state?.Cursor is { } cursor)
+                if (state?.Cursor is { } cursor && !due)
                 {
                     var page = await _api.MessagesPageAsync(conversationId, cursor, null, ct).ConfigureAwait(false);
                     if (page.Value?.Sync is { IsDelta: true } sync)
                     {
                         var changes = page.Value.Messages ?? [];
                         var merged = MessageMerge.Apply(state.Messages, changes);
-                        if (sync.Total is { } total && total == merged.Count)
+                        if (sync.Total is not { } total || total == merged.Count)
                         {
-                            Stats.Delta(changes.Count);
-                            if (changes.Count > 0) _log?.Invoke($"[sync] thread delta: {changes.Count} changed");
-                            var next = new State(merged, sync.Cursor ?? cursor, total, changes.Count > 0 ? null : state.ETag);
+                            // An overlap re-sends the newest rows unchanged; only real changes invalidate the full-read tag.
+                            var known = state.Messages.Where(m => m.UpdatedAt is not null).ToDictionary(m => m.Id, m => m.UpdatedAt);
+                            var changed = changes.Count(c => c.UpdatedAt is null || !known.TryGetValue(c.Id, out var at) || at != c.UpdatedAt);
+                            Stats.Delta(changed);
+                            if (changed > 0) _log?.Invoke($"[sync] thread delta: {changed} changed");
+                            var next = new State(merged, sync.Cursor ?? cursor, sync.Total, changed > 0 ? null : state.ETag, state.ReconciledAt);
                             await CommitAsync(workspaceId, conversationId, next, replace: false, changes, ct).ConfigureAwait(false);
                             return new ThreadSnapshot(workspaceId, conversationId, merged, ThreadSource.Delta);
                         }
@@ -113,6 +134,11 @@ public sealed class ThreadSync
                 if (full.NotModified && state is not null)
                 {
                     Stats.Unchanged();
+                    // Confirmed whole and current: this counts as a reconciliation.
+                    var confirmed = state with { ReconciledAt = _clock() };
+                    Remember(workspaceId, conversationId, confirmed);
+                    if (_store is not null && !_closed)
+                        await _store.SaveThreadAsync(workspaceId, conversationId, true, confirmed.Messages, confirmed.Cursor, confirmed.Total, confirmed.ETag, CancellationToken.None).ConfigureAwait(false);
                     return new ThreadSnapshot(workspaceId, conversationId, state.Messages, ThreadSource.NotModified);
                 }
                 return await ApplyFullAsync(workspaceId, conversationId, full.Value ?? new MessagesPage(), full.ETag, ct).ConfigureAwait(false);
@@ -135,7 +161,7 @@ public sealed class ThreadSync
         var messages = MessageMerge.Order((page.Messages ?? []).Where(m => m.ConversationId == conversationId));
         Stats.FullFetch();
         _log?.Invoke($"[sync] thread full: {messages.Count} messages");
-        var next = new State(messages, page.Sync?.Cursor, page.Sync?.Total ?? messages.Count, etag);
+        var next = new State(messages, page.Sync?.Cursor, page.Sync?.Total ?? messages.Count, etag, _clock());
         await CommitAsync(workspaceId, conversationId, next, replace: true, messages, ct).ConfigureAwait(false);
         return new ThreadSnapshot(workspaceId, conversationId, messages, ThreadSource.Full);
     }
@@ -187,9 +213,9 @@ public sealed class ThreadSync
         if (_store is null || _closed) return null;
         var cached = await _store.LoadThreadAsync(workspaceId, conversationId, ct).ConfigureAwait(false);
         if (cached is null) return null;
-        // A copy that does not add up to its own total is not trusted for deltas.
-        var cursor = cached.Total == cached.Messages.Count ? cached.Cursor : null;
-        var state = new State(MessageMerge.Order(cached.Messages), cursor, cached.Total, cursor is null ? null : cached.ETag);
+        // A copy that does not add up to its own (server-reported) total is not trusted for deltas.
+        var cursor = cached.Total is null || cached.Total == cached.Messages.Count ? cached.Cursor : null;
+        var state = new State(MessageMerge.Order(cached.Messages), cursor, cached.Total, cached.ETag, cached.ReconciledAt);
         Remember(workspaceId, conversationId, state);
         return state;
     }
@@ -224,7 +250,7 @@ public sealed class ThreadSync
         }
     }
 
-    private sealed record State(IReadOnlyList<Message> Messages, string? Cursor, int? Total, string? ETag);
+    private sealed record State(IReadOnlyList<Message> Messages, string? Cursor, int? Total, string? ETag, DateTimeOffset? ReconciledAt);
 }
 
 public sealed class ThreadSyncStats

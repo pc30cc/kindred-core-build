@@ -131,10 +131,11 @@ public sealed record Message(
 }
 
 /// <summary>
-/// `sync` on a thread answer: whether it is the whole thread or only what
-/// changed, the cursor to send back as `since`, and how many messages the
-/// whole thread has right now (so a delete can be told from "nothing new").
-/// Absent from servers that predate incremental sync.
+/// `sync` on a thread answer (server/services/messageSync.ts): whether it is
+/// the whole thread or only what changed, and the cursor to send back as
+/// `since`. `total` — how many messages the whole thread has — is optional:
+/// when a server reports it, a delete is spotted at once; otherwise the
+/// periodic full read finds it. Absent from servers that predate incremental sync.
 /// </summary>
 public sealed record MessageSyncInfo(string? Mode = null, string? Cursor = null, int? Total = null)
 {

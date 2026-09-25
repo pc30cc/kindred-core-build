@@ -8,15 +8,20 @@ using Webyar.Core.Api;
 namespace Webyar.Core.Tests;
 
 /// <summary>
-/// The server side of thread and queue sync, as server/routes/conversations.ts
-/// and server/services/messageSync.ts implement it: `?since=` deltas by
-/// updated_at, a `total` per answer, weak ETags and 304s. Counts every
+/// The server side of thread and queue sync as server/services/messageSync.ts
+/// implements it (PR #138): `?since=<ISO cursor>` returns rows whose
+/// updated_at is later than the cursor minus a 10 s overlap (so the newest
+/// rows come back again), `sync: { mode, cursor }` with no total unless
+/// <see cref="SendsTotal"/>, Express's weak ETags and 304s. Counts every
 /// request and byte so tests can compare approaches.
 /// </summary>
 internal sealed partial class FakeSyncServer
 {
     private readonly object _lock = new();
-    private long _clock = 1_000;
+    /// <summary>Server time: each write is five seconds after the previous one (a lively thread).</summary>
+    private DateTimeOffset _clock = new(2026, 9, 1, 9, 0, 0, TimeSpan.Zero);
+
+    public static readonly TimeSpan Overlap = TimeSpan.FromSeconds(10);
 
     public string WorkspaceId { get; init; } = "w1";
     public Dictionary<string, List<Message>> Threads { get; } = [];
@@ -25,6 +30,9 @@ internal sealed partial class FakeSyncServer
 
     /// <summary>Off: behaves like a server from before incremental sync (full threads, no `sync`).</summary>
     public bool SupportsDelta { get; set; } = true;
+
+    /// <summary>On: also reports the thread's total, which lets a client spot a delete at once.</summary>
+    public bool SendsTotal { get; set; }
 
     /// <summary>Called before each answer, e.g. to hold one back and answer another first.</summary>
     public Func<HttpRequestMessage, Task>? BeforeRespond { get; set; }
@@ -40,7 +48,7 @@ internal sealed partial class FakeSyncServer
 
     public WebyarApi Api() => new(new ApiClient(new MemorySessionStore("t"), handler: Handler));
 
-    private DateTimeOffset Tick() => DateTimeOffset.FromUnixTimeMilliseconds(Interlocked.Increment(ref _clock));
+    private DateTimeOffset Tick() => _clock = _clock.AddSeconds(5);
 
     public Message Add(string conversationId, string id, string body = "hi", string sender = SenderTypes.Contact, string? clientMessageId = null)
     {
@@ -89,7 +97,7 @@ internal sealed partial class FakeSyncServer
                 if (Forbidden.Contains(id)) return Json(HttpStatusCode.Forbidden, """{"error":"forbidden"}""");
                 if (!Threads.TryGetValue(id, out var thread)) return Json(HttpStatusCode.NotFound, """{"error":"conversation_not_found"}""");
                 var ordered = thread.OrderBy(x => x.CreatedAt).ToList();
-                var since = query["since"] is { } s && s.StartsWith("v1.", StringComparison.Ordinal) ? long.Parse(s[3..]) : (long?)null;
+                var since = query["since"] is { } s && DateTimeOffset.TryParse(s, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var parsed) ? parsed : (DateTimeOffset?)null;
                 if (!SupportsDelta)
                 {
                     json = Serialize(new { messages = ordered });
@@ -97,13 +105,13 @@ internal sealed partial class FakeSyncServer
                 }
                 else if (since is { } cursor)
                 {
-                    var changed = ordered.Where(x => x.UpdatedAt!.Value.ToUnixTimeMilliseconds() > cursor).ToList();
-                    json = Serialize(new { messages = changed, sync = new { mode = "delta", cursor = Cursor(ordered, cursor), total = ordered.Count } });
+                    var changed = ordered.Where(x => x.UpdatedAt!.Value > cursor - Overlap).ToList();
+                    json = Serialize(new { messages = changed, sync = new { mode = "delta", cursor = Cursor(changed, cursor), total = SendsTotal ? ordered.Count : (int?)null } });
                     allowNotModified = false;
                 }
                 else
                 {
-                    json = Serialize(new { messages = ordered, sync = new { mode = "full", cursor = Cursor(ordered, null), total = ordered.Count } });
+                    json = Serialize(new { messages = ordered, sync = new { mode = "full", cursor = Cursor(ordered, null), total = SendsTotal ? ordered.Count : (int?)null } });
                     allowNotModified = true;
                 }
             }
@@ -132,11 +140,16 @@ internal sealed partial class FakeSyncServer
         return response;
     }
 
-    private static string Cursor(List<Message> rows, long? since)
+    /// <summary>nextSyncCursor: the newest updated_at read, never behind the cursor sent.</summary>
+    private static string? Cursor(List<Message> rows, DateTimeOffset? since)
     {
-        var newest = rows.Count == 0 ? 0 : rows.Max(r => r.UpdatedAt!.Value.ToUnixTimeMilliseconds());
-        return "v1." + Math.Max(newest, since ?? 0);
+        DateTimeOffset? newest = rows.Count == 0 ? null : rows.Max(r => r.UpdatedAt!.Value);
+        var cursor = newest is { } n && (since is null || n > since) ? n : since;
+        return cursor?.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);
     }
+
+    /// <summary>Moves server time on, e.g. past a client's reconciliation interval.</summary>
+    public DateTimeOffset Now => _clock;
 
     private HttpResponseMessage Json(HttpStatusCode status, string json)
     {

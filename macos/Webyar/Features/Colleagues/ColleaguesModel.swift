@@ -45,6 +45,8 @@ final class ColleaguesModel {
 
     // Composer
     var draft = ""
+    /// Unsent text per colleague, kept while switching between them.
+    @ObservationIgnored private var drafts: [String: String] = [:]
     var pendingFile: (name: String, mime: String, data: Data)?
     let recorder = VoiceRecorder()
 
@@ -172,11 +174,17 @@ final class ColleaguesModel {
 
     func select(_ id: String?) {
         guard let id, id != peer?.userId, let c = colleagues.first(where: { $0.userId == id }) else { return }
+        // Each colleague keeps their own half-written message.
+        if let old = peer?.userId {
+            let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            drafts[old] = text.isEmpty ? nil : draft
+        }
         peer = c
         notice = nil
         rows = []
         outbox = []
         pendingFile = nil
+        draft = drafts[id] ?? ""
         if recorder.isRecording { recorder.cancel() }
         startThread(id)
     }
@@ -283,11 +291,17 @@ final class ColleaguesModel {
             Log.error("team send", error)
             outbox.removeAll { $0.id == row.id }
             rows.removeAll { $0.id == row.id }
-            // The text and the file go back into the box to try again.
+            // The text and the file go back into the box to try again — only that colleague's box,
+            // and never over something already being typed.
             let s = app.strings
-            draft = body
-            if let file { pendingFile = file }
-            notice = Notice(message: "\(s["sendFailed"]) — \(ErrorText.of(error, s))")
+            if peer?.userId == peerId {
+                if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { draft = body } else if !body.isEmpty { draft = body + "\n" + draft }
+                if let file, pendingFile == nil { pendingFile = file }
+                notice = Notice(message: "\(s["sendFailed"]) — \(ErrorText.of(error, s))")
+            } else {
+                drafts[peerId] = [body, drafts[peerId]].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
+                notice = Notice(message: "\(s["sendFailed"]) — \(ErrorText.of(error, s))")
+            }
         }
     }
 

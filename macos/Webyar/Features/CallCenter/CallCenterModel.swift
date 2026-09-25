@@ -104,6 +104,8 @@ final class CallCenterModel {
         overviewPoller = Poller("call overview", interval: { 5 }) { [weak self] in try await self?.loadOverview() }
         overviewPoller?.start()
         now = Date()
+        // A desk call that ended while the page was away (hung up from the inbox or the call window).
+        if let on = onCallId, CallCoordinator.shared.activeCallId != on { deskCallEnded(on) }
         lastActiveCallId = CallCoordinator.shared.activeCallId
         clockTask = Task { [weak self] in
             while !Task.isCancelled {

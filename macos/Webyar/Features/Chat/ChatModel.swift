@@ -76,6 +76,15 @@ final class ChatModel {
     @ObservationIgnored private var lastSeenMessage: String?
     @ObservationIgnored private var outbox: [ChatRow] = []
     @ObservationIgnored var onChanged: (() -> Void)?
+    @ObservationIgnored private var loggedPhotos = false
+    /// The server's messages: the saved copy, realtime rows and reads merged (see ThreadSync).
+    @ObservationIgnored private var sync = ThreadSync()
+    /// The workspace this thread belongs to: its saved copy is only ever read from and written to that workspace's store.
+    @ObservationIgnored private let workspaceId: String?
+    @ObservationIgnored private var closed = false
+    /// Saves run one after another, so an older copy never lands after a newer one.
+    @ObservationIgnored private var saving: Task<Void, Never>?
+    @ObservationIgnored private var deltaSoon: Task<Void, Never>?
 
     let id: String
     private(set) var conversation: Conversation?
@@ -84,6 +93,8 @@ final class ChatModel {
     private(set) var sentCount = 0
     private(set) var loading = true
     private(set) var busy = false
+    /// The last read failed for want of a connection: what is on show is the copy saved earlier.
+    private(set) var offline = false
 
     struct Notice: Equatable {
         var severity: Banner.Severity
@@ -92,8 +103,15 @@ final class ChatModel {
     }
     var notice: Notice?
 
+    /// False when the thread was opened with the arrow keys: the list keeps the keyboard.
+    @ObservationIgnored var focusComposerOnOpen = true
+
     // Composer
     var draft = ""
+    /// What Send does after sending, remembered per operator as on the web; Enter runs it.
+    var sendAction: PostSendAction = .none {
+        didSet { UserDefaults.standard.set(sendAction.rawValue, forKey: sendActionKey) }
+    }
     var pendingFile: (name: String, mime: String, data: Data)?
     var voice = ChatModel.voice { didSet { ChatModel.voice = voice } }
     let recorder = VoiceRecorder()
@@ -106,6 +124,8 @@ final class ChatModel {
         self.app = app
         self.id = id
         self.conversation = conversation
+        workspaceId = app.workspace?.id
+        sendAction = UserDefaults.standard.string(forKey: sendActionKey).flatMap(PostSendAction.init(rawValue:)) ?? .none
     }
 
     var aiMode: Bool { conversation?.isAiManaged == true }
@@ -116,25 +136,58 @@ final class ChatModel {
     func debugRefresh() { poller?.kick() }
     #endif
 
+    private var store: LocalStore? { workspaceId.flatMap { app.store(for: $0) } }
+
     func start() {
         #if DEBUG
         Self.debugCurrent = self
         #endif
-        poller = Poller("thread", interval: { [weak self] in
-            guard let self else { return 5 }
-            return self.app.pollInterval(Double(min(5, self.app.config.pollIntervalSeconds)))
-        }) { [weak self] in try await self?.load() }
-        poller?.start()
-        events = app.inboxEvents.subscribe { [weak self] e in
-            if e.conversationId == nil || e.conversationId == self?.id { self?.poller?.kick() }
+        events = app.inboxEvents.subscribe { [weak self] e in self?.handle(e) }
+        // The copy saved on this Mac first (a few milliseconds), then the server: a delta from
+        // the saved cursor when there is one.
+        let store = self.store, id = self.id
+        Task { [weak self] in
+            if let store, let saved = await store.thread(id) {
+                guard let self, !self.closed else { return }
+                if self.sync.applyCached(saved) {
+                    self.render()
+                    self.loading = false
+                }
+            }
+            guard let self, !self.closed else { return }
+            self.poller = Poller("thread", interval: { [weak self] in
+                guard let self else { return 5 }
+                return self.app.pollInterval(Double(min(5, self.app.config.pollIntervalSeconds)))
+            }) { [weak self] in try await self?.load() }
+            self.poller?.start()
         }
         Task { await loadDetails() }
     }
 
     func close() {
+        closed = true
         poller?.stop()
+        deltaSoon?.cancel()
         events?.cancelNow()
         if recorder.isRecording { recorder.cancel() }
+    }
+
+    /// A realtime event: a message row for this thread is shown at once, and a delta follows
+    /// shortly to bring its sender, files and any other change (one read for a burst).
+    private func handle(_ e: InboxEvent) {
+        if e.isReconcile {
+            sync.requireWholeRead()
+            poller?.kick()
+            return
+        }
+        guard e.conversationId == nil || e.conversationId == id else { return }
+        if let m = e.message, m.conversationId == id, sync.applyRealtime(m) { render() }
+        deltaSoon?.cancel()
+        deltaSoon = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(CachePolicy.realtimeDeltaDelay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.poller?.kick()
+        }
     }
 
     /// New list data for the open conversation: header, actions and details follow it.
@@ -161,12 +214,48 @@ final class ChatModel {
 
     private func load() async throws {
         defer { loading = false }
-        let list = try await app.api.messages(conversationId: id)
+        let request = sync.beginFetch()
+        let page: ThreadPage
+        do {
+            page = try await app.api.messagePage(conversationId: id, since: request.since)
+        } catch {
+            sync.fetchFailed(transport: error.isTransport)
+            if error.isTransport { offline = true }
+            throw error
+        }
+        guard !closed else { return }
+        offline = false
+        if !loggedPhotos {
+            // Which operator replies came with a photo link, and from where: "no photo in the chat" is
+            // then a question of what the server sent, answered from the log.
+            loggedPhotos = true
+            let agents = page.messages.filter { $0.senderType == SenderType.agent }
+            let hosts = Set(agents.compactMap { $0.senderAvatar.flatMap { URL(string: $0)?.host ?? "relative" } })
+            Log.write("[chat-photos] \(id.prefix(8)) operatorReplies=\(agents.count) withPhoto=\(agents.filter { !($0.senderAvatar ?? "").isEmpty }.count) hosts=\(hosts.sorted().joined(separator: ","))")
+        }
+        let changed = sync.applyResponse(page)
+        #if DEBUG
+        Log.write("[sync] thread \(id.prefix(8)) \(page.delta ? "delta" : "full") rows=\(page.messages.count) total=\(sync.messages.count)")
+        #endif
+        if changed || !page.delta { save() }
+        render()
+
+        // Seen once per new message, and only while someone is actually looking.
+        // Only while the thread is really on screen: the inbox keeps it open behind other pages.
+        if let newest = sync.messages.last(where: { $0.senderType == SenderType.contact })?.id, newest != lastSeenMessage,
+           app.isForeground, app.visibleConversationId == id {
+            lastSeenMessage = newest
+            Task { try? await app.api.markSeen(conversationId: id) }
+        }
+    }
+
+    /// The rows on show: the server's messages with day separators, then what is still being sent.
+    private func render() {
         let s = app.strings
         var wanted: [ChatRow] = []
         var day: Date?
         let cal = Calendar.current
-        for m in list.sorted(by: { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }) {
+        for m in sync.messages {
             var row = ChatRow.from(m, s)
             if row.side == .incoming {
                 row.avatarName = conversation?.contacts?.name ?? ""
@@ -178,14 +267,29 @@ final class ChatModel {
             }
             wanted.append(row)
         }
+        // A message the server already has (its client id came back — by a read or by realtime) is no
+        // longer ours to show: otherwise a read between the insert and the reply, or a 500 after the
+        // insert, shows it twice.
+        let delivered = Set(sync.messages.compactMap { $0.metadata?["client_message_id"]?.string })
+        if !delivered.isEmpty, outbox.contains(where: { $0.clientId.map(delivered.contains) == true }) {
+            for o in outbox where o.clientId.map(delivered.contains) == true {
+                if let cid = o.clientId { thenActions[cid] = nil; retryFiles[cid] = nil }
+            }
+            outbox.removeAll { $0.clientId.map(delivered.contains) == true }
+        }
         wanted.append(contentsOf: outbox)
         Self.group(&wanted)
         if wanted != rows { rows = wanted }
+    }
 
-        // Seen once per new message, and only while someone is actually looking.
-        if let newest = list.last(where: { $0.senderType == SenderType.contact })?.id, newest != lastSeenMessage, app.isForeground {
-            lastSeenMessage = newest
-            Task { try? await app.api.markSeen(conversationId: id) }
+    /// The server's messages (never the outbox) to this workspace's store, in order.
+    private func save() {
+        guard sync.hasServerData, let store else { return }
+        let messages = sync.messages, cursor = sync.cursor, fullAt = sync.fullAt, id = self.id
+        let previous = saving
+        saving = Task {
+            await previous?.value
+            await store.saveThread(id, messages: messages, cursor: cursor, fullAt: fullAt)
         }
     }
 
@@ -208,15 +312,24 @@ final class ChatModel {
 
     // MARK: Sending
 
+    /// Messages that did not go out and wait for Retry.
+    var hasFailed: Bool { rows.contains { $0.failed } }
+
     var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pendingFile != nil }
 
-    func send() {
+    private var sendActionKey: String { "sendAction.\(app.user?.id ?? "")" }
+
+    /// `then` overrides the remembered action for this one message (picking it in the menu sends at once).
+    func send(then override: PostSendAction? = nil) {
         let body = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let file = pendingFile
         guard !body.isEmpty || file != nil, let ws = app.workspace else { return }
         sentCount += 1
         if aiMode {
-            if !body.isEmpty { Task { await sayNow(body) } }
+            // One say-now at a time: a second Enter while the first is out would reach the visitor twice.
+            guard !body.isEmpty, !busy else { return }
+            busy = true
+            Task { await sayNow(body) }
             return
         }
         draft = ""
@@ -235,8 +348,12 @@ final class ChatModel {
         outbox.append(row)
         rows.append(row)
         Self.group(&rows)
+        thenActions[clientId] = override ?? sendAction
         Task { await deliver(clientId, workspaceId: ws.id, file: file) }
     }
+
+    /// The status change each message in the outbox asked for, kept for a retry.
+    @ObservationIgnored private var thenActions: [String: PostSendAction] = [:]
 
     private func deliver(_ clientId: String, workspaceId: String, file: (name: String, mime: String, data: Data)?) async {
         guard let i = outbox.firstIndex(where: { $0.clientId == clientId }) else { return }
@@ -253,8 +370,12 @@ final class ChatModel {
                     AttachmentStore.shared.alias(local, server)
                 }
             }
-            try await app.api.sendMessage(conversationId: id, workspaceId: workspaceId, body: body, clientMessageId: clientId, attachmentId: attachmentId)
+            let then = thenActions[clientId] ?? .none
+            let result = try await app.api.sendMessage(conversationId: id, workspaceId: workspaceId, body: body, clientMessageId: clientId,
+                                                       attachmentId: attachmentId, then: then)
             outbox.removeAll { $0.clientId == clientId }
+            thenActions[clientId] = nil
+            if then != .none { afterSend(then, result) }
             poller?.kick()
             onChanged?()
         } catch {
@@ -267,6 +388,16 @@ final class ChatModel {
             syncOutbox()
             retryFiles[clientId] = file
             notice = Notice(severity: .error, message: ErrorText.of(error, app.strings), retry: true)
+        }
+    }
+
+    /// The status the server set, on show at once; or why it left it alone.
+    private func afterSend(_ then: PostSendAction, _ result: PostSendResult?) {
+        if result?.changed == true {
+            let next = result?.status ?? (then == .resolve ? ConversationStatus.resolved : ConversationStatus.pending)
+            conversation?.status = next
+        } else if let blocked = result?.blocked, blocked != "no_change" {
+            notice = Notice(severity: .warning, message: app.strings["sendActionBlocked"])
         }
     }
 
@@ -299,7 +430,8 @@ final class ChatModel {
         defer { busy = false }
         do {
             try await app.api.aiSayNow(id, body: body, attribution: voice)
-            draft = ""
+            // Keep whatever was typed while it was out.
+            if draft.trimmingCharacters(in: .whitespacesAndNewlines) == body { draft = "" }
             notice = Notice(severity: .success, message: s["sayNowSent"])
             poller?.kick()
             onChanged?()
@@ -404,6 +536,12 @@ final class ChatModel {
         }
     }
 
+    /// Open, waiting for the customer or resolved, from the details panel.
+    func setStatus(_ next: String) {
+        guard let c = conversation, let ws = app.workspace, c.status != next else { return }
+        run({ try await self.app.api.updateConversation(c.id, workspaceId: ws.id, status: next) }) { $0.status = next }
+    }
+
     func setPriority(_ p: String) {
         guard let c = conversation, let ws = app.workspace else { return }
         run({ try await self.app.api.updateConversation(c.id, workspaceId: ws.id, priority: p) }) { $0.priority = p }
@@ -457,21 +595,32 @@ final class ChatModel {
         }
     }
 
+    /// Tags show at once and are saved one change after another: the server replaces the whole
+    /// list, so two quick edits built on a list still in flight would drop one of them.
     func setTags(_ tags: [String]) {
-        guard let c = conversation, let ws = app.workspace else { return }
-        Task {
+        guard var c = conversation, let ws = app.workspace else { return }
+        let before = c.tags ?? []
+        c.tags = tags
+        conversation = c
+        let previous = tagsSaving
+        tagsSaving = Task { [weak self] in
+            await previous?.value
+            guard let self else { return }
             do {
-                try await app.api.setTags(c.id, workspaceId: ws.id, tags: tags)
-                if var cur = conversation {
-                    cur.tags = tags
-                    conversation = cur
-                }
-                onChanged?()
+                try await self.app.api.setTags(c.id, workspaceId: ws.id, tags: tags)
+                self.onChanged?()
             } catch {
-                notice = Notice(severity: .error, message: ErrorText.of(error, app.strings))
+                // Put back what was there, unless a later edit has changed it since.
+                if var cur = self.conversation, cur.tags == tags {
+                    cur.tags = before
+                    self.conversation = cur
+                }
+                self.notice = Notice(severity: .error, message: ErrorText.of(error, self.app.strings))
             }
         }
     }
+
+    @ObservationIgnored private var tagsSaving: Task<Void, Never>?
 
     func addTag(_ raw: String) {
         let tag = raw.trimmingCharacters(in: .whitespaces)

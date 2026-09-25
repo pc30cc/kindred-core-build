@@ -45,6 +45,11 @@ struct SettingsView: View {
         .onChange(of: app.phase) { _, phase in
             if phase != .signedIn && pane == .account { pane = .general }
         }
+        #if DEBUG
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("WebyarDebugSettingsPane"))) { note in
+            if note.object as? String == "account" { pane = .account }
+        }
+        #endif
     }
 }
 

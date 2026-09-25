@@ -53,57 +53,127 @@ struct AttachmentInfo: Identifiable, Hashable, Sendable {
 
 /// Attachment bytes: memory first, then the disk cache, then the server.
 /// Photos keep their decoded preview so a poll never flashes them empty.
+/// One download per file however many views ask for it at once; the disk is
+/// read and written off the main thread; a file on disk that no longer
+/// decodes is dropped and fetched again. Nothing is fetched until a view
+/// asks: a voice note on play, a document on open or save.
 @MainActor
 final class AttachmentStore {
     static let shared = AttachmentStore()
 
-    private var bytes: [String: Data] = [:]
-    private var images: [String: NSImage] = [:]
+    // Bounded: the disk cache keeps everything; memory only what is being looked at.
+    private let byteCache: NSCache<NSString, NSData> = {
+        let c = NSCache<NSString, NSData>()
+        c.totalCostLimit = CachePolicy.attachmentMemoryBytes
+        return c
+    }()
+    private let imageCache: NSCache<NSString, NSImage> = {
+        let c = NSCache<NSString, NSImage>()
+        c.countLimit = CachePolicy.attachmentMemoryImages
+        return c
+    }()
     private var inflight: [String: Task<Data, Error>] = [:]
     weak var api: WebyarAPI?
+    /// Tests fetch from here instead of the server.
+    private let fetchOverride: ((String) async throws -> Data)?
 
-    func remember(_ id: String, _ data: Data) { bytes[id] = data }
+    // Files not sent yet ("local:…") are nowhere else — not on disk, not on the server — so they are
+    // held outright, never evicted, until the server has them.
+    private var localBytes: [String: Data] = [:]
+    private var localImages: [String: NSImage] = [:]
+    /// A sent file's local id → its server id, for bubbles still drawn with the local one.
+    private var aliases: [String: String] = [:]
 
-    func cachedImage(_ id: String) -> NSImage? { images[id] }
+    init(fetch: ((String) async throws -> Data)? = nil) {
+        fetchOverride = fetch
+    }
+
+    private func key(_ id: String) -> String { aliases[id] ?? id }
+
+    private func getBytes(_ id: String) -> Data? { localBytes[id] ?? byteCache.object(forKey: key(id) as NSString) as Data? }
+    private func setBytes(_ id: String, _ d: Data) {
+        if id.hasPrefix("local:") { localBytes[id] = d } else { byteCache.setObject(d as NSData, forKey: id as NSString, cost: d.count) }
+    }
+    private func getImage(_ id: String) -> NSImage? { localImages[id] ?? imageCache.object(forKey: key(id) as NSString) }
+    private func setImage(_ id: String, _ i: NSImage) {
+        if id.hasPrefix("local:") { localImages[id] = i } else { imageCache.setObject(i, forKey: id as NSString) }
+    }
+
+    func remember(_ id: String, _ data: Data) { setBytes(id, data) }
+
+    func cachedImage(_ id: String) -> NSImage? { getImage(id) }
+
+    /// Downloads in flight, for tests.
+    var downloading: Int { inflight.count }
 
     func data(_ id: String) async throws -> Data {
-        if let d = bytes[id] { return d }
+        try await data(id, skipDisk: false)
+    }
+
+    private func data(_ raw: String, skipDisk: Bool) async throws -> Data {
+        if let d = getBytes(raw) { return d }
+        let id = key(raw)
         if let t = inflight[id] { return try await t.value }
-        let task = Task<Data, Error> { [weak self] in
-            if let d = FileCache.read(id) { return d }
-            guard let api = self?.api else { throw ApiError(failure: .transport) }
-            let d = try await api.attachmentData(id)
-            FileCache.write(id, d)
+        let fetch = fetchOverride
+        let api = self.api
+        let task = Task<Data, Error> {
+            if !skipDisk, let d = await Task.detached(priority: .userInitiated, operation: { FileCache.read(id) }).value { return d }
+            let d: Data
+            if let fetch { d = try await fetch(id) } else {
+                guard let api else { throw ApiError(failure: .transport) }
+                d = try await api.attachmentData(id)
+            }
+            Task.detached(priority: .utility) { FileCache.write(id, d) }
             return d
         }
         inflight[id] = task
         defer { inflight[id] = nil }
         let d = try await task.value
-        bytes[id] = d
+        setBytes(id, d)
         return d
     }
 
     func image(_ id: String) async -> NSImage? {
-        if let i = images[id] { return i }
-        guard let d = try? await data(id), let i = NSImage(data: d) else { return nil }
-        images[id] = i
+        if let i = getImage(id) { return i }
+        guard let d = try? await data(id) else { return nil }
+        if let i = NSImage(data: d) {
+            setImage(key(id), i)
+            return i
+        }
+        // Not a picture after all: most likely a damaged copy on disk. Dropped, and fetched once more.
+        let k = key(id)
+        guard !k.hasPrefix("local:") else { return nil }
+        Log.write("[files] unreadable image, fetching again")
+        byteCache.removeObject(forKey: k as NSString)
+        await Task.detached(priority: .utility) { FileCache.remove(k) }.value
+        guard let fresh = try? await data(k, skipDisk: true), let i = NSImage(data: fresh) else { return nil }
+        setImage(k, i)
         return i
     }
 
-    /// A file the operator just sent now has its server id: the bytes and the
-    /// decoded photo carry over, so the confirmed message does not reload it.
+    /// A file the operator just sent now has its server id: the bytes and the decoded photo
+    /// carry over, so the confirmed message does not load it again, and the local copy is let go.
     func alias(_ local: String, _ server: String) {
-        if let d = bytes[local] {
-            bytes[server] = d
-            FileCache.write(server, d)
+        if let d = localBytes[local] {
+            setBytes(server, d)
+            Task.detached(priority: .utility) { FileCache.write(server, d) }
         }
-        if let i = images[local] { images[server] = i }
+        if let i = localImages[local] { setImage(server, i) }
+        localBytes[local] = nil
+        localImages[local] = nil
+        aliases[local] = server
     }
 
-    /// Forgets the in-memory copies too, after the disk cache is cleared.
+    /// Forgets the in-memory copies too, after the disk cache is cleared (files still being
+    /// sent are kept: they are nowhere else).
     func clearMemory() {
-        bytes = bytes.filter { $0.key.hasPrefix("local:") }
-        images = images.filter { $0.key.hasPrefix("local:") }
+        byteCache.removeAllObjects()
+        imageCache.removeAllObjects()
+    }
+
+    /// macOS is short of memory: the bytes go (the disk has them); decoded photos stay.
+    func releaseMemory() {
+        byteCache.removeAllObjects()
     }
 
     /// Opens a file with whatever the Mac opens that kind of file with.

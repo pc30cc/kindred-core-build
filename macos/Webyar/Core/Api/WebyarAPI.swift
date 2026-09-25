@@ -15,7 +15,11 @@ final class WebyarAPI {
     private struct SessionResponse: Decodable { var user: User? }
     private struct WorkspacesResponse: Decodable { var workspaces: [Workspace]? }
     private struct ConversationsResponse: Decodable { var conversations: [Conversation]? }
-    private struct MessagesResponse: Decodable { var messages: [Message]? }
+    private struct MessagesResponse: Decodable {
+        struct Sync: Decodable { var mode: String?; var cursor: String? }
+        var messages: [Message]?
+        var sync: Sync?
+    }
     private struct PrefsResponse: Decodable { var prefs: NotificationPrefs? }
     private struct TeamPresenceResponse: Decodable { var presence: [TeamPresence]? }
     private struct ItemsResponse<T: Decodable>: Decodable { var items: [T]? }
@@ -77,7 +81,8 @@ final class WebyarAPI {
     static func queue(of filter: InboxFilter) -> ApiClient.Query {
         switch filter {
         case .open: return [("queue", "main"), ("status", "open")]
-        case .needsHuman: return [("queue", "main"), ("status", "open"), ("needsHuman", "true")]
+        // The server reads `needs_human` (snake case), and counts every status but closed, as the badge does.
+        case .needsHuman: return [("queue", "main"), ("status", "open,pending,resolved"), ("needs_human", "true")]
         case .pending: return [("queue", "main"), ("status", "pending")]
         case .resolved: return [("queue", "main"), ("status", "resolved")]
         case .ai: return [("queue", "automated")]
@@ -88,6 +93,19 @@ final class WebyarAPI {
     func conversations(workspaceId: String, filter: InboxFilter) async throws -> [Conversation] {
         let r: ConversationsResponse = try await client.get("/api/conversations", query: [("workspace_id", workspaceId)] + Self.queue(of: filter))
         return r.conversations ?? []
+    }
+
+    /// The list, revalidated against the copy the app already has: nil conversations means
+    /// the server answered 304 and that copy is still current.
+    func conversations(workspaceId: String, filter: InboxFilter, etag: String?) async throws -> (conversations: [Conversation]?, etag: String?) {
+        let r = try await client.conditionalGet("/api/conversations", query: [("workspace_id", workspaceId)] + Self.queue(of: filter), etag: etag)
+        if r.notModified { return (nil, r.etag) }
+        do {
+            let body = try JSON.decoder().decode(ConversationsResponse.self, from: r.data.isEmpty ? Data("{}".utf8) : r.data)
+            return (body.conversations ?? [], r.etag)
+        } catch {
+            throw ApiError(failure: .decoding, status: 200, underlying: String(describing: error))
+        }
     }
 
     func inboxCounts(workspaceId: String, scope: String = "mine") async throws -> InboxCounts {
@@ -133,20 +151,34 @@ final class WebyarAPI {
     }
 
     func messages(conversationId: String) async throws -> [Message] {
-        let r: MessagesResponse = try await client.get("/api/conversations/\(Self.e(conversationId))/messages")
-        return r.messages ?? []
+        try await messagePage(conversationId: conversationId, since: nil).messages
+    }
+
+    /// The thread, or with `since` only what was created or changed after that cursor. A server
+    /// without incremental sync answers in full with no cursor: `delta` is then false and the
+    /// caller keeps reading whole threads, as before.
+    func messagePage(conversationId: String, since: String?) async throws -> ThreadPage {
+        let r: MessagesResponse = try await client.get("/api/conversations/\(Self.e(conversationId))/messages",
+                                                       query: [("since", since)])
+        return ThreadPage(messages: r.messages ?? [], delta: since != nil && r.sync?.mode == "delta", cursor: r.sync?.cursor)
     }
 
     /// `clientMessageId` makes a retry safe: the server collapses a replay of
     /// the same key. Generate it once per message, not once per attempt.
-    func sendMessage(conversationId: String, workspaceId: String, body: String, clientMessageId: String, attachmentId: String? = nil) async throws {
-        try await client.call("POST", "/api/conversations/send-message", body: [
+    /// `then` is the web's split send: the server moves the conversation only
+    /// once the message really went out, and says whether it did.
+    @discardableResult
+    func sendMessage(conversationId: String, workspaceId: String, body: String, clientMessageId: String, attachmentId: String? = nil,
+                     then: PostSendAction = .none) async throws -> PostSendResult? {
+        let r: SendMessageResponse = try await client.post("/api/conversations/send-message", body: [
             "conversation_id": conversationId,
             "workspace_id": workspaceId,
             "body": body,
             "client_message_id": clientMessageId,
             "attachment_id": attachmentId,
+            "post_send_action": then.rawValue,
         ])
+        return r.postSend
     }
 
     func markSeen(conversationId: String) async throws {
@@ -225,6 +257,19 @@ final class WebyarAPI {
 
     func account() async throws -> Account {
         try await client.get("/api/account/me")
+    }
+
+    /// The operator's own photo, as the web's Settings → Profile uploads it (base64, up to 10 MB).
+    func uploadAvatar(data: Data, contentType: String, fileName: String) async throws {
+        try await client.call("POST", "/api/account/avatar", body: [
+            "data": data.base64EncodedString(),
+            "contentType": contentType,
+            "fileName": fileName,
+        ])
+    }
+
+    func removeAvatar() async throws {
+        try await client.call("DELETE", "/api/account/avatar")
     }
 
     func availability(locale: String) async throws -> Availability {
@@ -562,4 +607,23 @@ final class WebyarAPI {
     func visitorMapConfig(workspaceId: String) async throws -> JSONValue {
         try await client.get("/api/visitor-intel/map-config", query: [("workspace_id", workspaceId)])
     }
+}
+
+/// What happens to the conversation once a reply is out, as the web inbox's split Send button.
+enum PostSendAction: String, CaseIterable, Identifiable, Sendable {
+    case none
+    case waitForCustomer = "wait_for_customer"
+    case resolve
+    var id: String { rawValue }
+}
+
+struct PostSendResult: Decodable, Sendable {
+    var changed: Bool?
+    var status: String?
+    /// Why the status stayed ("newer_customer_message", "delivery_failed", "no_change", …).
+    var blocked: String?
+}
+
+private struct SendMessageResponse: Decodable {
+    var postSend: PostSendResult?
 }

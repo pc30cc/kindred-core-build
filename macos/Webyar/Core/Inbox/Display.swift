@@ -62,6 +62,12 @@ enum Display {
     /// A one-line preview of the last message; attachments get a sentence instead of an empty line.
     static func preview(_ last: MessagePreview?, _ s: Strings) -> String {
         guard let last else { return "" }
+        // A system notice is stored in English; the list says it as the thread does.
+        if let kind = last.systemKind, !kind.isEmpty {
+            var meta = last.systemMeta?.object ?? [:]
+            meta["kind"] = .string(kind)
+            if let text = SystemText.of(.object(meta), s), !text.isEmpty { return oneLine(text) }
+        }
         let body = oneLine(last.body)
         if !body.isEmpty { return body }
         guard let kind = last.attachmentKind, !kind.isEmpty else { return "" }

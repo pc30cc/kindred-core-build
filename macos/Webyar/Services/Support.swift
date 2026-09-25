@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import CryptoKit
 import Foundation
 import Security
 
@@ -255,17 +256,21 @@ enum Mime {
 
 /// Message files on disk, keyed by attachment id, so a photo, voice note or
 /// document is downloaded once and opened from the Mac after that — across
-/// conversations and restarts. The oldest files go first past 1 GB.
+/// conversations and restarts. The least recently used go first past
+/// CachePolicy.fileCacheMaxBytes, at launch and every so often while the app runs.
+/// Safe from any thread: every write is atomic, so a crash never leaves half a file.
 enum FileCache {
-    private static let maxBytes: Int64 = 1024 * 1024 * 1024
-    private static let trimTo: Int64 = 800 * 1024 * 1024
+    /// Tests point the cache at a folder of their own.
+    nonisolated(unsafe) static var folderOverride: URL?
 
     static var folder: URL {
-        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        let dir = base.appendingPathComponent("Files", isDirectory: true)
+        let dir = folderOverride ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("Files", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
+
+    private static let upkeep = DispatchQueue(label: "webyar.filecache", qos: .utility)
 
     // Ids are server UUIDs; anything else (a local "local:…" id) stays in memory only.
     private static func valid(_ id: String) -> Bool { UUID(uuidString: id) != nil }
@@ -273,15 +278,53 @@ enum FileCache {
 
     static func read(_ id: String) -> Data? {
         guard valid(id) else { return nil }
-        let url = path(id)
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
-        return data
+        return read(at: path(id))
     }
 
     static func write(_ id: String, _ data: Data) {
         guard valid(id), !data.isEmpty else { return }
-        try? data.write(to: path(id), options: .atomic)
+        write(data, to: path(id))
+    }
+
+    static func remove(_ id: String) {
+        guard valid(id) else { return }
+        try? FileManager.default.removeItem(at: path(id))
+    }
+
+    // Files known by a link rather than an id (avatars, logos, campaign art): kept under a hash
+    // of the whole link, so the provider's new links after a change are simply new entries.
+    private static func path(key: String) -> URL {
+        let digest = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
+        return folder.appendingPathComponent("k-" + digest + ".bin")
+    }
+
+    static func read(key: String) -> Data? { read(at: path(key: key)) }
+
+    static func write(key: String, _ data: Data) {
+        guard !data.isEmpty else { return }
+        write(data, to: path(key: key))
+    }
+
+    static func remove(key: String) {
+        try? FileManager.default.removeItem(at: path(key: key))
+    }
+
+    private static func read(at url: URL) -> Data? {
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
+        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
+        return data
+    }
+
+    private static func write(_ data: Data, to url: URL) {
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch let e as CocoaError where e.code == .fileWriteOutOfSpace {
+            // The Mac is full: keep what is in memory and make room for next time.
+            Log.write("[files] disk full, not cached")
+            trimInBackground()
+        } catch {
+            Log.write("[files] write failed")
+        }
     }
 
     /// Total size and file count, for the settings page.
@@ -292,13 +335,20 @@ enum FileCache {
     }
 
     static func clear() {
-        for f in (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [] {
-            try? FileManager.default.removeItem(at: f)
+        upkeep.sync {
+            for f in (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [] {
+                try? FileManager.default.removeItem(at: f)
+            }
         }
     }
 
+    /// `trim()` on a background queue, one at a time.
+    static func trimInBackground() {
+        upkeep.async { trim() }
+    }
+
     /// Drops the least recently used files once the cache is over its limit.
-    static func trim() {
+    static func trim(maxBytes: Int64 = CachePolicy.fileCacheMaxBytes, trimTo: Int64 = CachePolicy.fileCacheTrimTo) {
         let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey]
         let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys)) ?? []
         var entries = files.map { url -> (URL, Int64, Date) in
@@ -308,11 +358,14 @@ enum FileCache {
         var total = entries.reduce(Int64(0)) { $0 + $1.1 }
         guard total > maxBytes else { return }
         entries.sort { $0.2 < $1.2 }
+        var removed = 0
         for (url, size, _) in entries {
             if total <= trimTo { break }
             try? FileManager.default.removeItem(at: url)
             total -= size
+            removed += 1
         }
+        Log.write("[files] trimmed \(removed) files")
     }
 }
 

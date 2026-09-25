@@ -7,6 +7,14 @@ struct InboxEvent: Sendable, Equatable {
     var messageId: String?
     var senderType: String?
     var kind: String?
+    /// The message row itself, when the server sent it whole (the `message` envelope does):
+    /// shown at once, before the thread is read again.
+    var message: Message? = nil
+
+    /// Not from the server: realtime came back after a gap, or the saved copy was cleared.
+    /// Everything reads again, threads whole, since events may have been missed.
+    static let reconciled = "app.reconcile"
+    var isReconcile: Bool { type == Self.reconciled }
 
     var isMessage: Bool { type == "message" }
     var isVisitorMessage: Bool { isMessage && senderType == SenderType.contact }
@@ -76,7 +84,15 @@ enum CentrifugoProtocol {
         guard let type = data["type"]?.string else { return nil }
         let p = data["payload"]
         return InboxEvent(type: type, conversationId: p?["conversation_id"]?.string, messageId: p?["id"]?.string,
-                          senderType: p?["sender_type"]?.string, kind: p?["kind"]?.string)
+                          senderType: p?["sender_type"]?.string, kind: p?["kind"]?.string,
+                          message: type == "message" ? p.flatMap(Self.message) : nil)
+    }
+
+    /// A message row from an event payload, if it has what a thread needs to show it.
+    static func message(_ payload: JSONValue) -> Message? {
+        guard payload["id"]?.string != nil, payload["conversation_id"]?.string != nil, payload["created_at"] != nil,
+              let data = try? JSONEncoder().encode(payload) else { return nil }
+        return try? JSON.decoder().decode(Message.self, from: data)
     }
 }
 

@@ -73,6 +73,7 @@ enum DebugTools {
             case "calls": app.route = .calls
             case "colleagues": app.route = .colleagues
             case "email": app.route = .email
+            case "analytics": app.route = .analytics
             case "ai": app.route = .inbox(.ai)
             case "pending": app.route = .inbox(.pending)
             case "resolved": app.route = .inbox(.resolved)
@@ -80,6 +81,23 @@ enum DebugTools {
             }
         case "open": app.openConversation(arg)
         case "mail": EmailModel.debugCurrent?.select(arg)
+        case "pickvisitor": VisitorsModel.debugCurrent?.select(arg)
+        case "wa":
+            // "wa sources", "wa geo city", "wa range 7"
+            let bits = arg.split(separator: " ").map(String.init)
+            guard let m = AnalyticsModel.debugCurrent, let first = bits.first else { break }
+            if first == "range", let n = bits.dropFirst().first.flatMap(Int.init), let r = AnalyticsRange(rawValue: n) { m.setRange(r) }
+            else if let section = AnalyticsSection(rawValue: first) {
+                m.section = section
+                if let dim = bits.dropFirst().first {
+                    switch section {
+                    case .sources: m.sourceDimension = dim
+                    case .pages: m.pagesKind = dim
+                    case .geography: m.geoDimension = dim
+                    default: break
+                    }
+                }
+            }
         case "cc":
             CallCenterModel.debugCurrent?.select(arg)
         case "chatcall":
@@ -132,8 +150,31 @@ enum DebugTools {
         case "replymode": EmailModel.debugCurrent?.replyMode = ReplyMode(rawValue: arg) ?? .reply
         case "lang": if let l = Language.parse(arg) { app.setLanguage(l) }
         case "appearance": app.setAppearance(Appearance(rawValue: arg) ?? .system)
-        case "settings": app.showSettings?()
+        case "settings":
+            app.showSettings?()
+            if !arg.isEmpty { NotificationCenter.default.post(name: Notification.Name("WebyarDebugSettingsPane"), object: arg) }
+        case "photourl":
+            // "photourl https://…": the sample account's photo is that link, to test loading a real CDN file.
+            SampleBackend.avatar = arg
+            Task { await app.reloadAccount() }
+        case "photo":
+            // "photo on" uploads a sample picture as the operator's photo, "photo off" removes it.
+            Task {
+                do {
+                    if arg == "off" { try await app.removeAvatar(); return }
+                    let image = NSImage(size: NSSize(width: 64, height: 64), flipped: false) { r in
+                        NSColor.systemTeal.setFill(); r.fill(); return true
+                    }
+                    guard let data = AppModel.avatarJPEG(image) else { return Log.write("[debug] photo: no JPEG") }
+                    try await app.api.uploadAvatar(data: data, contentType: "image/jpeg", fileName: "avatar.jpg")
+                    await app.reloadAccount()
+                    Log.write("[debug] photo: \(app.account?.avatarUrl ?? "none")")
+                } catch {
+                    Log.error("debug photo", error)
+                }
+            }
         case "signout": app.debugSignOut()
+        case "signin": Task { try? await app.signIn(email: "operator@webyar.app", password: "sample", remember: true) }
         case "details": app.settings.detailsOpen = arg != "off"
         case "ring": app.debugRing()
         case "maintenance":

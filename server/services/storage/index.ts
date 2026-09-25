@@ -598,7 +598,8 @@ function localGetUrl(config: StorageConfig, fileKey: string): string {
   // that do not handle missing config will surface a broken link in dev
   // instead of silently pointing visitors at the operator's loopback.
   if (!base) return `/storage/${fileKey}`;
-  return `${base}/${fileKey}`;
+  // Typed without a scheme, it would be a relative path in every app.
+  return `${publicBase(base)}/${fileKey}`;
 }
 
 async function localList(config: StorageConfig, prefix: string): Promise<ListResult> {

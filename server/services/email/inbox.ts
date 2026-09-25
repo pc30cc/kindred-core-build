@@ -22,7 +22,7 @@ import { getServiceClient } from '../../supabase.js';
 import { getInstallation } from '../plugins/state.js';
 import { getIntegrationForInstallation, type ChannelIntegration } from '../channels/integrations.js';
 import { enqueueChannelJob } from '../channels/jobs.js';
-import { uploadFile, getFileUrl } from '../storage/index.js';
+import { uploadFile, getFileUrl, downloadFile } from '../storage/index.js';
 import { emailAttachmentKey } from '../storage/keys.js';
 import { GMAIL_PLUGIN_ID } from '../channels/gmail/oauth.js';
 import { YAHOO_PLUGIN_ID } from '../../../shared/channels/yahooKeys.js';
@@ -53,6 +53,13 @@ export interface EmailAttachmentView {
   sizeBytes: number | null;
   contentId: string | null;
   url: string | null;
+  /**
+   * The same file through this API (signed-in, `/api/...`), read from whichever
+   * storage provider is primary at the moment of the download. Apps use it in
+   * preference to `url`: it works for providers with no public URL, private
+   * buckets, and survives a provider or CDN change without anything stored.
+   */
+  downloadPath: string;
 }
 
 interface EmailThreadRow {
@@ -207,8 +214,36 @@ async function resolveAttachmentUrls(
       // key shape until backfilled — the storage service recognizes that
       // legacy shape automatically (see server/services/storage/keys.ts).
       url: await getFileUrl(config, workspaceId, a.storage_key).catch(() => null),
+      downloadPath: `/api/email-inbox/${encodeURIComponent(workspaceId)}/attachments/${encodeURIComponent(a.id)}/file`,
     })),
   );
+}
+
+/**
+ * One mailbox attachment's bytes, for the signed-in download route: looked up
+ * by id within the workspace, read by key from the current provider.
+ */
+export async function getAttachmentFile(
+  config: ServerConfig,
+  workspaceId: string,
+  attachmentId: string,
+): Promise<{ data: Buffer; filename: string; contentType: string } | null> {
+  const sb = getServiceClient(config);
+  const { data: row } = await sb
+    .from('email_attachments')
+    .select('id, filename, content_type, storage_key')
+    .eq('id', attachmentId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  const found = row as Pick<EmailAttachmentRow, 'id' | 'filename' | 'content_type' | 'storage_key'> | null;
+  if (!found?.storage_key) return null;
+  const file = await downloadFile(config, workspaceId, found.storage_key, { allowLegacyKey: true });
+  if (!file.success || !file.data) return null;
+  return {
+    data: file.data,
+    filename: found.filename || 'attachment',
+    contentType: found.content_type || 'application/octet-stream',
+  };
 }
 
 export async function getThread(

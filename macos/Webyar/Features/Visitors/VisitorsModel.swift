@@ -60,8 +60,16 @@ final class VisitorsModel {
     /// Fly the map to the selected visitor.
     private(set) var focus: VisitorMapFocus?
 
+    #if DEBUG
+    /// The live list, for the debug command file.
+    nonisolated(unsafe) static weak var debugCurrent: VisitorsModel?
+    #endif
+
     init(app: AppModel) {
         self.app = app
+        #if DEBUG
+        Self.debugCurrent = self
+        #endif
     }
 
     /// Starts on the page's first appearance; again after `stop()` when the page comes back.

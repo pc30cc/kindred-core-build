@@ -83,6 +83,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         app.setForeground(false)
     }
 
+    /// Quitting mid-call: end it first. The hang-up (leaving the room, telling the server) runs as
+    /// tasks, which would never run if the process just exited — so the quit waits a moment for them.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let call = CallCoordinator.shared.call, !call.isEnded else { return .terminateNow }
+        CallCoordinator.shared.hangUpForQuit()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         app.engagement.stop()
         CallCoordinator.shared.hangUpForQuit()

@@ -11,13 +11,65 @@ extension View {
     }
 }
 
+extension View {
+    /// A list row's own soft highlight — the brand tint with a thin ring when picked, a
+    /// wash under the pointer — in place of the system's accent-blue selection, which
+    /// left the rows' grey lines unreadable.
+    func selectableRow(_ selected: Bool) -> some View {
+        modifier(SelectableRow(selected: selected))
+    }
+
+    /// Up and down move the pick through `ids` and keep it in view; Escape lets it go
+    /// when `clear` is given. For lists that draw their own selection.
+    func arrowKeyPicking(_ ids: [String], selected: String?, proxy: ScrollViewProxy,
+                         select: @escaping (String) -> Void, clear: (() -> Void)? = nil) -> some View {
+        func step(_ by: Int) -> KeyPress.Result {
+            guard !ids.isEmpty else { return .ignored }
+            let at = selected.flatMap { ids.firstIndex(of: $0) }
+            let next = at.map { min(ids.count - 1, max(0, $0 + by)) } ?? (by > 0 ? 0 : ids.count - 1)
+            select(ids[next])
+            proxy.scrollTo(ids[next])
+            return .handled
+        }
+        return focusable()
+            .focusEffectDisabled()
+            .onKeyPress(.downArrow) { step(1) }
+            .onKeyPress(.upArrow) { step(-1) }
+            .onKeyPress(.escape) {
+                guard let clear, selected != nil else { return .ignored }
+                clear()
+                return .handled
+            }
+    }
+}
+
+private struct SelectableRow: ViewModifier {
+    let selected: Bool
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(selected ? Palette.selected : hovering ? Palette.hover : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(selected ? Palette.brand.opacity(0.35) : Color.clear, lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            .animation(.easeOut(duration: 0.12), value: hovering)
+    }
+}
+
 /// A person, drawn exactly like the web console's ContactAvatar (and the
 /// Windows app's Avatar control) so a visitor looks the same everywhere:
 /// their photo; else their operating system's logo on that OS's gradient;
-/// else initials on a gradient picked by a hash of the name. Operators show
-/// their photo or first letter on the brand tint; the AI its sparkles.
-/// With `faceless`, what has neither a photo nor a logo to show is a grey
-/// disc with a person in it rather than letters.
+/// else a disc with a person in it, tinted by a hash of the name. Operators
+/// show their photo or the grey disc with a person; the AI its sparkles.
+/// Never initials.
 struct AvatarView: View {
     enum Kind { case visitor, `operator`, ai }
 
@@ -31,7 +83,7 @@ struct AvatarView: View {
     var kind: Kind = .visitor
     /// The dot: operator presence, visitor presence or a conversation status.
     var presence: String? = nil
-    /// No initials: a grey disc with a person when there is no photo or logo.
+    /// Kept for callers written before initials went away everywhere; it changes nothing now.
     var faceless = false
 
     @Environment(AppModel.self) private var app
@@ -40,15 +92,9 @@ struct AvatarView: View {
         ZStack {
             disc
             if let url = photoURL {
-                AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.15))) { phase in
-                    if case .success(let image) = phase {
-                        image.resizable().scaledToFill()
-                    } else {
-                        Color.clear
-                    }
-                }
-                .frame(width: size, height: size)
-                .clipShape(Circle())
+                RemoteImage(url: url) { Color.clear }
+                    .frame(width: size, height: size)
+                    .clipShape(Circle())
             }
             Circle().strokeBorder(Palette.line, lineWidth: 0.5)
         }
@@ -69,35 +115,18 @@ struct AvatarView: View {
         case .ai:
             Circle().fill(Palette.aiSoft)
                 .overlay(Image(systemName: "sparkles").font(.system(size: size * 0.45, weight: .semibold)).foregroundStyle(Palette.ai))
-        case .operator where faceless:
-            Self.skeleton(size: size)
         case .operator:
-            let n = (name ?? "").trimmingCharacters(in: .whitespaces)
-            Circle().fill(Palette.brandSoft)
-                .overlay {
-                    if let first = n.first {
-                        Text(String(first).uppercased())
-                            .font(Typeface.font(initialsSize, .bold))
-                            .foregroundStyle(Palette.brand)
-                    } else {
-                        Image(systemName: "person.fill").font(.system(size: size * 0.42)).foregroundStyle(Palette.brand)
-                    }
-                }
-        case .visitor where faceless && AvatarArt.osOf(os) == .none:
+            // No initials anywhere: an operator without a photo is the grey disc with a person.
+            Self.skeleton(size: size)
+        case .visitor where AvatarArt.osOf(os) == .none:
+            // Nor for visitors: without their device's logo, a disc tinted by their name.
             Self.skeleton(size: size, seed: [name, email].compactMap { $0 }.first { !$0.isEmpty })
         case .visitor:
             let art = AvatarArt.make(name: name, email: email, os: os)
             Circle().fill(gradient(art))
                 .overlay {
-                    if art.os != .none {
-                        Circle().fill(LinearGradient(colors: [.white.opacity(0.28), .clear], startPoint: .top, endPoint: .center)).opacity(0.7)
-                        osGlyph(art.os)
-                    } else {
-                        Text(art.initials)
-                            .font(Typeface.font(initialsSize, .semibold))
-                            .foregroundStyle(.white)
-                            .minimumScaleFactor(0.5)
-                    }
+                    Circle().fill(LinearGradient(colors: [.white.opacity(0.28), .clear], startPoint: .top, endPoint: .center)).opacity(0.7)
+                    osGlyph(art.os)
                 }
         }
     }
@@ -113,16 +142,6 @@ struct AvatarView: View {
                     .font(.system(size: size * 0.46))
                     .foregroundStyle(tint.map { $0.opacity(0.85) } ?? Palette.text3.opacity(0.8))
             }
-    }
-
-    private var initialsSize: CGFloat {
-        switch size {
-        case ...28: return 10
-        case ...36: return 12
-        case ...40: return 13
-        case ...48: return 15
-        default: return (size * 0.32).rounded()
-        }
     }
 
     @ViewBuilder private func osGlyph(_ os: AvatarOs) -> some View {
@@ -382,8 +401,8 @@ struct CampaignCard: View {
                     ZStack {
                         Circle().fill(Palette.brandSoft)
                         Image(systemName: "megaphone.fill").foregroundStyle(Palette.brand)
-                        if let url = ad.imageUrl.flatMap(URL.init(string:)) {
-                            AsyncImage(url: url) { $0.resizable().scaledToFill() } placeholder: { Color.clear }
+                        if let url = ad.imageUrl.flatMap({ app.client.absolute($0) }) {
+                            RemoteImage(url: url) { Color.clear }
                                 .clipShape(Circle())
                         }
                     }

@@ -11,6 +11,7 @@ enum Route: Hashable, Sendable {
     case visitors
     case calls
     case email
+    case analytics
 
     var isInbox: Bool {
         switch self {
@@ -60,6 +61,16 @@ final class AppModel {
     private(set) var callQueue: CallQueueWatcher?
     private(set) var realtimeConnected = false
     @ObservationIgnored private(set) var realtime: InboxRealtime?
+    /// Realtime has been up before in this workspace: a new connection is a reconnect after a gap.
+    @ObservationIgnored private var realtimeWasUp = false
+
+    /// This operator's saved messages and lists for the open workspace (see LocalStore). Nil
+    /// until both are known, and between workspaces.
+    @ObservationIgnored private(set) var localStore: LocalStore?
+    /// The workspace's conversation lists, one request for every reader.
+    @ObservationIgnored private(set) var lists: ConversationLists?
+    @ObservationIgnored private var memoryPressure: DispatchSourceMemoryPressure?
+    @ObservationIgnored private var fileTrimTimer: Timer?
 
     /// Every realtime event.
     @ObservationIgnored let inboxEvents = Signal<InboxEvent>()
@@ -73,11 +84,15 @@ final class AppModel {
     var pendingConversation: String?
     /// The conversation on screen right now.
     var visibleConversationId: String?
+    /// The chat details floating over a thread in a narrow window (not saved).
+    var detailsFloating = false
     /// The call center should select (or answer) this call when it appears.
     var pendingCall: (id: String, answer: Bool)?
     private(set) var isForeground = true
     /// SwiftUI's openSettings, handed over by the window (macOS 14 has no selector for it).
     @ObservationIgnored var showSettings: (() -> Void)?
+    /// Bumped by each workspace start and by sign-out, so a start still waiting on the plan knows it is stale.
+    @ObservationIgnored private var openGeneration = 0
 
     private(set) var unread = 0
     private(set) var counts = SidebarCounts()
@@ -135,7 +150,8 @@ final class AppModel {
     func start() async {
         // No permission prompt for notifications the platform does not allow.
         notifier.register(askPermission: config.system.notifications)
-        FileCache.trim()
+        FileCache.trimInBackground()
+        startCacheUpkeep()
         Log.write("launch \(Self.version)")
         await refreshPlatform()
         guard client.hasSession else {
@@ -144,6 +160,7 @@ final class AppModel {
         }
         do {
             user = try await api.currentUser()
+            rememberStoreOwner()
             await enter()
         } catch let e as ApiError where e.failure == .unauthorized {
             phase = .signedOut
@@ -251,6 +268,7 @@ final class AppModel {
 
     func signIn(email: String, password: String, remember: Bool) async throws {
         user = try await client.login(email: email, password: password)
+        rememberStoreOwner()
         if remember { SavedLogin.write(email: email, password: password) } else { SavedLogin.forget() }
         await enter()
     }
@@ -278,12 +296,21 @@ final class AppModel {
     /// not show and then hide sections), then realtime, presence and the shell.
     private func openWorkspace() async {
         resetPlan()
+        openGeneration += 1
+        let gen = openGeneration
+        // Wait for the plan up to five seconds, but never cancel it: on a slow link it must still
+        // arrive, not leave the plan "loading" (sections hidden, calls not ringing) until the next poll.
+        let plan = Task { await self.loadPlan() }
         await withTaskGroup(of: Void.self) { group in
-            group.addTask { await self.loadPlan() }
+            group.addTask { await plan.value }
             group.addTask { try? await Task.sleep(nanoseconds: 5_000_000_000) }
             await group.next()
             group.cancelAll()
         }
+        // Signed out (which bumps the generation), or another workspace opened, while the plan was
+        // awaited: this start is stale. Not a phase check — signing in starts from .signedOut.
+        guard gen == openGeneration else { return }
+        openLocalStore()
         startRealtime()
         await startPresence()
         startShell()
@@ -295,8 +322,12 @@ final class AppModel {
     /// Moves to another of the operator's workspaces, as the web's workspace menu does.
     func switchWorkspace(_ ws: Workspace) async {
         guard ws.id != workspace?.id else { return }
+        // A call belongs to the workspace it started in.
+        CallCoordinator.shared.hangUpForQuit()
         stopShell()
         stopPresence()
+        closeLocalStore()
+        visitorsOnline = 0
         workspace = ws
         settings.workspaceId = ws.id
         saveSettings()
@@ -318,6 +349,10 @@ final class AppModel {
     #endif
 
     func signOut() async {
+        // Signing out on purpose: this account's saved messages leave the Mac too.
+        let leaving = user?.id ?? UserDefaults.standard.string(forKey: Self.storeOwnerKey)
+        let store = localStore
+        await engagement.sayGoodbye()
         do {
             try await client.logout()
         } catch {
@@ -326,17 +361,28 @@ final class AppModel {
             client.discardSession()
         }
         signedOut()
+        await store?.destroy()
+        if let leaving { await Task.detached(priority: .utility) { LocalStore.removeUser(leaving) }.value }
     }
 
     /// The server no longer knows this session (or the operator signed out).
     func signedOut() {
         guard phase != .signedOut else { return }
+        openGeneration += 1
+        // Nothing would be left on screen to hang up with, and the microphone would stay live.
+        CallCoordinator.shared.hangUpForQuit()
         stopShell()
         stopPresence()
+        visitorsOnline = 0
         realtime?.stop()
         realtime = nil
         realtimeConnected = false
         engagement.stop()
+        closeLocalStore()
+        UserDefaults.standard.removeObject(forKey: Self.storeOwnerKey)
+        // Nothing of this account stays in memory for whoever signs in next.
+        AttachmentStore.shared.clearMemory()
+        ImageStore.shared.clearMemory()
         user = nil
         account = nil
         unread = 0
@@ -374,7 +420,12 @@ final class AppModel {
             return
         }
         guard workspace?.id == ws.id else { return }
-        workspacePlan = next
+        // A blip on one of the side requests (the role, the AI or call-center switches) leaves it
+        // nil: keep what was known for this workspace rather than hide an admin's pages.
+        workspacePlan = next.with(role: next.role ?? workspacePlan.role,
+                                  aiAgent: next.aiAgentEnabled ?? workspacePlan.aiAgentEnabled,
+                                  aiAuto: next.aiAutoAnswer ?? workspacePlan.aiAutoAnswer,
+                                  callCenter: next.callCenterVisible ?? workspacePlan.callCenterVisible)
         // If the page on show just went away, back to the inbox.
         if !isAllowed(route) { route = .inbox(.open) }
     }
@@ -385,6 +436,7 @@ final class AppModel {
         case .visitors: return plan.visitors
         case .calls: return plan.callCenter
         case .email: return plan.emailInbox
+        case .analytics: return plan.webAnalytics
         case .colleagues: return plan.teamChat
         case .channel: return plan.isAdmin
         case .inbox(.ai): return plan.aiQueue(automated: counts.automated)
@@ -408,12 +460,67 @@ final class AppModel {
         realtimeConnected = false
         guard let ws = workspace else { return }
         let rt = InboxRealtime(api: api, workspaceId: ws.id, allowed: { [weak self] in self?.config.realtimeEnabled ?? false })
-        rt.onEvent = { [weak self] e in self?.inboxEvents.send(e) }
+        realtimeWasUp = false
+        rt.onEvent = { [weak self] e in
+            // Before anyone reads again: no list read before this event is handed out as current.
+            self?.lists?.invalidate()
+            self?.inboxEvents.send(e)
+        }
         rt.onVisitorEvent = { [weak self] v in self?.visitorEvents.send(v) }
-        rt.onConnectionChanged = { [weak self] up in self?.realtimeConnected = up }
+        rt.onConnectionChanged = { [weak self] up in
+            guard let self else { return }
+            self.realtimeConnected = up
+            // Back after a gap: events may have been missed, so everything reads again.
+            if up {
+                if self.realtimeWasUp { self.reconcile(reason: "reconnect") }
+                self.realtimeWasUp = true
+            }
+        }
         rt.onPresenceJoined = { [weak self] in self?.presence?.kick() }
         realtime = rt
         rt.start()
+    }
+
+    // MARK: Profile photo
+
+    enum AvatarError: Error { case unreadable, tooLarge }
+
+    /// The operator's own photo, from a picked file: squared-off to at most 512 px and sent
+    /// as JPEG, as small as the discs it fills; then the account is read again so every
+    /// avatar of theirs changes at once.
+    func uploadAvatar(from url: URL) async throws {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        guard let image = NSImage(contentsOf: url), let data = Self.avatarJPEG(image) else { throw AvatarError.unreadable }
+        guard data.count <= 10 * 1024 * 1024 else { throw AvatarError.tooLarge }
+        try await api.uploadAvatar(data: data, contentType: "image/jpeg", fileName: "avatar.jpg")
+        await reloadAccount()
+    }
+
+    func removeAvatar() async throws {
+        try await api.removeAvatar()
+        await reloadAccount()
+    }
+
+    func reloadAccount() async {
+        do { account = try await api.account() } catch { Log.error("account", error) }
+    }
+
+    /// The middle square of the picture, at most 512 px a side.
+    nonisolated static func avatarJPEG(_ image: NSImage) -> Data? {
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let side = min(cg.width, cg.height)
+        guard side > 0, let square = cg.cropping(to: CGRect(x: (cg.width - side) / 2, y: (cg.height - side) / 2, width: side, height: side)) else { return nil }
+        let out = min(512, side)
+        guard let ctx = CGContext(data: nil, width: out, height: out, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        // A transparent picture sits on white, not black.
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: out, height: out))
+        ctx.interpolationQuality = .high
+        ctx.draw(square, in: CGRect(x: 0, y: 0, width: out, height: out))
+        guard let scaled = ctx.makeImage() else { return nil }
+        return NSBitmapImageRep(cgImage: scaled).representation(using: .jpeg, properties: [.compressionFactor: 0.88])
     }
 
     private func startPresence() async {
@@ -440,11 +547,105 @@ final class AppModel {
         callQueue?.stop()
         callQueue = nil
         stopRinging()
+        // A handed-over call belongs to the workspace (and operator) it came in for.
+        handedCall = nil
+        handedCallError = nil
+        handedSeen = []
+    }
+
+    // MARK: Local-first cache
+
+    /// Who the saved copy on this Mac belongs to, so a launch with no connection can show it.
+    /// Only an id — never a token — and cleared on sign-out.
+    static let storeOwnerKey = "localStore.owner"
+
+    private func rememberStoreOwner() {
+        guard let id = user?.id, !Self.isSample else { return }
+        UserDefaults.standard.set(id, forKey: Self.storeOwnerKey)
+    }
+
+    /// Opens the saved copy of this account in this workspace, and the shared list reader.
+    /// Offline at launch the account is not known yet: the last one that signed in on this
+    /// Mac (whose session this is) stands in until the server says who it is.
+    private func openLocalStore() {
+        closeLocalStore()
+        guard let ws = workspace else { return }
+        let owner = user?.id ?? UserDefaults.standard.string(forKey: Self.storeOwnerKey)
+        if let owner, !Self.isSample {
+            let store = LocalStore(scope: .init(userId: owner, workspaceId: ws.id))
+            localStore = store
+            Task.detached(priority: .utility) {
+                await store.prune()
+                let n = await store.stats()
+                Log.write("[store] open threads=\(n.threads) messages=\(n.messages) lists=\(n.lists)")
+            }
+        }
+        let wsId = ws.id
+        lists = ConversationLists(workspaceId: wsId, store: { [weak self] in
+            // Only ever this workspace's file, whatever is open by the time a read lands.
+            self?.localStore.flatMap { $0.scope.workspaceId == wsId ? $0 : nil }
+        }, fetch: { [weak self] filter, etag in
+            guard let self else { throw CancellationError() }
+            return try await self.api.conversations(workspaceId: wsId, filter: filter, etag: etag)
+        })
+    }
+
+    private func closeLocalStore() {
+        if let store = localStore { Task.detached { await store.close() } }
+        localStore = nil
+        lists = nil
+    }
+
+    /// The saved copy for `workspaceId`, if that is the workspace open now.
+    func store(for workspaceId: String) -> LocalStore? {
+        localStore.flatMap { $0.scope.workspaceId == workspaceId ? $0 : nil }
+    }
+
+    /// Everything reads from the server again, threads whole.
+    func reconcile(reason: String) {
+        Log.write("[sync] reconcile \(reason)")
+        lists?.invalidate()
+        inboxEvents.send(InboxEvent(type: InboxEvent.reconciled))
+    }
+
+    /// Settings → Storage → Clear: the saved messages, lists, files and pictures on this Mac.
+    /// Nothing on the server, and not the session. What is on screen stays and reads again.
+    func clearLocalCache() async {
+        let keep = localStore
+        await Task.detached(priority: .userInitiated) {
+            FileCache.clear()
+            LocalStore.removeAll(except: keep?.url)
+        }.value
+        await keep?.reset()
+        AttachmentStore.shared.clearMemory()
+        ImageStore.shared.clearMemory()
+        lists?.forget()
+        reconcile(reason: "cache cleared")
+    }
+
+    /// The file cache is trimmed while the app runs, not only at launch; memory is given back
+    /// when macOS asks for it.
+    private func startCacheUpkeep() {
+        fileTrimTimer?.invalidate()
+        fileTrimTimer = Timer.scheduledTimer(withTimeInterval: CachePolicy.fileCacheTrimInterval, repeats: true) { _ in
+            FileCache.trimInBackground()
+        }
+        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        source.setEventHandler {
+            MainActor.assumeIsolated {
+                AttachmentStore.shared.releaseMemory()
+                ImageStore.shared.clearMemory()
+            }
+        }
+        source.resume()
+        memoryPressure = source
     }
 
     // MARK: Shell pollers
 
     private func startShell() {
+        // Never two sets of pollers: a replaced poller would keep running on its own.
+        stopShell()
         guard let ws = workspace else { return }
         countsPoller = Poller("sidebar counts", interval: { 15 }) { [weak self] in try await self?.loadSidebar(ws.id) }
         countsPoller?.start()
@@ -476,6 +677,22 @@ final class AppModel {
 
     private func loadSidebar(_ workspaceId: String) async throws {
         counts = try await api.sidebarCounts(workspaceId: workspaceId)
+        // Launched offline: who is signed in is still unknown, and "assign to me", handed calls
+        // and the "assigned" notices all need it.
+        if user == nil, let me = try? await api.currentUser() {
+            user = me
+            // Opened offline with the last account's copy: if the session turns out to be
+            // someone else's, that copy goes at once.
+            if let store = localStore, store.scope.userId != me.id {
+                Log.write("[store] owner changed, reopening")
+                closeLocalStore()
+                rememberStoreOwner()
+                openLocalStore()
+                reconcile(reason: "owner")
+            } else {
+                rememberStoreOwner()
+            }
+        }
         // "Other inboxes" is for owners and admins only, as on the web.
         guard !channelsLoaded, plan.isAdmin else { return }
         channelsLoaded = true
@@ -483,6 +700,9 @@ final class AppModel {
             channels = try await api.pluginInboxes(workspaceId: workspaceId)
         } catch let e as ApiError where [401, 403, 404].contains(e.status ?? 0) {
             // Everyone else simply has no "Other inboxes".
+        } catch {
+            // Offline or a server error: ask again on the next round.
+            channelsLoaded = false
         }
     }
 
@@ -504,6 +724,7 @@ final class AppModel {
         case "calls": route = .calls
         case "colleagues": route = .colleagues
         case "email": route = .email
+        case "analytics": route = .analytics
         case "settings": showSettings?()
         default: route = .inbox(.open)
         }
@@ -519,6 +740,15 @@ final class AppModel {
     func open(from args: [String: String]) {
         NSApp.activate(ignoringOtherApps: true)
         NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true || $0.isMainWindow }?.makeKeyAndOrderFront(nil)
+        // A notice from another workspace opens there, not under the one on show now.
+        if let wsId = args["workspace"], !wsId.isEmpty, wsId != workspace?.id {
+            guard let target = workspaces.first(where: { $0.id == wsId }) else { return }
+            Task {
+                await switchWorkspace(target)
+                if workspace?.id == wsId { open(from: args) }
+            }
+            return
+        }
         if let conversation = args["conversation"] {
             openConversation(conversation)
         } else if args["page"] == "calls", let call = args["call"] {
@@ -650,6 +880,14 @@ final class AppModel {
         if cameForward, Date().timeIntervalSince(planAskedAt) > 30 {
             planAskedAt = Date()
             Task { await loadPlan() }
+            // The photo and logo links come from the storage provider, which Super Admin can change:
+            // read them again so the old host is not kept for the whole session.
+            if phase == .signedIn {
+                Task {
+                    await reloadAccount()
+                    await refreshWorkspaces()
+                }
+            }
         }
     }
 

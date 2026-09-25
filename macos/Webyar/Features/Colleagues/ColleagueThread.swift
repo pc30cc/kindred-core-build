@@ -328,10 +328,11 @@ struct TeamComposer: View {
 
     private var editor: some View {
         let draft = Binding<String>(get: { model.draft }, set: { model.draft = $0 })
-        return TextField(app.strings["messagePlaceholder"], text: draft, axis: .vertical)
+        return TextField(app.strings["composerPlaceholder"], text: draft, axis: .vertical)
             .textFieldStyle(.plain)
             .appFont(14)
             .lineLimit(1...8)
+            .readingSide(app.strings.isRightToLeft)
             .focused($focused)
             .padding(.horizontal, 16)
             .padding(.top, 13)
@@ -405,18 +406,10 @@ struct TeamComposer: View {
 
     private var sendButton: some View {
         let s = app.strings
-        return Button { model.send() } label: {
-            Image(systemName: "paperplane.fill")
-                .font(.system(size: 14, weight: .semibold))
-                .scaleEffect(x: s.isRightToLeft ? -1 : 1)
-                .frame(width: 22, height: 22)
-        }
-        .prominentButton(tint: Palette.brand)
-        .buttonBorderShape(.circle)
-        .controlSize(.large)
-        .disabled(!model.canSend)
-        .help(s["send"])
-        .padding(.leading, 4)
+        // Colleagues' messages have no conversation status to move: Send alone.
+        return SplitSendButton(action: .none, enabled: model.canSend, send: { model.send() })
+            .help(s["send"])
+            .padding(.leading, 4)
     }
 
     private func tool(_ icon: String, _ help: String, tint: Color? = nil, action: @escaping () -> Void) -> some View {

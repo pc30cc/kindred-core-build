@@ -8548,6 +8548,8 @@ const en = {
       },
     },
     whmcs: {
+      autoUpdate: 'Automatic addon updates',
+      autoUpdateHint: 'Connected WHMCS sites check hourly. Disable to pause new installations of updates.',
       name: 'WHMCS',
       platform: { title: "WHMCS features across all workspaces", description: "A disabled feature is blocked for every workspace, including cached answers. Changes take effect within 15 seconds. Workspace and WHMCS permissions still apply." },
       description: 'Lets the AI Assistant answer a signed-in client\'s questions about their own services, domains, invoices, orders and tickets, read live from your WHMCS.',
@@ -8562,7 +8564,7 @@ const en = {
         step4: 'Click \'Connect to Web Yar\', choose this workspace and approve. You return to WHMCS with a Connected status.',
         step5: 'Come back here and turn on the account sections the assistant may read. The chat widget is added to the client area automatically.',
         requirements: 'Requires WHMCS 8.0+, PHP 7.2+ (as supported by your WHMCS version) and HTTPS on the WHMCS System URL.',
-        noBackground: 'Nothing runs in the background: no cron job, no sync and no polling. WHMCS is contacted only when a client asks something that needs it.',
+        noBackground: 'Customer data is read on demand, without background syncing. Addon updates are checked hourly through WHMCS cron when enabled.',
       },
       connection: {
         title: 'Connection',

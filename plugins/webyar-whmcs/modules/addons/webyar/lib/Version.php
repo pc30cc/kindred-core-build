@@ -9,7 +9,7 @@ namespace WebYar\Whmcs;
  */
 final class Version
 {
-    const ADDON = '1.1.0';
+    const ADDON = '1.2.0';
     const PROTOCOL = 'webyar-commerce/1';
     /** Logical path covered by every request signature (not the URL path). */
     const API_CANONICAL_PATH = '/webyar/whmcs/v1';

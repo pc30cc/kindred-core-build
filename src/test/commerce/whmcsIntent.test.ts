@@ -15,7 +15,9 @@
 import { describe, it, expect } from 'vitest';
 import { detectWhmcsIntent, resolveWhmcsFollowUp, type WhmcsIntent } from '../../../server/services/ai-agent/commerce-tools/whmcsIntent.js';
 
-type Label = 'none' | 'catalog' | `account:${'services' | 'domains' | 'invoices' | 'orders' | 'tickets'}`;
+type Label = 'none' | 'catalog'
+  | `account:${Extract<WhmcsIntent, { kind: 'account' }>['resource']}`
+  | `public:${Extract<WhmcsIntent, { kind: 'public' }>['resource']}`;
 
 const CORPUS: Array<[string, Label]> = [
   // ── Persian ──
@@ -114,7 +116,8 @@ const CORPUS: Array<[string, Label]> = [
 function labelOf(intent: WhmcsIntent): Label {
   if (intent.kind === 'none') return 'none';
   if (intent.kind === 'catalog') return 'catalog';
-  return `${intent.kind}:${intent.resource}`;
+  if (intent.kind === 'public') return `public:${intent.resource}`;
+  return `account:${intent.resource}`;
 }
 
 describe('intent routing on the fa/en/tr corpus', () => {

@@ -55,8 +55,8 @@ then enable the desired sources in the workspace. No content migration is needed
 or ticket data is touched. Disconnecting from the Web Yar side revokes the
 installation credential; WHMCS data is likewise untouched.
 
-Nothing runs in the background on either side: no cron, no sync job, no
-heartbeat, no polling. The Web Yar sync worker's reconcile sweep explicitly
+Customer data has no background sync, heartbeat or polling. Addon release
+checks run separately through WHMCS cron. The Web Yar sync worker's reconcile sweep explicitly
 excludes WHMCS (`catalogIndexedProviders()`), and the dashboard's "Check
 connection" button is the only health probe (§8).
 
@@ -423,3 +423,50 @@ unit tests do not imply perfect routing for every phrasing.
   plugin's updater once Web Yar serves the new archive.
 - The connector reads the tracking keys the plugin actually sends.
 - The WooCommerce panel shows the WooCommerce connection only.
+
+### Automatic addon updates (1.2.0)
+
+Install 1.2.0 once on existing sites; earlier versions cannot bootstrap an updater.
+After that, increment `Version::ADDON`, build and deploy the application normally.
+`build-whmcs-addon-zip.mjs` publishes the ZIP plus its SHA-256 and byte length in
+`/downloads/webyar-whmcs.json`. Both files must be deployed together. The API must
+also be deployed to expose `/api/plugins/whmcs/updates`.
+
+Connected installations check once per hour from the **CLI** `AfterCronJob` hook.
+WHMCS cron must run normally, under the same account that owns the addon and its
+update state. Customer page requests never check/download updates. The site-local
+checkbox and Super Admin → Plugins → WHMCS → Automatic addon updates both default
+on; either can pause updates. A disabled/maintenance platform also pauses them.
+AI access is independent of the update switch. Policy/network failures fail closed;
+checks retry in an hour. Pausing takes effect on the next check (it does not cancel
+an installation already in progress).
+
+Only the preconfigured HTTPS API/app hosts are contacted; WHMCS administrators
+cannot change them through the addon form. The HTTPS publisher is the trust root
+(the checksum detects corruption and mismatched deployments, not a compromised
+publisher). Redirects, external manifest package paths, oversized archives, ZIP
+symlinks, traversal, unexpected file types, syntax errors and incompatible minimum
+PHP/WHMCS versions are rejected before replacing any installed code. Downgrades
+and same-version reinstalls are skipped. Publish a higher patch version to roll
+back a defective release. No release signing key is required by this transport.
+
+Updates require cURL, ZipArchive, PHP tokenizer, writable addon parent and a
+private working directory **on the same filesystem** as the addon. By default it
+uses a mode-0700 installation-specific directory under the PHP temporary root.
+Operators can set `WEBYAR_UPDATE_DIR` to an existing persistent private directory
+outside the WHMCS web root, on the same filesystem; it is never editable in the
+WHMCS page. Use a persistent directory to retain recovery files across temp cleanup
+or reboots. Web PHP and cron should run as the same user to share update status.
+OPcache on the web PHP pool must revalidate timestamps; deployments that disable
+this need their own PHP pool reload after changing addon files.
+
+The updater stages and parses every PHP file, then renames the old addon into
+`previous` in the private directory and moves the new directory into place. A
+failed second rename restores the old directory; a PHP shutdown handler also
+attempts recovery. This is not a database migration or a functional health-check
+rollback. An OS crash/kill between the two renames can require operator recovery:
+stop cron and move `previous` back to `modules/addons/webyar` if the latter is absent.
+Restore the previous files in the same way for a functional regression after first
+pausing automatic updates. Database credentials, settings and grants are preserved.
+The old files are retained for one successful update, with no extra web-accessible
+copy. Short update status and last-check time are filesystem state, not DB logs.

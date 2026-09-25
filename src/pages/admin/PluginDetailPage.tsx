@@ -170,6 +170,12 @@ export default function AdminPluginDetailPage() {
                   <h2 className="font-medium">{t('plugins.whmcs.platform.title')}</h2>
                   <p className="mt-1 text-xs text-muted-foreground">{t('plugins.whmcs.platform.description')}</p>
                 </div>
+                <div className="flex items-center justify-between gap-3">
+                  <div><Label htmlFor="whmcs-auto-update">{t('plugins.whmcs.autoUpdate')}</Label>
+                    <p className="mt-1 text-xs text-muted-foreground">{t('plugins.whmcs.autoUpdateHint')}</p></div>
+                  <Switch id="whmcs-auto-update" checked={item.policy?.autoUpdateEnabled !== false} disabled={update.isPending}
+                    onCheckedChange={(value) => update.mutate({ policy: { ...(item.policy ?? {}), autoUpdateEnabled: value } })} />
+                </div>
                 {WHMCS_CONNECTION_PERMISSIONS.map((section) => {
                   const sections = (item.policy?.whmcsSections ?? {}) as Record<string, boolean>;
                   return (

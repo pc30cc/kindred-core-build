@@ -310,7 +310,10 @@ public sealed partial class MainWindow : Window
             Host.User = null;
             Host.Account = null;
             Host.StopPresence();
-            await Host.StartRealtimeAsync(); // with no workspace this only stops the old one
+            // No workspace while signed out (the next sign-in picks it again from the
+            // settings), so this only stops the old channel instead of reopening it.
+            Host.Workspace = null;
+            await Host.StartRealtimeAsync();
             if (_forgetAccount is null)
             {
                 // A lapsed session: its token is dead, and the next launch must not show this copy before a sign-in.

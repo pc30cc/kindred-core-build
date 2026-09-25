@@ -41,10 +41,11 @@ struct ComposerView: View {
                     if secs >= 300 { chat.stopRecording(keep: true) }
                 }
             } else {
-                TextField(s[ai ? "sayNowPlaceholder" : "messagePlaceholder"], text: $chat.draft, axis: .vertical)
+                TextField(s[ai ? "sayNowPlaceholder" : "composerPlaceholder"], text: $chat.draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .appFont(14)
                     .lineLimit(1...8)
+                    .readingSide(s.isRightToLeft)
                     .focused($focused)
                     .padding(.horizontal, 16)
                     .padding(.top, 13)
@@ -129,18 +130,28 @@ struct ComposerView: View {
                     tool(chat.recorder.isRecording ? "stop.fill" : "mic", s[chat.recorder.isRecording ? "voiceStop" : "voiceRecord"],
                          tint: chat.recorder.isRecording ? Palette.danger : nil) { chat.toggleRecording() }
                 }
-                Button { chat.send() } label: {
-                    Image(systemName: ai ? "sparkles" : "paperplane.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .scaleEffect(x: s.isRightToLeft && !ai ? -1 : 1)
-                        .frame(width: 22, height: 22)
+                if ai {
+                    Button { chat.send() } label: {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(width: 22, height: 22)
+                    }
+                    .prominentButton(tint: Palette.ai)
+                    .buttonBorderShape(.circle)
+                    .controlSize(.large)
+                    .disabled(!chat.canSend || chat.busy)
+                    .help(s["sayNowAction"])
+                    .padding(.leading, 4)
+                } else {
+                    SplitSendButton(action: chat.sendAction, enabled: chat.canSend && !chat.busy && !chat.recorder.isRecording,
+                                    send: { chat.send() },
+                                    choose: { a in
+                                        chat.sendAction = a
+                                        // Picking an action with a reply ready sends it at once, as on the web.
+                                        if chat.canSend && !chat.busy && !chat.recorder.isRecording { chat.send(then: a) }
+                                    })
+                        .padding(.leading, 4)
                 }
-                .prominentButton(tint: ai ? Palette.ai : Palette.brand)
-                .buttonBorderShape(.circle)
-                .controlSize(.large)
-                .disabled(!chat.canSend || chat.busy)
-                .help(s[ai ? "sayNowAction" : "send"])
-                .padding(.leading, 4)
             }
             .padding(.horizontal, 8)
             .padding(.bottom, 8)
@@ -153,7 +164,7 @@ struct ComposerView: View {
             focused = true
         }
         .onPasteCommand(of: [.fileURL, .png, .tiff]) { providers in paste(providers) }
-        .onAppear { focused = true }
+        .onAppear { if chat.focusComposerOnOpen { focused = true } }
     }
 
     private func tool(_ icon: String, _ help: String, tint: Color? = nil, action: @escaping () -> Void) -> some View {
@@ -183,6 +194,92 @@ struct ComposerView: View {
                       let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return }
                 Task { @MainActor in chat.attach(name: "image.png", mime: "image/png", data: png) }
             }
+        }
+    }
+}
+
+/// The web inbox's split Send: the main half sends and then does the chosen
+/// action (nothing, wait for the customer, or resolve); the chevron picks it.
+struct SplitSendButton: View {
+    let action: PostSendAction
+    let enabled: Bool
+    let send: () -> Void
+    var choose: ((PostSendAction) -> Void)? = nil
+    @Environment(AppModel.self) private var app
+    @State private var hovering = false
+    @State private var showActions = false
+
+    static func icon(_ a: PostSendAction) -> String {
+        switch a {
+        case .none: return "paperplane.fill"
+        case .waitForCustomer: return "clock.fill"
+        case .resolve: return "checkmark.circle.fill"
+        }
+    }
+
+    static func key(_ a: PostSendAction) -> String {
+        switch a {
+        case .none: return "sendOnly"
+        case .waitForCustomer: return "sendAndWait"
+        case .resolve: return "sendAndResolve"
+        }
+    }
+
+    var body: some View {
+        let s = app.strings
+        HStack(spacing: 0) {
+            Button(action: send) {
+                HStack(spacing: 6) {
+                    Image(systemName: Self.icon(action))
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .scaleEffect(x: action == .none && s.isRightToLeft ? -1 : 1)
+                    Text(s[Self.key(action) + "Short"]).appFont(12.5, .semibold).lineLimit(1)
+                }
+                .padding(.leading, 13)
+                .padding(.trailing, choose == nil ? 14 : 10)
+                .frame(height: 34)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!enabled)
+            .help("\(s[Self.key(action)]) — \(s[Self.key(action) + "Hint"])")
+            if let choose { menu(choose, s) }
+        }
+        .foregroundStyle(.white)
+        .background(
+            Capsule().fill(LinearGradient(colors: [Palette.brand.opacity(hovering && enabled ? 0.92 : 1), Palette.brand],
+                                          startPoint: .top, endPoint: .bottom))
+        )
+        .clipShape(Capsule())
+        .shadow(color: Palette.brand.opacity(enabled ? 0.28 : 0), radius: 4, y: 2)
+        .opacity(enabled ? 1 : 0.55)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: enabled)
+    }
+
+    @ViewBuilder private func menu(_ choose: @escaping (PostSendAction) -> Void, _ s: Strings) -> some View {
+        Rectangle().fill(Color.white.opacity(0.3)).frame(width: 1, height: 18)
+        // Not an AppKit menu: a popover of our own, so it reads right to left in Persian.
+        Button { showActions.toggle() } label: {
+            Image(systemName: showActions ? "chevron.down" : "chevron.up")
+                .font(.system(size: 10, weight: .bold))
+                .frame(width: 28, height: 34)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(s["sendActions"])
+        .popover(isPresented: $showActions, arrowEdge: .top) {
+            ChoiceList(title: s["sendActions"],
+                       choices: PostSendAction.allCases.map { a in
+                           Choice(id: a.rawValue, title: s[Self.key(a)], hint: s[Self.key(a) + "Hint"],
+                                  systemImage: Self.icon(a), tint: a == action ? Palette.brand : Palette.text2)
+                       },
+                       selected: action.rawValue) { id in
+                showActions = false
+                if let a = PostSendAction(rawValue: id) { choose(a) }
+            }
+            .environment(app)
+            .appEnvironment(app)
         }
     }
 }

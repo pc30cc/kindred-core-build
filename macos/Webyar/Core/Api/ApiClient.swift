@@ -131,7 +131,31 @@ final class ApiClient {
         }
     }
 
+    /// A GET that revalidates what the caller already has: `etag` goes out as If-None-Match, and a
+    /// 304 comes back as `notModified` with no body instead of as an error. The app keeps its own
+    /// copy (LocalStore) rather than a URLCache, so nothing else on this client is cached.
+    struct Conditional: Sendable {
+        var data: Data
+        var etag: String?
+        var notModified: Bool
+    }
+
+    func conditionalGet(_ path: String, query: Query = [], etag: String?) async throws -> Conditional {
+        var headers: [String: String] = [:]
+        if let etag, !etag.isEmpty { headers["If-None-Match"] = etag }
+        let (data, response) = try await exchange("GET", path, query: query, body: nil, timeout: 20, headers: headers, accept304: true)
+        let status = response?.statusCode ?? 0
+        let tag = response?.value(forHTTPHeaderField: "ETag")
+        return Conditional(data: data, etag: tag ?? (status == 304 ? etag : nil), notModified: status == 304)
+    }
+
     private func raw(_ method: String, _ path: String, query: Query, body: [String: Any?]?, timeout: TimeInterval, upload: (Data, String)? = nil) async throws -> (Data, Int) {
+        let (data, response) = try await exchange(method, path, query: query, body: body, timeout: timeout, upload: upload)
+        return (data, response?.statusCode ?? 0)
+    }
+
+    private func exchange(_ method: String, _ path: String, query: Query, body: [String: Any?]?, timeout: TimeInterval, upload: (Data, String)? = nil,
+                          headers: [String: String] = [:], accept304: Bool = false) async throws -> (Data, HTTPURLResponse?) {
         precondition(path.hasPrefix("/api/"), "Only /api/ paths are allowed.")
         var components = URLComponents(url: origin, resolvingAgainstBaseURL: false)!
         components.percentEncodedPath = path
@@ -147,6 +171,7 @@ final class ApiClient {
         if let token = store.read(), !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
+        for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: Self.clean(body), options: [])
@@ -166,8 +191,9 @@ final class ApiClient {
         } catch {
             throw ApiError(failure: .transport, underlying: error.localizedDescription)
         }
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        if (200..<300).contains(status) { return (data, status) }
+        let http = response as? HTTPURLResponse
+        let status = http?.statusCode ?? 0
+        if (200..<300).contains(status) || (accept304 && status == 304) { return (data, http) }
         let text = String(data: data, encoding: .utf8)
         if status == 401 {
             onUnauthorized?()
@@ -192,11 +218,9 @@ final class ApiClient {
         return out
     }
 
-    private static let allowed: CharacterSet = {
-        var s = CharacterSet.alphanumerics
-        s.insert(charactersIn: "-._~")
-        return s
-    }()
+    /// RFC 3986's unreserved characters, ASCII only: `alphanumerics` would let Persian or Turkish
+    /// letters through unencoded, and a query with them in it is refused by URLComponents.
+    private static let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
 
     static func escape(_ s: String) -> String {
         s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
@@ -240,6 +264,8 @@ final class ApiClient {
     /// An absolute URL for a server path such as `/storage/…`.
     func absolute(_ path: String) -> URL? {
         if path.hasPrefix("https://") || path.hasPrefix("http://") { return URL(string: path) }
+        // A protocol-relative CDN link ("//cdn.example.com/…").
+        if path.hasPrefix("//") { return URL(string: "https:" + path) }
         if path.hasPrefix("/") { return URL(string: path, relativeTo: origin)?.absoluteURL }
         return nil
     }

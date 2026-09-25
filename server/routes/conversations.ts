@@ -60,6 +60,7 @@ type MessageAttachment = {
   kind: string;
 };
 import { createStorageUrlResolver, hydrateUserAvatars, hydrateContactAvatars } from '../services/storage/urlResolver.js';
+import { deltaLowerBound, inThreadOrder, nextSyncCursor, parseSyncCursor } from '../services/messageSync.js';
 import { queueTranscript } from '../services/notificationEmail/producers.js';
 
 
@@ -1442,6 +1443,20 @@ conversationsRouter.get('/inbox-tab-counts', async (req, res) => {
 // a client-supplied one — a caller cannot probe an arbitrary
 // conversation id by guessing/forging a workspace_id query param.
 // ═══════════════════════════════════════════════════════════════════
+/** A conversation_messages row as the thread endpoint reads it (`select *`). */
+interface MessageRow {
+  id: string;
+  conversation_id: string;
+  sender_type: string;
+  sender_id: string | null;
+  body: string | null;
+  created_at: string;
+  updated_at?: string | null;
+  seen_at?: string | null;
+  metadata?: Record<string, unknown> | null;
+  [column: string]: unknown;
+}
+
 conversationsRouter.get('/:id/messages', async (req, res) => {
   try {
     const config: ServerConfig = serverConfigOf(req);
@@ -1458,13 +1473,30 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
     const auth = await authorizeWorkspaceMember(req, res, config, conv.workspace_id);
     if (!auth) return;
 
-    const { data, error } = await sb
-      .from('conversation_messages')
-      .select('*')
-      .eq('conversation_id', conversationId)
-      .order('created_at', { ascending: true });
-    if (error) return res.status(500).json({ error: error.message });
-    let messages = (data || []);
+    const threadRows = () => sb.from('conversation_messages').select('*').eq('conversation_id', conversationId);
+    // `?since=<cursor>`: only rows created/changed since then (services/messageSync.ts).
+    const since = parseSyncCursor(req.query.since);
+    let syncMode: 'full' | 'delta' = 'full';
+    let rows: MessageRow[] | null = null;
+    if (since) {
+      const { data: changed, error: deltaError } = await threadRows()
+        .gt('updated_at', deltaLowerBound(since))
+        .order('updated_at', { ascending: true });
+      if (!deltaError) {
+        rows = inThreadOrder((changed || []) as MessageRow[]);
+        syncMode = 'delta';
+      } else {
+        // Not migrated yet (no updated_at column): answer in full rather than fail.
+        console.warn('[conversations messages] delta read unavailable, full read instead:', deltaError.message);
+      }
+    }
+    if (!rows) {
+      const { data, error } = await threadRows().order('created_at', { ascending: true });
+      if (error) return res.status(500).json({ error: error.message });
+      rows = (data || []) as MessageRow[];
+    }
+    const syncCursor = nextSyncCursor(rows, syncMode === 'delta' ? since : null);
+    let messages = rows;
 
     // Super Admin can hide Telegram bot menu taps from operator threads.
     if (messages.some((m) => String(m?.metadata?.channel_menu_event ?? '') === 'true')) {
@@ -1543,7 +1575,9 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
     });
 
 
-    return res.json({ messages: enriched });
+    // `sync` is new: older clients ignore it. `cursor` is null until the database has
+    // `updated_at` (then the client simply keeps reading in full).
+    return res.json({ messages: enriched, sync: { mode: syncMode, cursor: syncCursor } });
   } catch (err) {
     console.error('[conversations messages] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });

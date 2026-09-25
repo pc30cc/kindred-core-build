@@ -18,17 +18,20 @@ struct InboxList: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
             ZStack {
-                List(selection: Binding(get: { model.selectedId }, set: { model.select($0) })) {
-                    ForEach(list) { c in
-                        ConversationRow(conversation: c)
-                            .tag(c.id)
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
+                ScrollViewReader { proxy in
+                    List {
+                        ForEach(list) { c in
+                            ConversationRow(conversation: c, selected: c.id == model.selectedId)
+                                .onTapGesture { model.select(c.id) }
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6))
+                        }
                     }
+                    .listStyle(.inset)
+                    .scrollContentBackground(.hidden)
+                    .animation(.smooth(duration: 0.2), value: list.map(\.id))
+                    .arrowKeyPicking(list.map(\.id), selected: model.selectedId, proxy: proxy, select: { model.select($0, fromKeyboard: true) })
                 }
-                .listStyle(.inset)
-                .scrollContentBackground(.hidden)
-                .animation(.smooth(duration: 0.2), value: list.map(\.id))
 
                 if model.loading && list.isEmpty {
                     ProgressView().controlSize(.regular)
@@ -43,6 +46,7 @@ struct InboxList: View {
             CampaignCard(placement: "inbox_list").padding(8)
         }
         .onAppear { model.show(route) }
+        .onDisappear { model.hide() }
         .onChange(of: route) { _, r in model.show(r) }
         .onChange(of: app.pendingConversation) { _, id in
             if let id {
@@ -78,6 +82,7 @@ struct InboxList: View {
 
 struct ConversationRow: View {
     let conversation: Conversation
+    var selected = false
     @Environment(AppModel.self) private var app
 
     var body: some View {
@@ -126,7 +131,7 @@ struct ConversationRow: View {
             }
         }
         .padding(.vertical, 8)
-        .padding(.horizontal, 4)
-        .contentShape(Rectangle())
+        .padding(.horizontal, 2)
+        .selectableRow(selected)
     }
 }

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Account
 
@@ -11,6 +12,9 @@ struct AccountSettingsTab: View {
     @State private var confirmSignOut = false
     @State private var changingStatus = false
     @State private var statusError: String?
+    @State private var pickingPhoto = false
+    @State private var photoBusy = false
+    @State private var photoError: String?
 
     var body: some View {
         let s = app.strings
@@ -31,7 +35,7 @@ struct AccountSettingsTab: View {
                 }
             }
         }
-        .settingsForm(height: app.engagement.ad(for: "settings") != nil ? 460 : 320)
+        .settingsForm(height: app.engagement.ad(for: "settings") != nil ? 490 : 350)
         .alert(s["signOut"], isPresented: $confirmSignOut) {
             Button(s["signOut"], role: .destructive) {
                 Task { await app.signOut() }
@@ -39,6 +43,14 @@ struct AccountSettingsTab: View {
             Button(s["cancel"], role: .cancel) {}
         } message: {
             Text(s["signOutConfirm"])
+        }
+        .fileImporter(isPresented: $pickingPhoto, allowedContentTypes: [.image]) { result in
+            if case .success(let url) = result { changePhoto { try await app.uploadAvatar(from: url) } }
+        }
+        .alert(s["avatarFailed"], isPresented: Binding(get: { photoError != nil }, set: { if !$0 { photoError = nil } })) {
+            Button(s["ok"], role: .cancel) {}
+        } message: {
+            Text(photoError ?? "")
         }
         .alert(s["statusChangeFailed"], isPresented: statusErrorShown) {
             Button(s["ok"], role: .cancel) {}
@@ -59,8 +71,7 @@ struct AccountSettingsTab: View {
 
     private var accountRow: some View {
         HStack(spacing: 16) {
-            AvatarView(name: name.isEmpty ? email : name, email: email, imageURL: app.account?.avatarUrl,
-                       size: 60, kind: .operator, presence: app.myState, faceless: true)
+            photo
             VStack(alignment: .leading, spacing: 2) {
                 if !name.isEmpty {
                     Text(name).appFont(17, .semibold).lineLimit(1).truncationMode(.tail)
@@ -73,6 +84,7 @@ struct AccountSettingsTab: View {
                     Text(ws).appFont(11.5).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.tail)
                 }
                 presenceLine
+                photoButtons
             }
             Spacer(minLength: 8)
             Button(app.strings["signOut"]) { confirmSignOut = true }
@@ -80,6 +92,73 @@ struct AccountSettingsTab: View {
                 .glassButton()
         }
         .padding(.vertical, 6)
+    }
+
+    /// The operator's photo; a click on it picks a new one, as on the web's profile page.
+    private var photo: some View {
+        Button { pickingPhoto = true } label: {
+            AvatarView(name: name.isEmpty ? email : name, email: email, imageURL: app.account?.avatarUrl,
+                       size: 60, kind: .operator, presence: app.myState)
+                .overlay {
+                    if photoBusy {
+                        Circle().fill(.black.opacity(0.35))
+                        ProgressView().controlSize(.small).tint(.white)
+                    }
+                }
+                .overlay(alignment: .topTrailing) {
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 20, height: 20)
+                        .background(Palette.brand, in: Circle())
+                        .overlay(Circle().strokeBorder(Palette.surface, lineWidth: 2))
+                        .offset(x: 2, y: -2)
+                }
+        }
+        .buttonStyle(.plain)
+        .disabled(photoBusy)
+        .help(app.strings[hasPhoto ? "avatarReplace" : "avatarUpload"])
+    }
+
+    private var hasPhoto: Bool { !(app.account?.avatarUrl ?? "").isEmpty }
+
+    private var photoButtons: some View {
+        let s = app.strings
+        return HStack(spacing: 8) {
+            Button { pickingPhoto = true } label: {
+                Label(s[hasPhoto ? "avatarReplace" : "avatarUpload"], systemImage: "photo.badge.plus")
+            }
+            if hasPhoto {
+                Button(role: .destructive) {
+                    changePhoto { try await app.removeAvatar() }
+                } label: {
+                    Label(s["avatarRemove"], systemImage: "trash")
+                }
+                .foregroundStyle(Palette.danger)
+            }
+        }
+        .buttonStyle(.borderless)
+        .controlSize(.small)
+        .appFont(12, .medium)
+        .disabled(photoBusy)
+        .padding(.top, 4)
+    }
+
+    private func changePhoto(_ work: @escaping () async throws -> Void) {
+        photoBusy = true
+        Task {
+            defer { photoBusy = false }
+            do {
+                try await work()
+            } catch AppModel.AvatarError.unreadable {
+                photoError = app.strings["avatarUnreadable"]
+            } catch AppModel.AvatarError.tooLarge {
+                photoError = app.strings["avatarTooLarge"]
+            } catch {
+                Log.error("avatar", error)
+                photoError = ErrorText.of(error, app.strings)
+            }
+        }
     }
 
     private var presenceLine: some View {
@@ -321,11 +400,14 @@ struct UpdateSettingsTab: View {
 
 // MARK: - Storage
 
-/// Where downloaded files live, and a way to free the space.
+/// What this Mac keeps — saved messages and lists, downloaded pictures and files —
+/// how much room each takes, and a way to free it (nothing on the server is touched).
 struct StorageSettingsTab: View {
     private struct Usage: Sendable {
-        var bytes: Int64
+        var messages: Int64
+        var files: Int64
         var count: Int
+        var total: Int64 { messages + files }
     }
 
     @Environment(AppModel.self) private var app
@@ -338,14 +420,16 @@ struct StorageSettingsTab: View {
         let s = app.strings
         Form {
             Section {
-                sizeRow
+                sizeRow(s["cacheMessages"], hint: s["cacheMessagesHint"], systemImage: "bubble.left.and.bubble.right", bytes: usage?.messages)
+                sizeRow(s["cacheFiles"], hint: s["fileCacheHint"], systemImage: "photo.on.rectangle", bytes: usage?.files)
+                sizeRow(s["cacheTotal"], hint: nil, systemImage: "internaldrive", bytes: usage?.total)
                 folderRow
                 clearRow
             } header: {
                 SettingsHeader(s["storage"])
             }
         }
-        .settingsForm(height: 340)
+        .settingsForm(height: 470)
         .task { await measure() }
         .alert(s["clearCache"], isPresented: $confirmClear) {
             Button(s["clearCache"], role: .destructive) {
@@ -357,16 +441,16 @@ struct StorageSettingsTab: View {
         }
     }
 
-    private var sizeRow: some View {
+    private func sizeRow(_ title: String, hint: String?, systemImage: String, bytes: Int64?) -> some View {
         let s = app.strings
         return LabeledContent {
-            if let usage {
-                Text(Display.fileSize(usage.bytes, s)).appFont(13, .semibold)
+            if let bytes {
+                Text(Display.fileSize(bytes, s)).appFont(13, .semibold)
             } else {
                 ProgressView().controlSize(.small)
             }
         } label: {
-            SettingLabel(title: s["fileCache"], hint: s["fileCacheHint"], systemImage: "internaldrive")
+            SettingLabel(title: title, hint: hint, systemImage: systemImage)
         }
     }
 
@@ -410,22 +494,23 @@ struct StorageSettingsTab: View {
             Button(s["clearCache"], role: .destructive) { confirmClear = true }
                 .frame(minWidth: 110)
                 .glassButton()
-                .disabled(clearing || (usage?.count ?? 0) == 0)
+                .disabled(clearing || (usage?.total ?? 0) == 0)
         }
     }
 
     private func measure() async {
         let result = await Task.detached(priority: .utility) { () -> Usage in
             let m = FileCache.measure()
-            return Usage(bytes: m.bytes, count: m.count)
+            return Usage(messages: LocalStore.measure(), files: m.bytes, count: m.count)
         }.value
         usage = result
     }
 
+    /// Only this Mac's copies: the server, the session and anything still being sent stay.
+    /// An open conversation keeps what it shows and reads it again.
     private func clear() async {
         clearing = true
-        await Task.detached(priority: .userInitiated) { FileCache.clear() }.value
-        AttachmentStore.shared.clearMemory()
+        await app.clearLocalCache()
         await measure()
         clearing = false
         cleared = true

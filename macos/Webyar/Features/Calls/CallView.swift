@@ -48,15 +48,25 @@ struct CallView: View {
             }
         }
         .animation(.smooth(duration: 0.22), value: showNotes)
-        .overlay(alignment: .topLeading) {
-            if videoLive {
-                compactWho
-                    .padding(.top, 14)
-                    .padding(.horizontal, 20)
+        // The window's own close/minimise buttons sit top-left in every language (AppKit's side, not
+        // the app's), so the window buttons stay top-right and the caller's name top-left, in Persian too.
+        .overlay {
+            VStack(spacing: 0) {
+                HStack(alignment: .top, spacing: 0) {
+                    if videoLive {
+                        compactWho
+                            .padding(.top, 14)
+                            .padding(.horizontal, 20)
+                            .environment(\.layoutDirection, s.isRightToLeft ? .rightToLeft : .leftToRight)
+                    }
+                    Spacer(minLength: 0)
+                    pinButton
+                }
+                Spacer(minLength: 0)
             }
+            .environment(\.layoutDirection, .leftToRight)
         }
         .overlay(alignment: .top) { notices }
-        .overlay(alignment: .topTrailing) { pinButton }
         .overlay(alignment: .bottom) {
             controls
                 .padding(.bottom, 22)

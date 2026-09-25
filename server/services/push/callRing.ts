@@ -26,6 +26,7 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { randomUUID } from 'node:crypto';
 import { sendVoipPush, isVoipConfigured } from './apnsVoip.js';
+import { createStorageUrlResolver, resolveContactAvatarUrl } from '../storage/urlResolver.js';
 
 /** How long a ring is worth delivering. Past this it is a missed call. */
 const RING_TTL_SECONDS = 45;
@@ -73,6 +74,7 @@ interface ContactRow {
   email: string | null;
   visitor_code: string | null;
   avatar_url: string | null;
+  avatar_storage_key: string | null;
 }
 
 interface WorkspaceRow {
@@ -323,7 +325,7 @@ async function describeCaller(
     if (contactId) {
       const { data: contact } = await sb
         .from('contacts')
-        .select('id, name, email, visitor_code, avatar_url')
+        .select('id, name, email, visitor_code, avatar_url, avatar_storage_key')
         .eq('id', contactId)
         .maybeSingle();
       if (contact) {
@@ -332,7 +334,8 @@ async function describeCaller(
         return {
           name,
           id: String(row.id),
-          avatarUrl: row.avatar_url ?? null,
+          // From the key through the provider in use now, like every other avatar.
+          avatarUrl: await resolveContactAvatarUrl(createStorageUrlResolver(config), workspaceId, row),
           workspaceName: fallback.workspaceName,
         };
       }

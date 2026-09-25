@@ -62,20 +62,24 @@ struct VisitorsList: View {
         .help(s["visitorsStatOnline"])
     }
 
+    /// The rows draw their own soft highlight: the system's accent-blue selection
+    /// turned the grey place and address lines unreadable.
     private func list(_ rows: [LiveVisitor]) -> some View {
         ScrollViewReader { proxy in
-            List(selection: Binding(get: { model.selectedId }, set: { model.select($0) })) {
+            List {
                 ForEach(rows) { v in
-                    VisitorRow(visitor: v, now: model.now)
-                        .tag(v.id)
+                    VisitorRow(visitor: v, now: model.now, selected: v.id == model.selectedId)
+                        .onTapGesture { model.select(v.id) }
                         .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
+                        .listRowInsets(EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6))
                         .contextMenu { rowMenu(v) }
                 }
             }
             .listStyle(.inset)
             .scrollContentBackground(.hidden)
             .animation(.smooth(duration: 0.2), value: rows.map(\.id))
+            .arrowKeyPicking(rows.map(\.id), selected: model.selectedId, proxy: proxy,
+                             select: { model.select($0) }, clear: { model.closeDetail() })
             .onChange(of: model.reveal) { _, r in
                 guard let r else { return }
                 withAnimation(.smooth) { proxy.scrollTo(r.id, anchor: .center) }
@@ -167,6 +171,7 @@ struct VisitorFilters: View {
 struct VisitorRow: View {
     let visitor: LiveVisitor
     let now: Date
+    var selected = false
     @Environment(AppModel.self) private var app
 
     var body: some View {
@@ -184,18 +189,19 @@ struct VisitorRow: View {
                     }
                 }
                 Text(whereLine(s)).appFont(12).foregroundStyle(Palette.text2).lineLimit(1)
-                // Addresses read left to right whatever the language.
+                // Addresses read left to right whatever the language, on the reading side of the row.
                 Text(VisitorText.shortUrl(v.currentPage))
                     .appFont(12)
-                    .foregroundStyle(Palette.text3)
+                    .foregroundStyle(selected ? Palette.text2 : Palette.text3)
                     .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .truncationMode(.middle)
                     .environment(\.layoutDirection, .leftToRight)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.vertical, 7)
+        .padding(.vertical, 8)
         .padding(.horizontal, 2)
-        .contentShape(Rectangle())
+        .selectableRow(selected)
     }
 
     private func whereLine(_ s: Strings) -> String {

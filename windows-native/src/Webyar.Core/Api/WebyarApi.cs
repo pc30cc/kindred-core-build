@@ -39,7 +39,8 @@ public sealed class WebyarApi
     public static IEnumerable<KeyValuePair<string, string?>> QueueOf(InboxFilter filter) => filter switch
     {
         InboxFilter.Open => [Q("queue", "main"), Q("status", "open")],
-        InboxFilter.NeedsHuman => [Q("queue", "main"), Q("status", "open"), Q("needsHuman", "true")],
+        // The server reads needs_human (snake case), and counts every status but closed, as the badge does.
+        InboxFilter.NeedsHuman => [Q("queue", "main"), Q("status", "open,pending,resolved"), Q("needs_human", "true")],
         InboxFilter.Pending => [Q("queue", "main"), Q("status", "pending")],
         InboxFilter.Resolved => [Q("queue", "main"), Q("status", "resolved")],
         InboxFilter.Ai => [Q("queue", "automated")],

@@ -90,6 +90,8 @@ struct EmailAttachmentView: Decodable, Hashable, Sendable, Identifiable {
     @Lenient var sizeBytes: Int64? = nil
     var contentId: String?
     var url: String?
+    /// The same file through the API, read from whichever provider is primary now (newer servers).
+    var downloadPath: String?
 }
 
 struct EmailMessageView: Decodable, Hashable, Sendable, Identifiable {
@@ -228,6 +230,17 @@ extension WebyarAPI {
 
     /// An attachment's bytes: its storage URL, fetched with the session when it is the API's own.
     func emailAttachmentData(_ a: EmailAttachmentView) async throws -> Data {
+        // Opened before: from the disk, as chat files are.
+        if let cached = FileCache.read(a.id) { return cached }
+        let data = try await fetchEmailAttachment(a)
+        FileCache.write(a.id, data)
+        return data
+    }
+
+    private func fetchEmailAttachment(_ a: EmailAttachmentView) async throws -> Data {
+        // The signed-in route first: it works for any provider (no public URL, private buckets) and
+        // after a provider or CDN change. The public link is only for servers without it.
+        if let path = a.downloadPath, path.hasPrefix("/api/") { return try await client.bytes(path) }
         guard let raw = a.url, !raw.isEmpty else { throw ApiError(failure: .server, status: 404) }
         if raw.hasPrefix("/api/") { return try await client.bytes(raw) }
         guard let url = client.absolute(raw) else { throw ApiError(failure: .server, status: 404) }

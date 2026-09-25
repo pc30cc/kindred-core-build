@@ -33,6 +33,15 @@ final class InboxModel {
         events = app.inboxEvents.subscribe { [weak self] _ in self?.poller?.kick() }
     }
 
+    /// The thread open when the queue changed, to close once the new queue shows it is not there.
+    @ObservationIgnored private var closeIfNotListed: String?
+
+    private func closeChat() {
+        chat?.close()
+        chat = nil
+        app.visibleConversationId = nil
+    }
+
     func stop() {
         poller?.stop()
         poller = nil
@@ -44,8 +53,15 @@ final class InboxModel {
 
     /// Switches to one of the inboxes in the sidebar: a queue/status,
     /// optionally narrowed to one channel ("Other inboxes"), as the web does.
+    /// The inbox is off screen (another page): its open thread is not "visible", so
+    /// its new messages are notified and not marked seen.
+    func hide() {
+        if app.visibleConversationId == chat?.id { app.visibleConversationId = nil }
+    }
+
     func show(_ route: Route) {
         start()
+        if let id = chat?.id { app.visibleConversationId = id }
         let (f, ch): (InboxFilter, String?) = {
             switch route {
             case .inbox(let f): return (f, nil)
@@ -56,6 +72,9 @@ final class InboxModel {
         guard f != filter || ch != channel else { return }
         filter = f
         channel = ch
+        // The thread open in the old queue closes if the new one does not list it (checked when it loads),
+        // rather than staying beside an empty or unrelated list.
+        closeIfNotListed = chat?.id
         generation += 1
         conversations = []
         loading = true
@@ -91,18 +110,29 @@ final class InboxModel {
     var unreadConversations: Int { conversations.filter { ($0.unreadCount ?? 0) > 0 }.count }
 
     private func load() async throws {
-        guard let ws = app.workspace else { return }
+        guard let ws = app.workspace, let lists = app.lists, lists.workspaceId == ws.id else { return }
         let gen = generation
         defer { if gen == generation { loading = false } }
+        // Nothing on show yet (a launch, another queue): the list saved on this Mac first, while the server is asked.
+        if conversations.isEmpty, let saved = await lists.cached(filter), !saved.isEmpty, gen == generation, conversations.isEmpty {
+            apply(saved)
+            loading = false
+        }
         do {
-            var list = try await app.api.conversations(workspaceId: ws.id, filter: filter)
+            var list = try await lists.fetch(filter)
             guard gen == generation else { return } // the inbox changed while this was loading
             list = await app.withVisitorProfiles(list)
             guard gen == generation else { return }
             apply(list)
+            if let id = closeIfNotListed {
+                closeIfNotListed = nil
+                if chat?.id == id, !list.contains(where: { $0.id == id }) { closeChat() }
+            }
             error = nil
         } catch let e as ApiError where e.failure != .unauthorized {
-            error = ErrorText.of(e, app.strings)
+            guard gen == generation else { throw e }
+            // Offline with a list on show: say it is the saved copy rather than show an error over it.
+            error = e.failure == .transport && !conversations.isEmpty ? app.strings["offlineSavedCopy"] : ErrorText.of(e, app.strings)
             throw e
         }
     }
@@ -120,11 +150,11 @@ final class InboxModel {
 
     // MARK: Selection
 
-    func select(_ id: String?) {
+    func select(_ id: String?, fromKeyboard: Bool = false) {
         guard let id else { return }
         guard id != chat?.id else { return }
         if let c = conversations.first(where: { $0.id == id }) {
-            openChat(id: id, conversation: c)
+            openChat(id: id, conversation: c, focusComposer: !fromKeyboard)
         } else {
             open(id)
         }
@@ -132,6 +162,8 @@ final class InboxModel {
 
     /// Opens a conversation, e.g. from a notification, even when it is not in the current list.
     func open(_ id: String) {
+        // Already open: keep its draft, file and outbox.
+        guard id != chat?.id else { return }
         if let c = conversations.first(where: { $0.id == id }) {
             openChat(id: id, conversation: c)
             return
@@ -140,9 +172,10 @@ final class InboxModel {
         Task { await find(id) }
     }
 
-    private func openChat(id: String, conversation: Conversation?) {
+    private func openChat(id: String, conversation: Conversation?, focusComposer: Bool = true) {
         chat?.close()
         let model = ChatModel(app: app, id: id, conversation: conversation)
+        model.focusComposerOnOpen = focusComposer
         model.onChanged = { [weak self] in
             self?.poller?.kick()
             self?.app.kickBackground()
@@ -157,9 +190,10 @@ final class InboxModel {
     /// actions are right, not just the messages.
     private func find(_ id: String) async {
         guard let ws = app.workspace else { return }
+        guard let lists = app.lists, lists.workspaceId == ws.id else { return }
         for f in [InboxFilter.ai, .open, .pending, .resolved, .spam] {
             do {
-                let list = try await app.api.conversations(workspaceId: ws.id, filter: f)
+                let list = try await lists.fetch(f)
                 guard let hit = list.first(where: { $0.id == id }) else { continue }
                 guard chat?.id == id else { return }
                 let enriched = await app.withVisitorProfiles([hit])

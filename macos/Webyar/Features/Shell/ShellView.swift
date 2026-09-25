@@ -8,13 +8,24 @@ struct ShellView: View {
     @State private var pages: Pages?
     @State private var columns = NavigationSplitViewVisibility.all
 
+    /// Who is signed in, where, and in which language: a change rebuilds the pages and the
+    /// columns' contents — never the split view itself (see RootView).
+    private var sessionKey: String {
+        "\(app.user?.id ?? "-")|\(app.workspace?.id ?? "-")|\(app.strings.language.code)"
+    }
+
+    private var live: Pages? { app.phase == .signedIn ? pages : nil }
+
     var body: some View {
-        Group {
-            if let pages {
-                NavigationSplitView(columnVisibility: $columns) {
-                    SidebarView()
-                        .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 300)
-                } detail: {
+        NavigationSplitView(columnVisibility: $columns) {
+            Group {
+                if live != nil { SidebarView() } else { Color.clear }
+            }
+            .id(sessionKey)
+            .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 300)
+        } detail: {
+            Group {
+                if let pages = live {
                     // The page: its list at a fixed width beside its detail, as on
                     // Windows (a 340 column, then the rest). A plain stack rather than
                     // a third split column, so a wider window widens the detail.
@@ -27,18 +38,27 @@ struct ShellView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .safeAreaInset(edge: .top, spacing: 0) { ShellBanners() }
                     }
+                } else {
+                    Palette.appBackground
                 }
-                .overlay(alignment: .bottomTrailing) {
-                    IncomingCallCard()
-                        .padding(20)
-                }
-            } else {
-                Color.clear
+            }
+            .id(sessionKey)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if live != nil {
+                IncomingCallCard()
+                    .padding(20)
             }
         }
-        .onAppear { if pages == nil { pages = Pages(app: app) } }
+        .onChange(of: "\(app.phase == .signedIn)|\(sessionKey)", initial: true) { _, _ in rebuildPages() }
         .onDisappear { pages?.stop() }
         .onChange(of: app.callQueue?.queue.map(\.callSessionId) ?? []) { _, _ in app.syncRinging() }
+    }
+
+    /// Fresh pages for whoever is signed in now; none while signed out.
+    private func rebuildPages() {
+        pages?.stop()
+        pages = app.phase == .signedIn ? Pages(app: app) : nil
     }
 }
 
@@ -52,6 +72,7 @@ final class Pages {
     let calls: CallCenterModel
     let colleagues: ColleaguesModel
     let email: EmailModel
+    let analytics: AnalyticsModel
 
     init(app: AppModel) {
         inbox = InboxModel(app: app)
@@ -60,6 +81,7 @@ final class Pages {
         calls = CallCenterModel(app: app)
         colleagues = ColleaguesModel(app: app)
         email = EmailModel(app: app)
+        analytics = AnalyticsModel(app: app)
     }
 
     func stop() {
@@ -69,6 +91,7 @@ final class Pages {
         calls.stop()
         colleagues.stop()
         email.stop()
+        analytics.stop()
     }
 }
 
@@ -84,6 +107,7 @@ struct PageList: View {
         case .calls: CallCenterList(model: pages.calls)
         case .colleagues: ColleaguesList(model: pages.colleagues)
         case .email: EmailList(model: pages.email)
+        case .analytics: AnalyticsList(model: pages.analytics)
         }
     }
 }
@@ -100,6 +124,7 @@ struct PageDetail: View {
         case .calls: CallCenterDetail(model: pages.calls)
         case .colleagues: ColleagueThread(model: pages.colleagues)
         case .email: EmailDetail(model: pages.email)
+        case .analytics: AnalyticsDetail(model: pages.analytics)
         }
     }
 }
@@ -152,6 +177,9 @@ struct SidebarView: View {
                 }
                 if plan.visitors {
                     section(.visitors, s["navVisitors"], "globe", tint: Color(hex: 0x30A46C), badge: app.visitorsOnline, color: Palette.success)
+                }
+                if plan.webAnalytics {
+                    section(.analytics, s["navAnalytics"], "chart.bar.xaxis", tint: Color(hex: 0x0091FF), badge: 0, color: Palette.brand)
                 }
                 if plan.callCenter {
                     section(.calls, s["navCallCenter"], "phone.fill", tint: Color(hex: 0xE5484D), badge: app.callQueue?.queue.count ?? 0, color: Palette.danger)
@@ -230,7 +258,7 @@ private struct SidebarSection: View {
                     in: RoundedRectangle(cornerRadius: 7, style: .continuous)
                 )
                 .shadow(color: tint.opacity(0.28), radius: 2, y: 1)
-            Text(title).appFont(13.5, .semibold).lineLimit(1)
+            Text(title).appFont(13.5, .semibold).lineLimit(1).minimumScaleFactor(0.85)
             Spacer(minLength: 6)
             CountBadge(count: badge, color: color)
         }
@@ -282,8 +310,9 @@ struct WorkspaceHeader: View {
     }
 
     @ViewBuilder private var logo: some View {
-        if let url = app.workspace?.logoUrl, url.hasPrefix("https://"), let u = URL(string: url) {
-            AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Image("BrandMark").resizable() }
+        // Whatever link the server gives (the provider's CDN or a path on the API), resolved as every picture is.
+        if let url = app.workspace?.logoUrl, let u = app.client.absolute(url) {
+            RemoteImage(url: u) { Image("BrandMark").resizable() }
         } else {
             Image("BrandMark").resizable()
         }

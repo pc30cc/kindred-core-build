@@ -34,23 +34,55 @@ struct ThreadView: View {
     let columnWidth: CGFloat
     @State private var dropping = false
 
-    private var showDetails: Bool { app.settings.detailsOpen && columnWidth > 820 }
-    private var width: CGFloat { columnWidth - (showDetails ? 290 : 0) }
+    /// The details sit beside the thread when both fit; in a narrower window they float over the
+    /// thread's end edge instead — never simply gone with their button greyed out.
+    private var detailsBeside: Bool { columnWidth >= 700 }
+    /// Beside: the saved preference. Floating: only once asked for in this narrow window, so a
+    /// small window does not open every thread with the details over it.
+    private var showDetails: Bool { detailsBeside ? app.settings.detailsOpen : app.detailsFloating }
+    private var detailsWidth: CGFloat { columnWidth >= 960 ? 300 : 280 }
+    private var width: CGFloat { columnWidth - (showDetails && detailsBeside ? detailsWidth : 0) }
 
     var body: some View {
         // Beside the thread, at its end edge. Not `.inspector`: in a right-to-left
         // window it reserves the space on one side and draws on the other.
         HStack(spacing: 0) {
             thread
-            if showDetails {
+            // No insertion transition: the column's width is first measured as zero and then its real
+            // size, which inserts and removes the panel in a blink — an animated transition could be
+            // left mid-way, the space kept and the panel invisible.
+            if showDetails && detailsBeside {
                 Divider()
                 DetailsPanel(chat: chat)
-                    .frame(width: 290)
+                    .frame(width: detailsWidth)
                     .background(Palette.surface2.opacity(0.6))
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
-        .animation(.smooth(duration: 0.22), value: showDetails)
+        #if DEBUG
+        .onChange(of: columnWidth, initial: true) { _, w in
+            Log.write("[layout] thread column=\(Int(w)) beside=\(detailsBeside) details=\(showDetails) open=\(app.settings.detailsOpen)")
+        }
+        #endif
+        .overlay(alignment: .trailing) {
+            if showDetails && !detailsBeside {
+                DetailsPanel(chat: chat)
+                    .frame(width: min(300, columnWidth - 40))
+                    .frame(maxHeight: .infinity)
+                    .background(Palette.surface)
+                    .overlay(alignment: .leading) { Divider() }
+                    .overlay(alignment: .topLeading) {
+                        Button { withAnimation(.smooth(duration: 0.22)) { app.detailsFloating = false } } label: {
+                            Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).frame(width: 22, height: 22)
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(Palette.text2)
+                        .background(Palette.elevated, in: Circle())
+                        .padding(10)
+                        .help(app.strings["close"])
+                    }
+                    .shadow(color: .black.opacity(0.18), radius: 16, x: 0, y: 0)
+            }
+        }
     }
 
     private var thread: some View {
@@ -58,7 +90,7 @@ struct ThreadView: View {
             .background(Palette.chatBackground)
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
-                ThreadHeader(chat: chat, width: width, roomForDetails: columnWidth > 820)
+                ThreadHeader(chat: chat, width: width, detailsBeside: detailsBeside)
                 // This conversation's call slides down from under the header, and back up when it ends.
                 VStack(spacing: 0) {
                     if let call = CallCoordinator.shared.docksHere(conversationId: chat.conversation?.id) {
@@ -73,6 +105,19 @@ struct ThreadView: View {
                            actionTitle: notice.retry ? app.strings["retry"] : nil,
                            action: notice.retry ? { chat.retryFailed() } : nil,
                            onClose: { chat.notice = nil })
+                        .padding(.horizontal, 14)
+                        .padding(.top, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                } else if chat.hasFailed {
+                    // Closing the error, or another notice replacing it, must not leave unsent messages with no Retry.
+                    Banner(severity: .error, message: app.strings["sendFailed"],
+                           actionTitle: app.strings["retry"], action: { chat.retryFailed() })
+                        .padding(.horizontal, 14)
+                        .padding(.top, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                } else if chat.offline && !chat.rows.isEmpty {
+                    // No connection: the thread on show is the copy saved on this Mac, and says so.
+                    Banner(severity: .info, message: app.strings["offlineSavedCopy"])
                         .padding(.horizontal, 14)
                         .padding(.top, 8)
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -113,7 +158,8 @@ struct ThreadHeader: View {
     let chat: ChatModel
     /// The thread area's width: the action labels fold into icons when it is narrow.
     var width: CGFloat
-    var roomForDetails = true
+    /// Whether the details sit beside the thread (the saved preference) or float over it (this window only).
+    var detailsBeside = true
     @Environment(AppModel.self) private var app
 
     var body: some View {
@@ -136,8 +182,15 @@ struct ThreadHeader: View {
             Spacer(minLength: 8)
             if let c { actions(c, s) }
             Button {
-                app.settings.detailsOpen.toggle()
-                app.saveSettings()
+                // Animated only when the operator opens or closes it.
+                withAnimation(.smooth(duration: 0.22)) {
+                    if detailsBeside {
+                        app.settings.detailsOpen.toggle()
+                    } else {
+                        app.detailsFloating.toggle()
+                    }
+                }
+                if detailsBeside { app.saveSettings() }
             } label: {
                 Image(systemName: "sidebar.trailing").frame(width: 18, height: 18)
             }
@@ -145,7 +198,6 @@ struct ThreadHeader: View {
             .buttonBorderShape(.circle)
             .help(s["details"])
             .keyboardShortcut("i", modifiers: [.command, .option])
-            .disabled(!roomForDetails)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)

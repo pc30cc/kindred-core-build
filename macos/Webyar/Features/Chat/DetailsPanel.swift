@@ -8,6 +8,7 @@ struct DetailsPanel: View {
     @State private var tagInput = ""
     @State private var noteInput = ""
     @State private var addingNote = false
+    @State private var members: [WorkspaceMember] = []
 
     var body: some View {
         let s = app.strings
@@ -28,6 +29,7 @@ struct DetailsPanel: View {
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .task { members = (try? await app.loadMembers()) ?? [] }
     }
 
     private func contact(_ c: Conversation, _ s: Strings) -> some View {
@@ -57,11 +59,48 @@ struct DetailsPanel: View {
     private func conversation(_ c: Conversation, _ s: Strings) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionLabel(text: s["conversationInfo"])
-            InfoRow(label: s["status"], value: Display.statusLabel(c.status, s), valueColor: Palette.status(c.status).0)
-            InfoRow(label: s["priority"], value: Display.priorityLabel(c.priority, s), valueColor: Palette.priority(c.priority).0)
-            InfoRow(label: s["assignee"], value: app.assigneeName(c.assignedTo, youKey: "you"))
+            // Status, priority and who owns it are changed right here, as in the web inbox's side panel.
+            ChoiceField(label: s["status"], value: Display.statusLabel(c.status, s), valueColor: Palette.status(c.status).0,
+                        leading: Choice(id: "", title: "", dot: Palette.status(c.status).0),
+                        choices: [ConversationStatus.open, ConversationStatus.pending, ConversationStatus.resolved].map {
+                            Choice(id: $0, title: Display.statusLabel($0, s), dot: Palette.status($0).0)
+                        },
+                        selected: c.status, disabled: chat.busy) { chat.setStatus($0) }
+            ChoiceField(label: s["priority"], value: Display.priorityLabel(c.priority, s), valueColor: Palette.priority(c.priority).0,
+                        leading: Choice(id: "", title: "", dot: Palette.priority(c.priority).0),
+                        choices: ConversationPriority.all.map { Choice(id: $0, title: Display.priorityLabel($0, s), dot: Palette.priority($0).0) },
+                        selected: c.priority ?? ConversationPriority.normal, disabled: chat.busy) { chat.setPriority($0) }
+            ChoiceField(label: s["assignee"], value: app.assigneeName(c.assignedTo, youKey: "you"),
+                        leading: assigneeChoice(c.assignedTo),
+                        choices: assigneeChoices(s), selected: c.assignedTo ?? Self.nobody,
+                        searchable: members.count > 8, disabled: chat.busy) { id in
+                if id == Self.nobody { chat.unassign() } else { chat.transfer(to: id) }
+            }
             InfoRow(label: s["firstSeen"], value: c.createdAt.map { Display.dateTime($0, s) } ?? "—")
         }
+    }
+
+    private static let nobody = "__nobody__"
+
+    /// Nobody, then you, then the rest of the team with their photos.
+    private func assigneeChoices(_ s: Strings) -> [Choice] {
+        let me = app.user?.id
+        let active = members.filter { $0.suspendedAt == nil }
+        var list = [Choice(id: Self.nobody, title: s["unassigned"], systemImage: "person.crop.circle.badge.xmark", tint: Palette.text3)]
+        if let me, let mine = active.first(where: { $0.userId == me }) {
+            list.append(Choice(id: me, title: "\(mine.displayName) (\(s["you"]))", person: (mine.displayName, app.account?.avatarUrl ?? mine.profile?.avatarUrl)))
+        }
+        for m in active where m.userId != me {
+            list.append(Choice(id: m.userId, title: m.displayName, person: (m.displayName, m.profile?.avatarUrl)))
+        }
+        return list
+    }
+
+    private func assigneeChoice(_ userId: String?) -> Choice? {
+        guard let userId else { return nil }
+        let m = members.first { $0.userId == userId }
+        let photo = userId == app.user?.id ? (app.account?.avatarUrl ?? m?.profile?.avatarUrl) : m?.profile?.avatarUrl
+        return Choice(id: userId, title: "", person: (m?.displayName ?? "", photo))
     }
 
     private func tags(_ c: Conversation, _ s: Strings) -> some View {

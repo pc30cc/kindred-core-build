@@ -49,6 +49,8 @@ struct MessagePreview: Codable, Hashable, Sendable {
     var senderName: String?
     var attachmentKind: String?
     var systemKind: String?
+    /// A system notice's details (who transferred to whom…), to say it in the reader's language.
+    var systemMeta: JSONValue?
 }
 
 enum SenderType {
@@ -150,10 +152,29 @@ struct Message: Codable, Hashable, Sendable, Identifiable {
     var body: String
     var senderId: String?
     var createdAt: Date?
+    /// When the row last changed on the server (edits, delivery status, media landing, seen) —
+    /// what the thread cache merges by. Nil from a server that does not have the column yet.
+    var updatedAt: Date?
     var senderName: String?
     var senderAvatar: String?
     var attachments: [MessageAttachment]?
     var metadata: JSONValue?
+
+    init(id: String, conversationId: String?, senderType: String, body: String, senderId: String? = nil,
+         createdAt: Date?, updatedAt: Date? = nil, senderName: String? = nil, senderAvatar: String? = nil,
+         attachments: [MessageAttachment]? = nil, metadata: JSONValue? = nil) {
+        self.id = id
+        self.conversationId = conversationId
+        self.senderType = senderType
+        self.body = body
+        self.senderId = senderId
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.senderName = senderName
+        self.senderAvatar = senderAvatar
+        self.attachments = attachments
+        self.metadata = metadata
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -163,6 +184,7 @@ struct Message: Codable, Hashable, Sendable, Identifiable {
         body = (try? c.decodeIfPresent(String.self, forKey: .body)) ?? ""
         senderId = try? c.decodeIfPresent(String.self, forKey: .senderId)
         createdAt = try? c.decodeIfPresent(Date.self, forKey: .createdAt)
+        updatedAt = try? c.decodeIfPresent(Date.self, forKey: .updatedAt)
         senderName = try? c.decodeIfPresent(String.self, forKey: .senderName)
         senderAvatar = try? c.decodeIfPresent(String.self, forKey: .senderAvatar)
         attachments = try? c.decodeIfPresent([MessageAttachment].self, forKey: .attachments)

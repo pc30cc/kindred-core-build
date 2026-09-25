@@ -9,6 +9,9 @@ import WebKit
 enum EmailHTML {
     static let attachmentScheme = "webyar-attachment"
 
+    /// SF Symbols' person.fill, as the app's avatars draw it, in white.
+    static let personGlyph = "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"#fff\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"8\" r=\"4.2\"/><path d=\"M3.6 20.4c0-4.1 3.8-6.9 8.4-6.9s8.4 2.8 8.4 6.9c0 .6-.4 1-1 1H4.6c-.6 0-1-.4-1-1z\"/></svg>"
+
     static func escape(_ s: String) -> String {
         s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
@@ -75,7 +78,8 @@ enum EmailHTML {
             if !cc.isEmpty { recipients += " · Cc: \(cc)" }
             let snippet = Display.oneLine(m.snippet ?? m.textBody ?? "")
             html += "<details\(open ? " open" : "")><summary>"
-            html += "<div class=\"av\" style=\"background:linear-gradient(135deg,\(c1),\(c2))\">\(escape(art.initials))</div>"
+            // A person's silhouette on their colours, never initials.
+            html += "<div class=\"av\" style=\"background:linear-gradient(135deg,\(c1),\(c2))\">\(Self.personGlyph)</div>"
             html += "<div class=\"who\"><div class=\"from\" dir=\"auto\">\(escape(from.display))"
             if from.name != nil { html += " <span class=\"sub\" dir=\"ltr\">&lt;\(escape(from.email))&gt;</span>" }
             html += "</div><div class=\"sub full\" dir=\"auto\">\(escape(recipients))</div>"

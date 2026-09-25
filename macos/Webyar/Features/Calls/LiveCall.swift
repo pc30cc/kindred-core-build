@@ -201,8 +201,20 @@ final class LiveCall {
                 return
             }
             // Two seconds for as long as the invitation lives — cheaper than a realtime channel for one wait.
+            var misses = 0
             while !Task.isCancelled && !ended {
-                let current = try await app.api.invitation(inv.id)
+                // A poll that does not get through (offline a moment, a 5xx) is not the end of the call;
+                // several in a row, or a refusal, are.
+                let current: CallInvitation
+                do {
+                    current = try await app.api.invitation(inv.id)
+                    misses = 0
+                } catch let e as ApiError where (e.status ?? 0) < 400 || (e.status ?? 0) >= 500 {
+                    misses += 1
+                    if misses >= 5 { throw e }
+                    try await Task.sleep(nanoseconds: 2_000_000_000)
+                    continue
+                }
                 if let session = current.callSessionId, current.status == "joined" {
                     sessionId = session
                     try await joinSession(session)
@@ -297,6 +309,12 @@ final class LiveCall {
             }
         }
         guard !ended else { return }
+        // The room may have dropped while the microphone prompt was up (the visitor hung up, or the
+        // desk closed it); a dead room must not become a "connected" call with a running clock.
+        guard room.connectionState == .connected else {
+            finish(.visitorLeft, nil)
+            return
+        }
         phase = .connected
         connectedAt = Date()
         Log.write("[call] connected \(sessionId ?? "")")
@@ -309,7 +327,15 @@ final class LiveCall {
         guard let room, phase == .connected else { return }
         let next = !isMuted
         isMuted = next
-        Task { _ = try? await room.localParticipant.setMicrophone(enabled: !next) }
+        Task { [weak self] in
+            do {
+                _ = try await room.localParticipant.setMicrophone(enabled: !next)
+            } catch {
+                // Unmuting failed (no microphone access): say muted, not "on" with nothing sent.
+                Log.error("call microphone", error)
+                if !next { self?.isMuted = true; self?.warningKey = "callNoMicrophone" }
+            }
+        }
     }
 
     func toggleCamera() {
@@ -339,7 +365,8 @@ final class LiveCall {
     }
 
     fileprivate func roomDisconnected() {
-        guard !ended, phase == .connected else { return }
+        // Any live call whose room is gone is over — including one still finishing its connect.
+        guard !ended, room != nil, phase == .connected || phase == .connecting else { return }
         finish(.visitorLeft, nil)
     }
 

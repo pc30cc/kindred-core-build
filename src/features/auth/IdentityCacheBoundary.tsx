@@ -10,6 +10,7 @@
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from './AuthContext';
+import { clearEffectiveEntitlementsCache } from '@/hooks/useEntitlements';
 
 export function IdentityCacheBoundary({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -28,6 +29,8 @@ export function IdentityCacheBoundary({ children }: { children: React.ReactNode 
       lastIdentity.current = identity;
       queryClient.cancelQueries();
       queryClient.clear();
+      // The plan snapshot lives outside react-query; it goes with the identity too.
+      clearEffectiveEntitlementsCache();
     }
   }, [identity, isLoading, queryClient]);
 

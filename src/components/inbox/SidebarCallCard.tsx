@@ -26,11 +26,13 @@ import {
   type InvitationChannel,
   type InvitationStatus,
 } from '@/lib/call-invitations-api';
+import { useQuery } from '@tanstack/react-query';
 import { InviteWaitDialog } from './InviteWaitDialog';
 import { useLocalMediaPreview, type LocalPreviewState } from '@/hooks/useLocalMediaPreview';
 import { useOperatorCall } from '@/features/calls/OperatorCallContext';
 import { VideoCallStage, AudioCallStage } from '@/features/calls/CallStage';
-import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
+import { usePlanAccess } from '@/hooks/useEntitlements';
+import { fetchLimitUsage } from '@/lib/entitlements-api';
 import {
   CALL_VIDEO_ORIENTATION_CORRECTION_MODE,
   CALL_VIDEO_STYLE,
@@ -85,19 +87,29 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
   // and the surrounding card. Server still enforces (returns 403
   // plan_forbidden / limit_reached), but the UI honors the effective
   // state up-front so operators don't see an Apply button they can't use.
-  const { data: entitlements } = useWorkspaceEffectiveEntitlements(workspaceId);
-  const planVoiceVideoEnabled = entitlements?.modules?.voice_video?.value !== false;
-  const planVoiceEnabled = entitlements?.channels?.voice?.value !== false;
-  const planVideoEnabled = entitlements?.channels?.video?.value !== false;
-  // Numeric limits — only block when entitlements are loaded AND a finite cap is set AND usage >= cap.
-  const concurrentCallsLimit = entitlements?.limits?.max_concurrent_calls?.value ?? null;
-  const concurrentCallsUsed = (entitlements?.usage as Record<string, { value?: number }> | null | undefined)?.max_concurrent_calls?.value ?? 0;
-  const concurrentReached =
-    typeof concurrentCallsLimit === 'number' && concurrentCallsLimit !== -1 && concurrentCallsUsed >= concurrentCallsLimit;
-  const callMinutesLimit = entitlements?.limits?.max_call_minutes_per_month?.value ?? null;
-  const callMinutesUsed = (entitlements?.usage as Record<string, { value?: number }> | null | undefined)?.max_call_minutes_per_month?.value ?? 0;
-  const minutesReached =
-    typeof callMinutesLimit === 'number' && callMinutesLimit !== -1 && callMinutesUsed >= callMinutesLimit;
+  const plan = usePlanAccess(workspaceId);
+  const planReady = plan.status === 'ready';
+  const planVoiceVideoEnabled = plan.module('voice_video');
+  const planVoiceEnabled = plan.channel('voice');
+  const planVideoEnabled = plan.channel('video');
+  // Numeric limits come from the snapshot; current usage from the same
+  // resolvers the server's call gates count with, so "at the cap" here is
+  // exactly what the server will answer. Only block when a finite cap is set
+  // AND usage has been read AND it is at or over the cap.
+  const { data: limitUsage } = useQuery({
+    queryKey: ['limit-usage', workspaceId, 'calls'],
+    enabled: !!workspaceId && planReady,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+    queryFn: () => fetchLimitUsage(workspaceId, ['max_concurrent_calls', 'max_call_minutes_per_month']),
+  });
+  const reached = (limitKey: string) => {
+    const cap = plan.limit(limitKey);
+    const used = limitUsage?.usage[limitKey];
+    return typeof cap === 'number' && cap !== -1 && !!used?.supported && used.value >= cap;
+  };
+  const concurrentReached = reached('max_concurrent_calls');
+  const minutesReached = reached('max_call_minutes_per_month');
 
   // Notify parent when an active call belongs to this conversation.
   useEffect(() => {
@@ -601,7 +613,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
             </Button>
           </div>
 
-          {(planBlocked || !planVoiceEnabled || !planVideoEnabled || limitBlocked) && (
+          {planReady && (planBlocked || !planVoiceEnabled || !planVideoEnabled || limitBlocked) && (
             <p className="text-[10px] text-warning leading-snug">
               {planBlocked
                 ? safeT('inbox.sidebarCall.planBlocked', 'Voice & Video is not included in your plan')
@@ -651,7 +663,7 @@ function AudioWaitingTile({ previewStream, previewState }: WaitingTileProps) {
   useEffect(() => {
     if (!previewStream) { setLevel(0); return; }
     const AudioCtx: typeof AudioContext | undefined =
-      (window as any).AudioContext || (window as any).webkitAudioContext;
+      window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AudioCtx) return;
     let ctx: AudioContext | null = null;
     try {

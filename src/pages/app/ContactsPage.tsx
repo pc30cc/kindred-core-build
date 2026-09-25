@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import {
   useContacts, useCreateContact, useBulkDeleteContacts,
@@ -27,7 +27,7 @@ import {
   Mail, Phone, Users, ChevronDown, Trash2, Loader2, FileDown, X, Lock,
   MessageSquare, PhoneCall,
 } from 'lucide-react';
-import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
+import { usePlanAccess } from '@/hooks/useEntitlements';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { ContactImportWizard } from '@/features/contacts/ContactImportWizard';
@@ -53,9 +53,13 @@ export default function ContactsPage() {
   const { data: channels } = useContactChannels(workspace?.id);
   const createContact = useCreateContact(workspace?.id);
   const bulkDelete = useBulkDeleteContacts();
-  const { data: ents } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
-  const can = (key: string) => ents?.features?.[key]?.value !== false;
+  // The plan's contact features, by the one rule every surface uses
+  // (src/lib/planAccess.ts): offered only when the plan says yes.
+  const plan = usePlanAccess(workspace?.id);
+  const can = (key: string) => plan.feature(key);
   const canCreate = can('contact_create');
+  const canBulk = can('bulk_contact_actions');
+  const canTags = can('contact_tags');
   const canImport = can('contact_import');
   const canExport = can('contact_export');
   const goBilling = () => navigate(`/${wsSlug}/billing`);
@@ -97,7 +101,7 @@ export default function ContactsPage() {
     });
 
     list = [...list].sort((a, b) => {
-      let av: any = '', bv: any = '';
+      let av: string | number = '', bv: string | number = '';
       switch (sortBy) {
         case 'name': av = a.name ?? ''; bv = b.name ?? ''; break;
         case 'email': av = a.email ?? ''; bv = b.email ?? ''; break;
@@ -163,8 +167,8 @@ export default function ContactsPage() {
       setCreateForm({ name: '', email: '', phone: '' });
       setCreateOpen(false);
       toast({ title: t('contacts.toastCreated') });
-    } catch (e: any) {
-      toast({ title: t('contacts.toastError'), description: e?.message, variant: 'destructive' });
+    } catch (e) {
+      toast({ title: t('contacts.toastError'), description: e instanceof Error ? e.message : undefined, variant: 'destructive' });
     }
   };
 
@@ -185,8 +189,8 @@ export default function ContactsPage() {
       toast({ title: t('contacts.toastDeleted'), description: t('contacts.toastDeletedDesc', { count: String(res.deleted) }) });
       setSelected(new Set());
       setBulkDeleteOpen(false);
-    } catch (e: any) {
-      toast({ title: t('contacts.toastError'), description: e?.message, variant: 'destructive' });
+    } catch (e) {
+      toast({ title: t('contacts.toastError'), description: e instanceof Error ? e.message : undefined, variant: 'destructive' });
     }
   };
 
@@ -243,7 +247,7 @@ export default function ContactsPage() {
                     <Label htmlFor="has-phone" className="text-xs cursor-pointer flex-1">{t('contacts.hasPhone')}</Label>
                   </div>
                 </div>
-                {allTags.length > 0 && (
+                {canTags && allTags.length > 0 && (
                   <>
                     <DropdownMenuSeparator />
                     <div className="p-2">
@@ -346,7 +350,7 @@ export default function ContactsPage() {
                     : <Lock className="w-3.5 h-3.5 me-2" />}
                   <span className={cn(!canExport && 'text-muted-foreground')}>{t('contacts.exportCsv')}</span>
                 </DropdownMenuItem>
-                {selected.size > 0 && (
+                {canBulk && selected.size > 0 && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => setBulkDeleteOpen(true)} className="text-destructive">
@@ -373,8 +377,8 @@ export default function ContactsPage() {
         </div>
       </div>
 
-      {/* Bulk action bar */}
-      {selected.size > 0 && (
+      {/* Bulk action bar — a plan feature (bulk_contact_actions). */}
+      {canBulk && selected.size > 0 && (
         <div className="bg-primary/10 border-b border-primary/20 px-5 py-2 flex items-center justify-between">
           <span className="text-xs font-medium text-foreground">
             {t('contacts.selectedCount', { count: String(selected.size) })}
@@ -407,18 +411,20 @@ export default function ContactsPage() {
           <table className="w-full text-sm">
             <thead className="bg-card sticky top-0 z-10 border-b border-border">
               <tr className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">
-                <th className="w-10 p-3">
-                  <Checkbox
-                    checked={selected.size > 0 && selected.size === filtered.length}
-                    onCheckedChange={toggleSelectAll}
-                  />
-                </th>
+                {canBulk && (
+                  <th className="w-10 p-3">
+                    <Checkbox
+                      checked={selected.size > 0 && selected.size === filtered.length}
+                      onCheckedChange={toggleSelectAll}
+                    />
+                  </th>
+                )}
                 <Th label={t('contacts.colName')} sortKey="name" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Users} />
                 <Th label={t('contacts.colEmail')} sortKey="email" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Mail} />
                 <th className="text-start p-3 font-semibold">{t('contacts.colSource')}</th>
                 <th className="text-start p-3 font-semibold">{t('contacts.colLocation')}</th>
                 <Th label={t('contacts.colCompany')} sortKey="company" current={sortBy} dir={sortDir} onClick={toggleSort} />
-                <th className="text-start p-3 font-semibold">{t('contacts.colSegments')}</th>
+                {canTags && <th className="text-start p-3 font-semibold">{t('contacts.colSegments')}</th>}
                 <Th label={t('contacts.colLastActive')} sortKey="last_active" current={sortBy} dir={sortDir} onClick={toggleSort} />
                 <Th label={t('contacts.colScore')} sortKey="score" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Star} />
                 <th className="w-16 text-center p-3 font-semibold">{t('contacts.colPreview')}</th>
@@ -441,9 +447,11 @@ export default function ContactsPage() {
                     )}
                     onClick={() => openContact(c.id)}
                   >
-                    <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                      <Checkbox checked={isSel} onCheckedChange={() => toggleSelect(c.id)} />
-                    </td>
+                    {canBulk && (
+                      <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                        <Checkbox checked={isSel} onCheckedChange={() => toggleSelect(c.id)} />
+                      </td>
+                    )}
                     <td className="p-3">
                       <div className="flex items-center gap-2.5">
                         {identityLoading ? (
@@ -470,7 +478,7 @@ export default function ContactsPage() {
                     </td>
                     <td className="p-3 text-muted-foreground truncate max-w-[200px]">{c.email || '—'}</td>
                     <td className="p-3">
-                      <SourceBadge info={channels?.[c.id]} metadata={(c as any).metadata} t={t} />
+                      <SourceBadge info={channels?.[c.id]} metadata={(c as { metadata?: Record<string, unknown> | null }).metadata} t={t} />
                     </td>
                     <td className="p-3 text-muted-foreground">
                       {identityLoading ? (
@@ -488,6 +496,7 @@ export default function ContactsPage() {
                     <td className="p-3 text-muted-foreground">
                       {company || <span className="text-muted-foreground/50 italic text-xs">{t('contacts.unknown')}</span>}
                     </td>
+                    {canTags && (
                     <td className="p-3">
                       {(c.tags ?? []).length === 0 ? (
                         <span className="text-muted-foreground/50 italic text-xs">{t('contacts.noSegments')}</span>
@@ -502,6 +511,7 @@ export default function ContactsPage() {
                         </div>
                       )}
                     </td>
+                    )}
                     <td className="p-3 text-muted-foreground text-xs">{timeAgo(c.updated_at ?? c.created_at)}</td>
                     <td className="p-3">
                       <div className="flex items-center gap-0.5">
@@ -554,7 +564,7 @@ export default function ContactsPage() {
 }
 
 function Th({ label, sortKey, current, dir, onClick, icon: Icon }: {
-  label: string; sortKey: SortKey; current: SortKey; dir: 'asc' | 'desc'; onClick: (k: SortKey) => void; icon?: any;
+  label: string; sortKey: SortKey; current: SortKey; dir: 'asc' | 'desc'; onClick: (k: SortKey) => void; icon?: React.ElementType;
 }) {
   const active = current === sortKey;
   return (
@@ -574,7 +584,7 @@ function Th({ label, sortKey, current, dir, onClick, icon: Icon }: {
   );
 }
 
-function EmptyState({ t, hasContacts, onAdd, onImport }: { t: (k: any, p?: Record<string, string>) => string; hasContacts: boolean; onAdd: () => void; onImport: () => void }) {
+function EmptyState({ t, hasContacts, onAdd, onImport }: { t: (k: TranslationKey, p?: Record<string, string>) => string; hasContacts: boolean; onAdd: () => void; onImport: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-24 px-6 text-center">
       <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
@@ -607,12 +617,12 @@ function SourceBadge({
 }: {
   info?: { chat: boolean; call: boolean; calls: number };
   metadata?: Record<string, unknown> | null;
-  t: (k: any, v?: any) => string;
+  t: (k: TranslationKey, v?: Record<string, string | number>) => string;
 }) {
   // External channels (Telegram, WhatsApp, …) win: they describe the real
   // origin more precisely than the generic chat/call derivation.
   const channel = resolveChannelKey(metadata);
-  if (channel !== 'widget') return <ChannelBadge channel={channel} t={t as any} />;
+  if (channel !== 'widget') return <ChannelBadge channel={channel} t={t as (k: string) => string} />;
   if (!info || (!info.chat && !info.call)) {
     return <span className="text-muted-foreground/50 italic text-xs">{t('contacts.sourceUnknown')}</span>;
   }

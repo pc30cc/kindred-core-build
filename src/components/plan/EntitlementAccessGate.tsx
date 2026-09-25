@@ -20,9 +20,11 @@ import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { capabilityLabel } from '@/lib/capability-i18n';
 
 export type EntitlementRequirement =
   | { type: 'module'; key: string }
+  | { type: 'channel'; key: string }
   | { type: 'feature'; key: string };
 
 export interface EntitlementAccessGateProps {
@@ -34,6 +36,8 @@ export interface EntitlementAccessGateProps {
   lockedTitle?: string;
   lockedDescription?: string;
   showBack?: boolean;
+  /** Name shown for the missing capability; defaults to its localized registry name. */
+  capabilityName?: string;
 }
 
 export function useEntitlementTr() {
@@ -80,15 +84,16 @@ export function EntitlementAccessGate({
   lockedTitle,
   lockedDescription,
   showBack = true,
+  capabilityName,
 }: EntitlementAccessGateProps) {
   const { workspace } = useActiveWorkspace();
-  const { data, loading, error, reload } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
+  const { data, loading, reload } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
   const { dir, locale } = useTranslation();
   const wsPath = useWorkspacePath();
   const tr = useEntitlementTr();
 
-  // Loading — never mount children.
-  if (loading || (!data && !error)) {
+  // Loading (or no workspace resolved yet) — never mount children.
+  if (loading || !workspace?.id) {
     return (
       <div className={cn(mode === 'page' ? 'p-8 space-y-4' : 'space-y-3', className)} dir={dir}>
         <Skeleton className="h-9 w-64" />
@@ -98,8 +103,9 @@ export function EntitlementAccessGate({
     );
   }
 
-  // Lookup error — fail closed with a retry affordance.
-  if (error || !data) {
+  // Never read (a refresh that fails keeps the last snapshot) — fail closed
+  // with a retry affordance.
+  if (!data) {
     return (
       <GateShell mode={mode} className={className} dir={dir}>
         <div className="p-8 text-center">
@@ -128,7 +134,7 @@ export function EntitlementAccessGate({
   let missingKey: EntitlementRequirement | null = null;
   let deniedKey: EntitlementRequirement | null = null;
   for (const req of requirements) {
-    const bucket = req.type === 'module' ? data.modules : data.features;
+    const bucket = req.type === 'module' ? data.modules : req.type === 'channel' ? data.channels : data.features;
     const state = bucket?.[req.key];
     if (state == null) {
       missingKey = req;
@@ -167,8 +173,7 @@ export function EntitlementAccessGate({
 
   if (!deniedKey) return <>{children}</>;
 
-  const capKey = deniedKey.key;
-  const capLabel = tr(`plan.locked.module.${capKey}`, capKey);
+  const capLabel = capabilityName || capabilityLabel(deniedKey.key, locale);
   const localized = (data.plan?.localized || {}) as Record<string, { name?: string }>;
   const planName =
     localized[locale]?.name?.trim() ||

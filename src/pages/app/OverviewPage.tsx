@@ -14,7 +14,11 @@ import { useKBArticles } from '@/hooks/useKnowledgeBase';
 import { useContacts } from '@/hooks/useContacts';
 import { useTeamPresence } from '@/hooks/useTeamPresence';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
-import { useWorkspacePlan, useWorkspaceUsage } from '@/hooks/usePlans';
+import { useWorkspaceUsage } from '@/hooks/usePlans';
+import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
+import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
+import { planAccessOf } from '@/lib/planAccess';
+import type { DisplayableContact, DisplayGeoInfo } from '@/lib/contact-display';
 import { useAiWalletSummary } from '@/hooks/useAiWalletSummary';
 import { formatToman } from '@/lib/money';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
@@ -34,6 +38,38 @@ import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
 import { cn } from '@/lib/utils';
 
 /** English placeholder subjects persisted by the widget/AI — localized in the UI. */
+/** The fields of a conversation the dashboard reads. */
+interface DashboardConversation {
+  id: string;
+  status?: string | null;
+  created_at?: string | null;
+  last_message_at?: string | null;
+  updated_at?: string | null;
+  contacts?: (DisplayableContact & { avatar_url?: string | null }) | null;
+  contact_id?: string | null;
+  visitor_os?: string | null;
+  visitor_device?: string | null;
+  visitor_country_code?: string | null;
+  visitor_network?: {
+    geo?: DisplayGeoInfo | null;
+    device?: { os?: string | null; device?: string | null } | null;
+  } | null;
+  visitor_name?: string | null;
+  last_message_preview?: string | null;
+  subject?: string | null;
+}
+
+/** A presence row joined with the member directory. */
+interface TeamRow {
+  user_id?: string;
+  state?: string;
+  status?: string;
+  full_name?: string | null;
+  name?: string | null;
+  email?: string | null;
+  avatar_url?: string | null;
+}
+
 const PLACEHOLDER_SUBJECTS = new Set([
   'new conversation', 'new chat', 'untitled conversation', 'untitled', '[attachment]',
 ]);
@@ -58,10 +94,16 @@ export default function OverviewPage() {
   const wsPath = useWorkspacePath();
 
   const { data: conversations, isPending: conversationsPending } = useConversations(workspace?.id);
-  const { data: visitors } = useOnlineVisitors(workspace?.id);
-  const { data: sessions } = useVisitorSessions(workspace?.id);
+  // Visitors and Contacts are plan sections: their numbers, cards and links
+  // appear only when the plan includes them (the sidebar's rule), and their
+  // data is not even fetched otherwise.
+  const sections = useWorkspaceSections();
+  const visitorsInPlan = sections.visible('visitors');
+  const contactsInPlan = sections.visible('contacts');
+  const { data: visitors } = useOnlineVisitors(visitorsInPlan ? workspace?.id : undefined);
+  const { data: sessions } = useVisitorSessions(visitorsInPlan ? workspace?.id : undefined);
   const { data: articles } = useKBArticles(workspace?.id);
-  const { data: contacts } = useContacts(workspace?.id);
+  const { data: contacts } = useContacts(contactsInPlan ? workspace?.id : undefined);
   const { data: teamData, isPending: teamPending } = useTeamPresence(workspace?.id);
   const { data: members, isPending: membersPending } = useWorkspaceMembers(workspace?.id);
   // Presence only carries availability; identity comes from the member directory.
@@ -72,7 +114,7 @@ export default function OverviewPage() {
   }, [members]);
   const team = useMemo(
     () =>
-      (teamData?.presence ?? []).map((p: any) => {
+      ((teamData?.presence ?? []) as TeamRow[]).map((p): TeamRow => {
         const prof = memberById.get(p.user_id);
         return {
           ...p,
@@ -86,7 +128,9 @@ export default function OverviewPage() {
   const { data: wsRole } = useWorkspaceRole(workspace?.id);
   // Operators (agents/viewers) never see plan, billing or onboarding surfaces.
   const canSeeBilling = isWorkspaceAdmin(wsRole);
-  const { data: planData } = useWorkspacePlan(workspace?.id);
+  // The plan card reads the same effective snapshot every gate reads
+  // (override ?? plan ?? registry default), never the raw plan row.
+  const { data: effective } = useWorkspaceEffectiveEntitlements(workspace?.id);
   const { data: usageRow } = useWorkspaceUsage(workspace?.id);
   const { data: aiWallet } = useAiWalletSummary(workspace?.id, canSeeBilling);
 
@@ -95,7 +139,6 @@ export default function OverviewPage() {
   const refreshUsage = useCallback(() => {
     if (!workspace?.id) return;
     queryClient.invalidateQueries({ queryKey: ['workspace-usage', workspace.id] });
-    queryClient.invalidateQueries({ queryKey: ['workspace-plan', workspace.id] });
     queryClient.invalidateQueries({ queryKey: ['ai-credit-snapshot', workspace.id] });
   }, [queryClient, workspace?.id]);
   useLiveUsageRefresh(!!workspace?.id, refreshUsage);
@@ -107,11 +150,11 @@ export default function OverviewPage() {
   const numberLocale = locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US';
   const fmt = (v: number) => v.toLocaleString(numberLocale);
 
-  const list = conversations ?? [];
-  const openConvos = list.filter((c: any) => c.status === 'open').length;
-  const resolved = list.filter((c: any) => c.status === 'resolved' || c.status === 'closed').length;
+  const list = (conversations ?? []) as unknown as DashboardConversation[];
+  const openConvos = list.filter((c) => c.status === 'open').length;
+  const resolved = list.filter((c) => c.status === 'resolved' || c.status === 'closed').length;
   // Truly online right now: presence status online AND seen in the last 5 minutes
-  const onlineVisitors = (visitors ?? []).filter((v: any) => {
+  const onlineVisitors = ((visitors ?? []) as Array<{ status?: string; updated_at?: string | null; last_seen_at?: string | null }>).filter((v) => {
     if (v.status !== 'online') return false;
     const ts = v.updated_at || v.last_seen_at;
     if (!ts) return true;
@@ -122,13 +165,13 @@ export default function OverviewPage() {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
     const ids = new Set<string>();
-    for (const s of (sessions ?? []) as any[]) {
+    for (const s of (sessions ?? []) as Array<{ id?: string; visitor_id?: string; started_at?: string; created_at?: string; first_seen_at?: string; last_seen_at?: string }>) {
       const ts = s.started_at || s.created_at || s.first_seen_at || s.last_seen_at;
       if (ts && new Date(ts).getTime() >= start.getTime()) ids.add(s.id ?? s.visitor_id ?? String(ts));
     }
     return ids.size;
   }, [sessions]);
-  const teamOnline = team.filter((m: any) => m.state === 'online' || m.status === 'online').length;
+  const teamOnline = team.filter((m) => m.state === 'online' || m.status === 'online').length;
 
   const userName =
     (user?.metadata?.full_name as string) || user?.email?.split('@')[0] || '';
@@ -148,14 +191,14 @@ export default function OverviewPage() {
       const day = String(d.getDate()).padStart(2, '0');
       return `${y}-${m}-${day}`;
     };
-    const dateOf = (c: any) => {
+    const dateOf = (c: DashboardConversation) => {
       const ts = c.created_at || c.last_message_at || c.updated_at;
       if (!ts) return null;
       const d = new Date(ts);
       return Number.isNaN(d.getTime()) ? null : d;
     };
 
-    const dates = (list as any[]).map(dateOf).filter(Boolean) as Date[];
+    const dates = list.map(dateOf).filter((d): d is Date => d !== null);
     const now = new Date();
     const latest = dates.length ? new Date(Math.max(...dates.map((d) => d.getTime()))) : now;
     // if nothing happened in the last 14 days, shift the window to the latest activity
@@ -183,44 +226,44 @@ export default function OverviewPage() {
     return days;
   }, [list]);
 
-  const planLocalized = (planData?.plan?.localized || {}) as Record<string, { name?: string }>;
+  const planLocalized = (effective?.plan?.localized || {}) as Record<string, { name?: string | null } | null | undefined>;
   const planName =
     planLocalized[locale]?.name?.trim() ||
     planLocalized['en']?.name?.trim() ||
-    planData?.plan?.name ||
+    effective?.plan?.name ||
     '—';
-  const entitlements = (planData?.entitlements || {}) as Record<string, any>;
-  const limits = (planData?.limits || {}) as Record<string, number>;
+  const planLimits = planAccessOf(effective, false);
   const usageNum = (k: string) => {
-    const v = (usageRow as any)?.[k];
+    const v = (usageRow as Record<string, unknown> | null | undefined)?.[k];
     return typeof v === 'number' && Number.isFinite(v) ? v : 0;
   };
   const storageBytes = usageNum('storage_bytes');
-  // Limit convention: -1 (or missing) = unlimited, 0 = not allowed, >0 = capped
-  const limitNum = (...keys: string[]) => {
-    for (const k of keys) {
-      const v = limits[k];
-      if (v !== undefined && v !== null && Number.isFinite(Number(v))) return Number(v);
-    }
-    return -1;
-  };
+  // The effective limit (-1 = unlimited, 0 = not allowed, >0 = capped); while
+  // the snapshot is loading nothing is claimed to be capped.
+  const limitNum = (key: string) => planLimits.limit(key) ?? -1;
   const isUnlimited = (v: number) => v < 0;
   const storageLimitGb = limitNum('storage_gb');
   const storagePct = storageLimitGb > 0
     ? Math.min(100, Math.round((storageBytes / (storageLimitGb * 1024 ** 3)) * 100))
     : 0;
 
-  const seatLimit = limitNum('max_agents', 'max_operators', 'max_seats', 'agents', 'team_members');
+  const seatLimit = limitNum('max_agents');
   const seatUsed = team.length;
-  const contactLimit = limitNum('max_contacts', 'contacts');
+  const contactLimit = limitNum('max_contacts');
   const contactUsed = (contacts ?? []).length;
 
 
   const stats: { label: string; value: number; icon: React.ElementType; accent: AiAccent; path: string }[] = [
     { label: tr('dashboard.statOpenConversations'), value: openConvos, icon: Inbox, accent: 'indigo', path: '/inbox' },
-    { label: tr('dashboard.statOnlineVisitors'), value: onlineVisitors, icon: Radio, accent: 'emerald', path: '/visitors' },
-    { label: tr('dashboard.statVisitsToday'), value: visitsToday, icon: Eye, accent: 'sky', path: '/visitors' },
-    { label: tr('dashboard.statContacts'), value: contactUsed, icon: Users, accent: 'amber', path: '/contacts' },
+    ...(visitorsInPlan
+      ? [
+          { label: tr('dashboard.statOnlineVisitors'), value: onlineVisitors, icon: Radio, accent: 'emerald' as AiAccent, path: '/visitors' },
+          { label: tr('dashboard.statVisitsToday'), value: visitsToday, icon: Eye, accent: 'sky' as AiAccent, path: '/visitors' },
+        ]
+      : []),
+    ...(contactsInPlan
+      ? [{ label: tr('dashboard.statContacts'), value: contactUsed, icon: Users, accent: 'amber' as AiAccent, path: '/contacts' }]
+      : []),
     { label: tr('dashboard.statTeamOnline'), value: teamOnline, icon: ShieldCheck, accent: 'rose', path: '/settings/team' },
   ];
 
@@ -453,9 +496,12 @@ export default function OverviewPage() {
 
           <div className="relative mt-4 space-y-4">
             {[
-              { label: tr('dashboard.statContacts'), used: contactUsed, limit: contactLimit, grad: 'from-amber-500 to-orange-500' },
+              ...(contactsInPlan
+                ? [{ label: tr('dashboard.statContacts'), used: contactUsed, limit: contactLimit, grad: 'from-amber-500 to-orange-500' }]
+                : []),
               { label: tr('dashboard.statTeamOnline'), used: seatUsed, limit: seatLimit, grad: 'from-rose-500 to-pink-500' },
-              { label: tr('dashboard.statKbArticles'), used: articles?.length ?? 0, limit: limitNum('max_kb_articles', 'ai_kb_max_articles', 'kb_articles'), grad: 'from-cyan-500 to-sky-500' },
+              // The snapshot already reads the legacy KB keys enforcement falls back to.
+              { label: tr('dashboard.statKbArticles'), used: articles?.length ?? 0, limit: limitNum('max_kb_articles'), grad: 'from-cyan-500 to-sky-500' },
             ].map((row) => {
               const unlimited = isUnlimited(row.limit);
               const pct = unlimited || row.limit === 0 ? 0 : Math.min(100, Math.round((row.used / row.limit) * 100));
@@ -506,9 +552,9 @@ export default function OverviewPage() {
             </div>
           ) : (
             <ul className="divide-y divide-border/60">
-              {recent.map((c: any) => {
+              {recent.map((c) => {
                 const name = c.contacts
-                  ? contactDisplayName(c.contacts, c.contact_id ?? c.id, t as any, c.visitor_network?.geo, locale)
+                  ? contactDisplayName(c.contacts, c.contact_id ?? c.id, tr, c.visitor_network?.geo, locale)
                   : (c.visitor_name || tr('contacts.conversationUntitled'));
                 const rawPreview = (c.last_message_preview || c.subject || '').trim();
                 const preview = PLACEHOLDER_SUBJECTS.has(rawPreview.toLowerCase())
@@ -580,7 +626,7 @@ export default function OverviewPage() {
             <div className="px-5 py-10 text-center text-sm text-muted-foreground">{tr('dashboard.noTeam')}</div>
           ) : (
             <ul className="max-h-[280px] divide-y divide-border/60 overflow-y-auto">
-              {team.slice(0, 8).map((m: any) => {
+              {team.slice(0, 8).map((m) => {
                 const st = m.state || m.status || 'offline';
                 const label = m.full_name || m.name || m.email || '—';
                 const presence: 'online' | 'idle' | 'offline' =

@@ -58,7 +58,14 @@ export function MobileRoutes() {
             </PlanLockedOverlay>
           }
         />
-        <Route path="contacts/:id" element={<MobileContactDetailPage />} />
+        <Route
+          path="contacts/:id"
+          element={
+            <PlanLockedOverlay moduleKey="contacts">
+              <MobileContactDetailPage />
+            </PlanLockedOverlay>
+          }
+        />
         <Route
           path="visitors"
           element={

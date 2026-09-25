@@ -6,7 +6,7 @@ import cookieParser from 'cookie-parser';
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     from() {
-      const b: any = {
+      const b: Record<string, unknown> = {
         select: () => b,
         eq: () => b,
         order: () => b,
@@ -28,9 +28,9 @@ vi.mock('../../../server/supabase.js', () => ({
     auth: {
       getUser: async () => ({ data: { user: authUser }, error: authUser ? null : new Error('bad') }),
     },
-    rpc: async (_fn: string, args: any) => ({ data: Boolean(memberOf[args._workspace_id]), error: null }),
+    rpc: async (_fn: string, args: { _workspace_id: string }) => ({ data: Boolean(memberOf[args._workspace_id]), error: null }),
     from: () => {
-      const b: any = {
+      const b: { _ws?: string } & Record<string, unknown> = {
         select: () => b,
         eq: (_c: string, v: string) => {
           if (!b._ws) b._ws = v;
@@ -74,7 +74,7 @@ const { plansRouter } = await import('../../../server/routes/plans.js');
 
 const app = express();
 app.use((req, _res, next) => {
-  (req as any).serverConfig = {
+  (req as express.Request & { serverConfig?: unknown }).serverConfig = {
     supabaseUrl: 'https://example.supabase.co',
     supabaseAnonKey: 'ANON_KEY',
     supabaseServiceRoleKey: 'SERVICE_KEY',
@@ -86,7 +86,7 @@ app.use(express.json());
 app.use('/api/plans', plansRouter);
 
 const server = http.createServer(app).listen(0);
-const port = () => (server.address() as any).port;
+const port = () => (server.address() as import('node:net').AddressInfo).port;
 
 function call(method: string, path: string, headers: Record<string, string> = {}) {
   const finalHeaders = { ...headers };
@@ -120,6 +120,7 @@ const workspaceRoutes = [
   `/api/plans/workspace/${WS}/modules`,
   `/api/plans/workspace/${WS}/channels`,
   `/api/plans/workspace/${WS}/usage`,
+  `/api/plans/workspace/${WS}/limit-usage?keys=max_concurrent_calls`,
 ];
 
 const adminRoutes = ['/api/plans/admin/all', '/api/plans/admin/subscriptions', '/api/plans/admin/diagnostics'];

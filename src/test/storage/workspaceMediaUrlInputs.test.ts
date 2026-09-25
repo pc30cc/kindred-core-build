@@ -211,6 +211,7 @@ vi.mock('../../../server/middleware/featureGating.js', () => ({
   clearEntitlementCache: () => {},
   checkModuleAccess: async () => ({ allowed: true }),
   requireModule: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+  enforceModule: async () => true,
 }));
 vi.mock('../../../server/services/visitors/networkProfile.js', () => ({
   resolveIpVisibilityPolicy: async () => ({ canViewRawIp: false }),

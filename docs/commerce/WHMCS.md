@@ -121,9 +121,8 @@ belongs to a live WHMCS connection of that workspace, and the `jti` nonce is
 unused (replay). Pages carrying an assertion are sent `private, no-store`.
 
 **Binding** (`commerce_customer_links`): one row per (connection, visitor).
-A repeated page load with the same grant costs three reads and no writes
-(measured, §9); the loader also skips re-posting an unchanged binding for
-10 minutes. A different grant or subject updates the row once; a new
+A repeated page load verifies the grant and reconciles the profile; unchanged data costs reads and no writes
+(measured, §9). A different grant or client account updates the row once; a new
 (user, client) pair moves `subject_since`, and conversation turns older than
 that are left out of the prompt, so a previous user's answers never reach
 the next user. One grant binds one visitor: binding it elsewhere revokes the
@@ -184,7 +183,7 @@ renew, cancel, DNS, password, reboot, suspend or ticket submission.
 | `plugin_secrets` | installation secret, AES-256-GCM (existing envelope) | request signing |
 | `commerce_customer_links` (one row per visitor who signed in and chatted) | WHMCS client id, user id, grant id, subject_since, expiry, revoked_at | which grant to ask WHMCS about |
 | `commerce_nonce_cache` | assertion `jti`, until expiry | replay protection |
-| `contacts` (existing, on first binding only) | the WHMCS user's name and email on the chatting visitor's contact | the operator sees who they are talking to (same as the WooCommerce identity bridge) |
+| `contacts` (existing, on verified profile changes) | the WHMCS user's name and email on the chatting visitor's contact | the operator sees who they are talking to (same as the WooCommerce identity bridge) |
 | conversation messages and `ai_agent_runs` (existing) | the visitor's question and the assistant's reply | the chat transcript, like any other reply. A reply may quote a figure it was given, such as an invoice balance |
 | process memory only | cache entries (§8), rate/breaker counters, per-turn metric event | cost control; gone on restart |
 
@@ -328,9 +327,9 @@ account/catalog reads is the connection's `last_seen_at`, at most once per
 on failure. There is no WHMCS tool-audit insert on any path.
 
 Identity binding (`whmcsIdentity.test.ts`): the first bind costs link +
-nonce + contact writes. Every later page load with the same grant costs
-**3 selects and 0 writes**, and the loader usually skips even that for
-10 minutes.
+nonce + contact writes. Every later page load with the same grant and unchanged profile costs
+**0 writes**. The loader posts every signed-in page so profile changes and
+previously failed contact synchronization are not hidden by a binding cache.
 
 WHMCS addon, per request (`ResourceCostTest.php`, SQLite):
 
@@ -470,3 +469,28 @@ Restore the previous files in the same way for a functional regression after fir
 pausing automatic updates. Database credentials, settings and grants are preserved.
 The old files are retained for one successful update, with no extra web-accessible
 copy. Short update status and last-check time are filesystem state, not DB logs.
+
+
+### Contact identity lifecycle
+
+The widget reconciles the signed WHMCS user's name and email on every page,
+even when the login grant is unchanged. An existing guest contact is enriched
+in place, preserving its visitor code, phone, notes, location and conversation
+history. If the email already has a contact, only the current visitor's
+sessions and conversations are attached to that contact. No contacts are
+deleted. WHMCS users sharing a company account remain separate people.
+
+Profile synchronization errors fail the identity request and are retried by
+the loader (up to three attempts for network, 429 or 5xx errors). Repeating an
+unchanged profile causes no database writes. Contact changes notify the
+operator inbox and contact views; contact views also refresh every ten seconds
+when realtime delivery is unavailable. No per-request database log is added.
+
+Logout revokes account access and starts a fresh widget visitor on the next
+signed-out page. It never erases the saved contact or conversation history in
+the operator app. A different signed-in user must use a fresh visitor; stale
+assertions cannot overwrite the previous person's contact. Disabling contact
+sharing stops future profile synchronization without clearing existing data.
+
+This behavior is delivered through the hosted loader and API; the WHMCS addon
+remains version 1.2.0 and does not need reinstalling for this server-side fix.

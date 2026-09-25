@@ -7,7 +7,7 @@
  * per page load" — the latter asserted on the NUMBER of database requests.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createFakeDb, type FakeDb, type Row } from './support/fakeSupabase';
+import { createFakeDb, type FakeDb } from './support/fakeSupabase';
 
 const WS = '6ee40d07-32a3-4594-8a5f-d439f81afa5b';
 const OTHER_WS = '11111111-1111-1111-1111-111111111111';
@@ -20,7 +20,6 @@ const GRANT_1 = '0123456789abcdef0123456789abcdef';
 const GRANT_2 = 'fedcba9876543210fedcba9876543210';
 
 let db: FakeDb;
-const contacts: Row[] = [];
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => db.client }));
 // The real read is one SELECT on plugin_secrets (+ in-process decryption); counted as such.
@@ -30,9 +29,7 @@ vi.mock('../../../server/services/commerce/credentials.js', () => ({
     return installationId === INSTALL ? SECRET : 'woo-secret';
   },
 }));
-vi.mock('../../../server/services/widget/anonymousContact.js', () => ({
-  ensureVisitorContact: async (_sb: unknown, input: Row) => { contacts.push(input); return 'contact-1'; },
-}));
+vi.mock('../../../server/services/realtime/publish.js', () => ({ publishOperatorEvent: vi.fn(async () => {}) }));
 
 const { verifyAndBindWhmcsIdentity, resolveWhmcsBinding, signWhmcsAssertion } = await import('../../../server/services/commerce/whmcs/identity.js');
 const CONFIG = {} as Parameters<typeof verifyAndBindWhmcsIdentity>[0];
@@ -51,7 +48,6 @@ function assertion(over: Record<string, unknown> = {}, secret = SECRET): string 
 }
 
 beforeEach(() => {
-  contacts.length = 0;
   db = createFakeDb({
     commerce_connections: [
       { id: 'conn-whmcs', workspace_id: WS, installation_id: INSTALL, provider_type: 'whmcs', revoked_at: null },
@@ -68,20 +64,18 @@ describe('first bind and page reloads', () => {
     expect(db.tables.commerce_customer_links).toHaveLength(1);
     expect(db.tables.commerce_customer_links[0]).toMatchObject({ grant_ref: GRANT_1, external_user_id: '1', external_customer_id: '10', visitor_id: VISITOR_A });
     expect(db.count('insert', 'commerce_nonce_cache')).toBe(1);
-    expect(contacts).toEqual([expect.objectContaining({ email: 'alice@example.com', name: 'Alice Example', visitorId: VISITOR_A })]);
+    expect(db.tables.contacts).toEqual([expect.objectContaining({ email: 'alice@example.com', name: 'Alice Example', metadata: expect.objectContaining({ visitor_id: VISITOR_A }) })]);
   });
 
-  it('every later page load with the same grant costs reads only — zero writes, no contact', async () => {
+  it('every later page load with the same grant costs reads only — zero database writes', async () => {
     await verifyAndBindWhmcsIdentity(CONFIG, WS, VISITOR_A, assertion());
     db.reset();
-    contacts.length = 0;
     for (let i = 0; i < 5; i++) {
       const out = await verifyAndBindWhmcsIdentity(CONFIG, WS, VISITOR_A, assertion());
       expect(out.changed).toBe(false);
     }
     expect(db.count('insert') + db.count('update') + db.count('upsert') + db.count('delete')).toBe(0);
-    expect(db.count('select')).toBe(15); // connection + secret + link, per page load
-    expect(contacts).toEqual([]);
+    expect(db.count('update', 'contacts')).toBe(0);
   });
 });
 
@@ -136,9 +130,8 @@ describe('subject changes', () => {
 
   it('a second user on the same visitor is never merged into the first user’s contact', async () => {
     await verifyAndBindWhmcsIdentity(CONFIG, WS, VISITOR_A, assertion());
-    contacts.length = 0;
-    await verifyAndBindWhmcsIdentity(CONFIG, WS, VISITOR_A, assertion({ gid: GRANT_2, uid: '2', cid: '30', email: 'bob@example.com', name: 'Bob' }));
-    expect(contacts).toEqual([]);
+    await expect(verifyAndBindWhmcsIdentity(CONFIG, WS, VISITOR_A, assertion({ gid: GRANT_2, uid: '2', cid: '30', email: 'bob@example.com', name: 'Bob' }))).rejects.toMatchObject({ code: 'identity_expired' });
+    expect(db.tables.contacts[0].email).toBe('alice@example.com');
   });
 
   it('one grant, one visitor: binding it elsewhere ends the old visitor’s binding', async () => {
@@ -245,5 +238,94 @@ describe('conversation visitor ownership regression', () => {
   it('does no database work without a conversation', async () => {
     expect((await resolveWhmcsBinding(CONFIG, { ...input, conversationId: null })).state).toBe('none');
     expect(db.ops).toEqual([]);
+  });
+});
+
+
+describe('persistent contact lifecycle', () => {
+  function guest() {
+    db.tables.contacts = [{ id: 'guest', workspace_id: WS, name: null, email: null,
+      visitor_code: 'ABCD', phone: '+12345', notes: 'Keep this', metadata: { visitor_id: VISITOR_A, anonymous: true, city: 'Tehran' } }];
+    db.tables.visitor_sessions = [{ id: 'session-a', workspace_id: WS, visitor_id: VISITOR_A, contact_id: 'guest', identity_state: 'anonymous' }];
+    db.tables.conversations[0].contact_id = 'guest';
+  }
+
+  it('promotes the existing guest contact immediately and preserves its code, details and history', async () => {
+    guest();
+    await verifyAndBindWhmcsIdentity(CONFIG, WS, VISITOR_A, assertion());
+    expect(db.tables.contacts).toHaveLength(1);
+    expect(db.tables.contacts[0]).toMatchObject({ id: 'guest', name: 'Alice Example', email: 'alice@example.com',
+      visitor_code: 'ABCD', phone: '+12345', notes: 'Keep this', metadata: { anonymous: false, city: 'Tehran', whmcs_user_id: '1' } });
+    expect(db.tables.visitor_sessions[0]).toMatchObject({ contact_id: 'guest', identity_state: 'identified' });
+    expect(db.tables.conversations[0].contact_id).toBe('guest');
+  });
+
+  it('applies signed profile changes with the same grant', async () => {
+    guest();
+    await verifyAndBindWhmcsIdentity(CONFIG, WS, VISITOR_A, assertion());
+    await verifyAndBindWhmcsIdentity(CONFIG, WS, VISITOR_A, assertion({ name: 'Alice Updated', email: 'new@example.com' }));
+    expect(db.tables.contacts[0]).toMatchObject({ id: 'guest', name: 'Alice Updated', email: 'new@example.com' });
+    expect(db.tables.contacts).toHaveLength(1);
+  });
+
+  it('revokes private access on logout without clearing the contact or guest history', async () => {
+    guest();
+    await verifyAndBindWhmcsIdentity(CONFIG, WS, VISITOR_A, assertion());
+    const saved = structuredClone(db.tables.contacts);
+    const { markWhmcsLinkRevoked } = await import('../../../server/services/commerce/whmcs/identity.js');
+    await markWhmcsLinkRevoked(CONFIG, db.tables.commerce_customer_links[0].id as string, 'conn-whmcs');
+    expect((await resolveWhmcsBinding(CONFIG, { workspaceId: WS, connectionId: 'conn-whmcs', conversationId: 'conv-a' })).state).toBe('revoked');
+    expect(db.tables.contacts).toEqual(saved);
+    expect(db.tables.conversations[0].contact_id).toBe('guest');
+  });
+
+  it('retains stored details when contact sharing is disabled', async () => {
+    guest();
+    await verifyAndBindWhmcsIdentity(CONFIG, WS, VISITOR_A, assertion());
+    const saved = structuredClone(db.tables.contacts);
+    await verifyAndBindWhmcsIdentity(CONFIG, WS, VISITOR_A, assertion({ name: undefined, email: undefined }));
+    expect(db.tables.contacts).toEqual(saved);
+  });
+
+  it('adopts the existing email contact and moves only this visitor history', async () => {
+    guest();
+    db.tables.contacts.push({ id: 'known', workspace_id: WS, name: 'Old name', email: 'alice@example.com', metadata: {} });
+    db.tables.conversations.push({ id: 'other-conv', workspace_id: WS, contact_id: 'guest', visitor_session_id: 'session-a', metadata: { visitor_id: VISITOR_B } });
+    await verifyAndBindWhmcsIdentity(CONFIG, WS, VISITOR_A, assertion());
+    expect(db.tables.visitor_sessions[0].contact_id).toBe('known');
+    expect(db.tables.conversations[0].contact_id).toBe('known');
+    expect(db.tables.conversations[1].contact_id).toBe('guest');
+    expect(db.tables.contacts.find(c => c.id === 'known')?.name).toBe('Alice Example');
+  });
+
+  it('does not overwrite a contact already verified for another user', async () => {
+    guest();
+    (db.tables.contacts[0].metadata as Record<string, unknown>).whmcs_user_id = '9';
+    (db.tables.contacts[0].metadata as Record<string, unknown>).whmcs_installation_id = INSTALL;
+    const saved = structuredClone(db.tables.contacts);
+    await expect(verifyAndBindWhmcsIdentity(CONFIG, WS, VISITOR_A, assertion())).rejects.toMatchObject({ code: 'identity_expired' });
+    expect(db.tables.contacts).toEqual(saved);
+  });
+
+  it('retries a failed contact update even after the grant was already bound', async () => {
+    guest();
+    const from = db.client.from;
+    let failOnce = true;
+    vi.spyOn(db.client, 'from').mockImplementation(table => {
+      const builder = from(table);
+      if (table === 'contacts' && failOnce) {
+        const update = builder.update.bind(builder);
+        builder.update = patch => {
+          if (failOnce) { failOnce = false; throw new Error('temporary database outage'); }
+          return update(patch);
+        };
+      }
+      return builder;
+    });
+    const token = assertion();
+    await expect(verifyAndBindWhmcsIdentity(CONFIG, WS, VISITOR_A, token)).rejects.toThrow('temporary database outage');
+    expect(db.tables.commerce_customer_links).toHaveLength(1);
+    await verifyAndBindWhmcsIdentity(CONFIG, WS, VISITOR_A, token);
+    expect(db.tables.contacts[0]).toMatchObject({ name: 'Alice Example', email: 'alice@example.com' });
   });
 });

@@ -11,6 +11,10 @@
 export type Row = Record<string, unknown>;
 type Verb = 'select' | 'insert' | 'update' | 'upsert' | 'delete' | 'rpc';
 type Filter = (row: Row) => boolean;
+function column(row: Row, name: string): unknown {
+  const [key, path] = name.split('->>');
+  return path ? (row[key] as Row | undefined)?.[path] : row[key];
+}
 
 export interface OpLog {
   table: string;
@@ -52,9 +56,9 @@ class Builder implements PromiseLike<{ data: unknown; error: unknown; count?: nu
   }
   delete(): this { this.verb = 'delete'; return this; }
 
-  eq(col: string, val: unknown): this { this.filters.push((r) => r[col] === val); return this; }
+  eq(col: string, val: unknown): this { this.filters.push((r) => column(r, col) === val); return this; }
   neq(col: string, val: unknown): this { this.filters.push((r) => r[col] !== val); return this; }
-  is(col: string, val: unknown): this { this.filters.push((r) => (r[col] ?? null) === val); return this; }
+  is(col: string, val: unknown): this { this.filters.push((r) => (column(r, col) ?? null) === val); return this; }
   in(col: string, vals: unknown[]): this { this.filters.push((r) => vals.includes(r[col])); return this; }
   gte(col: string, val: unknown): this { this.filters.push((r) => String(r[col]) >= String(val)); return this; }
   lt(col: string, val: unknown): this { this.filters.push((r) => String(r[col]) < String(val)); return this; }

@@ -367,7 +367,9 @@
     if (_commerceBound) return;   // defence in depth; bootstrap() is not re-entered today
     var assertion = lazyAssertion || attr("data-commerce-assertion");
     if (!assertion || !apiBase || !workspaceId || !token) return;
-    var binding = attr("data-commerce-binding");
+    // WHMCS profile data can change without a new grant. Reconcile each page;
+    // the server writes only when data actually changed.
+    var binding = assertion.indexOf("whmcs1.") === 0 ? null : attr("data-commerce-binding");
     if (alreadyBound(workspaceId, binding)) { _commerceBound = true; log("commerce identity: already linked"); return; }
     _commerceBound = true;
     // The connection id is an optional cross-check, not a requirement: a store
@@ -378,9 +380,8 @@
     var connectionId = attr("data-commerce-connection");
     var body = { workspaceId: workspaceId, assertion: assertion };
     if (connectionId) body.connectionId = connectionId;
-    // Fire-and-forget on purpose. The binding is an enhancement: if it fails
-    // the shopper is simply anonymous, which is exactly today's behaviour, and
-    // the chat must not be held up or broken by it.
+    // Await the bounded first attempt before rendering. Transient failures
+    // retry in the background and refresh the profile when binding succeeds.
     // Same credentials as every other widget call: the `dvsid` cookie carries
     // the visitor this link is written against, and the session token is what
     // gets the request past `enforceWidgetToken`. The token is NOT optional —
@@ -388,25 +389,36 @@
     // request before Express ever reaches this endpoint's own mount. A
     // cookie-only call was answered with {"code":"MISSING_TOKEN"} against the
     // live API, which is how this was found.
-    var abort = typeof AbortController !== "undefined" ? new AbortController() : null;
-    var deadline = setTimeout(function () { if (abort) abort.abort(); }, 4000);
-    try {
-      return fetch(apiBase + "/api/widget/commerce/identity", {
-        method: "POST",
-        signal: abort ? abort.signal : undefined,
-        credentials: "include",           // the visitor cookie bootstrap just set
-        headers: { "Content-Type": "application/json", "X-Widget-Token": token },
-        body: JSON.stringify(body),
-      }).then(function (r) {
+    var attempts = 0;
+    function sendIdentity() {
+      attempts += 1;
+      var abort = typeof AbortController !== "undefined" ? new AbortController() : null;
+      var deadline = setTimeout(function () { if (abort) abort.abort(); }, 4000);
+      function retry() {
         clearTimeout(deadline);
-        if (r.ok) {
-          rememberBinding(workspaceId, binding);
-          var instance = runtimeInstanceRef();
-          if (instance && instance.refreshIdentity) instance.refreshIdentity();
-        } else { _commerceBound = false; }
-        log("commerce identity:", r.ok ? "linked" : "not linked (" + r.status + ")");
-      }).catch(function () { clearTimeout(deadline); _commerceBound = false; });
-    } catch (_) { clearTimeout(deadline); _commerceBound = false; }
+        if (attempts < 3) window.setTimeout(sendIdentity, attempts * 1000);
+        else _commerceBound = false;
+      }
+      try {
+        return fetch(apiBase + "/api/widget/commerce/identity", {
+          method: "POST",
+          signal: abort ? abort.signal : undefined,
+          credentials: "include",
+          headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+          body: JSON.stringify(body),
+        }).then(function (r) {
+          clearTimeout(deadline);
+          if (r.ok) {
+            rememberBinding(workspaceId, binding);
+            var instance = runtimeInstanceRef();
+            if (instance && instance.refreshIdentity) instance.refreshIdentity();
+          } else if (r.status >= 500 || r.status === 429) retry();
+          else _commerceBound = false;
+          log("commerce identity:", r.ok ? "linked" : "not linked (" + r.status + ")");
+        }).catch(retry);
+      } catch (_) { retry(); }
+    }
+    return sendIdentity();
   }
 
   // ─── Lazy store identity (OpenCart and any store that opts in) ───

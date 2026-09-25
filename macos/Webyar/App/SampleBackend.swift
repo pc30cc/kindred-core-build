@@ -12,6 +12,8 @@ import Foundation
 final class SampleBackend: URLProtocol {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var sent: [String: [[String: Any]]] = [:]
+    /// The operator's photo, once "uploaded" in Settings.
+    nonisolated(unsafe) private static var avatar: String?
     nonisolated(unsafe) private static var notes: [String: [[String: Any]]] = [:]
     nonisolated(unsafe) private static var maintenanceOn = false
     nonisolated(unsafe) private static var callNotes: [String: [[String: Any]]] = [:]
@@ -297,7 +299,16 @@ final class SampleBackend: URLProtocol {
         case ("POST", "/api/auth/login"): return (200, ["sessionToken": "sample", "user": user])
         case ("GET", "/api/workspaces"):
             return (200, ["workspaces": [["id": "ws-1", "name": "Webyar Support", "slug": "support"], ["id": "ws-2", "name": "فروشگاه نمونه", "slug": "shop"]]])
-        case ("GET", "/api/account/me"): return (200, ["id": "u-1", "email": "operator@webyar.app", "profile": ["full_name": "Sara Karimi"]])
+        case ("GET", "/api/account/me"):
+            var profile: [String: Any] = ["full_name": "Sara Karimi"]
+            lock.lock(); if let a = avatar { profile["avatar_url"] = a }; lock.unlock()
+            return (200, ["id": "u-1", "email": "operator@webyar.app", "profile": profile])
+        case ("POST", "/api/account/avatar"):
+            lock.lock(); avatar = "https://i.pravatar.cc/240?img=47"; lock.unlock()
+            return (200, ["success": true, "url": "https://i.pravatar.cc/240?img=47"])
+        case ("DELETE", "/api/account/avatar"):
+            lock.lock(); avatar = nil; lock.unlock()
+            return (200, ["success": true])
         case ("GET", "/api/availability"), ("PATCH", "/api/availability"):
             let off = body["force_offline"] as? Bool ?? false
             return (200, ["prefs": ["force_offline": off], "status": ["state": off ? "offline" : "online"]])

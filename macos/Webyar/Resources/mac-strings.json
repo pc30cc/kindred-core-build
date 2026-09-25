@@ -67,7 +67,13 @@
   "sendAndResolve": "Send & resolve",
   "sendAndResolveShort": "Resolve",
   "sendAndResolveHint": "Send, then mark the conversation resolved.",
-  "sendActionBlocked": "The message was sent, but the conversation status was not changed"
+  "sendActionBlocked": "The message was sent, but the conversation status was not changed",
+  "avatarUpload": "Upload photo",
+  "avatarReplace": "Change photo",
+  "avatarRemove": "Remove photo",
+  "avatarFailed": "The photo was not changed",
+  "avatarUnreadable": "This file could not be read as a picture.",
+  "avatarTooLarge": "The photo must be smaller than 10 MB."
  },
  "fa": {
   "jumpToLatest": "رفتن به آخرین پیام",
@@ -137,7 +143,13 @@
   "sendAndResolve": "ارسال و حل گفتگو",
   "sendAndResolveShort": "حل شد",
   "sendAndResolveHint": "پیام ارسال می‌شود و گفتگو «حل شده» علامت می‌خورد.",
-  "sendActionBlocked": "پیام ارسال شد، ولی وضعیت گفتگو تغییر نکرد"
+  "sendActionBlocked": "پیام ارسال شد، ولی وضعیت گفتگو تغییر نکرد",
+  "avatarUpload": "آپلود عکس",
+  "avatarReplace": "تغییر عکس",
+  "avatarRemove": "حذف عکس",
+  "avatarFailed": "عکس تغییر نکرد",
+  "avatarUnreadable": "این فایل به‌عنوان تصویر خوانده نشد.",
+  "avatarTooLarge": "حجم عکس باید کمتر از ۱۰ مگابایت باشد."
  },
  "tr": {
   "jumpToLatest": "En son mesaja git",
@@ -207,6 +219,12 @@
   "sendAndResolve": "Gönder ve çöz",
   "sendAndResolveShort": "Çözüldü",
   "sendAndResolveHint": "Gönderir, ardından konuşmayı çözüldü olarak işaretler.",
-  "sendActionBlocked": "Mesaj gönderildi ama konuşmanın durumu değişmedi"
+  "sendActionBlocked": "Mesaj gönderildi ama konuşmanın durumu değişmedi",
+  "avatarUpload": "Fotoğraf yükle",
+  "avatarReplace": "Fotoğrafı değiştir",
+  "avatarRemove": "Fotoğrafı kaldır",
+  "avatarFailed": "Fotoğraf değiştirilemedi",
+  "avatarUnreadable": "Bu dosya resim olarak okunamadı.",
+  "avatarTooLarge": "Fotoğraf 10 MB'tan küçük olmalı."
  }
 }

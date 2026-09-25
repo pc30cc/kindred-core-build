@@ -233,6 +233,19 @@ final class WebyarAPI {
         try await client.get("/api/account/me")
     }
 
+    /// The operator's own photo, as the web's Settings → Profile uploads it (base64, up to 10 MB).
+    func uploadAvatar(data: Data, contentType: String, fileName: String) async throws {
+        try await client.call("POST", "/api/account/avatar", body: [
+            "data": data.base64EncodedString(),
+            "contentType": contentType,
+            "fileName": fileName,
+        ])
+    }
+
+    func removeAvatar() async throws {
+        try await client.call("DELETE", "/api/account/avatar")
+    }
+
     func availability(locale: String) async throws -> Availability {
         try await client.get("/api/availability", query: [("locale", locale)])
     }

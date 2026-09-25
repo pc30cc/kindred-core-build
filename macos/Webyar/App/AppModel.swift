@@ -418,6 +418,48 @@ final class AppModel {
         rt.start()
     }
 
+    // MARK: Profile photo
+
+    enum AvatarError: Error { case unreadable, tooLarge }
+
+    /// The operator's own photo, from a picked file: squared-off to at most 512 px and sent
+    /// as JPEG, as small as the discs it fills; then the account is read again so every
+    /// avatar of theirs changes at once.
+    func uploadAvatar(from url: URL) async throws {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        guard let image = NSImage(contentsOf: url), let data = Self.avatarJPEG(image) else { throw AvatarError.unreadable }
+        guard data.count <= 10 * 1024 * 1024 else { throw AvatarError.tooLarge }
+        try await api.uploadAvatar(data: data, contentType: "image/jpeg", fileName: "avatar.jpg")
+        await reloadAccount()
+    }
+
+    func removeAvatar() async throws {
+        try await api.removeAvatar()
+        await reloadAccount()
+    }
+
+    func reloadAccount() async {
+        do { account = try await api.account() } catch { Log.error("account", error) }
+    }
+
+    /// The middle square of the picture, at most 512 px a side.
+    nonisolated static func avatarJPEG(_ image: NSImage) -> Data? {
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let side = min(cg.width, cg.height)
+        guard side > 0, let square = cg.cropping(to: CGRect(x: (cg.width - side) / 2, y: (cg.height - side) / 2, width: side, height: side)) else { return nil }
+        let out = min(512, side)
+        guard let ctx = CGContext(data: nil, width: out, height: out, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        // A transparent picture sits on white, not black.
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: out, height: out))
+        ctx.interpolationQuality = .high
+        ctx.draw(square, in: CGRect(x: 0, y: 0, width: out, height: out))
+        guard let scaled = ctx.makeImage() else { return nil }
+        return NSBitmapImageRep(cgImage: scaled).representation(using: .jpeg, properties: [.compressionFactor: 0.88])
+    }
+
     private func startPresence() async {
         stopPresence()
         do {

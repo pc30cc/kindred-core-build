@@ -31,6 +31,16 @@ final class SignerTest extends TestCase
         $this->assertSame('bad_signature', $payload['error']);
     }
 
+    public function test_health_reads_the_configured_merchant_name_as_bounded_plain_text(): void
+    {
+        \WebYar\Whmcs\Platform::$settingsOverride['CompanyName'] = " <b>فروشگاه من</b> &amp; Cloud\n ";
+        $this->assertSame('فروشگاه من & Cloud', Signing::call('health')[1]['data']['store_name']);
+        \WebYar\Whmcs\Platform::$settingsOverride['CompanyName'] = str_repeat('ف', 250);
+        $this->assertSame(str_repeat('ف', 200), Signing::call('health')[1]['data']['store_name']);
+        unset(\WebYar\Whmcs\Platform::$settingsOverride['CompanyName']);
+        $this->assertSame('', Signing::call('health')[1]['data']['store_name']);
+    }
+
     public function test_the_wrong_secret_is_rejected(): void
     {
         $body = json_encode(array('op' => 'health'));

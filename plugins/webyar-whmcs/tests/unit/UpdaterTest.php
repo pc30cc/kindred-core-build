@@ -25,6 +25,20 @@ final class UpdaterTest extends TestCase
         Updater::removeTree($this->root);
         Updater::removeTree(Updater::workDir(dirname(__DIR__, 2) . '/modules/addons/webyar'));
     }
+    public function test_private_update_root_rejects_a_different_filesystem(): void
+    {
+        if (!is_dir('/dev/shm') || stat('/dev/shm')['dev'] === stat($this->root)['dev']) {
+            $this->markTestSkipped('Requires a second filesystem');
+        }
+        $previous = getenv('WEBYAR_UPDATE_DIR');
+        putenv('WEBYAR_UPDATE_DIR=/dev/shm');
+        try {
+            $this->expectExceptionMessage('filesystem');
+            Updater::workDir($this->target);
+        } finally {
+            putenv($previous === false ? 'WEBYAR_UPDATE_DIR' : 'WEBYAR_UPDATE_DIR=' . $previous);
+        }
+    }
     private function manifest(): array
     {
         return array('slug' => 'webyar-whmcs', 'version' => '9.0.0', 'sha256' => str_repeat('a', 64),

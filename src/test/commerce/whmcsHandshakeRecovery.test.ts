@@ -8,6 +8,7 @@ const SECRET = 'handshake-test-secret';
 let db: FakeDb;
 let whmcs: FakeWhmcs;
 let schemaOk = true;
+let storeName: string | undefined;
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => db.client }));
 vi.mock('../../../server/services/plugins/state.js', () => ({ installPlugin: vi.fn() }));
 vi.mock('../../../server/services/commerce/credentials.js', () => ({
@@ -16,6 +17,9 @@ vi.mock('../../../server/services/commerce/credentials.js', () => ({
 vi.mock('../../../server/services/commerce/httpClient.js', () => ({
   commerceHttpRequest: async (req: CommerceHttpRequest) => {
     const result = await whmcs.requester(req);
+    if (result.status === 200 && storeName !== undefined) {
+      (result.json as { data: { store_name?: string } }).data.store_name = storeName;
+    }
     if (!schemaOk && result.status === 200) {
       (result.json as { data: { schema_ok: boolean } }).data.schema_ok = false;
     }
@@ -27,6 +31,7 @@ const CONFIG = {} as Parameters<typeof runCapabilityHandshake>[0];
 
 beforeEach(() => {
   schemaOk = true;
+  storeName = undefined;
   whmcs = createFakeWhmcs(SECRET, 'inst-whmcs');
   db = createFakeDb({ commerce_connections: [{
     id: 'conn-whmcs', workspace_id: WS, installation_id: 'inst-whmcs',
@@ -37,6 +42,24 @@ beforeEach(() => {
 });
 
 describe('WHMCS handshake recovery', () => {
+  it('refreshes a sanitized Persian merchant name in the existing connection write', async () => {
+    storeName = '<b>فروشگاه من</b>';
+    await runCapabilityHandshake(CONFIG, 'conn-whmcs', { workspaceId: WS });
+    expect(db.tables.commerce_connections[0].store_name).toBe('فروشگاه من');
+    expect(db.count('update', 'commerce_connections')).toBe(1);
+    storeName = 'نام تازه';
+    await runCapabilityHandshake(CONFIG, 'conn-whmcs', { workspaceId: WS });
+    expect(db.tables.commerce_connections[0].store_name).toBe('نام تازه');
+  });
+
+  it('preserves a known name for older addons and clears an explicitly empty setting', async () => {
+    db.tables.commerce_connections[0].store_name = 'Known merchant';
+    await runCapabilityHandshake(CONFIG, 'conn-whmcs', { workspaceId: WS });
+    expect(db.tables.commerce_connections[0].store_name).toBe('Known merchant');
+    storeName = '';
+    await runCapabilityHandshake(CONFIG, 'conn-whmcs', { workspaceId: WS });
+    expect(db.tables.commerce_connections[0].store_name).toBeNull();
+  });
   it('clears an obsolete authentication error after a successful handshake in the existing write', async () => {
     await runCapabilityHandshake(CONFIG, 'conn-whmcs', { workspaceId: WS });
     expect(db.tables.commerce_connections[0]).toMatchObject({

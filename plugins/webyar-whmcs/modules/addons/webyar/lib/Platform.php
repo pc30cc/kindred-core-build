@@ -65,6 +65,16 @@ final class Platform
         return $version !== null ? $version : '';
     }
 
+    /** The merchant's configured name, never a customer's company name. */
+    public static function storeName()
+    {
+        $name = html_entity_decode((string) self::setting('CompanyName'), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $name = strip_tags($name);
+        $name = preg_replace('/[\x00-\x1F\x7F]/u', ' ', $name);
+        $name = trim((string) preg_replace('/\s+/u', ' ', (string) $name));
+        return preg_match('/^.{0,200}/us', $name, $match) ? $match[0] : '';
+    }
+
     /** @return string */
     public static function encrypt($plain)
     {

@@ -11,7 +11,7 @@
  *
  * with the plan chosen by planSelection.ts. Pure: the caller reads the rows.
  */
-import { CAPABILITY_REGISTRY } from './capabilityRegistry.js';
+import { CAPABILITY_REGISTRY, getCapability, type CapabilityDefinition } from './capabilityRegistry.js';
 import type { BillingPlanRow, WorkspacePlanInfo, WorkspaceSubscriptionRow } from '../../middleware/featureGating.js';
 
 export type EffectiveSource = 'override' | 'plan' | 'default';
@@ -65,16 +65,52 @@ function overrideMap(rows: FlagOverrideRow[] | null | undefined, keyOf: (row: Fl
 }
 
 /**
- * Legacy plan keys enforcement still reads when the canonical key is absent
- * (kbArticleQuota.ts), so the snapshot reads them the same way.
+ * Legacy plan keys enforcement still reads when the canonical key is absent,
+ * so the snapshot reads them the same way:
+ *   - max_kb_articles (kbArticleQuota.ts);
+ *   - the AI Agent Web Pages keys (ai-agent/limits.ts), which fall back to the
+ *     historical shared AI KB Builder keys as their registry entries document.
  */
 const LEGACY_LIMIT_ALIASES: Record<string, readonly string[]> = {
   max_kb_articles: ['ai_kb_max_articles', 'kb_articles'],
+  ai_agent_web_source_max_pages: ['ai_kb_max_pages'],
+  ai_agent_web_source_max_depth: ['ai_kb_max_depth'],
+  ai_agent_web_source_jobs_per_month: ['ai_kb_jobs_per_month'],
 };
 
 function finiteNumber(value: unknown): number | null {
   const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
   return Number.isFinite(n) ? n : null;
+}
+
+function resolveLimit(
+  cap: CapabilityDefinition,
+  planLimits: Record<string, unknown>,
+  limitOverrides: WorkspacePlanInfo['limitOverrides'] | null | undefined,
+): EffectiveLimit {
+  const override = limitOverrides?.[cap.key];
+  if (override) return { value: override.value, source: 'override', unit: cap.unit, note: override.note };
+  const planValue = [cap.key, ...(LEGACY_LIMIT_ALIASES[cap.key] ?? [])]
+    .map((key) => finiteNumber(planLimits[key]))
+    .find((value): value is number => value !== null);
+  if (planValue !== undefined) return { value: planValue, source: 'plan', unit: cap.unit };
+  return { value: typeof cap.defaultValue === 'number' ? cap.defaultValue : null, source: 'default', unit: cap.unit };
+}
+
+/**
+ * One registry limit, resolved exactly as the snapshot resolves it
+ * (override ?? plan, legacy aliases included ?? registry default). For
+ * services that enforce a limit themselves, so they can never disagree with
+ * GET /api/plans/workspace/:id/effective. Null for a key the registry does not
+ * define as a limit, or whose default is not a number.
+ */
+export function resolveEffectiveLimit(
+  info: Pick<WorkspacePlanInfo, 'planLimits' | 'limitOverrides'> | null | undefined,
+  key: string,
+): number | null {
+  const cap = getCapability(key);
+  if (!cap || cap.type !== 'limit') return null;
+  return resolveLimit(cap, info?.planLimits || {}, info?.limitOverrides).value;
 }
 
 export function resolveEffectiveEntitlements(
@@ -105,20 +141,9 @@ export function resolveEffectiveEntitlements(
       case 'channel':
         out.channels[cap.key] = flag(cap.key, cap.defaultValue, channels.get(cap.key));
         break;
-      case 'limit': {
-        const override = info.limitOverrides?.[cap.key];
-        const planValue = [cap.key, ...(LEGACY_LIMIT_ALIASES[cap.key] ?? [])]
-          .map((key) => finiteNumber(planLimits[key]))
-          .find((value): value is number => value !== null);
-        if (override) {
-          out.limits[cap.key] = { value: override.value, source: 'override', unit: cap.unit, note: override.note };
-        } else if (planValue !== undefined) {
-          out.limits[cap.key] = { value: planValue, source: 'plan', unit: cap.unit };
-        } else {
-          out.limits[cap.key] = { value: typeof cap.defaultValue === 'number' ? cap.defaultValue : null, source: 'default', unit: cap.unit };
-        }
+      case 'limit':
+        out.limits[cap.key] = resolveLimit(cap, planLimits, info.limitOverrides);
         break;
-      }
     }
   }
   return out;

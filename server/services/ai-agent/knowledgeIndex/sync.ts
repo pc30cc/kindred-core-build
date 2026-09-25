@@ -10,6 +10,7 @@
  */
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
+import { getWorkspacePlanInfo } from '../../../middleware/featureGating.js';
 import { chunkText, chunkQna } from './chunker.js';
 import { indexSource, getEmbedderForWorkspace, type SourceType } from './indexer.js';
 import { isUsableEmbeddingProvider, type EmbeddingProvider } from '../embeddings/index.js';
@@ -24,27 +25,23 @@ const PLAN_BUDGETS: Record<string, number> = {
 };
 const DEFAULT_BUDGET = 200;
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * `ai_knowledge_chunks_embedded` is not a registry capability, so it keeps its
+ * per-plan fallback; the plan it is read from is the plan in force, chosen by
+ * the one rule every plan reader uses (getWorkspacePlanInfo →
+ * planSelection.ts), with the workspace's limit override applied.
+ */
 async function resolveEmbeddingBudget(config: ServerConfig, workspaceId: string): Promise<number> {
   try {
-    const sb = getServiceClient(config);
-    const { data, error: subError } = await sb
-      .from('workspace_subscriptions')
-      .select('plan_id')
-      .eq('workspace_id', workspaceId)
-      .maybeSingle();
-    if (subError) throw subError;
-    if (!(data as any)?.plan_id) return PLAN_BUDGETS.free;
-    const { data: plan, error: planError } = await sb
-      .from('billing_plans')
-      .select('slug, limits')
-      .eq('id', (data as any).plan_id)
-      .maybeSingle();
-    if (planError) throw planError;
-    if (!plan) throw new Error('assigned billing plan not found');
-    const limit = plan?.limits?.ai_knowledge_chunks_embedded;
+    const info = await getWorkspacePlanInfo(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId);
+    const limit = info.limits.ai_knowledge_chunks_embedded;
     if (typeof limit === 'number' && limit > 0) return limit;
-    const slug = (plan?.slug || '').toLowerCase();
-    if (slug && PLAN_BUDGETS[slug]) return PLAN_BUDGETS[slug];
+    const slug = info.plan.slug.toLowerCase();
+    if (PLAN_BUDGETS[slug]) return PLAN_BUDGETS[slug];
     return DEFAULT_BUDGET;
   } catch (error) {
     console.error('[KnowledgeSync] plan budget resolution failed', error);
@@ -77,7 +74,7 @@ export async function syncKnowledgeSource(
         .eq('id', input.sourceId)
         .maybeSingle();
       if (!art || art.workspace_id !== input.workspaceId) return;
-      if (art.status !== 'published' || (art as any).used_by_ai === false) {
+      if (art.status !== 'published' || art.used_by_ai === false) {
         // Unpublished → mark all chunks deleted.
         await indexSource(config, {
           workspaceId: input.workspaceId,
@@ -141,8 +138,8 @@ export async function syncKnowledgeSource(
       }, embedder);
       return;
     }
-  } catch (err: any) {
-    console.warn('[ai-agent.knowledgeIndex.sync] syncKnowledgeSource failed:', err?.message);
+  } catch (err) {
+    console.warn('[ai-agent.knowledgeIndex.sync] syncKnowledgeSource failed:', errorMessage(err));
   }
 }
 
@@ -286,12 +283,12 @@ export async function rebuildWorkspaceIndex(
         sourceUrl: a.slug ? `/help/${a.slug}` : null,
         chunks,
       }, embedder, { remainingEmbedBudget: remainingBudget });
-    } catch (err: any) {
+    } catch (err) {
       // ENFORCED billing denial (exhausted wallet, missing rate card) — not a
       // transient per-item error. Stop attempting further embeds this
       // rebuild (they would fail identically) but keep processing remaining
       // sources so their chunk rows still get written.
-      console.warn('[ai-agent.knowledgeIndex.sync] kb_article billing denial:', err?.message);
+      console.warn('[ai-agent.knowledgeIndex.sync] kb_article billing denial:', errorMessage(err));
       distrust();
       fail('embedding_failed');
       remainingBudget = 0;
@@ -324,8 +321,8 @@ export async function rebuildWorkspaceIndex(
         locale: (q.locale as string) || null,
         chunks,
       }, embedder, { remainingEmbedBudget: remainingBudget });
-    } catch (err: any) {
-      console.warn('[ai-agent.knowledgeIndex.sync] qna billing denial:', err?.message);
+    } catch (err) {
+      console.warn('[ai-agent.knowledgeIndex.sync] qna billing denial:', errorMessage(err));
       distrust();
       fail('embedding_failed');
       remainingBudget = 0;
@@ -364,8 +361,8 @@ export async function rebuildWorkspaceIndex(
       }, embedder, { remainingEmbedBudget: remainingBudget });
       applyIndexResult(r);
       remainingBudget = Math.max(0, remainingBudget - r.embeddingsGenerated);
-    } catch (err: any) {
-      console.warn('[ai-agent.knowledgeIndex.sync] business_profile billing denial:', err?.message);
+    } catch (err) {
+      console.warn('[ai-agent.knowledgeIndex.sync] business_profile billing denial:', errorMessage(err));
       distrust();
       fail('embedding_failed');
       remainingBudget = 0;
@@ -389,7 +386,7 @@ export async function rebuildWorkspaceIndex(
   const reconciliationAllowed =
     rebuildTrustworthy && articleSetTrustworthy && indexWritesTrustworthy;
   let reconciliationFailed = false;
-  let reconciliationBlocked = !reconciliationAllowed;
+  const reconciliationBlocked = !reconciliationAllowed;
   if (reconciliationAllowed) {
     const { data: kbChunks, error: chunksError } = await sb
       .from('ai_knowledge_chunks')

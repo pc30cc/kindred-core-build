@@ -1,14 +1,21 @@
 /**
  * AI KB Builder — plan limit resolver.
  *
- * Reads from billing_plans.limits jsonb (resolved via existing
- * getWorkspacePlanInfo helper) and falls back to safe hard-coded defaults
- * keyed by plan slug. DB always wins when a key is present.
+ * The crawl limits (pages, depth, jobs per month) are registry capabilities
+ * and resolve exactly as GET /api/plans/workspace/:id/effective shows them:
+ * workspace override ?? plan ?? registry default
+ * (billing/servicePlanLimits.ts).
+ *
+ * Drafts per scan, characters and monthly credits read the legacy keys
+ * `ai_kb_max_articles` / `ai_kb_max_chars` / `ai_kb_monthly_credits`, which
+ * the registry does not define (LEGACY_PLAN_KEYS) and the snapshot does not
+ * show; they keep safe per-plan fallbacks. The plan value always wins.
  */
 
 import type { ServerConfig } from '../../config.js';
 import { getWorkspacePlanInfo, getWorkspacePlanInfoDetailed } from '../../middleware/featureGating.js';
 import { getServiceClient } from '../../supabase.js';
+import { registryLimits, servicePlanIdentity, unregisteredLimits, type PlanLimitSource } from '../billing/servicePlanLimits.js';
 import { readOk, readFailed, type ReadResult } from './readResult.js';
 
 export interface AiKbLimits {
@@ -20,36 +27,16 @@ export interface AiKbLimits {
   monthlyCredits: number;
 }
 
-const FALLBACKS: Record<string, AiKbLimits> = {
-  free: {
-    maxPages: 3, maxDepth: 1, jobsPerMonth: 1,
-    maxArticles: 3, maxChars: 10_000, monthlyCredits: 10,
-  },
-  pro: {
-    maxPages: 25, maxDepth: 2, jobsPerMonth: 5,
-    maxArticles: 30, maxChars: 100_000, monthlyCredits: 200,
-  },
-  business: {
-    maxPages: 100, maxDepth: 3, jobsPerMonth: 20,
-    maxArticles: 150, maxChars: 500_000, monthlyCredits: 1000,
-  },
-  enterprise: {
-    maxPages: 200, maxDepth: 3, jobsPerMonth: 50,
-    maxArticles: 300, maxChars: 1_000_000, monthlyCredits: 5000,
-  },
+/** Registry limits: override ?? plan ?? registry default. */
+export const AI_KB_BUILDER_PLAN_KEYS = ['ai_kb_max_pages', 'ai_kb_max_depth', 'ai_kb_jobs_per_month'] as const;
+
+/** Legacy keys the registry does not define, per plan slug. */
+const LEGACY_FALLBACKS = {
+  free: { ai_kb_max_articles: 3, ai_kb_max_chars: 10_000, ai_kb_monthly_credits: 10 },
+  pro: { ai_kb_max_articles: 30, ai_kb_max_chars: 100_000, ai_kb_monthly_credits: 200 },
+  business: { ai_kb_max_articles: 150, ai_kb_max_chars: 500_000, ai_kb_monthly_credits: 1000 },
+  enterprise: { ai_kb_max_articles: 300, ai_kb_max_chars: 1_000_000, ai_kb_monthly_credits: 5000 },
 };
-
-const STRICT_DEFAULT = FALLBACKS.free;
-
-function num(v: any, fallback: number): number {
-  if (v === null || v === undefined) return fallback;
-  if (typeof v === 'number' && Number.isFinite(v)) return v;
-  if (typeof v === 'string' && v.trim()) {
-    const n = Number(v);
-    if (Number.isFinite(n)) return n;
-  }
-  return fallback;
-}
 
 export async function resolveAiKbLimits(
   config: ServerConfig,
@@ -63,22 +50,18 @@ export async function resolveAiKbLimits(
   return projectLimits(info);
 }
 
-function projectLimits(
-  info: { plan: any; limits: Record<string, number> },
-): { limits: AiKbLimits; planSlug: string | null } {
-  const slug = (info.plan?.slug || 'free') as string;
-  const fallback = FALLBACKS[slug] || STRICT_DEFAULT;
-  const dbLimits = info.limits || {};
-
+function projectLimits(info: PlanLimitSource): { limits: AiKbLimits; planSlug: string | null } {
+  const plan = registryLimits(info, AI_KB_BUILDER_PLAN_KEYS);
+  const legacy = unregisteredLimits(info, LEGACY_FALLBACKS);
   return {
-    planSlug: slug,
+    planSlug: servicePlanIdentity(info).planSlug,
     limits: {
-      maxPages: num(dbLimits.ai_kb_max_pages, fallback.maxPages),
-      maxDepth: num(dbLimits.ai_kb_max_depth, fallback.maxDepth),
-      jobsPerMonth: num(dbLimits.ai_kb_jobs_per_month, fallback.jobsPerMonth),
-      maxArticles: num(dbLimits.ai_kb_max_articles, fallback.maxArticles),
-      maxChars: num(dbLimits.ai_kb_max_chars, fallback.maxChars),
-      monthlyCredits: num(dbLimits.ai_kb_monthly_credits, fallback.monthlyCredits),
+      maxPages: plan.ai_kb_max_pages,
+      maxDepth: plan.ai_kb_max_depth,
+      jobsPerMonth: plan.ai_kb_jobs_per_month,
+      maxArticles: legacy.ai_kb_max_articles,
+      maxChars: legacy.ai_kb_max_chars,
+      monthlyCredits: legacy.ai_kb_monthly_credits,
     },
   };
 }
@@ -136,8 +119,8 @@ export async function countJobsThisMonthDetailed(
     }
     if (typeof count !== 'number') return readFailed('job_usage_status_unavailable');
     return readOk(count);
-  } catch (err: any) {
-    console.error('[AiKb] monthly job count exception:', err?.message);
+  } catch (err) {
+    console.error('[AiKb] monthly job count exception:', err instanceof Error ? err.message : String(err));
     return readFailed('job_usage_status_unavailable');
   }
 }

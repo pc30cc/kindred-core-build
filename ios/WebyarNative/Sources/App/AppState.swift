@@ -224,6 +224,8 @@ final class AppState {
         session = .signedOut
         workspaces = []
         selectedWorkspace = nil
+        planRefresh?.cancel()
+        planRefresh = nil
         // Whoever signs in next must not be greeted by the last person's
         // name while the server is being asked who they are.
         SessionCache.clear()
@@ -289,36 +291,70 @@ final class AppState {
 
     // MARK: - Plan
 
-    /// Resolves what this workspace's plan allows.
+    /// Resolves what this workspace's plan allows, and asks again later.
+    ///
+    /// A plan that cannot be read shows nothing gated (the server would refuse
+    /// it anyway), so it is asked for again after 20 seconds; a plan in hand is
+    /// refreshed every three minutes, because Super Admin can change it at any
+    /// time and nothing announces it. A refresh that fails keeps the snapshot
+    /// already in hand for this workspace, as the web's query does.
     func loadPlan() async {
         guard let workspaceID = selectedWorkspace?.id else {
             entitlements = .failed
             return
         }
-        entitlements = (try? await api.entitlements(workspaceID: workspaceID))
-            .map(EntitlementsState.loaded) ?? .failed
+        do {
+            let snapshot = try await api.entitlements(workspaceID: workspaceID)
+            guard selectedWorkspace?.id == workspaceID else { return }
+            entitlements = .loaded(snapshot)
+            planWorkspaceID = workspaceID
+        } catch {
+            guard selectedWorkspace?.id == workspaceID else { return }
+            if planWorkspaceID != workspaceID || entitlements.value == nil {
+                entitlements = .failed
+            }
+        }
+        schedulePlanRefresh(workspaceID)
+    }
+
+    /// Which workspace the snapshot in `entitlements` belongs to.
+    @ObservationIgnored private var planWorkspaceID: String?
+    @ObservationIgnored private var planRefresh: Task<Void, Never>?
+
+    private func schedulePlanRefresh(_ workspaceID: String) {
+        planRefresh?.cancel()
+        let delay: Duration = entitlements.value == nil ? .seconds(20) : .seconds(180)
+        planRefresh = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self, self.selectedWorkspace?.id == workspaceID else { return }
+            await self.loadPlan()
+        }
     }
 
     // MARK: - Gates
     //
-    // These mirror the web console's sidebar rules exactly. Where they differ
-    // from each other it is deliberate, and the difference is what decides
-    // whether a whole tab exists.
+    // These follow the web console's one rule set (src/lib/planAccess.ts): a
+    // capability is available only when the snapshot is in and its value is
+    // exactly `true`. While it loads, or when it cannot be read, nothing gated
+    // is offered; a key the snapshot does not carry is not available.
 
     /// Nothing plan-gated renders until the snapshot resolves one way or the
     /// other. Showing a tab and taking it away a moment later is worse than
     /// waiting for the answer.
     var planResolved: Bool { entitlements.isResolved }
 
-    /// A top-level section belongs in this plan. An unknown key stays visible
-    /// so a module added server-side does not disappear from an older build;
-    /// only an explicit `false` hides it.
+    /// A top-level section belongs in this plan: only when the snapshot is in
+    /// and says exactly `true`.
     func moduleInPlan(_ key: String) -> Bool {
-        switch entitlements {
-        case .loading: false
-        case .failed: false
-        case .loaded(let value): value.moduleInPlan(key)
-        }
+        entitlements.value?.moduleInPlan(key) == true
+    }
+
+    /// A channel inbox from the plugin catalog (already installed, inbox-capable
+    /// and `planAllowed`), as the web's `channelInboxVisible`: a channel the plan
+    /// itself governs must be on in the snapshot; any other is the plugin's call.
+    func channelInboxVisible(_ inbox: ChannelInbox) -> Bool {
+        let key = inbox.key.lowercased()
+        return !Entitlements.planChannels.contains(key) || entitlements.value?.channelEnabled(key) == true
     }
 
     /// Fail-closed, for a single capability rather than a whole section.
@@ -343,13 +379,7 @@ final class AppState {
     /// Same key the console gates its Colleagues tab on.
     var colleaguesVisible: Bool { featureEnabled("inbox_team_chat") }
 
-    /// Whether the mailbox belongs in this plan.
-    ///
-    /// `moduleEnabled` rather than `moduleInPlan`: the Email Inbox is off by
-    /// default in the capability registry, so an absent key means "not
-    /// granted" here rather than "a module this build has not heard of". An
-    /// entry that opens onto a 403 is worse than no entry.
-    var emailInboxVisible: Bool {
-        entitlements.value?.moduleEnabled("email_inbox") == true
-    }
+    /// Whether the mailbox belongs in this plan: the Email Inbox module, exactly
+    /// `true`. An entry that opens onto a 403 is worse than no entry.
+    var emailInboxVisible: Bool { moduleInPlan("email_inbox") }
 }

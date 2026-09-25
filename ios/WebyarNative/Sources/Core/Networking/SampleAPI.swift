@@ -487,9 +487,8 @@ actor SampleAPI: WebyarAPI {
                 "inbox_needs_human": on,
                 "contact_notes": on,
                 "contact_tags": on,
-                // The three composer capabilities, so both states of the
-                // composer can be laid out: granted-and-human-active shows the
-                // controls, granted-but-AI-managed shows the notice instead.
+                // The website widget's own keys, as a real plan carries them.
+                // They do not reach the operator's composer.
                 "widget_attachments": on,
                 "widget_voice_notes": on,
                 "widget_emoji": on,
@@ -505,8 +504,11 @@ actor SampleAPI: WebyarAPI {
                 "call_center": on,
                 "visitor_tracking": on,
                 "email_inbox": on,
+                "voice_video": on,
             ],
-            channels: ["chat_widget": on],
+            // Only a key that is exactly true is on, so every channel the
+            // sample lays out is listed: the calls and the channel inboxes.
+            channels: ["chat_widget": on, "voice": on, "video": on, "telegram": on, "bale": on],
             limits: [:],
             plan: Entitlements.PlanSummary(slug: "pro", name: "Pro", tier: "pro")
         )

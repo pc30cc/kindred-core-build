@@ -327,21 +327,10 @@ struct TeamThreadView: View {
         )
     }
 
-    /// What the plan allows, with the AI question dropped.
-    ///
-    /// `ComposerCapabilities.resolve` needs a `Conversation` because its other
-    /// job is reading the AI state off one, and an internal thread has neither.
-    /// The plan half is the same: a workspace that pays for attachments has
-    /// them everywhere, not only when talking to visitors.
-    private var capabilities: ComposerCapabilities {
-        let plan = { (key: String) in appState.entitlements.value?.featureEnabled(key) == true }
-        return ComposerCapabilities(
-            canAttach: plan("widget_attachments"),
-            canRecordVoice: plan("widget_voice_notes"),
-            canUseEmoji: plan("widget_emoji"),
-            isAIManaged: false
-        )
-    }
+    /// Every composer tool: an internal thread has no AI to hand over to, and
+    /// the plan's `widget_*` keys govern the customer-facing website widget,
+    /// not what operators send each other.
+    private var capabilities: ComposerCapabilities { .team }
 
 
     private var calendar: Calendar { Format.workingCalendar(locale) }

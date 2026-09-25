@@ -27,6 +27,8 @@ struct InboxView: View {
 
     private var language: Language { appState.language }
     private var workspaceID: String? { appState.selectedWorkspace?.id }
+    /// The installed channel inboxes the plan lets this workspace work in.
+    private var channelInboxes: [ChannelInbox] { model.channels.filter { appState.channelInboxVisible($0) } }
 
     var body: some View {
         @Bindable var model = model
@@ -66,6 +68,10 @@ struct InboxView: View {
             // workspace is the ordinary way that happens.
             .onChange(of: appState.inboxFilters) { _, available in
                 model.reconcileFilter(with: available)
+            }
+            // The same for a channel inbox the plan no longer carries.
+            .onChange(of: channelInboxes) { _, available in
+                if let channel = model.channel, !available.contains(channel) { model.channel = nil }
             }
             // Notifications, asked for here rather than at launch.
             //
@@ -292,9 +298,9 @@ struct InboxView: View {
                 }
             }
 
-            if !model.channels.isEmpty {
+            if !channelInboxes.isEmpty {
                 Section(Str.otherInboxes(language)) {
-                    ForEach(model.channels) { channel in
+                    ForEach(channelInboxes) { channel in
                         Button {
                             model.open(channel)
                         } label: {

@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: WebYar for WooCommerce 1.2.3\n"
+"Project-Id-Version: WebYar for WooCommerce 1.2.4\n"
 "PO-Revision-Date: 2026-09-25 08:00+0000\n"
 "Last-Translator: WebYar\n"
 "Language-Team: Persian\n"

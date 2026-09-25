@@ -167,12 +167,12 @@ final class UpdaterTest extends TestCase {
 	}
 
 	public function test_plugin_details_changelog_follows_the_admin_locale(): void {
-		$this->check( array( 'changelog' => 'English update notes', 'changelog_fa' => 'یادداشت‌های فارسی' ) );
+		$this->check( array( 'changelog' => "English update notes\nSecond line", 'changelog_fa' => "یادداشت‌های فارسی\nخط بعدی" ) );
 		$updater = new Updater();
 		$GLOBALS['__webyar_test_locale'] = 'en_US';
-		$this->assertSame( 'English update notes', $updater->plugin_details( null, 'plugin_information', (object) array( 'slug' => 'webyar-woocommerce' ) )->sections['changelog'] );
+		$this->assertSame( "English update notes<br />\nSecond line", $updater->plugin_details( null, 'plugin_information', (object) array( 'slug' => 'webyar-woocommerce' ) )->sections['changelog'] );
 		$GLOBALS['__webyar_test_locale'] = 'fa_IR';
-		$this->assertSame( 'یادداشت‌های فارسی', $updater->plugin_details( null, 'plugin_information', (object) array( 'slug' => 'webyar-woocommerce' ) )->sections['changelog'] );
+		$this->assertSame( "یادداشت‌های فارسی<br />\nخط بعدی", $updater->plugin_details( null, 'plugin_information', (object) array( 'slug' => 'webyar-woocommerce' ) )->sections['changelog'] );
 		$GLOBALS['__webyar_test_locale'] = 'en_US';
 	}
 

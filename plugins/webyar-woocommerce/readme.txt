@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 8.0
 WC tested up to: 9.4
-Stable tag: 1.2.3
+Stable tag: 1.2.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -47,6 +47,9 @@ License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
 == Changelog ==
 
+= 1.2.4 =
+* Format update notes in the WordPress plugin details window.
+
 = 1.2.3 =
 * The admin page follows the WordPress language (English or Persian).
 * Shorter update notes and clearer messages in the admin.
@@ -67,6 +70,9 @@ License URI: https://www.gnu.org/licenses/gpl-2.0.html
 * First release of the WebYar store connection.
 
 == Changelog fa_IR ==
+
+= 1.2.4 =
+* نمایش خوانای تغییرات در پنجرهٔ جزئیات افزونه.
 
 = 1.2.3 =
 * صفحه مدیریت با زبان وردپرس فارسی یا انگلیسی نمایش داده می‌شود.

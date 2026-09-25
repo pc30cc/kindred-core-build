@@ -157,7 +157,7 @@ final class Updater {
 			'download_link' => $manifest['package'],
 			'sections'      => array(
 				'description' => wp_kses_post( __( $manifest['description'], 'webyar-woocommerce' ) ),
-				'changelog'   => 0 === strpos( get_user_locale(), 'fa' ) && '' !== ( $manifest['changelog_fa'] ?? '' ) ? $manifest['changelog_fa'] : $manifest['changelog'],
+				'changelog'   => nl2br( htmlspecialchars( 0 === strpos( get_user_locale(), 'fa' ) && '' !== ( $manifest['changelog_fa'] ?? '' ) ? $manifest['changelog_fa'] : $manifest['changelog'], ENT_QUOTES, 'UTF-8' ) ),
 			),
 		);
 	}

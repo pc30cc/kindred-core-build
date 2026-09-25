@@ -15,9 +15,52 @@ import http from 'node:http';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
+import type { AddressInfo } from 'node:net';
 
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
 const db: Record<string, Row[]> = {};
+
+/** What every fake query settles with. */
+type Result = { data: unknown; error: null; count?: number };
+type Resolve = (value: Result) => unknown;
+
+/** The subset of the PostgREST builder the conversations routes use. */
+interface QueryBuilder {
+  select(cols?: string, opts?: { count?: string; head?: boolean }): QueryBuilder;
+  eq(col: string, val: unknown): QueryBuilder;
+  neq(col: string, val: unknown): QueryBuilder;
+  is(col: string, val: unknown): QueryBuilder;
+  in(col: string, vals: unknown[]): QueryBuilder;
+  or(clauses: string): QueryBuilder;
+  order(...args: unknown[]): QueryBuilder;
+  limit(...args: unknown[]): QueryBuilder;
+  insert(payload: Row | Row[]): { select(): { single(): Promise<Result> }; then(resolve: Resolve): unknown };
+  update(patch: Row): UpdateBuilder;
+  delete(): DeleteBuilder;
+  maybeSingle(): Promise<Result>;
+  then(resolve: Resolve): unknown;
+}
+
+interface UpdateBuilder {
+  eq(col: string, val: unknown): UpdateBuilder;
+  is(col: string, val: unknown): UpdateBuilder;
+  select(): { then(resolve: Resolve): unknown };
+  then(resolve: Resolve): unknown;
+}
+
+interface DeleteBuilder {
+  eq(col: string, val: unknown): DeleteBuilder;
+  in(col: string, vals: unknown[]): DeleteBuilder;
+  then(resolve: Resolve): unknown;
+}
+
+/** A response body as the tests read it. */
+interface ResponseBody {
+  conversations?: Row[];
+  conversation?: Row;
+  messages?: Row[];
+  [key: string]: unknown;
+}
 
 // A single OR clause like "ai_state.is.null" or "ai_state.neq.ai_managed".
 function evalOrClause(row: Row, clause: string): boolean {
@@ -34,7 +77,7 @@ function fakeClient() {
     from(table: string) {
       const rows: Row[] = db[table] || (db[table] = []);
       const filters: Array<(r: Row) => boolean> = [];
-      let inFilter: { col: string; vals: any[] } | null = null;
+      let inFilter: { col: string; vals: unknown[] } | null = null;
       // PostgREST ANDs successive .or() calls together, each one its own
       // group. The list query makes two — one narrowing ai_state, one
       // narrowing assignment scope — and a single slot meant the second
@@ -42,38 +85,38 @@ function fakeClient() {
       // the main queue in the fake but not in production.
       const orGroups: string[][] = [];
       let countMode = false;
-      const builder: any = {
+      const builder: QueryBuilder = {
         select: (_cols?: string, opts?: { count?: string; head?: boolean }) => {
           if (opts?.head) countMode = true;
           return builder;
         },
-        eq(col: string, val: any) { filters.push((r) => r[col] === val); return builder; },
-        neq(col: string, val: any) { filters.push((r) => r[col] !== val); return builder; },
-        is(col: string, val: any) { filters.push((r) => (val === null ? (r[col] === null || r[col] === undefined) : r[col] === val)); return builder; },
-        in(col: string, vals: any[]) { inFilter = { col, vals }; return builder; },
+        eq(col: string, val: unknown) { filters.push((r) => r[col] === val); return builder; },
+        neq(col: string, val: unknown) { filters.push((r) => r[col] !== val); return builder; },
+        is(col: string, val: unknown) { filters.push((r) => (val === null ? (r[col] === null || r[col] === undefined) : r[col] === val)); return builder; },
+        in(col: string, vals: unknown[]) { inFilter = { col, vals }; return builder; },
         or(clauseStr: string) { orGroups.push(clauseStr.split(',')); return builder; },
         order: () => builder,
         limit: () => builder,
-        insert(payload: any) {
+        insert(payload: Row | Row[]) {
           const items = Array.isArray(payload) ? payload : [payload];
           const inserted = items.map((it) => ({ id: it.id ?? crypto.randomUUID(), created_at: new Date().toISOString(), ...it }));
           rows.push(...inserted);
           return {
             select: () => ({ single: async () => ({ data: inserted[0], error: null }) }),
-            then: (resolve: any) => resolve({ data: inserted, error: null }),
+            then: (resolve: Resolve) => resolve({ data: inserted, error: null }),
           };
         },
-        update(patch: any) {
+        update(patch: Row) {
           const scoped: Array<(r: Row) => boolean> = [...filters];
-          const updateBuilder: any = {
-            eq(col: string, val: any) { scoped.push((r: Row) => r[col] === val); return updateBuilder; },
-            is(col: string, val: any) { scoped.push((r: Row) => (val === null ? r[col] == null : r[col] === val)); return updateBuilder; },
+          const updateBuilder: UpdateBuilder = {
+            eq(col: string, val: unknown) { scoped.push((r: Row) => r[col] === val); return updateBuilder; },
+            is(col: string, val: unknown) { scoped.push((r: Row) => (val === null ? r[col] == null : r[col] === val)); return updateBuilder; },
             select() {
               const matched = rows.filter((r) => scoped.every((f) => f(r)));
               for (const r of matched) Object.assign(r, patch);
-              return { then: (resolve: any) => resolve({ data: matched, error: null }) };
+              return { then: (resolve: Resolve) => resolve({ data: matched, error: null }) };
             },
-            then(resolve: any) {
+            then(resolve: Resolve) {
               for (const r of rows) if (scoped.every((f) => f(r))) Object.assign(r, patch);
               return resolve({ data: null, error: null });
             },
@@ -82,10 +125,10 @@ function fakeClient() {
         },
         delete() {
           const scoped: Array<(r: Row) => boolean> = [...filters];
-          const deleteBuilder: any = {
-            eq(col: string, val: any) { scoped.push((r: Row) => r[col] === val); return deleteBuilder; },
-            in(col: string, vals: any[]) { scoped.push((r: Row) => vals.includes(r[col])); return deleteBuilder; },
-            then(resolve: any) {
+          const deleteBuilder: DeleteBuilder = {
+            eq(col: string, val: unknown) { scoped.push((r: Row) => r[col] === val); return deleteBuilder; },
+            in(col: string, vals: unknown[]) { scoped.push((r: Row) => vals.includes(r[col])); return deleteBuilder; },
+            then(resolve: Resolve) {
               db[table] = rows.filter((r) => !scoped.every((f) => f(r)));
               return resolve({ data: null, error: null });
             },
@@ -96,7 +139,7 @@ function fakeClient() {
           const matched = rows.filter((r) => filters.every((f) => f(r)));
           return { data: matched[0] ?? null, error: null };
         },
-        then(resolve: any) {
+        then(resolve: Resolve) {
           let matched = rows.filter((r) => filters.every((f) => f(r)));
           if (inFilter) matched = matched.filter((r) => inFilter!.vals.includes(r[inFilter!.col]));
           for (const group of orGroups) {
@@ -108,7 +151,7 @@ function fakeClient() {
       };
       return builder;
     },
-    rpc: async (name: string, args: any) => {
+    rpc: async (name: string, args: Row) => {
       if (name === 'is_workspace_member') {
         const member = (db.workspace_members || []).find(
           (m) => m.workspace_id === args._workspace_id && m.user_id === args._user_id,
@@ -134,7 +177,7 @@ vi.mock('../../../server/services/auth/sessions.js', () => ({
 vi.mock('../../../server/services/realtime/publish.js', () => ({
   publishConversationEvent: async () => ({ ok: false, reason: 'not_configured' }),
   publishOperatorEvent: async () => ({ ok: false }),
-  buildMessageEnvelope: (m: any) => ({ type: 'message', payload: m }),
+  buildMessageEnvelope: (m: unknown) => ({ type: 'message', payload: m }),
 }));
 vi.mock('../../../server/services/billing/conversationLimit.js', () => ({
   enforceMaxConversationsLimit: async () => true,
@@ -144,7 +187,7 @@ const { conversationsRouter } = await import('../../../server/routes/conversatio
 
 const app = express();
 app.use((req, _res, next) => {
-  (req as any).serverConfig = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'] };
+  Object.assign(req, { serverConfig: { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'] } });
   next();
 });
 app.use(cookieParser());
@@ -152,9 +195,9 @@ app.use(express.json());
 app.use('/api/conversations', conversationsRouter);
 
 const server = http.createServer(app).listen(0);
-const port = () => (server.address() as any).port;
+const port = () => (server.address() as AddressInfo).port;
 
-function call(method: string, path: string, opts: { token?: string; body?: unknown } = {}): Promise<{ status: number; json: any }> {
+function call(method: string, path: string, opts: { token?: string; body?: unknown } = {}): Promise<{ status: number; json: ResponseBody }> {
   return new Promise((resolve, reject) => {
     const bodyStr = opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
     const req = http.request(
@@ -169,7 +212,7 @@ function call(method: string, path: string, opts: { token?: string; body?: unkno
         let d = '';
         res.on('data', (c) => (d += c));
         res.on('end', () => {
-          let json: any = {};
+          let json: ResponseBody = {};
           try { json = JSON.parse(d || '{}'); } catch { json = { raw: d }; }
           resolve({ status: res.statusCode || 0, json });
         });
@@ -220,7 +263,7 @@ describe('GET /api/conversations — inbox list, queue filtering', () => {
   it('lists all workspace conversations for the main queue (excludes spam and automated)', async () => {
     const res = await call('GET', `/api/conversations?workspace_id=${WS}&queue=main`, { token: 'member-token' });
     expect(res.status).toBe(200);
-    const ids = res.json.conversations.map((c: any) => c.id);
+    const ids = res.json.conversations.map((c) => c.id);
     expect(ids).toContain(convOpen);
     expect(ids).toContain(convPending);
     expect(ids).toContain(convNeedsHuman);
@@ -232,28 +275,28 @@ describe('GET /api/conversations — inbox list, queue filtering', () => {
   it('automated queue returns only unassigned ai_managed, non-spam conversations', async () => {
     const res = await call('GET', `/api/conversations?workspace_id=${WS}&queue=automated`, { token: 'member-token' });
     expect(res.status).toBe(200);
-    const ids = res.json.conversations.map((c: any) => c.id);
+    const ids = res.json.conversations.map((c) => c.id);
     expect(ids).toEqual([convAutomated]);
   });
 
   it('spam queue returns only is_spam=true conversations', async () => {
     const res = await call('GET', `/api/conversations?workspace_id=${WS}&queue=spam`, { token: 'member-token' });
     expect(res.status).toBe(200);
-    const ids = res.json.conversations.map((c: any) => c.id);
+    const ids = res.json.conversations.map((c) => c.id);
     expect(ids).toEqual([convSpam]);
   });
 
   it('needs_human filter restricts main queue to ai_state=needs_human', async () => {
     const res = await call('GET', `/api/conversations?workspace_id=${WS}&queue=main&needs_human=true`, { token: 'member-token' });
     expect(res.status).toBe(200);
-    const ids = res.json.conversations.map((c: any) => c.id);
+    const ids = res.json.conversations.map((c) => c.id);
     expect(ids).toEqual([convNeedsHuman]);
   });
 
   it('status filter narrows the main queue to one or more statuses', async () => {
     const res = await call('GET', `/api/conversations?workspace_id=${WS}&queue=main&status=pending`, { token: 'member-token' });
     expect(res.status).toBe(200);
-    const ids = res.json.conversations.map((c: any) => c.id);
+    const ids = res.json.conversations.map((c) => c.id);
     expect(ids).toEqual([convPending]);
   });
 
@@ -357,7 +400,7 @@ describe('GET /api/conversations/:id — one conversation, as a row of the list'
     expect(one.json.conversation.unread_count).toBe(2);
 
     const list = await call('GET', `/api/conversations?workspace_id=${WS}&queue=main`, { token: 'member-token' });
-    const row = (list.json.conversations as Row[]).find((c) => c.id === convOpen);
+    const row = list.json.conversations.find((c) => c.id === convOpen);
     expect(one.json.conversation.unread_count).toBe(row.unread_count);
     expect(one.json.conversation.last_message).toEqual(row.last_message);
   });

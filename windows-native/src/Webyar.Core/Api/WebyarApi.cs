@@ -274,6 +274,35 @@ public sealed partial class WebyarApi
     public Task AddCallNoteAsync(string workspaceId, string callId, string note, CancellationToken ct = default) =>
         _client.SendAsync(HttpMethod.Post, $"/api/call-center/calls/{Uri.EscapeDataString(callId)}/notes", new Dictionary<string, object?> { ["note"] = note }, [Q("workspaceId", workspaceId)], ct);
 
+    /// <summary>A call marked as spam on the desk (or not); a call still waiting leaves the line. No body.</summary>
+    public Task MarkCallSpamAsync(string workspaceId, string callId, bool spam, CancellationToken ct = default) =>
+        _client.SendAsync(HttpMethod.Post, $"/api/call-center/calls/{Uri.EscapeDataString(callId)}/{(spam ? "spam" : "not-spam")}", null, [Q("workspaceId", workspaceId)], ct);
+
+    /// <summary>The calls under way — to notice one a colleague has just handed to this operator.</summary>
+    public async Task<IReadOnlyList<CallSession>> ActiveCallsAsync(string workspaceId, CancellationToken ct = default) =>
+        (await _client.GetAsync<CallsResponse>("/api/call-center/calls", [Q("workspaceId", workspaceId), Q("status", "active"), Q("limit", "20")], ct).ConfigureAwait(false))?.Calls ?? [];
+
+    /// <summary>Who is on the desk and how busy, for the transfer panel.</summary>
+    public async Task<IReadOnlyList<CallAgentPresence>> CallAgentPresenceAsync(string workspaceId, CancellationToken ct = default) =>
+        (await _client.GetAsync<CallPresenceResponse>("/api/call-center/agents/presence", [Q("workspaceId", workspaceId)], ct).ConfigureAwait(false))?.Presence ?? [];
+
+    public async Task<IReadOnlyList<CallDepartment>> CallDepartmentsAsync(string workspaceId, CancellationToken ct = default) =>
+        (await _client.GetAsync<CallDepartmentsResponse>("/api/call-center/departments", [Q("workspaceId", workspaceId)], ct).ConfigureAwait(false))?.Departments ?? [];
+
+    /// <summary>
+    /// Hands a live call to another operator or to a department. The call stays
+    /// up: the new operator joins the same room, and the one handing it on
+    /// leaves without ending it. The reason goes only when there is one.
+    /// </summary>
+    public Task TransferCallAsync(string workspaceId, string callId, string? toAgentId, string? toDepartmentId, string? reason, CancellationToken ct = default)
+    {
+        var body = new Dictionary<string, object?> { ["workspaceId"] = workspaceId };
+        if (!string.IsNullOrEmpty(toAgentId)) body["to_agent_id"] = toAgentId;
+        if (!string.IsNullOrEmpty(toDepartmentId)) body["to_department_id"] = toDepartmentId;
+        if (!string.IsNullOrWhiteSpace(reason)) body["reason"] = reason.Trim();
+        return _client.SendAsync(HttpMethod.Post, $"/api/call-center/calls/{Uri.EscapeDataString(callId)}/transfer", body, [Q("workspaceId", workspaceId)], ct);
+    }
+
     public Task<RealtimeSubscribe> RealtimeInboxSubscribeAsync(string workspaceId, CancellationToken ct = default) =>
         _client.PostAsync<RealtimeSubscribe>("/api/realtime/operator-inbox-subscribe", new Dictionary<string, object?> { ["workspace_id"] = workspaceId }, ct);
 
@@ -348,6 +377,28 @@ public sealed partial class WebyarApi
             var r = await _client.PostAsync<VisitorIntelResponse>("/api/visitor-intel/network/batch",
                 new Dictionary<string, object?> { ["workspace_id"] = workspaceId, ["conversation_ids"] = conversationIds.Take(500).ToArray() }, ct).ConfigureAwait(false);
             return r?.ByConversation ?? new Dictionary<string, VisitorProfile>();
+        }
+        catch (ApiException e) when (e.Failure != ApiFailure.Unauthorized)
+        {
+            return new Dictionary<string, VisitorProfile>();
+        }
+    }
+
+    /// <summary>
+    /// The call center's enrichment: OS and country per caller's visitor
+    /// session, for the callers' faces. The server takes UUIDs only, and one odd
+    /// id would sink the batch, so anything else is left out. Keyed by the ids
+    /// exactly as the server sent them. Decorative: a failure means "no detail".
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, VisitorProfile>> SessionProfilesAsync(string workspaceId, IReadOnlyList<string> sessionIds, CancellationToken ct = default)
+    {
+        var ids = sessionIds.Where(id => Guid.TryParseExact(id, "D", out _)).Distinct(StringComparer.Ordinal).Take(500).ToArray();
+        if (ids.Length == 0) return new Dictionary<string, VisitorProfile>();
+        try
+        {
+            var r = await _client.PostAsync<VisitorIntelResponse>("/api/visitor-intel/network/batch",
+                new Dictionary<string, object?> { ["workspace_id"] = workspaceId, ["session_ids"] = ids }, ct).ConfigureAwait(false);
+            return r?.BySession ?? new Dictionary<string, VisitorProfile>();
         }
         catch (ApiException e) when (e.Failure != ApiFailure.Unauthorized)
         {
@@ -556,7 +607,10 @@ public sealed partial class WebyarApi
     private sealed record ContactResponse(Contact? Contact);
     private sealed record ContactConversationsResponse(IReadOnlyList<ContactConversation>? Conversations);
     private sealed record ContactCallsResponse(IReadOnlyList<ContactCall>? Calls);
-    private sealed record VisitorIntelResponse(Dictionary<string, VisitorProfile>? ByConversation, Dictionary<string, VisitorProfile>? ByContact);
+    // Keyed by ids: the naming policy never touches dictionary keys (Json.Options has no DictionaryKeyPolicy).
+    private sealed record VisitorIntelResponse(Dictionary<string, VisitorProfile>? ByConversation, Dictionary<string, VisitorProfile>? ByContact, Dictionary<string, VisitorProfile>? BySession = null);
+    private sealed record CallPresenceResponse(IReadOnlyList<CallAgentPresence>? Presence);
+    private sealed record CallDepartmentsResponse(IReadOnlyList<CallDepartment>? Departments);
     private sealed record CannedResponsesResponse(IReadOnlyList<CannedResponse>? Items);
     private sealed record EmailThreadsResponse([property: System.Text.Json.Serialization.JsonPropertyName("threads")] IReadOnlyList<EmailThreadSummary>? Threads);
     private sealed record GmailConnectionResponse([property: System.Text.Json.Serialization.JsonPropertyName("connection")] GmailConnection? Connection);

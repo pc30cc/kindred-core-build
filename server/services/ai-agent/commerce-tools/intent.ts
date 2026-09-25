@@ -47,7 +47,7 @@ const AVAILABILITY_KEYWORDS = /موجود(ه|است|ی)?|in stock|available\??|�
 // Checked BEFORE availability, so that the handful of «… دارید؟» questions
 // that are about the shop rather than its catalogue — opening hours,
 // branches, an address — do not get answered with a product's stock level.
-const STORE_INFO_KEYWORDS = /ساعا?ت کاری|فروشگاه شما کجاست|آدرس فروشگاه|شعبه|نمایندگی|store hours|about your store|çalışma saatleri|mağaza adresi/i;
+export const STORE_INFO_KEYWORDS = /(?:نام|اسم)\s*(?:این\s*)?فروشگاه|(?:store|shop)\s*name|name of (?:this|the|your) (?:store|shop)|mağaza(?:nın)? adı|ساعا?ت کاری|فروشگاه شما کجاست|آدرس فروشگاه|شعبه|نمایندگی|store hours|about your store|çalışma saatleri|mağaza adresi/i;
 // A shopper asking what the shop sells, rather than for one named thing.
 // «محصولات الان چی دارید ؟» used to match PRODUCT_INTENT_KEYWORDS on the word
 // «محصول» and be run as a NAME search for the word "products" — which matches

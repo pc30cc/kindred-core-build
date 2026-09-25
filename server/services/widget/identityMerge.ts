@@ -21,6 +21,8 @@ export interface MergeOptions {
   workspaceId: string;
   visitorId: string;
   identity: PreChatIdentityInput;
+  /** Only for server-verified store assertions; reuse an existing customer across devices. */
+  verifiedStoreIdentity?: boolean;
   method: 'cookie' | 'email' | 'phone' | 'token' | 'prechat' | 'manual';
   ipAddress?: string | null;
   /** Country code from Cloudflare's CF-IPCountry header on THIS request
@@ -223,7 +225,10 @@ export async function mergeVisitorIdentity(
   );
 
   // 1. Try to find existing contact by visitor history first (most accurate continuation)
-  let contact = await findContactByVisitorId(supabase, opts.workspaceId, opts.visitorId);
+  let contact = opts.verifiedStoreIdentity
+    ? await findExistingContact(supabase, opts.workspaceId, email, phone)
+    : null;
+  if (!contact) contact = await findContactByVisitorId(supabase, opts.workspaceId, opts.visitorId);
   let isNewContact = false;
 
   // 2. If not found by visitor, try by email/phone (deduplication)
@@ -307,7 +312,8 @@ export async function mergeVisitorIdentity(
 
     if (Object.keys(updates).length > 0) {
       updates.updated_at = new Date().toISOString();
-      await supabase.from('contacts').update(updates).eq('id', contact.id);
+      const { error: updateError } = await supabase.from('contacts').update(updates).eq('id', contact.id);
+      if (updateError) throw new Error(`contact_update_failed: ${updateError.message}`);
     }
 
     // Legacy contact (predates the 021 migration) or one whose earlier

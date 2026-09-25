@@ -8398,6 +8398,7 @@ const tr: TranslationKeys = {
     },
     noSettings: 'Bu eklentinin henüz ayarı yok.',
     opencart: {
+      platform: {"title": "Tüm çalışma alanlarında OpenCart özellikleri", "description": "Kapatılan özellikler önbellekteki yanıtlar dahil tüm çalışma alanlarında engellenir. Değişiklikler 15 saniye içinde uygulanır."},
       name: 'OpenCart',
       description: 'Yapay zekâ asistanı ürün, fiyat, stok ve oturum açmış müşterinin kendi sipariş sorularını OpenCart mağazanızdan canlı olarak yanıtlar.',
       connect: {

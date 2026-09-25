@@ -149,6 +149,21 @@ export default function AdminPluginDetailPage() {
               </div>
             )}
 
+            {item.id === 'opencart' && (
+              <section className="space-y-4 border-t pt-4">
+                <h2 className="font-medium">{t('plugins.opencart.platform.title')}</h2>
+                <p className="text-xs text-muted-foreground">{t('plugins.opencart.platform.description')}</p>
+                {(['products', 'prices', 'stock', 'reviews', 'orders', 'tracking'] as const).map((section) => {
+                  const sections = (item.policy?.opencartSections ?? {}) as Record<string, boolean>;
+                  return <div key={section} className="flex items-center justify-between gap-3">
+                    <Label htmlFor={`opencart-${section}`}>{t(`plugins.opencart.permissions.${section}`)}</Label>
+                    <Switch id={`opencart-${section}`} checked={sections[section] !== false} disabled={update.isPending}
+                      onCheckedChange={(value) => update.mutate({ policy: { ...(item.policy ?? {}), opencartSections: { ...sections, [section]: value } } })} />
+                  </div>;
+                })}
+              </section>
+            )}
+
             {item.id === 'whmcs' && (
               <section className="space-y-4 border-t pt-4">
                 <div>

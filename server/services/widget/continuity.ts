@@ -139,6 +139,12 @@ export function readContinuityCookie(req: Request): string | null {
   return typeof raw === 'string' && raw.length > 20 ? raw : null;
 }
 
+/** Explicit account changes must also discard the contact restore cookie. */
+export function clearContinuityCookie(res: Response, req?: Request | null): void {
+  const secure = isSecureRequest(req ?? null);
+  res.append('Set-Cookie', `${CONTINUITY_COOKIE_NAME}=; Path=/api; HttpOnly; Max-Age=0; SameSite=${secure ? 'None; Secure; Partitioned' : 'Lax'}`);
+}
+
 export interface ResolveContinuityResult {
   valid: boolean;
   contactId?: string;

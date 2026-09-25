@@ -8413,6 +8413,7 @@ const en = {
     },
     noSettings: 'This plugin has no settings yet.',
     opencart: {
+      platform: {"title": "OpenCart features across all workspaces", "description": "Disabled features are blocked for all workspaces, including cached answers. Changes take effect within 15 seconds."},
       name: 'OpenCart',
       description: 'Lets the AI Assistant answer product, price, stock and the signed-in customer\'s own order questions live from your OpenCart store.',
       connect: {

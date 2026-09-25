@@ -24,6 +24,7 @@
  *    against ids kept in conversation metadata — never against text.
  *  - One audit INSERT per turn (all rows of the turn in one statement).
  */
+import { getOpenCartPolicy } from '../../commerce/opencartPolicy.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
@@ -50,7 +51,7 @@ import { flushCommerceToolAudit, type CommerceToolAuditRow } from '../../commerc
 import { buildSearchTerms } from '../../commerce/productIndex.js';
 import { publicCache, liveSingleFlight, PUBLIC_TTL_MS } from '../../commerce/liveGuard.js';
 import { recordLiveRead } from '../../commerce/metrics.js';
-import type { CommerceIntent, FollowUp } from './intent.js';
+import { STORE_INFO_KEYWORDS, type CommerceIntent, type FollowUp } from './intent.js';
 import { MAX_COMMERCE_CALLS_PER_TURN, COMMERCE_TOOL_DEADLINE_MS } from './limits.js';
 
 /** Hard cap on the evidence bytes one turn adds to the prompt. */
@@ -151,7 +152,12 @@ function pick<T>(list: T[], ordinal: number | 'last' | null): T | undefined {
 const CURRENCY_NAMES: Record<string, string> = { IRT: 'Toman', IRR: 'Rial', USD: 'US Dollar', EUR: 'Euro', GBP: 'Pound Sterling', AED: 'UAE Dirham', TRY: 'Turkish Lira' };
 
 export async function runDirectCommerceStage(config: ServerConfig, input: DirectStageInput): Promise<DirectStageResult> {
-  const { connection, intent, followUp } = input;
+  const { intent, followUp } = input;
+  const policy = await getOpenCartPolicy(config);
+  if (!policy.enabled) throw new CommerceError('commerce_permission_denied', 'OpenCart disabled by platform');
+  const permissions = { ...input.connection.permissions };
+  for (const [key, allowed] of Object.entries(policy.sections)) if (allowed === false) permissions[key] = false;
+  const connection = { ...input.connection, permissions };
   const correlationId = input.correlationId ?? randomUUID();
   const deadlineAt = Date.now() + COMMERCE_TOOL_DEADLINE_MS;
   const results: ReadOnlyToolResult[] = [];
@@ -195,7 +201,7 @@ export async function runDirectCommerceStage(config: ServerConfig, input: Direct
   const customerKey = customer ? `c:${customer.externalCustomerId}:g${customerGroup ?? '?'}` : 'guest';
 
   // ── the one path to the store ─────────────────────────────────────────
-  const live = async <T>(tool: string, capability: CommerceCapability, permission: CommercePermissionKey, run: (c: DirectCommerceConnector, ctx: CommerceConnectorContext, onMeta: (m: DirectReadMeta) => void) => Promise<T>): Promise<T | null> => {
+  const live = async <T>(tool: string, capability: CommerceCapability, permission: CommercePermissionKey | undefined, run: (c: DirectCommerceConnector, ctx: CommerceConnectorContext, onMeta: (m: DirectReadMeta) => void) => Promise<T>): Promise<T | null> => {
     if (meta.storeCalls >= MAX_COMMERCE_CALLS_PER_TURN || Date.now() >= deadlineAt) {
       results.push({ name: tool, data: { error_code: 'turn_budget_exhausted' } });
       return null;
@@ -230,7 +236,7 @@ export async function runDirectCommerceStage(config: ServerConfig, input: Direct
    * reference that the store answered as a guest can never be cached as that
    * customer's (or group's) prices, and the reverse.
    */
-  const publicRead = async <T extends { context?: StoreContext | null }>(tool: string, capability: CommerceCapability, permission: CommercePermissionKey, input_: unknown, ttl: number, fresh: boolean, run: (c: DirectCommerceConnector, ctx: CommerceConnectorContext, onMeta: (m: DirectReadMeta) => void) => Promise<T>, contextFree = false): Promise<T | null> => {
+  const publicRead = async <T extends { context?: StoreContext | null }>(tool: string, capability: CommerceCapability, permission: CommercePermissionKey | undefined, input_: unknown, ttl: number, fresh: boolean, run: (c: DirectCommerceConnector, ctx: CommerceConnectorContext, onMeta: (m: DirectReadMeta) => void) => Promise<T>, contextFree = false): Promise<T | null> => {
     const base = [connection.id, connection.installation_id, connection.external_store_id ?? '', tool, language ?? '', stable(input_)].join('|');
     // Reviews and categories carry no price or stock: one entry serves everyone.
     const key = `${base}|${contextFree ? 'any' : customerKey}`;
@@ -333,7 +339,7 @@ export async function runDirectCommerceStage(config: ServerConfig, input: Direct
     if (!t) return;
     if (!t.available) {
       // Said plainly, so nothing gets invented to fill the gap.
-      results.push({ name: 'commerce.tracking', data: { order_id: t.externalOrderId, tracking_available: false, reason: t.reason ?? 'no_tracking_source' } });
+      results.push({ name: 'commerce.tracking', data: { order_id: t.externalOrderId, tracking_available: false, reason: t.reason ?? 'no_tracking_source', note: 'No structured carrier feed is connected. Order history may still contain a merchant-provided tracking code; quote it as recorded, without claiming live carrier verification or inventing a tracking URL.' } });
       return;
     }
     for (const s of t.shipments) results.push({ name: 'commerce.tracking', data: { order_id: t.externalOrderId, tracking_available: true, carrier: s.carrier, tracking_number: s.trackingNumber, tracking_url: s.trackingUrl, status: s.status, updated_at: s.updatedAt } });
@@ -374,6 +380,13 @@ export async function runDirectCommerceStage(config: ServerConfig, input: Direct
   };
 
   try {
+    if (intent.kind === 'store_info' || STORE_INFO_KEYWORDS.test(input.question)) {
+      const info = await publicRead('commerce.get_store_info', 'store.read', undefined, {}, PUBLIC_TTL_MS.categories, false, async (c, ctx) => ({ ...(await c.getStoreInfo(ctx)), context: null }), true);
+      if (info) {
+        results.push({ name: 'commerce.store', data: { name: info.name, store_url: connection.store_id, name_source: 'store_settings' } });
+        allowedUrls.add(connection.store_id);
+      }
+    }
     const refProduct = refs.last === 'products' ? pick(refs.products, followUp.ordinal) : undefined;
     const refOrder = refs.last === 'orders' ? pick(refs.orders, followUp.ordinal) : undefined;
 
@@ -455,8 +468,6 @@ export async function runDirectCommerceStage(config: ServerConfig, input: Direct
           break;
         }
         case 'store_info':
-          results.push({ name: 'commerce.store', data: { store_url: connection.store_id } });
-          allowedUrls.add(connection.store_id);
           break;
         default:
           break;

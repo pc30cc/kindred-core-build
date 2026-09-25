@@ -388,17 +388,25 @@
     // request before Express ever reaches this endpoint's own mount. A
     // cookie-only call was answered with {"code":"MISSING_TOKEN"} against the
     // live API, which is how this was found.
+    var abort = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var deadline = setTimeout(function () { if (abort) abort.abort(); }, 4000);
     try {
-      fetch(apiBase + "/api/widget/commerce/identity", {
+      return fetch(apiBase + "/api/widget/commerce/identity", {
         method: "POST",
+        signal: abort ? abort.signal : undefined,
         credentials: "include",           // the visitor cookie bootstrap just set
         headers: { "Content-Type": "application/json", "X-Widget-Token": token },
         body: JSON.stringify(body),
       }).then(function (r) {
-        if (r.ok) rememberBinding(workspaceId, binding);
+        clearTimeout(deadline);
+        if (r.ok) {
+          rememberBinding(workspaceId, binding);
+          var instance = runtimeInstanceRef();
+          if (instance && instance.refreshIdentity) instance.refreshIdentity();
+        } else { _commerceBound = false; }
         log("commerce identity:", r.ok ? "linked" : "not linked (" + r.status + ")");
-      }).catch(function () { /* offline or blocked — stay anonymous */ });
-    } catch (_) { /* no fetch — stay anonymous */ }
+      }).catch(function () { clearTimeout(deadline); _commerceBound = false; });
+    } catch (_) { clearTimeout(deadline); _commerceBound = false; }
   }
 
   // ─── Lazy store identity (OpenCart and any store that opts in) ───
@@ -462,9 +470,10 @@
     if (!subject || !workspaceId) return false;
     var key = "gs:csub:" + workspaceId;
     var previous = null;
-    try { previous = window.localStorage.getItem(key); } catch (_) { return false; }
+    try { previous = window.localStorage.getItem(key); } catch (_) { return attr("data-commerce-context-eager") === "true"; }
     try { window.localStorage.setItem(key, subject); } catch (_) {}
-    return !!previous && previous.charAt(0) === "u" && previous !== subject;
+    return (!previous && attr("data-commerce-context-eager") === "true")
+      || (!!previous && previous.charAt(0) === "u" && previous !== subject);
   }
 
   function getApiBase() {
@@ -1119,7 +1128,7 @@
         // credentials this endpoint needs — the visitor cookie it reads the
         // identity from and the session token it is gated on — so this is the
         // earliest point the link can be made.
-        bindCommerceIdentity(apiBase, WORKSPACE_ID, sessionToken);
+        var identityReady = bindCommerceIdentity(apiBase, WORKSPACE_ID, sessionToken);
 
         // Phase 6C — stash the effective realtime policy snapshot from
         // bootstrap so the runtime can honor degraded/force_polling/typing
@@ -1132,7 +1141,7 @@
           }
         } catch (_) {}
 
-        return fetchWithRetry(
+        var configRequest = fetchWithRetry(
           apiBase + "/api/widget/config?workspace_id=" + encodeURIComponent(WORKSPACE_ID),
           {
             credentials: "include",
@@ -1140,6 +1149,7 @@
           },
           3
         );
+        return Promise.all([configRequest, identityReady]).then(function (ready) { return ready[0]; });
       })
       .then(function (r) {
         if (!r) return null;
@@ -3299,10 +3309,39 @@
     return "Other";
   }
 
+  // OpenCart opts into identity before bootstrap: login upgrades the SAME
+  // guest; logout/account switch requests a fresh visitor before history loads.
+  // The response is never cached or embedded in cacheable storefront HTML.
+  function prepareStoreIdentity() {
+    if (attr("data-commerce-context-eager") !== "true") { bootstrap(); return; }
+    var url;
+    try {
+      url = new URL(attr("data-commerce-context-url"), window.location.href);
+      if (url.origin !== window.location.origin) { bootstrap(); return; }
+    } catch (_) { bootstrap(); return; }
+    var controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timer = setTimeout(function () { if (controller) controller.abort(); }, 4000);
+    fetch(url.href, { credentials: "same-origin", cache: "no-store",
+      headers: { Accept: "application/json" }, signal: controller ? controller.signal : undefined })
+      .then(function (r) { if (!r.ok) throw new Error("store_context_failed"); return r.json(); })
+      .then(function (ctx) {
+        if (ctx && ctx.subject && /^(anon|u[a-f0-9]{64})$/.test(ctx.subject)) {
+          _loaderScript.setAttribute("data-commerce-subject", ctx.subject);
+        }
+        if (ctx && ctx.signed_in === false) _loaderScript.setAttribute("data-commerce-subject", "anon");
+        if (ctx && ctx.assertion) _loaderScript.setAttribute("data-commerce-assertion", String(ctx.assertion));
+        _commerceContextChecked = true;
+      }).catch(function () {
+        // A previous account must never restore private history while the
+        // store cannot establish who is now signed in.
+        _loaderScript.setAttribute("data-commerce-subject", "anon");
+      }).then(function () { clearTimeout(timer); bootstrap(); });
+  }
+
   // ─── Boot ───
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", bootstrap);
+    document.addEventListener("DOMContentLoaded", prepareStoreIdentity);
   } else {
-    bootstrap();
+    prepareStoreIdentity();
   }
 })();

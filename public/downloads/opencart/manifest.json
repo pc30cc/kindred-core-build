@@ -1,6 +1,6 @@
 {
   "slug": "webyar-opencart",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "protocol": "webyar-commerce/1",
   "packages": [
     {
@@ -12,7 +12,7 @@
       "php": ">=8.1",
       "path": "/downloads/opencart/4.1/webyar.ocmod.zip",
       "file": "webyar.ocmod.zip",
-      "sha256": "ed686d43c818e3bf008b447123da377b73cd7f2b0f83278c0263ec80a1c10bdc"
+      "sha256": "dd04c7c447f8ca001bf37206b6692b8a1209583c5cabeab8229abd3691a4f2bc"
     },
     {
       "opencart": "3.0.5.x",
@@ -22,7 +22,7 @@
       "php": ">=8.1",
       "path": "/downloads/opencart/3.0/webyar-oc3.ocmod.zip",
       "file": "webyar-oc3.ocmod.zip",
-      "sha256": "3664ecee369a5497fa1c0fac6bb4b40956b494ed42b5bbd13150c83ecff0d801"
+      "sha256": "744e32015e1ed698be4e86f448df9dbe415417ee15e283bfa1fdba946e42c63f"
     }
   ]
 }

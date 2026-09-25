@@ -12,6 +12,7 @@ import { getServiceClient } from '../../supabase.js';
 import { CommerceError } from '../../../shared/commerce/types.js';
 import { readInstallationSecret } from './credentials.js';
 import { ensureVisitorContact } from '../widget/anonymousContact.js';
+import { syncStoreContact } from './storeContact.js';
 import { isDirectProvider } from './providers.js';
 
 const ASSERTION_MAX_AGE_MS = 2 * 60 * 1000; // the plugin issues a fresh one every load — matches spec's "short-lived (2 minute)"
@@ -156,6 +157,16 @@ export async function verifyAndBindCustomerContext(
     .limit(1)
     .maybeSingle();
 
+  if (direct && existing && String(existing.external_customer_id) !== externalCustomerId) {
+    throw new CommerceError('identity_expired', 'store customer changed; fresh visitor required');
+  }
+
+  // Store identity must also upgrade an existing anonymous contact.
+  // Do this before the no-write link fast path so old installs heal on next login.
+  if (direct && (!existing || String(existing.external_customer_id) === externalCustomerId)) {
+    await syncStoreContact(config, sb, workspaceId, visitorId, payload);
+  }
+
   let outcome: BindResult['outcome'];
   if (!existing) {
     const { error } = await sb.from('commerce_customer_links').insert({
@@ -197,7 +208,7 @@ export async function verifyAndBindCustomerContext(
   // instead of an anonymous visitor. Best effort on purpose: the link above
   // is what makes order questions answerable, and it must not be undone
   // because a contact row could not be written.
-  await ensureVisitorContact(sb, {
+  if (!direct) await ensureVisitorContact(sb, {
     workspaceId,
     visitorId,
     name: payload.name ?? null,

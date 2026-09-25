@@ -32,6 +32,7 @@ const guestCtx = { storeId: '0', language: 'en-gb', currency: 'USD', customerGro
 const fakeConnector = {
   providerType: 'opencart',
   searchStrategy: 'direct',
+  async getStoreInfo() { calls.push({ op: 'store', args: [] }); return { name: 'فروشگاه نمونه وب‌یار', currency: 'IRT', url: 'https://shop.example/', catalogReady: true, productCount: null }; },
   async searchDirect(_c: unknown, f: DirectSearchFilters, o: DirectReadOptions) { calls.push({ op: 'search', args: [f, o] }); return searchResult(f, o); },
   async getProductDetails(_c: unknown, ids: string[], o: DirectReadOptions) {
     calls.push({ op: 'details', args: [ids, o] });
@@ -209,6 +210,7 @@ describe('private data', () => {
     link();
     const r = await ask('has my last order shipped? tracking number?');
     expect(named(r, 'commerce.tracking')[0]).toMatchObject({ tracking_available: false, reason: 'no_tracking_source' });
+    expect(named(r, 'commerce.tracking')[0].note).toContain('Order history may still contain');
   });
 
   it('reports the identity cutoff so earlier turns are not shown to the model', async () => {
@@ -296,4 +298,26 @@ describe('what the model is handed', () => {
     const r = await ask('do you have a macbook?');
     expect(named(r, 'commerce.search_meta')[0]).toMatchObject({ has_more: true, semantic_search: false });
   });
+});
+
+ describe('store identity evidence', () => {
+  it('reads the exact configured name and shares its public cache', async () => {
+    const first = await ask('نام این فروشگاه چیست؟');
+    expect(named(first, 'commerce.store')[0]).toMatchObject({ name: 'فروشگاه نمونه وب‌یار', name_source: 'store_settings' });
+    await ask('what is your store name?');
+    expect(calls.filter(c => c.op === 'store')).toHaveLength(1);
+  });
+  it('keeps store identity when the same question also asks about an order', async () => {
+    link();
+    const result = await ask('نام این فروشگاه چیست؟ سفارش ۵۰۰۲ من کجاست؟');
+    expect(named(result, 'commerce.store')[0]).toMatchObject({ name: 'فروشگاه نمونه وب‌یار' });
+    expect(calls.some(c => c.op === 'order')).toBe(true);
+  });
+});
+
+it('store identity does not require catalog or private-order permissions', async () => {
+  seed({ products: false, prices: false, stock: false, orders: false, tracking: false });
+  const result = await ask('نام فروشگاه چیست؟');
+  expect(named(result, 'commerce.store')[0]).toMatchObject({ name: 'فروشگاه نمونه وب‌یار' });
+  expect(calls.map(c => c.op)).toEqual(['store']);
 });

@@ -32,7 +32,7 @@ msgid "Connect your store"
 msgstr "اتصال فروشگاه"
 
 msgid "Connect your store to WebYar to answer customers using your products, prices, stock, and orders."
-msgstr "فروشگاه خود را به وب‌یار وصل کنید تا دستیار بتواند با داده‌ی واقعی فروشگاه: محصول، قیمت، موجودی و سفارش: به مشتری‌های شما پاسخ بدهد."
+msgstr "فروشگاه را متصل کنید تا دستیار بر اساس محصول، قیمت، موجودی و سفارش پاسخ دهد."
 
 msgid "Connected at"
 msgstr "زمان اتصال"
@@ -158,7 +158,7 @@ msgid "WebYar dashboard"
 msgstr "داشبورد وب‌یار"
 
 msgid "WebYar for WooCommerce"
-msgstr "اتصال‌دهنده‌ی وب‌یار برای ووکامرس"
+msgstr "وب‌یار برای ووکامرس"
 
 msgid "WebYar for WooCommerce does not support network activation. Activate it separately on each site."
 msgstr "افزونه‌ی اتصال‌دهنده‌ی وب‌یار برای ووکامرس از فعال‌سازی شبکه‌ای پشتیبانی نمی‌کند. لطفاً آن را به‌صورت جداگانه در هر سایت فعال کنید."

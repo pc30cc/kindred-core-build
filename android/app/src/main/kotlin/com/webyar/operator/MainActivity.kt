@@ -115,7 +115,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleNotificationTap(intent: Intent?) {
-        val link = PushPayload.from(intent) ?: return
+        // Reopened from Recents after the process died: the system hands back
+        // the intent that first launched it, and that tap was already followed.
+        if (intent == null || intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
+        // This activity is exported; extras another app put there are not
+        // worth a crash at launch.
+        val link = runCatching { PushPayload.from(intent) }.getOrNull() ?: return
         appState.openFromNotification(link)
         link.conversationId?.let { Notifications.cancelConversation(this, it) }
     }

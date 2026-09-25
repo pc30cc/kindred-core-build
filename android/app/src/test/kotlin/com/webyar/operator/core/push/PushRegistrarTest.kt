@@ -126,6 +126,19 @@ class PushRegistrarTest {
     }
 
     @Test
+    fun `a sign-out that fails leaves the device registered again on the next sync`() = runTest {
+        registrar.bind(PushSession("user-a", "ws-1"), "sign-in")
+
+        // The device row is gone, then the server refuses the sign-out: the
+        // operator is still signed in and must still get notifications.
+        registrar.beforeSignOut()
+
+        assertEquals(PushResult.REGISTERED, registrar.sync("foreground"))
+        assertEquals(2, api.registrations.size)
+        assertEquals(0, tokens.deleted)
+    }
+
+    @Test
     fun `the next operator registers a new token under their own account`() = runTest {
         registrar.bind(PushSession("user-a", "ws-1"), "sign-in")
         registrar.beforeSignOut()

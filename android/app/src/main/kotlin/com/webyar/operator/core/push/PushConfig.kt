@@ -36,6 +36,14 @@ object PushConfig {
             BuildConfig.FIREBASE_SENDER_ID.isNotBlank()
 
     /**
+     * Configured AND started. A build with the fields filled in whose
+     * [initialize] failed must not reach `FirebaseMessaging.getInstance()`,
+     * which would throw on every sync and queue retries for nothing.
+     */
+    fun isReady(context: Context): Boolean =
+        isConfigured && runCatching { FirebaseApp.getApps(context).isNotEmpty() }.getOrDefault(false)
+
+    /**
      * Starts the default Firebase app, once. False — and push stays off for
      * this build — when the build carries no configuration. Cheap: no
      * network, no token; the token is asked for only once somebody signs in.

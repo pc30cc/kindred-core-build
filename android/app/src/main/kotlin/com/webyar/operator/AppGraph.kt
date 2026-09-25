@@ -136,7 +136,7 @@ class AppGraph(private val app: Application) {
 
     val push = PushRegistrar(
         api = api,
-        tokens = FirebasePushTokens { PushConfig.isConfigured && !Backend.isSample },
+        tokens = FirebasePushTokens { PushConfig.isReady(app) && !Backend.isSample },
         state = StoredPushState(secureStore),
         permission = { PushDevice.permissionOf(app) },
         device = PushDevice.info(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE),

@@ -168,6 +168,11 @@ class PushRegistrar(
                 val removed = unregisterQuietly()
                 diag.info(AREA, "sign-out: device ${if (removed) "unregistered" else "could not be unregistered"}")
             }
+            // Forget the fingerprint now, not only in afterSignOut: if the
+            // sign-out itself then fails, the operator is still signed in and
+            // the next sync must register this device again rather than
+            // find it "unchanged" while the server has no row for it.
+            state.setLastRegistration(null, clock())
         }
     }
 

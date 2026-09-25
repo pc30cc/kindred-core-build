@@ -26,13 +26,13 @@ msgid "Connect to WebYar"
 msgstr "اتصال به وب‌یار"
 
 msgid "Connect your WooCommerce store to WebYar for product answers, order status, and shipment tracking."
-msgstr "پل ارتباطی سبک و امن میان فروشگاه ووکامرس شما و دستیار هوش مصنوعی وب‌یار. بدون موتور هوش مصنوعی، بدون ساخت پرامپت، بدون نمایه‌سازی محصولات — فقط داده‌ی نوع‌دار و امضاشده برای محصولات، موجودی، سفارش‌ها و رهگیری مرسوله. تمام هوش مصنوعی روی سرورهای وب‌یار اجرا می‌شود."
+msgstr "فروشگاه ووکامرس را برای پاسخ‌گویی درباره محصولات، سفارش‌ها و رهگیری به وب‌یار متصل کنید."
 
 msgid "Connect your store"
 msgstr "اتصال فروشگاه"
 
 msgid "Connect your store to WebYar to answer customers using your products, prices, stock, and orders."
-msgstr "فروشگاه خود را به وب‌یار وصل کنید تا دستیار بتواند با داده‌ی واقعی فروشگاه — محصول، قیمت، موجودی و سفارش — به مشتری‌های شما پاسخ بدهد."
+msgstr "فروشگاه خود را به وب‌یار وصل کنید تا دستیار بتواند با داده‌ی واقعی فروشگاه: محصول، قیمت، موجودی و سفارش: به مشتری‌های شما پاسخ بدهد."
 
 msgid "Connected at"
 msgstr "زمان اتصال"
@@ -47,13 +47,13 @@ msgid "Connection test requested."
 msgstr "درخواست تست اتصال ارسال شد."
 
 msgid "Could not connect to %1$s: %2$s"
-msgstr "اتصال به %1$s برقرار نشد — %2$s"
+msgstr "اتصال به %1$s برقرار نشد: %2$s"
 
 msgid "Could not finish connecting to WebYar: %s"
-msgstr "اتصال به وب‌یار برای تکمیل فرآیند برقرار نشد — %s"
+msgstr "اتصال به وب‌یار برای تکمیل فرآیند برقرار نشد: %s"
 
 msgid "Could not reach WebYar: %s"
-msgstr "ارتباط با وب‌یار برقرار نشد — %s"
+msgstr "ارتباط با وب‌یار برقرار نشد: %s"
 
 msgid "Disconnect"
 msgstr "قطع اتصال"
@@ -125,7 +125,7 @@ msgid "Technical details"
 msgstr "جزئیات فنی"
 
 msgid "Technical details: %d failed events"
-msgstr "جزئیات فنی — %d رویداد ناموفق"
+msgstr "جزئیات فنی: %d رویداد ناموفق"
 
 msgid "Test connection"
 msgstr "تست اتصال"
@@ -134,10 +134,10 @@ msgid "The URL you use to sign in to WebYar."
 msgstr "همان آدرسی که با آن وارد حساب وب‌یار خود می‌شوید."
 
 msgid "The connection request did not match. Please try again."
-msgstr "عدم تطابق در فرآیند اتصال — لطفاً دوباره تلاش کنید."
+msgstr "عدم تطابق در فرآیند اتصال: لطفاً دوباره تلاش کنید."
 
 msgid "The connection request expired. Please try again."
-msgstr "زمان درخواست اتصال به پایان رسید — لطفاً دوباره تلاش کنید."
+msgstr "زمان درخواست اتصال به پایان رسید: لطفاً دوباره تلاش کنید."
 
 msgid "The store is not connected to WebYar."
 msgstr "فروشگاه به وب‌یار متصل نیست."
@@ -164,7 +164,7 @@ msgid "WebYar for WooCommerce does not support network activation. Activate it s
 msgstr "افزونه‌ی اتصال‌دهنده‌ی وب‌یار برای ووکامرس از فعال‌سازی شبکه‌ای پشتیبانی نمی‌کند. لطفاً آن را به‌صورت جداگانه در هر سایت فعال کنید."
 
 msgid "WebYar for WooCommerce requires PHP 7.4+, WordPress 6.0+, and active WooCommerce 8.0+. The plugin stays inactive until these requirements are met."
-msgstr "افزونه‌ی اتصال‌دهنده‌ی وب‌یار برای ووکامرس نیاز به PHP نسخه‌ی ۷.۴ به بالا، وردپرس ۶.۰ به بالا و ووکامرس ۸.۰ به بالا (فعال) دارد. تا زمانی که این پیش‌نیازها فراهم نشوند، افزونه غیرفعال می‌ماند — فروشگاه شما تحت تأثیر قرار نمی‌گیرد."
+msgstr "افزونه‌ی اتصال‌دهنده‌ی وب‌یار برای ووکامرس نیاز به PHP نسخه‌ی ۷.۴ به بالا، وردپرس ۶.۰ به بالا و ووکامرس ۸.۰ به بالا (فعال) دارد. تا زمانی که این پیش‌نیازها فراهم نشوند، افزونه غیرفعال می‌ماند: فروشگاه شما تحت تأثیر قرار نمی‌گیرد."
 
 msgid "WebYar rejected the connection confirmation."
 msgstr "وب‌یار درخواست نهایی‌سازی اتصال را رد کرد."
@@ -173,7 +173,7 @@ msgid "WebYar rejected the connection request (code %1$d) at %2$s. Check the URL
 msgstr "وب‌یار درخواست اتصال را رد کرد (کد %1$d) در آدرس %2$s. بررسی کنید آدرس وب‌یار درست و در دسترس باشد."
 
 msgid "WebYar rejected the last signed request with code %1$d at %2$s. Disconnect and reconnect your store."
-msgstr "وب‌یار آخرین درخواست امضاشده را با کد %1$d رد کرد (%2$s). معمولاً یعنی کلید اتصال در وب‌یار چرخانده یا باطل شده — یک بار «قطع اتصال» و دوباره «اتصال به وب‌یار» را بزنید."
+msgstr "وب‌یار آخرین درخواست امضاشده را با کد %1$d رد کرد (%2$s). معمولاً یعنی کلید اتصال در وب‌یار چرخانده یا باطل شده: یک بار «قطع اتصال» و دوباره «اتصال به وب‌یار» را بزنید."
 
 msgid "WebYar rejected this request (code %d)."
 msgstr "وب‌یار این درخواست را رد کرد (کد %d)."

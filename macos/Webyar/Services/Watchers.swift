@@ -295,11 +295,21 @@ final class EngagementService {
     func stop() {
         loops.forEach { $0.cancel() }
         loops = []
-        if app.user != nil {
+        if app.user != nil, !saidGoodbye {
             let id = sessionId
             Task { try? await app.api.desktopGoodbye(sessionId: id) }
         }
+        saidGoodbye = false
     }
+
+    /// Before signing out: the goodbye needs the session, which the sign-out ends.
+    func sayGoodbye() async {
+        guard app.user != nil, !saidGoodbye else { return }
+        saidGoodbye = true
+        try? await app.api.desktopGoodbye(sessionId: sessionId)
+    }
+
+    @ObservationIgnored private var saidGoodbye = false
 
     /// A new workspace or language: fetch again at once.
     func refresh() { Task { await loadCampaigns() } }

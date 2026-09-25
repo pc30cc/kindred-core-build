@@ -79,6 +79,8 @@ final class AppModel {
     private(set) var isForeground = true
     /// SwiftUI's openSettings, handed over by the window (macOS 14 has no selector for it).
     @ObservationIgnored var showSettings: (() -> Void)?
+    /// Bumped by each workspace start and by sign-out, so a start still waiting on the plan knows it is stale.
+    @ObservationIgnored private var openGeneration = 0
 
     private(set) var unread = 0
     private(set) var counts = SidebarCounts()
@@ -279,12 +281,19 @@ final class AppModel {
     /// not show and then hide sections), then realtime, presence and the shell.
     private func openWorkspace() async {
         resetPlan()
+        openGeneration += 1
+        let gen = openGeneration
+        // Wait for the plan up to five seconds, but never cancel it: on a slow link it must still
+        // arrive, not leave the plan "loading" (sections hidden, calls not ringing) until the next poll.
+        let plan = Task { await self.loadPlan() }
         await withTaskGroup(of: Void.self) { group in
-            group.addTask { await self.loadPlan() }
+            group.addTask { await plan.value }
             group.addTask { try? await Task.sleep(nanoseconds: 5_000_000_000) }
             await group.next()
             group.cancelAll()
         }
+        // Signed out, or another workspace opened, while the plan was awaited: this start is stale.
+        guard gen == openGeneration, phase != .signedOut else { return }
         startRealtime()
         await startPresence()
         startShell()
@@ -322,6 +331,7 @@ final class AppModel {
     #endif
 
     func signOut() async {
+        await engagement.sayGoodbye()
         do {
             try await client.logout()
         } catch {
@@ -335,6 +345,7 @@ final class AppModel {
     /// The server no longer knows this session (or the operator signed out).
     func signedOut() {
         guard phase != .signedOut else { return }
+        openGeneration += 1
         // Nothing would be left on screen to hang up with, and the microphone would stay live.
         CallCoordinator.shared.hangUpForQuit()
         stopShell()
@@ -504,6 +515,8 @@ final class AppModel {
     // MARK: Shell pollers
 
     private func startShell() {
+        // Never two sets of pollers: a replaced poller would keep running on its own.
+        stopShell()
         guard let ws = workspace else { return }
         countsPoller = Poller("sidebar counts", interval: { 15 }) { [weak self] in try await self?.loadSidebar(ws.id) }
         countsPoller?.start()
@@ -535,6 +548,9 @@ final class AppModel {
 
     private func loadSidebar(_ workspaceId: String) async throws {
         counts = try await api.sidebarCounts(workspaceId: workspaceId)
+        // Launched offline: who is signed in is still unknown, and "assign to me", handed calls
+        // and the "assigned" notices all need it.
+        if user == nil, let me = try? await api.currentUser() { user = me }
         // "Other inboxes" is for owners and admins only, as on the web.
         guard !channelsLoaded, plan.isAdmin else { return }
         channelsLoaded = true
@@ -542,6 +558,9 @@ final class AppModel {
             channels = try await api.pluginInboxes(workspaceId: workspaceId)
         } catch let e as ApiError where [401, 403, 404].contains(e.status ?? 0) {
             // Everyone else simply has no "Other inboxes".
+        } catch {
+            // Offline or a server error: ask again on the next round.
+            channelsLoaded = false
         }
     }
 

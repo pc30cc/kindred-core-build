@@ -129,7 +129,8 @@ enum JSON {
             s.replaceSubrange(s.index(s.startIndex, offsetBy: 10)...s.index(s.startIndex, offsetBy: 10), with: "T")
         }
         // "+00" → "+00:00"
-        if let r = s.range(of: #"[+-]\d{2}$"#, options: .regularExpression) { s.replaceSubrange(r, with: s[r] + ":00") }
+        // (Only after a time: in a bare date "2025-01-02" the "-02" is the day.)
+        if s.count > 10, let r = s.range(of: #"[+-]\d{2}$"#, options: .regularExpression) { s.replaceSubrange(r, with: s[r] + ":00") }
         // No zone at all: UTC, as the server writes it.
         if s.count == 19 || (s.contains(".") && s.range(of: #"(Z|[+-]\d{2}:\d{2})$"#, options: .regularExpression) == nil && s.count > 19) {
             s += "Z"

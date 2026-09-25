@@ -77,7 +77,8 @@ final class WebyarAPI {
     static func queue(of filter: InboxFilter) -> ApiClient.Query {
         switch filter {
         case .open: return [("queue", "main"), ("status", "open")]
-        case .needsHuman: return [("queue", "main"), ("status", "open"), ("needsHuman", "true")]
+        // The server reads `needs_human` (snake case), and counts every status but closed, as the badge does.
+        case .needsHuman: return [("queue", "main"), ("status", "open,pending,resolved"), ("needs_human", "true")]
         case .pending: return [("queue", "main"), ("status", "pending")]
         case .resolved: return [("queue", "main"), ("status", "resolved")]
         case .ai: return [("queue", "automated")]

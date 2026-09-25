@@ -192,11 +192,9 @@ final class ApiClient {
         return out
     }
 
-    private static let allowed: CharacterSet = {
-        var s = CharacterSet.alphanumerics
-        s.insert(charactersIn: "-._~")
-        return s
-    }()
+    /// RFC 3986's unreserved characters, ASCII only: `alphanumerics` would let Persian or Turkish
+    /// letters through unencoded, and a query with them in it is refused by URLComponents.
+    private static let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
 
     static func escape(_ s: String) -> String {
         s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s

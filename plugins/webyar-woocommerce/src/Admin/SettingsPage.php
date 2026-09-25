@@ -21,12 +21,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  * for the one day something breaks, so it sits behind a disclosure instead
  * of competing with the three things that matter.
  *
- * All strings are Persian by default — Web Yar's audience is Persian-
- * speaking Iranian merchants, so this screen must read correctly regardless
- * of the WordPress site's own locale setting. Strings still go through
- * __()/esc_html_e() (text domain webyar-woocommerce) so a site that DOES
- * need a different language can still override them with a standard
- * WordPress translation file.
+ * WordPress selects the translation for the current admin language.
+ * English is the source locale, and Persian is shipped in languages/.
  */
 final class SettingsPage {
 
@@ -52,8 +48,8 @@ final class SettingsPage {
 
 	public function add_menu(): void {
 		add_menu_page(
-			__( 'وب‌یار', 'webyar-woocommerce' ),
-			__( 'وب‌یار', 'webyar-woocommerce' ),
+			__( 'WebYar', 'webyar-woocommerce' ),
+			__( 'WebYar', 'webyar-woocommerce' ),
 			Capabilities::MANAGE_CAPABILITY,
 			self::PAGE_SLUG,
 			array( $this, 'render' ),
@@ -68,7 +64,7 @@ final class SettingsPage {
 			return;
 		}
 
-		$font_url = (string) apply_filters( 'webyar_wc_admin_font_url', self::FONT_URL );
+		$font_url = is_rtl() ? (string) apply_filters( 'webyar_wc_admin_font_url', self::FONT_URL ) : '';
 		if ( '' !== $font_url ) {
 			// phpcs:ignore WordPress.WP.EnqueuedResourceParameters.MissingVersion -- Google Fonts URLs are already versioned by their query string; appending ?ver= breaks the request.
 			wp_enqueue_style( 'webyar-wc-admin-font', $font_url, array(), null );
@@ -84,7 +80,7 @@ final class SettingsPage {
 
 	public function render(): void {
 		if ( ! Capabilities::current_user_can_manage() ) {
-			wp_die( esc_html__( 'شما اجازه‌ی دسترسی به این صفحه را ندارید.', 'webyar-woocommerce' ) );
+			wp_die( esc_html__( 'You cannot access this page.', 'webyar-woocommerce' ) );
 		}
 
 		$credential = CredentialStore::get();
@@ -96,12 +92,12 @@ final class SettingsPage {
 		$notice_type    = isset( $_GET['webyar_notice'] ) ? sanitize_key( $_GET['webyar_notice'] ) : null; // phpcs:ignore
 		$notice_message = isset( $_GET['webyar_message'] ) ? sanitize_text_field( wp_unslash( $_GET['webyar_message'] ) ) : null; // phpcs:ignore
 		?>
-		<div class="wrap webyar-admin" dir="rtl">
+		<div class="wrap webyar-admin" dir="<?php echo is_rtl() ? 'rtl' : 'ltr'; ?>">
 			<div class="webyar-head">
-				<div class="webyar-mark" aria-hidden="true">و</div>
+				<div class="webyar-mark" aria-hidden="true"><?php echo is_rtl() ? 'و' : 'W'; ?></div>
 				<div>
-					<h1><?php esc_html_e( 'وب‌یار', 'webyar-woocommerce' ); ?></h1>
-					<p><?php esc_html_e( 'دستیار هوش مصنوعی فروشگاه شما', 'webyar-woocommerce' ); ?></p>
+					<h1><?php esc_html_e( 'WebYar', 'webyar-woocommerce' ); ?></h1>
+					<p><?php esc_html_e( 'Your store assistant', 'webyar-woocommerce' ); ?></p>
 				</div>
 			</div>
 
@@ -130,40 +126,40 @@ final class SettingsPage {
 			<input type="hidden" name="action" value="webyar_wc_connect" />
 
 			<div class="webyar-card">
-				<h2><?php esc_html_e( 'اتصال فروشگاه', 'webyar-woocommerce' ); ?></h2>
+				<h2><?php esc_html_e( 'Connect your store', 'webyar-woocommerce' ); ?></h2>
 				<p class="webyar-sub">
-					<?php esc_html_e( 'فروشگاه خود را به وب‌یار وصل کنید تا دستیار بتواند با داده‌ی واقعی فروشگاه — محصول، قیمت، موجودی و سفارش — به مشتری‌های شما پاسخ بدهد.', 'webyar-woocommerce' ); ?>
+					<?php esc_html_e( 'Connect your store to WebYar to answer customers using your products, prices, stock, and orders.', 'webyar-woocommerce' ); ?>
 				</p>
 
 				<div class="webyar-field">
-					<label for="webyar_wc_app_url"><?php esc_html_e( 'آدرس وب‌یار', 'webyar-woocommerce' ); ?></label>
+					<label for="webyar_wc_app_url"><?php esc_html_e( 'WebYar URL', 'webyar-woocommerce' ); ?></label>
 					<input
 						type="url" id="webyar_wc_app_url" name="app_url" dir="ltr" required
 						placeholder="https://app.webyar.ai"
 						value="<?php echo esc_attr( $settings['app_url'] ?? '' ); ?>"
 					/>
 					<p class="webyar-help">
-						<?php esc_html_e( 'همان آدرسی که با آن وارد حساب وب‌یار خود می‌شوید.', 'webyar-woocommerce' ); ?>
+						<?php esc_html_e( 'The URL you use to sign in to WebYar.', 'webyar-woocommerce' ); ?>
 					</p>
 				</div>
 
 				<button type="submit" class="webyar-btn webyar-btn-primary">
-					<?php esc_html_e( 'اتصال به وب‌یار', 'webyar-woocommerce' ); ?>
+					<?php esc_html_e( 'Connect to WebYar', 'webyar-woocommerce' ); ?>
 				</button>
 			</div>
 
 			<details class="webyar-more"<?php echo ! empty( $settings['api_url'] ) ? ' open' : ''; ?>>
-				<summary><?php esc_html_e( 'تنظیمات پیشرفته', 'webyar-woocommerce' ); ?></summary>
+				<summary><?php esc_html_e( 'Advanced settings', 'webyar-woocommerce' ); ?></summary>
 				<div class="webyar-more-body">
 					<div class="webyar-field">
-						<label for="webyar_wc_api_url"><?php esc_html_e( 'آدرس API', 'webyar-woocommerce' ); ?></label>
+						<label for="webyar_wc_api_url"><?php esc_html_e( 'API URL', 'webyar-woocommerce' ); ?></label>
 						<input
 							type="url" id="webyar_wc_api_url" name="api_url" dir="ltr"
 							placeholder="https://api.webyar.ai"
 							value="<?php echo esc_attr( $settings['api_url'] ?? '' ); ?>"
 						/>
 						<p class="webyar-help">
-							<?php esc_html_e( 'فقط اگر API وب‌یار روی دامنه‌ی جداگانه‌ای سرو می‌شود این را پر کنید. خالی بگذارید تا همان آدرس بالا استفاده شود.', 'webyar-woocommerce' ); ?>
+							<?php esc_html_e( 'Enter this only if the WebYar API has a separate URL. Otherwise leave it empty.', 'webyar-woocommerce' ); ?>
 						</p>
 					</div>
 				</div>
@@ -185,8 +181,8 @@ final class SettingsPage {
 				<span class="webyar-dot" aria-hidden="true"></span>
 				<?php
 				echo $rejected
-					? esc_html__( 'اعتبارنامه پذیرفته نمی‌شود', 'webyar-woocommerce' )
-					: esc_html__( 'فروشگاه متصل است', 'webyar-woocommerce' );
+					? esc_html__( 'Connection credentials rejected', 'webyar-woocommerce' )
+					: esc_html__( 'Store connected', 'webyar-woocommerce' );
 				?>
 			</div>
 
@@ -195,7 +191,7 @@ final class SettingsPage {
 					<?php
 					printf(
 						/* translators: 1: HTTP status Web Yar replied with, 2: UTC time of the rejection */
-						esc_html__( 'وب‌یار آخرین درخواست امضاشده را با کد %1$d رد کرد (%2$s). معمولاً یعنی کلید اتصال در وب‌یار چرخانده یا باطل شده — یک بار «قطع اتصال» و دوباره «اتصال به وب‌یار» را بزنید.', 'webyar-woocommerce' ),
+						esc_html__( 'WebYar rejected the last signed request with code %1$d at %2$s. Disconnect and reconnect your store.', 'webyar-woocommerce' ),
 						(int) ( $auth_error['status'] ?? 0 ),
 						esc_html( (string) ( $auth_error['at'] ?? '' ) )
 					);
@@ -205,11 +201,11 @@ final class SettingsPage {
 
 			<dl class="webyar-rows">
 				<div>
-					<dt class="webyar-k"><?php esc_html_e( 'فروشگاه', 'webyar-woocommerce' ); ?></dt>
+					<dt class="webyar-k"><?php esc_html_e( 'Store', 'webyar-woocommerce' ); ?></dt>
 					<dd class="webyar-v"><?php echo esc_html( wp_parse_url( home_url(), PHP_URL_HOST ) ); ?></dd>
 				</div>
 				<div>
-					<dt class="webyar-k"><?php esc_html_e( 'داشبورد وب‌یار', 'webyar-woocommerce' ); ?></dt>
+					<dt class="webyar-k"><?php esc_html_e( 'WebYar dashboard', 'webyar-woocommerce' ); ?></dt>
 					<dd class="webyar-v">
 						<a href="<?php echo esc_url( PairingService::app_base_url() ); ?>" target="_blank" rel="noopener noreferrer">
 							<?php echo esc_html( PairingService::app_base_url() ); ?>
@@ -222,36 +218,36 @@ final class SettingsPage {
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 					<?php wp_nonce_field( 'webyar_wc_test_connection' ); ?>
 					<input type="hidden" name="action" value="webyar_wc_test_connection" />
-					<button type="submit" class="webyar-btn"><?php esc_html_e( 'تست اتصال', 'webyar-woocommerce' ); ?></button>
+					<button type="submit" class="webyar-btn"><?php esc_html_e( 'Test connection', 'webyar-woocommerce' ); ?></button>
 				</form>
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 					<?php wp_nonce_field( 'webyar_wc_sync_now' ); ?>
 					<input type="hidden" name="action" value="webyar_wc_sync_now" />
-					<button type="submit" class="webyar-btn"><?php esc_html_e( 'همگام‌سازی محصولات', 'webyar-woocommerce' ); ?></button>
+					<button type="submit" class="webyar-btn"><?php esc_html_e( 'Sync products', 'webyar-woocommerce' ); ?></button>
 				</form>
 				<span class="webyar-spacer"></span>
-				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('<?php echo esc_js( __( 'اتصال این فروشگاه به وب‌یار قطع شود؟', 'webyar-woocommerce' ) ); ?>');">
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('<?php echo esc_js( __( 'Disconnect this store from WebYar?', 'webyar-woocommerce' ) ); ?>');">
 					<?php wp_nonce_field( 'webyar_wc_disconnect' ); ?>
 					<input type="hidden" name="action" value="webyar_wc_disconnect" />
-					<button type="submit" class="webyar-btn webyar-btn-danger"><?php esc_html_e( 'قطع اتصال', 'webyar-woocommerce' ); ?></button>
+					<button type="submit" class="webyar-btn webyar-btn-danger"><?php esc_html_e( 'Disconnect', 'webyar-woocommerce' ); ?></button>
 				</form>
 			</div>
 		</div>
 
 		<div class="webyar-card">
-			<h2><?php esc_html_e( 'ویجت گفتگو', 'webyar-woocommerce' ); ?></h2>
+			<h2><?php esc_html_e( 'Chat widget', 'webyar-woocommerce' ); ?></h2>
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 				<?php wp_nonce_field( 'webyar_wc_save_settings' ); ?>
 				<input type="hidden" name="action" value="webyar_wc_save_settings" />
 				<label class="webyar-toggle">
 					<input type="checkbox" name="auto_widget" value="1" <?php checked( ! empty( $settings['auto_widget'] ) ); ?> />
 					<span>
-						<?php esc_html_e( 'نمایش ویجت گفتگو در فروشگاه', 'webyar-woocommerce' ); ?>
-						<span class="webyar-help"><?php esc_html_e( 'ظاهر و رفتار ویجت از داشبورد وب‌یار تنظیم می‌شود.', 'webyar-woocommerce' ); ?></span>
+						<?php esc_html_e( 'Show the chat widget in the store', 'webyar-woocommerce' ); ?>
+						<span class="webyar-help"><?php esc_html_e( 'Configure the widget in the WebYar dashboard.', 'webyar-woocommerce' ); ?></span>
 					</span>
 				</label>
 				<div class="webyar-actions">
-					<button type="submit" class="webyar-btn"><?php esc_html_e( 'ذخیره', 'webyar-woocommerce' ); ?></button>
+					<button type="submit" class="webyar-btn"><?php esc_html_e( 'Save', 'webyar-woocommerce' ); ?></button>
 				</div>
 			</form>
 		</div>
@@ -259,7 +255,7 @@ final class SettingsPage {
 		<?php DiagnosticsPage::render( $credential, $settings ); ?>
 
 		<p class="webyar-foot">
-			<?php esc_html_e( 'کاتالوگ محصولات، قیمت‌گذاری، موجودی، سفارش‌ها، سطوح دسترسی و وضعیت همگام‌سازی از داشبورد وب‌یار، در بخش یکپارچه‌سازی‌ها ← فروشگاه، مدیریت می‌شوند.', 'webyar-woocommerce' ); ?>
+			<?php esc_html_e( 'Manage products, prices, stock, orders, permissions, and sync in WebYar under Integrations > Store.', 'webyar-woocommerce' ); ?>
 		</p>
 		<?php
 	}

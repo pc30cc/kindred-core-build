@@ -30,7 +30,7 @@ final class ConnectionController {
 
 	private function require_manage_capability(): void {
 		if ( ! Capabilities::current_user_can_manage() ) {
-			wp_die( esc_html__( 'شما اجازه‌ی مدیریت اتصال وب‌یار را ندارید.', 'webyar-woocommerce' ), 403 );
+			wp_die( esc_html__( 'You cannot manage the WebYar connection.', 'webyar-woocommerce' ), 403 );
 		}
 	}
 
@@ -44,14 +44,14 @@ final class ConnectionController {
 		// both configures and connects.
 		$raw_app_url = isset( $_POST['app_url'] ) ? esc_url_raw( wp_unslash( $_POST['app_url'] ) ) : ''; // phpcs:ignore
 		if ( '' === $raw_app_url || false === filter_var( $raw_app_url, FILTER_VALIDATE_URL ) ) {
-			$this->redirect_with_notice( 'error', __( 'پیش از اتصال، یک آدرس معتبر وب‌یار وارد کنید (مثلاً https://app.webyar.ai).', 'webyar-woocommerce' ) );
+			$this->redirect_with_notice( 'error', __( 'Enter a valid WebYar URL before connecting (for example, https://app.webyar.ai).', 'webyar-woocommerce' ) );
 			return;
 		}
 		// Optional: a separate origin for the machine API. Empty means "same
 		// as the dashboard URL", which is the documented same-origin layout.
 		$raw_api_url = isset( $_POST['api_url'] ) ? trim( (string) esc_url_raw( wp_unslash( $_POST['api_url'] ) ) ) : ''; // phpcs:ignore
 		if ( '' !== $raw_api_url && false === filter_var( $raw_api_url, FILTER_VALIDATE_URL ) ) {
-			$this->redirect_with_notice( 'error', __( 'آدرس API معتبر نیست. یا یک آدرس درست وارد کنید یا خالی بگذارید.', 'webyar-woocommerce' ) );
+			$this->redirect_with_notice( 'error', __( 'Enter a valid API URL or leave the field empty.', 'webyar-woocommerce' ) );
 			return;
 		}
 
@@ -84,7 +84,7 @@ final class ConnectionController {
 		$state = isset( $_GET['state'] ) ? sanitize_text_field( wp_unslash( $_GET['state'] ) ) : ''; // phpcs:ignore
 
 		if ( '' === $code || '' === $state ) {
-			$this->redirect_with_notice( 'error', __( 'بازگشت نامعتبر از فرآیند اتصال.', 'webyar-woocommerce' ) );
+			$this->redirect_with_notice( 'error', __( 'Invalid connection callback.', 'webyar-woocommerce' ) );
 			return;
 		}
 
@@ -105,7 +105,7 @@ final class ConnectionController {
 				)
 			);
 			EventDelivery::clear_auth_error(); // fresh credential — any earlier rejection is stale
-			$this->redirect_with_notice( 'success', __( 'به وب‌یار متصل شدید.', 'webyar-woocommerce' ) );
+			$this->redirect_with_notice( 'success', __( 'Connected to WebYar.', 'webyar-woocommerce' ) );
 		} catch ( \Throwable $e ) {
 			Logger::error( 'pairing exchange failed', array( 'message' => $e->getMessage() ) );
 			$this->redirect_with_notice( 'error', $e->getMessage() );
@@ -126,7 +126,7 @@ final class ConnectionController {
 		EventDelivery::clear_auth_error();
 		\WebYar\WooCommerce\Events\EventQueue::cancel_all();
 
-		$this->redirect_with_notice( 'success', __( 'اتصال به وب‌یار قطع شد.', 'webyar-woocommerce' ) );
+		$this->redirect_with_notice( 'success', __( 'Disconnected from WebYar.', 'webyar-woocommerce' ) );
 	}
 
 	private function notify_disconnect( array $credential ): void {
@@ -150,13 +150,13 @@ final class ConnectionController {
 		// The actual health probe runs server-side on Web Yar (it calls
 		// THIS plugin's /health route) — this button just asks Web Yar to
 		// run it now.
-		$this->relay_connection_action( 'test', __( 'درخواست تست اتصال ارسال شد.', 'webyar-woocommerce' ) );
+		$this->relay_connection_action( 'test', __( 'Connection test requested.', 'webyar-woocommerce' ) );
 	}
 
 	public function sync_now(): void {
 		$this->require_manage_capability();
 		check_admin_referer( 'webyar_wc_sync_now' );
-		$this->relay_connection_action( 'sync', __( 'درخواست همگام‌سازی ارسال شد.', 'webyar-woocommerce' ) );
+		$this->relay_connection_action( 'sync', __( 'Product sync requested.', 'webyar-woocommerce' ) );
 	}
 
 	/**
@@ -172,7 +172,7 @@ final class ConnectionController {
 	private function relay_connection_action( string $action, string $success_message ): void {
 		$credential = CredentialStore::get();
 		if ( null === $credential ) {
-			$this->redirect_with_notice( 'error', __( 'فروشگاه به وب‌یار متصل نیست.', 'webyar-woocommerce' ) );
+			$this->redirect_with_notice( 'error', __( 'The store is not connected to WebYar.', 'webyar-woocommerce' ) );
 			return;
 		}
 
@@ -194,7 +194,7 @@ final class ConnectionController {
 				'error',
 				sprintf(
 					/* translators: %s: underlying network error message */
-					__( 'ارتباط با وب‌یار برقرار نشد — %s', 'webyar-woocommerce' ),
+					__( 'Could not reach WebYar: %s', 'webyar-woocommerce' ),
 					$response->get_error_message()
 				)
 			);
@@ -214,14 +214,14 @@ final class ConnectionController {
 			update_option( \WebYar\WooCommerce\Events\EventDelivery::AUTH_ERROR_OPTION, array( 'status' => $status, 'at' => gmdate( 'c' ) ), false );
 			$this->redirect_with_notice(
 				'error',
-				__( 'وب‌یار اعتبارنامه‌ی این فروشگاه را نپذیرفت. یک بار «قطع اتصال» و دوباره «اتصال به وب‌یار» را بزنید.', 'webyar-woocommerce' )
+				__( 'WebYar rejected this store’s credentials. Disconnect and reconnect the store.', 'webyar-woocommerce' )
 			);
 			return;
 		}
 		if ( 404 === $status ) {
 			$this->redirect_with_notice(
 				'error',
-				__( 'نسخه‌ی وب‌یار شما این درخواست را پشتیبانی نمی‌کند. سرور وب‌یار را به‌روز کنید.', 'webyar-woocommerce' )
+				__( 'Your WebYar server does not support this action. Update WebYar.', 'webyar-woocommerce' )
 			);
 			return;
 		}
@@ -229,7 +229,7 @@ final class ConnectionController {
 			'error',
 			sprintf(
 				/* translators: %d: HTTP status code Web Yar replied with */
-				__( 'وب‌یار این درخواست را رد کرد (کد %d).', 'webyar-woocommerce' ),
+				__( 'WebYar rejected this request (code %d).', 'webyar-woocommerce' ),
 				$status
 			)
 		);
@@ -248,7 +248,7 @@ final class ConnectionController {
 		}
 		$settings['auto_widget'] = ! empty( $_POST['auto_widget'] ); // phpcs:ignore
 		update_option( 'webyar_wc_settings', $settings, false );
-		$this->redirect_with_notice( 'success', __( 'تنظیمات ذخیره شد.', 'webyar-woocommerce' ) );
+		$this->redirect_with_notice( 'success', __( 'Settings saved.', 'webyar-woocommerce' ) );
 	}
 
 	private function redirect_with_notice( string $type, string $message ): void {

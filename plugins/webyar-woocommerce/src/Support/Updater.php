@@ -145,7 +145,7 @@ final class Updater {
 		}
 
 		return (object) array(
-			'name'          => __( 'اتصال‌دهنده‌ی وب‌یار برای ووکامرس', 'webyar-woocommerce' ),
+			'name'          => __( 'WebYar for WooCommerce', 'webyar-woocommerce' ),
 			'slug'          => 'webyar-woocommerce',
 			'version'       => $manifest['version'],
 			'author'        => '<a href="https://webyar.ai">Web Yar</a>',
@@ -156,8 +156,8 @@ final class Updater {
 			'last_updated'  => $manifest['last_updated'],
 			'download_link' => $manifest['package'],
 			'sections'      => array(
-				'description' => $manifest['description'],
-				'changelog'   => $manifest['changelog'],
+				'description' => wp_kses_post( __( $manifest['description'], 'webyar-woocommerce' ) ),
+				'changelog'   => 0 === strpos( get_user_locale(), 'fa' ) && '' !== ( $manifest['changelog_fa'] ?? '' ) ? $manifest['changelog_fa'] : $manifest['changelog'],
 			),
 		);
 	}
@@ -243,6 +243,7 @@ final class Updater {
 			'homepage'     => esc_url_raw( (string) ( $data['homepage'] ?? 'https://webyar.ai' ) ),
 			'description'  => wp_kses_post( (string) ( $data['description'] ?? '' ) ),
 			'changelog'    => wp_kses_post( (string) ( $data['changelog'] ?? '' ) ),
+			'changelog_fa' => wp_kses_post( (string) ( $data['changelog_fa'] ?? '' ) ),
 			'last_updated' => (string) ( $data['last_updated'] ?? '' ),
 		);
 	}

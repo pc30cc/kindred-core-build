@@ -81,6 +81,7 @@ enum DebugTools {
             }
         case "open": app.openConversation(arg)
         case "mail": EmailModel.debugCurrent?.select(arg)
+        case "pickvisitor": VisitorsModel.debugCurrent?.select(arg)
         case "wa":
             // "wa sources", "wa geo city", "wa range 7"
             let bits = arg.split(separator: " ").map(String.init)

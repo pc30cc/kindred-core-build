@@ -270,20 +270,28 @@ final class Updater {
 			$package = untrailingslashit( $base ) . $package;
 		}
 
-		$package_host = wp_parse_url( $package, PHP_URL_HOST );
-		$base_host    = wp_parse_url( $base, PHP_URL_HOST );
-		$scheme       = wp_parse_url( $package, PHP_URL_SCHEME );
-
-		// A value with no host never matches the configured one — including
-		// when the configured URL is itself malformed, because the scheme
-		// check below still demands https. (An explicit "both hosts present"
-		// guard used to sit here; every input it could have refused was
-		// already refused by these two, so it decided nothing.)
-		if ( ! $package_host || strcasecmp( (string) $package_host, (string) $base_host ) !== 0 ) {
+		$package_parts = wp_parse_url( $package );
+		$base_parts    = wp_parse_url( $base );
+		if ( ! is_array( $package_parts ) || ! is_array( $base_parts ) ) {
 			return null;
 		}
-		// Plain http would let anyone on the path swap the archive.
-		if ( 'https' !== strtolower( (string) $scheme ) && 'localhost' !== strtolower( $base_host ) ) {
+		$host   = strtolower( (string) ( $package_parts['host'] ?? '' ) );
+		$scheme = strtolower( (string) ( $package_parts['scheme'] ?? '' ) );
+		if ( '' === $host || $host !== strtolower( (string) ( $base_parts['host'] ?? '' ) ) ) {
+			return null;
+		}
+		// An HTTPS URL on the same hostname but another port is a different
+		// origin. Reject credentials, fragments and a scheme change as well.
+		if ( isset( $package_parts['user'] ) || isset( $package_parts['pass'] ) || isset( $package_parts['fragment'] ) ) {
+			return null;
+		}
+		$base_scheme = strtolower( (string) ( $base_parts['scheme'] ?? '' ) );
+		if ( $scheme !== $base_scheme || ( 'https' !== $scheme && ! ( 'http' === $scheme && 'localhost' === $host ) ) ) {
+			return null;
+		}
+		$port      = (int) ( $package_parts['port'] ?? ( 'https' === $scheme ? 443 : 80 ) );
+		$base_port = (int) ( $base_parts['port'] ?? ( 'https' === $base_scheme ? 443 : 80 ) );
+		if ( $port !== $base_port ) {
 			return null;
 		}
 		return esc_url_raw( $package );

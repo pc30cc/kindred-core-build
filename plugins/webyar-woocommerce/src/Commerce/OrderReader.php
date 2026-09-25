@@ -14,8 +14,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class OrderReader {
 
 	public static function find( string $external_id ): ?\WC_Order {
+		// Never let a partial numeric string resolve another order, or a refund
+		// masquerade as an order (WC_Order_Refund extends WC_Order).
+		if ( ! preg_match( '/^[1-9][0-9]*$/', $external_id ) ) {
+			return null;
+		}
 		$order = wc_get_order( (int) $external_id );
-		return $order instanceof \WC_Order ? $order : null;
+		return $order instanceof \WC_Order && 'shop_order' === $order->get_type() && (string) $order->get_id() === $external_id ? $order : null;
 	}
 
 	public static function to_canonical( \WC_Order $order ): array {
@@ -50,6 +55,7 @@ final class OrderReader {
 		$orders = wc_get_orders(
 			array(
 				'customer_id' => (int) $external_customer_id,
+				'type'        => 'shop_order',
 				'limit'       => min( max( $limit, 1 ), 10 ),
 				'orderby'     => 'date',
 				'order'       => 'DESC',

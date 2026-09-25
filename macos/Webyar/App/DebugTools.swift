@@ -153,6 +153,10 @@ enum DebugTools {
         case "settings":
             app.showSettings?()
             if !arg.isEmpty { NotificationCenter.default.post(name: Notification.Name("WebyarDebugSettingsPane"), object: arg) }
+        case "photourl":
+            // "photourl https://…": the sample account's photo is that link, to test loading a real CDN file.
+            SampleBackend.avatar = arg
+            Task { await app.reloadAccount() }
         case "photo":
             // "photo on" uploads a sample picture as the operator's photo, "photo off" removes it.
             Task {

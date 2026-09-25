@@ -13,7 +13,7 @@ final class SampleBackend: URLProtocol {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var sent: [String: [[String: Any]]] = [:]
     /// The operator's photo, once "uploaded" in Settings.
-    nonisolated(unsafe) private static var avatar: String?
+    nonisolated(unsafe) static var avatar: String?
     nonisolated(unsafe) private static var notes: [String: [[String: Any]]] = [:]
     nonisolated(unsafe) private static var maintenanceOn = false
     nonisolated(unsafe) private static var callNotes: [String: [[String: Any]]] = [:]

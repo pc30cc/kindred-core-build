@@ -296,8 +296,11 @@ final class AppModel {
     /// Moves to another of the operator's workspaces, as the web's workspace menu does.
     func switchWorkspace(_ ws: Workspace) async {
         guard ws.id != workspace?.id else { return }
+        // A call belongs to the workspace it started in.
+        CallCoordinator.shared.hangUpForQuit()
         stopShell()
         stopPresence()
+        visitorsOnline = 0
         workspace = ws
         settings.workspaceId = ws.id
         saveSettings()
@@ -332,8 +335,11 @@ final class AppModel {
     /// The server no longer knows this session (or the operator signed out).
     func signedOut() {
         guard phase != .signedOut else { return }
+        // Nothing would be left on screen to hang up with, and the microphone would stay live.
+        CallCoordinator.shared.hangUpForQuit()
         stopShell()
         stopPresence()
+        visitorsOnline = 0
         realtime?.stop()
         realtime = nil
         realtimeConnected = false
@@ -375,7 +381,12 @@ final class AppModel {
             return
         }
         guard workspace?.id == ws.id else { return }
-        workspacePlan = next
+        // A blip on one of the side requests (the role, the AI or call-center switches) leaves it
+        // nil: keep what was known for this workspace rather than hide an admin's pages.
+        workspacePlan = next.with(role: next.role ?? workspacePlan.role,
+                                  aiAgent: next.aiAgentEnabled ?? workspacePlan.aiAgentEnabled,
+                                  aiAuto: next.aiAutoAnswer ?? workspacePlan.aiAutoAnswer,
+                                  callCenter: next.callCenterVisible ?? workspacePlan.callCenterVisible)
         // If the page on show just went away, back to the inbox.
         if !isAllowed(route) { route = .inbox(.open) }
     }
@@ -484,6 +495,10 @@ final class AppModel {
         callQueue?.stop()
         callQueue = nil
         stopRinging()
+        // A handed-over call belongs to the workspace (and operator) it came in for.
+        handedCall = nil
+        handedCallError = nil
+        handedSeen = []
     }
 
     // MARK: Shell pollers

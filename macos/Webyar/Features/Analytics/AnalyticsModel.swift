@@ -129,6 +129,8 @@ final class AnalyticsModel {
         guard r != range else { return }
         range = r
         generation += 1
+        // Answers still out are for the old range: they will be dropped, so they must not block the new ones.
+        loading = []
         overview = nil
         previous = nil
         breakdowns = [:]
@@ -140,6 +142,8 @@ final class AnalyticsModel {
     /// Asks again for everything on show.
     func refresh() {
         generation += 1
+        // Answers still out are for the old range: they will be dropped, so they must not block the new ones.
+        loading = []
         overview = nil
         previous = nil
         breakdowns = [:]

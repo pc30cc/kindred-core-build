@@ -38,6 +38,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -60,8 +61,13 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.webyar.operator.core.media.AttachmentDiskCache
+import com.webyar.operator.core.media.AttachmentSource
+import com.webyar.operator.core.media.LoaderAttachmentSource
 import com.webyar.operator.core.model.MessageAttachment
 import com.webyar.operator.core.runCatchingUnlessCancelled
+import com.webyar.operator.i18n.StrAndroid
+import androidx.compose.ui.platform.LocalDensity
 import com.webyar.operator.i18n.Format
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
@@ -81,9 +87,15 @@ import kotlinx.coroutines.withContext
  *
  * Every one of them fetches by hand rather than by URL. The stream endpoint
  * authorizes on the operator's bearer token and neither an image loader nor
- * `MediaPlayer` can carry a header, so the caller hands in a [load] that
- * already knows how — and [AttachmentBytes] makes sure it runs once per file
- * however many views ask.
+ * `MediaPlayer` can carry a header, so the caller hands in an
+ * [AttachmentSource] that already knows how — memory, then the scoped disk
+ * cache, then the network — and fetches each file once however many views
+ * ask.
+ *
+ * **On demand.** A photo is drawn when its bubble is (it IS the message),
+ * except under Data Saver, where it waits for a tap. A voice note, a video
+ * and a document are fetched when tapped and never before: a transcript of
+ * forty voice notes costs nothing until one is played.
  */
 @Composable
 fun AttachmentView(
@@ -91,19 +103,35 @@ fun AttachmentView(
     language: Language,
     load: (suspend (String) -> ByteArray?)?,
 ) {
-    if (load == null) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val source = remember(load, context) {
+        load?.let {
+            LoaderAttachmentSource(it, java.io.File(context.cacheDir, "${AttachmentDiskCache.DIRECTORY}/transient"))
+        }
+    }
+    AttachmentView(attachment = attachment, language = language, source = source)
+}
+
+@Composable
+fun AttachmentView(
+    attachment: MessageAttachment,
+    language: Language,
+    source: AttachmentSource?,
+) {
+    if (source == null) {
         FileCard(attachment, language)
         return
     }
     when (attachment.resolvedKind) {
-        MessageAttachment.Kind.IMAGE -> ImageAttachment(attachment, language, load)
-        MessageAttachment.Kind.AUDIO -> VoiceNote(attachment, language, load)
+        MessageAttachment.Kind.IMAGE -> ImageAttachment(attachment, language, source)
+        MessageAttachment.Kind.AUDIO -> VoiceNote(attachment, language, source)
         // A video has no inline player here on purpose: `media3` is another
         // three megabytes in the APK for a kind the server does not even
         // accept on upload, so a video that arrives from a channel is handed
-        // to whatever app on the phone already plays video.
+        // to whatever app on the phone already plays video — streamed to a
+        // file first, never held whole in memory.
         MessageAttachment.Kind.VIDEO, MessageAttachment.Kind.FILE ->
-            OpenableFile(attachment, language, load)
+            OpenableFile(attachment, language, source)
     }
 }
 
@@ -114,10 +142,16 @@ fun AttachmentView(
 private fun ImageAttachment(
     attachment: MessageAttachment,
     language: Language,
-    load: suspend (String) -> ByteArray?,
+    source: AttachmentSource,
 ) {
-    val bytes = rememberAttachmentBytes(attachment.id, load)
-    val photo = rememberDecodedImage(attachment.id, (bytes as? AttachmentBytes.Ready)?.value)
+    var tapped by remember(attachment.id) { mutableStateOf(false) }
+    val bytes = rememberImageBytes(attachment, source, allowNetwork = source.autoLoadImages || tapped)
+    val density = LocalDensity.current
+    // Decoded for the bubble, not for the photo: the box is at most
+    // 240x260dp, and a 4000px camera frame decoded whole for it is 64 MB of
+    // heap for a thumbnail. The full-screen viewer decodes its own copy.
+    val bubbleEdge = with(density) { maxOf(IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT).roundToPx() }
+    val photo = rememberDecodedImage(attachment.id, (bytes as? AttachmentBytes.Ready)?.value, bubbleEdge, atLeast = true)
     var open by remember(attachment.id) { mutableStateOf(false) }
 
     when {
@@ -149,7 +183,15 @@ private fun ImageAttachment(
                         .testTag(A11y.attachmentImage(attachment.id)),
                 )
             }
-            if (open) ImageViewer(photo, language) { open = false }
+            if (open) {
+                val full = rememberDecodedImage(
+                    "${attachment.id}#full",
+                    (bytes as? AttachmentBytes.Ready)?.value,
+                    MAX_DECODED_EDGE,
+                    atLeast = false,
+                )
+                ImageViewer(full ?: photo, language) { open = false }
+            }
         }
         // Both the failure and the not-yet keep the card, so nothing jumps
         // when the bytes land.
@@ -158,11 +200,14 @@ private fun ImageAttachment(
         bytes is AttachmentBytes.Ready ->
             // Bytes that are not a picture this phone can decode.
             FileCard(attachment, language, Str.attachmentFailed(language))
+        bytes is AttachmentBytes.Waiting ->
+            // Data Saver: a photo is fetched when asked for, like the rest.
+            PhotoPlaceholder(StrAndroid.tapToLoad(language)) { tapped = true }
         // A box roughly the size the photo will be, so the bubble does not
         // jump when the bytes land — iOS draws the same placeholder for the
         // same reason. The transcript re-pins itself either way
         // ([StickToNewest]); this is what keeps it from being visible.
-        else -> PhotoPlaceholder(language)
+        else -> PhotoPlaceholder(Str.receivingFile(language))
     }
 }
 
@@ -172,51 +217,70 @@ private fun ImageAttachment(
  * Bounded because a photo from a modern camera is 4000px on its long edge
  * and roughly 64 MB as ARGB_8888 — several of those in one transcript is an
  * `OutOfMemoryError` on exactly the phones this app promised to run well on.
- * [MAX_DECODED_EDGE] is generous enough for the full-screen viewer on a
- * high-density display and small enough that a thread of photos fits.
+ * [maxEdge] is what the caller will actually draw it at.
  */
 @Composable
-private fun rememberDecodedImage(id: String, bytes: ByteArray?): ImageBitmap? {
-    var image by remember(id) { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(id, bytes) {
+private fun rememberDecodedImage(key: String, bytes: ByteArray?, edge: Int, atLeast: Boolean): ImageBitmap? {
+    var image by remember(key) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(key, bytes, edge) {
         if (bytes == null) {
             image = null
             return@LaunchedEffect
         }
-        image = withContext(Dispatchers.Default) { decodeBounded(bytes) }
+        image = withContext(Dispatchers.Default) { decodeBounded(bytes, edge, atLeast) }
     }
     return image
 }
 
-private fun decodeBounded(bytes: ByteArray): ImageBitmap? {
+/**
+ * Decodes with a power-of-two reduction — what `inSampleSize` can do
+ * without a second full-size allocation to scale from. A bubble asks for at
+ * least its own size (sharp on screen, a fraction of the photo in memory);
+ * the viewer asks for at most its ceiling.
+ */
+internal fun decodeBounded(bytes: ByteArray, edge: Int, atLeast: Boolean = false): ImageBitmap? {
     // Bounds first: this reads the header only and allocates nothing.
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
     val longest = maxOf(bounds.outWidth, bounds.outHeight)
     if (longest <= 0) return null
 
-    var sample = 1
-    while (longest / sample > MAX_DECODED_EDGE) sample *= 2
-
-    val options = BitmapFactory.Options().apply { inSampleSize = sample }
+    val options = BitmapFactory.Options().apply { inSampleSize = sampleSize(longest, edge, atLeast) }
     return runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) }
         .getOrNull()?.asImageBitmap()
 }
 
-/** The footprint a photo will take, while its bytes are on the way. */
+/**
+ * The `inSampleSize` for a picture [longest] pixels on its long side.
+ * [atLeast]: the largest reduction that still leaves [edge] pixels. Otherwise
+ * the smallest that brings it down to [edge] or under.
+ */
+internal fun sampleSize(longest: Int, edge: Int, atLeast: Boolean): Int {
+    val target = edge.coerceAtLeast(1)
+    var sample = 1
+    if (atLeast) {
+        while (longest / (sample * 2) >= target) sample *= 2
+    } else {
+        while (longest / sample > target) sample *= 2
+    }
+    return sample
+}
+
+/** The footprint a photo will take, while its bytes are on the way — or, under Data Saver, until asked. */
 @Composable
-private fun PhotoPlaceholder(language: Language) {
+private fun PhotoPlaceholder(caption: String, onClick: (() -> Unit)? = null) {
     val tint = LocalContentColor.current
     Box(
         Modifier
             .padding(vertical = Space.xxs)
             .size(width = PHOTO_PLACEHOLDER_WIDTH, height = PHOTO_PLACEHOLDER_HEIGHT)
             .clip(RoundedCornerShape(Space.md))
-            .background(tint.copy(alpha = 0.08f)),
+            .background(tint.copy(alpha = 0.08f))
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            Str.receivingFile(language),
+            caption,
             style = MaterialTheme.typography.labelSmall,
             color = tint.copy(alpha = 0.7f),
         )
@@ -282,17 +346,24 @@ private fun ImageViewer(photo: ImageBitmap, language: Language, onClose: () -> U
 private fun VoiceNote(
     attachment: MessageAttachment,
     language: Language,
-    load: suspend (String) -> ByteArray?,
+    source: AttachmentSource,
 ) {
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    val bytes = rememberAttachmentBytes(attachment.id, load)
+    val fetch = rememberVoiceFile(attachment, source)
     val player = rememberVoiceNotePlayer(
         attachmentId = attachment.id,
-        fileName = attachment.fileName,
-        mimeType = attachment.mimeType,
-        bytes = (bytes as? AttachmentBytes.Ready)?.value,
+        file = (fetch.state as? VoiceFile.Ready)?.file,
     )
+    // The first tap fetched the file; the player that arrives with it starts
+    // playing, because that tap was a request to hear it.
+    LaunchedEffect(player) {
+        if (player != null && fetch.playWhenReady && !player.isPlaying) {
+            fetch.playWhenReady = false
+            player.toggle()
+        }
+    }
     val tint = LocalContentColor.current
+    val busy = fetch.state is VoiceFile.Fetching
 
     // Pinned around the row rather than inside it: the direction has to be
     // settled before the layout runs, and `rtl` is read above so the caption
@@ -306,45 +377,28 @@ private fun VoiceNote(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Space.md),
         ) {
-            if (player != null) {
-                Box(
-                    Modifier
-                        .size(TRANSPORT_SIZE)
-                        .clip(CircleShape)
-                        .background(tint.copy(alpha = 0.14f))
-                        .clickable(onClick = player::toggle)
-                        .semantics {
-                            contentDescription =
-                                if (player.isPlaying) StrManual.pause(language) else StrManual.play(language)
-                        }
-                        .testTag(A11y.attachmentVoicePlay(attachment.id)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        if (player.isPlaying) Glyph.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = null,
-                        tint = tint,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            } else {
-                // Not a disabled play button: nothing has been offered yet,
-                // and a control that looks pressable and is not is worse
-                // than one that plainly is not there.
-                Box(
-                    Modifier
-                        .size(TRANSPORT_SIZE)
-                        .clip(CircleShape)
-                        .background(tint.copy(alpha = 0.08f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Glyph.Mic,
-                        contentDescription = null,
-                        tint = tint.copy(alpha = 0.5f),
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
+            val playable = !busy && !(fetch.state is VoiceFile.Ready && player == null)
+            Box(
+                Modifier
+                    .size(TRANSPORT_SIZE)
+                    .clip(CircleShape)
+                    .background(tint.copy(alpha = if (playable) 0.14f else 0.08f))
+                    .clickable(enabled = playable) {
+                        if (player != null) player.toggle() else fetch.request()
+                    }
+                    .semantics {
+                        contentDescription =
+                            if (player?.isPlaying == true) StrManual.pause(language) else StrManual.play(language)
+                    }
+                    .testTag(A11y.attachmentVoicePlay(attachment.id)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    if (player?.isPlaying == true) Glyph.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = null,
+                    tint = if (playable) tint else tint.copy(alpha = 0.5f),
+                    modifier = Modifier.size(18.dp),
+                )
             }
 
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -355,11 +409,14 @@ private fun VoiceNote(
                 )
                 val caption = when {
                     player != null -> Format.voiceTime(player.displayedSeconds, language)
-                    bytes is AttachmentBytes.Failed -> Str.attachmentFailed(language)
-                    // The bytes arrived and still would not decode: the file
+                    fetch.state is VoiceFile.Failed -> Str.attachmentFailed(language)
+                    // The file arrived and still would not decode: the file
                     // is fine, this phone has no codec for it.
-                    bytes is AttachmentBytes.Ready -> Str.playbackUnsupported(language)
-                    else -> Str.receivingFile(language)
+                    fetch.state is VoiceFile.Ready -> Str.playbackUnsupported(language)
+                    busy -> Str.receivingFile(language)
+                    // Not fetched, and not going to be until it is played:
+                    // what it costs to hear is what there is to say.
+                    else -> attachment.sizeBytes?.let { Format.fileSize(it.toLong(), language) }.orEmpty()
                 }
                 Text(
                     caption,
@@ -378,6 +435,47 @@ private fun VoiceNote(
             }
         }
     }
+}
+
+/** Where a voice note's file is. */
+private sealed interface VoiceFile {
+    data object Idle : VoiceFile
+    data object Fetching : VoiceFile
+    data object Failed : VoiceFile
+    class Ready(val file: java.io.File) : VoiceFile
+}
+
+private class VoiceFetch {
+    var state by mutableStateOf<VoiceFile>(VoiceFile.Idle)
+    var requested by mutableIntStateOf(0)
+    var playWhenReady = false
+
+    fun request() {
+        playWhenReady = true
+        requested++
+    }
+}
+
+/**
+ * The file behind a voice note: from disk at once if it was ever played on
+ * this phone (so it shows its length without a request), otherwise nothing
+ * until [VoiceFetch.request] — the Play tap.
+ */
+@Composable
+private fun rememberVoiceFile(attachment: MessageAttachment, source: AttachmentSource): VoiceFetch {
+    val fetch = remember(attachment.id) { VoiceFetch() }
+    LaunchedEffect(attachment.id) {
+        source.cachedFile(attachment)?.let { fetch.state = VoiceFile.Ready(it) }
+    }
+    LaunchedEffect(attachment.id, fetch.requested) {
+        if (fetch.requested == 0 || fetch.state is VoiceFile.Ready) return@LaunchedEffect
+        fetch.state = VoiceFile.Fetching
+        // Not `runCatching`: it swallows cancellation too, and a bubble that
+        // scrolled away mid-download would come back reading "failed".
+        val file = runCatchingUnlessCancelled { source.file(attachment) }.getOrNull()
+        fetch.state = if (file != null) VoiceFile.Ready(file) else VoiceFile.Failed
+    }
+    return fetch
 }
 
 /** The bar: a track, a fill, and a drag that scrubs. */
@@ -427,7 +525,7 @@ private fun VoiceTrack(progress: Float, tint: Color, onSeek: (Float) -> Unit) {
 private fun OpenableFile(
     attachment: MessageAttachment,
     language: Language,
-    load: suspend (String) -> ByteArray?,
+    source: AttachmentSource,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var opening by remember(attachment.id) { mutableStateOf(false) }
@@ -438,15 +536,15 @@ private fun OpenableFile(
         if (!wanted) return@LaunchedEffect
         opening = true
         failed = false
-        // Not `runCatching`: it swallows cancellation too, so an operator who
-        // scrolled away mid-download came back to "could not be opened" about
-        // a file nothing had gone wrong with.
-        val bytes = runCatchingUnlessCancelled {
-            AttachmentCache.bytes(attachment.id, load)
-        }.getOrNull()
-        val file = bytes?.let {
-            withContext(Dispatchers.IO) { AttachmentFiles.cache(context, attachment, it) }
-        }
+        // Disk first; otherwise streamed straight to disk — a video is never
+        // held whole in memory on its way to the app that plays it. Not
+        // `runCatching`: it swallows cancellation too, so an operator who
+        // scrolled away mid-download came back to "could not be opened"
+        // about a file nothing had gone wrong with.
+        val file = runCatchingUnlessCancelled { source.file(attachment) }.getOrNull()
+        // The other app reads it after this returns, and says nothing when
+        // it is done: the file is kept out of eviction for a while instead.
+        file?.let { source.lease(it, OPEN_LEASE_MS) }
         failed = file == null || !AttachmentFiles.open(context, attachment, file)
         opening = false
         wanted = false
@@ -512,21 +610,31 @@ private fun FileCard(
 
 // MARK: - Bytes
 
-/** What a single attachment view knows about its bytes. */
+/** What a single photo view knows about its bytes. */
 private sealed interface AttachmentBytes {
     data object Loading : AttachmentBytes
+    /** Not on this phone, and the network may not be used until a tap. */
+    data object Waiting : AttachmentBytes
     data object Failed : AttachmentBytes
     class Ready(val value: ByteArray) : AttachmentBytes
 }
 
 @Composable
-private fun rememberAttachmentBytes(
-    id: String,
-    load: suspend (String) -> ByteArray?,
+private fun rememberImageBytes(
+    attachment: MessageAttachment,
+    source: AttachmentSource,
+    allowNetwork: Boolean,
 ): AttachmentBytes {
-    var state by remember(id) { mutableStateOf<AttachmentBytes>(AttachmentBytes.Loading) }
-    LaunchedEffect(id) {
-        val bytes = runCatchingUnlessCancelled { AttachmentCache.bytes(id, load) }.getOrNull()
+    var state by remember(attachment.id) { mutableStateOf<AttachmentBytes>(AttachmentBytes.Loading) }
+    LaunchedEffect(attachment.id, allowNetwork) {
+        if (state is AttachmentBytes.Ready) return@LaunchedEffect
+        if (!allowNetwork) {
+            val local = runCatchingUnlessCancelled { source.cachedBytes(attachment) }.getOrNull()
+            state = if (local != null) AttachmentBytes.Ready(local) else AttachmentBytes.Waiting
+            return@LaunchedEffect
+        }
+        state = AttachmentBytes.Loading
+        val bytes = runCatchingUnlessCancelled { source.bytes(attachment) }.getOrNull()
         state = if (bytes == null) AttachmentBytes.Failed else AttachmentBytes.Ready(bytes)
     }
     return state
@@ -550,8 +658,11 @@ private val IMAGE_MAX_HEIGHT = 260.dp
 private val PHOTO_PLACEHOLDER_WIDTH = 180.dp
 private val PHOTO_PLACEHOLDER_HEIGHT = 132.dp
 
-/** The longest edge a transcript photo is decoded to. */
+/** The longest edge the full-screen viewer decodes a photo to. */
 private const val MAX_DECODED_EDGE = 2048
+
+/** How long a file handed to another app is kept out of eviction. */
+private const val OPEN_LEASE_MS = 10 * 60 * 1000L
 
 /** The play/pause circle, and the badge on a file card. Both 32pt on iOS. */
 private val TRANSPORT_SIZE = 32.dp

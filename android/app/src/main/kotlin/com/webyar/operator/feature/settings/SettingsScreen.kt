@@ -1,5 +1,10 @@
 package com.webyar.operator.feature.settings
 
+import com.webyar.operator.StorageUsage
+import com.webyar.operator.i18n.StrAndroid
+import com.webyar.operator.i18n.Format
+import androidx.compose.ui.platform.testTag
+import com.webyar.operator.ui.A11y
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.selection.selectable
@@ -78,8 +83,13 @@ fun SettingsScreen(
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(),
+    /** What this phone holds, by kind; null while it is being measured. */
+    storage: StorageUsage? = null,
+    /** Clear Cache. Null leaves the Storage section out (previews, tests). */
+    onClearCache: (() -> Unit)? = null,
 ) {
     var confirmingSignOut by remember { mutableStateOf(false) }
+    var confirmingClear by remember { mutableStateOf(false) }
 
     LazyColumn(modifier.fillMaxWidth(), contentPadding = contentPadding) {
 
@@ -223,8 +233,54 @@ fun SettingsScreen(
             }
         }
 
+        if (onClearCache != null) {
+            item { SectionHeader(StrAndroid.storage(language)) }
+            item {
+                fun size(bytes: Long?) = bytes?.let { Format.fileSize(it, language) } ?: StrAndroid.storageCalculating(language)
+                Column(Modifier.testTag(A11y.SETTINGS_STORAGE)) {
+                    DetailRow(StrAndroid.storageConversations(language), size(storage?.conversationsBytes))
+                    DetailRow(StrAndroid.storageImages(language), size(storage?.imagesBytes))
+                    DetailRow(StrAndroid.storageMedia(language), size(storage?.mediaBytes))
+                    DetailRow(StrAndroid.storageTotal(language), size(storage?.totalBytes))
+                }
+            }
+            item {
+                SettingsRow(
+                    onClick = { confirmingClear = true },
+                    modifier = Modifier.testTag(A11y.SETTINGS_CLEAR_CACHE),
+                ) {
+                    Text(
+                        StrAndroid.clearCache(language),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+
         item { SectionHeader(Str.about(language)) }
         item { DetailRow(Str.version(language), appVersion, latin = true) }
+    }
+
+    if (confirmingClear && onClearCache != null) {
+        AlertDialog(
+            onDismissRequest = { confirmingClear = false },
+            title = { Text(StrAndroid.clearCache(language)) },
+            text = { Text(StrAndroid.clearCacheBody(language)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmingClear = false
+                        onClearCache()
+                    },
+                    modifier = Modifier.testTag(A11y.SETTINGS_CLEAR_CACHE_CONFIRM),
+                ) { Text(StrAndroid.clearCache(language)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmingClear = false }) { Text(Str.cancel(language)) }
+            },
+        )
     }
 
     if (confirmingSignOut) {

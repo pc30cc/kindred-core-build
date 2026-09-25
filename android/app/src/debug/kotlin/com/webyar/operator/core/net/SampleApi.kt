@@ -39,6 +39,7 @@ import com.webyar.operator.core.model.MessageAttachment
 import com.webyar.operator.core.model.Promotions
 import com.webyar.operator.core.model.SayNowVoice
 import com.webyar.operator.core.model.SenderType
+import com.webyar.operator.core.model.SentMessage
 import com.webyar.operator.core.model.TeamMessage
 import com.webyar.operator.core.model.TeamThreadResponse
 import com.webyar.operator.core.model.User
@@ -135,19 +136,42 @@ class SampleApi : WebyarApi {
         clientMessageId: String,
         attachmentId: String?,
     ) {
-        lock.withLock {
-            extraMessages.getOrPut(conversationId) { mutableListOf() }.add(
-                Message(
-                    id = clientMessageId,
-                    conversationId = conversationId,
-                    senderType = SenderType.AGENT,
-                    senderId = OPERATOR.id,
-                    body = body,
-                    createdAt = Instant.now(),
-                    senderName = OPERATOR.fullName,
-                )
-            )
-        }
+        sendMessage(body, conversationId, workspaceId, clientMessageId, attachmentId)
+    }
+
+    /**
+     * Like the server: the key is kept in `metadata.client_message_id`, and a
+     * replay of the same key answers with the original row instead of adding
+     * a second one — which is what the outbox's retry relies on.
+     */
+    override suspend fun sendMessage(
+        body: String,
+        conversationId: String,
+        workspaceId: String,
+        clientMessageId: String,
+        attachmentId: String?,
+    ): SentMessage = lock.withLock {
+        val thread = extraMessages.getOrPut(conversationId) { mutableListOf() }
+        val existing = thread.firstOrNull { it.clientMessageId == clientMessageId }
+        val row = existing ?: Message(
+            id = "m-${System.nanoTime()}",
+            conversationId = conversationId,
+            senderType = SenderType.AGENT,
+            senderId = OPERATOR.id,
+            body = body,
+            createdAt = Instant.now(),
+            senderName = OPERATOR.fullName,
+            metadata = buildJsonObject { put("client_message_id", JsonPrimitive(clientMessageId)) },
+        ).also { thread.add(it) }
+        SentMessage(
+            id = row.id,
+            conversationId = conversationId,
+            senderType = row.senderType,
+            senderId = row.senderId,
+            body = row.body,
+            createdAt = row.createdAt,
+            metadata = row.metadata,
+        )
     }
 
     override suspend fun markSeen(conversationId: String) {}

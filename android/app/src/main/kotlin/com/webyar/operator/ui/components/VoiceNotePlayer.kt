@@ -179,23 +179,23 @@ class VoiceNotePlayer private constructor(
 }
 
 /**
- * A player for these bytes, alive exactly as long as the bubble is.
+ * A player for this file, alive exactly as long as the bubble is.
  *
- * Null while the bytes are still coming, and null for good if nothing on this
- * phone can decode them — the caller tells those two apart from the byte
- * state, which is why this returns a plain null rather than a result type.
+ * Null until there is a file — which for a voice note nobody has played yet
+ * is never, because the file is fetched only when Play is tapped — and null
+ * for good if nothing on this phone can decode it. The caller tells those
+ * apart from its own state, which is why this returns a plain null rather
+ * than a result type.
  */
 @Composable
 internal fun rememberVoiceNotePlayer(
     attachmentId: String,
-    fileName: String?,
-    mimeType: String?,
-    bytes: ByteArray?,
+    file: File?,
 ): VoiceNotePlayer? {
     val context = LocalContext.current
     var player by remember(attachmentId) { mutableStateOf<VoiceNotePlayer?>(null) }
 
-    DisposableEffect(attachmentId, bytes) {
+    DisposableEffect(attachmentId, file) {
         onDispose {
             // The bubble scrolled away, or the screen did. Either way the
             // codec goes back — a `MediaPlayer` left alive holds a hardware
@@ -205,19 +205,11 @@ internal fun rememberVoiceNotePlayer(
         }
     }
 
-    LaunchedEffect(attachmentId, bytes) {
-        if (bytes == null) return@LaunchedEffect
-        val made = withContext(Dispatchers.IO) {
-            runCatching {
-                val directory = File(context.cacheDir, AttachmentFiles.DIRECTORY).apply { mkdirs() }
-                val extension = com.webyar.operator.core.media.AttachmentRules
-                    .fileExtension(fileName, mimeType) ?: "m4a"
-                val file = File(directory, "$attachmentId.$extension")
-                if (!file.exists() || file.length() != bytes.size.toLong()) file.writeBytes(bytes)
-                file
-            }.getOrNull()?.let { VoiceNotePlayer.of(context, it) }
-        }
-        player = made
+    LaunchedEffect(attachmentId, file) {
+        if (file == null) return@LaunchedEffect
+        // `MediaPlayer` reads from the file itself — never from the server's
+        // URL, which would arrive without the operator's token.
+        player = withContext(Dispatchers.IO) { VoiceNotePlayer.of(context, file) }
     }
 
     // The tick. 80ms is iOS's interval and is the slowest rate at which a

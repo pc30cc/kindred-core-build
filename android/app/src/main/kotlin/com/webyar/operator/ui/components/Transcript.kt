@@ -32,6 +32,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import coil3.compose.AsyncImage
 import com.webyar.operator.core.model.MessageAttachment
 import com.webyar.operator.i18n.Format
@@ -76,10 +79,20 @@ fun MessageBubble(
      */
     senderName: String? = null,
     senderAvatarUrl: String? = null,
+    /**
+     * Where an unsent message stands — "Sending…", "Not sent" — shown under
+     * the bubble in place of the time, which it does not have yet.
+     */
+    status: String? = null,
+    /** Marks [status] as a problem, in the error colour. */
+    statusIsError: Boolean = false,
+    /** What a tap on [status] offers: Retry, Delete. Empty makes it plain text. */
+    statusActions: List<Pair<String, () -> Unit>> = emptyList(),
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = WebyarTheme.colors
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    var actionsOpen by remember(id) { mutableStateOf(false) }
 
     Row(
         modifier = modifier
@@ -133,7 +146,36 @@ fun MessageBubble(
                     content = content,
                 )
             }
-            if (endsRun) {
+            if (status != null) {
+                Box {
+                    Text(
+                        status,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (statusIsError) MaterialTheme.colorScheme.error else colors.labelTertiary,
+                        modifier = Modifier
+                            .then(
+                                if (statusActions.isNotEmpty()) {
+                                    Modifier.clickable { actionsOpen = true }
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .padding(top = Space.xxs, start = Space.xs, end = Space.xs)
+                            .testTag(A11y.messageStatus(id)),
+                    )
+                    DropdownMenu(expanded = actionsOpen, onDismissRequest = { actionsOpen = false }) {
+                        statusActions.forEach { (label, action) ->
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                onClick = {
+                                    actionsOpen = false
+                                    action()
+                                },
+                            )
+                        }
+                    }
+                }
+            } else if (endsRun) {
                 Text(
                     Format.bubbleTime(time, language),
                     style = MaterialTheme.typography.labelSmall,

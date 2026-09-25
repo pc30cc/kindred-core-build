@@ -174,6 +174,7 @@ enum DebugTools {
                 }
             }
         case "signout": app.debugSignOut()
+        case "signin": Task { try? await app.signIn(email: "operator@webyar.app", password: "sample", remember: true) }
         case "details": app.settings.detailsOpen = arg != "off"
         case "ring": app.debugRing()
         case "maintenance":

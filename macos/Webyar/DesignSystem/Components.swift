@@ -92,15 +92,9 @@ struct AvatarView: View {
         ZStack {
             disc
             if let url = photoURL {
-                AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.15))) { phase in
-                    if case .success(let image) = phase {
-                        image.resizable().scaledToFill()
-                    } else {
-                        Color.clear
-                    }
-                }
-                .frame(width: size, height: size)
-                .clipShape(Circle())
+                RemoteImage(url: url) { Color.clear }
+                    .frame(width: size, height: size)
+                    .clipShape(Circle())
             }
             Circle().strokeBorder(Palette.line, lineWidth: 0.5)
         }
@@ -407,8 +401,8 @@ struct CampaignCard: View {
                     ZStack {
                         Circle().fill(Palette.brandSoft)
                         Image(systemName: "megaphone.fill").foregroundStyle(Palette.brand)
-                        if let url = ad.imageUrl.flatMap(URL.init(string:)) {
-                            AsyncImage(url: url) { $0.resizable().scaledToFill() } placeholder: { Color.clear }
+                        if let url = ad.imageUrl.flatMap({ app.client.absolute($0) }) {
+                            RemoteImage(url: url) { Color.clear }
                                 .clipShape(Circle())
                         }
                     }

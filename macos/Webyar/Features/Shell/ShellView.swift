@@ -290,8 +290,9 @@ struct WorkspaceHeader: View {
     }
 
     @ViewBuilder private var logo: some View {
-        if let url = app.workspace?.logoUrl, url.hasPrefix("https://"), let u = URL(string: url) {
-            AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Image("BrandMark").resizable() }
+        // Whatever link the server gives (the provider's CDN or a path on the API), resolved as every picture is.
+        if let url = app.workspace?.logoUrl, let u = app.client.absolute(url) {
+            RemoteImage(url: u) { Image("BrandMark").resizable() }
         } else {
             Image("BrandMark").resizable()
         }

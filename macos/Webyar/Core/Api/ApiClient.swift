@@ -240,6 +240,8 @@ final class ApiClient {
     /// An absolute URL for a server path such as `/storage/…`.
     func absolute(_ path: String) -> URL? {
         if path.hasPrefix("https://") || path.hasPrefix("http://") { return URL(string: path) }
+        // A protocol-relative CDN link ("//cdn.example.com/…").
+        if path.hasPrefix("//") { return URL(string: "https:" + path) }
         if path.hasPrefix("/") { return URL(string: path, relativeTo: origin)?.absoluteURL }
         return nil
     }

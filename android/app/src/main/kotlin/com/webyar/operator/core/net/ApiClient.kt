@@ -154,7 +154,15 @@ class ApiClient(
                 // holding the phone over adb can read. Redacting the
                 // Authorization header covers the token and does nothing at
                 // all about the password that earned it.
-                filter { request -> !request.url.buildString().contains("/api/auth") }
+                //
+                // Realtime, push and call tokens are left out for the same
+                // reason: those bodies ARE tokens — Centrifugo connection and
+                // subscription tokens and the call token coming back, the FCM
+                // token going out.
+                filter { request ->
+                    val url = request.url.buildString()
+                    UNLOGGED_PATHS.none { url.contains(it) }
+                }
             }
         }
         install(HttpTimeout) {
@@ -1171,6 +1179,12 @@ class ApiClient(
 
         /** `adb logcat -s WebyarApi` shows every request and its answer. */
         const val LOG_TAG = "WebyarApi"
+
+        /**
+         * Never in that log, not even in debug: a password, or a body that
+         * is itself a credential (realtime, push and call tokens).
+         */
+        val UNLOGGED_PATHS = listOf("/api/auth", "/api/realtime/", "/api/push/", "/token")
     }
 
 }

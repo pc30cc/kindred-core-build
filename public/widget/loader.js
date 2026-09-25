@@ -474,8 +474,13 @@
     var key = "gs:csub:" + workspaceId;
     var previous = null;
     try { previous = window.localStorage.getItem(key); } catch (_) { return false; }
-    try { window.localStorage.setItem(key, subject); } catch (_) {}
     return !!previous && previous.charAt(0) === "u" && previous !== subject;
+  }
+
+  function rememberCommerceSubject(workspaceId) {
+    var subject = attr("data-commerce-subject");
+    if (!subject || !workspaceId) return;
+    try { window.localStorage.setItem("gs:csub:" + workspaceId, subject); } catch (_) {}
   }
 
   function getApiBase() {
@@ -1063,7 +1068,14 @@
       workspace_id: WORKSPACE_ID,
       origin: window.location.origin,
     };
-    if (commerceSubjectChanged(WORKSPACE_ID)) bootstrapPayload.fresh_visitor = true;
+    if (commerceSubjectChanged(WORKSPACE_ID)) {
+      bootstrapPayload.fresh_visitor = true;
+      try {
+        window.sessionStorage.removeItem("gs:view:" + WORKSPACE_ID);
+        window.sessionStorage.removeItem(bindingKey(WORKSPACE_ID));
+        document.cookie = "gs_active=; path=/; max-age=0; SameSite=Lax";
+      } catch (_) {}
+    }
     var bootstrapBody = JSON.stringify(bootstrapPayload);
 
     fetchWithRetry(bootstrapUrl, {
@@ -1105,6 +1117,9 @@
             log("hide_widget — active session detected, keeping shell");
           }
         } catch (_) {}
+        // Commit the subject only after bootstrap has reset both identity
+        // cookies. A failed reset must be attempted again on the next page.
+        rememberCommerceSubject(WORKSPACE_ID);
         sessionToken = data.session_token;
         WORKSPACE_ID = data.workspace_id || WORKSPACE_ID;
         window.__gs._id = WORKSPACE_ID;

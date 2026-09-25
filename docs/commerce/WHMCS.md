@@ -494,3 +494,13 @@ sharing stops future profile synchronization without clearing existing data.
 
 This behavior is delivered through the hosted loader and API; the WHMCS addon
 remains version 1.2.0 and does not need reinstalling for this server-side fix.
+
+
+Browser regression: rotating the visitor cookie alone is insufficient on
+logout. The contact continuity cookie could reattach the old contact when
+`/identity/me` ran, exposing its conversation again after “Start conversation”.
+A forced fresh visitor now clears both `dvsid` and `dvcid` with matching secure,
+partitioned cookie attributes. Tab view/binding hints are removed, and the
+commerce subject marker is acknowledged only after bootstrap succeeds, so a
+failed reset is retried on the next page. Stored contacts and conversations
+are preserved; only this browser's continuation credentials are cleared.

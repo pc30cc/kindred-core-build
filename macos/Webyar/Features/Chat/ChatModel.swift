@@ -76,6 +76,7 @@ final class ChatModel {
     @ObservationIgnored private var lastSeenMessage: String?
     @ObservationIgnored private var outbox: [ChatRow] = []
     @ObservationIgnored var onChanged: (() -> Void)?
+    @ObservationIgnored private var loggedPhotos = false
 
     let id: String
     private(set) var conversation: Conversation?
@@ -168,6 +169,14 @@ final class ChatModel {
         defer { loading = false }
         let list = try await app.api.messages(conversationId: id)
         let s = app.strings
+        if !loggedPhotos {
+            // Which operator replies came with a photo link, and from where: "no photo in the chat" is
+            // then a question of what the server sent, answered from the log.
+            loggedPhotos = true
+            let agents = list.filter { $0.senderType == SenderType.agent }
+            let hosts = Set(agents.compactMap { $0.senderAvatar.flatMap { URL(string: $0)?.host ?? "relative" } })
+            Log.write("[chat-photos] \(id.prefix(8)) operatorReplies=\(agents.count) withPhoto=\(agents.filter { !($0.senderAvatar ?? "").isEmpty }.count) hosts=\(hosts.sorted().joined(separator: ","))")
+        }
         var wanted: [ChatRow] = []
         var day: Date?
         let cal = Calendar.current
@@ -428,6 +437,12 @@ final class ChatModel {
         } else {
             run({ try await self.app.api.claim(c.id, workspaceId: ws.id) }) { $0.assignedTo = me.id }
         }
+    }
+
+    /// Open, waiting for the customer or resolved, from the details panel.
+    func setStatus(_ next: String) {
+        guard let c = conversation, let ws = app.workspace, c.status != next else { return }
+        run({ try await self.app.api.updateConversation(c.id, workspaceId: ws.id, status: next) }) { $0.status = next }
     }
 
     func setPriority(_ p: String) {

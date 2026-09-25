@@ -207,6 +207,7 @@ struct SplitSendButton: View {
     var choose: ((PostSendAction) -> Void)? = nil
     @Environment(AppModel.self) private var app
     @State private var hovering = false
+    @State private var showActions = false
 
     static func icon(_ a: PostSendAction) -> String {
         switch a {
@@ -258,26 +259,28 @@ struct SplitSendButton: View {
 
     @ViewBuilder private func menu(_ choose: @escaping (PostSendAction) -> Void, _ s: Strings) -> some View {
         Rectangle().fill(Color.white.opacity(0.3)).frame(width: 1, height: 18)
-        Menu {
-            Section(s["sendActions"]) {
-                ForEach(PostSendAction.allCases) { a in
-                    Button { choose(a) } label: {
-                        Label(s[Self.key(a)], systemImage: a == action ? "checkmark" : Self.icon(a))
-                    }
-                    .help(s[Self.key(a) + "Hint"])
-                }
-            }
-        } label: {
-            Image(systemName: "chevron.up")
+        // Not an AppKit menu: a popover of our own, so it reads right to left in Persian.
+        Button { showActions.toggle() } label: {
+            Image(systemName: showActions ? "chevron.down" : "chevron.up")
                 .font(.system(size: 10, weight: .bold))
                 .frame(width: 28, height: 34)
                 .contentShape(Rectangle())
         }
-        .menuStyle(.button)
         .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
         .help(s["sendActions"])
+        .popover(isPresented: $showActions, arrowEdge: .top) {
+            ChoiceList(title: s["sendActions"],
+                       choices: PostSendAction.allCases.map { a in
+                           Choice(id: a.rawValue, title: s[Self.key(a)], hint: s[Self.key(a) + "Hint"],
+                                  systemImage: Self.icon(a), tint: a == action ? Palette.brand : Palette.text2)
+                       },
+                       selected: action.rawValue) { id in
+                showActions = false
+                if let a = PostSendAction(rawValue: id) { choose(a) }
+            }
+            .environment(app)
+            .appEnvironment(app)
+        }
     }
 }
 

@@ -50,6 +50,8 @@ export interface HandshakeResult {
   catalogReady?: boolean;
   /** Billing family only: whether the addon's schema checks passed. */
   schemaOk?: boolean;
+  /** Configured merchant name, returned by supported addon versions. */
+  storeName?: string | null;
 }
 
 export interface ProviderDescriptor {
@@ -112,6 +114,7 @@ const DESCRIPTORS: Record<string, ProviderDescriptor> = {
         platformVersion: h.whmcsVersion,
         capabilities: h.capabilities,
         schemaOk: h.schemaOk,
+        ...(typeof (data as { store_name?: unknown })?.store_name === 'string' ? { storeName: h.storeName } : {}),
       };
     },
   },

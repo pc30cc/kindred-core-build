@@ -31,39 +31,39 @@ final class DiagnosticsPage {
 				if ( $has_failures ) {
 					printf(
 						/* translators: %d: number of failed event deliveries */
-						esc_html__( 'جزئیات فنی — %d رویداد ناموفق', 'webyar-woocommerce' ),
+						esc_html__( 'Technical details: %d failed events', 'webyar-woocommerce' ),
 						count( $dead_letters )
 					);
 				} else {
-					esc_html_e( 'جزئیات فنی', 'webyar-woocommerce' );
+					esc_html_e( 'Technical details', 'webyar-woocommerce' );
 				}
 				?>
 			</summary>
 			<div class="webyar-more-body">
 				<dl class="webyar-rows">
 					<div>
-						<dt class="webyar-k"><?php esc_html_e( 'آدرس API', 'webyar-woocommerce' ); ?></dt>
+						<dt class="webyar-k"><?php esc_html_e( 'API URL', 'webyar-woocommerce' ); ?></dt>
 						<dd class="webyar-v">
 							<code><?php echo esc_html( PairingService::api_base_url() ); ?></code>
 							<?php if ( empty( $settings['api_url'] ) ) : ?>
-								<span class="webyar-hint">(<?php esc_html_e( 'همان داشبورد', 'webyar-woocommerce' ); ?>)</span>
+								<span class="webyar-hint">(<?php esc_html_e( 'Same as dashboard', 'webyar-woocommerce' ); ?>)</span>
 							<?php endif; ?>
 						</dd>
 					</div>
 					<div>
-						<dt class="webyar-k"><?php esc_html_e( 'نسخه‌ی افزونه', 'webyar-woocommerce' ); ?></dt>
+						<dt class="webyar-k"><?php esc_html_e( 'Plugin version', 'webyar-woocommerce' ); ?></dt>
 						<dd class="webyar-v"><code><?php echo esc_html( WEBYAR_WC_VERSION ); ?></code></dd>
 					</div>
 					<div>
-						<dt class="webyar-k"><?php esc_html_e( 'نسخه‌ی پروتکل', 'webyar-woocommerce' ); ?></dt>
-						<dd class="webyar-v"><code><?php echo esc_html( $credential['protocol_version'] ?? '—' ); ?></code></dd>
+						<dt class="webyar-k"><?php esc_html_e( 'Protocol version', 'webyar-woocommerce' ); ?></dt>
+						<dd class="webyar-v"><code><?php echo esc_html( $credential['protocol_version'] ?? __( 'Not available', 'webyar-woocommerce' ) ); ?></code></dd>
 					</div>
 					<div>
-						<dt class="webyar-k"><?php esc_html_e( 'زمان اتصال', 'webyar-woocommerce' ); ?></dt>
-						<dd class="webyar-v"><?php echo esc_html( ! empty( $credential['created_at'] ) ? gmdate( 'Y-m-d H:i', (int) $credential['created_at'] ) . ' UTC' : '—' ); ?></dd>
+						<dt class="webyar-k"><?php esc_html_e( 'Connected at', 'webyar-woocommerce' ); ?></dt>
+						<dd class="webyar-v"><?php echo esc_html( ! empty( $credential['created_at'] ) ? gmdate( 'Y-m-d H:i', (int) $credential['created_at'] ) . ' UTC' : __( 'Not available', 'webyar-woocommerce' ) ); ?></dd>
 					</div>
 					<div>
-						<dt class="webyar-k"><?php esc_html_e( 'رویدادهای ناموفق (۵۰ مورد اخیر)', 'webyar-woocommerce' ); ?></dt>
+						<dt class="webyar-k"><?php esc_html_e( 'Failed events (latest 50)', 'webyar-woocommerce' ); ?></dt>
 						<dd class="webyar-v"><?php echo esc_html( (string) count( $dead_letters ) ); ?></dd>
 					</div>
 				</dl>
@@ -72,17 +72,17 @@ final class DiagnosticsPage {
 					<table class="webyar-table">
 						<thead>
 							<tr>
-								<th><?php esc_html_e( 'نوع', 'webyar-woocommerce' ); ?></th>
-								<th><?php esc_html_e( 'دلیل', 'webyar-woocommerce' ); ?></th>
-								<th><?php esc_html_e( 'زمان', 'webyar-woocommerce' ); ?></th>
+								<th><?php esc_html_e( 'Type', 'webyar-woocommerce' ); ?></th>
+								<th><?php esc_html_e( 'Reason', 'webyar-woocommerce' ); ?></th>
+								<th><?php esc_html_e( 'Time', 'webyar-woocommerce' ); ?></th>
 							</tr>
 						</thead>
 						<tbody>
 							<?php foreach ( array_reverse( $dead_letters ) as $entry ) : ?>
 								<tr>
-									<td><?php echo esc_html( $entry['type'] ?? '—' ); ?></td>
-									<td><?php echo esc_html( $entry['reason'] ?? '—' ); ?></td>
-									<td><?php echo esc_html( $entry['at'] ?? '—' ); ?></td>
+									<td><?php echo esc_html( $entry['type'] ?? __( 'Not available', 'webyar-woocommerce' ) ); ?></td>
+									<td><?php echo esc_html( $entry['reason'] ?? __( 'Not available', 'webyar-woocommerce' ) ); ?></td>
+									<td><?php echo esc_html( $entry['at'] ?? __( 'Not available', 'webyar-woocommerce' ) ); ?></td>
 								</tr>
 							<?php endforeach; ?>
 						</tbody>

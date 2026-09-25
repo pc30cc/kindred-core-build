@@ -54,6 +54,13 @@ final class UpdaterTest extends TestCase {
 		);
 	}
 
+	public function test_another_port_or_userinfo_is_refused(): void {
+		$this->assertNull( $this->resolve( 'https://app.example.com:8443/p.zip', 'https://app.example.com' ) );
+		$this->assertNull( $this->resolve( 'https://user@app.example.com/p.zip', 'https://app.example.com' ) );
+		$this->assertNull( $this->resolve( 'https://app.example.com/p.zip#fragment', 'https://app.example.com' ) );
+		$this->assertSame( 'https://app.example.com:8443/p.zip', $this->resolve( '/p.zip', 'https://app.example.com:8443' ) );
+	}
+
 	public function test_plain_http_is_refused(): void {
 		// Otherwise anyone on the network path can swap the archive.
 		$this->assertNull(
@@ -131,7 +138,7 @@ final class UpdaterTest extends TestCase {
 	public function test_a_manifest_pointing_at_another_host_is_ignored_entirely(): void {
 		$out = $this->check( array( 'package' => 'https://evil.example.net/p.zip' ) );
 		$this->assertArrayNotHasKey( $this->key(), $out->response );
-		$this->assertArrayNotHasKey( $this->key(), $out->no_update );
+		$this->assertArrayHasKey( $this->key(), $out->no_update );
 	}
 
 	public function test_a_version_string_that_is_not_a_version_is_ignored(): void {
@@ -157,6 +164,16 @@ final class UpdaterTest extends TestCase {
 		$this->assertSame( array(), $GLOBALS['__webyar_test_fetched'] );
 		// …and it still lists itself, so the toggle is there from day one.
 		$this->assertSame( '1.1.0', $out->no_update[ $this->key() ]->new_version );
+	}
+
+	public function test_plugin_details_changelog_follows_the_admin_locale(): void {
+		$this->check( array( 'changelog' => "English update notes\nSecond line", 'changelog_fa' => "یادداشت‌های فارسی\nخط بعدی" ) );
+		$updater = new Updater();
+		$GLOBALS['__webyar_test_locale'] = 'en_US';
+		$this->assertSame( "English update notes<br />\nSecond line", $updater->plugin_details( null, 'plugin_information', (object) array( 'slug' => 'webyar-woocommerce' ) )->sections['changelog'] );
+		$GLOBALS['__webyar_test_locale'] = 'fa_IR';
+		$this->assertSame( "یادداشت‌های فارسی<br />\nخط بعدی", $updater->plugin_details( null, 'plugin_information', (object) array( 'slug' => 'webyar-woocommerce' ) )->sections['changelog'] );
+		$GLOBALS['__webyar_test_locale'] = 'en_US';
 	}
 
 	public function test_repeated_checks_ask_the_server_once(): void {

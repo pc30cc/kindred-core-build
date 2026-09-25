@@ -314,6 +314,7 @@ export function normalizeHealth(input: unknown): WhmcsHealth {
     capabilities: list(raw.capabilities, 20).filter((c): c is string => typeof c === 'string' && c.length <= 40),
     schemaOk: raw.schema_ok === true,
     systemUrl: typeof raw.system_url === 'string' ? raw.system_url.slice(0, 300) : null,
+    storeName: text(raw.store_name, 200),
   };
 }
 

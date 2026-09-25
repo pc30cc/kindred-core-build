@@ -1,9 +1,9 @@
 <?php
 /**
- * Plugin Name:       اتصال‌دهنده‌ی وب‌یار برای ووکامرس
+ * Plugin Name:       WebYar for WooCommerce
  * Plugin URI:        https://webyar.ai
- * Description:       پل ارتباطی سبک و امن میان فروشگاه ووکامرس شما و دستیار هوش مصنوعی وب‌یار. بدون موتور هوش مصنوعی، بدون ساخت پرامپت، بدون نمایه‌سازی محصولات — فقط داده‌ی نوع‌دار و امضاشده برای محصولات، موجودی، سفارش‌ها و رهگیری مرسوله. تمام هوش مصنوعی روی سرورهای وب‌یار اجرا می‌شود.
- * Version:           1.2.1
+ * Description:       Connect your WooCommerce store to WebYar for product answers, order status, and shipment tracking.
+ * Version:           1.2.4
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * WC requires at least: 8.0
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // No direct access.
 }
 
-define( 'WEBYAR_WC_VERSION', '1.2.1' );
+define( 'WEBYAR_WC_VERSION', '1.2.4' );
 define( 'WEBYAR_WC_PROTOCOL_VERSION', 'webyar-commerce/1' );
 define( 'WEBYAR_WC_FILE', __FILE__ );
 define( 'WEBYAR_WC_DIR', plugin_dir_path( __FILE__ ) );
@@ -75,7 +75,7 @@ function webyar_wc_environment_notice(): void {
 	}
 	echo '<div class="notice notice-error"><p>' .
 		esc_html__(
-			'افزونه‌ی اتصال‌دهنده‌ی وب‌یار برای ووکامرس نیاز به PHP نسخه‌ی ۷.۴ به بالا، وردپرس ۶.۰ به بالا و ووکامرس ۸.۰ به بالا (فعال) دارد. تا زمانی که این پیش‌نیازها فراهم نشوند، افزونه غیرفعال می‌ماند — فروشگاه شما تحت تأثیر قرار نمی‌گیرد.',
+			'WebYar for WooCommerce requires PHP 7.4+, WordPress 6.0+, and active WooCommerce 8.0+. The plugin stays inactive until these requirements are met.',
 			'webyar-woocommerce'
 		) .
 		'</p></div>';
@@ -98,10 +98,10 @@ add_action(
 add_action(
 	'plugins_loaded',
 	function () {
+		load_plugin_textdomain( 'webyar-woocommerce', false, dirname( plugin_basename( WEBYAR_WC_FILE ) ) . '/languages' );
 		if ( ! webyar_wc_environment_ok() ) {
 			return;
 		}
-		load_plugin_textdomain( 'webyar-woocommerce', false, dirname( plugin_basename( WEBYAR_WC_FILE ) ) . '/languages' );
 		\WebYar\WooCommerce\Plugin::instance()->boot();
 	},
 	20 // after WooCommerce (10) and Action Scheduler.
@@ -118,7 +118,7 @@ register_activation_hook(
 				deactivate_plugins( plugin_basename( WEBYAR_WC_FILE ) );
 				wp_die(
 					esc_html__(
-						'افزونه‌ی اتصال‌دهنده‌ی وب‌یار برای ووکامرس از فعال‌سازی شبکه‌ای پشتیبانی نمی‌کند. لطفاً آن را به‌صورت جداگانه در هر سایت فعال کنید.',
+						'WebYar for WooCommerce does not support network activation. Activate it separately on each site.',
 						'webyar-woocommerce'
 					)
 				);

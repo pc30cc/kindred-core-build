@@ -512,3 +512,23 @@ failed reset is retried on the next page. Stored contacts and conversations
 are preserved; only this browser's continuation credentials are cleared on
 account switches or an explicit widget identity reset. WHMCS logout does not
 request this reset or clear the active conversation hint.
+
+### Merchant name and update diagnostics (1.2.1)
+
+The signed health response reads WHMCS General Settings → Company Name
+(`CompanyName`). Pairing and Check connection refresh the bounded plain-text
+`store_name` label shown on the connection card and supplied to the assistant.
+Changing the WHMCS company name requires Check connection to refresh the label.
+Older addons that omit the field preserve the last known name. A name is never
+account-data evidence or an instruction; guest account requests still require login.
+
+The updater now detects a staging filesystem mismatch before reporting that the
+addon is current. Docker installations must bind a private host directory on the
+same filesystem and within the **same mount** as the addon. Use one common
+bind mount such as `./site:/var/www`, with WHMCS under `/var/www/html` and a
+private sibling `/var/www/updates`; set `WEBYAR_UPDATE_DIR=/var/www/updates`.
+Separate bind mounts can reject rename even when their device IDs match. Keep
+the update directory outside the web root, owned by the cron user with mode 0700. After a successful update, the new updater refreshes connection metadata
+once; an unsuccessful refresh does not invalidate the installed version. When
+upgrading from 1.2.0, use Check connection once because the old updater does not
+perform that refresh.

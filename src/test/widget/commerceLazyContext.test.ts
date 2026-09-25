@@ -65,7 +65,7 @@ beforeEach(() => {
   contextAnswer = { assertion: 'lazy.assertion-value-long-enough', signed_in: true };
   document.head.innerHTML = '';
   document.body.innerHTML = '';
-  try { window.sessionStorage.clear(); } catch { /* none */ }
+  try { window.sessionStorage.clear(); window.localStorage.clear(); } catch { /* none */ }
   const w = window as unknown as Record<string, unknown>;
   for (const k of ['__gs', '__gs_id', '__gs_api_base', '__gs_loaded', '__gs_loader_injected', '__gs_token', '__gs_runtime', '__gs_policy']) delete w[k];
 });
@@ -124,5 +124,31 @@ describe('lazy store identity', () => {
     await boot({ 'data-commerce-assertion': 'signed.assertion.value-long-enough' });
     expect(calls('/api/widget/commerce/identity')).toHaveLength(1);
     expect(calls('webyar.context')).toHaveLength(0);
+  });
+});
+
+
+describe('OpenCart identity before bootstrap', () => {
+  const eager = { 'data-commerce-context-url': `${window.location.origin}${CONTEXT_PATH}`, 'data-commerce-context-eager': 'true' };
+  const subject = 'u' + 'a'.repeat(64);
+  it('binds a login without opening chat and keeps the guest visitor', async () => {
+    window.localStorage.setItem('gs:csub:ws-test', 'anon');
+    contextAnswer = { assertion: 'signed.account.assertion', signed_in: true, subject };
+    await boot(eager);
+    expect(calls('webyar.context')).toHaveLength(1);
+    expect(calls('/api/widget/commerce/identity')).toHaveLength(1);
+    expect(JSON.parse(String((calls('/api/widget/bootstrap')[0][1] as FetchInit).body)).fresh_visitor).toBeUndefined();
+    const urls = fetchMock.mock.calls.map(c => String(c[0]));
+    expect(urls.findIndex(u => u.includes('webyar.context'))).toBeLessThan(urls.findIndex(u => u.includes('/bootstrap')));
+  });
+  it.each(['anon', 'u' + 'b'.repeat(64)])('rotates the visitor before history for subject %s', async (nextSubject) => {
+    window.localStorage.setItem('gs:csub:ws-test', subject);
+    contextAnswer = { assertion: null, signed_in: nextSubject !== 'anon', subject: nextSubject };
+    await boot(eager);
+    expect(JSON.parse(String((calls('/api/widget/bootstrap')[0][1] as FetchInit).body)).fresh_visitor).toBe(true);
+  });
+  it('never fetches a foreign identity endpoint in eager mode', async () => {
+    await boot({ ...eager, 'data-commerce-context-url': 'https://evil.example/context' });
+    expect(calls('evil.example')).toHaveLength(0);
   });
 });

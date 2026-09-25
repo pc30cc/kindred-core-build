@@ -2,20 +2,14 @@
 namespace WebYar\OpenCart;
 
 /**
- * Storefront side: the EXISTING Web Yar widget loader, injected once, plus
- * the lazy identity endpoint it calls.
- *
- * The page carries NO identity. It carries the address of a same-origin,
- * never-cached endpoint (`context`) that the loader calls only when the
- * visitor actually opens the chat. So:
- *  - a normal page view makes zero calls to Web Yar and zero extra queries
- *    beyond what OpenCart already runs (settings are part of its config);
- *  - a full-page cache can never serve one customer's identity to another,
- *    because there is none in the HTML to cache.
+ * One cache-safe, same-origin identity check per page. It runs before widget
+ * bootstrap so login enriches the current guest and logout/account changes
+ * rotate the visitor before any private chat history is restored.
+ * No identity or store session credential is embedded in cacheable HTML.
  */
 final class Widget {
 	/** Rate limit for the browser identity endpoint, per storefront session. */
-	public const CONTEXT_LIMIT = 20;
+	public const CONTEXT_LIMIT = 120;
 	public const CONTEXT_WINDOW = 600;
 
 	/**
@@ -35,6 +29,7 @@ final class Widget {
 			'asset-base'          => $appBase,
 			'commerce-provider'   => 'opencart',
 			'commerce-context-url' => $contextUrl,
+			'commerce-context-eager' => 'true',
 		];
 
 		if ($connectionId !== '') {

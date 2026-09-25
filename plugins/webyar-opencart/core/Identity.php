@@ -40,13 +40,13 @@ final class Identity {
 		$customerId = (int)($sessionData['customer_id'] ?? 0);
 
 		if ($customerId <= 0) {
-			return ['assertion' => null, 'signed_in' => false];
+			return ['assertion' => null, 'signed_in' => false, 'subject' => 'anon'];
 		}
 
-		$customer = $this->db->row('SELECT `customer_id`, `customer_group_id`, `store_id`, `firstname`, `lastname`, `email`, `status` FROM ' . $this->db->t('customer') . ' WHERE `customer_id` = ' . $customerId . ' LIMIT 1');
+		$customer = $this->db->row('SELECT `customer_id`, `customer_group_id`, `store_id`, `firstname`, `lastname`, `email`, `telephone`, `status` FROM ' . $this->db->t('customer') . ' WHERE `customer_id` = ' . $customerId . ' LIMIT 1');
 
 		if (!$customer || (int)$customer['status'] !== 1 || !$this->inScope($customer, $conn->storeId)) {
-			return ['assertion' => null, 'signed_in' => false];
+			return ['assertion' => null, 'signed_in' => false, 'subject' => 'anon'];
 		}
 
 		$now = time();
@@ -58,6 +58,7 @@ final class Identity {
 			'session_ref'          => $this->sessionRef($conn, $sessionId, $customerId),
 			// Only what files the conversation under the right person.
 			'email'                => (string)$customer['email'],
+			'phone'                => (string)($customer['telephone'] ?? ''),
 			'name'                 => trim($customer['firstname'] . ' ' . $customer['lastname']),
 			'language'             => (string)($sessionData['language'] ?? ''),
 			'currency'             => (string)($sessionData['currency'] ?? ''),
@@ -70,7 +71,7 @@ final class Identity {
 
 		$encoded = Crypto::base64url((string)json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
-		return ['assertion' => $encoded . '.' . Crypto::hmac($conn->secret(), $encoded), 'signed_in' => true];
+		return ['assertion' => $encoded . '.' . Crypto::hmac($conn->secret(), $encoded), 'signed_in' => true, 'subject' => 'u' . Crypto::hmac($this->localKey, $conn->installationId . ':' . $conn->storeId . ':' . $customerId)];
 	}
 
 	/**

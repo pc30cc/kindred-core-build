@@ -183,6 +183,7 @@ final class Router
             'capabilities' => $capabilities,
             'schema_ok' => count(Schema::supportedCapabilities()) === count(Schema::CAPABILITY_TABLES),
             'system_url' => Platform::systemUrl(),
+            'store_name' => Platform::storeName(),
         );
     }
 

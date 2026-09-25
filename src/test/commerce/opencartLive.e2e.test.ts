@@ -40,7 +40,7 @@ const CONV_SINGLE = '00000000-0000-4000-8000-0000000000d2';
 const VISITOR_SINGLE = '00000000-0000-4000-8000-0000000000b2';
 
 const fake = createCountingSupabase();
-let contactUpserts = 0;
+let activeConversation = CONV;
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fake.client }));
 vi.mock('../../../shared/net/hostGuard.js', async (orig) => ({
@@ -55,9 +55,7 @@ vi.mock('../../../server/middleware/featureGating.js', () => ({
   checkEntitlementFromDB: async () => ({ allowed: true, plan: 'test' }),
   checkModuleAccess: async () => ({ allowed: true, plan: 'test' }),
 }));
-vi.mock('../../../server/services/widget/anonymousContact.js', () => ({
-  ensureVisitorContact: async () => { contactUpserts += 1; return null; },
-}));
+vi.mock('../../../server/services/geo/index.js', () => ({ resolveVisitorGeo: async () => ({}) }));
 
 const CONFIG = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', selfHostBillingUnlimited: true, complianceAuditLoggingEnabled: true } as unknown as ServerConfig;
 const PERMISSIONS = { products: true, prices: true, stock: true, orders: true, order_status: true, tracking: true, customer_history: true, reviews: true, coupons: false };
@@ -125,6 +123,7 @@ run('OpenCart live store, end to end', () => {
     // conversations have no visitor session.
     fake.db.conversations = [{ id: CONV, workspace_id: WS, visitor_session_id: null, metadata: { visitor_id: VISITOR } }];
     fake.db.visitor_sessions = [];
+    fake.db.contacts = [{ id: 'contact-ali', workspace_id: WS, visitor_code: 'ALI1', name: null, email: null, phone: null, metadata: { visitor_id: VISITOR, anonymous: true } }];
     ({ runCommerceToolStage: runStage } = await import('../../../server/services/ai-agent/commerce-tools/runner.js'));
     ({ verifyAndBindCustomerContext: bind, unbindCustomerContext: unbind } = await import('../../../server/services/commerce/identityBridge.js'));
     ({ runCapabilityHandshake: handshake } = await import('../../../server/services/commerce/pairing.js'));
@@ -167,7 +166,7 @@ run('OpenCart live store, end to end', () => {
   // The page the visitor is on, as the widget reports it: with two stores in
   // the workspace, this is what picks the store (connectionSelection.ts).
   const page = (base: string) => ({ pageOrigin: base ? new URL(base).origin : null, pagePath: base ? new URL(base).pathname : null });
-  const ask = (question: string, locale = 'en') => runStage(CONFIG, { workspaceId: WS, conversationId: CONV, question, locale, ...page(BASE) });
+  const ask = (question: string, locale = 'en') => runStage(CONFIG, { workspaceId: WS, conversationId: activeConversation, question, locale, ...page(BASE) });
   type ToolRow = Record<string, unknown>;
   const rows = (r: { toolResults: Array<{ name: string; data: ToolRow }> }, name: string): ToolRow[] => r.toolResults.filter((t) => t.name === name).map((t) => t.data);
 
@@ -236,7 +235,9 @@ run('OpenCart live store, end to end', () => {
     expect(b2.outcome).toBe('unchanged');
     expect(fake.total()).toMatchObject({ update: 0 });
     expect(fake.counts.commerce_customer_links?.insert ?? 0).toBe(0);
-    expect(contactUpserts).toBe(1);
+    expect(fake.db.contacts).toHaveLength(1);
+    expect(fake.db.contacts[0]).toMatchObject({ id: 'contact-ali', email: 'ali@example.test', metadata: { anonymous: false } });
+    expect(fake.db.contacts[0].name).toBeTruthy();
   });
 
   it('a copied shop on another origin cannot introduce a customer', async () => {
@@ -269,20 +270,29 @@ run('OpenCart live store, end to end', () => {
     expect(rows(r, 'commerce.customer_orders').filter((o) => o.order_id)).toEqual([]);
     expect(JSON.stringify(r.toolResults)).toContain('identity_expired');
     expect(JSON.stringify(r.toolResults)).not.toContain('5002');
+    expect(fake.db.contacts[0]).toMatchObject({ email: 'ali@example.test', metadata: { anonymous: false } });
   });
 
-  it('another customer on the same browser: the link switches and history is cut off', async () => {
+  it('another customer requires a fresh visitor and retains the previous contact', async () => {
     const bita = await storefrontLogin(BASE, 'bita@example.test', 'Test12345!');
     const a = await contextAssertion(BASE, bita);
-    const b = await measure('account switch (bind other customer)', () => bind(CONFIG, WS, CONN0, VISITOR, a.assertion!, { requestOrigin: new URL(BASE).origin }), (r) => ({ outcome: r.outcome }));
-    expect(b.outcome).toBe('switched');
+    await expect(bind(CONFIG, WS, CONN0, VISITOR, a.assertion!, { requestOrigin: new URL(BASE).origin })).rejects.toMatchObject({ code: 'identity_expired' });
+    const freshVisitor = '00000000-0000-4000-8000-0000000000b3';
+    activeConversation = '00000000-0000-4000-8000-0000000000d3';
+    fake.db.conversations.push({ id: activeConversation, workspace_id: WS, metadata: { visitor_id: freshVisitor } });
+    fake.db.contacts.push({ id: 'contact-bita', workspace_id: WS, visitor_code: 'BITA', name: null, email: null, phone: null, metadata: { visitor_id: freshVisitor, anonymous: true } });
+    const fresh = await contextAssertion(BASE, bita);
+    const b = await measure('account switch (fresh visitor)', () => bind(CONFIG, WS, CONN0, freshVisitor, fresh.assertion!, { requestOrigin: new URL(BASE).origin }), (r) => ({ outcome: r.outcome }));
+    expect(b.outcome).toBe('created');
     const r = await measure('orders after account switch', () => ask('show my orders'));
     expect(rows(r, 'commerce.customer_orders').map((o) => o.order_id)).toEqual(['5005']);
-    expect(r.historyCutoffAt).toBeTruthy();
+    expect(fake.db.contacts[0].email).toBe('ali@example.test');
+    expect(fake.db.contacts[1].email).toBe('bita@example.test');
+    expect(JSON.stringify(r.toolResults)).not.toContain('5002');
     // Bita's group prices, never Ali's or a guest's cached ones.
     const priced = await measure('search as wholesale customer (group price)', () => ask('do you have iphone?'));
     expect(priced.directMeta?.cacheHits).toBe(0);
-    await measure('sign-out reported by the widget (unlink)', () => unbind(CONFIG, WS, VISITOR));
+    await measure('sign-out reported by the widget (unlink)', () => unbind(CONFIG, WS, freshVisitor));
   });
 
   it('a store-0 link grants nothing on store 1', async () => {

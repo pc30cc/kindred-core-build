@@ -20,6 +20,8 @@ WHMCS version), HTTPS on the WHMCS System URL.
 5. Super Admin -> Plugins -> WHMCS controls the overall plugin, AI access
    and each section for all workspaces. Disabled sections bypass even cache.
    After upgrading, click Check connection to refresh supported capabilities.
+   The merchant name comes from WHMCS General Settings > Company Name.
+   Click Check connection after changing that name to refresh it in Web Yar.
 
 The widget is added to the client area automatically (can be switched off).
 Customer data is never synced or polled in the background. Addon updates use cron.
@@ -43,3 +45,10 @@ on another filesystem. Run cron as the addon owner; keep web OPcache timestamp
 validation enabled. Settings and credentials remain in place. The previous files
 are retained in the private working directory for manual recovery. See
 repository docs/commerce/WHMCS.md for recovery steps and deployment requirements.
+
+Docker installations: use ONE common bind mount for the web root and its private
+update sibling, e.g. ./site:/var/www with WHMCS in /var/www/html and updates in
+/var/www/updates. Set WEBYAR_UPDATE_DIR=/var/www/updates in the web/cron container;
+keep updates owned by the cron user with mode 0700 and outside the web root.
+Two separate bind mounts can reject rename even on the same host filesystem.
+A /tmp directory in the container overlay also cannot stage a bind-mount update.

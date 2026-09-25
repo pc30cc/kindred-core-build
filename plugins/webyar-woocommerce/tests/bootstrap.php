@@ -180,6 +180,9 @@ if ( ! function_exists( 'wp_add_inline_style' ) ) {
 		return true;
 	}
 }
+if ( ! function_exists( 'get_user_locale' ) ) {
+	function get_user_locale(): string { return $GLOBALS['__webyar_test_locale'] ?? 'en_US'; }
+}
 if ( ! function_exists( '__' ) ) {
 	function __( string $text, string $domain = '' ): string { return $text; }
 }

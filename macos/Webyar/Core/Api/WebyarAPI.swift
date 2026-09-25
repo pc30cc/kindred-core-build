@@ -15,7 +15,11 @@ final class WebyarAPI {
     private struct SessionResponse: Decodable { var user: User? }
     private struct WorkspacesResponse: Decodable { var workspaces: [Workspace]? }
     private struct ConversationsResponse: Decodable { var conversations: [Conversation]? }
-    private struct MessagesResponse: Decodable { var messages: [Message]? }
+    private struct MessagesResponse: Decodable {
+        struct Sync: Decodable { var mode: String?; var cursor: String? }
+        var messages: [Message]?
+        var sync: Sync?
+    }
     private struct PrefsResponse: Decodable { var prefs: NotificationPrefs? }
     private struct TeamPresenceResponse: Decodable { var presence: [TeamPresence]? }
     private struct ItemsResponse<T: Decodable>: Decodable { var items: [T]? }
@@ -91,6 +95,19 @@ final class WebyarAPI {
         return r.conversations ?? []
     }
 
+    /// The list, revalidated against the copy the app already has: nil conversations means
+    /// the server answered 304 and that copy is still current.
+    func conversations(workspaceId: String, filter: InboxFilter, etag: String?) async throws -> (conversations: [Conversation]?, etag: String?) {
+        let r = try await client.conditionalGet("/api/conversations", query: [("workspace_id", workspaceId)] + Self.queue(of: filter), etag: etag)
+        if r.notModified { return (nil, r.etag) }
+        do {
+            let body = try JSON.decoder().decode(ConversationsResponse.self, from: r.data.isEmpty ? Data("{}".utf8) : r.data)
+            return (body.conversations ?? [], r.etag)
+        } catch {
+            throw ApiError(failure: .decoding, status: 200, underlying: String(describing: error))
+        }
+    }
+
     func inboxCounts(workspaceId: String, scope: String = "mine") async throws -> InboxCounts {
         try await client.get("/api/conversations/inbox-tab-counts", query: [("workspace_id", workspaceId), ("scope", scope)])
     }
@@ -134,8 +151,16 @@ final class WebyarAPI {
     }
 
     func messages(conversationId: String) async throws -> [Message] {
-        let r: MessagesResponse = try await client.get("/api/conversations/\(Self.e(conversationId))/messages")
-        return r.messages ?? []
+        try await messagePage(conversationId: conversationId, since: nil).messages
+    }
+
+    /// The thread, or with `since` only what was created or changed after that cursor. A server
+    /// without incremental sync answers in full with no cursor: `delta` is then false and the
+    /// caller keeps reading whole threads, as before.
+    func messagePage(conversationId: String, since: String?) async throws -> ThreadPage {
+        let r: MessagesResponse = try await client.get("/api/conversations/\(Self.e(conversationId))/messages",
+                                                       query: [("since", since)])
+        return ThreadPage(messages: r.messages ?? [], delta: since != nil && r.sync?.mode == "delta", cursor: r.sync?.cursor)
     }
 
     /// `clientMessageId` makes a retry safe: the server collapses a replay of

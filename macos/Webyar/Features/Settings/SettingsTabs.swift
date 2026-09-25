@@ -400,11 +400,14 @@ struct UpdateSettingsTab: View {
 
 // MARK: - Storage
 
-/// Where downloaded files live, and a way to free the space.
+/// What this Mac keeps — saved messages and lists, downloaded pictures and files —
+/// how much room each takes, and a way to free it (nothing on the server is touched).
 struct StorageSettingsTab: View {
     private struct Usage: Sendable {
-        var bytes: Int64
+        var messages: Int64
+        var files: Int64
         var count: Int
+        var total: Int64 { messages + files }
     }
 
     @Environment(AppModel.self) private var app
@@ -417,14 +420,16 @@ struct StorageSettingsTab: View {
         let s = app.strings
         Form {
             Section {
-                sizeRow
+                sizeRow(s["cacheMessages"], hint: s["cacheMessagesHint"], systemImage: "bubble.left.and.bubble.right", bytes: usage?.messages)
+                sizeRow(s["cacheFiles"], hint: s["fileCacheHint"], systemImage: "photo.on.rectangle", bytes: usage?.files)
+                sizeRow(s["cacheTotal"], hint: nil, systemImage: "internaldrive", bytes: usage?.total)
                 folderRow
                 clearRow
             } header: {
                 SettingsHeader(s["storage"])
             }
         }
-        .settingsForm(height: 340)
+        .settingsForm(height: 470)
         .task { await measure() }
         .alert(s["clearCache"], isPresented: $confirmClear) {
             Button(s["clearCache"], role: .destructive) {
@@ -436,16 +441,16 @@ struct StorageSettingsTab: View {
         }
     }
 
-    private var sizeRow: some View {
+    private func sizeRow(_ title: String, hint: String?, systemImage: String, bytes: Int64?) -> some View {
         let s = app.strings
         return LabeledContent {
-            if let usage {
-                Text(Display.fileSize(usage.bytes, s)).appFont(13, .semibold)
+            if let bytes {
+                Text(Display.fileSize(bytes, s)).appFont(13, .semibold)
             } else {
                 ProgressView().controlSize(.small)
             }
         } label: {
-            SettingLabel(title: s["fileCache"], hint: s["fileCacheHint"], systemImage: "internaldrive")
+            SettingLabel(title: title, hint: hint, systemImage: systemImage)
         }
     }
 
@@ -489,22 +494,23 @@ struct StorageSettingsTab: View {
             Button(s["clearCache"], role: .destructive) { confirmClear = true }
                 .frame(minWidth: 110)
                 .glassButton()
-                .disabled(clearing || (usage?.count ?? 0) == 0)
+                .disabled(clearing || (usage?.total ?? 0) == 0)
         }
     }
 
     private func measure() async {
         let result = await Task.detached(priority: .utility) { () -> Usage in
             let m = FileCache.measure()
-            return Usage(bytes: m.bytes, count: m.count)
+            return Usage(messages: LocalStore.measure(), files: m.bytes, count: m.count)
         }.value
         usage = result
     }
 
+    /// Only this Mac's copies: the server, the session and anything still being sent stay.
+    /// An open conversation keeps what it shows and reads it again.
     private func clear() async {
         clearing = true
-        await Task.detached(priority: .userInitiated) { FileCache.clear() }.value
-        AttachmentStore.shared.clearMemory()
+        await app.clearLocalCache()
         await measure()
         clearing = false
         cleared = true

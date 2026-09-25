@@ -222,7 +222,7 @@ final class BackgroundNotifier {
             try await self?.tick()
         }
         poller?.start()
-        token = app.inboxEvents.subscribe { [weak self] e in if e.isMessage { self?.poller?.kick() } }
+        token = app.inboxEvents.subscribe { [weak self] e in if e.isMessage || e.isReconcile { self?.poller?.kick() } }
     }
 
     func stop() {
@@ -233,7 +233,9 @@ final class BackgroundNotifier {
     func kick() { poller?.kick() }
 
     private func tick() async throws {
-        let open = try await app.api.conversations(workspaceId: workspaceId, filter: .open)
+        // The inbox reads the same queue: asked at about the same time, one request serves both.
+        guard let lists = app.lists, lists.workspaceId == workspaceId else { return }
+        let open = try await lists.fetch(.open)
         onUnread?(open.reduce(0) { $0 + max(0, $1.unreadCount ?? 0) })
 
         let fresh = rules.fresh(open)

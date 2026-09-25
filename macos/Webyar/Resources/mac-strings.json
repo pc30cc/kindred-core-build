@@ -13,8 +13,8 @@
   "mediaPermission": "Allow microphone and camera access for Webyar in System Settings → Privacy & Security.",
   "micBlocked": "macOS is blocking the microphone for Webyar. Allow it in System Settings → Privacy & Security → Microphone.",
   "fileCacheHint": "Photos, voice notes and documents are saved on this Mac after the first download, so they open instantly and are not fetched from the server again.",
-  "clearCacheHint": "Removes the saved files from this Mac. They download again the next time you open them.",
-  "clearCacheConfirm": "Delete all downloaded files from this Mac? Nothing is removed from the conversations.",
+  "clearCacheHint": "Removes the saved messages, lists and files from this Mac. Nothing is deleted from your conversations; they load again from the server.",
+  "clearCacheConfirm": "Delete the messages, lists and files saved on this Mac? Nothing is removed from the conversations, and you stay signed in.",
   "menuBarItem": "Show Webyar in the menu bar",
   "menuBarItemHint": "Unread messages, waiting calls and your status, one click away.",
   "updatesUnavailable": "This build updates through whoever installed it.",
@@ -73,7 +73,12 @@
   "avatarRemove": "Remove photo",
   "avatarFailed": "The photo was not changed",
   "avatarUnreadable": "This file could not be read as a picture.",
-  "avatarTooLarge": "The photo must be smaller than 10 MB."
+  "avatarTooLarge": "The photo must be smaller than 10 MB.",
+  "cacheMessages": "Messages and lists",
+  "cacheMessagesHint": "Conversations you have opened are saved on this Mac, so they show at once — even without a connection — and only what changed is fetched from the server.",
+  "cacheFiles": "Photos and files",
+  "cacheTotal": "Total",
+  "offlineSavedCopy": "No connection — showing the copy saved on this Mac."
  },
  "fa": {
   "jumpToLatest": "رفتن به آخرین پیام",
@@ -89,8 +94,8 @@
   "mediaPermission": "در «تنظیمات سیستم ← حریم خصوصی و امنیت»، دسترسی وب‌یار به میکروفون و دوربین را روشن کنید.",
   "micBlocked": "مک دسترسی وب‌یار به میکروفون را بسته است. آن را در «تنظیمات سیستم ← حریم خصوصی و امنیت ← میکروفون» فعال کنید.",
   "fileCacheHint": "عکس‌ها، پیام‌های صوتی و اسناد بعد از اولین دانلود روی همین مک ذخیره می‌شوند تا فوری باز شوند و دوباره از سرور دریافت نشوند.",
-  "clearCacheHint": "فایل‌های ذخیره‌شده از این مک حذف می‌شوند و دفعهٔ بعد که بازشان کنید دوباره دانلود می‌شوند.",
-  "clearCacheConfirm": "همهٔ فایل‌های دانلودشده از این مک حذف شوند؟ چیزی از گفتگوها پاک نمی‌شود.",
+  "clearCacheHint": "پیام‌ها، فهرست‌ها و فایل‌های ذخیره‌شده از این مک حذف می‌شوند. چیزی از گفتگوهای شما پاک نمی‌شود و دوباره از سرور دریافت می‌شوند.",
+  "clearCacheConfirm": "پیام‌ها، فهرست‌ها و فایل‌های ذخیره‌شده روی این مک حذف شوند؟ چیزی از گفتگوها پاک نمی‌شود و از حساب خود خارج نمی‌شوید.",
   "menuBarItem": "نمایش وب‌یار در نوار منو",
   "menuBarItemHint": "پیام‌های خوانده‌نشده، تماس‌های در انتظار و وضعیت شما، با یک کلیک.",
   "updatesUnavailable": "به‌روزرسانی این نسخه با کسی است که آن را نصب کرده است.",
@@ -149,7 +154,12 @@
   "avatarRemove": "حذف عکس",
   "avatarFailed": "عکس تغییر نکرد",
   "avatarUnreadable": "این فایل به‌عنوان تصویر خوانده نشد.",
-  "avatarTooLarge": "حجم عکس باید کمتر از ۱۰ مگابایت باشد."
+  "avatarTooLarge": "حجم عکس باید کمتر از ۱۰ مگابایت باشد.",
+  "cacheMessages": "پیام‌ها و فهرست‌ها",
+  "cacheMessagesHint": "گفتگوهایی که باز کرده‌اید روی همین مک ذخیره می‌شوند تا فوری نمایش داده شوند — حتی بدون اینترنت — و فقط تغییرات از سرور دریافت شود.",
+  "cacheFiles": "عکس‌ها و فایل‌ها",
+  "cacheTotal": "مجموع",
+  "offlineSavedCopy": "اتصال برقرار نیست — نسخهٔ ذخیره‌شده روی این مک نمایش داده می‌شود."
  },
  "tr": {
   "jumpToLatest": "En son mesaja git",
@@ -165,8 +175,8 @@
   "mediaPermission": "Sistem Ayarları → Gizlilik ve Güvenlik bölümünden Webyar’ın mikrofon ve kamera erişimine izin verin.",
   "micBlocked": "macOS, Webyar’ın mikrofona erişimini engelliyor. Sistem Ayarları → Gizlilik ve Güvenlik → Mikrofon bölümünden izin verin.",
   "fileCacheHint": "Fotoğraflar, sesli notlar ve belgeler ilk indirmeden sonra bu Mac’e kaydedilir; anında açılır ve sunucudan tekrar indirilmez.",
-  "clearCacheHint": "Kaydedilen dosyalar bu Mac’ten silinir. Bir dahaki açışta yeniden indirilir.",
-  "clearCacheConfirm": "İndirilen tüm dosyalar bu Mac’ten silinsin mi? Konuşmalardan hiçbir şey silinmez.",
+  "clearCacheHint": "Kaydedilen mesajlar, listeler ve dosyalar bu Mac’ten silinir. Konuşmalarınızdan hiçbir şey silinmez; sunucudan yeniden yüklenir.",
+  "clearCacheConfirm": "Bu Mac’e kaydedilen mesajlar, listeler ve dosyalar silinsin mi? Konuşmalardan hiçbir şey silinmez ve oturumunuz açık kalır.",
   "menuBarItem": "Webyar’ı menü çubuğunda göster",
   "menuBarItemHint": "Okunmamış mesajlar, bekleyen aramalar ve durumunuz tek tıkla.",
   "updatesUnavailable": "Bu sürüm, onu yükleyen kişi tarafından güncellenir.",
@@ -225,6 +235,11 @@
   "avatarRemove": "Fotoğrafı kaldır",
   "avatarFailed": "Fotoğraf değiştirilemedi",
   "avatarUnreadable": "Bu dosya resim olarak okunamadı.",
-  "avatarTooLarge": "Fotoğraf 10 MB'tan küçük olmalı."
+  "avatarTooLarge": "Fotoğraf 10 MB'tan küçük olmalı.",
+  "cacheMessages": "Mesajlar ve listeler",
+  "cacheMessagesHint": "Açtığınız konuşmalar bu Mac’e kaydedilir; bağlantı olmasa bile anında görünür ve sunucudan yalnızca değişenler alınır.",
+  "cacheFiles": "Fotoğraflar ve dosyalar",
+  "cacheTotal": "Toplam",
+  "offlineSavedCopy": "Bağlantı yok — bu Mac’e kaydedilen kopya gösteriliyor."
  }
 }

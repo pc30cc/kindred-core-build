@@ -77,6 +77,14 @@ final class ChatModel {
     @ObservationIgnored private var outbox: [ChatRow] = []
     @ObservationIgnored var onChanged: (() -> Void)?
     @ObservationIgnored private var loggedPhotos = false
+    /// The server's messages: the saved copy, realtime rows and reads merged (see ThreadSync).
+    @ObservationIgnored private var sync = ThreadSync()
+    /// The workspace this thread belongs to: its saved copy is only ever read from and written to that workspace's store.
+    @ObservationIgnored private let workspaceId: String?
+    @ObservationIgnored private var closed = false
+    /// Saves run one after another, so an older copy never lands after a newer one.
+    @ObservationIgnored private var saving: Task<Void, Never>?
+    @ObservationIgnored private var deltaSoon: Task<Void, Never>?
 
     let id: String
     private(set) var conversation: Conversation?
@@ -85,6 +93,8 @@ final class ChatModel {
     private(set) var sentCount = 0
     private(set) var loading = true
     private(set) var busy = false
+    /// The last read failed for want of a connection: what is on show is the copy saved earlier.
+    private(set) var offline = false
 
     struct Notice: Equatable {
         var severity: Banner.Severity
@@ -114,6 +124,7 @@ final class ChatModel {
         self.app = app
         self.id = id
         self.conversation = conversation
+        workspaceId = app.workspace?.id
         sendAction = UserDefaults.standard.string(forKey: sendActionKey).flatMap(PostSendAction.init(rawValue:)) ?? .none
     }
 
@@ -125,25 +136,58 @@ final class ChatModel {
     func debugRefresh() { poller?.kick() }
     #endif
 
+    private var store: LocalStore? { workspaceId.flatMap { app.store(for: $0) } }
+
     func start() {
         #if DEBUG
         Self.debugCurrent = self
         #endif
-        poller = Poller("thread", interval: { [weak self] in
-            guard let self else { return 5 }
-            return self.app.pollInterval(Double(min(5, self.app.config.pollIntervalSeconds)))
-        }) { [weak self] in try await self?.load() }
-        poller?.start()
-        events = app.inboxEvents.subscribe { [weak self] e in
-            if e.conversationId == nil || e.conversationId == self?.id { self?.poller?.kick() }
+        events = app.inboxEvents.subscribe { [weak self] e in self?.handle(e) }
+        // The copy saved on this Mac first (a few milliseconds), then the server: a delta from
+        // the saved cursor when there is one.
+        let store = self.store, id = self.id
+        Task { [weak self] in
+            if let store, let saved = await store.thread(id) {
+                guard let self, !self.closed else { return }
+                if self.sync.applyCached(saved) {
+                    self.render()
+                    self.loading = false
+                }
+            }
+            guard let self, !self.closed else { return }
+            self.poller = Poller("thread", interval: { [weak self] in
+                guard let self else { return 5 }
+                return self.app.pollInterval(Double(min(5, self.app.config.pollIntervalSeconds)))
+            }) { [weak self] in try await self?.load() }
+            self.poller?.start()
         }
         Task { await loadDetails() }
     }
 
     func close() {
+        closed = true
         poller?.stop()
+        deltaSoon?.cancel()
         events?.cancelNow()
         if recorder.isRecording { recorder.cancel() }
+    }
+
+    /// A realtime event: a message row for this thread is shown at once, and a delta follows
+    /// shortly to bring its sender, files and any other change (one read for a burst).
+    private func handle(_ e: InboxEvent) {
+        if e.isReconcile {
+            sync.requireWholeRead()
+            poller?.kick()
+            return
+        }
+        guard e.conversationId == nil || e.conversationId == id else { return }
+        if let m = e.message, m.conversationId == id, sync.applyRealtime(m) { render() }
+        deltaSoon?.cancel()
+        deltaSoon = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(CachePolicy.realtimeDeltaDelay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.poller?.kick()
+        }
     }
 
     /// New list data for the open conversation: header, actions and details follow it.
@@ -170,20 +214,48 @@ final class ChatModel {
 
     private func load() async throws {
         defer { loading = false }
-        let list = try await app.api.messages(conversationId: id)
-        let s = app.strings
+        let request = sync.beginFetch()
+        let page: ThreadPage
+        do {
+            page = try await app.api.messagePage(conversationId: id, since: request.since)
+        } catch {
+            sync.fetchFailed(transport: error.isTransport)
+            if error.isTransport { offline = true }
+            throw error
+        }
+        guard !closed else { return }
+        offline = false
         if !loggedPhotos {
             // Which operator replies came with a photo link, and from where: "no photo in the chat" is
             // then a question of what the server sent, answered from the log.
             loggedPhotos = true
-            let agents = list.filter { $0.senderType == SenderType.agent }
+            let agents = page.messages.filter { $0.senderType == SenderType.agent }
             let hosts = Set(agents.compactMap { $0.senderAvatar.flatMap { URL(string: $0)?.host ?? "relative" } })
             Log.write("[chat-photos] \(id.prefix(8)) operatorReplies=\(agents.count) withPhoto=\(agents.filter { !($0.senderAvatar ?? "").isEmpty }.count) hosts=\(hosts.sorted().joined(separator: ","))")
         }
+        let changed = sync.applyResponse(page)
+        #if DEBUG
+        Log.write("[sync] thread \(id.prefix(8)) \(page.delta ? "delta" : "full") rows=\(page.messages.count) total=\(sync.messages.count)")
+        #endif
+        if changed || !page.delta { save() }
+        render()
+
+        // Seen once per new message, and only while someone is actually looking.
+        // Only while the thread is really on screen: the inbox keeps it open behind other pages.
+        if let newest = sync.messages.last(where: { $0.senderType == SenderType.contact })?.id, newest != lastSeenMessage,
+           app.isForeground, app.visibleConversationId == id {
+            lastSeenMessage = newest
+            Task { try? await app.api.markSeen(conversationId: id) }
+        }
+    }
+
+    /// The rows on show: the server's messages with day separators, then what is still being sent.
+    private func render() {
+        let s = app.strings
         var wanted: [ChatRow] = []
         var day: Date?
         let cal = Calendar.current
-        for m in list.sorted(by: { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }) {
+        for m in sync.messages {
             var row = ChatRow.from(m, s)
             if row.side == .incoming {
                 row.avatarName = conversation?.contacts?.name ?? ""
@@ -195,9 +267,10 @@ final class ChatModel {
             }
             wanted.append(row)
         }
-        // A message the server already has (its client id came back) is no longer ours to show:
-        // otherwise a poll between the insert and the reply, or a 500 after the insert, shows it twice.
-        let delivered = Set(list.compactMap { $0.metadata?["client_message_id"]?.string })
+        // A message the server already has (its client id came back — by a read or by realtime) is no
+        // longer ours to show: otherwise a read between the insert and the reply, or a 500 after the
+        // insert, shows it twice.
+        let delivered = Set(sync.messages.compactMap { $0.metadata?["client_message_id"]?.string })
         if !delivered.isEmpty, outbox.contains(where: { $0.clientId.map(delivered.contains) == true }) {
             for o in outbox where o.clientId.map(delivered.contains) == true {
                 if let cid = o.clientId { thenActions[cid] = nil; retryFiles[cid] = nil }
@@ -207,13 +280,16 @@ final class ChatModel {
         wanted.append(contentsOf: outbox)
         Self.group(&wanted)
         if wanted != rows { rows = wanted }
+    }
 
-        // Seen once per new message, and only while someone is actually looking.
-        // Only while the thread is really on screen: the inbox keeps it open behind other pages.
-        if let newest = list.last(where: { $0.senderType == SenderType.contact })?.id, newest != lastSeenMessage,
-           app.isForeground, app.visibleConversationId == id {
-            lastSeenMessage = newest
-            Task { try? await app.api.markSeen(conversationId: id) }
+    /// The server's messages (never the outbox) to this workspace's store, in order.
+    private func save() {
+        guard sync.hasServerData, let store else { return }
+        let messages = sync.messages, cursor = sync.cursor, fullAt = sync.fullAt, id = self.id
+        let previous = saving
+        saving = Task {
+            await previous?.value
+            await store.saveThread(id, messages: messages, cursor: cursor, fullAt: fullAt)
         }
     }
 

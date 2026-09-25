@@ -110,11 +110,16 @@ final class InboxModel {
     var unreadConversations: Int { conversations.filter { ($0.unreadCount ?? 0) > 0 }.count }
 
     private func load() async throws {
-        guard let ws = app.workspace else { return }
+        guard let ws = app.workspace, let lists = app.lists, lists.workspaceId == ws.id else { return }
         let gen = generation
         defer { if gen == generation { loading = false } }
+        // Nothing on show yet (a launch, another queue): the list saved on this Mac first, while the server is asked.
+        if conversations.isEmpty, let saved = await lists.cached(filter), !saved.isEmpty, gen == generation, conversations.isEmpty {
+            apply(saved)
+            loading = false
+        }
         do {
-            var list = try await app.api.conversations(workspaceId: ws.id, filter: filter)
+            var list = try await lists.fetch(filter)
             guard gen == generation else { return } // the inbox changed while this was loading
             list = await app.withVisitorProfiles(list)
             guard gen == generation else { return }
@@ -125,7 +130,9 @@ final class InboxModel {
             }
             error = nil
         } catch let e as ApiError where e.failure != .unauthorized {
-            error = ErrorText.of(e, app.strings)
+            guard gen == generation else { throw e }
+            // Offline with a list on show: say it is the saved copy rather than show an error over it.
+            error = e.failure == .transport && !conversations.isEmpty ? app.strings["offlineSavedCopy"] : ErrorText.of(e, app.strings)
             throw e
         }
     }
@@ -183,9 +190,10 @@ final class InboxModel {
     /// actions are right, not just the messages.
     private func find(_ id: String) async {
         guard let ws = app.workspace else { return }
+        guard let lists = app.lists, lists.workspaceId == ws.id else { return }
         for f in [InboxFilter.ai, .open, .pending, .resolved, .spam] {
             do {
-                let list = try await app.api.conversations(workspaceId: ws.id, filter: f)
+                let list = try await lists.fetch(f)
                 guard let hit = list.first(where: { $0.id == id }) else { continue }
                 guard chat?.id == id else { return }
                 let enriched = await app.withVisitorProfiles([hit])

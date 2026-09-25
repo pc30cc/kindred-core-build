@@ -115,6 +115,12 @@ struct ThreadView: View {
                         .padding(.horizontal, 14)
                         .padding(.top, 8)
                         .transition(.move(edge: .top).combined(with: .opacity))
+                } else if chat.offline && !chat.rows.isEmpty {
+                    // No connection: the thread on show is the copy saved on this Mac, and says so.
+                    Banner(severity: .info, message: app.strings["offlineSavedCopy"])
+                        .padding(.horizontal, 14)
+                        .padding(.top, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
                 }
             }

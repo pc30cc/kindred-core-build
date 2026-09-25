@@ -61,6 +61,16 @@ final class AppModel {
     private(set) var callQueue: CallQueueWatcher?
     private(set) var realtimeConnected = false
     @ObservationIgnored private(set) var realtime: InboxRealtime?
+    /// Realtime has been up before in this workspace: a new connection is a reconnect after a gap.
+    @ObservationIgnored private var realtimeWasUp = false
+
+    /// This operator's saved messages and lists for the open workspace (see LocalStore). Nil
+    /// until both are known, and between workspaces.
+    @ObservationIgnored private(set) var localStore: LocalStore?
+    /// The workspace's conversation lists, one request for every reader.
+    @ObservationIgnored private(set) var lists: ConversationLists?
+    @ObservationIgnored private var memoryPressure: DispatchSourceMemoryPressure?
+    @ObservationIgnored private var fileTrimTimer: Timer?
 
     /// Every realtime event.
     @ObservationIgnored let inboxEvents = Signal<InboxEvent>()
@@ -140,7 +150,8 @@ final class AppModel {
     func start() async {
         // No permission prompt for notifications the platform does not allow.
         notifier.register(askPermission: config.system.notifications)
-        FileCache.trim()
+        FileCache.trimInBackground()
+        startCacheUpkeep()
         Log.write("launch \(Self.version)")
         await refreshPlatform()
         guard client.hasSession else {
@@ -149,6 +160,7 @@ final class AppModel {
         }
         do {
             user = try await api.currentUser()
+            rememberStoreOwner()
             await enter()
         } catch let e as ApiError where e.failure == .unauthorized {
             phase = .signedOut
@@ -256,6 +268,7 @@ final class AppModel {
 
     func signIn(email: String, password: String, remember: Bool) async throws {
         user = try await client.login(email: email, password: password)
+        rememberStoreOwner()
         if remember { SavedLogin.write(email: email, password: password) } else { SavedLogin.forget() }
         await enter()
     }
@@ -297,6 +310,7 @@ final class AppModel {
         // Signed out (which bumps the generation), or another workspace opened, while the plan was
         // awaited: this start is stale. Not a phase check — signing in starts from .signedOut.
         guard gen == openGeneration else { return }
+        openLocalStore()
         startRealtime()
         await startPresence()
         startShell()
@@ -312,6 +326,7 @@ final class AppModel {
         CallCoordinator.shared.hangUpForQuit()
         stopShell()
         stopPresence()
+        closeLocalStore()
         visitorsOnline = 0
         workspace = ws
         settings.workspaceId = ws.id
@@ -334,6 +349,9 @@ final class AppModel {
     #endif
 
     func signOut() async {
+        // Signing out on purpose: this account's saved messages leave the Mac too.
+        let leaving = user?.id ?? UserDefaults.standard.string(forKey: Self.storeOwnerKey)
+        let store = localStore
         await engagement.sayGoodbye()
         do {
             try await client.logout()
@@ -343,6 +361,8 @@ final class AppModel {
             client.discardSession()
         }
         signedOut()
+        await store?.destroy()
+        if let leaving { await Task.detached(priority: .utility) { LocalStore.removeUser(leaving) }.value }
     }
 
     /// The server no longer knows this session (or the operator signed out).
@@ -358,6 +378,11 @@ final class AppModel {
         realtime = nil
         realtimeConnected = false
         engagement.stop()
+        closeLocalStore()
+        UserDefaults.standard.removeObject(forKey: Self.storeOwnerKey)
+        // Nothing of this account stays in memory for whoever signs in next.
+        AttachmentStore.shared.clearMemory()
+        ImageStore.shared.clearMemory()
         user = nil
         account = nil
         unread = 0
@@ -435,9 +460,22 @@ final class AppModel {
         realtimeConnected = false
         guard let ws = workspace else { return }
         let rt = InboxRealtime(api: api, workspaceId: ws.id, allowed: { [weak self] in self?.config.realtimeEnabled ?? false })
-        rt.onEvent = { [weak self] e in self?.inboxEvents.send(e) }
+        realtimeWasUp = false
+        rt.onEvent = { [weak self] e in
+            // Before anyone reads again: no list read before this event is handed out as current.
+            self?.lists?.invalidate()
+            self?.inboxEvents.send(e)
+        }
         rt.onVisitorEvent = { [weak self] v in self?.visitorEvents.send(v) }
-        rt.onConnectionChanged = { [weak self] up in self?.realtimeConnected = up }
+        rt.onConnectionChanged = { [weak self] up in
+            guard let self else { return }
+            self.realtimeConnected = up
+            // Back after a gap: events may have been missed, so everything reads again.
+            if up {
+                if self.realtimeWasUp { self.reconcile(reason: "reconnect") }
+                self.realtimeWasUp = true
+            }
+        }
         rt.onPresenceJoined = { [weak self] in self?.presence?.kick() }
         realtime = rt
         rt.start()
@@ -515,6 +553,94 @@ final class AppModel {
         handedSeen = []
     }
 
+    // MARK: Local-first cache
+
+    /// Who the saved copy on this Mac belongs to, so a launch with no connection can show it.
+    /// Only an id — never a token — and cleared on sign-out.
+    static let storeOwnerKey = "localStore.owner"
+
+    private func rememberStoreOwner() {
+        guard let id = user?.id, !Self.isSample else { return }
+        UserDefaults.standard.set(id, forKey: Self.storeOwnerKey)
+    }
+
+    /// Opens the saved copy of this account in this workspace, and the shared list reader.
+    /// Offline at launch the account is not known yet: the last one that signed in on this
+    /// Mac (whose session this is) stands in until the server says who it is.
+    private func openLocalStore() {
+        closeLocalStore()
+        guard let ws = workspace else { return }
+        let owner = user?.id ?? UserDefaults.standard.string(forKey: Self.storeOwnerKey)
+        if let owner, !Self.isSample {
+            let store = LocalStore(scope: .init(userId: owner, workspaceId: ws.id))
+            localStore = store
+            Task.detached(priority: .utility) {
+                await store.prune()
+                let n = await store.stats()
+                Log.write("[store] open threads=\(n.threads) messages=\(n.messages) lists=\(n.lists)")
+            }
+        }
+        let wsId = ws.id
+        lists = ConversationLists(workspaceId: wsId, store: { [weak self] in
+            // Only ever this workspace's file, whatever is open by the time a read lands.
+            self?.localStore.flatMap { $0.scope.workspaceId == wsId ? $0 : nil }
+        }, fetch: { [weak self] filter, etag in
+            guard let self else { throw CancellationError() }
+            return try await self.api.conversations(workspaceId: wsId, filter: filter, etag: etag)
+        })
+    }
+
+    private func closeLocalStore() {
+        if let store = localStore { Task.detached { await store.close() } }
+        localStore = nil
+        lists = nil
+    }
+
+    /// The saved copy for `workspaceId`, if that is the workspace open now.
+    func store(for workspaceId: String) -> LocalStore? {
+        localStore.flatMap { $0.scope.workspaceId == workspaceId ? $0 : nil }
+    }
+
+    /// Everything reads from the server again, threads whole.
+    func reconcile(reason: String) {
+        Log.write("[sync] reconcile \(reason)")
+        lists?.invalidate()
+        inboxEvents.send(InboxEvent(type: InboxEvent.reconciled))
+    }
+
+    /// Settings → Storage → Clear: the saved messages, lists, files and pictures on this Mac.
+    /// Nothing on the server, and not the session. What is on screen stays and reads again.
+    func clearLocalCache() async {
+        let keep = localStore
+        await Task.detached(priority: .userInitiated) {
+            FileCache.clear()
+            LocalStore.removeAll(except: keep?.url)
+        }.value
+        await keep?.reset()
+        AttachmentStore.shared.clearMemory()
+        ImageStore.shared.clearMemory()
+        lists?.forget()
+        reconcile(reason: "cache cleared")
+    }
+
+    /// The file cache is trimmed while the app runs, not only at launch; memory is given back
+    /// when macOS asks for it.
+    private func startCacheUpkeep() {
+        fileTrimTimer?.invalidate()
+        fileTrimTimer = Timer.scheduledTimer(withTimeInterval: CachePolicy.fileCacheTrimInterval, repeats: true) { _ in
+            FileCache.trimInBackground()
+        }
+        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        source.setEventHandler {
+            MainActor.assumeIsolated {
+                AttachmentStore.shared.releaseMemory()
+                ImageStore.shared.clearMemory()
+            }
+        }
+        source.resume()
+        memoryPressure = source
+    }
+
     // MARK: Shell pollers
 
     private func startShell() {
@@ -553,7 +679,20 @@ final class AppModel {
         counts = try await api.sidebarCounts(workspaceId: workspaceId)
         // Launched offline: who is signed in is still unknown, and "assign to me", handed calls
         // and the "assigned" notices all need it.
-        if user == nil, let me = try? await api.currentUser() { user = me }
+        if user == nil, let me = try? await api.currentUser() {
+            user = me
+            // Opened offline with the last account's copy: if the session turns out to be
+            // someone else's, that copy goes at once.
+            if let store = localStore, store.scope.userId != me.id {
+                Log.write("[store] owner changed, reopening")
+                closeLocalStore()
+                rememberStoreOwner()
+                openLocalStore()
+                reconcile(reason: "owner")
+            } else {
+                rememberStoreOwner()
+            }
+        }
         // "Other inboxes" is for owners and admins only, as on the web.
         guard !channelsLoaded, plan.isAdmin else { return }
         channelsLoaded = true

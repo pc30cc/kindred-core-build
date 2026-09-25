@@ -34,23 +34,39 @@ struct ThreadView: View {
     let columnWidth: CGFloat
     @State private var dropping = false
 
-    private var showDetails: Bool { app.settings.detailsOpen && columnWidth > 820 }
-    private var width: CGFloat { columnWidth - (showDetails ? 290 : 0) }
+    /// The details sit beside the thread when both fit; in a narrower window they float over the
+    /// thread's end edge instead — never simply gone with their button greyed out.
+    private var detailsBeside: Bool { columnWidth >= 700 }
+    private var showDetails: Bool { app.settings.detailsOpen }
+    private var detailsWidth: CGFloat { columnWidth >= 960 ? 300 : 280 }
+    private var width: CGFloat { columnWidth - (showDetails && detailsBeside ? detailsWidth : 0) }
 
     var body: some View {
         // Beside the thread, at its end edge. Not `.inspector`: in a right-to-left
         // window it reserves the space on one side and draws on the other.
         HStack(spacing: 0) {
             thread
-            if showDetails {
+            if showDetails && detailsBeside {
                 Divider()
                 DetailsPanel(chat: chat)
-                    .frame(width: 290)
+                    .frame(width: detailsWidth)
                     .background(Palette.surface2.opacity(0.6))
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
+        .overlay(alignment: .trailing) {
+            if showDetails && !detailsBeside {
+                DetailsPanel(chat: chat)
+                    .frame(width: min(300, columnWidth - 40))
+                    .frame(maxHeight: .infinity)
+                    .background(Palette.surface)
+                    .overlay(alignment: .leading) { Divider() }
+                    .shadow(color: .black.opacity(0.18), radius: 16, x: 0, y: 0)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
         .animation(.smooth(duration: 0.22), value: showDetails)
+        .animation(.smooth(duration: 0.22), value: detailsBeside)
     }
 
     private var thread: some View {
@@ -58,7 +74,7 @@ struct ThreadView: View {
             .background(Palette.chatBackground)
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
-                ThreadHeader(chat: chat, width: width, roomForDetails: columnWidth > 820)
+                ThreadHeader(chat: chat, width: width)
                 // This conversation's call slides down from under the header, and back up when it ends.
                 VStack(spacing: 0) {
                     if let call = CallCoordinator.shared.docksHere(conversationId: chat.conversation?.id) {

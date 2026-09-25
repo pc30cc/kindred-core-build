@@ -42,6 +42,9 @@ work = "2.11.2"
 # firebase.google.com itself is not reachable from the machine this was
 # written on.
 firebaseBom = "34.19.0"
+# Screenshot tests on the JVM (Robolectric's native graphics), the way
+# nowinandroid does them. Resolved from Maven Central 2026-09-25.
+roborazzi = "1.75.0"
 
 [libraries]
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugar" }
@@ -127,6 +130,8 @@ androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version
 androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+roborazzi = { group = "io.github.takahirom.roborazzi", name = "roborazzi", version.ref = "roborazzi" }
+roborazzi-compose = { group = "io.github.takahirom.roborazzi", name = "roborazzi-compose", version.ref = "roborazzi" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
@@ -143,3 +148,5 @@ ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 # Exports the cache's schema, one JSON file per version, so a migration can
 # be written against what actually shipped rather than against memory.
 androidx-room = { id = "androidx.room", version.ref = "room" }
+# Adds record/compare/verify tasks around the unit tests.
+roborazzi = { id = "io.github.takahirom.roborazzi", version.ref = "roborazzi" }

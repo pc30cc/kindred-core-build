@@ -8,6 +8,8 @@ plugins {
     // Room's annotation processor, and the plugin that exports its schema.
     alias(libs.plugins.ksp)
     alias(libs.plugins.androidx.room)
+    // Screenshot tests: `recordRoborazziDebug` writes the PNGs.
+    alias(libs.plugins.roborazzi)
 }
 
 /**
@@ -311,6 +313,8 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.ext.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
     testImplementation(libs.androidx.room.testing)
     testImplementation(libs.androidx.work.testing)
     testImplementation(platform(libs.androidx.compose.bom))

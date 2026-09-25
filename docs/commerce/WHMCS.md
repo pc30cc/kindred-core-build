@@ -524,9 +524,11 @@ account-data evidence or an instruction; guest account requests still require lo
 
 The updater now detects a staging filesystem mismatch before reporting that the
 addon is current. Docker installations must bind a private host directory on the
-same filesystem as the addon mount and set `WEBYAR_UPDATE_DIR` in the cron/web
-container. Keep the directory outside the web root, owned by the cron user with
-mode 0700. After a successful update, the new updater refreshes connection metadata
+same filesystem and within the **same mount** as the addon. Use one common
+bind mount such as `./site:/var/www`, with WHMCS under `/var/www/html` and a
+private sibling `/var/www/updates`; set `WEBYAR_UPDATE_DIR=/var/www/updates`.
+Separate bind mounts can reject rename even when their device IDs match. Keep
+the update directory outside the web root, owned by the cron user with mode 0700. After a successful update, the new updater refreshes connection metadata
 once; an unsuccessful refresh does not invalidate the installed version. When
 upgrading from 1.2.0, use Check connection once because the old updater does not
 perform that refresh.

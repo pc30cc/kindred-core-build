@@ -46,8 +46,9 @@ validation enabled. Settings and credentials remain in place. The previous files
 are retained in the private working directory for manual recovery. See
 repository docs/commerce/WHMCS.md for recovery steps and deployment requirements.
 
-Docker installations: bind a private host directory outside the WHMCS web root
-to /var/lib/webyar-updates and set WEBYAR_UPDATE_DIR=/var/lib/webyar-updates
-in the web/cron container. The host directory must be on the same filesystem
-as the addon bind mount, owned by the cron user and have mode 0700. A /tmp
-directory in the container overlay cannot stage updates for a host bind mount.
+Docker installations: use ONE common bind mount for the web root and its private
+update sibling, e.g. ./site:/var/www with WHMCS in /var/www/html and updates in
+/var/www/updates. Set WEBYAR_UPDATE_DIR=/var/www/updates in the web/cron container;
+keep updates owned by the cron user with mode 0700 and outside the web root.
+Two separate bind mounts can reject rename even on the same host filesystem.
+A /tmp directory in the container overlay also cannot stage a bind-mount update.

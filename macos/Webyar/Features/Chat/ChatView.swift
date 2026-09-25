@@ -58,6 +58,11 @@ struct ThreadView: View {
                     .background(Palette.surface2.opacity(0.6))
             }
         }
+        #if DEBUG
+        .onChange(of: columnWidth, initial: true) { _, w in
+            Log.write("[layout] thread column=\(Int(w)) beside=\(detailsBeside) details=\(showDetails) open=\(app.settings.detailsOpen)")
+        }
+        #endif
         .overlay(alignment: .trailing) {
             if showDetails && !detailsBeside {
                 DetailsPanel(chat: chat)

@@ -738,6 +738,14 @@ final class AppModel {
         if cameForward, Date().timeIntervalSince(planAskedAt) > 30 {
             planAskedAt = Date()
             Task { await loadPlan() }
+            // The photo and logo links come from the storage provider, which Super Admin can change:
+            // read them again so the old host is not kept for the whole session.
+            if phase == .signedIn {
+                Task {
+                    await reloadAccount()
+                    await refreshWorkspaces()
+                }
+            }
         }
     }
 

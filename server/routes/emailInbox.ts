@@ -12,7 +12,7 @@
  * Reusing its path or its `emailRouter` export would conflate two different
  * things that happen to share the English word "email".
  */
-import { Router, raw } from 'express';
+import { Router, raw, type Response } from 'express';
 import { z } from 'zod';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import {
@@ -23,12 +23,13 @@ import {
   setThreadStarred,
   stageComposeAttachment,
   composeReply,
+  getAttachmentFile,
   type StagedAttachment,
 } from '../services/email/inbox.js';
 
 export const emailInboxRouter = Router();
 
-function sendEmailInboxError(res: any, err: unknown) {
+function sendEmailInboxError(res: Response, err: unknown) {
   if (err instanceof EmailInboxError) {
     const status =
       err.code === 'email_not_connected' ? 409 :
@@ -41,7 +42,7 @@ function sendEmailInboxError(res: any, err: unknown) {
   res.status(500).json({ error: 'email_inbox_unexpected_error' });
 }
 
-emailInboxRouter.get('/:workspaceId/threads', async (req: any, res) => {
+emailInboxRouter.get('/:workspaceId/threads', async (req, res) => {
   const { workspaceId } = req.params;
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
@@ -59,7 +60,7 @@ emailInboxRouter.get('/:workspaceId/threads', async (req: any, res) => {
   }
 });
 
-emailInboxRouter.get('/:workspaceId/threads/:threadId', async (req: any, res) => {
+emailInboxRouter.get('/:workspaceId/threads/:threadId', async (req, res) => {
   const { workspaceId, threadId } = req.params;
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
@@ -72,7 +73,7 @@ emailInboxRouter.get('/:workspaceId/threads/:threadId', async (req: any, res) =>
 });
 
 const readSchema = z.object({ is_read: z.boolean() });
-emailInboxRouter.post('/:workspaceId/threads/:threadId/read', async (req: any, res) => {
+emailInboxRouter.post('/:workspaceId/threads/:threadId/read', async (req, res) => {
   const { workspaceId, threadId } = req.params;
   const parsed = readSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
@@ -87,7 +88,7 @@ emailInboxRouter.post('/:workspaceId/threads/:threadId/read', async (req: any, r
 });
 
 const starSchema = z.object({ starred: z.boolean() });
-emailInboxRouter.post('/:workspaceId/threads/:threadId/star', async (req: any, res) => {
+emailInboxRouter.post('/:workspaceId/threads/:threadId/star', async (req, res) => {
   const { workspaceId, threadId } = req.params;
   const parsed = starSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
@@ -102,13 +103,38 @@ emailInboxRouter.post('/:workspaceId/threads/:threadId/star', async (req: any, r
 });
 
 /**
+ * GET /:workspaceId/attachments/:attachmentId/file — a received or sent
+ * attachment's bytes, for signed-in apps. Read by key from the storage
+ * provider that is primary now, so nothing breaks when Super Admin changes the
+ * provider or its CDN, and providers with no public URL (or private buckets)
+ * still serve it.
+ */
+emailInboxRouter.get('/:workspaceId/attachments/:attachmentId/file', async (req, res) => {
+  const { workspaceId, attachmentId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  try {
+    const file = await getAttachmentFile(serverConfigOf(req), workspaceId, attachmentId);
+    if (!file) return res.status(404).json({ error: 'attachment_not_found' });
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Content-Length', String(file.data.byteLength));
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.filename)}`);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(file.data);
+  } catch (err) {
+    sendEmailInboxError(res, err);
+  }
+});
+
+/**
  * POST /:workspaceId/attachments?filename=&content_type= — raw bytes,
  * staged under a fresh storage key. The returned `storageKey` is passed back
  * in a subsequent /send call, which is what actually creates the
  * `email_attachments` row (that table's `message_id` is NOT NULL, so an
  * attachment cannot be persisted before the message it belongs to exists).
  */
-emailInboxRouter.post('/:workspaceId/attachments', raw({ type: '*/*', limit: '25mb' }), async (req: any, res) => {
+emailInboxRouter.post('/:workspaceId/attachments', raw({ type: '*/*', limit: '25mb' }), async (req, res) => {
   const { workspaceId } = req.params;
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
@@ -140,7 +166,7 @@ const sendSchema = z.object({
   })).optional(),
 });
 
-emailInboxRouter.post('/:workspaceId/send', async (req: any, res) => {
+emailInboxRouter.post('/:workspaceId/send', async (req, res) => {
   const { workspaceId } = req.params;
   const parsed = sendSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload', details: parsed.error.flatten() });

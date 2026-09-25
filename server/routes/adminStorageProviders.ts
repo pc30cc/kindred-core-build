@@ -335,6 +335,24 @@ adminStorageProvidersRouter.put('/:providerName', async (req, res) => {
       );
     }
 
+    // Editing the vendor every app is reading from right now: a public/CDN URL it can no longer
+    // build links with would break every avatar, logo and file link at once, in every app. The
+    // same gate promotion applies, applied to the edit that would take the primary there.
+    if (name === pool.primary) {
+      const capability = describeUrlCapability(storageConfigFromRecord(name, merged));
+      if (!capability.capable) {
+        return res.status(409).json({
+          error:
+            capability.reason === 'not_an_absolute_url'
+              ? 'This is the primary storage vendor, and without a public base URL it cannot produce links '
+                + 'for avatars, logos and files. Set its public/CDN URL (https://…) and save again.'
+              : 'This backend cannot build public URLs with this configuration, so saving it on the primary '
+                + 'vendor would break every avatar and logo link.',
+          reason: 'no_public_url',
+        });
+      }
+    }
+
     pool.providers[name] = {
       // Enable state is PATCH's business — carried over untouched here.
       enabled: existing?.enabled ?? true,

@@ -84,7 +84,7 @@ struct AvatarView: View {
                     }
                 }
         case .visitor where faceless && AvatarArt.osOf(os) == .none:
-            Self.skeleton(size: size)
+            Self.skeleton(size: size, seed: [name, email].compactMap { $0 }.first { !$0.isEmpty })
         case .visitor:
             let art = AvatarArt.make(name: name, email: email, os: os)
             Circle().fill(gradient(art))
@@ -103,12 +103,15 @@ struct AvatarView: View {
     }
 
     /// The grey disc with a person in the middle, for someone with no face to show yet.
-    static func skeleton(size: CGFloat) -> some View {
-        Circle().fill(Palette.elevated)
+    /// A visitor's disc takes a soft tint of their own, picked by a hash of `seed`.
+    static func skeleton(size: CGFloat, seed: String? = nil) -> some View {
+        let tint = seed.map { Color(AvatarArt.tint(seed: $0)) }
+        return Circle().fill(Palette.elevated)
+            .overlay { Circle().fill((tint ?? .clear).opacity(0.24)) }
             .overlay {
                 Image(systemName: "person.fill")
                     .font(.system(size: size * 0.46))
-                    .foregroundStyle(Palette.text3.opacity(0.8))
+                    .foregroundStyle(tint.map { $0.opacity(0.85) } ?? Palette.text3.opacity(0.8))
             }
     }
 

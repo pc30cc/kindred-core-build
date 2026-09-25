@@ -289,6 +289,12 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     hosted: 'supabase/migrations/20260924150000_commerce_opencart_direct.sql',
   },
 
+  {
+    label: '215 — commerce merchant display name',
+    selfHost: 'database/migrations/215_commerce_store_name.sql',
+    hosted: 'supabase/migrations/20260925063323_commerce_store_name.sql',
+  },
+
   // intentionally asymmetric, not a drift bug.
 
   // NOTE: 182 (database/migrations/182_admin_purge_workspaces_selfhost.sql)

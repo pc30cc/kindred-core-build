@@ -20,7 +20,7 @@ Verified scenarios include anonymous-contact enrichment at login, no repeated co
 - Previously PHP-dependent updater/icon tests: 24 passed in the isolated environment.
 - OpenCart PHP unit suite: 93 passed, zero failures.
 - Type checks passed. Four explicit-any lint findings in the shared contact module were corrected without disabling the lint gate.
-- Earlier GitHub run passed 512 test files, production build, Widget Quality, invitations, PostgreSQL integration, financial tests and all three migration-chain jobs; its only blocking job failure was the four lint findings above. The follow-up commit must also pass GitHub checks.
+- Earlier GitHub run passed 512 test files, production build, Widget Quality, invitations, PostgreSQL integration, financial tests and all three migration-chain jobs; its only blocking job failure was the four lint findings above. Follow-up head 255900d passed CI, Widget Quality and Workspace Invitations. After integrating current main, 448 commerce/widget tests and frontend/server type checks passed; final merge-head checks are required.
 - Rebuilt ZIP member contents matched signed packages exactly. The reproducibility warning was due to ZIP metadata differences (47 OC4 and 46 OC3 entries), not changed PHP code; signed release archives were preserved.
 
 ## Browser and deployment boundary

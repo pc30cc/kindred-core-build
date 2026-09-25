@@ -39,6 +39,7 @@ export interface CommerceConnectionRow {
   installation_id: string;
   provider_type: string;
   store_id: string;
+  store_name?: string | null;
   approved_origin: string;
   capabilities: string[];
   permissions: Partial<Record<CommercePermissionKey | string, boolean>>;
@@ -54,7 +55,7 @@ export interface CommerceConnectionRow {
 
 const CALL_DEADLINE_MS = 5_000;
 
-export const CONNECTION_COLUMNS = 'id, workspace_id, installation_id, provider_type, store_id, approved_origin, capabilities, permissions, health, catalog_ready, revoked_at, protocol_version, external_store_id, platform_version, last_error_at';
+export const CONNECTION_COLUMNS = 'id, workspace_id, installation_id, provider_type, store_id, store_name, approved_origin, capabilities, permissions, health, catalog_ready, revoked_at, protocol_version, external_store_id, platform_version, last_error_at';
 
 export async function getConnectionForWorkspace(
   config: ServerConfig,

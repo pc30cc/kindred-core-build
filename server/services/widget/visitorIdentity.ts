@@ -130,6 +130,10 @@ export function resolveVisitorIdentity(
   const raw = (req as Request & { cookies?: Record<string, string> }).cookies?.[COOKIE_NAME];
   const now = Math.floor(Date.now() / 1000);
 
+  // A new visitor must not inherit the previous contact through dvcid.
+  // Clearing only dvsid lets /identity/me restore and re-pin that contact,
+  // after which history exposes the previous signed-in conversation.
+  if (opts.forceNew) clearVisitorCookie(res, req);
   let payload = raw && !opts.forceNew ? decodeCookie(raw) : null;
   let isNew = false;
   let needsRotation = false;
@@ -191,18 +195,17 @@ export function setVisitorCookie(res: Response, payload: VisitorPayload, req?: R
 
 export function clearVisitorCookie(res: Response, req?: Request | null): void {
   const secure = isSecureRequest(req ?? null);
-  const attrs = [
-    `${COOKIE_NAME}=`,
-    'Path=/api',
-    'HttpOnly',
-    'Max-Age=0',
-    `SameSite=${secure ? 'None' : 'Lax'}`,
-  ];
-  if (secure) {
-    attrs.push('Secure');
-    attrs.push('Partitioned');
+  // Match the path, Secure and CHIPS attributes used by both setters.
+  for (const name of [COOKIE_NAME, 'dvcid']) {
+    const attrs = [
+      `${name}=`, 'Path=/api', 'HttpOnly', 'Max-Age=0',
+      `SameSite=${secure ? 'None' : 'Lax'}`,
+    ];
+    if (secure) attrs.push('Secure', 'Partitioned');
+    res.append('Set-Cookie', attrs.join('; '));
+    // Also prevent restoration by a later resolver in this request.
+    if (req?.cookies) delete req.cookies[name];
   }
-  res.append('Set-Cookie', attrs.join('; '));
 }
 
 /**

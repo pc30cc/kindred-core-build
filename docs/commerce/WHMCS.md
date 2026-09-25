@@ -129,8 +129,11 @@ the next user. One grant binds one visitor: binding it elsewhere revokes the
 old binding.
 
 **Shared browser / account switch.** The page also carries an opaque
-`data-commerce-subject`; when it changes, the loader asks the widget for a
-fresh visitor, so user B does not inherit user A's conversation.
+`data-commerce-subject`; when a different signed-in user appears, the loader
+asks the widget for a fresh visitor, so user B does not inherit user A's
+conversation. Logout keeps the same visitor and visible conversation history.
+The last signed-in subject is retained across anonymous pages so A → logout
+→ B still resets, while A → logout → A continues the same conversation.
 
 **Every private read re-asks WHMCS.** Web Yar never decides a grant is still
 valid: each turn with a private read starts with a live `session.check`. On
@@ -486,11 +489,46 @@ unchanged profile causes no database writes. Contact changes notify the
 operator inbox and contact views; contact views also refresh every ten seconds
 when realtime delivery is unavailable. No per-request database log is added.
 
-Logout revokes account access and starts a fresh widget visitor on the next
-signed-out page. It never erases the saved contact or conversation history in
-the operator app. A different signed-in user must use a fresh visitor; stale
+Logout revokes account access but preserves the same widget visitor, selected
+conversation and all earlier messages, including account replies, in that
+browser. New account questions require login: WHMCS checks the grant even on
+cache hits, and revoked bindings supply a login response instead of account
+data. The saved contact and conversation history also remain in the operator
+app. A different signed-in user must use a fresh visitor; stale
 assertions cannot overwrite the previous person's contact. Disabling contact
 sharing stops future profile synchronization without clearing existing data.
 
 This behavior is delivered through the hosted loader and API; the WHMCS addon
 remains version 1.2.0 and does not need reinstalling for this server-side fix.
+
+
+Account-switch regression: rotating the visitor cookie alone is insufficient
+when a different user signs in. The contact continuity cookie could reattach the old contact when
+`/identity/me` ran, exposing its conversation again after “Start conversation”.
+A forced fresh visitor now clears both `dvsid` and `dvcid` with matching secure,
+partitioned cookie attributes. Tab view/binding hints are removed, and the
+commerce subject marker is acknowledged only after bootstrap succeeds, so a
+failed reset is retried on the next page. Stored contacts and conversations
+are preserved; only this browser's continuation credentials are cleared on
+account switches or an explicit widget identity reset. WHMCS logout does not
+request this reset or clear the active conversation hint.
+
+### Merchant name and update diagnostics (1.2.1)
+
+The signed health response reads WHMCS General Settings → Company Name
+(`CompanyName`). Pairing and Check connection refresh the bounded plain-text
+`store_name` label shown on the connection card and supplied to the assistant.
+Changing the WHMCS company name requires Check connection to refresh the label.
+Older addons that omit the field preserve the last known name. A name is never
+account-data evidence or an instruction; guest account requests still require login.
+
+The updater now detects a staging filesystem mismatch before reporting that the
+addon is current. Docker installations must bind a private host directory on the
+same filesystem and within the **same mount** as the addon. Use one common
+bind mount such as `./site:/var/www`, with WHMCS under `/var/www/html` and a
+private sibling `/var/www/updates`; set `WEBYAR_UPDATE_DIR=/var/www/updates`.
+Separate bind mounts can reject rename even when their device IDs match. Keep
+the update directory outside the web root, owned by the cron user with mode 0700. After a successful update, the new updater refreshes connection metadata
+once; an unsuccessful refresh does not invalidate the installed version. When
+upgrading from 1.2.0, use Check connection once because the old updater does not
+perform that refresh.

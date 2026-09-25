@@ -469,23 +469,23 @@
     } catch (_) { /* no fetch — stay anonymous */ }
   }
 
-  // ─── Who is using this browser, as the embedding site knows it ───
-  // A billing/store plugin may put an opaque per-person fingerprint on the tag
-  // (`data-commerce-subject`: "anon" for a signed-out page, "u<hash>" for a
-  // signed-in user). When the previous page belonged to a signed-in person
-  // and this one belongs to someone else — or to nobody, after a logout — the
-  // widget asks bootstrap for a FRESH visitor, so the previous person's
-  // conversation is not shown on a shared computer. Pages without the
-  // attribute (every plain embed) are unaffected.
+  // WHMCS retains the conversation at logout; eager store contexts rotate
+  // on logout. Both commit the subject only after a successful bootstrap.
   function commerceSubjectChanged(workspaceId) {
     var subject = attr("data-commerce-subject");
-    if (!subject || !workspaceId) return false;
-    var key = "gs:csub:" + workspaceId;
+    var eager = attr("data-commerce-context-eager") === "true";
+    if (!subject || !workspaceId || (!eager && subject.charAt(0) !== "u")) return false;
     var previous = null;
-    try { previous = window.localStorage.getItem(key); } catch (_) { return attr("data-commerce-context-eager") === "true"; }
-    try { window.localStorage.setItem(key, subject); } catch (_) {}
-    return (!previous && attr("data-commerce-context-eager") === "true")
+    try { previous = window.localStorage.getItem("gs:csub:" + workspaceId); } catch (_) { return eager; }
+    return (!previous && eager)
       || (!!previous && previous.charAt(0) === "u" && previous !== subject);
+  }
+
+  function rememberCommerceSubject(workspaceId) {
+    var subject = attr("data-commerce-subject");
+    if (!subject || !workspaceId) return;
+    if (subject.charAt(0) !== "u" && attr("data-commerce-context-eager") !== "true") return;
+    try { window.localStorage.setItem("gs:csub:" + workspaceId, subject); } catch (_) {}
   }
 
   function getApiBase() {
@@ -1073,7 +1073,14 @@
       workspace_id: WORKSPACE_ID,
       origin: window.location.origin,
     };
-    if (commerceSubjectChanged(WORKSPACE_ID)) bootstrapPayload.fresh_visitor = true;
+    if (commerceSubjectChanged(WORKSPACE_ID)) {
+      bootstrapPayload.fresh_visitor = true;
+      try {
+        window.sessionStorage.removeItem("gs:view:" + WORKSPACE_ID);
+        window.sessionStorage.removeItem(bindingKey(WORKSPACE_ID));
+        document.cookie = "gs_active=; path=/; max-age=0; SameSite=Lax";
+      } catch (_) {}
+    }
     var bootstrapBody = JSON.stringify(bootstrapPayload);
 
     fetchWithRetry(bootstrapUrl, {
@@ -1115,6 +1122,9 @@
             log("hide_widget — active session detected, keeping shell");
           }
         } catch (_) {}
+        // Commit the subject only after bootstrap has reset both identity
+        // cookies. A failed reset must be attempted again on the next page.
+        rememberCommerceSubject(WORKSPACE_ID);
         sessionToken = data.session_token;
         WORKSPACE_ID = data.workspace_id || WORKSPACE_ID;
         window.__gs._id = WORKSPACE_ID;

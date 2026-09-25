@@ -759,7 +759,8 @@ struct CallerAvatar: View {
     var body: some View {
         let sid = call?.visitorSessionId ?? sessionId
         let p = sid.flatMap { app.sessionProfiles[$0] }
-        AvatarView(name: call?.visitorName, email: call?.visitorEmail, os: p?.device?.os,
+        // Without a name the placeholder's tint still follows the caller: their session, else the call.
+        AvatarView(name: call?.visitorName ?? sid ?? call?.id, email: call?.visitorEmail, os: p?.device?.os,
                    countryCode: p?.geo?.countryCode, size: size, faceless: true)
             .task(id: sid) { app.wantSessionProfile(sid) }
     }

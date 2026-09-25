@@ -60,6 +60,13 @@ struct AvatarArt: Sendable, Equatable {
         return AvatarArt(os: .none, initials: initials, from: Hsl(h, s, 56), to: Hsl((h + 28).truncatingRemainder(dividingBy: 360), s, 44), angleDegrees: 135)
     }
 
+    /// A visitor's own tint for the grey placeholder, from the same hash and palette,
+    /// so two faceless visitors side by side are told apart.
+    static func tint(seed: String) -> Hsl {
+        let (h, s) = palette[Int(djb2(seed.lowercased()) % 12)]
+        return Hsl(h, s, 54)
+    }
+
     static func osOf(_ os: String?) -> AvatarOs {
         let o = (os ?? "").lowercased()
         if o.isEmpty { return .none }

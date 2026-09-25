@@ -19,7 +19,6 @@ const files = [
   'src/components/admin/macos/MacosOverviewTab.tsx',
   'src/components/admin/macos/MacosUpdatesTab.tsx',
   'src/components/admin/macos/MacosBehaviourTab.tsx',
-  'src/components/admin/macos/MacosFeaturesTab.tsx',
   'src/components/admin/macos/MacosIntegrationTab.tsx',
   'src/components/admin/macos/MacosMaintenanceTab.tsx',
   'src/components/admin/macos/MacosNote.tsx',

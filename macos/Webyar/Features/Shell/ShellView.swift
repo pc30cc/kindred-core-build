@@ -107,14 +107,13 @@ struct PageDetail: View {
 // MARK: - Sidebar
 
 /// The sidebar in two tiers, so where one is reads at a glance: the sections
-/// (inbox, colleagues, other inboxes, contacts, visitors, call center) each on a
-/// coloured tile in semibold, and the inbox's queues and the other inboxes'
-/// channels folded under their section, indented and lighter. A folded section
+/// (inbox, colleagues, contacts, visitors, call center) each on a coloured
+/// tile in semibold, and the inbox's pages — its queues, email and the other
+/// channels — folded under it, indented and lighter. A folded section
 /// shows its unread count on itself.
 struct SidebarView: View {
     @Environment(AppModel.self) private var app
     @AppStorage("sidebarInboxOpen") private var inboxOpen = true
-    @AppStorage("sidebarOthersOpen") private var othersOpen = true
 
     var body: some View {
         @Bindable var app = app
@@ -134,20 +133,17 @@ struct SidebarView: View {
                     sub(.inbox(.resolved), s["navInboxResolved"], "checkmark.circle", badge: 0, color: Palette.brand)
                     sub(.inbox(.spam), s["navInboxSpam"], "xmark.bin", badge: app.counts.spam ?? 0, color: Palette.text3)
                     if plan.emailInbox { sub(.email, s["emailInbox"], "envelope", badge: 0, color: Palette.brand) }
+                    // The other inboxes (Telegram, WhatsApp, …) are pages of the inbox too.
+                    if plan.isAdmin {
+                        ForEach(app.channels.filter { plan.channelInbox($0) }, id: \.self) { key in
+                            sub(.channel(key), Display.channelLabel(key, s), channelIcon(key), badge: 0, color: Palette.brand)
+                        }
+                    }
                 } label: {
                     heading(s["tabInbox"], "tray.full.fill", tint: Palette.brand, badge: inboxOpen ? 0 : app.unread, open: $inboxOpen)
                 }
                 if plan.teamChat {
                     section(.colleagues, s["navColleagues"], "person.2.fill", tint: Color(hex: 0x0EA5A4), badge: 0, color: Palette.brand)
-                }
-                if plan.isAdmin && !app.channels.isEmpty {
-                    DisclosureGroup(isExpanded: $othersOpen) {
-                        ForEach(app.channels, id: \.self) { key in
-                            sub(.channel(key), Display.channelLabel(key, s), channelIcon(key), badge: 0, color: Palette.brand)
-                        }
-                    } label: {
-                        heading(s["navOtherInboxes"], "square.stack.3d.up.fill", tint: Color(hex: 0x6E56CF), badge: 0, open: $othersOpen)
-                    }
                 }
             }
             Section {

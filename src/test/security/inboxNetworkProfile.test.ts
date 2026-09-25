@@ -12,9 +12,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-const state: { sessions: any[]; conversations: any[]; entitled: boolean } = {
+const state: { sessions: any[]; conversations: any[]; contacts: any[]; entitled: boolean } = {
   sessions: [],
   conversations: [],
+  contacts: [],
   entitled: true,
 };
 
@@ -38,7 +39,8 @@ function fakeSb(): any {
         const src =
           table === 'conversations' ? state.conversations
             : table === 'visitor_sessions' ? state.sessions
-              : [];
+              : table === 'contacts' ? state.contacts
+                : [];
         const out = src.filter((r) => {
           for (const [k, v] of Object.entries(filters)) if (r[k] !== v) return false;
           if (inField && !inValues.includes(r[inField])) return false;
@@ -101,6 +103,7 @@ beforeEach(async () => {
     { id: 'conv-a', workspace_id: WS, visitor_session_id: 'sess-tr', contact_id: 'c1' },
     { id: 'conv-b', workspace_id: WS, visitor_session_id: 'sess-de', contact_id: 'c1' },
   ];
+  state.contacts = [];
 });
 
 const adminPolicy = { entitled: true, canViewRaw: true };
@@ -143,6 +146,49 @@ describe('Test C — different IP, same contact', () => {
     const ip = map.get('conv-a')!.ip;
     expect(ip.raw).toBeNull();
     expect(ip.display).not.toContain('44.55');
+  });
+});
+
+describe('Contacts whose sessions were never linked back to them', () => {
+  const unlinked = (id: string, extra: Record<string, any> = {}) => ({
+    ...state.sessions[0], id, contact_id: null, os: 'Linux', geo_country_code: 'NL', ...extra,
+  });
+
+  it('resolves through the newest conversation\'s session', async () => {
+    state.sessions.push(unlinked('sess-conv'));
+    state.conversations.push({ id: 'conv-c2', workspace_id: WS, visitor_session_id: 'sess-conv', contact_id: 'c2', updated_at: '2026-03-01' });
+    const map = await np.resolveContactsNetworkProfiles(cfg, WS, ['c2'], adminPolicy);
+    expect(map.get('c2')!.device.os).toBe('Linux');
+    expect(map.get('c2')!.visitor_session_id).toBe('sess-conv');
+  });
+
+  it('falls back to the session the widget recorded on the contact', async () => {
+    state.sessions.push(unlinked('sess-meta', { os: 'Android' }));
+    state.contacts = [{ id: 'c3', workspace_id: WS, metadata: { session_id: 'sess-meta', anonymous: true } }];
+    const map = await np.resolveContactsNetworkProfiles(cfg, WS, ['c3'], adminPolicy);
+    expect(map.get('c3')!.device.os).toBe('Android');
+    const one = await np.resolveContactNetworkProfile(cfg, WS, 'c3', adminPolicy);
+    expect(one!.device.os).toBe('Android');
+  });
+
+  it('finds a returning visitor\'s newest session through the recorded visitor id', async () => {
+    state.sessions.push(unlinked('sess-v-old', { visitor_id: 'v9', last_seen_at: '2026-01-05', os: 'Windows' }));
+    state.sessions.push(unlinked('sess-v-new', { visitor_id: 'v9', last_seen_at: '2026-04-05', os: 'iOS' }));
+    state.contacts = [{ id: 'c5', workspace_id: WS, metadata: { visitor_id: 'v9', session_id: 'not-a-session' } }];
+    const map = await np.resolveContactsNetworkProfiles(cfg, WS, ['c5'], adminPolicy);
+    expect(map.get('c5')!.visitor_session_id).toBe('sess-v-new');
+    expect(map.get('c5')!.device.os).toBe('iOS');
+  });
+
+  it('never uses a recorded session from another workspace, and leaves linked contacts alone', async () => {
+    state.sessions.push(unlinked('sess-other', { workspace_id: 'w2' }));
+    state.contacts = [
+      { id: 'c4', workspace_id: WS, metadata: { session_id: 'sess-other' } },
+      { id: 'c1', workspace_id: WS, metadata: { session_id: 'sess-other' } },
+    ];
+    const map = await np.resolveContactsNetworkProfiles(cfg, WS, ['c4', 'c1'], adminPolicy);
+    expect(map.has('c4')).toBe(false);
+    expect(map.get('c1')!.visitor_session_id).toBe('sess-de');
   });
 });
 

@@ -22,6 +22,7 @@ import { WooCommerceConfigPanel } from '@/components/plugins/WooCommerceConfigPa
 const WS = 'ws-1';
 const WHMCS = {
   id: 'conn-whmcs', provider_type: 'whmcs', store_id: 'https://billing.example.com/whmcs', approved_origin: 'https://billing.example.com',
+  store_name: 'فروشگاه آزمایشی',
   protocol_version: 'webyar-commerce/1', connector_version: '1.0.0', platform_version: '8.13.1',
   permissions: { catalog: true, services: false, domains: false, invoices: true, orders: false, tickets: false },
   health: 'connected', last_success_at: '2026-09-24T10:00:00Z', last_error_at: null, last_error_code: null,
@@ -72,6 +73,7 @@ describe('each panel shows its own provider', () => {
   it('the WHMCS panel shows the WHMCS install, its versions and no sync action', async () => {
     renderWith(<WhmcsConfigPanel workspaceId={WS} />);
     expect(await screen.findByText('https://billing.example.com/whmcs')).toBeTruthy();
+    expect(screen.getByText('فروشگاه آزمایشی')).toBeTruthy();
     expect(screen.getByText('8.13.1')).toBeTruthy();
     expect(screen.queryByText(/sync/i)).toBeNull();
     expect(screen.queryByText('https://shop.example.com')).toBeNull();

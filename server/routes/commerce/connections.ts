@@ -61,7 +61,7 @@ const CONNECTION_FIELDS =
  * with `*` and projected here so a database that has not run it yet still
  * serves the WooCommerce panel exactly as before.
  */
-const RESPONSE_FIELDS = [...CONNECTION_FIELDS.split(',').map((f) => f.trim()), 'platform_version'];
+const RESPONSE_FIELDS = [...CONNECTION_FIELDS.split(',').map((f) => f.trim()), 'platform_version', 'store_name'];
 function project(row: Record<string, unknown>, extra: string[] = []): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const f of [...RESPONSE_FIELDS, ...extra]) if (f in row) out[f] = row[f];

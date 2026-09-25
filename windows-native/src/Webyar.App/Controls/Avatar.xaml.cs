@@ -67,6 +67,9 @@ public sealed partial class Avatar : UserControl
 
     private string? _failedUrl;
 
+    /// <summary>The photo (URL and decode width) the brush shows or is loading, so a re-render does not start over.</summary>
+    private string? _photoKey;
+
     private void Render()
     {
         var size = Size > 0 ? Size : 40;
@@ -74,15 +77,30 @@ public sealed partial class Avatar : UserControl
         Height = size;
 
         var photo = PhotoUri(ImageUrl);
-        if (photo is not null && photo.AbsoluteUri != _failedUrl)
+        if (photo is not null && photo.AbsoluteUri != _failedUrl && AvatarImages.ShouldTry(photo))
         {
-            if (PhotoBrush.ImageSource is not BitmapImage current || current.UriSource != photo)
-                PhotoBrush.ImageSource = new BitmapImage(photo) { DecodePixelWidth = (int)(size * 2) };
+            // Through the shared photo cache (memory → disk → network), not a
+            // BitmapImage per row: a list refresh, a recycled row or a restart
+            // shows the photo without downloading it again, offline included.
+            var width = (int)(size * 2);
+            var key = $"{width}|{photo.AbsoluteUri}";
+            if (_photoKey != key)
+            {
+                _photoKey = key;
+                if (AvatarImages.Peek(photo, width) is { } ready) PhotoBrush.ImageSource = ready;
+                else
+                {
+                    PhotoBrush.ImageSource = null;
+                    _ = LoadPhotoAsync(photo, width, key);
+                }
+            }
             Photo.Visibility = Visibility.Visible;
         }
         else
         {
             photo = null;
+            _photoKey = null;
+            PhotoBrush.ImageSource = null;
             Photo.Visibility = Visibility.Collapsed;
         }
 
@@ -249,9 +267,24 @@ public sealed partial class Avatar : UserControl
         return null;
     }
 
+    private async Task LoadPhotoAsync(Uri photo, int width, string key)
+    {
+        var image = await AvatarImages.LoadAsync(photo, width);
+        if (_photoKey != key) return; // another person or size since
+        if (image is null)
+        {
+            // The name, OS or initials instead; the shared cache retries the URL later.
+            _photoKey = null;
+            Render();
+            return;
+        }
+        PhotoBrush.ImageSource = image;
+    }
+
     private void OnImageFailed(object sender, ExceptionRoutedEventArgs e)
     {
         _failedUrl = PhotoUri(ImageUrl)?.AbsoluteUri;
+        _photoKey = null;
         Photo.Visibility = Visibility.Collapsed;
         Render();
     }

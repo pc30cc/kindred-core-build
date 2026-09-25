@@ -328,6 +328,13 @@ public sealed partial class ShellPage : Page
             Host.Notifier.Show(b.Title, b.Body ?? string.Empty, s.IsRightToLeft, silent: !Host.Settings.NotificationSound, new Dictionary<string, string>());
     }
 
+    /// <summary>The workspaces came back from the server after a launch from the PC's copy.</summary>
+    public void RefreshWorkspaces()
+    {
+        RenderWorkspaces();
+        BuildAccountMenu();
+    }
+
     /// <summary>The workspace header: name and logo, and the others to switch to.</summary>
     private void RenderWorkspaces()
     {
@@ -713,6 +720,7 @@ public sealed partial class ShellPage : Page
 
     public async Task SignOutAsync()
     {
+        var owner = Host.User?.Id ?? Host.Settings.SessionUserId;
         var s = Host.Strings;
         var dialog = new ContentDialog
         {
@@ -735,7 +743,8 @@ public sealed partial class ShellPage : Page
             Log.Error("logout", e);
             Host.Client.DiscardSession();
         }
-        App.Current.Window!.SignedOut();
+        // An explicit sign-out takes this operator's conversations off the PC too.
+        App.Current.Window!.SignedOut(forgetAccount: owner);
     }
 
     private void SetUnread(int count)

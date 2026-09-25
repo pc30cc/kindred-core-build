@@ -295,6 +295,12 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     hosted: 'supabase/migrations/20260925063323_commerce_store_name.sql',
   },
 
+  {
+    label: '216 — conversation_messages.updated_at for incremental thread sync',
+    selfHost: 'database/migrations/216_conversation_messages_sync_cursor.sql',
+    hosted: 'supabase/migrations/20260925120000_conversation_messages_sync_cursor.sql',
+  },
+
   // intentionally asymmetric, not a drift bug.
 
   // NOTE: 182 (database/migrations/182_admin_purge_workspaces_selfhost.sql)

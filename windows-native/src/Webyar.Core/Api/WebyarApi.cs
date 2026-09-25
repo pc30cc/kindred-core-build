@@ -54,6 +54,18 @@ public sealed class WebyarApi
         return (await _client.GetAsync<ConversationsResponse>("/api/conversations", query, ct).ConfigureAwait(false))?.Conversations ?? [];
     }
 
+    /// <summary>
+    /// The same list, revalidated: with the tag of the copy the caller holds,
+    /// an unchanged queue answers 304 and nothing is downloaded.
+    /// </summary>
+    public async Task<Conditional<IReadOnlyList<Conversation>>> ConversationsConditionalAsync(string workspaceId, InboxFilter filter, string? etag, CancellationToken ct = default)
+    {
+        var query = new List<KeyValuePair<string, string?>> { Q("workspace_id", workspaceId) };
+        query.AddRange(QueueOf(filter));
+        var r = await _client.GetConditionalAsync<ConversationsResponse>("/api/conversations", query, etag, ct).ConfigureAwait(false);
+        return new Conditional<IReadOnlyList<Conversation>>(r.NotModified, r.NotModified ? null : r.Value?.Conversations ?? [], r.ETag, r.Bytes);
+    }
+
     public Task<InboxCounts> InboxCountsAsync(string workspaceId, string scope = "mine", CancellationToken ct = default) =>
         _client.GetAsync<InboxCounts>("/api/conversations/inbox-tab-counts", [Q("workspace_id", workspaceId), Q("scope", scope)], ct);
 
@@ -125,6 +137,19 @@ public sealed class WebyarApi
 
     public async Task<IReadOnlyList<Message>> MessagesAsync(string conversationId, CancellationToken ct = default) =>
         (await _client.GetAsync<MessagesResponse>($"/api/conversations/{Uri.EscapeDataString(conversationId)}/messages", ct: ct).ConfigureAwait(false))?.Messages ?? [];
+
+    /// <summary>
+    /// The thread, incrementally: with a <paramref name="cursor"/> only what
+    /// changed after it (a server that cannot answer that way sends the whole
+    /// thread and says so); with an <paramref name="etag"/> and no cursor, a
+    /// full fetch that costs nothing when the thread has not changed.
+    /// </summary>
+    public Task<Conditional<MessagesPage>> MessagesPageAsync(string conversationId, string? cursor, string? etag, CancellationToken ct = default) =>
+        _client.GetConditionalAsync<MessagesPage>(
+            $"/api/conversations/{Uri.EscapeDataString(conversationId)}/messages",
+            cursor is null ? null : [Q("since", cursor)],
+            cursor is null ? etag : null,
+            ct);
 
     /// <summary>
     /// `clientMessageId` makes a retry safe: the server collapses a replay of

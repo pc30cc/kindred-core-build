@@ -1,8 +1,11 @@
 using Microsoft.UI.Dispatching;
+using Webyar.App.ViewModels;
 using Webyar.Core.Api;
 using Webyar.Core.Config;
+using Webyar.Core.Local;
 using Webyar.Core.Localization;
 using Webyar.Core.Realtime;
+using Webyar.Core.Sync;
 
 namespace Webyar.App.Services;
 
@@ -28,7 +31,162 @@ public sealed class AppHost : IAsyncDisposable
         Notifier = new Notifier();
         Updates = new UpdateService(RunOnUi);
         Engagement = new EngagementService(this);
+        Threads = new ThreadSync(Api, null, log: Log.Write);
+        Lists = new ConversationListSync(Api, null, Log.Write);
     }
+
+    // ── The PC's copy of the operator's inbox (local-first) ──
+
+    /// <summary>
+    /// The signed-in operator's conversations and messages on this PC, or null
+    /// (signed out, or the file could not be used — everything then works
+    /// from the server as before). Never another account's: it is opened for
+    /// one user id and replaced whenever that changes.
+    /// </summary>
+    public LocalStore? Local { get; private set; }
+
+    /// <summary>Threads: the PC's copy first, then only what changed on the server.</summary>
+    public ThreadSync Threads { get; private set; }
+
+    /// <summary>Inbox queues: the PC's copy first, then revalidated with the server.</summary>
+    public ConversationListSync Lists { get; private set; }
+
+    private int _scope;
+
+    /// <summary>
+    /// Changes with every workspace switch, sign-out or account change. Work
+    /// that started under one scope compares it before showing its result,
+    /// so an answer for the old workspace never lands in the new one.
+    /// </summary>
+    public int Scope => Volatile.Read(ref _scope);
+
+    /// <summary>
+    /// Opens the PC's copy for this operator (reusing it when it is already
+    /// theirs) and remembers whose session this is, for an offline launch.
+    /// </summary>
+    public async Task AttachAccountAsync(User user)
+    {
+        if (Settings.SessionUserId != user.Id)
+        {
+            Settings.SessionUserId = user.Id;
+            Settings.Save();
+        }
+        if (Local?.Owner == user.Id) return;
+        await DetachAccountAsync(deleteData: false);
+        LocalStore? store = null;
+        try
+        {
+            store = await LocalStore.OpenAsync(AppPaths.LocalData, user.Id, Log.Write);
+        }
+        catch (Exception e)
+        {
+            Log.Error("open local store", e);
+        }
+        Local = store;
+        Threads = new ThreadSync(Api, store, log: Log.Write);
+        Lists = new ConversationListSync(Api, store, Log.Write);
+        if (store is not null)
+        {
+            _ = store.EnforceRetentionAsync(RetentionPolicy.Default, DateTimeOffset.UtcNow);
+            Log.Write($"[store] opened ({store.SizeOnDisk() / 1024} KB)");
+        }
+    }
+
+    /// <summary>What the last launch knew: the operator and their workspaces, straight from the PC.</summary>
+    public async Task<(User? User, IReadOnlyList<Workspace> Workspaces)> RestoreSessionAsync(string userId)
+    {
+        await AttachAccountAsync(new User(userId));
+        return Local is { } store ? await store.LoadSessionAsync() : (null, []);
+    }
+
+    /// <summary>Keeps the operator and their workspaces on the PC for the next (possibly offline) launch.</summary>
+    public async Task SaveSessionAsync()
+    {
+        if (User is { } user && Local is { Owner: var owner } store && owner == user.Id) await store.SaveSessionAsync(user, Workspaces);
+    }
+
+    /// <summary>
+    /// Closes the operator's copy. Every sync still in flight is cut off from
+    /// it — a late answer can no longer be written anywhere — and nothing of
+    /// theirs stays in memory. <paramref name="deleteData"/> (an explicit sign-out)
+    /// also deletes the file; after a lapsed session it is kept, and reused
+    /// only if the same account signs in again.
+    /// </summary>
+    public async Task DetachAccountAsync(bool deleteData)
+    {
+        Interlocked.Increment(ref _scope);
+        Threads.Close();
+        Lists.Close();
+        Threads = new ThreadSync(Api, null, log: Log.Write);
+        Lists = new ConversationListSync(Api, null, Log.Write);
+        var store = Local;
+        Local = null;
+        if (store is not null)
+        {
+            await store.DisposeAsync();
+            if (deleteData)
+            {
+                LocalStore.DeleteFiles(AppPaths.LocalData, store.Owner);
+                Log.Write("[store] account data deleted on sign-out");
+            }
+        }
+        AttachmentItem.ClearAll();
+        AvatarImages.ClearMemory();
+        _profiles.Clear();
+        _members = null;
+        Log.Write($"[cache] after sign-out: {Client.Traffic}");
+    }
+
+    /// <summary>A workspace switch: in-flight work of the old one is disowned before the new one draws.</summary>
+    public void BeginWorkspaceScope()
+    {
+        Interlocked.Increment(ref _scope);
+        Threads.ClearMemory();
+        Lists.ClearMemory();
+        AttachmentItem.ClearMemory();
+        _profiles.Clear();
+    }
+
+    /// <summary>
+    /// Clear cache: the conversations and messages on this PC (every
+    /// account's), downloaded files, profile photos and every memory copy.
+    /// The session, the settings and anything on the server are untouched,
+    /// and the open views simply sync again.
+    /// </summary>
+    public async Task ClearLocalDataAsync()
+    {
+        Interlocked.Increment(ref _scope);
+        Threads.ClearMemory();
+        Lists.ClearMemory();
+        if (Local is { } store)
+        {
+            await store.ClearAsync();
+            await SaveSessionAsync();
+        }
+        await Task.Run(() =>
+        {
+            LocalStore.DeleteAllFiles(AppPaths.LocalData, Local?.FilePath);
+            FileCache.Clear();
+            AvatarImages.Clear();
+            OpenedFiles.Clear();
+        });
+        AttachmentItem.ClearMemory();
+        _profiles.Clear();
+        Log.Write("[cache] cleared by the operator");
+    }
+
+    /// <summary>What the PC keeps, for the settings page: conversation data, message files, photos.</summary>
+    public static (long Data, long Files, long Photos) MeasureLocalData()
+    {
+        var data = LocalStore.MeasureFiles(AppPaths.LocalData);
+        var (files, _) = FileCache.Measure();
+        var (photos, _) = AvatarImages.Measure();
+        return (data, files, photos);
+    }
+
+    /// <summary>One line of counters for the log: requests, bytes, cache hits. Never content.</summary>
+    public void LogCacheStats() =>
+        Log.Write($"[cache] api {Client.Traffic}; threads {Threads.Stats}; lists fetches={Lists.Fetches} notModified={Lists.NotModified} coalesced={Lists.Coalesced}; files {AttachmentStore.Stats()}");
 
     /// <summary>Super Admin's ads, announcements and broadcasts.</summary>
     public EngagementService Engagement { get; }
@@ -62,11 +220,15 @@ public sealed class AppHost : IAsyncDisposable
     public async Task<IReadOnlyList<Conversation>> WithVisitorProfilesAsync(IReadOnlyList<Conversation> list, CancellationToken ct = default)
     {
         if (Workspace is not { } ws || list.Count == 0) return list;
+        var scope = Scope;
         var stale = DateTimeOffset.UtcNow - _profilesAt > TimeSpan.FromMinutes(2);
-        var wanted = list.Select(c => c.Id).Where(id => stale || !_profiles.ContainsKey(id)).ToList();
+        var wanted = list.Where(c => c.WorkspaceId == ws.Id).Select(c => c.Id).Where(id => stale || !_profiles.ContainsKey(id)).ToList();
         if (wanted.Count > 0)
         {
-            foreach (var (id, p) in await Api.VisitorProfilesAsync(ws.Id, wanted, ct)) _profiles[id] = p;
+            var fetched = await Api.VisitorProfilesAsync(ws.Id, wanted, ct);
+            // Switched workspace (or signed out) meanwhile: these belong to the old one.
+            if (scope != Scope) return list;
+            foreach (var (id, p) in fetched) _profiles[id] = p;
             if (stale) _profilesAt = DateTimeOffset.UtcNow;
         }
         return list.Select(c => _profiles.TryGetValue(c.Id, out var p) ? c with
@@ -90,14 +252,8 @@ public sealed class AppHost : IAsyncDisposable
     public async Task StartPresenceAsync()
     {
         StopPresence();
-        try
-        {
-            Account = await Api.AccountAsync();
-        }
-        catch (Exception e)
-        {
-            Log.Error("account", e);
-        }
+        // Presence and the call queue start at once; the profile photo follows
+        // when the server answers (or not at all offline), never holding up the shell.
         if (Workspace is { } ws)
         {
             Presence = new PresenceService(this, ws.Id);
@@ -107,6 +263,18 @@ public sealed class AppHost : IAsyncDisposable
             CallQueue.Start();
         }
         MeChanged?.Invoke();
+        var scope = Scope;
+        try
+        {
+            var account = await Api.AccountAsync();
+            if (scope != Scope || User is null) return;
+            Account = account;
+            MeChanged?.Invoke();
+        }
+        catch (Exception e)
+        {
+            Log.Error("account", e);
+        }
     }
 
     public void StopPresence()
@@ -198,6 +366,9 @@ public sealed class AppHost : IAsyncDisposable
 
     /// <summary>Every realtime event, on the UI thread.</summary>
     public event Action<InboxEvent>? InboxChanged;
+
+    /// <summary>The realtime channel came up (true) or went down (false), on the UI thread.</summary>
+    public event Action<bool>? RealtimeChanged;
     public event Action? LanguageChanged;
 
     public void RunOnUi(Action action)
@@ -242,7 +413,11 @@ public sealed class AppHost : IAsyncDisposable
         Realtime = null;
         if (Workspace is null) return;
         var rt = new InboxRealtime(Api, Workspace.Id, allowed: () => Config.RealtimeEnabled);
-        rt.EventReceived += e => RunOnUi(() => InboxChanged?.Invoke(e));
+        rt.EventReceived += e => RunOnUi(() => { if (Realtime == rt) InboxChanged?.Invoke(e); });
+        // Either way the pollers must hear it at once: after a drop they go back
+        // to the short interval, and after a (re)connect whatever was missed
+        // while the socket was down is fetched now — deltas, not full threads.
+        rt.ConnectionChanged += up => RunOnUi(() => { if (Realtime == rt) RealtimeChanged?.Invoke(up); });
         rt.Log += Log.Write;
         Realtime = rt;
         rt.Start();

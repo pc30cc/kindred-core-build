@@ -79,8 +79,10 @@ abstract class CacheDatabase : RoomDatabase() {
                 // A cache with no migration path is rebuilt, never a crash at
                 // launch. Downgrades too: an operator who sideloads an older
                 // build gets an empty cache, not an app that will not open.
+                // This one call covers both directions. Adding
+                // fallbackToDestructiveMigrationOnDowngrade after it would set
+                // requireMigration back to true and undo it for upgrades.
                 .fallbackToDestructiveMigration(dropAllTables = true)
-                .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
                 .build()
         }
     }
@@ -105,9 +107,12 @@ class CacheDatabaseHolder(
     private val log: Diag = Diag.Android,
 ) {
     private val lock = Mutex()
-    private var database: CacheDatabase? = null
+    @Volatile private var database: CacheDatabase? = null
     private val _generation = MutableStateFlow(0)
     val generation: StateFlow<Int> = _generation.asStateFlow()
+
+    /** The file on disk, or null in memory. */
+    val fileName: String? get() = name
 
     /** True when this launch fell back to memory. Shown nowhere; logged. */
     @Volatile var isVolatile: Boolean = name == null

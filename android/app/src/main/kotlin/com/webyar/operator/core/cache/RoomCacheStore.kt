@@ -5,14 +5,17 @@ import androidx.room.withTransaction
 import com.webyar.operator.core.Diag
 import com.webyar.operator.core.model.Conversation
 import com.webyar.operator.core.model.Message
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.retryWhen
 import java.io.File
 
 /**
@@ -51,6 +54,15 @@ class RoomCacheStore(
             val db = holder.get()
             query(db)
                 .map(transform)
+                // Busy, locked, a moment of I/O trouble: the rows are still
+                // there, so keep what is on screen and read again shortly.
+                // Only a damaged file is worth a reset.
+                .retryWhen { e, attempt ->
+                    if (e is CancellationException || e.isCacheCorruption()) return@retryWhen false
+                    log.warn(AREA, "cache read failed, retrying: ${e.javaClass.simpleName}")
+                    delay(minOf(READ_RETRY_MAX_MS, READ_RETRY_BASE_MS shl attempt.coerceAtMost(6L).toInt()))
+                    true
+                }
                 .catch { e ->
                     log.warn(AREA, "cache read failed: ${e.javaClass.simpleName}")
                     if (e.isCacheCorruption()) holder.reset("corruption on read")
@@ -220,7 +232,7 @@ class RoomCacheStore(
 
     private fun fileBytes(): Long {
         if (holder.isVolatile) return 0L
-        val main = context.getDatabasePath(CacheDatabase.NAME)
+        val main = context.getDatabasePath(holder.fileName ?: return 0L)
         return listOf("", "-wal", "-shm", "-journal")
             .sumOf { suffix -> File(main.path + suffix).takeIf { it.exists() }?.length() ?: 0L }
     }
@@ -261,3 +273,7 @@ class RoomCacheStore(
         override suspend fun clearState() = db.syncState().delete(a, w, SyncKeys.thread(conversationId))
     }
 }
+
+/** A read that failed for a reason other than damage is tried again, backing off to this. */
+private const val READ_RETRY_BASE_MS = 500L
+private const val READ_RETRY_MAX_MS = 30_000L

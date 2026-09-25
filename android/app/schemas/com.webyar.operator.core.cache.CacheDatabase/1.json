@@ -1,0 +1,456 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "b1fb89dbc1a0a1c245611c6904840a28",
+    "entities": [
+      {
+        "tableName": "conversations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`account_id` TEXT NOT NULL, `workspace_id` TEXT NOT NULL, `conversation_id` TEXT NOT NULL, `contact_id` TEXT, `contact_name` TEXT, `contact_email` TEXT, `contact_avatar_url` TEXT, `contact_visitor_code` TEXT, `subject` TEXT, `channel` TEXT, `status` TEXT NOT NULL, `priority` TEXT, `assigned_to` TEXT, `tags_json` TEXT, `unread_count` INTEGER, `ai_state` TEXT, `metadata_json` TEXT, `last_message_json` TEXT, `last_activity_at` INTEGER, `created_at` INTEGER, `updated_at` INTEGER, `cached_at` INTEGER NOT NULL, `opened_at` INTEGER, PRIMARY KEY(`account_id`, `workspace_id`, `conversation_id`))",
+        "fields": [
+          {
+            "fieldPath": "accountId",
+            "columnName": "account_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspace_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conversationId",
+            "columnName": "conversation_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contactId",
+            "columnName": "contact_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contactName",
+            "columnName": "contact_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contactEmail",
+            "columnName": "contact_email",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contactAvatarUrl",
+            "columnName": "contact_avatar_url",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contactVisitorCode",
+            "columnName": "contact_visitor_code",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "subject",
+            "columnName": "subject",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channel",
+            "columnName": "channel",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "priority",
+            "columnName": "priority",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "assignedTo",
+            "columnName": "assigned_to",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "tagsJson",
+            "columnName": "tags_json",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "unreadCount",
+            "columnName": "unread_count",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "aiState",
+            "columnName": "ai_state",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "metadataJson",
+            "columnName": "metadata_json",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastMessageJson",
+            "columnName": "last_message_json",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastActivityAt",
+            "columnName": "last_activity_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "cachedAt",
+            "columnName": "cached_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "openedAt",
+            "columnName": "opened_at",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "account_id",
+            "workspace_id",
+            "conversation_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_conversations_account_id_workspace_id_updated_at",
+            "unique": false,
+            "columnNames": [
+              "account_id",
+              "workspace_id",
+              "updated_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_conversations_account_id_workspace_id_updated_at` ON `${TABLE_NAME}` (`account_id`, `workspace_id`, `updated_at`)"
+          },
+          {
+            "name": "index_conversations_account_id_workspace_id_contact_id",
+            "unique": false,
+            "columnNames": [
+              "account_id",
+              "workspace_id",
+              "contact_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_conversations_account_id_workspace_id_contact_id` ON `${TABLE_NAME}` (`account_id`, `workspace_id`, `contact_id`)"
+          },
+          {
+            "name": "index_conversations_account_id_opened_at",
+            "unique": false,
+            "columnNames": [
+              "account_id",
+              "opened_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_conversations_account_id_opened_at` ON `${TABLE_NAME}` (`account_id`, `opened_at`)"
+          }
+        ]
+      },
+      {
+        "tableName": "inbox_entries",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`account_id` TEXT NOT NULL, `workspace_id` TEXT NOT NULL, `list_key` TEXT NOT NULL, `conversation_id` TEXT NOT NULL, PRIMARY KEY(`account_id`, `workspace_id`, `list_key`, `conversation_id`))",
+        "fields": [
+          {
+            "fieldPath": "accountId",
+            "columnName": "account_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspace_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "listKey",
+            "columnName": "list_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conversationId",
+            "columnName": "conversation_id",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "account_id",
+            "workspace_id",
+            "list_key",
+            "conversation_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_inbox_entries_account_id_workspace_id_conversation_id",
+            "unique": false,
+            "columnNames": [
+              "account_id",
+              "workspace_id",
+              "conversation_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_inbox_entries_account_id_workspace_id_conversation_id` ON `${TABLE_NAME}` (`account_id`, `workspace_id`, `conversation_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "messages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`account_id` TEXT NOT NULL, `local_id` TEXT NOT NULL, `workspace_id` TEXT NOT NULL, `conversation_id` TEXT NOT NULL, `server_id` TEXT, `client_message_id` TEXT, `sender_type` TEXT NOT NULL, `sender_id` TEXT, `sender_name` TEXT, `sender_avatar` TEXT, `body` TEXT NOT NULL, `created_at` INTEGER, `updated_at` INTEGER, `metadata_json` TEXT, `attachments_json` TEXT, `send_state` INTEGER NOT NULL, `outbox_attachment_id` TEXT, `sort_at` INTEGER NOT NULL, `cached_at` INTEGER NOT NULL, PRIMARY KEY(`account_id`, `local_id`))",
+        "fields": [
+          {
+            "fieldPath": "accountId",
+            "columnName": "account_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localId",
+            "columnName": "local_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspace_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conversationId",
+            "columnName": "conversation_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverId",
+            "columnName": "server_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "clientMessageId",
+            "columnName": "client_message_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "senderType",
+            "columnName": "sender_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "senderId",
+            "columnName": "sender_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "senderName",
+            "columnName": "sender_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "senderAvatar",
+            "columnName": "sender_avatar",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "body",
+            "columnName": "body",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "metadataJson",
+            "columnName": "metadata_json",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "attachmentsJson",
+            "columnName": "attachments_json",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sendState",
+            "columnName": "send_state",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "outboxAttachmentId",
+            "columnName": "outbox_attachment_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sortAt",
+            "columnName": "sort_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cachedAt",
+            "columnName": "cached_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "account_id",
+            "local_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_messages_account_id_workspace_id_conversation_id_sort_at",
+            "unique": false,
+            "columnNames": [
+              "account_id",
+              "workspace_id",
+              "conversation_id",
+              "sort_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_messages_account_id_workspace_id_conversation_id_sort_at` ON `${TABLE_NAME}` (`account_id`, `workspace_id`, `conversation_id`, `sort_at`)"
+          },
+          {
+            "name": "index_messages_account_id_workspace_id_conversation_id_server_id",
+            "unique": true,
+            "columnNames": [
+              "account_id",
+              "workspace_id",
+              "conversation_id",
+              "server_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_messages_account_id_workspace_id_conversation_id_server_id` ON `${TABLE_NAME}` (`account_id`, `workspace_id`, `conversation_id`, `server_id`)"
+          },
+          {
+            "name": "index_messages_account_id_workspace_id_conversation_id_client_message_id",
+            "unique": true,
+            "columnNames": [
+              "account_id",
+              "workspace_id",
+              "conversation_id",
+              "client_message_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_messages_account_id_workspace_id_conversation_id_client_message_id` ON `${TABLE_NAME}` (`account_id`, `workspace_id`, `conversation_id`, `client_message_id`)"
+          },
+          {
+            "name": "index_messages_account_id_send_state",
+            "unique": false,
+            "columnNames": [
+              "account_id",
+              "send_state"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_messages_account_id_send_state` ON `${TABLE_NAME}` (`account_id`, `send_state`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`account_id` TEXT NOT NULL, `workspace_id` TEXT NOT NULL, `sync_key` TEXT NOT NULL, `cursor` TEXT, `etag` TEXT, `full_read_at` INTEGER, `payload` TEXT, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`account_id`, `workspace_id`, `sync_key`))",
+        "fields": [
+          {
+            "fieldPath": "accountId",
+            "columnName": "account_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspace_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "key",
+            "columnName": "sync_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cursor",
+            "columnName": "cursor",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "etag",
+            "columnName": "etag",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "fullReadAt",
+            "columnName": "full_read_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "account_id",
+            "workspace_id",
+            "sync_key"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b1fb89dbc1a0a1c245611c6904840a28')"
+    ]
+  }
+}

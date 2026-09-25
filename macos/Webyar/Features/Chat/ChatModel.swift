@@ -93,6 +93,9 @@ final class ChatModel {
     }
     var notice: Notice?
 
+    /// False when the thread was opened with the arrow keys: the list keeps the keyboard.
+    @ObservationIgnored var focusComposerOnOpen = true
+
     // Composer
     var draft = ""
     /// What Send does after sending, remembered per operator as on the web; Enter runs it.
@@ -192,12 +195,23 @@ final class ChatModel {
             }
             wanted.append(row)
         }
+        // A message the server already has (its client id came back) is no longer ours to show:
+        // otherwise a poll between the insert and the reply, or a 500 after the insert, shows it twice.
+        let delivered = Set(list.compactMap { $0.metadata?["client_message_id"]?.string })
+        if !delivered.isEmpty, outbox.contains(where: { $0.clientId.map(delivered.contains) == true }) {
+            for o in outbox where o.clientId.map(delivered.contains) == true {
+                if let cid = o.clientId { thenActions[cid] = nil; retryFiles[cid] = nil }
+            }
+            outbox.removeAll { $0.clientId.map(delivered.contains) == true }
+        }
         wanted.append(contentsOf: outbox)
         Self.group(&wanted)
         if wanted != rows { rows = wanted }
 
         // Seen once per new message, and only while someone is actually looking.
-        if let newest = list.last(where: { $0.senderType == SenderType.contact })?.id, newest != lastSeenMessage, app.isForeground {
+        // Only while the thread is really on screen: the inbox keeps it open behind other pages.
+        if let newest = list.last(where: { $0.senderType == SenderType.contact })?.id, newest != lastSeenMessage,
+           app.isForeground, app.visibleConversationId == id {
             lastSeenMessage = newest
             Task { try? await app.api.markSeen(conversationId: id) }
         }
@@ -222,6 +236,9 @@ final class ChatModel {
 
     // MARK: Sending
 
+    /// Messages that did not go out and wait for Retry.
+    var hasFailed: Bool { rows.contains { $0.failed } }
+
     var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pendingFile != nil }
 
     private var sendActionKey: String { "sendAction.\(app.user?.id ?? "")" }
@@ -233,7 +250,10 @@ final class ChatModel {
         guard !body.isEmpty || file != nil, let ws = app.workspace else { return }
         sentCount += 1
         if aiMode {
-            if !body.isEmpty { Task { await sayNow(body) } }
+            // One say-now at a time: a second Enter while the first is out would reach the visitor twice.
+            guard !body.isEmpty, !busy else { return }
+            busy = true
+            Task { await sayNow(body) }
             return
         }
         draft = ""
@@ -334,7 +354,8 @@ final class ChatModel {
         defer { busy = false }
         do {
             try await app.api.aiSayNow(id, body: body, attribution: voice)
-            draft = ""
+            // Keep whatever was typed while it was out.
+            if draft.trimmingCharacters(in: .whitespacesAndNewlines) == body { draft = "" }
             notice = Notice(severity: .success, message: s["sayNowSent"])
             poller?.kick()
             onChanged?()
@@ -498,21 +519,32 @@ final class ChatModel {
         }
     }
 
+    /// Tags show at once and are saved one change after another: the server replaces the whole
+    /// list, so two quick edits built on a list still in flight would drop one of them.
     func setTags(_ tags: [String]) {
-        guard let c = conversation, let ws = app.workspace else { return }
-        Task {
+        guard var c = conversation, let ws = app.workspace else { return }
+        let before = c.tags ?? []
+        c.tags = tags
+        conversation = c
+        let previous = tagsSaving
+        tagsSaving = Task { [weak self] in
+            await previous?.value
+            guard let self else { return }
             do {
-                try await app.api.setTags(c.id, workspaceId: ws.id, tags: tags)
-                if var cur = conversation {
-                    cur.tags = tags
-                    conversation = cur
-                }
-                onChanged?()
+                try await self.app.api.setTags(c.id, workspaceId: ws.id, tags: tags)
+                self.onChanged?()
             } catch {
-                notice = Notice(severity: .error, message: ErrorText.of(error, app.strings))
+                // Put back what was there, unless a later edit has changed it since.
+                if var cur = self.conversation, cur.tags == tags {
+                    cur.tags = before
+                    self.conversation = cur
+                }
+                self.notice = Notice(severity: .error, message: ErrorText.of(error, self.app.strings))
             }
         }
     }
+
+    @ObservationIgnored private var tagsSaving: Task<Void, Never>?
 
     func addTag(_ raw: String) {
         let tag = raw.trimmingCharacters(in: .whitespaces)

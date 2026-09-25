@@ -564,6 +564,15 @@ final class AppModel {
     func open(from args: [String: String]) {
         NSApp.activate(ignoringOtherApps: true)
         NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true || $0.isMainWindow }?.makeKeyAndOrderFront(nil)
+        // A notice from another workspace opens there, not under the one on show now.
+        if let wsId = args["workspace"], !wsId.isEmpty, wsId != workspace?.id {
+            guard let target = workspaces.first(where: { $0.id == wsId }) else { return }
+            Task {
+                await switchWorkspace(target)
+                if workspace?.id == wsId { open(from: args) }
+            }
+            return
+        }
         if let conversation = args["conversation"] {
             openConversation(conversation)
         } else if args["page"] == "calls", let call = args["call"] {

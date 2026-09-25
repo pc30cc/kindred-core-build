@@ -30,7 +30,7 @@ struct InboxList: View {
                     .listStyle(.inset)
                     .scrollContentBackground(.hidden)
                     .animation(.smooth(duration: 0.2), value: list.map(\.id))
-                    .arrowKeyPicking(list.map(\.id), selected: model.selectedId, proxy: proxy, select: { model.select($0) })
+                    .arrowKeyPicking(list.map(\.id), selected: model.selectedId, proxy: proxy, select: { model.select($0, fromKeyboard: true) })
                 }
 
                 if model.loading && list.isEmpty {
@@ -46,6 +46,7 @@ struct InboxList: View {
             CampaignCard(placement: "inbox_list").padding(8)
         }
         .onAppear { model.show(route) }
+        .onDisappear { model.hide() }
         .onChange(of: route) { _, r in model.show(r) }
         .onChange(of: app.pendingConversation) { _, id in
             if let id {

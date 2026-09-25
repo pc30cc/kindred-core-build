@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import Observation
 
@@ -52,6 +51,8 @@ final class EmailModel {
 
     // The open thread
     private(set) var selectedId: String?
+    /// Replies that failed after their thread was left, by thread.
+    @ObservationIgnored private var unsentReplies: [String: String] = [:]
     private(set) var detail: EmailThreadDetail?
     private(set) var detailLoading = false
     private(set) var detailError: String?
@@ -132,7 +133,9 @@ final class EmailModel {
             // Keep any older pages already loaded below the fresh first page.
             let fresh = page.threads ?? []
             let freshIds = Set(fresh.map(\.id))
-            let older = threads.dropFirst(fresh.count).filter { !freshIds.contains($0.id) }
+            // Everything already loaded that the fresh page does not carry: new mail pushes the old first
+            // page's tail down, and dropping a fixed count would lose it.
+            let older = threads.filter { !freshIds.contains($0.id) }
             threads = sorted(fresh + older)
             if nextBefore == nil || threads.count <= fresh.count { nextBefore = page.nextBefore }
             error = nil
@@ -182,7 +185,8 @@ final class EmailModel {
         selectedId = id
         detail = nil
         detailError = nil
-        replyText = ""
+        // A reply that failed after the operator had moved on comes back in its own thread.
+        replyText = unsentReplies.removeValue(forKey: id) ?? ""
         replyAttachments = []
         replyMode = .reply
         notice = nil
@@ -318,14 +322,23 @@ final class EmailModel {
                 try await app.api.sendEmail(workspaceId: ws.id, threadId: mode == .forward ? nil : threadId,
                                             to: to.map(\.email), cc: cc.map(\.email), bcc: bcc.map(\.email),
                                             subject: subject(for: mode), body: body, attachments: staged)
-                replyText = ""
-                replyAttachments = []
-                notice = (.success, s["emailSent"])
-                await openThread(threadId, markRead: false)
+                // Only the thread it was written in: another one may be open, with its own draft, by now.
+                if selectedId == threadId {
+                    replyText = ""
+                    replyAttachments = []
+                    notice = (.success, s["emailSent"])
+                    await openThread(threadId, markRead: false)
+                }
                 poller?.kick()
             } catch {
                 Log.error("email reply", error)
-                notice = (.error, "\(s["emailSendFailed"]) — \(ErrorText.of(error, s))")
+                if selectedId == threadId {
+                    notice = (.error, "\(s["emailSendFailed"]) — \(ErrorText.of(error, s))")
+                } else {
+                    // Written elsewhere: say so where the operator is, and give the text back in its own thread.
+                    notice = (.error, "\(s["emailSendFailed"]) — \(ErrorText.of(error, s))")
+                    unsentReplies[threadId] = text
+                }
             }
         }
     }

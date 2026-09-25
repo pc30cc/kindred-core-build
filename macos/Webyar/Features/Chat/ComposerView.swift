@@ -164,7 +164,7 @@ struct ComposerView: View {
             focused = true
         }
         .onPasteCommand(of: [.fileURL, .png, .tiff]) { providers in paste(providers) }
-        .onAppear { focused = true }
+        .onAppear { if chat.focusComposerOnOpen { focused = true } }
     }
 
     private func tool(_ icon: String, _ help: String, tint: Color? = nil, action: @escaping () -> Void) -> some View {

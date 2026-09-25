@@ -76,6 +76,13 @@ struct ThreadView: View {
                         .padding(.horizontal, 14)
                         .padding(.top, 8)
                         .transition(.move(edge: .top).combined(with: .opacity))
+                } else if chat.hasFailed {
+                    // Closing the error, or another notice replacing it, must not leave unsent messages with no Retry.
+                    Banner(severity: .error, message: app.strings["sendFailed"],
+                           actionTitle: app.strings["retry"], action: { chat.retryFailed() })
+                        .padding(.horizontal, 14)
+                        .padding(.top, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
                 }
             }

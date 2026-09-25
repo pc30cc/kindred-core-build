@@ -44,8 +44,15 @@ final class InboxModel {
 
     /// Switches to one of the inboxes in the sidebar: a queue/status,
     /// optionally narrowed to one channel ("Other inboxes"), as the web does.
+    /// The inbox is off screen (another page): its open thread is not "visible", so
+    /// its new messages are notified and not marked seen.
+    func hide() {
+        if app.visibleConversationId == chat?.id { app.visibleConversationId = nil }
+    }
+
     func show(_ route: Route) {
         start()
+        if let id = chat?.id { app.visibleConversationId = id }
         let (f, ch): (InboxFilter, String?) = {
             switch route {
             case .inbox(let f): return (f, nil)
@@ -120,11 +127,11 @@ final class InboxModel {
 
     // MARK: Selection
 
-    func select(_ id: String?) {
+    func select(_ id: String?, fromKeyboard: Bool = false) {
         guard let id else { return }
         guard id != chat?.id else { return }
         if let c = conversations.first(where: { $0.id == id }) {
-            openChat(id: id, conversation: c)
+            openChat(id: id, conversation: c, focusComposer: !fromKeyboard)
         } else {
             open(id)
         }
@@ -132,6 +139,8 @@ final class InboxModel {
 
     /// Opens a conversation, e.g. from a notification, even when it is not in the current list.
     func open(_ id: String) {
+        // Already open: keep its draft, file and outbox.
+        guard id != chat?.id else { return }
         if let c = conversations.first(where: { $0.id == id }) {
             openChat(id: id, conversation: c)
             return
@@ -140,9 +149,10 @@ final class InboxModel {
         Task { await find(id) }
     }
 
-    private func openChat(id: String, conversation: Conversation?) {
+    private func openChat(id: String, conversation: Conversation?, focusComposer: Bool = true) {
         chat?.close()
         let model = ChatModel(app: app, id: id, conversation: conversation)
+        model.focusComposerOnOpen = focusComposer
         model.onChanged = { [weak self] in
             self?.poller?.kick()
             self?.app.kickBackground()

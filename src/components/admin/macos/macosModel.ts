@@ -22,7 +22,6 @@ export type MacosTab =
   | 'overview'
   | 'updates'
   | 'behaviour'
-  | 'features'
   | 'integration'
   | 'maintenance'
   | 'campaigns'
@@ -33,22 +32,6 @@ export type MacosTab =
 type BooleanKey<T> = { [K in keyof T]-?: T[K] extends boolean ? K : never }[keyof T];
 type SwitchKey = BooleanKey<MacosAppSettings>;
 
-/**
- * Feature switches, in the order an operator meets them in the app. `copy`
- * names the i18n pair under admin.macosApp.features (label + `…Hint`).
- */
-export const MACOS_FEATURES: ReadonlyArray<{ key: SwitchKey; copy: string }> = [
-  { key: 'calls_enabled', copy: 'calls' },
-  { key: 'video_calls_enabled', copy: 'videoCalls' },
-  { key: 'email_enabled', copy: 'email' },
-  { key: 'visitors_enabled', copy: 'visitors' },
-  { key: 'call_center_enabled', copy: 'callCenter' },
-  { key: 'colleagues_enabled', copy: 'colleagues' },
-  { key: 'contacts_enabled', copy: 'contacts' },
-  { key: 'voice_notes_enabled', copy: 'voiceNotes' },
-  { key: 'attachments_enabled', copy: 'attachments' },
-];
-
 /** What the app may do on the Mac itself; `copy` names the pair under admin.macosApp.integration. */
 export const MACOS_INTEGRATIONS: ReadonlyArray<{ key: SwitchKey; copy: string }> = [
   { key: 'menu_bar_extra_enabled', copy: 'menuBar' },
@@ -56,15 +39,6 @@ export const MACOS_INTEGRATIONS: ReadonlyArray<{ key: SwitchKey; copy: string }>
   { key: 'dock_badge_enabled', copy: 'dockBadge' },
   { key: 'notifications_enabled', copy: 'notifications' },
 ];
-
-/**
- * What Macs actually get for a feature: video is ANDed with calls, as in
- * toPublicMacosAppConfig on the server.
- */
-export function effectiveFeature(s: MacosAppSettings, key: SwitchKey): boolean {
-  if (key === 'video_calls_enabled') return s.calls_enabled && s.video_calls_enabled;
-  return s[key] as boolean;
-}
 
 // ── Validation ───────────────────────────────────────────────────────────
 

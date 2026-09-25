@@ -2,9 +2,10 @@ import Foundation
 
 /// Super Admin → macOS app, as served by `GET /api/platform/macos-app`
 /// (server/services/desktopApp/macosSettings.ts): where Sparkle looks for
-/// updates and which builds may still run, realtime and polling, which
-/// sections are on, what the app may do on the Mac, the defaults of a first
-/// launch, a maintenance notice and the help links. Read on launch and
+/// updates and which builds may still run, realtime and polling, what the
+/// app may do on the Mac, the defaults of a first launch, a maintenance
+/// notice and the help links. What the app offers is not here: the
+/// workspace's plan decides that (WorkspacePlan). Read on launch and
 /// hourly — every minute while maintenance is on — so a change reaches every
 /// installed copy without a release.
 struct MacAppConfig: Sendable, Equatable {
@@ -12,27 +13,10 @@ struct MacAppConfig: Sendable, Equatable {
     var realtimeEnabled: Bool
     var pollIntervalSeconds: Int
     var pollWithRealtimeSeconds: Int
-    var features: Features
     var system: SystemIntegration
     var firstLaunch: FirstLaunch
     var maintenance: Maintenance
     var links: Links
-
-    /// Sections and tools. They only take away: the workspace plan still decides the rest.
-    struct Features: Sendable, Equatable {
-        var calls = true
-        /// Video rides on the call stack: no calls, no video.
-        var videoCalls = true
-        var email = true
-        var visitors = true
-        var callCenter = true
-        var colleagues = true
-        var contacts = true
-        var voiceNotes = true
-        var attachments = true
-
-        static let all = Features()
-    }
 
     /// What the app may do on the Mac itself.
     struct SystemIntegration: Sendable, Equatable {
@@ -83,7 +67,6 @@ struct MacAppConfig: Sendable, Equatable {
         realtimeEnabled: true,
         pollIntervalSeconds: 15,
         pollWithRealtimeSeconds: 120,
-        features: Features(),
         system: SystemIntegration(),
         firstLaunch: FirstLaunch(),
         maintenance: Maintenance(),
@@ -93,7 +76,7 @@ struct MacAppConfig: Sendable, Equatable {
     /// field falls back on its own, never the whole answer.
     static func parse(_ root: JSONValue, now: Date = Date()) -> MacAppConfig {
         let d = defaults
-        let update = root["update"], realtime = root["realtime"], polling = root["polling"], features = root["features"]
+        let update = root["update"], realtime = root["realtime"], polling = root["polling"]
         let system = root["system"], first = root["defaults"], maintenance = root["maintenance"], links = root["links"]
         func clamp(_ v: Int?, _ lo: Int, _ hi: Int, _ fallback: Int) -> Int { v.map { min(hi, max(lo, $0)) } ?? fallback }
         func https(_ v: String?) -> String? {
@@ -101,19 +84,6 @@ struct MacAppConfig: Sendable, Equatable {
             return v
         }
         func flag(_ group: JSONValue?, _ key: String, _ fallback: Bool) -> Bool { group?[key]?.bool ?? fallback }
-
-        let f = d.features
-        let calls = flag(features, "calls", f.calls)
-        let parsedFeatures = Features(
-            calls: calls,
-            videoCalls: calls && flag(features, "videoCalls", f.videoCalls),
-            email: flag(features, "email", f.email),
-            visitors: flag(features, "visitors", f.visitors),
-            callCenter: flag(features, "callCenter", f.callCenter),
-            colleagues: flag(features, "colleagues", f.colleagues),
-            contacts: flag(features, "contacts", f.contacts),
-            voiceNotes: flag(features, "voiceNotes", f.voiceNotes),
-            attachments: flag(features, "attachments", f.attachments))
 
         let s = d.system
         let parsedSystem = SystemIntegration(
@@ -155,7 +125,6 @@ struct MacAppConfig: Sendable, Equatable {
             realtimeEnabled: flag(realtime, "enabled", d.realtimeEnabled),
             pollIntervalSeconds: clamp(polling?["intervalSeconds"]?.int, 5, 300, d.pollIntervalSeconds),
             pollWithRealtimeSeconds: clamp(polling?["withRealtimeSeconds"]?.int, 15, 900, d.pollWithRealtimeSeconds),
-            features: parsedFeatures,
             system: parsedSystem,
             firstLaunch: parsedFirst,
             maintenance: Maintenance(enabled: down, message: message, until: until),

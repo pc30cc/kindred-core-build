@@ -103,7 +103,6 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(c.update.autoCheck)
         XCTAssertTrue(c.update.autoDownload)
         XCTAssertEqual(c.update.checkIntervalMinutes, 240)
-        XCTAssertEqual(c.features, .all)
         XCTAssertTrue(c.system.menuBarExtra && c.system.launchAtLogin && c.system.dockBadge && c.system.notifications)
         XCTAssertNil(c.firstLaunch.language)
         XCTAssertEqual(c.firstLaunch.appearance, .system)
@@ -119,7 +118,6 @@ final class CoreTests: XCTestCase {
                       "minimumSupportedVersion": "1.2.0", "blockedVersions": ["1.3.1", "1.3.1", ""], "autoCheck": false,
                       "autoDownload": false, "checkIntervalMinutes": 60 },
           "realtime": { "enabled": false }, "polling": { "intervalSeconds": 20, "withRealtimeSeconds": 300 },
-          "features": { "calls": true, "videoCalls": false, "email": false, "attachments": false },
           "system": { "menuBarExtra": false, "dockBadge": false },
           "defaults": { "language": "tr", "appearance": "dark", "closeToMenuBar": true, "launchAtLogin": true },
           "maintenance": { "enabled": false, "message": { "en": "Back soon", "fa": "  " } },
@@ -135,11 +133,6 @@ final class CoreTests: XCTestCase {
         XCTAssertFalse(c.realtimeEnabled)
         XCTAssertEqual(c.pollIntervalSeconds, 20)
         XCTAssertEqual(c.pollWithRealtimeSeconds, 300)
-        XCTAssertTrue(c.features.calls)
-        XCTAssertFalse(c.features.videoCalls)
-        XCTAssertFalse(c.features.email)
-        XCTAssertFalse(c.features.attachments)
-        XCTAssertTrue(c.features.contacts)
         XCTAssertFalse(c.system.menuBarExtra)
         XCTAssertFalse(c.system.dockBadge)
         XCTAssertTrue(c.system.notifications)
@@ -159,7 +152,6 @@ final class CoreTests: XCTestCase {
         let c = config("""
         { "update": { "appcastUrl": "http://insecure.example/appcast.xml", "channel": "nightly", "checkIntervalMinutes": 1, "downloadUrl": "ftp://x" },
           "polling": { "intervalSeconds": "x", "withRealtimeSeconds": 5000 },
-          "features": { "calls": "no", "voiceNotes": false },
           "defaults": { "language": "de", "appearance": "sepia" },
           "links": { "privacy": "javascript:alert(1)", "status": "https://" } }
         """)
@@ -169,8 +161,6 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(c.update.checkIntervalMinutes, 15)
         XCTAssertEqual(c.pollIntervalSeconds, MacAppConfig.defaults.pollIntervalSeconds)
         XCTAssertEqual(c.pollWithRealtimeSeconds, 900)
-        XCTAssertTrue(c.features.calls)
-        XCTAssertFalse(c.features.voiceNotes)
         XCTAssertTrue(c.realtimeEnabled)
         XCTAssertNil(c.firstLaunch.language)
         XCTAssertEqual(c.firstLaunch.appearance, .system)
@@ -186,12 +176,6 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(high.update.checkIntervalMinutes, 1440)
         XCTAssertEqual(high.pollIntervalSeconds, 300)
         XCTAssertEqual(high.pollWithRealtimeSeconds, 900)
-    }
-
-    func testNoCallsMeansNoVideo() {
-        let c = config(#"{ "features": { "calls": false, "videoCalls": true } }"#)
-        XCTAssertFalse(c.features.calls)
-        XCTAssertFalse(c.features.videoCalls)
     }
 
     func testMaintenanceEndsAtItsTime() {
@@ -225,23 +209,19 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(c.update.requirement(for: "0.9.0"), .belowMinimum)
     }
 
-    func testPlatformSwitchesOnlyTakeAway() throws {
-        let root = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"modules":{"contacts":true,"call_center":true,"email_inbox":true},"features":{}}"#.utf8))
+    func testThePlanAloneDecides() throws {
+        // Old servers still send the Mac app's feature switches; they no longer take anything away.
+        let c = config(#"{ "features": { "calls": false, "contacts": false, "email": false, "attachments": false } }"#)
+        XCTAssertEqual(c, MacAppConfig.defaults)
+        let root = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"modules":{"contacts":true,"call_center":true,"email_inbox":true,"omnichannel":true},"channels":{"telegram":true,"whatsapp":false},"features":{"call_recording":false}}"#.utf8))
         let plan = WorkspacePlan.parse(root).with(role: "owner", aiAgent: nil, aiAuto: nil, callCenter: true)
-        XCTAssertTrue(plan.contacts && plan.callCenter && plan.emailInbox && plan.videoCalls && plan.attachments)
-        let off = config(#"{ "features": { "calls": false, "contacts": false, "email": false, "attachments": false } }"#).features
-        let limited = plan.limited(to: off)
-        XCTAssertFalse(limited.contacts)
-        XCTAssertFalse(limited.emailInbox)
-        XCTAssertFalse(limited.voiceCalls)
-        XCTAssertFalse(limited.videoCalls)
-        // The desk answers calls, so it goes with them.
-        XCTAssertFalse(limited.callCenter)
-        XCTAssertFalse(limited.attachments)
-        XCTAssertFalse(limited.emailAttachments)
-        XCTAssertTrue(limited.visitors)
-        // Nothing the plan withholds comes back.
-        XCTAssertFalse(WorkspacePlan.loading.limited(to: .all).visitors)
+        XCTAssertTrue(plan.contacts && plan.callCenter && plan.emailInbox && plan.voiceCalls && plan.videoCalls && plan.attachments)
+        XCTAssertTrue(plan.channelInbox("telegram"))
+        XCTAssertFalse(plan.channelInbox("WhatsApp"))
+        XCTAssertFalse(plan.callRecordings)
+        let noOmni = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"modules":{"omnichannel":false},"channels":{"telegram":true}}"#.utf8))
+        XCTAssertFalse(WorkspacePlan.parse(noOmni).channelInbox("telegram"))
+        XCTAssertFalse(WorkspacePlan.loading.channelInbox("telegram"))
     }
 
     // MARK: Plan

@@ -4,7 +4,8 @@
  * One screen answering "what are Macs doing and what are they being told":
  * how many copies are running right now (live, from the server's memory),
  * the update policy Sparkle is following, whether a maintenance notice is
- * showing, and which features or Mac integrations are switched off.
+ * showing, and which Mac integrations are switched off. What the app offers
+ * comes from the workspace's plan, not from here.
  *
  * Deliberately shows the SAVED settings, not the draft: this is what
  * installed Macs read from GET /api/platform/macos-app, which is one click
@@ -24,9 +25,7 @@ import { API_BASE } from '@/lib/api';
 import { useDesktopLive } from '@/hooks/useDesktopApp';
 import { MACOS_PUBLIC_CONFIG_PATH, type MacosAppSettings } from '@/hooks/useMacosApp';
 import {
-  MACOS_FEATURES,
   MACOS_INTEGRATIONS,
-  effectiveFeature,
   maintenanceShowing,
   type MacosTab,
 } from './macosModel';
@@ -85,7 +84,6 @@ export function MacosOverviewTab({
   const showing = maintenanceShowing(settings);
   const untilText = settings.maintenance_until ? new Date(settings.maintenance_until).toLocaleString(locale) : null;
 
-  const featuresOff = MACOS_FEATURES.filter(({ key }) => !effectiveFeature(settings, key));
   const integrationsOff = MACOS_INTEGRATIONS.filter(({ key }) => !settings[key]);
 
   const autoUpdate = !settings.auto_update_enabled
@@ -202,17 +200,10 @@ export function MacosOverviewTab({
         heading={t('admin.macosApp.overview.offTitle')}
         caption={t('admin.macosApp.overview.offCaption')}
       >
-        {featuresOff.length === 0 && integrationsOff.length === 0 ? (
+        {integrationsOff.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('admin.macosApp.overview.allOn')}</p>
         ) : (
           <div className="grid gap-3">
-            {featuresOff.length > 0 && (
-              <OffGroup
-                label={t('admin.macosApp.tabs.features')}
-                names={featuresOff.map(({ copy }) => t(`admin.macosApp.features.${copy}` as TranslationKey))}
-                onEdit={() => onNavigate('features')}
-              />
-            )}
             {integrationsOff.length > 0 && (
               <OffGroup
                 label={t('admin.macosApp.tabs.integration')}

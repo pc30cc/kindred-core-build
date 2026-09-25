@@ -30,6 +30,7 @@ import {
 } from '@/hooks/useEntitlements';
 import {
   validatePlanPayload,
+  type PlanValidationIssue,
   setWorkspaceModuleOverride,
   setWorkspaceChannelOverride,
   deleteWorkspaceModuleOverride,
@@ -62,7 +63,13 @@ import {
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { useQuery } from '@tanstack/react-query';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
+import {
+  capabilityLabel,
+  capabilityDescription,
+  capabilityGroupLabel,
+  capabilityUnitLabel,
+} from '@/lib/capability-i18n';
 
 // ─── Constants ───
 const CURRENCIES = ['USD', 'EUR', 'TRY', 'IRR'];
@@ -80,6 +87,58 @@ interface LocalizedPlan {
   description: string;
 }
 
+/** A `billing_plans` row as the Super Admin plan endpoints return it. */
+interface AdminPlan {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  is_free?: boolean | null;
+  is_active?: boolean | null;
+  is_hidden?: boolean | null;
+  sort_order?: number | null;
+  trial_days?: number | null;
+  default_currency?: string | null;
+  prices?: Record<string, { monthly: number; yearly: number }> | null;
+  entitlements?: Record<string, unknown> | null;
+  limits?: Record<string, unknown> | null;
+  provider_price_ids?: Record<string, unknown> | null;
+  localized?: Record<string, LocalizedPlan> | null;
+}
+
+/** A `workspace_subscriptions` row with its plan, as /admin/subscriptions returns it. */
+interface AdminSubscription {
+  id: string;
+  workspace_id: string;
+  plan_id?: string | null;
+  status?: string | null;
+  provider_name?: string | null;
+  current_period_end?: string | null;
+  billing_plans?: { id: string; name: string; slug: string } | null;
+}
+
+/** The message of a thrown error, if it has one. */
+function errorText(e: unknown): string | undefined {
+  return e instanceof Error && e.message ? e.message : undefined;
+}
+
+/** A status label; a status the translations do not know yet shows as it is. */
+function statusLabel(t: (key: TranslationKey) => string, status: string | null | undefined): string {
+  if (!status) return t('admin.plans.statuses.none');
+  const key = `admin.plans.statuses.${status}` as TranslationKey;
+  const label = t(key);
+  return label && label !== key ? label : status;
+}
+
+/** A plan's name in the admin's language (its own translations), else its base name. */
+function planName(plan: { name?: string | null; localized?: Record<string, { name?: string | null } | null | undefined> | null } | null | undefined, locale: string): string {
+  return plan?.localized?.[locale]?.name?.trim() || plan?.name || '—';
+}
+
+/** A capability's name and description in the admin's language (src/lib/capability-i18n.ts). */
+const capName = (cap: CapabilityDefinition, locale: string) => capabilityLabel(cap.key, locale, cap.label);
+const capText = (cap: CapabilityDefinition, locale: string) => capabilityDescription(cap.key, locale, cap.description);
+
 interface PlanFormData {
   name: string;
   slug: string;
@@ -93,7 +152,7 @@ interface PlanFormData {
   prices: Record<string, { monthly: number; yearly: number }>;
   entitlements: Record<string, boolean>;
   limits: Record<string, number>;
-  provider_price_ids: Record<string, any>;
+  provider_price_ids: Record<string, unknown>;
   localized: Record<string, LocalizedPlan>;
   /** Keys present in DB but not in current registry — preserved verbatim. */
   legacyEntitlements: Record<string, unknown>;
@@ -112,7 +171,7 @@ function usePlatformLocales() {
 
 // ─── Registry-aware form helpers ───
 
-function buildFormFromRegistry(capabilities: CapabilityDefinition[], locales: string[], plan?: any): PlanFormData {
+function buildFormFromRegistry(capabilities: CapabilityDefinition[], locales: string[], plan?: AdminPlan | null): PlanFormData {
   const knownKeys = new Set(capabilities.map((c) => c.key));
   const entitlements: Record<string, boolean> = {};
   const limits: Record<string, number> = {};
@@ -191,15 +250,15 @@ function PlanFormDialog({
   locales,
   capabilities,
 }: {
-  plan?: any;
+  plan?: AdminPlan | null;
   onClose: () => void;
   locales: string[];
   capabilities: CapabilityDefinition[];
 }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [form, setForm] = useState<PlanFormData>(() => buildFormFromRegistry(capabilities, locales, plan));
   const [activeSection, setActiveSection] = useState('general');
-  const [issues, setIssues] = useState<Array<{ level: 'error' | 'warning'; key: string; message: string }>>([]);
+  const [issues, setIssues] = useState<PlanValidationIssue[]>([]);
   const createPlan = useCreatePlan();
   const updatePlan = useUpdatePlan();
   const isEdit = !!plan?.id;
@@ -209,7 +268,7 @@ function PlanFormDialog({
   // (e.g. the legacy `remove_powered_by` inverse) never render a toggle —
   // the canonical key is the only thing a plan can set.
   const byType = useMemo(() => {
-    const editable = capabilities.filter((c) => !(c as any).deprecated && c.planConfigurable !== false);
+    const editable = capabilities.filter((c) => !c.deprecated && c.planConfigurable !== false);
     return {
       module: editable.filter((c) => c.type === 'module').sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
       channel: editable.filter((c) => c.type === 'channel').sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
@@ -223,7 +282,7 @@ function PlanFormDialog({
 
   async function handleSubmit() {
     if (!form.name || !form.slug) {
-      toast.error(t('admin.plans.validation.nameSlugRequired' as any));
+      toast.error(t('admin.plans.validation.nameSlugRequired'));
       return;
     }
     const payload = formToPayload(form);
@@ -233,30 +292,30 @@ function PlanFormDialog({
       setIssues(v.issues);
       const errs = v.issues.filter((i) => i.level === 'error');
       if (errs.length) {
-        toast.error(t('admin.plans.validation.errors' as any, { count: errs.length }));
+        toast.error(t('admin.plans.validation.errors', { count: errs.length }));
         return;
       }
       const warns = v.issues.filter((i) => i.level === 'warning');
       if (warns.length) {
-        toast.warning(t('admin.plans.validation.unknownKeys' as any, { count: warns.length }), {
+        toast.warning(t('admin.plans.validation.unknownKeys', { count: warns.length }), {
           description: warns.map((w) => w.key).join('، '),
         });
       }
-    } catch (e: any) {
+    } catch (e) {
       // Validation endpoint failure is non-fatal
-      console.warn('Validation skipped:', e?.message);
+      console.warn('Validation skipped:', errorText(e));
     }
     try {
       if (isEdit) {
         await updatePlan.mutateAsync({ planId: plan.id, ...payload });
-        toast.success(t('admin.plans.messages.updated' as any));
+        toast.success(t('admin.plans.messages.updated'));
       } else {
         await createPlan.mutateAsync(payload);
-        toast.success(t('admin.plans.messages.created' as any));
+        toast.success(t('admin.plans.messages.created'));
       }
       onClose();
-    } catch (e: any) {
-      toast.error(e.message);
+    } catch (e) {
+      toast.error(errorText(e) ?? t('admin.plans.messages.actionFailed'));
     }
   }
 
@@ -273,14 +332,14 @@ function PlanFormDialog({
   const hasLegacy = Object.keys(form.legacyEntitlements).length + Object.keys(form.legacyLimits).length > 0;
 
   const sections = [
-    { id: 'general', label: t('admin.plans.form.sections.general' as any) },
-    { id: 'modules', label: t('admin.plans.form.sections.modules' as any, { count: byType.module.length }) },
-    { id: 'channels', label: t('admin.plans.form.sections.channels' as any, { count: byType.channel.length }) },
-    { id: 'features', label: t('admin.plans.form.sections.features' as any, { count: byType.feature.length }) },
-    { id: 'limits', label: t('admin.plans.form.sections.limits' as any, { count: byType.limit.length }) },
-    { id: 'pricing', label: t('admin.plans.form.sections.pricing' as any) },
-    { id: 'locales', label: t('admin.plans.form.sections.translations' as any) },
-    ...(hasLegacy ? [{ id: 'legacy', label: t('admin.plans.form.sections.legacy' as any) }] : []),
+    { id: 'general', label: t('admin.plans.form.sections.general') },
+    { id: 'modules', label: t('admin.plans.form.sections.modules', { count: byType.module.length }) },
+    { id: 'channels', label: t('admin.plans.form.sections.channels', { count: byType.channel.length }) },
+    { id: 'features', label: t('admin.plans.form.sections.features', { count: byType.feature.length }) },
+    { id: 'limits', label: t('admin.plans.form.sections.limits', { count: byType.limit.length }) },
+    { id: 'pricing', label: t('admin.plans.form.sections.pricing') },
+    { id: 'locales', label: t('admin.plans.form.sections.translations') },
+    ...(hasLegacy ? [{ id: 'legacy', label: t('admin.plans.form.sections.legacy') }] : []),
   ];
 
   const renderBoolList = (caps: CapabilityDefinition[]) => (
@@ -295,23 +354,23 @@ function PlanFormDialog({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className={`text-sm font-medium ${enabled ? 'text-foreground' : 'text-muted-foreground'}`}>
-                  {cap.label}
+                  {capName(cap, locale)}
                 </span>
                 <Badge variant="outline" className="text-[10px] font-mono">
                   {cap.key}
                 </Badge>
                 {!cap.workspaceOverridable && (
                   <Badge variant="secondary" className="text-[9px]">
-                    {t('admin.plans.badges.noOverride' as any)}
+                    {t('admin.plans.badges.noOverride')}
                   </Badge>
                 )}
                 {cap.internalOnly && (
                   <Badge variant="secondary" className="text-[9px]">
-                    {t('admin.plans.badges.internal' as any)}
+                    {t('admin.plans.badges.internal')}
                   </Badge>
                 )}
               </div>
-              {cap.description && <p className="text-[11px] text-muted-foreground mt-0.5">{cap.description}</p>}
+              {capText(cap, locale) && <p className="text-[11px] text-muted-foreground mt-0.5">{capText(cap, locale)}</p>}
             </div>
             <Switch checked={enabled} onCheckedChange={(v) => setBool(cap.key, v)} />
           </div>
@@ -349,7 +408,7 @@ function PlanFormDialog({
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>{t('admin.plans.form.planName' as any)}</Label>
+                  <Label>{t('admin.plans.form.planName')}</Label>
                   <Input
                     value={form.name}
                     onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
@@ -357,7 +416,7 @@ function PlanFormDialog({
                   />
                 </div>
                 <div>
-                  <Label>{t('admin.plans.form.slug' as any)}</Label>
+                  <Label>{t('admin.plans.form.slug')}</Label>
                   <Input
                     value={form.slug}
                     onChange={(e) =>
@@ -369,7 +428,7 @@ function PlanFormDialog({
                 </div>
               </div>
               <div>
-                <Label>{t('admin.plans.form.description' as any)}</Label>
+                <Label>{t('admin.plans.form.description')}</Label>
                 <Textarea
                   value={form.description}
                   onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
@@ -378,7 +437,7 @@ function PlanFormDialog({
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>{t('admin.plans.form.sortOrder' as any)}</Label>
+                  <Label>{t('admin.plans.form.sortOrder')}</Label>
                   <Input
                     type="number"
                     value={form.sort_order}
@@ -386,7 +445,7 @@ function PlanFormDialog({
                   />
                 </div>
                 <div>
-                  <Label>{t('admin.plans.form.trialDays' as any)}</Label>
+                  <Label>{t('admin.plans.form.trialDays')}</Label>
                   <Input
                     type="number"
                     value={form.trial_days}
@@ -398,15 +457,15 @@ function PlanFormDialog({
               <div className="flex gap-6">
                 <div className="flex items-center gap-2">
                   <Switch checked={form.is_free} onCheckedChange={(v) => setForm((f) => ({ ...f, is_free: v }))} />
-                  <Label>{t('admin.plans.form.freePlan' as any)}</Label>
+                  <Label>{t('admin.plans.form.freePlan')}</Label>
                 </div>
                 <div className="flex items-center gap-2">
                   <Switch checked={form.is_active} onCheckedChange={(v) => setForm((f) => ({ ...f, is_active: v }))} />
-                  <Label>{t('admin.plans.active' as any)}</Label>
+                  <Label>{t('admin.plans.active')}</Label>
                 </div>
                 <div className="flex items-center gap-2">
                   <Switch checked={form.is_hidden} onCheckedChange={(v) => setForm((f) => ({ ...f, is_hidden: v }))} />
-                  <Label>{t('admin.plans.form.hidden' as any)}</Label>
+                  <Label>{t('admin.plans.form.hidden')}</Label>
                 </div>
               </div>
             </div>
@@ -414,24 +473,24 @@ function PlanFormDialog({
 
           {activeSection === 'modules' && (
             <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">{t('admin.plans.form.modulesHint' as any)}</p>
+              <p className="text-xs text-muted-foreground">{t('admin.plans.form.modulesHint')}</p>
               {renderBoolList(byType.module)}
             </div>
           )}
 
           {activeSection === 'channels' && (
             <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">{t('admin.plans.form.channelsHint' as any)}</p>
+              <p className="text-xs text-muted-foreground">{t('admin.plans.form.channelsHint')}</p>
               {renderBoolList(byType.channel)}
             </div>
           )}
 
           {activeSection === 'features' && (
             <div className="space-y-4">
-              <p className="text-xs text-muted-foreground">{t('admin.plans.form.featuresHint' as any)}</p>
+              <p className="text-xs text-muted-foreground">{t('admin.plans.form.featuresHint')}</p>
               {Object.entries(featuresByGroup).map(([group, caps]) => (
                 <div key={group} className="space-y-1">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{group}</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{capabilityGroupLabel(group, locale)}</p>
                   {renderBoolList(caps)}
                 </div>
               ))}
@@ -441,20 +500,20 @@ function PlanFormDialog({
           {activeSection === 'limits' && (
             <div className="space-y-4">
               <p className="text-xs text-muted-foreground">
-                {t('admin.plans.form.limitsHintBefore' as any)} <code className="bg-muted px-1 rounded">-1</code>{' '}
-                {t('admin.plans.form.limitsHintAfter' as any)}
+                {t('admin.plans.form.limitsHintBefore')} <code className="bg-muted px-1 rounded">-1</code>{' '}
+                {t('admin.plans.form.limitsHintAfter')}
               </p>
               {Object.entries(limitsByGroup).map(([group, caps]) => (
                 <div key={group} className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{group}</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{capabilityGroupLabel(group, locale)}</p>
                   <div className="grid grid-cols-2 gap-3">
                     {caps.map((cap) => (
                       <div key={cap.key} className="space-y-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <Label className="text-xs">{cap.label}</Label>
+                          <Label className="text-xs">{capName(cap, locale)}</Label>
                           {cap.unit && (
                             <Badge variant="outline" className="text-[9px] font-normal">
-                              {cap.unit}
+                              {capabilityUnitLabel(cap.unit, locale)}
                             </Badge>
                           )}
                         </div>
@@ -463,7 +522,7 @@ function PlanFormDialog({
                           value={form.limits[cap.key] ?? 0}
                           onChange={(e) => setLimit(cap.key, parseInt(e.target.value) || 0)}
                         />
-                        {cap.description && <p className="text-[10px] text-muted-foreground">{cap.description}</p>}
+                        {capText(cap, locale) && <p className="text-[10px] text-muted-foreground">{capText(cap, locale)}</p>}
                       </div>
                     ))}
                   </div>
@@ -474,7 +533,7 @@ function PlanFormDialog({
 
           {activeSection === 'pricing' && (
             <div className="space-y-3">
-              <p className="text-xs text-muted-foreground">{t('admin.plans.form.pricingHint' as any)}</p>
+              <p className="text-xs text-muted-foreground">{t('admin.plans.form.pricingHint')}</p>
               <div className="grid grid-cols-2 gap-3">
                 {CURRENCIES.map((cur) => (
                   <Card key={cur} className="bg-muted/20 border-border">
@@ -482,7 +541,7 @@ function PlanFormDialog({
                       <p className="text-xs font-bold text-foreground">{cur}</p>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <Label className="text-[11px]">{t('admin.plans.monthly' as any)}</Label>
+                          <Label className="text-[11px]">{t('admin.plans.monthly')}</Label>
                           <Input
                             type="number"
                             value={form.prices[cur]?.monthly || 0}
@@ -498,7 +557,7 @@ function PlanFormDialog({
                           />
                         </div>
                         <div>
-                          <Label className="text-[11px]">{t('admin.plans.yearly' as any)}</Label>
+                          <Label className="text-[11px]">{t('admin.plans.yearly')}</Label>
                           <Input
                             type="number"
                             value={form.prices[cur]?.yearly || 0}
@@ -523,7 +582,7 @@ function PlanFormDialog({
 
           {activeSection === 'locales' && (
             <div className="space-y-3">
-              <p className="text-xs text-muted-foreground">{t('admin.plans.form.translationsHint' as any)}</p>
+              <p className="text-xs text-muted-foreground">{t('admin.plans.form.translationsHint')}</p>
               {locales.map((loc) => (
                 <Card key={loc} className="bg-muted/20 border-border">
                   <CardContent className="pt-3 pb-3 space-y-2">
@@ -531,13 +590,13 @@ function PlanFormDialog({
                     <Input
                       value={form.localized[loc]?.name || ''}
                       onChange={(e) => updateLocalized(loc, 'name', e.target.value)}
-                      placeholder={t('admin.plans.form.localizedName' as any, { locale: loc })}
+                      placeholder={t('admin.plans.form.localizedName', { locale: loc })}
                       dir={loc === 'fa' || loc === 'ar' ? 'rtl' : 'ltr'}
                     />
                     <Textarea
                       value={form.localized[loc]?.description || ''}
                       onChange={(e) => updateLocalized(loc, 'description', e.target.value)}
-                      placeholder={t('admin.plans.form.localizedDescription' as any, { locale: loc })}
+                      placeholder={t('admin.plans.form.localizedDescription', { locale: loc })}
                       rows={2}
                       dir={loc === 'fa' || loc === 'ar' ? 'rtl' : 'ltr'}
                     />
@@ -551,12 +610,12 @@ function PlanFormDialog({
             <div className="space-y-3">
               <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
                 <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
-                <div className="text-xs text-muted-foreground">{t('admin.plans.form.legacyHint' as any)}</div>
+                <div className="text-xs text-muted-foreground">{t('admin.plans.form.legacyHint')}</div>
               </div>
               {Object.keys(form.legacyEntitlements).length > 0 && (
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
-                    {t('admin.plans.form.legacyEntitlements' as any)}
+                    {t('admin.plans.form.legacyEntitlements')}
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {Object.entries(form.legacyEntitlements).map(([k, v]) => (
@@ -570,7 +629,7 @@ function PlanFormDialog({
               {Object.keys(form.legacyLimits).length > 0 && (
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
-                    {t('admin.plans.form.legacyLimits' as any)}
+                    {t('admin.plans.form.legacyLimits')}
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {Object.entries(form.legacyLimits).map(([k, v]) => (
@@ -587,7 +646,7 @@ function PlanFormDialog({
           {issues.length > 0 && (
             <div className="space-y-1 border-t border-border pt-3">
               <p className="text-[11px] font-semibold text-muted-foreground">
-                {t('admin.plans.validation.title' as any)}
+                {t('admin.plans.validation.title')}
               </p>
               {issues.map((i, idx) => (
                 <div
@@ -600,7 +659,7 @@ function PlanFormDialog({
                     <AlertTriangle className="w-3 h-3 mt-0.5" />
                   )}
                   <span>
-                    <code className="font-mono">{i.key}</code> — {i.message}
+                    <code className="font-mono">{i.key}</code> — {i.code ? t(`admin.plans.validation.issues.${i.code}` as TranslationKey) : i.message}
                   </span>
                 </div>
               ))}
@@ -610,11 +669,11 @@ function PlanFormDialog({
 
         <div className="border-t border-border px-5 py-3 bg-background flex items-center justify-end gap-2">
           <Button variant="outline" onClick={onClose} disabled={isPending}>
-            {t('admin.plans.cancel' as any)}
+            {t('admin.plans.cancel')}
           </Button>
           <Button onClick={handleSubmit} disabled={isPending}>
             {isPending && <Loader2 className="w-4 h-4 animate-spin me-2" />}
-            {isEdit ? t('admin.plans.form.updatePlan' as any) : t('admin.plans.form.createPlan' as any)}
+            {isEdit ? t('admin.plans.form.updatePlan') : t('admin.plans.form.createPlan')}
           </Button>
         </div>
       </div>
@@ -685,10 +744,10 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
           adminNotes: 'Toggled from admin console',
         });
       }
-      toast.success(t('admin.plans.console.overrideApplied' as any));
+      toast.success(t('admin.plans.console.overrideApplied'));
       reload();
-    } catch (e: any) {
-      toast.error(e?.message || t('admin.plans.console.overrideFailed' as any));
+    } catch (e) {
+      toast.error(errorText(e) || t('admin.plans.console.overrideFailed'));
     } finally {
       setBusy(null);
     }
@@ -698,18 +757,18 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
     if (!workspaceId) return;
     const id = kind === 'module' ? moduleOvIds[key] : channelOvIds[key];
     if (!id) {
-      toast.error(t('admin.plans.console.overrideIdMissing' as any));
+      toast.error(t('admin.plans.console.overrideIdMissing'));
       return;
     }
-    if (!window.confirm(t('admin.plans.console.confirmClear' as any))) return;
+    if (!window.confirm(t('admin.plans.console.confirmClear'))) return;
     setBusy(`clear:${kind}:${key}`);
     try {
       if (kind === 'module') await deleteWorkspaceModuleOverride(id);
       else await deleteWorkspaceChannelOverride(id);
-      toast.success(t('admin.plans.console.overrideCleared' as any));
+      toast.success(t('admin.plans.console.overrideCleared'));
       reload();
-    } catch (e: any) {
-      toast.error(e?.message || t('admin.plans.console.clearFailed' as any));
+    } catch (e) {
+      toast.error(errorText(e) || t('admin.plans.console.clearFailed'));
     } finally {
       setBusy(null);
     }
@@ -719,12 +778,12 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
     if (!workspaceId) return;
     const trimmed = (raw ?? '').trim();
     if (trimmed === '') {
-      toast.error(t('admin.plans.console.enterLimit' as any));
+      toast.error(t('admin.plans.console.enterLimit'));
       return;
     }
     const n = Number(trimmed);
     if (!Number.isFinite(n) || !Number.isInteger(n) || n < -1) {
-      toast.error(t('admin.plans.console.invalidLimit' as any));
+      toast.error(t('admin.plans.console.invalidLimit'));
       return;
     }
     setBusy(`limit:${key}`);
@@ -735,14 +794,14 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
         limitValue: n,
         adminNotes: 'Set from admin console',
       });
-      toast.success(t('admin.plans.console.limitApplied' as any));
+      toast.success(t('admin.plans.console.limitApplied'));
       setLimitDrafts((d) => {
         const { [key]: _drop, ...rest } = d;
         return rest;
       });
       reload();
-    } catch (e: any) {
-      toast.error(e?.message || t('admin.plans.console.overrideFailed' as any));
+    } catch (e) {
+      toast.error(errorText(e) || t('admin.plans.console.overrideFailed'));
     } finally {
       setBusy(null);
     }
@@ -752,21 +811,21 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
     if (!workspaceId) return;
     const entry = limitOvIds[key];
     if (!entry) {
-      toast.error(t('admin.plans.console.overrideIdMissing' as any));
+      toast.error(t('admin.plans.console.overrideIdMissing'));
       return;
     }
-    if (!window.confirm(t('admin.plans.console.confirmClear' as any))) return;
+    if (!window.confirm(t('admin.plans.console.confirmClear'))) return;
     setBusy(`clear:limit:${key}`);
     try {
       await deleteWorkspaceLimitOverride(entry.id);
-      toast.success(t('admin.plans.console.limitCleared' as any));
+      toast.success(t('admin.plans.console.limitCleared'));
       setLimitDrafts((d) => {
         const { [key]: _drop, ...rest } = d;
         return rest;
       });
       reload();
-    } catch (e: any) {
-      toast.error(e?.message || t('admin.plans.console.clearFailed' as any));
+    } catch (e) {
+      toast.error(errorText(e) || t('admin.plans.console.clearFailed'));
     } finally {
       setBusy(null);
     }
@@ -781,7 +840,7 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
           : 'bg-muted text-muted-foreground border-transparent';
     return (
       <Badge variant="outline" className={`text-[9px] ${cls}`}>
-        {t(`admin.plans.sources.${source}` as any)}
+        {t(`admin.plans.sources.${source}` as TranslationKey)}
       </Badge>
     );
   };
@@ -815,25 +874,25 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
                   ) : (
                     <XCircle className="w-3.5 h-3.5 text-muted-foreground opacity-50" />
                   )}
-                  <span className="text-sm">{cap.label}</span>
+                  <span className="text-sm">{capName(cap, locale)}</span>
                   <Badge variant="outline" className="text-[9px] font-mono">
                     {cap.key}
                   </Badge>
                   {eff && sourceBadge(eff.source)}
                   {isOverride && (
                     <span className="text-[10px] text-amber-600">
-                      {value ? t('admin.plans.console.forcedOn' as any) : t('admin.plans.console.forcedOff' as any)}
+                      {value ? t('admin.plans.console.forcedOn') : t('admin.plans.console.forcedOff')}
                     </span>
                   )}
                   {!cap.workspaceOverridable && (
                     <Badge variant="secondary" className="text-[9px]">
-                      {t('admin.plans.badges.locked' as any)}
+                      {t('admin.plans.badges.locked')}
                     </Badge>
                   )}
                 </div>
                 {eff?.note && (
                   <p className="text-[10px] text-muted-foreground mt-0.5">
-                    {t('admin.plans.console.note' as any)}: {eff.note}
+                    {t('admin.plans.console.note')}: {eff.note}
                   </p>
                 )}
               </div>
@@ -847,16 +906,16 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
                     onClick={() => toggleOverride(kind!, cap.key, value)}
                     title={
                       value
-                        ? t('admin.plans.console.forceOffTitle' as any)
-                        : t('admin.plans.console.forceOnTitle' as any)
+                        ? t('admin.plans.console.forceOffTitle')
+                        : t('admin.plans.console.forceOnTitle')
                     }
                   >
                     {busy === `${kind}:${cap.key}` ? (
                       <Loader2 className="w-3 h-3 animate-spin" />
                     ) : value ? (
-                      t('admin.plans.console.forceOff' as any)
+                      t('admin.plans.console.forceOff')
                     ) : (
-                      t('admin.plans.console.forceOn' as any)
+                      t('admin.plans.console.forceOn')
                     )}
                   </Button>
                   {isOverride && (kind === 'module' ? moduleOvIds[cap.key] : channelOvIds[cap.key]) && (
@@ -866,13 +925,13 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
                       className="text-[11px] h-7 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10"
                       disabled={busy === `clear:${kind}:${cap.key}`}
                       onClick={() => clearOverride(kind!, cap.key)}
-                      title={t('admin.plans.console.clearTitle' as any)}
+                      title={t('admin.plans.console.clearTitle')}
                     >
                       {busy === `clear:${kind}:${cap.key}` ? (
                         <Loader2 className="w-3 h-3 animate-spin" />
                       ) : (
                         <>
-                          <RotateCcw className="w-3 h-3 me-1" /> {t('admin.plans.console.clear' as any)}
+                          <RotateCcw className="w-3 h-3 me-1" /> {t('admin.plans.console.clear')}
                         </>
                       )}
                     </Button>
@@ -890,20 +949,20 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
     <Card className="bg-card border-border">
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
-          <Activity className="w-4 h-4" /> {t('admin.plans.console.title' as any)}
+          <Activity className="w-4 h-4" /> {t('admin.plans.console.title')}
         </CardTitle>
-        <CardDescription>{t('admin.plans.console.description' as any)}</CardDescription>
+        <CardDescription>{t('admin.plans.console.description')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex gap-2 items-end flex-wrap">
           <div className="min-w-[280px]">
-            <Label>{t('admin.plans.workspace' as any)}</Label>
+            <Label>{t('admin.plans.workspace')}</Label>
             <Select value={workspaceId} onValueChange={setWorkspaceId}>
               <SelectTrigger>
-                <SelectValue placeholder={t('admin.plans.selectWorkspace' as any)} />
+                <SelectValue placeholder={t('admin.plans.selectWorkspace')} />
               </SelectTrigger>
               <SelectContent>
-                {(workspaces || []).map((w: any) => (
+                {(workspaces || []).map((w) => (
                   <SelectItem key={w.id} value={w.id}>
                     {w.name} ({w.slug})
                   </SelectItem>
@@ -913,19 +972,19 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
           </div>
           <Button variant="outline" size="sm" disabled={!workspaceId || loading} onClick={reload}>
             <RefreshCw className={`w-3.5 h-3.5 me-1.5 ${loading ? 'animate-spin' : ''}`} />{' '}
-            {t('admin.plans.reload' as any)}
+            {t('admin.plans.reload')}
           </Button>
         </div>
 
         {error && <p className="text-xs text-destructive">{error}</p>}
-        {!workspaceId && <p className="text-xs text-muted-foreground">{t('admin.plans.console.selectHint' as any)}</p>}
+        {!workspaceId && <p className="text-xs text-muted-foreground">{t('admin.plans.console.selectHint')}</p>}
 
         {data && (
           <div className="space-y-4">
             <div className="flex flex-wrap gap-3 text-xs">
               <div className="px-3 py-2 rounded-lg bg-muted/40">
-                <span className="text-muted-foreground">{t('admin.plans.plan' as any)}:</span>{' '}
-                <span className="font-medium text-foreground">{data.plan?.name || '—'}</span>
+                <span className="text-muted-foreground">{t('admin.plans.plan')}:</span>{' '}
+                <span className="font-medium text-foreground">{planName(data.plan, locale)}</span>
                 {data.plan?.slug && (
                   <Badge variant="outline" className="ml-1.5 text-[10px] font-mono">
                     {data.plan.slug}
@@ -933,16 +992,16 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
                 )}
               </div>
               <div className="px-3 py-2 rounded-lg bg-muted/40">
-                <span className="text-muted-foreground">{t('admin.plans.subscription' as any)}:</span>{' '}
+                <span className="text-muted-foreground">{t('admin.plans.subscription')}:</span>{' '}
                 <span className="font-medium text-foreground">
                   {data.subscription?.status
-                    ? t(`admin.plans.statuses.${data.subscription.status}` as any)
-                    : t('admin.plans.statuses.none' as any)}
+                    ? statusLabel(t, data.subscription.status)
+                    : t('admin.plans.statuses.none')}
                 </span>
               </div>
               {data.subscription?.current_period_end && (
                 <div className="px-3 py-2 rounded-lg bg-muted/40">
-                  <span className="text-muted-foreground">{t('admin.plans.console.renews' as any)}:</span>{' '}
+                  <span className="text-muted-foreground">{t('admin.plans.console.renews')}:</span>{' '}
                   <span className="font-medium text-foreground">
                     {new Date(data.subscription.current_period_end).toLocaleDateString(locale)}
                   </span>
@@ -951,17 +1010,17 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
             </div>
 
             <Separator />
-            {renderBoolBlock(t('admin.plans.modules' as any), moduleCaps, data.modules as any, 'module')}
-            {renderBoolBlock(t('admin.plans.channels' as any), channelCaps, data.channels as any, 'channel')}
-            {renderBoolBlock(t('admin.plans.features' as any), featureCaps, data.features as any)}
+            {renderBoolBlock(t('admin.plans.modules'), moduleCaps, data.modules, 'module')}
+            {renderBoolBlock(t('admin.plans.channels'), channelCaps, data.channels, 'channel')}
+            {renderBoolBlock(t('admin.plans.features'), featureCaps, data.features)}
 
             <div className="space-y-1.5">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {t('admin.plans.limits' as any)}
+                {t('admin.plans.limits')}
               </p>
               <p className="text-[10px] text-muted-foreground">
-                {t('admin.plans.console.limitHintBefore' as any)} <code className="bg-muted px-1 rounded">-1</code>{' '}
-                {t('admin.plans.console.limitHintAfter' as any)}
+                {t('admin.plans.console.limitHintBefore')} <code className="bg-muted px-1 rounded">-1</code>{' '}
+                {t('admin.plans.console.limitHintAfter')}
               </p>
               <div className="grid grid-cols-1 gap-1.5">
                 {limitCaps.map((cap) => {
@@ -969,7 +1028,7 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
                   const val = eff?.value;
                   const display =
                     val === -1
-                      ? t('admin.plans.unlimited' as any)
+                      ? t('admin.plans.unlimited')
                       : val == null
                         ? '—'
                         : Number(val).toLocaleString(locale);
@@ -987,30 +1046,30 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-xs text-foreground">{cap.label}</span>
+                          <span className="text-xs text-foreground">{capName(cap, locale)}</span>
                           <Badge variant="outline" className="text-[9px] font-mono">
                             {cap.key}
                           </Badge>
                           {eff && sourceBadge(eff.source)}
                           {isOverride && (
                             <span className="text-[10px] text-amber-600">
-                              {t('admin.plans.console.overrideActive' as any)}
+                              {t('admin.plans.console.overrideActive')}
                             </span>
                           )}
                           {!canOverride && (
                             <Badge variant="secondary" className="text-[9px]">
-                              {t('admin.plans.badges.locked' as any)}
+                              {t('admin.plans.badges.locked')}
                             </Badge>
                           )}
                         </div>
                         <div className="text-[10px] text-muted-foreground mt-0.5">
-                          {t('admin.plans.console.effective' as any)}:{' '}
+                          {t('admin.plans.console.effective')}:{' '}
                           <span className="font-mono text-foreground">{display}</span>
-                          {cap.unit ? ` ${cap.unit}` : ''}
+                          {cap.unit ? ` ${capabilityUnitLabel(cap.unit, locale)}` : ''}
                         </div>
                         {eff?.note && (
                           <p className="text-[10px] text-muted-foreground mt-0.5">
-                            {t('admin.plans.console.note' as any)}: {eff.note}
+                            {t('admin.plans.console.note')}: {eff.note}
                           </p>
                         )}
                       </div>
@@ -1034,14 +1093,14 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
                             className="text-[11px] h-7"
                             disabled={busy === `limit:${cap.key}` || draft.trim() === ''}
                             onClick={() => applyLimitOverride(cap.key, draft)}
-                            title={t('admin.plans.console.setLimitTitle' as any)}
+                            title={t('admin.plans.console.setLimitTitle')}
                           >
                             {busy === `limit:${cap.key}` ? (
                               <Loader2 className="w-3 h-3 animate-spin" />
                             ) : ov ? (
-                              t('admin.plans.update' as any)
+                              t('admin.plans.update')
                             ) : (
-                              t('admin.plans.set' as any)
+                              t('admin.plans.set')
                             )}
                           </Button>
                           {isOverride && ov && (
@@ -1051,13 +1110,13 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
                               className="text-[11px] h-7 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10"
                               disabled={busy === `clear:limit:${cap.key}`}
                               onClick={() => clearLimitOverride(cap.key)}
-                              title={t('admin.plans.console.clearTitle' as any)}
+                              title={t('admin.plans.console.clearTitle')}
                             >
                               {busy === `clear:limit:${cap.key}` ? (
                                 <Loader2 className="w-3 h-3 animate-spin" />
                               ) : (
                                 <>
-                                  <RotateCcw className="w-3 h-3 me-1" /> {t('admin.plans.console.clear' as any)}
+                                  <RotateCcw className="w-3 h-3 me-1" /> {t('admin.plans.console.clear')}
                                 </>
                               )}
                             </Button>
@@ -1073,7 +1132,7 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
             {data.usage && Object.keys(data.usage).length > 0 && (
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-                  {t('admin.plans.console.usageSnapshot' as any)}
+                  {t('admin.plans.console.usageSnapshot')}
                 </p>
                 <ScrollArea className="max-h-40">
                   <pre className="text-[11px] text-muted-foreground bg-muted/30 rounded p-2">
@@ -1091,7 +1150,7 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
 
 // ─── Diagnostics ───
 function DiagnosticsPanel() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const { data, loading, error, reload } = useEntitlementDiagnostics();
   return (
     <Card className="bg-card border-border">
@@ -1099,13 +1158,13 @@ function DiagnosticsPanel() {
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-base flex items-center gap-2">
-              <Settings2 className="w-4 h-4" /> {t('admin.plans.diagnostics.title' as any)}
+              <Settings2 className="w-4 h-4" /> {t('admin.plans.diagnostics.title')}
             </CardTitle>
-            <CardDescription>{t('admin.plans.diagnostics.description' as any)}</CardDescription>
+            <CardDescription>{t('admin.plans.diagnostics.description')}</CardDescription>
           </div>
           <Button variant="outline" size="sm" onClick={reload} disabled={loading}>
             <RefreshCw className={`w-3.5 h-3.5 me-1.5 ${loading ? 'animate-spin' : ''}`} />{' '}
-            {t('admin.plans.reload' as any)}
+            {t('admin.plans.reload')}
           </Button>
         </div>
       </CardHeader>
@@ -1116,33 +1175,33 @@ function DiagnosticsPanel() {
           <>
             <div className="flex gap-3 flex-wrap text-xs">
               <div className="px-3 py-2 rounded-lg bg-muted/40">
-                <span className="text-muted-foreground">{t('admin.plans.diagnostics.registry' as any)}:</span>{' '}
+                <span className="text-muted-foreground">{t('admin.plans.diagnostics.registry')}:</span>{' '}
                 <span className="font-medium text-foreground">{data.registrySize}</span>
               </div>
               <div className="px-3 py-2 rounded-lg bg-muted/40">
-                <span className="text-muted-foreground">{t('admin.plans.diagnostics.plansChecked' as any)}:</span>{' '}
+                <span className="text-muted-foreground">{t('admin.plans.diagnostics.plansChecked')}:</span>{' '}
                 <span className="font-medium text-foreground">{data.plansChecked}</span>
               </div>
               <div className="px-3 py-2 rounded-lg bg-muted/40">
-                <span className="text-muted-foreground">{t('admin.plans.diagnostics.unknownKeys' as any)}:</span>{' '}
+                <span className="text-muted-foreground">{t('admin.plans.diagnostics.unknownKeys')}:</span>{' '}
                 <span className="font-medium text-foreground">{data.unknownKeysInDb.length}</span>
               </div>
               <div className="px-3 py-2 rounded-lg bg-muted/40">
-                <span className="text-muted-foreground">{t('admin.plans.diagnostics.missingKeys' as any)}:</span>{' '}
+                <span className="text-muted-foreground">{t('admin.plans.diagnostics.missingKeys')}:</span>{' '}
                 <span className="font-medium text-foreground">{data.registryKeysMissingEverywhere.length}</span>
               </div>
               <div className="px-3 py-2 rounded-lg bg-muted/40">
-                <span className="text-muted-foreground">{t('admin.plans.diagnostics.invalidLimits' as any)}:</span>{' '}
+                <span className="text-muted-foreground">{t('admin.plans.diagnostics.invalidLimits')}:</span>{' '}
                 <span className="font-medium text-foreground">{data.invalidLimitValues.length}</span>
               </div>
             </div>
 
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-                {t('admin.plans.diagnostics.unknownTitle' as any)}
+                {t('admin.plans.diagnostics.unknownTitle')}
               </p>
               {data.unknownKeysInDb.length === 0 ? (
-                <p className="text-xs text-muted-foreground">{t('admin.plans.diagnostics.noUnknown' as any)}</p>
+                <p className="text-xs text-muted-foreground">{t('admin.plans.diagnostics.noUnknown')}</p>
               ) : (
                 <div className="space-y-1">
                   {data.unknownKeysInDb.map((u, i) => (
@@ -1163,10 +1222,10 @@ function DiagnosticsPanel() {
 
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-                {t('admin.plans.diagnostics.unusedTitle' as any)}
+                {t('admin.plans.diagnostics.unusedTitle')}
               </p>
               {data.registryKeysMissingEverywhere.length === 0 ? (
-                <p className="text-xs text-muted-foreground">{t('admin.plans.diagnostics.allUsed' as any)}</p>
+                <p className="text-xs text-muted-foreground">{t('admin.plans.diagnostics.allUsed')}</p>
               ) : (
                 <div className="flex flex-wrap gap-1.5">
                   {data.registryKeysMissingEverywhere.map((k) => (
@@ -1181,7 +1240,7 @@ function DiagnosticsPanel() {
             {data.invalidLimitValues.length > 0 && (
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-                  {t('admin.plans.diagnostics.invalidTitle' as any)}
+                  {t('admin.plans.diagnostics.invalidTitle')}
                 </p>
                 <div className="space-y-1">
                   {data.invalidLimitValues.map((v, i) => (
@@ -1221,7 +1280,7 @@ export default function AdminPlansPage() {
 
   const locales = platformConfig?.locales || ['en'];
 
-  const [editPlan, setEditPlan] = useState<any>(null);
+  const [editPlan, setEditPlan] = useState<AdminPlan | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [assignForm, setAssignForm] = useState({ workspaceId: '', planId: '' });
 
@@ -1244,19 +1303,19 @@ export default function AdminPlansPage() {
     return (
       <Card className="border-destructive/30 bg-destructive/5">
         <CardContent className="py-6 text-sm text-destructive flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4" /> {t('admin.plans.registryLoadFailed' as any)}: {catError}
+          <AlertTriangle className="w-4 h-4" /> {t('admin.plans.registryLoadFailed')}: {catError}
         </CardContent>
       </Card>
     );
   }
 
   async function handleDelete(planId: string) {
-    if (!confirm(t('admin.plans.confirmDeactivate' as any))) return;
+    if (!confirm(t('admin.plans.confirmDeactivate'))) return;
     try {
       await deletePlan.mutateAsync(planId);
-      toast.success(t('admin.plans.messages.deactivated' as any));
-    } catch (e: any) {
-      toast.error(e.message);
+      toast.success(t('admin.plans.messages.deactivated'));
+    } catch (e) {
+      toast.error(errorText(e) ?? t('admin.plans.messages.actionFailed'));
     }
   }
 
@@ -1264,20 +1323,20 @@ export default function AdminPlansPage() {
     if (!assignForm.workspaceId || !assignForm.planId) return;
     try {
       await assignPlan.mutateAsync({ workspaceId: assignForm.workspaceId, planId: assignForm.planId });
-      toast.success(t('admin.plans.messages.assigned' as any));
+      toast.success(t('admin.plans.messages.assigned'));
       setAssignForm({ workspaceId: '', planId: '' });
-    } catch (e: any) {
-      toast.error(e.message);
+    } catch (e) {
+      toast.error(errorText(e) ?? t('admin.plans.messages.actionFailed'));
     }
   }
 
   async function handleRevoke(wsId: string) {
-    if (!confirm(t('admin.plans.confirmRevoke' as any))) return;
+    if (!confirm(t('admin.plans.confirmRevoke'))) return;
     try {
       await revokePlan.mutateAsync(wsId);
-      toast.success(t('admin.plans.messages.revoked' as any));
-    } catch (e: any) {
-      toast.error(e.message);
+      toast.success(t('admin.plans.messages.revoked'));
+    } catch (e) {
+      toast.error(errorText(e) ?? t('admin.plans.messages.actionFailed'));
     }
   }
 
@@ -1285,21 +1344,21 @@ export default function AdminPlansPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">{t('admin.plans.title' as any)}</h1>
+          <h1 className="text-2xl font-bold text-foreground">{t('admin.plans.title')}</h1>
           <p className="text-muted-foreground text-sm flex items-center gap-1.5">
             <Info className="w-3.5 h-3.5" />
-            {t('admin.plans.capabilitiesLoaded' as any, { count: caps.length })}
+            {t('admin.plans.capabilitiesLoaded', { count: caps.length })}
           </p>
         </div>
         <Dialog open={showCreate} onOpenChange={setShowCreate}>
           <DialogTrigger asChild>
             <Button>
-              <Plus className="w-4 h-4 me-2" /> {t('admin.plans.createPlan' as any)}
+              <Plus className="w-4 h-4 me-2" /> {t('admin.plans.createPlan')}
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-5xl w-[95vw] p-0 gap-0 max-h-[90vh] flex flex-col overflow-hidden">
             <DialogHeader className="px-5 py-4 border-b border-border shrink-0">
-              <DialogTitle>{t('admin.plans.createNewPlan' as any)}</DialogTitle>
+              <DialogTitle>{t('admin.plans.createNewPlan')}</DialogTitle>
             </DialogHeader>
             <PlanFormDialog onClose={() => setShowCreate(false)} locales={locales} capabilities={caps} />
           </DialogContent>
@@ -1310,20 +1369,20 @@ export default function AdminPlansPage() {
         <TabsList className="bg-muted">
           <TabsTrigger value="plans">
             <CreditCard className="w-3.5 h-3.5 me-1.5" />{' '}
-            {t('admin.plans.tabs.plans' as any, { count: plans?.length || 0 })}
+            {t('admin.plans.tabs.plans', { count: plans?.length || 0 })}
           </TabsTrigger>
           <TabsTrigger value="subscriptions">
             <Users className="w-3.5 h-3.5 me-1.5" />{' '}
-            {t('admin.plans.tabs.subscriptions' as any, { count: subscriptions?.length || 0 })}
+            {t('admin.plans.tabs.subscriptions', { count: subscriptions?.length || 0 })}
           </TabsTrigger>
           <TabsTrigger value="assign">
-            <Shield className="w-3.5 h-3.5 me-1.5" /> {t('admin.plans.tabs.assign' as any)}
+            <Shield className="w-3.5 h-3.5 me-1.5" /> {t('admin.plans.tabs.assign')}
           </TabsTrigger>
           <TabsTrigger value="effective">
-            <Activity className="w-3.5 h-3.5 me-1.5" /> {t('admin.plans.tabs.console' as any)}
+            <Activity className="w-3.5 h-3.5 me-1.5" /> {t('admin.plans.tabs.console')}
           </TabsTrigger>
           <TabsTrigger value="diagnostics">
-            <SlidersHorizontal className="w-3.5 h-3.5 me-1.5" /> {t('admin.plans.tabs.diagnostics' as any)}
+            <SlidersHorizontal className="w-3.5 h-3.5 me-1.5" /> {t('admin.plans.tabs.diagnostics')}
           </TabsTrigger>
         </TabsList>
 
@@ -1333,12 +1392,12 @@ export default function AdminPlansPage() {
             <Card className="bg-card border-border">
               <CardContent className="py-16 text-center text-muted-foreground">
                 <CreditCard className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                <p className="text-lg font-medium">{t('admin.plans.empty' as any)}</p>
+                <p className="text-lg font-medium">{t('admin.plans.empty')}</p>
               </CardContent>
             </Card>
           ) : (
             <div className="grid gap-4">
-              {plans!.map((plan: any) => {
+              {(plans as AdminPlan[]).map((plan) => {
                 const localized = (plan.localized || {}) as Record<string, LocalizedPlan>;
                 const entitlements = (plan.entitlements || {}) as Record<string, boolean>;
                 const limits = (plan.limits || {}) as Record<string, number>;
@@ -1364,39 +1423,39 @@ export default function AdminPlansPage() {
                           </div>
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
-                              <CardTitle className="text-lg">{plan.name}</CardTitle>
+                              <CardTitle className="text-lg">{planName(plan, locale)}</CardTitle>
                               <Badge variant="outline" className="text-[10px] font-mono">
                                 {plan.slug}
                               </Badge>
                               {plan.is_free && (
                                 <Badge variant="secondary" className="text-[10px]">
-                                  {t('admin.plans.free' as any)}
+                                  {t('admin.plans.free')}
                                 </Badge>
                               )}
                               {plan.trial_days > 0 && (
                                 <Badge variant="outline" className="text-[10px]">
-                                  {t('admin.plans.trialDays' as any, { count: plan.trial_days })}
+                                  {t('admin.plans.trialDays', { count: plan.trial_days })}
                                 </Badge>
                               )}
                               {plan.is_hidden && (
                                 <Badge variant="outline" className="text-[10px] border-purple-500/40 text-purple-600">
-                                  {t('admin.plans.hidden' as any)}
+                                  {t('admin.plans.hidden')}
                                 </Badge>
                               )}
                               {legacyCount > 0 && (
                                 <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600">
-                                  {t('admin.plans.legacyCount' as any, { count: legacyCount })}
+                                  {t('admin.plans.legacyCount', { count: legacyCount })}
                                 </Badge>
                               )}
                             </div>
                             <CardDescription className="text-xs mt-0.5">
-                              {plan.description || t('admin.plans.noDescription' as any)}
+                              {plan.description || t('admin.plans.noDescription')}
                             </CardDescription>
                           </div>
                         </div>
                         <div className="flex items-center gap-1">
                           <Badge variant={plan.is_active ? 'default' : 'destructive'} className="text-[10px]">
-                            {plan.is_active ? t('admin.plans.active' as any) : t('admin.plans.inactive' as any)}
+                            {plan.is_active ? t('admin.plans.active') : t('admin.plans.inactive')}
                           </Badge>
                           <Dialog open={editPlan?.id === plan.id} onOpenChange={(v) => !v && setEditPlan(null)}>
                             <DialogTrigger asChild>
@@ -1407,7 +1466,7 @@ export default function AdminPlansPage() {
                             <DialogContent className="max-w-5xl w-[95vw] p-0 gap-0 max-h-[90vh] flex flex-col overflow-hidden">
                               <DialogHeader className="px-5 py-4 border-b border-border shrink-0">
                                 <DialogTitle>
-                                  {t('admin.plans.editPlan' as any)}: {plan.name}
+                                  {t('admin.plans.editPlan')}: {planName(plan, locale)}
                                 </DialogTitle>
                               </DialogHeader>
                               <PlanFormDialog
@@ -1453,12 +1512,12 @@ export default function AdminPlansPage() {
                               <div key={cur} className="bg-muted/40 rounded-lg px-3 py-1.5 text-sm">
                                 <span className="font-bold text-foreground">{cur}</span>
                                 <span className="text-muted-foreground ms-1.5">
-                                  {p.monthly?.toLocaleString(locale)}/{t('admin.plans.monthShort' as any)}
+                                  {p.monthly?.toLocaleString(locale)}/{t('admin.plans.monthShort')}
                                 </span>
                                 {p.yearly > 0 && (
                                   <span className="text-muted-foreground">
                                     {' '}
-                                    · {p.yearly?.toLocaleString(locale)}/{t('admin.plans.yearShort' as any)}
+                                    · {p.yearly?.toLocaleString(locale)}/{t('admin.plans.yearShort')}
                                   </span>
                                 )}
                               </div>
@@ -1469,7 +1528,7 @@ export default function AdminPlansPage() {
 
                       <div className="space-y-2">
                         <p className="text-[11px] text-muted-foreground font-medium">
-                          {t('admin.plans.capabilitySummary' as any, {
+                          {t('admin.plans.capabilitySummary', {
                             enabled: enabledTotal,
                             total: totalBool,
                             modules: enabledModules.length,
@@ -1488,7 +1547,7 @@ export default function AdminPlansPage() {
                                 className="text-[10px] gap-1 bg-primary/5 text-primary border-primary/20"
                               >
                                 <CheckCircle2 className="w-3 h-3" />
-                                {c.label}
+                                {capName(c, locale)}
                               </Badge>
                             );
                           })}
@@ -1501,8 +1560,8 @@ export default function AdminPlansPage() {
                           if (val === undefined) return null;
                           return (
                             <Badge key={cap.key} variant="secondary" className="text-[11px] font-normal">
-                              {cap.label}: {val === -1 ? '∞' : val?.toLocaleString(locale)}
-                              {cap.unit ? ` ${cap.unit}` : ''}
+                              {capName(cap, locale)}: {val === -1 ? '∞' : val?.toLocaleString(locale)}
+                              {cap.unit ? ` ${capabilityUnitLabel(cap.unit, locale)}` : ''}
                             </Badge>
                           );
                         })}
@@ -1520,23 +1579,23 @@ export default function AdminPlansPage() {
             <Table>
               <TableHeader>
                 <TableRow className="border-border">
-                  <TableHead>{t('admin.plans.workspace' as any)}</TableHead>
-                  <TableHead>{t('admin.plans.plan' as any)}</TableHead>
-                  <TableHead>{t('admin.plans.status' as any)}</TableHead>
-                  <TableHead>{t('admin.plans.provider' as any)}</TableHead>
-                  <TableHead>{t('admin.plans.periodEnd' as any)}</TableHead>
-                  <TableHead>{t('admin.plans.actions' as any)}</TableHead>
+                  <TableHead>{t('admin.plans.workspace')}</TableHead>
+                  <TableHead>{t('admin.plans.plan')}</TableHead>
+                  <TableHead>{t('admin.plans.status')}</TableHead>
+                  <TableHead>{t('admin.plans.provider')}</TableHead>
+                  <TableHead>{t('admin.plans.periodEnd')}</TableHead>
+                  <TableHead>{t('admin.plans.actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {!subscriptions || subscriptions.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                      {t('admin.plans.noSubscriptions' as any)}
+                      {t('admin.plans.noSubscriptions')}
                     </TableCell>
                   </TableRow>
                 ) : (
-                  subscriptions.map((sub: any) => (
+                  (subscriptions as AdminSubscription[]).map((sub) => (
                     <TableRow key={sub.id} className="border-border hover:bg-muted/50">
                       <TableCell className="font-mono text-xs">{sub.workspace_id?.slice(0, 8)}...</TableCell>
                       <TableCell>{sub.billing_plans?.name || sub.plan_id?.slice(0, 8)}</TableCell>
@@ -1550,7 +1609,7 @@ export default function AdminPlansPage() {
                                 : 'destructive'
                           }
                         >
-                          {t(`admin.plans.statuses.${sub.status}` as any)}
+                          {statusLabel(t, sub.status)}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-muted-foreground">{sub.provider_name}</TableCell>
@@ -1564,7 +1623,7 @@ export default function AdminPlansPage() {
                           onClick={() => handleRevoke(sub.workspace_id)}
                           className="text-destructive text-xs"
                         >
-                          {t('admin.plans.revoke' as any)}
+                          {t('admin.plans.revoke')}
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -1579,23 +1638,23 @@ export default function AdminPlansPage() {
           <Card className="bg-card border-border">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                <Shield className="w-4 h-4" /> {t('admin.plans.assign.title' as any)}
+                <Shield className="w-4 h-4" /> {t('admin.plans.assign.title')}
               </CardTitle>
-              <CardDescription>{t('admin.plans.assign.description' as any)}</CardDescription>
+              <CardDescription>{t('admin.plans.assign.description')}</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <Label>{t('admin.plans.workspace' as any)}</Label>
+                  <Label>{t('admin.plans.workspace')}</Label>
                   <Select
                     value={assignForm.workspaceId}
                     onValueChange={(v) => setAssignForm((f) => ({ ...f, workspaceId: v }))}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder={t('admin.plans.selectWorkspace' as any)} />
+                      <SelectValue placeholder={t('admin.plans.selectWorkspace')} />
                     </SelectTrigger>
                     <SelectContent>
-                      {(workspaces || []).map((w: any) => (
+                      {(workspaces || []).map((w) => (
                         <SelectItem key={w.id} value={w.id}>
                           {w.name} ({w.slug})
                         </SelectItem>
@@ -1604,17 +1663,17 @@ export default function AdminPlansPage() {
                   </Select>
                 </div>
                 <div>
-                  <Label>{t('admin.plans.plan' as any)}</Label>
+                  <Label>{t('admin.plans.plan')}</Label>
                   <Select value={assignForm.planId} onValueChange={(v) => setAssignForm((f) => ({ ...f, planId: v }))}>
                     <SelectTrigger>
-                      <SelectValue placeholder={t('admin.plans.selectPlan' as any)} />
+                      <SelectValue placeholder={t('admin.plans.selectPlan')} />
                     </SelectTrigger>
                     <SelectContent>
                       {(plans || [])
-                        .filter((p: any) => p.is_active)
-                        .map((p: any) => (
+                        .filter((p: AdminPlan) => p.is_active)
+                        .map((p: AdminPlan) => (
                           <SelectItem key={p.id} value={p.id}>
-                            {p.name}
+                            {planName(p, locale)}
                           </SelectItem>
                         ))}
                     </SelectContent>
@@ -1630,7 +1689,7 @@ export default function AdminPlansPage() {
                     ) : (
                       <Users className="w-4 h-4 me-2" />
                     )}
-                    {t('admin.plans.assign.button' as any)}
+                    {t('admin.plans.assign.button')}
                   </Button>
                 </div>
               </div>

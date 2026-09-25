@@ -42,16 +42,48 @@ export interface EffectiveState<T = boolean | number | null> {
   unit?: string;
 }
 
+/** The plan fields a workspace member is shown (server: publicPlan). */
+export interface EffectivePlanSummary {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  is_free?: boolean | null;
+  localized?: Record<string, { name?: string | null; description?: string | null } | null | undefined> | null;
+}
+
+/** The subscription fields a workspace member is shown (server: publicSubscription). */
+export interface EffectiveSubscriptionSummary {
+  status: string | null;
+  plan_id: string | null;
+  billing_interval?: string | null;
+  trial_end: string | null;
+  current_period_end?: string | null;
+  cancel_at_period_end?: boolean | null;
+  past_due_since?: string | null;
+  grace_period_ends_at?: string | null;
+  free_fallback_at: string | null;
+}
+
 export interface WorkspaceEffectiveEntitlements {
   workspaceId: string;
-  plan: any;
-  subscription: any;
+  plan: EffectivePlanSummary | null;
+  subscription: EffectiveSubscriptionSummary | null;
   features: Record<string, EffectiveState<boolean>>;
   modules: Record<string, EffectiveState<boolean>>;
   channels: Record<string, EffectiveState<boolean>>;
   limits: Record<string, EffectiveState<number | null>>;
-  usage: Record<string, any> | null;
+  /** The current month's `workspace_usage_counters` row. */
+  usage: Record<string, unknown> | null;
   raw: { entitlements: Record<string, unknown>; limits: Record<string, unknown> };
+  /** 'unlimited' on a self-host install without billing: nothing is enforced. */
+  billing?: 'unlimited';
+}
+
+/** Usage per limit key, from the resolvers server-side limits enforce with. */
+export interface LimitUsage {
+  workspaceId: string;
+  usage: Record<string, { value: number; supported: boolean; period: string } | undefined>;
 }
 
 export interface EntitlementDiagnostics {
@@ -83,6 +115,25 @@ export async function fetchWorkspaceEffective(workspaceId: string) {
   return get<WorkspaceEffectiveEntitlements>(`/api/plans/workspace/${workspaceId}/effective`);
 }
 
+export async function fetchLimitUsage(workspaceId: string, keys: string[]) {
+  const qs = new URLSearchParams({ keys: keys.join(',') });
+  return get<LimitUsage>(`/api/plans/workspace/${workspaceId}/limit-usage?${qs.toString()}`);
+}
+
+/** One finding of the plan validator (server: capabilityRegistry.validatePlanPayload). */
+export interface PlanValidationIssue {
+  level: 'error' | 'warning';
+  key: string;
+  code?:
+    | 'unknown_entitlement'
+    | 'entitlement_not_boolean'
+    | 'limit_in_entitlements'
+    | 'unknown_limit'
+    | 'limit_not_number'
+    | 'not_a_limit';
+  message: string;
+}
+
 export async function validatePlanPayload(payload: {
   entitlements?: Record<string, unknown>;
   limits?: Record<string, unknown>;
@@ -93,7 +144,7 @@ export async function validatePlanPayload(payload: {
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`Validate failed: ${res.status}`);
-  return res.json() as Promise<{ valid: boolean; issues: Array<{ level: 'error' | 'warning'; key: string; message: string }> }>;
+  return res.json() as Promise<{ valid: boolean; issues: PlanValidationIssue[] }>;
 }
 
 export async function fetchEntitlementDiagnostics() {

@@ -156,6 +156,12 @@
                     <InfoBadge x:Name="CallsBadge" Visibility="Collapsed" Style="{ThemeResource CriticalValueInfoBadgeStyle}" />
                 </NavigationViewItem.InfoBadge>
             </NavigationViewItem>
+            <!-- The mailbox: owners and admins whose plan has the Email Inbox module, as in the web sidebar. -->
+            <NavigationViewItem x:Name="EmailItem" Tag="email" Visibility="Collapsed">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE715;" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
         </NavigationView.MenuItems>
 
         <NavigationView.PaneFooter>

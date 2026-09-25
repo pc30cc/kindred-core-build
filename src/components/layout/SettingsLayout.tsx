@@ -2,6 +2,7 @@ import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useWorkspacePath, useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
+import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
 import { cn } from '@/lib/utils';
 import { useState, useMemo } from 'react';
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
@@ -84,6 +85,9 @@ export function SettingsLayout() {
   const workspace = useCurrentWorkspace();
   const { data: wsRole } = useWorkspaceRole(workspace?.id);
   const canSeeAdminSettings = isWorkspaceAdmin(wsRole);
+  // The chat widget is a plan channel: its entry follows the sidebar's rule.
+  const sections = useWorkspaceSections();
+  const widgetVisible = sections.visible('widget');
 
   // Build resolved paths
   const settingsGroups = useMemo(() =>
@@ -91,9 +95,12 @@ export function SettingsLayout() {
       .filter(g => canSeeAdminSettings || !ADMIN_ONLY_GROUPS.has(g.key))
       .map(g => ({
       ...g,
-      items: g.items.map(i => ({ ...i, path: wsPath(i.subPath) })),
-      })),
-    [wsPath, canSeeAdminSettings]
+      items: g.items
+        .filter(i => i.key !== 'widget' || widgetVisible)
+        .map(i => ({ ...i, path: wsPath(i.subPath) })),
+      }))
+      .filter(g => g.items.length > 0),
+    [wsPath, canSeeAdminSettings, widgetVisible]
   );
 
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {

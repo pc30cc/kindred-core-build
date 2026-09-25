@@ -225,7 +225,8 @@ final class SyncCoordinator {
         if let hit = lists(for: workspaceID)?.conversation(id: id) { return hit }
         if let saved = await store(for: workspaceID)?.conversation(id), saved.workspaceId == workspaceID { return saved }
         let generation = scopeGeneration
-        guard let fetched = try? await api.conversation(id: id), fetched.workspaceId == workspaceID,
+        guard let fetched = try? await api.conversation(id: id, workspaceID: workspaceID),
+              fetched.workspaceId == workspaceID,
               generation == scopeGeneration
         else { return nil }
         await store(for: workspaceID)?.saveConversation(fetched)

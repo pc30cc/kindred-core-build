@@ -635,7 +635,14 @@
   "roleAdmin": "Admin",
   "roleAgent": "Operator",
   "seen": "Seen",
-  "sending": "Sending…"
+  "sending": "Sending…",
+  "offlineShowingSaved": "Offline — showing the conversations saved on this PC.",
+  "cacheTotal": "Saved on this PC",
+  "cacheTotalHint": "Conversations and messages you have opened, and the files in them, are kept on this PC so the inbox opens instantly and stays readable offline. The server remains the source of truth.",
+  "cacheMessages": "Conversations and messages",
+  "cacheFiles": "Downloaded files and photos",
+  "clearCacheAllHint": "Removes the saved conversations, messages and files from this PC. You stay signed in, your settings are kept and nothing is deleted from the server; everything downloads again when needed.",
+  "clearCacheAllConfirm": "Delete everything Webyar has saved on this PC? You stay signed in and nothing is removed from your conversations."
  },
  "fa": {
   "about": "درباره",
@@ -1273,7 +1280,14 @@
   "roleAdmin": "مدیر",
   "roleAgent": "اپراتور",
   "seen": "دیده شد",
-  "sending": "در حال ارسال…"
+  "sending": "در حال ارسال…",
+  "offlineShowingSaved": "آفلاین — گفتگوهای ذخیره‌شده روی این کامپیوتر نمایش داده می‌شوند.",
+  "cacheTotal": "ذخیره‌شده روی این کامپیوتر",
+  "cacheTotalHint": "گفتگوها و پیام‌هایی که باز کرده‌اید و فایل‌های آن‌ها روی همین کامپیوتر نگه داشته می‌شوند تا صندوق فوری باز شود و بدون اینترنت هم قابل خواندن باشد. مرجع اصلی همچنان سرور است.",
+  "cacheMessages": "گفتگوها و پیام‌ها",
+  "cacheFiles": "فایل‌ها و عکس‌های دانلودشده",
+  "clearCacheAllHint": "گفتگوها، پیام‌ها و فایل‌های ذخیره‌شده را از این کامپیوتر پاک می‌کند. از حساب خارج نمی‌شوید، تنظیمات حفظ می‌شوند و چیزی از سرور حذف نمی‌شود؛ هر چیز در صورت نیاز دوباره دریافت می‌شود.",
+  "clearCacheAllConfirm": "همه‌ی داده‌هایی که وب‌یار روی این کامپیوتر ذخیره کرده پاک شود؟ از حساب خارج نمی‌شوید و چیزی از گفتگوهایتان حذف نمی‌شود."
  },
  "tr": {
   "about": "Hakkında",
@@ -1911,6 +1925,13 @@
   "roleAdmin": "Yönetici",
   "roleAgent": "Operatör",
   "seen": "Görüldü",
-  "sending": "Gönderiliyor…"
+  "sending": "Gönderiliyor…",
+  "offlineShowingSaved": "Çevrimdışı — bu bilgisayarda kayıtlı konuşmalar gösteriliyor.",
+  "cacheTotal": "Bu bilgisayarda kayıtlı",
+  "cacheTotalHint": "Açtığınız konuşmalar, mesajlar ve içlerindeki dosyalar bu bilgisayarda tutulur; böylece gelen kutusu anında açılır ve çevrimdışıyken de okunabilir. Asıl kaynak her zaman sunucudur.",
+  "cacheMessages": "Konuşmalar ve mesajlar",
+  "cacheFiles": "İndirilen dosyalar ve fotoğraflar",
+  "clearCacheAllHint": "Kayıtlı konuşmaları, mesajları ve dosyaları bu bilgisayardan kaldırır. Oturumunuz açık kalır, ayarlarınız korunur ve sunucudan hiçbir şey silinmez; gerektiğinde her şey yeniden indirilir.",
+  "clearCacheAllConfirm": "Webyar'ın bu bilgisayarda kaydettiği her şey silinsin mi? Oturumunuz açık kalır ve konuşmalarınızdan hiçbir şey kaldırılmaz."
  }
 }

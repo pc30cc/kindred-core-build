@@ -9,6 +9,15 @@
     <RootNamespace>Webyar.Core</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <!--
+      The local cache (Local/LocalStore.cs): SQLite straight through ADO.NET, no
+      ORM — a handful of tables that are only ever a disposable copy of the
+      server. The bundle carries the native e_sqlite3 for every RID, so Core
+      still builds and is tested on Linux and the win-x64 app ships it.
+    -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+  </ItemGroup>
+  <ItemGroup>
     <EmbeddedResource Include="Localization\strings.json" LogicalName="Webyar.Core.strings.json" />
   </ItemGroup>
   <ItemGroup>

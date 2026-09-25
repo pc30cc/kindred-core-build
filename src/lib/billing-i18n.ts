@@ -5,6 +5,7 @@
  */
 
 import type { CapabilityDefinition } from '@/lib/entitlements-api';
+import { capabilityLabel } from '@/lib/capability-i18n';
 
 export type BillingLocale = 'fa' | 'en' | 'tr' | string;
 
@@ -81,74 +82,19 @@ const STRINGS: Dict = {
 export function bt(locale: BillingLocale, key: keyof typeof STRINGS): string {
   const row = STRINGS[key as string];
   if (!row) return key as string;
-  return (row as any)[locale] || row.en;
+  return (row as Record<string, string>)[locale] || row.en;
 }
 
 // ── Capability labels ────────────────────────────────────────
-const CAP_FA: Record<string, string> = {
-  chat: 'گفتگوی زنده', knowledge_base: 'پایگاه دانش', ai_assistant: 'دستیار هوشمند',
-  visitor_tracking: 'ردیابی بازدیدکنندگان', email_campaigns: 'کمپین ایمیلی', automation: 'اتوماسیون',
-  analytics: 'تحلیل و گزارش', omnichannel: 'چندکاناله', custom_branding: 'برندینگ سفارشی',
-  api_access: 'دسترسی API', voice_video: 'صوت و تصویر', help_center: 'مرکز راهنما',
-  call_center: 'مرکز تماس', contacts: 'مخاطبین',
-  chat_widget: 'ویجت چت', email: 'ایمیل', whatsapp: 'واتس‌اپ', sms: 'پیامک',
-  instagram: 'اینستاگرام', telegram: 'تلگرام', bale: 'بله', voice: 'تماس صوتی', video: 'تماس تصویری',
-  advanced_ai_agent: 'دستیار هوش مصنوعی پیشرفته', ai_operator_assist: 'کمک‌کار هوشمند اپراتور',
-  ai_kb_builder: 'سازنده پایگاه دانش با هوش مصنوعی', priority_support: 'پشتیبانی اولویت‌دار',
-  sso: 'ورود یکپارچه (SSO/SAML)', audit_logs: 'گزارش‌های ممیزی',
-  white_label: 'برندینگ کاملاً سفارشی', remove_powered_by: 'حذف نشان «Powered by»',
-  call_recording: 'ضبط تماس', call_queue: 'صف تماس', call_callbacks: 'درخواست تماس مجدد',
-  contact_import: 'ورود مخاطبین', contact_export: 'خروجی مخاطبین', contact_tags: 'برچسب مخاطبین',
-  contact_notes: 'یادداشت مخاطبین', bulk_contact_actions: 'عملیات گروهی مخاطبین',
-  max_agents: 'حداکثر اپراتور', max_workspaces: 'حداکثر فضای کاری',
-  max_conversations: 'گفتگو در ماه', max_visitors: 'بازدیدکننده در ماه',
-  ai_credits_per_month: 'اعتبار هوش مصنوعی در ماه',
-  ai_kb_max_pages: 'حداکثر صفحات هر کار KB', ai_kb_max_depth: 'عمق پیمایش KB',
-  ai_kb_jobs_per_month: 'کارهای KB در ماه', ai_kb_file_size_mb: 'حداکثر حجم فایل KB',
-  ai_kb_file_count: 'حداکثر تعداد فایل KB', storage_gb: 'فضای ذخیره‌سازی',
-  data_retention_days: 'نگهداری داده', max_contacts: 'حداکثر مخاطبین',
-  max_concurrent_calls: 'حداکثر تماس هم‌زمان', max_call_minutes_per_month: 'دقیقه تماس در ماه',
-  recording_retention_days: 'نگهداری فایل ضبط تماس', max_call_recordings: 'حداکثر فایل ضبط تماس',
-  max_call_recording_storage_mb: 'فضای ذخیره ضبط تماس',
-};
-
-const CAP_TR: Record<string, string> = {
-  chat: 'Canlı Sohbet', knowledge_base: 'Bilgi Tabanı', ai_assistant: 'AI Asistanı',
-  visitor_tracking: 'Ziyaretçi Takibi', email_campaigns: 'E-posta Kampanyaları', automation: 'Otomasyon',
-  analytics: 'Analitik', omnichannel: 'Çoklu Kanal', custom_branding: 'Özel Marka',
-  api_access: 'API Erişimi', voice_video: 'Ses ve Video', help_center: 'Yardım Merkezi',
-  call_center: 'Çağrı Merkezi', contacts: 'Kişiler',
-  chat_widget: 'Sohbet Widget', email: 'E-posta', whatsapp: 'WhatsApp', sms: 'SMS',
-  instagram: 'Instagram', telegram: 'Telegram', bale: 'Bale', voice: 'Sesli Arama', video: 'Görüntülü Arama',
-  advanced_ai_agent: 'Gelişmiş AI Asistanı', ai_operator_assist: 'AI Operatör Yardımı',
-  ai_kb_builder: 'AI Bilgi Tabanı Oluşturucu', priority_support: 'Öncelikli Destek',
-  sso: 'SSO / SAML', audit_logs: 'Denetim Kayıtları',
-  white_label: 'White-label Marka', remove_powered_by: '"Powered by" Kaldırma',
-  call_recording: 'Çağrı Kaydı', call_queue: 'Çağrı Kuyruğu', call_callbacks: 'Geri Arama',
-  contact_import: 'Kişi İçe Aktar', contact_export: 'Kişi Dışa Aktar', contact_tags: 'Kişi Etiketleri',
-  contact_notes: 'Kişi Notları', bulk_contact_actions: 'Toplu Kişi İşlemleri',
-  max_agents: 'Maks. Operatör', max_workspaces: 'Maks. Çalışma Alanı',
-  max_conversations: 'Aylık Konuşma', max_visitors: 'Aylık Ziyaretçi',
-  ai_credits_per_month: 'Aylık AI Kredisi',
-  ai_kb_max_pages: 'KB İşi Başına Maks. Sayfa', ai_kb_max_depth: 'KB Tarama Derinliği',
-  ai_kb_jobs_per_month: 'Aylık KB İşi', ai_kb_file_size_mb: 'Maks. KB Dosya Boyutu',
-  ai_kb_file_count: 'Maks. KB Dosya', storage_gb: 'Depolama',
-  data_retention_days: 'Veri Saklama', max_contacts: 'Maks. Kişi',
-  max_concurrent_calls: 'Eşzamanlı Maks. Çağrı', max_call_minutes_per_month: 'Aylık Çağrı Dakikası',
-  recording_retention_days: 'Çağrı Kaydı Saklama', max_call_recordings: 'Maks. Çağrı Kaydı',
-  max_call_recording_storage_mb: 'Çağrı Kaydı Depolama',
-};
-
+/** One name per capability per language: src/lib/capability-i18n.ts. */
 export function capLabel(cap: { key: string; label: string }, locale: BillingLocale): string {
-  if (locale === 'fa' && CAP_FA[cap.key]) return CAP_FA[cap.key];
-  if (locale === 'tr' && CAP_TR[cap.key]) return CAP_TR[cap.key];
-  return cap.label;
+  return capabilityLabel(cap.key, locale, cap.label);
 }
 
 export function formatLimitValue(value: number, cap: CapabilityDefinition | { unit?: string }, locale: BillingLocale): string {
   if (value === -1) return bt(locale, 'unlimited');
   const fmt = locale === 'fa' ? value.toLocaleString('fa-IR') : value.toLocaleString(locale === 'tr' ? 'tr-TR' : 'en-US');
-  const unit = (cap as any).unit;
+  const unit = cap.unit;
   const perMo = locale === 'fa' ? '/ماه' : locale === 'tr' ? '/ay' : '/mo';
   const perDay = locale === 'fa' ? '/روز' : locale === 'tr' ? '/gün' : '/day';
   const days = locale === 'fa' ? 'روز' : locale === 'tr' ? 'gün' : 'days';

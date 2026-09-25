@@ -2,6 +2,7 @@ package com.webyar.operator.feature.inbox
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -111,6 +112,12 @@ fun InboxScreen(
      * have no promotion, and every one of them has dismissed it eventually.
      */
     banner: (@Composable () -> Unit)? = null,
+    /**
+     * Why the rows below may be out of date, or null. Shown over a list read
+     * from the cache — never in place of it: a phone that lost its signal
+     * still has every conversation it had a minute ago.
+     */
+    syncNotice: String? = null,
 ) {
     Column(modifier.fillMaxSize()) {
         InboxBar(
@@ -139,6 +146,19 @@ fun InboxScreen(
         // inbox scrolls past it once, rather than having it pinned over the
         // rows they are trying to read.
         banner?.invoke()
+
+        if (syncNotice != null && state is InboxState.Loaded) {
+            Text(
+                syncNotice,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .padding(horizontal = Space.lg, vertical = Space.sm)
+                    .testTag(A11y.INBOX_SYNC_NOTICE),
+            )
+        }
 
         PullToRefreshBox(
             isRefreshing = refreshing,

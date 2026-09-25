@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
+import { usePlanAccess } from '@/hooks/useEntitlements';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -44,7 +45,7 @@ const DEFAULT_SUBJECTS = new Set([
   'untitled',
 ]);
 
-function conversationTitle(conv: any, t: (k: any, v?: any) => string): string {
+function conversationTitle(conv: { subject?: string | null } | null | undefined, t: (k: TranslationKey) => string): string {
   const subject = (conv?.subject ?? '').trim();
   if (!subject || DEFAULT_SUBJECTS.has(subject.toLowerCase())) {
     return t('contacts.conversationUntitled');
@@ -66,6 +67,15 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
   const { data: networkProfile } = useVisitorNetwork(contact?.workspace_id, { contactId: contactId ?? undefined });
   const updateMutation = useUpdateContact();
   const deleteMutation = useDeleteContact();
+  // Editing, tags and notes are plan features, offered only when the plan
+  // says yes (the server refuses them otherwise). Deleting stays available:
+  // an erasure request must always be possible.
+  const plan = usePlanAccess(contact?.workspace_id);
+  const canEdit = plan.feature('contact_edit');
+  const canTags = plan.feature('contact_tags');
+  const canNotes = plan.feature('contact_notes');
+  const contactNotes = (contact as { notes?: string | null } | null | undefined)?.notes ?? null;
+  const contactMetadata = (contact as { metadata?: Record<string, unknown> | null } | null | undefined)?.metadata ?? null;
 
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', phone: '', notes: '', tags: '' });
@@ -76,7 +86,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
       name: contact.name ?? '',
       email: contact.email ?? '',
       phone: contact.phone ?? '',
-      notes: (contact as any).notes ?? '',
+      notes: contactNotes ?? '',
       tags: (contact.tags ?? []).join(', '),
     });
     setEditing(true);
@@ -85,18 +95,19 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
   const handleSave = async () => {
     if (!contact) return;
     try {
-      await updateMutation.mutateAsync({
+      const patch: Parameters<typeof updateMutation.mutateAsync>[0] & { notes?: string | null } = {
         id: contact.id,
         name: form.name || null,
         email: form.email || null,
         phone: form.phone || null,
-        notes: form.notes || null,
-        tags: form.tags ? form.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
-      } as any);
+        ...(canNotes ? { notes: form.notes || null } : {}),
+        ...(canTags ? { tags: form.tags ? form.tags.split(',').map((t) => t.trim()).filter(Boolean) : [] } : {}),
+      };
+      await updateMutation.mutateAsync(patch);
       toast({ title: t('contacts.toastUpdated') });
       setEditing(false);
-    } catch (e: any) {
-      toast({ title: t('contacts.toastError'), description: e?.message, variant: 'destructive' });
+    } catch (e) {
+      toast({ title: t('contacts.toastError'), description: e instanceof Error ? e.message : undefined, variant: 'destructive' });
     }
   };
 
@@ -106,8 +117,8 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
       await deleteMutation.mutateAsync(contact.id);
       toast({ title: t('contacts.toastDeleted') });
       onOpenChange(false);
-    } catch (e: any) {
-      toast({ title: t('contacts.toastError'), description: e?.message, variant: 'destructive' });
+    } catch (e) {
+      toast({ title: t('contacts.toastError'), description: e instanceof Error ? e.message : undefined, variant: 'destructive' });
     }
   };
 
@@ -146,10 +157,10 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                     <p className="text-xs text-muted-foreground truncate text-start">{contact.email}</p>
                   )}
                   <div className="flex flex-wrap gap-1 mt-2">
-                    {resolveChannelKey((contact as any).metadata) !== 'widget' && (
-                      <ChannelBadge channel={resolveChannelKey((contact as any).metadata)} t={t as any} size="xs" />
+                    {resolveChannelKey(contactMetadata) !== 'widget' && (
+                      <ChannelBadge channel={resolveChannelKey(contactMetadata)} t={t as (k: string) => string} size="xs" />
                     )}
-                    {(contact.tags ?? []).slice(0, 3).map((tag) => (
+                    {canTags && (contact.tags ?? []).slice(0, 3).map((tag) => (
                       <Badge key={tag} variant="secondary" className="text-[10px] h-5">{tag}</Badge>
                     ))}
                   </div>
@@ -168,7 +179,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                   <ExternalLink className="w-3 h-3 me-1.5" />
                   {t('contacts.openFullPage')}
                 </Button>
-                {!editing && (
+                {!editing && canEdit && (
                   <Button size="sm" className="h-8 text-xs" onClick={startEdit}>
                     {t('contacts.edit')}
                   </Button>
@@ -191,7 +202,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
 
               <ScrollArea dir={dir} className="flex-1">
                 <TabsContent value="info" className="p-5 space-y-4 mt-0 text-start">
-                  <ChannelIdentityCard metadata={(contact as any).metadata} t={t as any} dir={dir as any} />
+                  <ChannelIdentityCard metadata={contactMetadata} t={t as (k: string) => string} dir={dir === 'rtl' ? 'rtl' : 'ltr'} />
                   {editing ? (
                     <div className="space-y-3">
                       <div className="space-y-1.5">
@@ -206,14 +217,18 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                         <Label className="text-xs">{t('contacts.phone')}</Label>
                         <Input value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} className="h-9" />
                       </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs">{t('contacts.tagsComma')}</Label>
-                        <Input value={form.tags} onChange={(e) => setForm((p) => ({ ...p, tags: e.target.value }))} className="h-9" />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs">{t('contacts.notes')}</Label>
-                        <Textarea value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} rows={4} />
-                      </div>
+                      {canTags && (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">{t('contacts.tagsComma')}</Label>
+                          <Input value={form.tags} onChange={(e) => setForm((p) => ({ ...p, tags: e.target.value }))} className="h-9" />
+                        </div>
+                      )}
+                      {canNotes && (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">{t('contacts.notes')}</Label>
+                          <Textarea value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} rows={4} />
+                        </div>
+                      )}
                       <div className="flex gap-2 pt-1">
                         <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending} className="flex-1">
                           {updateMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Save className="w-3.5 h-3.5 me-1.5" />{t('contacts.save')}</>}
@@ -229,7 +244,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                       <InfoRow icon={MapPin} label={t('contacts.location')} value={location.label} />
                       <InfoRow icon={Calendar} label={t('contacts.createdAt')} value={contact.created_at ? formatDateTime(contact.created_at, undefined, locale) : null} />
                       <InfoRow icon={Calendar} label={t('contacts.updatedAt')} value={contact.updated_at ? timeAgo(contact.updated_at) : null} />
-                      {(contact.tags ?? []).length > 0 && (
+                      {canTags && (contact.tags ?? []).length > 0 && (
                         <div className="space-y-1.5 pt-2">
                           <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold flex items-center gap-1.5">
                             <Tag className="w-3 h-3" />{t('contacts.tagsLabel')}
@@ -241,10 +256,10 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                           </div>
                         </div>
                       )}
-                      {(contact as any).notes && (
+                      {canNotes && contactNotes && (
                         <div className="space-y-1.5 pt-2 border-t border-border">
                           <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">{t('contacts.notes')}</p>
-                          <p className="text-sm text-foreground whitespace-pre-wrap">{(contact as any).notes}</p>
+                          <p className="text-sm text-foreground whitespace-pre-wrap">{contactNotes}</p>
                         </div>
                       )}
 
@@ -283,7 +298,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                       {t('contacts.noConversations')}
                     </div>
                   ) : (
-                    conversations.map((conv: any) => (
+                    conversations.map((conv) => (
                       <div
                         key={conv.id}
                         className="p-3 rounded-lg border border-border hover:bg-accent/40 cursor-pointer transition-colors"
@@ -334,7 +349,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
   );
 }
 
-function InfoRow({ icon: Icon, label, value }: { icon: any; label: string; value?: string | null }) {
+function InfoRow({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value?: string | null }) {
   return (
     <div className="flex items-start gap-3 py-1.5 text-start">
       <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center shrink-0">

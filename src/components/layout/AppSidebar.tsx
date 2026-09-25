@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { useI18n } from '@/i18n';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Locale } from '@/i18n/config';
@@ -33,11 +33,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchAvailability, updateAvailability } from '@/lib/availability-api';
 import { toast } from '@/hooks/use-toast';
 import { useBranding } from '@/hooks/useBranding';
-import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
 import { useInboxCounts } from '@/hooks/useConversations';
-import { useCallCenterCapabilities } from '@/hooks/useCallCenter';
-import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
-import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
+import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
+import {
+  aiQueueVisible,
+  channelInboxVisible,
+  colleaguesQueueVisible,
+  needsHumanQueueVisible,
+} from '@/lib/planAccess';
 import { PlanStatusBanner } from '@/components/layout/PlanStatusBanner';
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -106,44 +109,30 @@ export function AppSidebar({
   const { data: profile } = useProfile();
   const wsPath = useWorkspacePath();
   const { data: branding } = useBranding(workspace?.id);
-  const { data: aiAgentCaps, isError: aiAgentCapsError } = useAiAgentCapabilities(workspace?.id || null);
   const { data: inboxCounts } = useInboxCounts(workspace?.id);
-  const { data: callCenterCaps, isError: callCenterCapsError } = useCallCenterCapabilities(workspace?.id);
-  const { data: entitlements, loading: entitlementsLoading, error: entitlementsError } =
-    useWorkspaceEffectiveEntitlements(workspace?.id || null);
-  // Plan snapshot resolved? Until it is, plan-gated entries are NOT rendered —
-  // showing them first and removing them a moment later is worse than waiting.
-  const entsReady = !!entitlements || (!entitlementsLoading && !!entitlementsError);
-  const { data: wsRole } = useWorkspaceRole(workspace?.id);
-  // Fail-CLOSED: hide unless capabilities explicitly say visible.
-  const callCenterVisible =
-    !callCenterCapsError && !!callCenterCaps?.workspace_call_center_visible;
-  // Automated inbox requires the AI surface to be entitled at BOTH the
-  // platform (super-admin kill-switch) and plan/workspace level. If either is
-  // off, the queue is hidden entirely — even when AI-managed threads exist.
-  // Fail-CLOSED on error.
-  const aiSurfaceEntitled =
-    !aiAgentCapsError &&
-    !!aiAgentCaps &&
-    aiAgentCaps.ai_agent_enabled === true &&
-    aiAgentCaps.customer_ai_agent_visible === true;
-  const automatedInboxVisible =
-    aiSurfaceEntitled &&
-    (aiAgentCaps!.auto_answer_enabled === true || (inboxCounts?.automated ?? 0) > 0);
+  // Every plan / role / platform rule for what this member sees:
+  // src/lib/planAccess.ts via useWorkspaceSections. Until the plan snapshot
+  // has resolved, plan-gated entries are NOT rendered — showing them first
+  // and removing them a moment later is worse than waiting.
+  const sections = useWorkspaceSections();
+  const { plan } = sections;
+  const entsReady = sections.ready;
+  // The queues inside the inbox follow the same rules as the inbox's own tabs.
+  const automatedInboxVisible = aiQueueVisible(sections, inboxCounts?.automated ?? 0);
+  const needsHumanVisible = needsHumanQueueVisible(plan);
+  const colleaguesVisible = colleaguesQueueVisible(plan);
 
   // Channel inboxes — one entry per inbox-capable plugin the workspace has
-  // installed (Telegram, Bale, ...). Catalog is an admin surface.
-  const { data: pluginChannels } = useQuery({
+  // installed (Telegram, Bale, ...) and its plan allows. Catalog is an admin surface.
+  const { data: pluginCatalog } = useQuery({
     queryKey: ['sidebar-plugin-channels', workspace?.id],
-    enabled: !!workspace?.id && isWorkspaceAdmin(wsRole),
+    enabled: !!workspace?.id && sections.isAdmin,
     staleTime: 60_000,
-    queryFn: async () => {
-      const { items } = await pluginsApi.catalog(workspace!.id);
-      return (items || [])
-        .filter((p) => p.installed && p.supportsInbox)
-        .map((p) => ({ key: (p.slug || p.id).toLowerCase(), label: p.slug || p.id }));
-    },
+    queryFn: async () => (await pluginsApi.catalog(workspace!.id)).items || [],
   });
+  const pluginChannels = (pluginCatalog || [])
+    .filter((p) => channelInboxVisible(p, plan))
+    .map((p) => ({ key: (p.slug || p.id).toLowerCase(), label: p.slug || p.id }));
 
 
   // Primary domain for the active workspace (display under the workspace name).
@@ -239,10 +228,10 @@ export function AppSidebar({
           : 'You are visible based on your availability schedule.',
       });
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       toast({
         title: 'Failed to update status',
-        description: err?.message || 'Please try again.',
+        description: (err instanceof Error && err.message) || 'Please try again.',
         variant: 'destructive',
       });
     },
@@ -275,66 +264,31 @@ export function AppSidebar({
     return location.pathname.includes(subPath);
   };
 
-  // Fail-CLOSED: hide on error or when caps explicitly say disabled.
-  // While loading (no data yet, no error), hide to avoid flashing a link
-  // that may immediately bounce out of the section.
-  const aiAgentVisible =
-    !aiAgentCapsError &&
-    !!aiAgentCaps &&
-    aiAgentCaps.ai_agent_enabled === true &&
-    aiAgentCaps.customer_ai_agent_visible === true;
-  // Phase 6-S5-R1 — plan-level module state, FAIL CLOSED.
-  // A missing key or an unresolved lookup is NEVER treated as enabled.
-  const moduleEnabled = (key: string): boolean => {
-    const state = entitlements?.modules?.[key];
-    return state != null && state.value === true;
-  };
-  // AI Agent: platform availability decides visibility, PLAN decides presence.
-  // The workspace entitlement snapshot is authoritative here — the AI caps flag
-  // is admin-overridden server-side (`aiPlan.allowed || isAdmin`), so it must
-  // only be used as a fallback while entitlements are still unresolved.
-  const aiAssistantPlanEnabled = entitlements?.modules
-    ? moduleEnabled('ai_assistant')
-    : aiAgentCaps?.plan_ai_assistant_enabled === true;
-
-  // Phase 6-S5-R4 — Knowledge Base is a CORE workspace product. It is never
-  // hidden and NEVER locked: not by plan, not by AI platform state, not while
-  // entitlements are loading, not on entitlement lookup errors. It behaves
-  // exactly like Inbox or Contacts.
-
   // Operators (agents/viewers) never see AI assistant, widget or plugins.
-  const isWsAdmin = isWorkspaceAdmin(wsRole);
+  const isWsAdmin = sections.isAdmin;
 
-  // Plan visibility: a top-level menu whose MODULE is not in the plan is not
-  // rendered at all (no locked placeholder). Entries stay visible while the
-  // entitlement snapshot is still loading, so nothing flickers away; only an
-  // explicit `false` from the resolved snapshot hides them.
-  const moduleInPlan = (key: string): boolean => {
-    if (!entitlements?.modules) return !!entitlementsError; // unresolved => hidden
-    const state = entitlements.modules[key];
-    return state == null || state.value === true;
-  };
-
+  // A top-level menu whose section is not in the plan is not rendered at all
+  // (no locked placeholder); the route behind it refuses too.
   const mainNav = [
-    ...(aiAgentVisible && isWsAdmin && aiAssistantPlanEnabled
+    ...(sections.visible('aiAgent')
       ? [{ key: 'aiAgent', path: '/ai-agent', icon: Sparkles, accent: 'violet', locked: false } as const]
       : []),
-    ...(callCenterVisible && moduleInPlan('call_center')
+    ...(sections.visible('callCenter')
       ? [{ key: 'callCenter', path: '/call-center', icon: PhoneCall, accent: 'emerald', locked: false } as const]
       : []),
-    ...(moduleInPlan('visitor_tracking')
+    ...(sections.visible('visitors')
       ? [{ key: 'visitors', path: '/visitors', icon: Eye, accent: 'sky', locked: false } as const]
       : []),
-    ...(moduleInPlan('contacts')
+    ...(sections.visible('contacts')
       ? [{ key: 'contacts', path: '/contacts', icon: Users, accent: 'amber', locked: false } as const]
       : []),
-    ...(isWsAdmin
+    ...(sections.visible('seo')
       ? [{ key: 'seo', path: '/seo', icon: Radar, accent: 'sky', locked: false } as const]
       : []),
-    ...(isWsAdmin && moduleInPlan('web_analytics')
+    ...(sections.visible('webAnalytics')
       ? [{ key: 'webAnalytics', path: '/analytics', icon: BarChart3, accent: 'violet', locked: false } as const]
       : []),
-    ...(isWsAdmin && moduleInPlan('email_inbox')
+    ...(sections.visible('emailInbox')
       ? [{ key: 'emailInbox', path: '/email', icon: Mail, accent: 'indigo', locked: false } as const]
       : []),
     // Knowledge Base and Team are CORE products — never plan-gated.
@@ -342,19 +296,12 @@ export function AppSidebar({
     { key: 'team', path: '/team', icon: UserCog, accent: 'rose', locked: false },
   ] as const;
 
-
-  const channelInPlan = (key: string): boolean => {
-    if (!entitlements?.channels) return !!entitlementsError; // unresolved => hidden
-    const state = (entitlements.channels as Record<string, { value: boolean } | undefined>)[key];
-    return state == null || state.value === true;
-  };
-
   const bottomNav = [
     { key: 'search', path: '#', icon: Search, accent: 'sky' },
-    ...(isWsAdmin && channelInPlan('chat_widget')
+    ...(sections.visible('widget')
       ? [{ key: 'widget', path: '/widget', icon: Package, accent: 'violet' } as const]
       : []),
-    ...(isWsAdmin ? [{ key: 'plugins', path: '/plugins', icon: Plug, accent: 'emerald' } as const] : []),
+    ...(sections.visible('plugins') ? [{ key: 'plugins', path: '/plugins', icon: Plug, accent: 'emerald' } as const] : []),
     { key: 'settings', path: isWsAdmin ? '/settings/general' : '/settings/profile', icon: Settings, accent: 'indigo' },
   ] as const;
 
@@ -613,15 +560,17 @@ export function AppSidebar({
               </Link>
             )}
 
-            <Link to={wsPath('/inbox?filter=needs_human')} className={itemCls(f === 'needs_human')}>
-              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-              <span>{t('inbox.needsHuman') || 'Needs human'}</span>
-              {(inboxCounts?.needs_human ?? 0) > 0 && (
-                <span className="ms-auto bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center">
-                  {inboxCounts!.needs_human}
-                </span>
-              )}
-            </Link>
+            {needsHumanVisible && (
+              <Link to={wsPath('/inbox?filter=needs_human')} className={itemCls(f === 'needs_human')}>
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                <span>{t('inbox.needsHuman') || 'Needs human'}</span>
+                {(inboxCounts?.needs_human ?? 0) > 0 && (
+                  <span className="ms-auto bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center">
+                    {inboxCounts!.needs_human}
+                  </span>
+                )}
+              </Link>
+            )}
 
             <Link to={wsPath('/inbox?status=pending')} className={itemCls(!q && !f && st === 'pending')}>
               <Clock className="h-3.5 w-3.5 shrink-0" />
@@ -645,6 +594,7 @@ export function AppSidebar({
             </Link>
 
             {/* Internal inbox — operator-to-operator threads. */}
+            {colleaguesVisible && (
             <div className="pt-1.5">
               <button
                 type="button"
@@ -662,9 +612,10 @@ export function AppSidebar({
                 </Link>
               )}
             </div>
+            )}
 
             {/* Other inboxes — one per installed inbox-capable channel plugin. */}
-            {(pluginChannels?.length ?? 0) > 0 && (
+            {pluginChannels.length > 0 && (
               <div className="pt-1.5">
                 <button
                   type="button"
@@ -675,7 +626,7 @@ export function AppSidebar({
                   {otherInboxesOpen ? <Minus className="h-3 w-3 shrink-0" /> : <Plus className="h-3 w-3 shrink-0" />}
                   <span className="truncate">{t('inbox.otherInboxes') || 'Other inboxes'}</span>
                 </button>
-                {otherInboxesOpen && pluginChannels!.map((c) => (
+                {otherInboxesOpen && pluginChannels.map((c) => (
                   <Link
                     key={c.key}
                     to={wsPath(`/inbox?channel=${encodeURIComponent(c.key)}`)}
@@ -707,10 +658,10 @@ export function AppSidebar({
           </div>
         ) : null}
         {mainNav.map(item => (
-          <NavTip key={item.key} label={t(`nav.${item.key}` as any)} enabled={collapsed}>
+          <NavTip key={item.key} label={t(`nav.${item.key}` as TranslationKey)} enabled={collapsed}>
           <Link
             to={wsPath(item.path)}
-            title={collapsed ? undefined : t(`nav.${item.key}` as any)}
+            title={collapsed ? undefined : t(`nav.${item.key}` as TranslationKey)}
             className={cn(
               'group flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium transition-all',
               isActive(item.path)
@@ -720,7 +671,7 @@ export function AppSidebar({
             )}
           >
             <NavChip icon={item.icon} accent={item.accent} active={isActive(item.path)} collapsed={collapsed} />
-            {!collapsed && <span className="flex-1">{t(`nav.${item.key}` as any)}</span>}
+            {!collapsed && <span className="flex-1">{t(`nav.${item.key}` as TranslationKey)}</span>}
             {item.locked && !collapsed && (
               <Lock className="h-3.5 w-3.5 shrink-0 opacity-60" aria-label="locked" />
             )}
@@ -732,10 +683,10 @@ export function AppSidebar({
       {/* Bottom section */}
       <div className="px-3 pb-2 space-y-0.5">
         {bottomNav.map(item => (
-          <NavTip key={item.key} label={t(`nav.${item.key}` as any)} enabled={collapsed}>
+          <NavTip key={item.key} label={t(`nav.${item.key}` as TranslationKey)} enabled={collapsed}>
           <Link
             to={item.path === '#' ? '#' : wsPath(item.path)}
-            title={collapsed ? undefined : t(`nav.${item.key}` as any)}
+            title={collapsed ? undefined : t(`nav.${item.key}` as TranslationKey)}
             onClick={item.key === 'search' ? (e) => {
               e.preventDefault();
               document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }));
@@ -749,7 +700,7 @@ export function AppSidebar({
             )}
           >
             <NavChip icon={item.icon} accent={item.accent} active={isActive(item.path)} collapsed={collapsed} />
-            {!collapsed && <span>{t(`nav.${item.key}` as any)}</span>}
+            {!collapsed && <span>{t(`nav.${item.key}` as TranslationKey)}</span>}
           </Link>
           </NavTip>
         ))}

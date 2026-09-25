@@ -7,6 +7,7 @@ import com.webyar.operator.core.model.User
 import com.webyar.operator.core.model.Workspace
 import com.webyar.operator.core.net.ApiError
 import com.webyar.operator.core.net.WebyarApi
+import com.webyar.operator.core.push.PushPayload
 import com.webyar.operator.core.storage.Appearance
 import com.webyar.operator.core.storage.Preferences
 import com.webyar.operator.core.storage.SessionCache
@@ -38,6 +39,7 @@ class AppState(
     private val api: WebyarApi,
     private val cache: SessionCache,
     private val prefs: Preferences,
+    private val hooks: SessionHooks = SessionHooks.None,
 ) : ViewModel() {
 
     private val _session = MutableStateFlow<Session>(Session.Restoring)
@@ -105,12 +107,45 @@ class AppState(
         _selectedTab.value = tab
     }
 
+    /**
+     * A conversation a notification asked to open, until the shell opens it.
+     *
+     * Held here rather than acted on where the tap arrived: the tap can come
+     * before the session is restored or the workspaces are loaded, and the
+     * workspace it names has to be checked against THIS operator's before
+     * anything is shown.
+     */
+    private val _pendingLink = MutableStateFlow<PushPayload?>(null)
+    val pendingLink: StateFlow<PushPayload?> = _pendingLink.asStateFlow()
+
+    fun openFromNotification(link: PushPayload) {
+        if (link.opensConversation) _pendingLink.value = link
+    }
+
+    /**
+     * The link, once it can be followed: signed in, the workspaces known,
+     * and the one it names among them — switched to if it is not the one in
+     * front. A link to a workspace this operator does not have is dropped.
+     */
+    fun resolvePendingLink(): PushPayload? {
+        val link = _pendingLink.value ?: return null
+        if (_session.value !is Session.SignedIn) return null
+        val list = _workspaces.value
+        if (list.isEmpty()) return null
+        val target = list.firstOrNull { it.id == link.workspaceId }
+        _pendingLink.value = null
+        if (target == null) return null
+        if (target.id != _selectedWorkspace.value?.id) selectWorkspace(target)
+        return link
+    }
+
     init {
         viewModelScope.launch {
             // Before restore(), so the login screen is already in the right
             // language and the right way round rather than flipping once the
             // preference arrives.
             prefs.language()?.let { _language.value = it }
+            hooks.languageChanged(_language.value)
             _appearance.value = prefs.appearance()
             restore()
         }
@@ -118,6 +153,7 @@ class AppState(
 
     fun setLanguage(language: Language) {
         _language.value = language
+        hooks.languageChanged(language)
         viewModelScope.launch {
             prefs.setLanguage(language)
             // Tell the server too, so the console and the emails this operator
@@ -150,15 +186,23 @@ class AppState(
         try {
             val user = api.currentUser()
             cache.save(user)
+            hooks.signedIn(user)
             _session.value = Session.SignedIn(user)
             loadWorkspaces()
         } catch (e: ApiError) {
             if (e.isAuthFailure) {
+                val stale = cache.read()
                 api.discardSession()
                 cache.clear()
+                // The session was revoked elsewhere: whatever this phone
+                // cached for it goes, exactly as at a sign-out.
+                runCatching { hooks.signedOut(stale?.id) }
                 _session.value = Session.SignedOut
             } else {
                 val cached = cache.read()
+                // Offline at launch: the cached operator stands in, and so
+                // does their cache — which is the whole point of having one.
+                cached?.let(hooks::signedIn)
                 _session.value = if (cached != null) Session.SignedIn(cached) else Session.SignedOut
                 if (cached != null) loadWorkspaces()
             }
@@ -190,15 +234,35 @@ class AppState(
     suspend fun logIn(email: String, password: String): Result<Unit> = runCatching {
         val user = api.logIn(email.trim(), password)
         cache.save(user)
+        hooks.signedIn(user)
         _session.value = Session.SignedIn(user)
         viewModelScope.launch { loadWorkspaces() }
     }
 
+    /**
+     * Signs out, in the order the server needs it: the push registration is
+     * withdrawn while the session can still authorise that, THEN the session
+     * is revoked, THEN everything this phone holds for the operator goes —
+     * socket, token, cached rows and files, notifications, in-memory state —
+     * before the login screen appears. Nothing of theirs is left for whoever
+     * signs in next.
+     */
     fun logOut() {
+        val user = (_session.value as? Session.SignedIn)?.user
         viewModelScope.launch {
+            user?.let { runCatching { hooks.beforeSignOut(it) } }
             runCatching { api.logOut() }
                 .onSuccess {
                     cache.clear()
+                    runCatching { hooks.signedOut(user?.id) }
+                    // A different operator is a different set of workspaces:
+                    // nothing selected here may carry across to them.
+                    _workspaces.value = emptyList()
+                    _selectedWorkspace.value = null
+                    _entitlements.value = EntitlementsState.Loading
+                    _avatarUrl.value = null
+                    _pendingLink.value = null
+                    _selectedTab.value = AppTab.INBOX
                     _session.value = Session.SignedOut
                 }
             // A failure here proves nothing about the server's view of the
@@ -220,14 +284,22 @@ class AppState(
             loadAvatar()
             if (_selectedWorkspace.value == null) {
                 _selectedWorkspace.value = list.firstOrNull()
+                announceWorkspace()
                 loadEntitlements()
             }
         }
     }
 
+    private fun announceWorkspace() {
+        val user = (_session.value as? Session.SignedIn)?.user ?: return
+        val workspace = _selectedWorkspace.value ?: return
+        hooks.workspaceSelected(user, workspace, _workspaces.value)
+    }
+
     fun selectWorkspace(workspace: Workspace) {
         if (workspace.id == _selectedWorkspace.value?.id) return
         _selectedWorkspace.value = workspace
+        announceWorkspace()
         // A different workspace is a different plan, so the old answer is
         // wrong rather than merely stale. Back to Loading, which is what keeps
         // a gated tab from lingering across the switch.

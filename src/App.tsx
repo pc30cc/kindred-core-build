@@ -306,16 +306,19 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route index element={<OverviewPage />} />
                 <Route path="inbox" element={<InboxPage />} />
                 <Route path="contacts" element={<PlanLockedOverlay moduleKey="contacts"><ContactsPage /></PlanLockedOverlay>} />
-                <Route path="contacts/:id" element={<ContactDetailPage />} />
+                <Route path="contacts/:id" element={<PlanLockedOverlay moduleKey="contacts"><ContactDetailPage /></PlanLockedOverlay>} />
                 <Route path="visitors" element={<PlanLockedOverlay moduleKey="visitor_tracking"><VisitorsPage /></PlanLockedOverlay>} />
-                <Route path="widget" element={<RequireWorkspaceAdmin><WidgetPage /></RequireWorkspaceAdmin>} />
+                <Route path="widget" element={<RequireWorkspaceAdmin><PlanLockedOverlay channelKey="chat_widget"><WidgetPage /></PlanLockedOverlay></RequireWorkspaceAdmin>} />
                 <Route path="plugins" element={<RequireWorkspaceAdmin><PluginsPage /></RequireWorkspaceAdmin>} />
                 <Route path="plugins/:pluginId" element={<RequireWorkspaceAdmin><PluginDetailPage /></RequireWorkspaceAdmin>} />
                 <Route path="billing" element={<RequireWorkspaceAdmin><BillingPage /></RequireWorkspaceAdmin>} />
                 <Route path="billing/pay/:kind/:id" element={<RequireWorkspaceAdmin><BillingPaymentPage /></RequireWorkspaceAdmin>} />
-                <Route path="seo" element={<RequireWorkspaceAdmin><SeoPage /></RequireWorkspaceAdmin>} />
-                <Route path="seo/:section" element={<RequireWorkspaceAdmin><SeoPage /></RequireWorkspaceAdmin>} />
-                <Route path="seo/:section/:subsection" element={<RequireWorkspaceAdmin><SeoPage /></RequireWorkspaceAdmin>} />
+                {/* Every plan-gated section is gated at its route too (the
+                    sidebar only hides the link): PlanLockedOverlay never
+                    mounts the page unless the plan snapshot says so. */}
+                <Route path="seo" element={<RequireWorkspaceAdmin><PlanLockedOverlay moduleKey="seo"><SeoPage /></PlanLockedOverlay></RequireWorkspaceAdmin>} />
+                <Route path="seo/:section" element={<RequireWorkspaceAdmin><PlanLockedOverlay moduleKey="seo"><SeoPage /></PlanLockedOverlay></RequireWorkspaceAdmin>} />
+                <Route path="seo/:section/:subsection" element={<RequireWorkspaceAdmin><PlanLockedOverlay moduleKey="seo"><SeoPage /></PlanLockedOverlay></RequireWorkspaceAdmin>} />
                 {/* Web Analytics — generic site-traffic/behavior reporting, split out
                     of the SEO suite into its own main-menu item (it isn't search-specific
                     like the tools under /seo). Plan-gated inside WebAnalyticsSection itself
@@ -325,8 +328,8 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 {/* Email Inbox — a dedicated, real email client (Gmail today), NOT
                     the unified chat Inbox. See server/services/email/inbox.ts's
                     header comment for why it is intentionally separate. */}
-                <Route path="email" element={<RequireWorkspaceAdmin><EmailInboxPage /></RequireWorkspaceAdmin>} />
-                <Route path="email/:threadId" element={<RequireWorkspaceAdmin><EmailInboxPage /></RequireWorkspaceAdmin>} />
+                <Route path="email" element={<RequireWorkspaceAdmin><PlanLockedOverlay moduleKey="email_inbox"><EmailInboxPage /></PlanLockedOverlay></RequireWorkspaceAdmin>} />
+                <Route path="email/:threadId" element={<RequireWorkspaceAdmin><PlanLockedOverlay moduleKey="email_inbox"><EmailInboxPage /></PlanLockedOverlay></RequireWorkspaceAdmin>} />
                 {/* Phase 6-S5-R4 — Knowledge Base is a CORE workspace product.
                     It is ALWAYS available: no plan gate, no AI dependency, no
                     upgrade screen. Only authentication + workspace membership
@@ -347,10 +350,10 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="ai-agent/articles" element={<WorkspaceKnowledgeBaseRedirect />} />
                 <Route path="call-center" element={<CallCenterLayout />}>
                   <Route index element={<CallCenterOverviewPage />} />
-                  <Route path="queue" element={<CallCenterLiveQueuePage />} />
+                  <Route path="queue" element={<PlanLockedOverlay featureKey="call_queue"><CallCenterLiveQueuePage /></PlanLockedOverlay>} />
                   <Route path="calls" element={<CallCenterCallsPage />} />
-                  <Route path="callbacks" element={<CallCenterCallbacksPage />} />
-                  <Route path="recordings" element={<CallCenterRecordingsPage />} />
+                  <Route path="callbacks" element={<PlanLockedOverlay featureKey="call_callbacks"><CallCenterCallbacksPage /></PlanLockedOverlay>} />
+                  <Route path="recordings" element={<PlanLockedOverlay featureKey="call_recording"><CallCenterRecordingsPage /></PlanLockedOverlay>} />
                   {/* Legacy URL — redirect to canonical Team & Departments. */}
                   <Route path="departments" element={<Navigate to="../../settings/team-departments" replace />} />
                   <Route path="install" element={<CallCenterInstallPage />} />

@@ -61,6 +61,7 @@ type MessageAttachment = {
 };
 import { createStorageUrlResolver, hydrateUserAvatars, hydrateContactAvatars } from '../services/storage/urlResolver.js';
 import { deltaLowerBound, inThreadOrder, nextSyncCursor, parseSyncCursor } from '../services/messageSync.js';
+import { isConversationId, parseConversationIds } from '../services/conversationIds.js';
 import { queueTranscript } from '../services/notificationEmail/producers.js';
 
 
@@ -1039,29 +1040,145 @@ conversationsRouter.post('/spam', async (req, res) => {
   }
 });
 
-/**
- * The per-row enrichment the Inbox list computes: contact avatar links, the
- * last-message preview, the unread count, who handled the thread and whether
- * it owes the customer a reply. Mutates `convos` in place.
- *
- * Shared by `GET /` (a queue) and `GET /:id` (one conversation, for a
- * notification that names a thread the client has not listed), so the two
- * can never describe the same conversation differently.
- */
-/** A `conversations` row as the list reads it (`select *` plus the contact join), enriched in place. */
-interface ConversationSummaryRow {
-  id: string;
-  status?: string | null;
-  contacts?: { id?: string | null; avatar_storage_key?: string | null; avatar_url?: string | null } | null;
-  [column: string]: unknown;
+// ═══════════════════════════════════════════════════════════════════
+// GET / — Inbox list.
+//
+// Replaces src/hooks/useConversations.ts's direct
+// supabase.from('conversations').select('*, contacts(...)') query, which
+// relied on RLS scoped to auth.uid() and silently returned nothing once
+// the dashboard stopped carrying a Supabase Auth session. Reproduces the
+// exact queue/status/needs-human/assigned-to-me filtering, the contact
+// join, the last-message/last-visitor-message/unread-count enrichment,
+// and the "unanswered AI-intro thread" exclusion from Main Inbox — all
+// previously computed client-side against two direct Supabase reads.
+//
+// Visitor network-profile enrichment (geo/IP/device) is intentionally
+// NOT duplicated here: it already goes through the authenticated
+// POST /api/visitor-intel/network/batch route (see
+// src/hooks/useVisitorNetwork.ts), so the frontend hook calls that
+// separately after this list resolves, exactly as it does today.
+// ═══════════════════════════════════════════════════════════════════
+const listQuerySchema = z.object({
+  workspace_id: z.string().uuid(),
+  queue: z.enum(['main', 'automated', 'spam']).optional().default('main'),
+  status: z.string().max(200).optional(),
+  needs_human: z.enum(['true', 'false']).optional(),
+  assigned_to_me: z.string().uuid().optional(),
+  // Assignment scope. Default 'mine': every operator — owners and admins
+  // included — only sees unassigned threads plus the ones assigned to them,
+  // so a transferred conversation leaves the sender's Inbox immediately.
+  // 'all' is the explicit full-workspace view, allowed for privileged roles.
+  scope: z.enum(['mine', 'all']).optional().default('mine'),
+});
+
+conversationsRouter.get('/', async (req, res) => {
+  try {
+    const config: ServerConfig = serverConfigOf(req);
+    const parsed = listQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid query', details: parsed.error.flatten().fieldErrors });
+    }
+    const { workspace_id, queue, status, assigned_to_me, scope } = parsed.data;
+    const needsHuman = parsed.data.needs_human === 'true';
+    const idsParsed = parseConversationIds(req.query.ids);
+    if (idsParsed.ok === false) {
+      return res.status(400).json({ error: 'Invalid query', details: { ids: [idsParsed.error] } });
+    }
+    const auth = await authorizeWorkspaceMember(req, res, config, workspace_id);
+    if (!auth) return;
+    const isPrivileged =
+      auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead';
+    // Privileged roles keep the full view ONLY when they explicitly ask for
+    // it (scope=all). Otherwise their Inbox behaves like an operator's.
+    const canSeeAllAssignments = isPrivileged && scope === 'all';
+
+    const listed = await listConversationRows(config, auth, {
+      workspaceId: workspace_id,
+      queue,
+      status,
+      needsHuman,
+      assignedToMe: assigned_to_me,
+      canSeeAllAssignments,
+      ids: idsParsed.ids,
+    });
+    if (listed.error) return res.status(500).json({ error: listed.error });
+    // The ids are echoed so a client can tell this answer from an older
+    // server's, which ignores `ids` and sends the whole queue.
+    return res.json(idsParsed.ids ? { conversations: listed.rows, ids: idsParsed.ids } : { conversations: listed.rows });
+  } catch (err) {
+    console.error('[conversations list] error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});
+
+type ListQueue = 'main' | 'automated' | 'spam' | 'any';
+
+interface ListOptions {
+  workspaceId: string;
+  queue: ListQueue;
+  status?: string;
+  needsHuman: boolean;
+  assignedToMe?: string;
+  canSeeAllAssignments: boolean;
+  /** Narrow to these conversations (`?ids=`, or one id for `GET /:id`). */
+  ids: string[] | null;
 }
 
-async function enrichConversationSummaries(
+/**
+ * The conversation list, as the Inbox reads it: the queue's rows with the
+ * contact joined and the preview, unread count and needs-reply computed —
+ * shared by the list route and `GET /:id`, so a row fetched by id is in
+ * exactly the shape the list gives it.
+ */
+async function listConversationRows(
   config: ServerConfig,
-  sb: ReturnType<typeof getServiceClient>,
-  workspaceId: string,
-  convos: ConversationSummaryRow[],
-): Promise<void> {
+  auth: { userId: string },
+  opts: ListOptions,
+): Promise<{ rows: Array<Record<string, unknown>>; error: string | null }> {
+  const { workspaceId, queue, status, needsHuman, assignedToMe, canSeeAllAssignments } = opts;
+  const onlyIds = opts.ids;
+  const sb = getServiceClient(config);
+  let q = sb
+    .from('conversations')
+    .select('*, contacts(id, name, email, avatar_url, avatar_storage_key, visitor_code, metadata)')
+    .eq('workspace_id', workspaceId)
+    .order('updated_at', { ascending: false });
+
+  // A targeted read: the same query, narrowed to the rows a client named.
+  if (onlyIds && onlyIds.length > 0) q = q.in('id', onlyIds);
+
+  if (queue === 'any') {
+    // By id, whichever queue it is in: no queue, status or assignment
+    // narrowing — the caller already holds the id, and reading a thread's
+    // messages is open to every member of its workspace.
+  } else if (queue === 'automated') {
+    q = q.eq('ai_state', 'ai_managed').neq('status', 'closed').is('assigned_to', null).eq('is_spam', false);
+  } else if (queue === 'spam') {
+    q = q.eq('is_spam', true);
+  } else {
+    q = q.eq('is_spam', false);
+    if (needsHuman) {
+      q = q.eq('ai_state', 'needs_human');
+    } else {
+      q = q.or('ai_state.is.null,ai_state.neq.ai_managed');
+    }
+    if (assignedToMe) {
+      q = q.eq('assigned_to', assignedToMe);
+    } else if (!canSeeAllAssignments) {
+      // A claimed conversation belongs to the operator who took it: other
+      // agents must not keep seeing it in their Inbox. Owners/admins and
+      // team leads still get the full workspace view.
+      q = q.or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`);
+    }
+    if (status && status !== 'all') {
+      const parts = status.split(',').map((x) => x.trim()).filter(Boolean);
+      q = parts.length > 1 ? q.in('status', parts) : q.eq('status', parts[0]);
+    }
+  }
+
+  const { data, error } = await q;
+  if (error) return { rows: [], error: error.message };
+  const convos = (data || []);
   // Contact avatars: derived from the stored key for the workspace's
   // current provider, one resolution for the whole page.
   await hydrateContactAvatars(
@@ -1224,127 +1341,37 @@ async function enrichConversationSummaries(
       c.waiting_since = c.needs_reply ? (waitingSinceByConv[c.id] ?? null) : null;
     }
   }
-}
 
-// ═══════════════════════════════════════════════════════════════════
-// GET / — Inbox list.
-//
-// Replaces src/hooks/useConversations.ts's direct
-// supabase.from('conversations').select('*, contacts(...)') query, which
-// relied on RLS scoped to auth.uid() and silently returned nothing once
-// the dashboard stopped carrying a Supabase Auth session. Reproduces the
-// exact queue/status/needs-human/assigned-to-me filtering, the contact
-// join, the last-message/last-visitor-message/unread-count enrichment,
-// and the "unanswered AI-intro thread" exclusion from Main Inbox — all
-// previously computed client-side against two direct Supabase reads.
-//
-// Visitor network-profile enrichment (geo/IP/device) is intentionally
-// NOT duplicated here: it already goes through the authenticated
-// POST /api/visitor-intel/network/batch route (see
-// src/hooks/useVisitorNetwork.ts), so the frontend hook calls that
-// separately after this list resolves, exactly as it does today.
-// ═══════════════════════════════════════════════════════════════════
-const listQuerySchema = z.object({
-  workspace_id: z.string().uuid(),
-  queue: z.enum(['main', 'automated', 'spam']).optional().default('main'),
-  status: z.string().max(200).optional(),
-  needs_human: z.enum(['true', 'false']).optional(),
-  assigned_to_me: z.string().uuid().optional(),
-  // Assignment scope. Default 'mine': every operator — owners and admins
-  // included — only sees unassigned threads plus the ones assigned to them,
-  // so a transferred conversation leaves the sender's Inbox immediately.
-  // 'all' is the explicit full-workspace view, allowed for privileged roles.
-  scope: z.enum(['mine', 'all']).optional().default('mine'),
-});
-
-conversationsRouter.get('/', async (req, res) => {
-  try {
-    const config: ServerConfig = serverConfigOf(req);
-    const parsed = listQuerySchema.safeParse(req.query);
-    if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid query', details: parsed.error.flatten().fieldErrors });
-    }
-    const { workspace_id, queue, status, assigned_to_me, scope } = parsed.data;
-    const needsHuman = parsed.data.needs_human === 'true';
-    const auth = await authorizeWorkspaceMember(req, res, config, workspace_id);
-    if (!auth) return;
-    const isPrivileged =
-      auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead';
-    // Privileged roles keep the full view ONLY when they explicitly ask for
-    // it (scope=all). Otherwise their Inbox behaves like an operator's.
-    const canSeeAllAssignments = isPrivileged && scope === 'all';
-
-    const sb = getServiceClient(config);
-    let q = sb
-      .from('conversations')
-      .select('*, contacts(id, name, email, avatar_url, avatar_storage_key, visitor_code, metadata)')
-      .eq('workspace_id', workspace_id)
-      .order('updated_at', { ascending: false });
-
-    if (queue === 'automated') {
-      q = q.eq('ai_state', 'ai_managed').neq('status', 'closed').is('assigned_to', null).eq('is_spam', false);
-    } else if (queue === 'spam') {
-      q = q.eq('is_spam', true);
-    } else {
-      q = q.eq('is_spam', false);
-      if (needsHuman) {
-        q = q.eq('ai_state', 'needs_human');
-      } else {
-        q = q.or('ai_state.is.null,ai_state.neq.ai_managed');
-      }
-      if (assigned_to_me) {
-        q = q.eq('assigned_to', assigned_to_me);
-      } else if (!canSeeAllAssignments) {
-        // A claimed conversation belongs to the operator who took it: other
-        // agents must not keep seeing it in their Inbox. Owners/admins and
-        // team leads still get the full workspace view.
-        q = q.or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`);
-      }
-      if (status && status !== 'all') {
-        const parts = status.split(',').map((x) => x.trim()).filter(Boolean);
-        q = parts.length > 1 ? q.in('status', parts) : q.eq('status', parts[0]);
-      }
-    }
-
-    const { data, error } = await q;
-    if (error) return res.status(500).json({ error: error.message });
-    const convos = (data || []);
-    await enrichConversationSummaries(config, sb, workspace_id, convos);
-
-    let result = convos;
-    if (queue === 'main') {
-      // AI greeting threads (source='ai_agent_intro') the visitor never
-      // answered are not human-actionable — exclude them from Main Inbox
-      // unless a human has already touched the thread.
-      result = convos.filter((c) => {
-        const meta = c?.metadata || {};
-        const introOnly = meta.source === 'ai_agent_intro' && !c.last_visitor_message;
-        const humanTouched = !!c.assigned_to || c.ai_state === 'human_active'
-          || (c.last_message && c.last_message.sender_type === 'agent');
-        return !introOnly || humanTouched;
-      });
-    }
-
-    // A finished thread belongs to whoever actually handled it. An operator
-    // must not see resolved/closed threads that another operator answered,
-    // even when nobody claimed them (`assigned_to` stays null on the
-    // "send & resolve" path). Owners/admins/team leads keep the full view.
-    if (!canSeeAllAssignments) {
-      result = result.filter((c) => {
-        if (c.status !== 'resolved' && c.status !== 'closed') return true;
-        if (c.assigned_to && c.assigned_to !== auth.userId) return false;
-        const handled: string[] = Array.isArray(c.handled_by) ? c.handled_by : [];
-        if (handled.length === 0) return true; // AI/system resolved → shared
-        return handled.includes(auth.userId);
-      });
-    }
-
-    return res.json({ conversations: result });
-  } catch (err) {
-    console.error('[conversations list] error:', err);
-    return res.status(500).json({ error: err?.message || 'Internal error' });
+  let result = convos;
+  if (queue === 'main') {
+    // AI greeting threads (source='ai_agent_intro') the visitor never
+    // answered are not human-actionable — exclude them from Main Inbox
+    // unless a human has already touched the thread.
+    result = convos.filter((c) => {
+      const meta = c?.metadata || {};
+      const introOnly = meta.source === 'ai_agent_intro' && !c.last_visitor_message;
+      const humanTouched = !!c.assigned_to || c.ai_state === 'human_active'
+        || (c.last_message && c.last_message.sender_type === 'agent');
+      return !introOnly || humanTouched;
+    });
   }
-});
+
+  // A finished thread belongs to whoever actually handled it. An operator
+  // must not see resolved/closed threads that another operator answered,
+  // even when nobody claimed them (`assigned_to` stays null on the
+  // "send & resolve" path). Owners/admins/team leads keep the full view.
+  if (!canSeeAllAssignments && queue !== 'any') {
+    result = result.filter((c) => {
+      if (c.status !== 'resolved' && c.status !== 'closed') return true;
+      if (c.assigned_to && c.assigned_to !== auth.userId) return false;
+      const handled: string[] = Array.isArray(c.handled_by) ? c.handled_by : [];
+      if (handled.length === 0) return true; // AI/system resolved → shared
+      return handled.includes(auth.userId);
+    });
+  }
+
+  return { rows: result, error: null };
+}
 
 // ─── Sidebar inbox counters ─────────────────────────────────────────
 conversationsRouter.get('/inbox-counts', async (req, res) => {
@@ -1455,6 +1482,41 @@ conversationsRouter.get('/inbox-tab-counts', async (req, res) => {
 
   } catch (err) {
     console.error('[conversations inbox-tab-counts] error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});
+
+/**
+ * GET /api/conversations/:id?workspace_id= — one conversation, in the list's
+ * shape (`{ conversation }`), whichever queue it is in.
+ *
+ * For a native client opening a thread from a notification: it has an id and
+ * no list containing it, and without this it would have to read every queue
+ * to find one row. Registered after every literal GET path on this router,
+ * and it passes anything that is not a UUID on, so no other route is shadowed.
+ */
+conversationsRouter.get('/:id', async (req, res, next) => {
+  const id = String(req.params.id || '');
+  if (!isConversationId(id)) return next();
+  try {
+    const config: ServerConfig = serverConfigOf(req);
+    const workspaceId = String(req.query.workspace_id || '');
+    if (!isConversationId(workspaceId)) return res.status(400).json({ error: 'workspace_id is required' });
+    const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+    if (!auth) return;
+    const listed = await listConversationRows(config, auth, {
+      workspaceId,
+      queue: 'any',
+      needsHuman: false,
+      canSeeAllAssignments: true,
+      ids: [id.toLowerCase()],
+    });
+    if (listed.error) return res.status(500).json({ error: listed.error });
+    const conversation = listed.rows[0];
+    if (!conversation) return res.status(404).json({ error: 'conversation_not_found' });
+    return res.json({ conversation });
+  } catch (err) {
+    console.error('[conversation by id] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
 });
@@ -1717,74 +1779,6 @@ conversationsRouter.post('/not-spam', async (req, res) => {
       return res.status(404).json({ error: 'conversation_not_found' });
     }
     console.error('[conversations not-spam] error:', err);
-    return res.status(500).json({ error: err?.message || 'Internal error' });
-  }
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// GET /:id — one conversation, in the exact shape one row of `GET /` has.
-//
-// For a client that has to show a thread it has not listed: a push
-// notification names a conversation, and the operator may be looking at
-// another queue (or at nothing yet — a cold launch from the banner).
-// Without this the only way to find it was to read every queue in turn.
-//
-// Additive: no existing route or response changes. Registered last, so
-// every literal path above (`/inbox-counts`, `/inbox-tab-counts`, …) keeps
-// matching first; a non-UUID id is refused before any read.
-//
-// Visibility follows the list, never looser: a non-privileged operator gets
-// a 404 for a thread assigned to someone else, or for a finished thread
-// another operator handled — the same rows `GET /` withholds from them.
-// Authorization derives from the conversation's own workspace_id.
-// ═══════════════════════════════════════════════════════════════════
-const conversationIdSchema = z.string().uuid();
-
-conversationsRouter.get('/:id', async (req, res) => {
-  try {
-    const config: ServerConfig = serverConfigOf(req);
-    const parsedId = conversationIdSchema.safeParse(req.params.id);
-    if (!parsedId.success) return res.status(400).json({ error: 'invalid_conversation_id' });
-    const conversationId = parsedId.data;
-    const sb = getServiceClient(config);
-
-    const { data: owner } = await sb
-      .from('conversations')
-      .select('id, workspace_id')
-      .eq('id', conversationId)
-      .maybeSingle();
-    if (!owner) return res.status(404).json({ error: 'conversation_not_found' });
-
-    const auth = await authorizeWorkspaceMember(req, res, config, owner.workspace_id);
-    if (!auth) return;
-
-    const { data: row, error } = await sb
-      .from('conversations')
-      .select('*, contacts(id, name, email, avatar_url, avatar_storage_key, visitor_code, metadata)')
-      .eq('id', conversationId)
-      .maybeSingle();
-    if (error) return res.status(500).json({ error: error.message });
-    if (!row) return res.status(404).json({ error: 'conversation_not_found' });
-
-    const convos = [row];
-    await enrichConversationSummaries(config, sb, owner.workspace_id, convos);
-    const c = convos[0];
-
-    const isPrivileged =
-      auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead';
-    if (!isPrivileged) {
-      const assignedElsewhere = !!c.assigned_to && c.assigned_to !== auth.userId;
-      const finished = c.status === 'resolved' || c.status === 'closed';
-      const handled: string[] = Array.isArray(c.handled_by) ? c.handled_by : [];
-      const handledByOthers = finished && handled.length > 0 && !handled.includes(auth.userId);
-      if (assignedElsewhere || handledByOthers) {
-        return res.status(404).json({ error: 'conversation_not_found' });
-      }
-    }
-
-    return res.json({ conversation: c });
-  } catch (err) {
-    console.error('[conversations one] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
 });

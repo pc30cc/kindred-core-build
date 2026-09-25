@@ -86,13 +86,16 @@ public sealed partial class ColleaguesPage : Page
         if (_recorder is not null) _ = StopRecordingAsync(keep: false);
     }
 
-    /// <summary>Files, voice notes and emoji follow the plan, as in the iOS team thread.</summary>
+    /// <summary>
+    /// Files, voice notes and emoji are always offered, as in the web: the
+    /// plan's widget_* keys govern what VISITORS may do in the chat widget,
+    /// not what operators send (the server never gated operator uploads).
+    /// </summary>
     private void ApplyPlan()
     {
-        var plan = Host.Plan;
-        AttachButton.Visibility = plan.Attachments ? Visibility.Visible : Visibility.Collapsed;
-        MicButton.Visibility = plan.VoiceNotes ? Visibility.Visible : Visibility.Collapsed;
-        EmojiButton.Visibility = plan.Emoji ? Visibility.Visible : Visibility.Collapsed;
+        AttachButton.Visibility = Visibility.Visible;
+        MicButton.Visibility = Visibility.Visible;
+        EmojiButton.Visibility = Visibility.Visible;
     }
 
     private void OnRealtime(Core.Realtime.InboxEvent e)
@@ -449,13 +452,7 @@ public sealed partial class ColleaguesPage : Page
         if ((sender as FrameworkElement)?.Tag is not AttachmentItem a) return;
         try
         {
-            var data = await a.BytesAsync();
-            var dir = Path.Combine(Path.GetTempPath(), "Webyar", a.Id.Replace(':', '_'));
-            Directory.CreateDirectory(dir);
-            var name = string.Join("_", a.FileName.Split(Path.GetInvalidFileNameChars()));
-            if (!Path.HasExtension(name)) name += Mime.Extension(a.MimeType);
-            var path = Path.Combine(dir, name);
-            await File.WriteAllBytesAsync(path, data);
+            var path = await OpenedFiles.PrepareAsync(a);
             var stored = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
             await Launcher.LaunchFileAsync(stored);
         }

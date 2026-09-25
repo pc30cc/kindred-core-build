@@ -1,5 +1,8 @@
 package com.webyar.operator.feature.team
 
+import com.webyar.operator.core.media.AttachmentDiskCache
+import com.webyar.operator.core.media.AttachmentSource
+import com.webyar.operator.core.media.LoaderAttachmentSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -48,8 +51,16 @@ fun TeamThreadScreen(
     contentPadding: PaddingValues = PaddingValues(),
     loadAttachment: (suspend (String) -> ByteArray?)? = null,
     onRetry: () -> Unit = {},
+    /** The scoped, on-demand source; wins over [loadAttachment]. */
+    attachments: AttachmentSource? = null,
     composer: @Composable () -> Unit = {},
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val source = attachments ?: remember(loadAttachment, context) {
+        loadAttachment?.let {
+            LoaderAttachmentSource(it, java.io.File(context.cacheDir, "${AttachmentDiskCache.DIRECTORY}/transient"))
+        }
+    }
     Column(modifier.fillMaxSize()) {
         Box(Modifier.weight(1f)) {
             when (state) {
@@ -71,7 +82,7 @@ fun TeamThreadScreen(
                     me = me,
                     language = language,
                     contentPadding = contentPadding,
-                    loadAttachment = loadAttachment,
+                    source = source,
                 )
             }
         }
@@ -87,7 +98,7 @@ private fun Transcript(
     me: String?,
     language: Language,
     contentPadding: PaddingValues,
-    loadAttachment: (suspend (String) -> ByteArray?)?,
+    source: AttachmentSource?,
 ) {
     val listState = rememberLazyListState()
     val rows = remember(messages, me) { layout(messages, me) }
@@ -114,7 +125,7 @@ private fun Transcript(
                 // their own name in the title bar says nothing twice.
                 senderName = null,
             ) {
-                row.message.attachment?.let { AttachmentView(it, language, loadAttachment) }
+                row.message.attachment?.let { AttachmentView(attachment = it, language = language, source = source) }
                 row.message.body?.takeIf { it.isNotBlank() }?.let {
                     Text(
                         it,

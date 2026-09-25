@@ -363,10 +363,13 @@ actor APIClient {
         }
     }
 
-    /// One conversation, wherever it is filed; nil when the server does not
-    /// have it for this operator (gone, or no longer theirs to see).
-    func conversation(id: String) async throws -> Conversation? {
-        let request = try makeRequest("GET", "/api/conversations/\(Self.escape(id))")
+    /// One conversation of `workspaceID`, wherever it is filed; nil when the
+    /// server does not have it there (gone, or in another workspace).
+    func conversation(id: String, workspaceID: String) async throws -> Conversation? {
+        let request = try makeRequest(
+            "GET", "/api/conversations/\(Self.escape(id))",
+            query: [URLQueryItem(name: "workspace_id", value: workspaceID)]
+        )
         do {
             return try await perform(request, as: ConversationResponse.self).conversation
         } catch APIError.server(status: 404, message: _) {

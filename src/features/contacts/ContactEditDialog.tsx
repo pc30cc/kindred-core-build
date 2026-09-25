@@ -16,13 +16,15 @@ export type ContactEditValues = {
   company: string;
   email: string;
   phone: string;
-  tags: string[];
-  notes: string;
+  /** Absent when the plan does not include contact tags (contact_tags). */
+  tags?: string[];
+  /** Absent when the plan does not include contact notes (contact_notes). */
+  notes?: string;
 };
 
 function FieldShell({
   icon: Icon, label, hint, children,
-}: { icon: any; label: string; hint?: string; children: React.ReactNode }) {
+}: { icon: React.ElementType; label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
       <label className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -36,16 +38,20 @@ function FieldShell({
 }
 
 export function ContactEditDialog({
-  open, onOpenChange, contact, saving, onSave,
+  open, onOpenChange, contact, saving, onSave, allowTags = true, allowNotes = true,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   contact: Contact | null | undefined;
   saving?: boolean;
   onSave: (values: ContactEditValues) => void | Promise<void>;
+  /** The plan includes contact tags; when false the field is neither shown nor saved. */
+  allowTags?: boolean;
+  /** The plan includes contact notes; when false the field is neither shown nor saved. */
+  allowNotes?: boolean;
 }) {
   const { t, dir } = useI18n();
-  const [values, setValues] = useState<ContactEditValues>({
+  const [values, setValues] = useState<Required<ContactEditValues>>({
     name: '', company: '', email: '', phone: '', tags: [], notes: '',
   });
   const [tagDraft, setTagDraft] = useState('');
@@ -59,12 +65,12 @@ export function ContactEditDialog({
       email: contact.email ?? '',
       phone: contact.phone ?? '',
       tags: contact.tags ?? [],
-      notes: (contact as any).notes ?? '',
+      notes: (contact as { notes?: string | null }).notes ?? '',
     });
     setTagDraft('');
   }, [open, contact]);
 
-  const set = <K extends keyof ContactEditValues>(k: K, v: ContactEditValues[K]) =>
+  const set = <K extends keyof ContactEditValues>(k: K, v: Required<ContactEditValues>[K]) =>
     setValues((p) => ({ ...p, [k]: v }));
 
   const commitTags = (raw: string) => {
@@ -108,6 +114,7 @@ export function ContactEditDialog({
               </div>
             </section>
 
+            {allowTags && (
             <section className="space-y-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground/70">
                 {t('contacts.tags')}
@@ -145,18 +152,28 @@ export function ContactEditDialog({
                 <p className="text-[11px] text-muted-foreground">{t('contacts.noTags')}</p>
               )}
             </section>
+            )}
 
+            {allowNotes && (
             <section className="space-y-3">
               <FieldShell icon={StickyNote} label={t('contacts.notes')}>
                 <Textarea rows={6} value={values.notes} onChange={(e) => set('notes', e.target.value)} />
               </FieldShell>
             </section>
+            )}
           </div>
         </ScrollArea>
 
         <DialogFooter className="px-6 py-4 border-t border-border gap-2 sm:justify-start">
           <Button
-            onClick={() => onSave({ ...values, tags: values.tags })}
+            onClick={() => onSave({
+              name: values.name,
+              company: values.company,
+              email: values.email,
+              phone: values.phone,
+              ...(allowTags ? { tags: values.tags } : {}),
+              ...(allowNotes ? { notes: values.notes } : {}),
+            })}
             disabled={saving}
             className="gap-1.5"
           >

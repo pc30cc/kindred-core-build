@@ -51,12 +51,14 @@ public sealed record Conversation(
     JsonElement? Metadata = null)
 {
     /// <summary>When anything last happened, for sorting and "5m ago".</summary>
+    [JsonIgnore]
     public DateTimeOffset? LastActivity => LastMessage?.CreatedAt ?? UpdatedAt ?? CreatedAt;
 
     /// <summary>
     /// ai_managed, needs_human or human_active — metadata.ai_state first, as
     /// the iOS app and the web read it, then the column.
     /// </summary>
+    [JsonIgnore]
     public string? AiStateValue
     {
         get
@@ -68,6 +70,7 @@ public sealed record Conversation(
     }
 
     /// <summary>The AI is answering this visitor: the operator steers it instead of writing directly.</summary>
+    [JsonIgnore]
     public bool IsAiManaged => AiStateValue == "ai_managed";
 
     private static readonly string[] Channels = ["telegram", "bale", "whatsapp", "instagram", "x", "email", "phone", "widget"];
@@ -76,6 +79,7 @@ public sealed record Conversation(
     /// Where the visitor wrote from, as the web's resolveChannelKey reads it:
     /// metadata.channel, else metadata.source, else the chat widget.
     /// </summary>
+    [JsonIgnore]
     public string ChannelKey
     {
         get
@@ -105,12 +109,41 @@ public sealed record Message(
     string? SenderName = null,
     string? SenderAvatar = null,
     IReadOnlyList<MessageAttachment>? Attachments = null,
-    JsonElement? Metadata = null)
+    JsonElement? Metadata = null,
+    DateTimeOffset? UpdatedAt = null)
 {
     /// <summary>Operator-side messages sit on the trailing edge of the thread.</summary>
+    [JsonIgnore]
     public bool IsOutgoing => SenderType is SenderTypes.Agent or SenderTypes.Ai or SenderTypes.Bot;
+
+    [JsonIgnore]
     public bool IsSystem => SenderType == SenderTypes.System;
+
+    /// <summary>
+    /// The key the composer sent it with (metadata.client_message_id): how an
+    /// optimistic bubble recognises its own confirmed copy.
+    /// </summary>
+    [JsonIgnore]
+    public string? ClientMessageId =>
+        Metadata is { ValueKind: JsonValueKind.Object } m && m.TryGetProperty("client_message_id", out var v) && v.ValueKind == JsonValueKind.String
+            ? v.GetString()
+            : null;
 }
+
+/// <summary>
+/// `sync` on a thread answer (server/services/messageSync.ts): whether it is
+/// the whole thread or only what changed, and the cursor to send back as
+/// `since`. `total` — how many messages the whole thread has — is optional:
+/// when a server reports it, a delete is spotted at once; otherwise the
+/// periodic full read finds it. Absent from servers that predate incremental sync.
+/// </summary>
+public sealed record MessageSyncInfo(string? Mode = null, string? Cursor = null, int? Total = null)
+{
+    [JsonIgnore]
+    public bool IsDelta => Mode == "delta";
+}
+
+public sealed record MessagesPage(IReadOnlyList<Message>? Messages = null, MessageSyncInfo? Sync = null);
 
 public static class SenderTypes
 {

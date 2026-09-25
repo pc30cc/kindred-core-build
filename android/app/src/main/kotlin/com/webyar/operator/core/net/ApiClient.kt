@@ -50,6 +50,17 @@ import com.webyar.operator.core.model.Workspace
 import com.webyar.operator.core.model.WorkspaceMember
 import com.webyar.operator.core.model.WorkspaceMembersResponse
 import com.webyar.operator.core.model.WorkspacesResponse
+import com.webyar.operator.core.model.ConversationResponse
+import com.webyar.operator.core.model.ConversationSlice
+import com.webyar.operator.core.model.InboxPage
+import com.webyar.operator.core.model.MessagesPage
+import com.webyar.operator.core.model.PushDeviceRegistration
+import com.webyar.operator.core.model.PushDeviceResponse
+import com.webyar.operator.core.model.PushDeviceUnregister
+import com.webyar.operator.core.model.RealtimeConnect
+import com.webyar.operator.core.model.RealtimeSubscribe
+import com.webyar.operator.core.model.SendMessageResponse
+import com.webyar.operator.core.model.SentMessage
 import com.webyar.operator.core.storage.PlatformOrigin
 import com.webyar.operator.core.storage.SecureStore
 import io.ktor.client.HttpClient
@@ -63,10 +74,13 @@ import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.header
 import io.ktor.client.request.request
+import io.ktor.client.request.prepareRequest
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.client.statement.readRawBytes
+import io.ktor.utils.io.jvm.javaio.copyTo
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
@@ -78,6 +92,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.io.File
+import java.io.IOException
 
 /**
  * Talks to the same REST API the web client uses.
@@ -138,7 +154,15 @@ class ApiClient(
                 // holding the phone over adb can read. Redacting the
                 // Authorization header covers the token and does nothing at
                 // all about the password that earned it.
-                filter { request -> !request.url.buildString().contains("/api/auth") }
+                //
+                // Realtime, push and call tokens are left out for the same
+                // reason: those bodies ARE tokens — Centrifugo connection and
+                // subscription tokens and the call token coming back, the FCM
+                // token going out.
+                filter { request ->
+                    val url = request.url.buildString()
+                    UNLOGGED_PATHS.none { url.contains(it) }
+                }
             }
         }
         install(HttpTimeout) {
@@ -242,37 +266,50 @@ class ApiClient(
 
     // MARK: - Request plumbing
 
+    private suspend fun url(path: String, query: List<Pair<String, String>>): String = buildString {
+        append(origin().trimEnd('/'))
+        append(path)
+        if (query.isNotEmpty()) {
+            append('?')
+            append(query.joinToString("&") { (k, v) -> "$k=${v.urlEncoded()}" })
+        }
+    }
+
+    private suspend fun HttpRequestBuilder.standard(
+        method: HttpMethod,
+        body: Any?,
+        headers: Map<String, String>,
+    ) {
+        this.method = method
+        header("Accept", "application/json")
+        // The same thing `LoginBody.client` says, said again where a
+        // serializer cannot drop it. `server/routes/auth.ts` accepts
+        // either signal, and one of them living in a header means a
+        // change to the JSON settings can never silently turn this
+        // app back into a cookie client.
+        header("X-Client-Platform", "android")
+        currentTokenHeader(this)
+        headers.forEach { (name, value) -> header(name, value) }
+        if (body != null) {
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+    }
+
     private suspend fun build(
         method: HttpMethod,
         path: String,
         query: List<Pair<String, String>> = emptyList(),
         body: Any? = null,
+        headers: Map<String, String> = emptyMap(),
     ): HttpResponse {
-        val url = buildString {
-            append(origin().trimEnd('/'))
-            append(path)
-            if (query.isNotEmpty()) {
-                append('?')
-                append(query.joinToString("&") { (k, v) -> "$k=${v.urlEncoded()}" })
-            }
-        }
+        val url = url(path, query)
         return try {
-            http.request(url) {
-                this.method = method
-                header("Accept", "application/json")
-                // The same thing `LoginBody.client` says, said again where a
-                // serializer cannot drop it. `server/routes/auth.ts` accepts
-                // either signal, and one of them living in a header means a
-                // change to the JSON settings can never silently turn this
-                // app back into a cookie client.
-                header("X-Client-Platform", "android")
-                currentTokenHeader(this)
-                if (body != null) {
-                    contentType(ContentType.Application.Json)
-                    setBody(body)
-                }
-            }
+            http.request(url) { standard(method, body, headers) }
         } catch (t: Throwable) {
+            // Cancellation is the caller going away, not the network failing
+            // — wrapping it would turn a closed screen into an error message.
+            if (t is kotlinx.coroutines.CancellationException) throw t
             throw ApiError.Transport(t)
         }
     }
@@ -378,19 +415,95 @@ class ApiClient(
     override suspend fun workspaces(): List<Workspace> =
         build(HttpMethod.Get, "/api/workspaces").decode<WorkspacesResponse>().workspaces
 
-    override suspend fun conversations(workspaceId: String, filter: InboxFilter): List<Conversation> {
-        val query = buildList {
-            add("workspace_id" to workspaceId)
-            add("queue" to filter.queue)
-            filter.status?.let { add("status" to it) }
-            if (filter.needsHumanOnly) add("needsHuman" to "true")
+    /**
+     * The query that names one queue.
+     *
+     * `needs_human`, in snake case, is what `listQuerySchema` reads. This used
+     * to send `needsHuman`, which zod drops as an unknown key — so the
+     * Needs-human queue silently answered with the whole open queue.
+     */
+    private fun inboxQuery(workspaceId: String, filter: InboxFilter): List<Pair<String, String>> = buildList {
+        add("workspace_id" to workspaceId)
+        add("queue" to filter.queue)
+        filter.status?.let { add("status" to it) }
+        if (filter.needsHumanOnly) add("needs_human" to "true")
+    }
+
+    override suspend fun conversations(workspaceId: String, filter: InboxFilter): List<Conversation> =
+        build(HttpMethod.Get, "/api/conversations", inboxQuery(workspaceId, filter))
+            .decode<ConversationsResponse>().conversations
+
+    override suspend fun inboxPage(workspaceId: String, filter: InboxFilter, etag: String?): InboxPage {
+        val response = build(
+            HttpMethod.Get,
+            "/api/conversations",
+            inboxQuery(workspaceId, filter),
+            headers = etag?.let { mapOf(HttpHeaders.IfNoneMatch to it) }.orEmpty(),
+        )
+        // No HTTP cache is installed, so a 304 reaches here as itself rather
+        // than being answered from a stored copy — the stored copy is Room.
+        if (response.status.value == 304) return InboxPage.NotModified
+        val etagOut = response.headers[HttpHeaders.ETag]
+        return InboxPage.Changed(response.decode<ConversationsResponse>().conversations, etagOut)
+    }
+
+    override suspend fun conversationsByIds(
+        workspaceId: String,
+        ids: List<String>,
+        filter: InboxFilter?,
+    ): ConversationSlice {
+        val wanted = ids.filter { it.isNotBlank() }.distinct().take(IDS_LIMIT)
+        if (wanted.isEmpty()) return ConversationSlice(emptyList())
+        if (filter == null) {
+            return ConversationSlice(wanted.mapNotNull { conversation(workspaceId, it) })
         }
-        return build(HttpMethod.Get, "/api/conversations", query).decode<ConversationsResponse>().conversations
+        val query = inboxQuery(workspaceId, filter) + ("ids" to wanted.joinToString(","))
+        val response = build(HttpMethod.Get, "/api/conversations", query).decode<ConversationsResponse>()
+        val set = wanted.toSet()
+        val rows = response.conversations.filter { it.id in set }
+        // No echo: an older server ignored `ids` and sent the whole queue.
+        return if (response.ids != null) ConversationSlice(rows) else ConversationSlice(rows, response.conversations)
+    }
+
+    override suspend fun conversation(workspaceId: String, conversationId: String): Conversation? {
+        try {
+            return build(
+                HttpMethod.Get,
+                "/api/conversations/${conversationId.urlPath()}",
+                listOf("workspace_id" to workspaceId),
+            ).decode<ConversationResponse>().conversation
+        } catch (e: ApiError.Server) {
+            if (e.status != 404) throw e
+            // The route's own "no such conversation" is an answer.
+            if (e.serverMessage == "conversation_not_found") return null
+        }
+        // Any other 404 is a server without the by-id route. Look through
+        // the queues instead — the whole of each, which is why this is only
+        // the fallback, reached from a notification tap on an old server.
+        for (queue in listOf(null, "automated", "spam")) {
+            val query = buildList {
+                add("workspace_id" to workspaceId)
+                queue?.let { add("queue" to it) }
+                if (queue == null) add("status" to "all")
+            }
+            build(HttpMethod.Get, "/api/conversations", query)
+                .decode<ConversationsResponse>().conversations
+                .firstOrNull { it.id == conversationId }
+                ?.let { return it }
+        }
+        return null
     }
 
     override suspend fun messages(conversationId: String): List<Message> =
         build(HttpMethod.Get, "/api/conversations/${conversationId.urlPath()}/messages")
             .decode<MessagesResponse>().messages
+
+    override suspend fun messagesPage(conversationId: String, cursor: String?): MessagesPage =
+        build(
+            HttpMethod.Get,
+            "/api/conversations/${conversationId.urlPath()}/messages",
+            cursor?.takeIf { it.isNotBlank() }?.let { listOf("since" to it) }.orEmpty(),
+        ).decode()
 
     @Serializable
     private data class SendBody(
@@ -416,12 +529,21 @@ class ApiClient(
         clientMessageId: String,
         attachmentId: String?,
     ) {
+        sendMessage(body, conversationId, workspaceId, clientMessageId, attachmentId)
+    }
+
+    override suspend fun sendMessage(
+        body: String,
+        conversationId: String,
+        workspaceId: String,
+        clientMessageId: String,
+        attachmentId: String?,
+    ): SentMessage? =
         build(
             HttpMethod.Post,
             "/api/conversations/send-message",
             body = SendBody(conversationId, workspaceId, body, clientMessageId, attachmentId),
-        ).orThrow()
-    }
+        ).decode<SendMessageResponse>().message
 
     /**
      * Takes no body: the route authorises against the conversation's own
@@ -598,6 +720,32 @@ class ApiClient(
         build(HttpMethod.Get, "/api/conversation-attachments/${id.urlPath()}/file")
             .orThrow()
             .readRawBytes()
+
+    /**
+     * Streams to [target] rather than through a `ByteArray`: a video is read
+     * in 8 KB pieces straight to disk, and the heap never holds more than one
+     * of them. The caller owns [target] — a temporary file it renames into
+     * place only once this returns.
+     */
+    override suspend fun downloadAttachment(id: String, target: File) {
+        val url = url("/api/conversation-attachments/${id.urlPath()}/file", emptyList())
+        try {
+            http.prepareRequest(url) { standard(HttpMethod.Get, null, emptyMap()) }.execute { response ->
+                response.orThrow()
+                target.outputStream().use { out -> response.bodyAsChannel().copyTo(out) }
+            }
+        } catch (e: ApiError) {
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            // A full disk is also an IOException; the caller tells the two
+            // apart by whether the target is writable at all.
+            throw ApiError.Transport(e)
+        } catch (t: Throwable) {
+            throw ApiError.Transport(t)
+        }
+    }
 
     // MARK: - Canned responses
 
@@ -894,6 +1042,48 @@ class ApiClient(
         build(HttpMethod.Post, "/api/calls/${callSessionId.urlPath()}/hangup").orThrow()
     }
 
+    // MARK: - Realtime
+
+    @Serializable
+    private data class RealtimeConnectBody(val workspace_id: String, val intent: String)
+
+    @Serializable
+    private data class RealtimeWorkspaceBody(val workspace_id: String)
+
+    override suspend fun realtimeConnect(workspaceId: String, intent: String): RealtimeConnect =
+        build(
+            HttpMethod.Post,
+            "/api/realtime/operator-connect",
+            body = RealtimeConnectBody(workspaceId, intent),
+        ).decode()
+
+    override suspend fun realtimeInboxSubscribe(workspaceId: String): RealtimeSubscribe =
+        build(
+            HttpMethod.Post,
+            "/api/realtime/operator-inbox-subscribe",
+            body = RealtimeWorkspaceBody(workspaceId),
+        ).decode()
+
+    override suspend fun realtimePresenceSubscribe(workspaceId: String): RealtimeSubscribe =
+        build(
+            HttpMethod.Post,
+            "/api/realtime/operator-presence-subscribe",
+            body = RealtimeWorkspaceBody(workspaceId),
+        ).decode()
+
+    // MARK: - Push devices
+
+    override suspend fun registerPushDevice(registration: PushDeviceRegistration): PushDeviceResponse =
+        build(HttpMethod.Post, "/api/push/devices", body = registration).decode()
+
+    override suspend fun unregisterPushDevice(deviceId: String) {
+        build(
+            HttpMethod.Post,
+            "/api/push/devices/unregister",
+            body = PushDeviceUnregister(deviceId),
+        ).orThrow()
+    }
+
     // MARK: - Account
 
     @Serializable
@@ -984,8 +1174,17 @@ class ApiClient(
          */
         const val BATCH_LIMIT = 500
 
+        /** The server's cap on `?ids=` (`server/services/conversationIds.ts`). */
+        const val IDS_LIMIT = 100
+
         /** `adb logcat -s WebyarApi` shows every request and its answer. */
         const val LOG_TAG = "WebyarApi"
+
+        /**
+         * Never in that log, not even in debug: a password, or a body that
+         * is itself a credential (realtime, push and call tokens).
+         */
+        val UNLOGGED_PATHS = listOf("/api/auth", "/api/realtime/", "/api/push/", "/token")
     }
 
 }

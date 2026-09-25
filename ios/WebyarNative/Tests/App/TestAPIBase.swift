@@ -17,7 +17,7 @@ extension TestAPIBase {
     func workspaces() async throws -> [Workspace] { throw APIError.transport }
     func conversations(workspaceID: String, filter: InboxFilter) async throws -> [Conversation] { throw APIError.transport }
     func conversations(workspaceID: String, filter: InboxFilter, etag: String?) async throws -> ListPage { throw APIError.transport }
-    func conversation(id: String) async throws -> Conversation? { throw APIError.transport }
+    func conversation(id: String, workspaceID: String) async throws -> Conversation? { throw APIError.transport }
     func messages(conversationID: String) async throws -> [Message] { throw APIError.transport }
     func messagePage(conversationID: String, since: String?) async throws -> ThreadPage { throw APIError.transport }
     func realtimeConnect(workspaceID: String, intent: String) async throws -> RealtimeConnect { throw APIError.transport }

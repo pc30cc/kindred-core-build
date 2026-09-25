@@ -87,6 +87,20 @@ fun AppShell(
         }
     }
 
+    // A notification tap: once the session and the workspaces are known, and
+    // the workspace it names is checked to be this operator's, the Inbox
+    // tab opens the conversation — by id, from the cache, with no queue
+    // read to find it.
+    val pendingLink by appState.pendingLink.collectAsStateWithLifecycle()
+    val workspaces by appState.workspaces.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingLink, workspaces) {
+        val link = appState.resolvePendingLink() ?: return@LaunchedEffect
+        val id = link.conversationId ?: return@LaunchedEffect
+        appState.selectTab(AppTab.INBOX)
+        navController.switchTo(AppTab.INBOX)
+        navController.navigate(Route.chat(id)) { launchSingleTop = true }
+    }
+
     Box(modifier.fillMaxSize()) {
         NavHost(
             navController = navController,

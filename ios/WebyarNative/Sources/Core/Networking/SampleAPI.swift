@@ -85,9 +85,10 @@ actor SampleAPI: WebyarAPI {
         ListPage(conversations: try await conversations(workspaceID: workspaceID, filter: filter), etag: nil)
     }
 
-    func conversation(id: String) async throws -> Conversation? {
+    func conversation(id: String, workspaceID: String) async throws -> Conversation? {
+        // Filed under the workspace that asked, as the list files them.
         Self.conversations.first { $0.id == id }.map { conversation in
-            statuses[id].map { conversation.with(status: $0) } ?? conversation
+            (statuses[id].map { conversation.with(status: $0) } ?? conversation).with(workspaceID: workspaceID)
         }
     }
 

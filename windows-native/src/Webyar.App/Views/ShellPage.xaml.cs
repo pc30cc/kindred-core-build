@@ -127,6 +127,7 @@ public sealed partial class ShellPage : Page
             "visitors" => VisitorsItem,
             "calls" => CallCenterItem,
             "colleagues" => ColleaguesItem,
+            "email" => EmailItem,
             "settings" => Nav.SettingsItem ?? InboxOpenItem,
             _ => InboxOpenItem,
         };
@@ -141,6 +142,13 @@ public sealed partial class ShellPage : Page
     private void OnNavigate(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         var tag = args.IsSettingsSelected ? "settings" : (args.SelectedItem as NavigationViewItem)?.Tag as string ?? "inbox";
+        // A toast, a --page= launch or a stale selection can point at a section
+        // the plan does not include: it never opens, the inbox does instead.
+        if (!Allowed(tag))
+        {
+            Nav.SelectedItem = InboxOpenItem;
+            return;
+        }
         var page = tag switch
         {
             "settings" => typeof(SettingsPage),
@@ -148,6 +156,7 @@ public sealed partial class ShellPage : Page
             "visitors" => typeof(VisitorsPage),
             "calls" => typeof(CallCenterPage),
             "colleagues" => typeof(ColleaguesPage),
+            "email" => typeof(EmailPage),
             _ => typeof(InboxPage),
         };
         if (ContentFrame.Content?.GetType() != page)
@@ -221,7 +230,9 @@ public sealed partial class ShellPage : Page
         // The super admin can change the plan at any time; pick it up without a restart.
         _planPoller = new Poller("plan", async ct =>
         {
-            await Task.Delay(TimeSpan.FromMinutes(3), ct);
+            // An unreadable plan hides every gated section, so it is asked for
+            // again soon; a good one is refreshed every few minutes.
+            await Task.Delay(Host.Plan.State == PlanState.Failed ? TimeSpan.FromSeconds(20) : TimeSpan.FromMinutes(3), ct);
             await Host.LoadPlanAsync(ct);
         }, () => TimeSpan.Zero);
         _planPoller.Start();
@@ -242,19 +253,59 @@ public sealed partial class ShellPage : Page
         ContactsItem.Visibility = V(plan.Contacts);
         VisitorsItem.Visibility = V(plan.Visitors);
         CallCenterItem.Visibility = V(plan.CallCenter);
+        EmailItem.Visibility = V(plan.EmailInbox);
         InboxAiItem.Visibility = V(plan.AiQueue(_automated));
         InboxNeedsHumanItem.Visibility = V(plan.NeedsHumanQueue);
         InternalInboxItem.Visibility = V(plan.TeamChat);
-        OtherInboxesItem.Visibility = V(plan.IsAdmin && _channels.Count > 0);
+        foreach (var item in OtherInboxesItem.MenuItems.OfType<NavigationViewItem>())
+        {
+            if (item.Tag is string t && t.StartsWith("channel/", StringComparison.Ordinal)) item.Visibility = V(plan.ChannelInPlan(t[8..]));
+        }
+        OtherInboxesItem.Visibility = V(plan.IsAdmin && _channels.Any(plan.ChannelInPlan));
+        // A plan change may add or remove channel inboxes: ask the server again (it applies the plan).
+        if (plan.State != PlanState.Loading && !ReferenceEquals(plan, _channelsPlan))
+        {
+            _channelsPlan = plan;
+            _channelsLoaded = false;
+            _countsPoller?.Kick();
+        }
         if (Nav.SelectedItem is NavigationViewItem selected)
         {
             var tag = selected.Tag as string ?? string.Empty;
-            var gone = selected.Visibility == Visibility.Collapsed
-                || (tag == "colleagues" && !plan.TeamChat)
-                || (tag.StartsWith("channel/", StringComparison.Ordinal) && !plan.IsAdmin);
+            var gone = selected.Visibility == Visibility.Collapsed || !Allowed(tag);
             if (gone) Nav.SelectedItem = InboxOpenItem;
         }
         RenderWorkspaces();
+    }
+
+    private WorkspacePlan? _channelsPlan;
+
+    /// <summary>
+    /// Whether the plan (and the operator's role) includes the section a pane
+    /// tag stands for — the same rules that show or hide its item. While the
+    /// plan is still loading nothing is refused here; the rail hides gated
+    /// items, and the plan's arrival takes the operator out of a section it excludes.
+    /// </summary>
+    private bool Allowed(string tag)
+    {
+        var plan = Host.Plan;
+        if (plan.State == PlanState.Loading) return true;
+        if (tag.StartsWith("channel/", StringComparison.Ordinal))
+        {
+            var key = tag[8..];
+            return plan.IsAdmin && plan.ChannelInPlan(key) && _channels.Contains(key);
+        }
+        return tag switch
+        {
+            "contacts" => plan.Contacts,
+            "visitors" => plan.Visitors,
+            "calls" => plan.CallCenter,
+            "colleagues" => plan.TeamChat,
+            "email" => plan.EmailInbox,
+            "inbox/Ai" => plan.AiQueue(_automated),
+            "inbox/NeedsHuman" => plan.NeedsHumanQueue,
+            _ => true,
+        };
     }
 
     // ── Super Admin announcements and broadcasts ──
@@ -326,6 +377,13 @@ public sealed partial class ShellPage : Page
         RenderAnnouncements();
         if (Host.Settings.Notifications)
             Host.Notifier.Show(b.Title, b.Body ?? string.Empty, s.IsRightToLeft, silent: !Host.Settings.NotificationSound, new Dictionary<string, string>());
+    }
+
+    /// <summary>The workspaces came back from the server after a launch from the PC's copy.</summary>
+    public void RefreshWorkspaces()
+    {
+        RenderWorkspaces();
+        BuildAccountMenu();
     }
 
     /// <summary>The workspace header: name and logo, and the others to switch to.</summary>
@@ -405,10 +463,11 @@ public sealed partial class ShellPage : Page
         Badge(SpamBadge, counts.Spam);
         // "Other inboxes" is for owners and admins only, as on the web.
         if (_channelsLoaded || !Host.Plan.IsAdmin) return;
-        _channelsLoaded = true;
         try
         {
+            // Installed inbox plugins the plan still allows (the server's planAllowed).
             ShowChannels(await Host.Api.PluginInboxesAsync(workspaceId, ct));
+            _channelsLoaded = true;
         }
         catch (ApiException e) when (e.Status is 401 or 403 or 404)
         {
@@ -425,6 +484,11 @@ public sealed partial class ShellPage : Page
     private void ShowChannels(IReadOnlyList<string> keys)
     {
         var s = Host.Strings;
+        if (keys.SequenceEqual(_channels) && OtherInboxesItem.MenuItems.Count == keys.Count)
+        {
+            ApplyPlan();
+            return;
+        }
         OtherInboxesItem.MenuItems.Clear();
         foreach (var key in keys)
         {
@@ -436,7 +500,9 @@ public sealed partial class ShellPage : Page
             });
         }
         _channels = keys;
-        OtherInboxesItem.Visibility = keys.Count > 0 && Host.Plan.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
+        // Each channel's item and the group follow the plan; a channel inbox on
+        // show that the plan dropped sends the operator back to the inbox.
+        ApplyPlan();
     }
 
     private void SyncSelection()
@@ -450,6 +516,7 @@ public sealed partial class ShellPage : Page
             VisitorsPage => VisitorsItem,
             CallCenterPage => CallCenterItem,
             ColleaguesPage => ColleaguesItem,
+            EmailPage => EmailItem,
             _ => InboxOpenItem,
         };
         if (!ReferenceEquals(Nav.SelectedItem, want)) Nav.SelectedItem = want;
@@ -617,6 +684,7 @@ public sealed partial class ShellPage : Page
         ContactsItem.Content = s["tabContacts"];
         VisitorsItem.Content = s["navVisitors"];
         CallCenterItem.Content = s["navCallCenter"];
+        EmailItem.Content = s["emailInbox"];
         if (Nav.SettingsItem is NavigationViewItem settings) settings.Content = s["tabSettings"];
         var name = Host.User?.FullName is { Length: > 0 } n ? n : Host.User?.Email ?? s["account"];
         ToolTipService.SetToolTip(AccountItem, Host.Workspace?.Name is { Length: > 0 } w ? $"{name} — {w}" : name);
@@ -713,6 +781,7 @@ public sealed partial class ShellPage : Page
 
     public async Task SignOutAsync()
     {
+        var owner = Host.User?.Id ?? Host.Settings.SessionUserId;
         var s = Host.Strings;
         var dialog = new ContentDialog
         {
@@ -735,7 +804,8 @@ public sealed partial class ShellPage : Page
             Log.Error("logout", e);
             Host.Client.DiscardSession();
         }
-        App.Current.Window!.SignedOut();
+        // An explicit sign-out takes this operator's conversations off the PC too.
+        App.Current.Window!.SignedOut(forgetAccount: owner);
     }
 
     private void SetUnread(int count)

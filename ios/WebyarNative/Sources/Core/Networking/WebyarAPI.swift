@@ -20,8 +20,8 @@ protocol WebyarAPI: Sendable {
     /// is nil when the server answered 304.
     func conversations(workspaceID: String, filter: InboxFilter, etag: String?) async throws -> ListPage
     /// One conversation, for a notification that names one the list does not
-    /// have. Nil when the server has nothing for this operator.
-    func conversation(id: String) async throws -> Conversation?
+    /// have. Nil when the server has nothing by that id in `workspaceID`.
+    func conversation(id: String, workspaceID: String) async throws -> Conversation?
     func messages(conversationID: String) async throws -> [Message]
     /// The thread, or only what changed since the cursor (`ThreadPage.delta`).
     func messagePage(conversationID: String, since: String?) async throws -> ThreadPage

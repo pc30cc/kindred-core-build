@@ -149,9 +149,9 @@ actor TestAPI: TestAPIBase {
         return ListPage(conversations: lists[workspaceID] ?? [], etag: tag)
     }
 
-    func conversation(id: String) async throws -> Conversation? {
+    func conversation(id: String, workspaceID: String) async throws -> Conversation? {
         singleReads += 1
-        return single[id]
+        return single[id].flatMap { $0.workspaceId == workspaceID ? $0 : nil }
     }
 
     func realtimeConnect(workspaceID: String, intent: String) async throws -> RealtimeConnect {

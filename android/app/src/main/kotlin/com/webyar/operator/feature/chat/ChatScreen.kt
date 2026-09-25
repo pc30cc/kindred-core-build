@@ -41,6 +41,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.webyar.operator.core.media.AttachmentDiskCache
+import com.webyar.operator.core.media.AttachmentSource
+import com.webyar.operator.core.media.LoaderAttachmentSource
 import com.webyar.operator.core.model.Conversation
 import com.webyar.operator.core.model.Message
 import com.webyar.operator.core.model.MessageAttachment
@@ -120,7 +123,22 @@ fun ChatScreen(
      * network.
      */
     loadAttachment: (suspend (String) -> ByteArray?)? = null,
+    /**
+     * The real attachment source — memory, the scoped disk cache, then the
+     * network, on demand. Wins over [loadAttachment] when both are given.
+     */
+    attachments: AttachmentSource? = null,
+    /** Sends an unsent message again, with the key it was minted with. */
+    onRetry: (Message) -> Unit = {},
+    /** Takes an unsent message out of the thread. */
+    onDiscard: (Message) -> Unit = {},
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val source = attachments ?: remember(loadAttachment, context) {
+        loadAttachment?.let {
+            LoaderAttachmentSource(it, java.io.File(context.cacheDir, "${AttachmentDiskCache.DIRECTORY}/transient"))
+        }
+    }
     Column(modifier.fillMaxSize().imePadding()) {
         if (onBack != null) {
             ChatTopBar(
@@ -156,7 +174,7 @@ fun ChatScreen(
                         Text(Str.chatEmpty(language), style = MaterialTheme.typography.bodyMedium)
                     }
                 } else {
-                    Transcript(state.messages, language, loadAttachment)
+                    Transcript(state.messages, language, source, onRetry, onDiscard)
                 }
             }
         }
@@ -225,7 +243,9 @@ private fun layout(messages: List<Message>): List<TranscriptRow> {
 private fun Transcript(
     messages: List<Message>,
     language: Language,
-    loadAttachment: (suspend (String) -> ByteArray?)?,
+    source: AttachmentSource?,
+    onRetry: (Message) -> Unit,
+    onDiscard: (Message) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val rows = remember(messages) { layout(messages) }
@@ -239,7 +259,10 @@ private fun Transcript(
         modifier = Modifier.fillMaxSize().testTag(A11y.CHAT_TRANSCRIPT),
         contentPadding = PaddingValues(Space.lg),
     ) {
-        items(rows.size, key = { rows[it].message.id }) { index ->
+        // The local id, not the server's: a message sent from here keeps its
+        // key when the server confirms it, so the bubble is not recreated
+        // (and does not flicker) the moment it gets its real id.
+        items(rows.size, key = { rows[it].message.stableKey }) { index ->
             val row = rows[index]
             row.dayHeader?.let { DayHeader(it, language) }
             if (row.message.senderType == SenderType.SYSTEM) {
@@ -255,9 +278,23 @@ private fun Transcript(
                     language = language,
                     senderName = message.senderName.orEmpty(),
                     senderAvatarUrl = message.senderAvatar,
+                    status = when (message.delivery) {
+                        Message.Delivery.SENT -> null
+                        Message.Delivery.PENDING -> StrAndroid.messageSending(language)
+                        Message.Delivery.FAILED -> StrAndroid.messageNotSent(language)
+                    },
+                    statusIsError = message.delivery == Message.Delivery.FAILED,
+                    statusActions = if (message.delivery == Message.Delivery.FAILED) {
+                        listOf(
+                            Str.retry(language) to { onRetry(message) },
+                            StrAndroid.discardMessage(language) to { onDiscard(message) },
+                        )
+                    } else {
+                        emptyList()
+                    },
                 ) {
                     message.attachments?.forEach {
-                        AttachmentView(it, language, loadAttachment)
+                        AttachmentView(attachment = it, language = language, source = source)
                     }
                     if (message.body.isNotBlank()) {
                         Text(

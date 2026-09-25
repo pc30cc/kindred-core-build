@@ -6,11 +6,9 @@
  *   data-commerce-binding  opaque fingerprint of the grant behind the
  *                          assertion on this page.
  *
- * Scenario 5 of the WHMCS brief, browser half: after a logout (or when a
- * different person signs in on the same computer) the widget must not keep
- * showing the previous person's conversation. The loader asks bootstrap for a
- * fresh visitor when the subject changes away from a signed-in person — and
- * only then. Plain embeds (no attribute) behave exactly as before.
+ * Logout keeps the browser's conversation and all previous messages.
+ * A different signed-in person still starts a fresh visitor, including when
+ * anonymous pages separate the two logins. Plain embeds are unaffected.
  *
  * @vitest-environment jsdom
  */
@@ -119,9 +117,33 @@ describe('a different person on the same browser', () => {
     expect(bootstrapBody()).not.toHaveProperty('fresh_visitor');
   });
 
-  it('after a logout the widget starts a fresh visitor', async () => {
+  it('logout and anonymous navigation keep the same conversation and visitor', async () => {
     await boot({ 'data-commerce-subject': 'uaaaaaaaaaaaaaaaaaaaaaaaa' });
+    const view = JSON.stringify({ tab: 'chat', conversationId: 'existing-thread' });
+    window.sessionStorage.setItem('gs:view:ws-test', view);
+    document.cookie = 'gs_active=1; path=/';
     await boot({ 'data-commerce-subject': 'anon' });
+    expect(bootstrapBody()).not.toHaveProperty('fresh_visitor');
+    expect(window.sessionStorage.getItem('gs:view:ws-test')).toBe(view);
+    expect(document.cookie).toContain('gs_active=1');
+    expect(identityCalls()).toHaveLength(0);
+    await boot({ 'data-commerce-subject': 'anon' });
+    expect(bootstrapBody()).not.toHaveProperty('fresh_visitor');
+    expect(window.sessionStorage.getItem('gs:view:ws-test')).toBe(view);
+  });
+
+  it('signing back in as the same user keeps the conversation', async () => {
+    await boot({ 'data-commerce-subject': 'ualice' });
+    await boot({ 'data-commerce-subject': 'anon' });
+    await boot({ 'data-commerce-subject': 'ualice' });
+    expect(bootstrapBody()).not.toHaveProperty('fresh_visitor');
+  });
+
+  it('a different user after logout still starts a fresh visitor', async () => {
+    await boot({ 'data-commerce-subject': 'ualice' });
+    await boot({ 'data-commerce-subject': 'anon' });
+    expect(window.localStorage.getItem('gs:csub:ws-test')).toBe('ualice');
+    await boot({ 'data-commerce-subject': 'ubob' });
     expect(bootstrapBody().fresh_visitor).toBe(true);
   });
 
@@ -177,20 +199,20 @@ describe('identity transport recovery', () => {
 });
 
 
-describe('logout reset acknowledgement', () => {
+describe('account switch reset acknowledgement', () => {
   it('clears tab continuation and retries a failed identity reset on the next page', async () => {
     window.localStorage.setItem('gs:csub:ws-test', 'ualice');
     window.sessionStorage.setItem('gs:view:ws-test', JSON.stringify({ tab: 'chat', conversationId: 'private-thread' }));
     window.sessionStorage.setItem('gs:cbind:ws-test', 'old-binding');
-    await boot({ 'data-commerce-subject': 'anon' }, 0, true);
+    await boot({ 'data-commerce-subject': 'ubob' }, 0, true);
     expect(bootstrapBody().fresh_visitor).toBe(true);
     expect(window.sessionStorage.getItem('gs:view:ws-test')).toBeNull();
     expect(window.sessionStorage.getItem('gs:cbind:ws-test')).toBeNull();
     expect(window.localStorage.getItem('gs:csub:ws-test')).toBe('ualice');
-    await boot({ 'data-commerce-subject': 'anon' });
+    await boot({ 'data-commerce-subject': 'ubob' });
     expect(bootstrapBody().fresh_visitor).toBe(true);
-    expect(window.localStorage.getItem('gs:csub:ws-test')).toBe('anon');
-    await boot({ 'data-commerce-subject': 'anon' });
+    expect(window.localStorage.getItem('gs:csub:ws-test')).toBe('ubob');
+    await boot({ 'data-commerce-subject': 'ubob' });
     expect(bootstrapBody()).not.toHaveProperty('fresh_visitor');
   });
 });

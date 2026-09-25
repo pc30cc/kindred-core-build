@@ -16,7 +16,18 @@ protocol WebyarAPI: Sendable {
 
     func workspaces() async throws -> [Workspace]
     func conversations(workspaceID: String, filter: InboxFilter) async throws -> [Conversation]
+    /// The list revalidated against the copy held: `ListPage.conversations`
+    /// is nil when the server answered 304.
+    func conversations(workspaceID: String, filter: InboxFilter, etag: String?) async throws -> ListPage
+    /// One conversation, for a notification that names one the list does not
+    /// have. Nil when the server has nothing for this operator.
+    func conversation(id: String) async throws -> Conversation?
     func messages(conversationID: String) async throws -> [Message]
+    /// The thread, or only what changed since the cursor (`ThreadPage.delta`).
+    func messagePage(conversationID: String, since: String?) async throws -> ThreadPage
+    // Realtime — the Centrifugo tokens the console and the desktop apps use.
+    func realtimeConnect(workspaceID: String, intent: String) async throws -> RealtimeConnect
+    func realtimeInboxSubscribe(workspaceID: String) async throws -> RealtimeSubscribe
     func send(
         body: String,
         conversationID: String,
@@ -97,6 +108,8 @@ protocol WebyarAPI: Sendable {
     func updateProfile(fullName: String?, preferredLocale: String?) async throws -> Account
     func uploadAvatar(imageData: Data, contentType: String, fileName: String?) async throws -> AccountProfile?
     func attachmentData(id: String) async throws -> Data
+    /// The attachment written to a temporary file the caller then owns.
+    func attachmentFile(id: String) async throws -> URL
     func deleteAvatar() async throws
     func sessions() async throws -> AccountSessionsResponse
     func revokeSession(id: String) async throws

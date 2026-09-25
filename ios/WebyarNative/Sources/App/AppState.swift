@@ -22,9 +22,17 @@ enum SessionState: Equatable {
 @Observable
 final class AppState {
 
-    private(set) var session: SessionState = .restoring
+    private(set) var session: SessionState = .restoring {
+        didSet { scopeChanged() }
+    }
     private(set) var workspaces: [Workspace] = []
-    private(set) var selectedWorkspace: Workspace?
+    private(set) var selectedWorkspace: Workspace? {
+        didSet { scopeChanged() }
+    }
+
+    /// The workspace list came from this phone's saved copy (a launch with
+    /// no connection), so it is asked for again when the app comes forward.
+    @ObservationIgnored private var workspacesFromSnapshot = false
 
     /// What the current workspace's plan grants. Every plan-gated tab and
     /// queue reads this rather than assuming.
@@ -143,6 +151,11 @@ final class AppState {
             let user = try await api.currentUser()
             session = .signedIn(user)
             SessionCache.save(user)
+            // The workspace this operator was last in, straight away, so the
+            // inbox draws its saved copy while the list of workspaces is
+            // still being asked for. `loadWorkspaces` then keeps it only if
+            // the server still lists it.
+            adoptSnapshot(for: user.id)
             await loadWorkspaces()
         } catch APIError.unauthorized {
             // The server said the session is void. That is the only thing
@@ -163,6 +176,9 @@ final class AppState {
             // login screen in front of somebody whose session was fine.
             if let cached = SessionCache.read() {
                 session = .signedIn(cached)
+                // Offline: the workspaces this phone saw last, so the inbox
+                // has something to show its saved conversations for.
+                adoptSnapshot(for: cached.id)
                 await loadWorkspaces()
             } else {
                 session = .signedOut
@@ -174,6 +190,7 @@ final class AppState {
         sessionEndedMessage = nil
         session = .signedIn(user)
         SessionCache.save(user)
+        adoptSnapshot(for: user.id)
         await loadWorkspaces()
     }
 
@@ -195,7 +212,9 @@ final class AppState {
         } catch {
             return false
         }
-        reset()
+        // Leaving on purpose: this account's saved conversations and files
+        // leave the phone with it.
+        await reset(purgeCache: true)
         return true
     }
 
@@ -208,7 +227,7 @@ final class AppState {
     func accountWasDeleted() async {
         await api.discardSession()
         sessionEndedMessage = Str.accountDeleted(language)
-        reset()
+        await reset(purgeCache: true)
     }
 
     /// Called when any screen's request comes back 401: the session is gone,
@@ -217,16 +236,55 @@ final class AppState {
         guard session != .signedOut else { return }
         await api.discardSession()
         sessionEndedMessage = Str.sessionExpired(language)
-        reset()
+        // Expired, not left: the saved copy stays for this same account's
+        // next sign-in. It sits in that account's own folder, and nothing of
+        // it is ever opened for anyone else.
+        await reset(purgeCache: false)
     }
 
-    private func reset() {
+    private func reset(purgeCache: Bool) async {
+        let leaving = session.user?.id
         session = .signedOut
         workspaces = []
         selectedWorkspace = nil
+        workspacesFromSnapshot = false
+        entitlements = .loading
+        profile = nil
         // Whoever signs in next must not be greeted by the last person's
         // name while the server is being asked who they are.
         SessionCache.clear()
+        // In-memory copies of this account go at once, whatever else happens.
+        await SyncCoordinator.shared.endSession(userID: leaving, purge: purgeCache)
+    }
+
+    /// Tells the sync layer who is signed in and where, the moment either
+    /// changes — before the next frame is drawn for the new one.
+    private func scopeChanged() {
+        SyncCoordinator.shared.sessionChanged(userID: session.user?.id, workspaceID: selectedWorkspace?.id)
+    }
+
+    /// The workspaces saved for this account, if nothing better is known yet.
+    private func adoptSnapshot(for userID: String) {
+        guard !Backend.isSample, workspaces.isEmpty,
+              let snapshot = AccountSnapshot.read(userID: userID), !snapshot.workspaces.isEmpty
+        else { return }
+        workspaces = snapshot.workspaces
+        selectedWorkspace = snapshot.workspaces.first { $0.id == snapshot.selectedWorkspaceID } ?? snapshot.workspaces.first
+        workspacesFromSnapshot = true
+    }
+
+    private func saveSnapshot() {
+        guard !Backend.isSample, let userID = session.user?.id, !workspaces.isEmpty else { return }
+        let snapshot = AccountSnapshot(workspaces: workspaces, selectedWorkspaceID: selectedWorkspace?.id)
+        Task.detached(priority: .utility) { AccountSnapshot.write(snapshot, userID: userID) }
+    }
+
+    /// The app came forward. A launch that could only offer the saved
+    /// workspaces asks the server again now that it may be reachable.
+    func refreshIfStale() async {
+        guard session.user != nil else { return }
+        if workspacesFromSnapshot || workspaces.isEmpty { await loadWorkspaces() }
+        if case .failed = entitlements, selectedWorkspace != nil { await loadPlan() }
     }
 
     func clearSessionEndedMessage() {
@@ -266,7 +324,14 @@ final class AppState {
             let keepsSelection = selectedWorkspace.map { current in
                 list.contains { $0.id == current.id }
             } ?? false
-            if !keepsSelection { selectedWorkspace = list.first }
+            if !keepsSelection {
+                selectedWorkspace = list.first
+            } else if let current = selectedWorkspace, let fresh = list.first(where: { $0.id == current.id }), fresh != current {
+                // Same workspace, newer name or logo.
+                selectedWorkspace = fresh
+            }
+            workspacesFromSnapshot = false
+            saveSnapshot()
             // Always re-resolve: signing back in keeps the same workspace, and
             // returning early there would leave every plan gate unresolved and
             // so every gated tab permanently hidden.
@@ -281,6 +346,7 @@ final class AppState {
     func select(_ workspace: Workspace) {
         guard workspace.id != selectedWorkspace?.id else { return }
         selectedWorkspace = workspace
+        saveSnapshot()
         // A different workspace can be on a different plan, so the gates have
         // to be re-resolved before any tab decides whether it exists.
         entitlements = .loading

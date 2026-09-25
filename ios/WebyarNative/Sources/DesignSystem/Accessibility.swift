@@ -56,4 +56,10 @@ enum A11y {
     /// What the screen becomes when the server refuses because this operator
     /// still owns workspaces.
     static let deleteAccountBlocked = "deleteAccount.blocked"
+    /// The line above a saved copy shown while the server cannot be reached.
+    static let offlineNotice = "sync.offlineNotice"
+    /// The Storage row in Settings.
+    static let storageRow = "settings.storage"
+    /// Clear Cache, on the Storage screen.
+    static let clearCache = "settings.storage.clear"
 }

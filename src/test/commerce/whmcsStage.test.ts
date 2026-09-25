@@ -30,7 +30,7 @@ vi.mock('../../../server/services/commerce/credentials.js', () => ({
 vi.mock('../../../server/middleware/featureGating.js', () => ({ checkEntitlementFromDB: async () => ({ allowed: true }) }));
 vi.mock('../../../server/services/observability/metrics.js', () => ({ emitMetric: (_c: unknown, e: Record<string, unknown>) => { metrics.push(e); } }));
 
-const { runWhmcsToolStage, MAX_WHMCS_EVIDENCE_BYTES, __resetWhmcsPolicyForTests } = await import('../../../server/services/ai-agent/commerce-tools/whmcsRunner.js');
+const { runWhmcsToolStage, hasWhmcsData, MAX_WHMCS_EVIDENCE_BYTES, __resetWhmcsPolicyForTests } = await import('../../../server/services/ai-agent/commerce-tools/whmcsRunner.js');
 const { renderToolResults } = await import('../../../server/services/ai-agent/actions/readOnly.js');
 const { WhmcsConnector } = await import('../../../server/services/commerce/connectors/whmcs.js');
 const { __resetWhmcsRuntimeForTests } = await import('../../../server/services/commerce/whmcs/gateway.js');
@@ -228,6 +228,15 @@ describe('ids, permissions, failures (scenarios 3, 4, 11, 13)', () => {
 });
 
 describe('logout, switch, multi-step (scenarios 5, 14)', () => {
+  it('uses the merchant name as a label without turning a logged-out answer into account evidence', async () => {
+    db.tables.commerce_connections[0].store_name = '<b>فروشگاه من</b>';
+    whmcs.grants.get(ALICE_GRANT)!.valid = false;
+    const r = await ask('named merchant after logout', { question: 'فاکتورهای من' });
+    expect(rows(r, 'whmcs.note')).toContainEqual({ store_name: 'فروشگاه من' });
+    expect(status(r)).toMatchObject({ error_code: 'identity_required' });
+    expect(hasWhmcsData(r)).toBe(false);
+    expect(r.directive).toContain('instead of calling the merchant "WHMCS"');
+  });
   it('after logout WHMCS refuses, the binding is marked once, and the prompt history is cut', async () => {
     whmcs.grants.get(ALICE_GRANT)!.valid = false;
     const r = await ask('after logout', { question: 'سرویس‌هام رو نشون بده' });

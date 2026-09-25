@@ -44,6 +44,9 @@ final class Updater
             if (file_put_contents($zip, $bytes) !== strlen($bytes)) { throw new \RuntimeException('filesystem'); }
             self::install($zip, $target, $work, $manifest['version']);
             self::status($work, 'updated');
+            // Re-negotiate new capabilities and merchant metadata once after
+            // an update. A failed check must not mark a successful install failed.
+            try { Pairing::test(); } catch (\Throwable $e) { }
         } catch (\Throwable $e) {
             $code = in_array($e->getMessage(), array('integrity', 'incompatible', 'filesystem', 'archive'), true) ? $e->getMessage() : 'failed';
             self::status($work, $code);
@@ -106,6 +109,11 @@ final class Updater
         $root = realpath($configured !== false && $configured !== '' ? $configured : sys_get_temp_dir());
         $web = realpath(dirname($target, 3));
         if (!$root || ($web && ($root === $web || strpos($root . '/', $web . '/') === 0))) {
+            throw new \RuntimeException('filesystem');
+        }
+        // Diagnose an unusable staging filesystem before reporting "current".
+        $parent = realpath(dirname($target));
+        if (!$parent || !is_writable($parent) || stat($parent)['dev'] !== stat($root)['dev']) {
             throw new \RuntimeException('filesystem');
         }
         $dir = $root . '/webyar-update-' . substr(hash('sha256', $target), 0, 24);

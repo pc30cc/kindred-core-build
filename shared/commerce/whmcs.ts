@@ -272,6 +272,7 @@ export interface WhmcsHealth {
   capabilities: string[];
   schemaOk: boolean;
   systemUrl: string | null;
+  storeName: string | null;
 }
 
 /** Ephemeral public-content excerpt; never mirrored into WebYar storage. */

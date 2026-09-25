@@ -71,6 +71,6 @@ $_ADDONLANG['update_updated'] = 'Update installed';
 $_ADDONLANG['update_paused'] = 'Paused by platform';
 $_ADDONLANG['update_integrity'] = 'Package verification failed; retry next hour';
 $_ADDONLANG['update_incompatible'] = 'Requires a compatible PHP/WHMCS version and ZIP extension';
-$_ADDONLANG['update_filesystem'] = 'Check write permissions and temporary directory filesystem';
+$_ADDONLANG['update_filesystem'] = 'Check write permissions; WEBYAR_UPDATE_DIR must be private and on the addon filesystem';
 $_ADDONLANG['update_archive'] = 'Invalid update archive; existing version retained';
 $_ADDONLANG['update_failed'] = 'Update check failed; retry next hour';

@@ -36,7 +36,7 @@ import { getProviderDescriptor, type ProviderFamily } from './connectors/registr
 // (OpenCart) is called with its store scope, version and last error straight
 // from the selected row. One literal, so the typed client can parse it.
 export const CONNECTION_SELECT_FIELDS =
-  'id, workspace_id, installation_id, provider_type, store_id, approved_origin, capabilities, permissions, health, catalog_ready, revoked_at, protocol_version, created_at, external_store_id, platform_version, last_error_at';
+  'id, workspace_id, installation_id, provider_type, store_id, store_name, approved_origin, capabilities, permissions, health, catalog_ready, revoked_at, protocol_version, created_at, external_store_id, platform_version, last_error_at';
 
 /** More than this many live connections in one workspace is not a real configuration. */
 const MAX_CONNECTIONS = 10;

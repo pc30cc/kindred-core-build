@@ -39,6 +39,7 @@ interface CommerceConnection {
   id: string;
   provider_type: string;
   store_id: string;
+  store_name?: string | null;
   approved_origin: string;
   protocol_version: string;
   connector_version: string | null;
@@ -234,7 +235,7 @@ export function WhmcsConfigPanel({ workspaceId }: { workspaceId: string }) {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            {t('plugins.whmcs.connection.title')}
+            {connection.store_name || t('plugins.whmcs.connection.title')}
             <Badge variant={HEALTH_TONES[health] ?? 'outline'}>{healthLabel}</Badge>
           </CardTitle>
           <CardDescription>

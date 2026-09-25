@@ -19,7 +19,7 @@
  * idempotent — it reads, verifies and returns with zero writes and no nonce
  * row (a replay of it can grant nothing new). Only a real change (first bind,
  * new grant after login/switch, different user) spends a nonce row plus one
- * link write, and only a first bind for a user touches the contact.
+ * link write, and signed profile changes update the persistent contact independently.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
@@ -28,7 +28,8 @@ import { getServiceClient } from '../../../supabase.js';
 import { CommerceError } from '../../../../shared/commerce/types.js';
 import { WHMCS_ASSERTION_PREFIX, WHMCS_PROVIDER, type WhmcsGrantRef } from '../../../../shared/commerce/whmcs.js';
 import { readInstallationSecret } from '../credentials.js';
-import { ensureVisitorContact } from '../../widget/anonymousContact.js';
+import { syncWhmcsContact } from './contact.js';
+import { publishOperatorEvent } from '../../realtime/publish.js';
 
 /** Longest an assertion may claim to live (exp - iat). */
 export const ASSERTION_MAX_TTL_S = 600;
@@ -174,14 +175,35 @@ export async function verifyAndBindWhmcsIdentity(
   const link = existing as LinkRow | null;
   const now = Date.now();
 
+  // A stale/shared browser must bootstrap a fresh visitor before another
+  // person's assertion is accepted; otherwise the next fast path could merge them.
+  if (link && link.external_user_id !== payload.uid) fail('a new visitor is required for a different WHMCS user');
+  const syncContact = async () => {
+    const result = await syncWhmcsContact(sb, {
+      workspaceId, visitorId, installationId: payload.iss, userId: payload.uid,
+      name: payload.name, email: payload.email,
+    });
+    if (result?.changed) {
+      await publishOperatorEvent(config, {
+        kind: 'contact_updated', workspace_id: workspaceId, conversation_id: '', contact_id: result.contactId,
+      }, { skipConversationChannel: true });
+      for (const conversationId of result.conversationIds) {
+        await publishOperatorEvent(config, {
+          kind: 'conversation_updated', workspace_id: workspaceId, conversation_id: conversationId,
+        });
+      }
+    }
+    return !!result?.changed;
+  };
+
   const sameGrant = !!link
     && link.grant_ref === payload.gid
     && link.external_user_id === payload.uid
     && link.external_customer_id === payload.cid
     && !link.revoked_at;
   if (sameGrant && new Date(link!.expires_at).getTime() - now > LINK_REFRESH_BELOW_MS) {
-    // Idempotent fast path: nothing changes, nothing is written.
-    return { linked: true, changed: false, connectionId: connection.id };
+    // Retry a partial contact sync and apply profile changes even on the same grant.
+    return { linked: true, changed: await syncContact(), connectionId: connection.id };
   }
 
   // A real change. From here the assertion is single-use: a replay of THIS
@@ -234,23 +256,7 @@ export async function verifyAndBindWhmcsIdentity(
     .neq('visitor_id', visitorId)
     .is('revoked_at', null);
 
-  // The contact is keyed on the WHMCS USER (their own email), never on the
-  // client account: two users of one shared company account stay two people.
-  // Only on the first bind of this user to this visitor; a visitor that was
-  // bound to a DIFFERENT user is not merged into that user's contact.
-  const firstBindForUser = !link;
-  if (firstBindForUser && (payload.email || payload.name)) {
-    await ensureVisitorContact(sb, {
-      workspaceId,
-      visitorId,
-      name: payload.name ?? null,
-      email: payload.email ?? null,
-      phone: null,
-    }).catch((err) => {
-      console.warn('[commerce.whmcs.identity] contact upsert failed:', err instanceof Error ? err.message : err);
-      return null;
-    });
-  }
+  await syncContact();
 
   return { linked: true, changed: true, connectionId: connection.id };
 }

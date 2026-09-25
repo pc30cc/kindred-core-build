@@ -32,7 +32,9 @@ struct RootView: View {
             }
         }
         .frame(minWidth: 960, minHeight: 600)
-        .animation(.smooth(duration: 0.25), value: app.phase)
+        // No implicit animation on the phase: swapping the whole shell in an animated transaction left
+        // the rebuilt shell half-drawn after signing out and in again (a thread with no messages, no
+        // glass and blank details) until the app was restarted.
         .animation(.smooth(duration: 0.25), value: maintenance)
         .onAppear {
             Typeface.persian = app.strings.language == .fa

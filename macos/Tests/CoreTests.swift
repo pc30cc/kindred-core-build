@@ -213,32 +213,90 @@ final class CoreTests: XCTestCase {
         // Old servers still send the Mac app's feature switches; they no longer take anything away.
         let c = config(#"{ "features": { "calls": false, "contacts": false, "email": false, "attachments": false } }"#)
         XCTAssertEqual(c, MacAppConfig.defaults)
-        let root = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"modules":{"contacts":true,"call_center":true,"email_inbox":true,"omnichannel":true},"channels":{"telegram":true,"whatsapp":false},"features":{"call_recording":false}}"#.utf8))
+        let root = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"modules":{"contacts":true,"call_center":true,"email_inbox":true,"voice_video":true},"channels":{"voice":true,"video":true,"telegram":true,"whatsapp":false},"features":{"call_recording":false}}"#.utf8))
         let plan = WorkspacePlan.parse(root).with(role: "owner", aiAgent: nil, aiAuto: nil, callCenter: true)
-        XCTAssertTrue(plan.contacts && plan.callCenter && plan.emailInbox && plan.voiceCalls && plan.videoCalls && plan.attachments)
+        XCTAssertTrue(plan.contacts && plan.callCenter && plan.emailInbox && plan.voiceCalls && plan.videoCalls)
         XCTAssertTrue(plan.channelInbox("telegram"))
         XCTAssertFalse(plan.channelInbox("WhatsApp"))
         XCTAssertFalse(plan.callRecordings)
-        let noOmni = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"modules":{"omnichannel":false},"channels":{"telegram":true}}"#.utf8))
-        XCTAssertFalse(WorkspacePlan.parse(noOmni).channelInbox("telegram"))
         XCTAssertFalse(WorkspacePlan.loading.channelInbox("telegram"))
     }
 
-    // MARK: Plan
+    // MARK: Plan (the web's src/lib/planAccess.ts, as windows-native PlanTests)
+
+    private func plan(_ json: String, role: String? = "owner") throws -> WorkspacePlan {
+        let root = try JSONDecoder().decode(JSONValue.self, from: Data(json.utf8))
+        return WorkspacePlan.parse(root).with(role: role, aiAgent: true, aiAuto: true, callCenter: true, aiVisible: true)
+    }
 
     func testPlanRules() throws {
-        let root = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"plan":{"name":"Pro"},"modules":{"contacts":false,"call_center":{"value":true}},"features":{"widget_emoji":false}}"#.utf8))
-        let plan = WorkspacePlan.parse(root).with(role: "admin", aiAgent: true, aiAuto: false, callCenter: nil)
+        let root = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"plan":{"name":"Pro"},"modules":{"contacts":false,"call_center":{"value":true}},"features":{"inbox_ai_queue":{"value":true}}}"#.utf8))
+        let plan = WorkspacePlan.parse(root).with(role: "admin", aiAgent: true, aiAuto: false, callCenter: true, aiVisible: true)
         XCTAssertEqual(plan.planName, "Pro")
         XCTAssertFalse(plan.contacts)
         XCTAssertTrue(plan.callCenter)
-        XCTAssertFalse(plan.emoji)
-        XCTAssertTrue(plan.attachments)
         XCTAssertTrue(plan.isAdmin)
         XCTAssertFalse(plan.aiQueue(automated: 0))
         XCTAssertTrue(plan.aiQueue(automated: 2))
-        XCTAssertFalse(WorkspacePlan.loading.visitors)
-        XCTAssertTrue(WorkspacePlan.failed.visitors)
+    }
+
+    func testAKeyTheSnapshotDoesNotCarryIsNotAvailable() throws {
+        let p = try plan("{}")
+        XCTAssertFalse(p.contacts || p.visitors || p.teamChat || p.needsHumanQueue || p.voiceCalls || p.callRecordings)
+        XCTAssertFalse(p.callCenter || p.emailInbox || p.webAnalytics || p.aiQueue(automated: 5))
+        XCTAssertFalse(p.channelInbox("telegram"))
+    }
+
+    func testOnlyExactlyTrueTurnsAKeyOn() throws {
+        let p = try plan(#"{"modules":{"contacts":"true","visitor_tracking":{"value":null},"call_center":null},"features":{"inbox_team_chat":{"value":"yes"}}}"#)
+        XCTAssertFalse(p.contacts || p.visitors || p.callCenter || p.teamChat)
+    }
+
+    func testNothingGatedShowsWhileLoadingOrWhenThePlanCannotBeRead() {
+        for p in [WorkspacePlan.loading, WorkspacePlan.failed.with(role: "owner", aiAgent: true, aiAuto: true, callCenter: true, aiVisible: true)] {
+            XCTAssertFalse(p.contacts || p.visitors || p.emailInbox || p.callCenter || p.teamChat || p.needsHumanQueue || p.webAnalytics)
+            XCTAssertFalse(p.voiceCalls || p.videoCalls || p.callRecordings || p.aiQueue(automated: 5) || p.channelInbox("telegram"))
+            XCTAssertTrue(p.channelInbox("x")) // not a plan channel: the plugin's own plan check decides
+        }
+    }
+
+    func testInboxQueuesFollowTheInboxFeatures() throws {
+        let p = try plan(#"{"features":{"inbox_ai_queue":false,"inbox_needs_human":false,"inbox_team_chat":true},"modules":{"inbox_needs_human":true}}"#)
+        XCTAssertFalse(p.aiQueue(automated: 5))
+        XCTAssertFalse(p.needsHumanQueue) // a feature, not a module
+        XCTAssertTrue(p.teamChat)
+    }
+
+    func testTheAiQueueIsHiddenWhenSuperAdminHidesTheAiOrItsStateIsUnknown() throws {
+        let root = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"features":{"inbox_ai_queue":true}}"#.utf8))
+        let parsed = WorkspacePlan.parse(root)
+        XCTAssertFalse(parsed.with(role: "owner", aiAgent: true, aiAuto: true, callCenter: nil, aiVisible: false).aiQueue(automated: 3))
+        XCTAssertFalse(parsed.with(role: "owner", aiAgent: false, aiAuto: true, callCenter: nil, aiVisible: true).aiQueue(automated: 3))
+        XCTAssertFalse(parsed.with(role: "owner", aiAgent: nil, aiAuto: nil, callCenter: nil).aiQueue(automated: 3))
+        let manual = parsed.with(role: "owner", aiAgent: true, aiAuto: false, callCenter: nil, aiVisible: true)
+        XCTAssertFalse(manual.aiQueue(automated: 0))
+        XCTAssertTrue(manual.aiQueue(automated: 2))
+    }
+
+    func testTheCallCenterNeedsTheWorkspaceSwitchKnownOn() throws {
+        let root = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"modules":{"call_center":true}}"#.utf8))
+        XCTAssertFalse(WorkspacePlan.parse(root).callCenter) // switch unknown
+        XCTAssertFalse(WorkspacePlan.parse(root).with(role: nil, aiAgent: nil, aiAuto: nil, callCenter: false).callCenter)
+        XCTAssertTrue(WorkspacePlan.parse(root).with(role: nil, aiAgent: nil, aiAuto: nil, callCenter: true).callCenter)
+    }
+
+    func testChannelInboxesThePlanGovernsNeedItOn() throws {
+        let p = try plan(#"{"channels":{"telegram":true,"whatsapp":false}}"#)
+        XCTAssertTrue(p.channelInbox("telegram"))
+        XCTAssertFalse(p.channelInbox("WhatsApp"))
+        XCTAssertFalse(p.channelInbox("bale")) // a plan channel the snapshot does not turn on
+        XCTAssertTrue(p.channelInbox("x")) // not a plan channel: the plugin's own plan check decides
+    }
+
+    func testVoiceAndVideoCallsNeedTheModuleAndTheirChannel() throws {
+        XCTAssertFalse(try plan(#"{"modules":{"voice_video":false},"channels":{"voice":true}}"#).voiceCalls)
+        XCTAssertTrue(try plan(#"{"modules":{"voice_video":true},"channels":{"voice":true}}"#).voiceCalls)
+        XCTAssertFalse(try plan(#"{"modules":{"voice_video":true},"channels":{"voice":true}}"#).videoCalls)
     }
 
     func testWebAnalyticsFollowsThePlanAndTheRole() throws {

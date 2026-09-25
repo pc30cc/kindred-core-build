@@ -131,7 +131,8 @@ final class WebyarAPI {
         return plan.with(role: r?["role"]?.string,
                          aiAgent: caps?["ai_agent_enabled"]?.bool,
                          aiAuto: caps?["auto_answer_enabled"]?.bool,
-                         callCenter: c?["workspace_call_center_visible"]?.bool)
+                         callCenter: c?["workspace_call_center_visible"]?.bool,
+                         aiVisible: caps?["customer_ai_agent_visible"]?.bool)
     }
 
     private func optional(_ call: () async throws -> JSONValue) async -> JSONValue? {
@@ -139,12 +140,14 @@ final class WebyarAPI {
     }
 
     /// Installed channel plugins that bring an inbox ("Other inboxes" in the web
-    /// sidebar). An owner/admin surface: other roles get 403 and see none.
+    /// sidebar). An owner/admin surface: other roles get 403 and see none. One the
+    /// plugin's own plan check refuses (planAllowed false) is left out, as on the web.
     func pluginInboxes(workspaceId: String) async throws -> [String] {
         let doc: JSONValue = try await client.get("/api/plugins/catalog", query: [("workspace_id", workspaceId)])
         var keys: [String] = []
         for item in doc["items"]?.array ?? [] {
-            guard item["installed"]?.bool == true, (item["supportsInbox"] ?? item["supports_inbox"])?.bool == true else { continue }
+            guard item["installed"]?.bool == true, (item["supportsInbox"] ?? item["supports_inbox"])?.bool == true,
+                  (item["planAllowed"] ?? item["plan_allowed"])?.bool != false else { continue }
             if let key = (item["slug"]?.text ?? item["id"]?.text)?.lowercased(), !keys.contains(key) { keys.append(key) }
         }
         return keys

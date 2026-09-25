@@ -406,9 +406,11 @@ final class AppModel {
 
     /// Fetches the plan again. The super admin can switch a feature at any
     /// time; a failure keeps the last good snapshot, and only a first failure
-    /// falls back to "show all".
+    /// leaves it unreadable — nothing gated shows then (fail closed, as on the
+    /// web), and the plan poller asks again within 20 seconds.
     func loadPlan() async {
         guard let ws = workspace else { return }
+        planAskedAt = Date()
         let next: WorkspacePlan
         do {
             next = try await api.plan(workspaceId: ws.id)
@@ -425,9 +427,17 @@ final class AppModel {
         workspacePlan = next.with(role: next.role ?? workspacePlan.role,
                                   aiAgent: next.aiAgentEnabled ?? workspacePlan.aiAgentEnabled,
                                   aiAuto: next.aiAutoAnswer ?? workspacePlan.aiAutoAnswer,
-                                  callCenter: next.callCenterVisible ?? workspacePlan.callCenterVisible)
+                                  callCenter: next.callCenterVisible ?? workspacePlan.callCenterVisible,
+                                  aiVisible: next.aiCustomerVisible ?? workspacePlan.aiCustomerVisible)
         // If the page on show just went away, back to the inbox.
         if !isAllowed(route) { route = .inbox(.open) }
+    }
+
+    /// The plan poller's tick: every three minutes, or 20 seconds after it could not be read.
+    private func loadPlanIfDue() async {
+        let due: TimeInterval = workspacePlan.state == .failed ? 20 : 180
+        guard Date().timeIntervalSince(planAskedAt) >= due - 1 else { return }
+        await loadPlan()
     }
 
     func isAllowed(_ r: Route) -> Bool {
@@ -438,7 +448,7 @@ final class AppModel {
         case .email: return plan.emailInbox
         case .analytics: return plan.webAnalytics
         case .colleagues: return plan.teamChat
-        case .channel: return plan.isAdmin
+        case .channel(let key): return plan.isAdmin && plan.channelInbox(key)
         case .inbox(.ai): return plan.aiQueue(automated: counts.automated)
         case .inbox(.needsHuman): return plan.needsHumanQueue
         case .inbox: return true
@@ -650,11 +660,9 @@ final class AppModel {
         countsPoller = Poller("sidebar counts", interval: { 15 }) { [weak self] in try await self?.loadSidebar(ws.id) }
         countsPoller?.start()
         // The super admin can change the plan at any time, and nothing announces it:
-        // ask again about every two minutes, and whenever the window comes forward.
-        planPoller = Poller("plan", interval: { 60 }) { [weak self] in
-            try await Task.sleep(nanoseconds: 60 * 1_000_000_000)
-            await self?.loadPlan()
-        }
+        // ask again every three minutes, and whenever the window comes forward. A plan
+        // that could not be read hides everything gated, so then ask again after 20 seconds.
+        planPoller = Poller("plan", interval: { 20 }) { [weak self] in await self?.loadPlanIfDue() }
         planPoller?.start()
         let bg = BackgroundNotifier(app: self, workspaceId: ws.id)
         bg.onUnread = { [weak self] n in

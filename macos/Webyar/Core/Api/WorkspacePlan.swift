@@ -2,11 +2,13 @@ import Foundation
 
 /// What the workspace's plan lets this operator see — the same snapshot the
 /// web console reads (/api/plans/workspace/:id/effective), where the super
-/// admin switches features, modules and channels on and off per plan. The
-/// rules copy the web sidebar and the other native apps: while it loads
-/// nothing gated shows; if it cannot be fetched at all, nothing is hidden.
-/// The plan is the one source of what the app offers: Super Admin's plans
-/// switch it, the same as on the web; nothing else takes away from it.
+/// admin switches features, modules and channels on and off per plan — by the
+/// web's one rule (src/lib/planAccess.ts): a capability is available only when
+/// the snapshot is in and says exactly true. While it loads, or when it cannot
+/// be read, nothing gated shows (the server would refuse it anyway) and the app
+/// asks again soon; a key the snapshot does not carry is not available.
+/// The composer's tools (files, voice notes, emoji) are not the plan's to hide:
+/// the widget_* keys govern the customer-facing website widget, not operators.
 struct WorkspacePlan: Sendable, Equatable {
     enum State: Sendable { case loading, loaded, failed }
 
@@ -16,6 +18,8 @@ struct WorkspacePlan: Sendable, Equatable {
     var role: String?
     /// /api/ai-agent/capabilities: the AI agent is on for this workspace.
     var aiAgentEnabled: Bool?
+    /// /api/ai-agent/capabilities: Super Admin shows the AI agent to customers.
+    var aiCustomerVisible: Bool?
     /// /api/ai-agent/capabilities: the AI answers visitors by itself.
     var aiAutoAnswer: Bool?
     /// /api/call-center/capabilities: workspace_call_center_visible.
@@ -41,10 +45,11 @@ struct WorkspacePlan: Sendable, Equatable {
         return p
     }
 
-    func with(role: String?, aiAgent: Bool?, aiAuto: Bool?, callCenter: Bool?) -> WorkspacePlan {
+    func with(role: String?, aiAgent: Bool?, aiAuto: Bool?, callCenter: Bool?, aiVisible: Bool? = nil) -> WorkspacePlan {
         var p = self
         p.role = role ?? self.role
         p.aiAgentEnabled = aiAgent ?? aiAgentEnabled
+        p.aiCustomerVisible = aiVisible ?? aiCustomerVisible
         p.aiAutoAnswer = aiAuto ?? aiAutoAnswer
         p.callCenterVisible = callCenter ?? callCenterVisible
         return p
@@ -57,86 +62,63 @@ struct WorkspacePlan: Sendable, Equatable {
         return .none
     }
 
-    /// The web's moduleInPlan: hidden while loading; shown when the key is absent or on.
-    func moduleInPlan(_ key: String) -> Bool {
-        switch state {
-        case .failed: return true
-        case .loading: return false
-        case .loaded:
-            guard let v = Self.lookup(modules, key) else { return true }
-            return v == true
-        }
+    /// The web's rule: on only when the plan is loaded and says exactly true for the key.
+    private func on(_ map: [String: Bool?], _ key: String) -> Bool {
+        guard state == .loaded, let v = Self.lookup(map, key) else { return false }
+        return v == true
     }
 
-    /// A plan feature (widget_attachments, inbox_team_chat…).
-    func feature(_ key: String) -> Bool {
-        switch state {
-        case .failed: return true
-        case .loading: return false
-        case .loaded:
-            guard let v = Self.lookup(features, key) else { return true }
-            return v == true
-        }
-    }
+    /// A plan module (contacts, call_center…).
+    func moduleInPlan(_ key: String) -> Bool { on(modules, key) }
 
-    /// The inbox's inboxCapAllowed: features[key] ?? modules[key], allowed unless false.
-    func inboxCap(_ key: String) -> Bool {
-        switch state {
-        case .failed: return true
-        case .loading: return false
-        case .loaded:
-            let f = Self.lookup(features, key)
-            let v: Bool? = f != nil ? f! : (Self.lookup(modules, key) ?? nil)
-            return v != false
-        }
-    }
+    /// A plan feature (inbox_team_chat, call_recording…).
+    func feature(_ key: String) -> Bool { on(features, key) }
 
-    /// Calls, as the web's SidebarCallCard: voice_video not off, and the channel not off.
-    private func call(_ channel: String) -> Bool {
-        switch state {
-        case .failed: return true
-        case .loading: return false
-        case .loaded:
-            let vv = Self.lookup(modules, "voice_video") ?? nil
-            let c = Self.lookup(channels, channel) ?? nil
-            return vv != false && c != false
-        }
-    }
+    private func channelInPlan(_ key: String) -> Bool { on(channels, key) }
+
+    /// Calls, as the web's SidebarCallCard: the Voice & Video module and the call's channel.
+    private func call(_ channel: String) -> Bool { moduleInPlan("voice_video") && channelInPlan(channel) }
 
     var voiceCalls: Bool { call("voice") }
     var videoCalls: Bool { call("video") }
 
-    var attachments: Bool { feature("widget_attachments") }
-    var voiceNotes: Bool { feature("widget_voice_notes") }
     /// Files on outgoing mail go with the mailbox itself.
     var emailAttachments: Bool { emailInbox }
-    var emoji: Bool { feature("widget_emoji") }
 
     var contacts: Bool { moduleInPlan("contacts") }
     var visitors: Bool { moduleInPlan("visitor_tracking") }
-    var callCenter: Bool { moduleInPlan("call_center") && callCenterVisible != false }
+    /// The call center: in the plan and switched on for this workspace (unknown is off).
+    var callCenter: Bool { moduleInPlan("call_center") && callCenterVisible == true }
     /// Recordings of calls, where the plan keeps them.
     var callRecordings: Bool { feature("call_recording") }
-    var teamChat: Bool { inboxCap("inbox_team_chat") }
+    /// The colleagues queue (the web's colleaguesQueueVisible).
+    var teamChat: Bool { feature("inbox_team_chat") }
     /// Website analytics, as the web sidebar shows it: owners and admins, when the plan has the module.
     var webAnalytics: Bool { isAdmin && moduleInPlan("web_analytics") }
     /// The mailbox, as the web sidebar shows it: owners and admins, when the plan has it.
     var emailInbox: Bool { isAdmin && moduleInPlan("email_inbox") }
 
-    /// A channel's inbox (Telegram, WhatsApp, Bale…): the plan's omnichannel module, and that channel not off.
-    func channelInbox(_ key: String) -> Bool {
-        switch state {
-        case .failed: return true
-        case .loading: return false
-        case .loaded:
-            return moduleInPlan("omnichannel") && (Self.lookup(channels, key.lowercased()) ?? nil) != false
-        }
-    }
-    var needsHumanQueue: Bool { inboxCap("inbox_needs_human") }
+    /// Channel keys the plan itself governs; the others are decided by the plugin's own plan check.
+    private static let planChannels: Set<String> = [
+        "chat_widget", "email", "whatsapp", "sms", "instagram", "telegram", "bale", "gmail", "yahoomail", "voice", "video",
+    ]
 
-    /// The AI queue: the plan's AI surface, and the AI answering (or something already in it).
+    /// A channel's inbox (Telegram, WhatsApp, Bale…), as the web's channelInboxVisible: a channel
+    /// the plan governs must be on in the loaded plan; any other one is the plugin catalog's call
+    /// (its planAllowed, applied where the catalog is read).
+    func channelInbox(_ key: String) -> Bool {
+        let k = key.lowercased()
+        return !Self.planChannels.contains(k) || channelInPlan(k)
+    }
+
+    /// The needs-human queue (the web's needsHumanQueueVisible).
+    var needsHumanQueue: Bool { feature("inbox_needs_human") }
+
+    /// The AI queue (the web's aiQueueVisible): in the plan, the AI switched on and shown to
+    /// customers (unknown is off), and either answering by itself or already holding threads.
     func aiQueue(automated: Int?) -> Bool {
-        inboxCap("inbox_ai_queue") && aiAgentEnabled != false && (aiAutoAnswer != false || (automated ?? 0) > 0)
+        feature("inbox_ai_queue") && aiAgentEnabled == true && aiCustomerVisible == true
+            && (aiAutoAnswer == true || (automated ?? 0) > 0)
     }
 
     private static func flags(_ group: JSONValue?) -> [String: Bool?] {

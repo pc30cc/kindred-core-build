@@ -166,6 +166,16 @@ final class UpdaterTest extends TestCase {
 		$this->assertSame( '1.1.0', $out->no_update[ $this->key() ]->new_version );
 	}
 
+	public function test_plugin_details_changelog_follows_the_admin_locale(): void {
+		$this->check( array( 'changelog' => 'English update notes', 'changelog_fa' => 'یادداشت‌های فارسی' ) );
+		$updater = new Updater();
+		$GLOBALS['__webyar_test_locale'] = 'en_US';
+		$this->assertSame( 'English update notes', $updater->plugin_details( null, 'plugin_information', (object) array( 'slug' => 'webyar-woocommerce' ) )->sections['changelog'] );
+		$GLOBALS['__webyar_test_locale'] = 'fa_IR';
+		$this->assertSame( 'یادداشت‌های فارسی', $updater->plugin_details( null, 'plugin_information', (object) array( 'slug' => 'webyar-woocommerce' ) )->sections['changelog'] );
+		$GLOBALS['__webyar_test_locale'] = 'en_US';
+	}
+
 	public function test_repeated_checks_ask_the_server_once(): void {
 		// wp-admin fires this filter on many page loads.
 		$GLOBALS['__webyar_test_options']['webyar_wc_settings'] = array( 'app_url' => 'https://app.example.com' );

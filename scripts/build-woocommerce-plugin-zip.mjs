@@ -66,10 +66,13 @@ function writeManifest() {
   }
 
   let changelog = '';
+  let changelogFa = '';
   const readme = join(PLUGIN_SRC, 'readme.txt');
   if (existsSync(readme)) {
     const section = readFileSync(readme, 'utf8').split(/^==\s*Changelog\s*==$/m)[1];
     if (section) changelog = section.split(/^==/m)[0].trim();
+    const sectionFa = readFileSync(readme, 'utf8').split(/^==\s*Changelog fa_IR\s*==$/m)[1];
+    if (sectionFa) changelogFa = sectionFa.split(/^==/m)[0].trim();
   }
 
   const manifest = {
@@ -83,6 +86,7 @@ function writeManifest() {
     homepage: readHeader('Plugin URI', source) || 'https://webyar.ai',
     description: readHeader('Description', source),
     changelog,
+    changelog_fa: changelogFa,
     last_updated: new Date().toISOString(),
   };
 

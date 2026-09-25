@@ -64,7 +64,7 @@ final class PairingService {
 	/** Starts a NEW pairing attempt and returns the URL to open in the admin's browser. */
 	public static function start(): string {
 		if ( ! self::app_base_url_configured() ) {
-			throw new \RuntimeException( __( 'پیش از اتصال، آدرس وب‌یار را در پایین وارد کنید.', 'webyar-woocommerce' ) );
+			throw new \RuntimeException( __( 'Enter the WebYar URL before connecting.', 'webyar-woocommerce' ) );
 		}
 
 		$state          = self::base64url( random_bytes( 24 ) );
@@ -103,7 +103,7 @@ final class PairingService {
 			Logger::error( 'pairing register failed', array( 'error' => $register->get_error_message() ) );
 			throw new \RuntimeException( sprintf(
 				/* translators: 1: Web Yar URL, 2: underlying network error message */
-				__( 'اتصال به %1$s برقرار نشد — %2$s', 'webyar-woocommerce' ),
+				__( 'Could not connect to %1$s: %2$s', 'webyar-woocommerce' ),
 				self::api_base_url(),
 				$register->get_error_message()
 			) );
@@ -114,7 +114,7 @@ final class PairingService {
 			Logger::error( 'pairing register rejected', array( 'status' => $register_status ) );
 			throw new \RuntimeException( sprintf(
 				/* translators: 1: HTTP status code, 2: Web Yar URL */
-				__( 'وب‌یار درخواست اتصال را رد کرد (کد %1$d) در آدرس %2$s. بررسی کنید آدرس وب‌یار درست و در دسترس باشد.', 'webyar-woocommerce' ),
+				__( 'WebYar rejected the connection request (code %1$d) at %2$s. Check the URL and try again.', 'webyar-woocommerce' ),
 				$register_status,
 				self::api_base_url()
 			) );
@@ -137,11 +137,11 @@ final class PairingService {
 	public static function complete( string $code, string $state ): array {
 		$pending = get_option( self::STATE_OPTION, null );
 		if ( ! is_array( $pending ) || ( $pending['state'] ?? '' ) !== $state ) {
-			throw new \RuntimeException( __( 'عدم تطابق در فرآیند اتصال — لطفاً دوباره تلاش کنید.', 'webyar-woocommerce' ) );
+			throw new \RuntimeException( __( 'The connection request did not match. Please try again.', 'webyar-woocommerce' ) );
 		}
 		if ( time() - (int) ( $pending['created_at'] ?? 0 ) > 600 ) {
 			delete_option( self::STATE_OPTION );
-			throw new \RuntimeException( __( 'زمان درخواست اتصال به پایان رسید — لطفاً دوباره تلاش کنید.', 'webyar-woocommerce' ) );
+			throw new \RuntimeException( __( 'The connection request expired. Please try again.', 'webyar-woocommerce' ) );
 		}
 
 		$response = wp_remote_post(
@@ -164,14 +164,14 @@ final class PairingService {
 		if ( is_wp_error( $response ) ) {
 			throw new \RuntimeException( sprintf(
 				/* translators: %s: underlying network error message */
-				__( 'اتصال به وب‌یار برای تکمیل فرآیند برقرار نشد — %s', 'webyar-woocommerce' ),
+				__( 'Could not finish connecting to WebYar: %s', 'webyar-woocommerce' ),
 				$response->get_error_message()
 			) );
 		}
 		$code_status = wp_remote_retrieve_response_code( $response );
 		$body        = json_decode( wp_remote_retrieve_body( $response ), true );
 		if ( $code_status >= 400 || ! is_array( $body ) || empty( $body['installationSecret'] ) ) {
-			throw new \RuntimeException( __( 'وب‌یار درخواست نهایی‌سازی اتصال را رد کرد.', 'webyar-woocommerce' ) );
+			throw new \RuntimeException( __( 'WebYar rejected the connection confirmation.', 'webyar-woocommerce' ) );
 		}
 
 		return array(

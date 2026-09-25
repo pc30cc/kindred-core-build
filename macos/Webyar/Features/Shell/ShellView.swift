@@ -8,13 +8,24 @@ struct ShellView: View {
     @State private var pages: Pages?
     @State private var columns = NavigationSplitViewVisibility.all
 
+    /// Who is signed in, where, and in which language: a change rebuilds the pages and the
+    /// columns' contents — never the split view itself (see RootView).
+    private var sessionKey: String {
+        "\(app.user?.id ?? "-")|\(app.workspace?.id ?? "-")|\(app.strings.language.code)"
+    }
+
+    private var live: Pages? { app.phase == .signedIn ? pages : nil }
+
     var body: some View {
-        Group {
-            if let pages {
-                NavigationSplitView(columnVisibility: $columns) {
-                    SidebarView()
-                        .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 300)
-                } detail: {
+        NavigationSplitView(columnVisibility: $columns) {
+            Group {
+                if live != nil { SidebarView() } else { Color.clear }
+            }
+            .id(sessionKey)
+            .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 300)
+        } detail: {
+            Group {
+                if let pages = live {
                     // The page: its list at a fixed width beside its detail, as on
                     // Windows (a 340 column, then the rest). A plain stack rather than
                     // a third split column, so a wider window widens the detail.
@@ -27,18 +38,27 @@ struct ShellView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .safeAreaInset(edge: .top, spacing: 0) { ShellBanners() }
                     }
+                } else {
+                    Palette.appBackground
                 }
-                .overlay(alignment: .bottomTrailing) {
-                    IncomingCallCard()
-                        .padding(20)
-                }
-            } else {
-                Color.clear
+            }
+            .id(sessionKey)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if live != nil {
+                IncomingCallCard()
+                    .padding(20)
             }
         }
-        .onAppear { if pages == nil { pages = Pages(app: app) } }
+        .onChange(of: "\(app.phase == .signedIn)|\(sessionKey)", initial: true) { _, _ in rebuildPages() }
         .onDisappear { pages?.stop() }
         .onChange(of: app.callQueue?.queue.map(\.callSessionId) ?? []) { _, _ in app.syncRinging() }
+    }
+
+    /// Fresh pages for whoever is signed in now; none while signed out.
+    private func rebuildPages() {
+        pages?.stop()
+        pages = app.phase == .signedIn ? Pages(app: app) : nil
     }
 }
 

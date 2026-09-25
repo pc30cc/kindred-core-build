@@ -10,17 +10,24 @@ struct RootView: View {
     var body: some View {
         let maintenance = app.config.maintenance.enabled
         ZStack {
-            Group {
+            ZStack {
+                // The window's split view is made once and kept: re-creating a NavigationSplitView
+                // in the same window (after signing out and in, or for another workspace) left the
+                // new one with the sidebar's width taken off its content twice — a narrow thread,
+                // no room for the details, half-drawn messages. What it shows changes instead.
+                // Only a language change rebuilds it, so the columns change sides with the text.
+                ShellView()
+                    .id(app.strings.language.code)
                 switch app.phase {
                 case .launching:
                     SplashView()
+                        .background(Palette.appBackground.ignoresSafeArea())
+                        .transition(.opacity)
                 case .signedOut:
                     LoginView()
+                        .transition(.opacity)
                 case .signedIn:
-                    // Rebuilt for another workspace, and for another language so the
-                    // columns change sides with the text direction, as Windows rebuilds its page.
-                    ShellView()
-                        .id("\(app.workspace?.id ?? "none")-\(app.strings.language.code)")
+                    EmptyView()
                 }
             }
             // Not a key reaches the app beneath the maintenance notice either.

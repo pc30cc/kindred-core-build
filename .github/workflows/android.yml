@@ -103,6 +103,18 @@ jobs:
         working-directory: android
         run: ./gradlew :app:assembleDebug --stacktrace
 
+      # The Room cache's schema, as the build just exported it. Uploaded so a
+      # schema change can be committed from any machine, including one that
+      # cannot run this build itself.
+      - name: Room schema (artifact)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: room-schema
+          path: android/app/schemas/
+          if-no-files-found: error
+          retention-days: 14
+
       # The JVM layer, which is where most of the suite lives: no device, no
       # KVM, no emulator (ADR-003 §5). Instrumented tests are a separate job
       # on a schedule, because the emulator's ~4GB does not coexist with a

@@ -44,6 +44,8 @@ actor LocalStore {
     private var closed = false
     /// Set when SQLite reports a damaged file: the handle is closed and the file rebuilt on the next call.
     private var damaged = false
+    /// The last SQLite result code seen while opening: busy is waited out, never mistaken for damage.
+    private var lastCode: Int32 = SQLITE_OK
 
     init(scope: Scope, root: URL? = nil) {
         self.scope = scope
@@ -277,26 +279,50 @@ actor LocalStore {
             Self.removeFiles(url)
         }
         if let db { return db }
-        if let fresh = openChecked() { db = fresh; return fresh }
+        switch openChecked() {
+        case .open(let fresh):
+            db = fresh
+            return fresh
+        case .busy:
+            // Another connection (a workspace closing as it reopens) holds the file: skip this
+            // call; the file is healthy and must not be deleted.
+            Log.write("[store] busy, skipped")
+            return nil
+        case .unusable:
+            break
+        }
         // Unreadable, damaged or from another schema: start over, empty.
         Log.write("[store] rebuilding local store")
         Self.removeFiles(url)
-        db = openChecked()
-        if db == nil { Log.write("[store] local store unavailable; running from the server only") }
+        if case .open(let fresh) = openChecked() { db = fresh } else { Log.write("[store] local store unavailable; running from the server only") }
         return db
     }
 
-    private func openChecked() -> OpaquePointer? {
+    private enum Opening { case open(OpaquePointer), busy, unusable }
+
+    private static func isBusy(_ code: Int32) -> Bool {
+        let primary = code & 0xff
+        return primary == SQLITE_BUSY || primary == SQLITE_LOCKED
+    }
+
+    private func openChecked() -> Opening {
+        let result = openOnce()
+        if case .unusable = result, Self.isBusy(lastCode) { return .busy }
+        return result
+    }
+
+    private func openOnce() -> Opening {
+        lastCode = SQLITE_OK
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         } catch {
-            return nil
+            return .unusable
         }
         var handle: OpaquePointer?
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX
         guard sqlite3_open_v2(url.path, &handle, flags, nil) == SQLITE_OK, let h = handle else {
             if let handle { sqlite3_close_v2(handle) }
-            return nil
+            return .unusable
         }
         sqlite3_busy_timeout(h, 2_000)
         var ok = "fail"
@@ -305,23 +331,23 @@ actor LocalStore {
         query(h, "PRAGMA user_version", []) { version = Int32($0.int(0)) }
         guard ok == "ok", !damaged else {
             damaged = false
-            Log.write("[store] integrity check failed")
             sqlite3_close_v2(h)
-            return nil
+            if !Self.isBusy(lastCode) { Log.write("[store] integrity check failed") }
+            return .unusable
         }
         if version != CachePolicy.schemaVersion {
             // A new file (0) is created here; any other version is another build's cache: rebuilt.
             if version != 0 {
                 Log.write("[store] schema \(version) → \(CachePolicy.schemaVersion), rebuilt")
                 sqlite3_close_v2(h)
-                return nil
+                return .unusable
             }
             guard create(h) else {
                 sqlite3_close_v2(h)
-                return nil
+                return .unusable
             }
         }
-        return h
+        return .open(h)
     }
 
     private func create(_ db: OpaquePointer) -> Bool {
@@ -336,7 +362,9 @@ actor LocalStore {
             CREATE INDEX IF NOT EXISTS messages_by_thread ON messages (conversation_id, created_at);
             PRAGMA user_version = \(CachePolicy.schemaVersion);
             """
-        return sqlite3_exec(db, schema, nil, nil, nil) == SQLITE_OK
+        let rc = sqlite3_exec(db, schema, nil, nil, nil)
+        if rc != SQLITE_OK { lastCode = rc }
+        return rc == SQLITE_OK
     }
 
     // MARK: Statements
@@ -414,6 +442,7 @@ actor LocalStore {
     /// A damaged file found while in use: dropped, and the next call starts from an empty one.
     /// A full disk only loses this write: the cache is a convenience.
     private func noteFailure(_ db: OpaquePointer) {
+        lastCode = sqlite3_extended_errcode(db)
         let code = sqlite3_errcode(db) & 0xff
         switch code {
         case SQLITE_CORRUPT, SQLITE_NOTADB:
@@ -421,6 +450,8 @@ actor LocalStore {
             damaged = true
         case SQLITE_FULL:
             Log.write("[store] disk full, write skipped")
+        case SQLITE_BUSY, SQLITE_LOCKED:
+            Log.write("[store] busy")
         default:
             Log.write("[store] sqlite code \(code)")
         }

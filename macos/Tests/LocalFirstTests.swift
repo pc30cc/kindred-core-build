@@ -204,6 +204,26 @@ final class LocalFirstTests: XCTestCase {
         XCTAssertNil(second)
     }
 
+    func testABusyFileIsSkippedNeverDeleted() async throws {
+        let s = store()
+        await s.saveThread("c1", messages: [msg("a", at: 1)], cursor: "c", fullAt: Date())
+        await s.close()
+        // Another connection holds the file outright (a workspace closing as it reopens).
+        var holder: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(s.url.path, &holder), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(holder, "PRAGMA locking_mode = EXCLUSIVE; BEGIN EXCLUSIVE; DELETE FROM meta;", nil, nil, nil), SQLITE_OK)
+
+        let blocked = store()
+        let whileBusy = await blocked.thread("c1")
+        XCTAssertNil(whileBusy)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: s.url.path), "a busy file is not damage")
+
+        sqlite3_exec(holder, "COMMIT", nil, nil, nil)
+        sqlite3_close(holder)
+        let afterwards = await blocked.thread("c1")
+        XCTAssertEqual(afterwards?.messages.map(\.id), ["a"])
+    }
+
     func testAnotherSchemaVersionIsRebuilt() async throws {
         let s = store()
         await s.saveThread("c1", messages: [msg("a", at: 1)], cursor: nil, fullAt: nil)

@@ -55,6 +55,18 @@ public sealed class WebyarApi
         return (await _client.GetAsync<ConversationsResponse>("/api/conversations", query, ct).ConfigureAwait(false))?.Conversations ?? [];
     }
 
+    /// <summary>
+    /// The same list, revalidated: with the tag of the copy the caller holds,
+    /// an unchanged queue answers 304 and nothing is downloaded.
+    /// </summary>
+    public async Task<Conditional<IReadOnlyList<Conversation>>> ConversationsConditionalAsync(string workspaceId, InboxFilter filter, string? etag, CancellationToken ct = default)
+    {
+        var query = new List<KeyValuePair<string, string?>> { Q("workspace_id", workspaceId) };
+        query.AddRange(QueueOf(filter));
+        var r = await _client.GetConditionalAsync<ConversationsResponse>("/api/conversations", query, etag, ct).ConfigureAwait(false);
+        return new Conditional<IReadOnlyList<Conversation>>(r.NotModified, r.NotModified ? null : r.Value?.Conversations ?? [], r.ETag, r.Bytes);
+    }
+
     public Task<InboxCounts> InboxCountsAsync(string workspaceId, string scope = "mine", CancellationToken ct = default) =>
         _client.GetAsync<InboxCounts>("/api/conversations/inbox-tab-counts", [Q("workspace_id", workspaceId), Q("scope", scope)], ct);
 
@@ -62,10 +74,6 @@ public sealed class WebyarApi
     public Task<SidebarCounts> SidebarCountsAsync(string workspaceId, string scope = "mine", CancellationToken ct = default) =>
         _client.GetAsync<SidebarCounts>("/api/conversations/inbox-counts", [Q("workspace_id", workspaceId), Q("scope", scope)], ct);
 
-    /// <summary>
-    /// Installed channel plugins that bring an inbox ("Other inboxes" in the web
-    /// sidebar). An owner/admin surface: other roles get 403 and see none.
-    /// </summary>
     /// <summary>
     /// The plan snapshot the web console gates on, plus the operator's role and
     /// the AI and call-center switches. Only the snapshot itself is required.
@@ -86,7 +94,8 @@ public sealed class WebyarApi
             role: StrOf(r, "role"),
             aiAgent: BoolOf(caps, "ai_agent_enabled"),
             aiAuto: BoolOf(caps, "auto_answer_enabled"),
-            callCenter: BoolOf(c, "workspace_call_center_visible"));
+            callCenter: BoolOf(c, "workspace_call_center_visible"),
+            aiVisible: BoolOf(caps, "customer_ai_agent_visible"));
     }
 
     private static async Task<JsonElement?> Optional(Func<Task<JsonElement>> call)
@@ -107,6 +116,10 @@ public sealed class WebyarApi
     private static bool? BoolOf(JsonElement? e, string name) =>
         e is { ValueKind: JsonValueKind.Object } o && o.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False ? v.GetBoolean() : null;
 
+    /// <summary>
+    /// Installed channel plugins that bring an inbox ("Other inboxes" in the web
+    /// sidebar) and that the plan allows. An owner/admin surface: other roles get 403 and see none.
+    /// </summary>
     public async Task<IReadOnlyList<string>> PluginInboxesAsync(string workspaceId, CancellationToken ct = default)
     {
         var doc = await _client.GetAsync<JsonElement>("/api/plugins/catalog", [Q("workspace_id", workspaceId)], ct).ConfigureAwait(false);
@@ -117,6 +130,10 @@ public sealed class WebyarApi
             bool Flag(string camel, string snake) =>
                 (item.TryGetProperty(camel, out var v) || item.TryGetProperty(snake, out v)) && v.ValueKind == JsonValueKind.True;
             if (!Flag("installed", "installed") || !Flag("supportsInbox", "supports_inbox")) continue;
+            // The server's own plan verdict for the plugin (its plan channel, e.g. telegram,
+            // with Super Admin's workspace overrides applied): a channel the plan no longer
+            // includes has no inbox, even if the plugin was installed while it did.
+            if ((item.TryGetProperty("planAllowed", out var allowed) || item.TryGetProperty("plan_allowed", out allowed)) && allowed.ValueKind == JsonValueKind.False) continue;
             var key = (item.TryGetProperty("slug", out var slug) && slug.ValueKind == JsonValueKind.String ? slug.GetString() : null)
                 ?? (item.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() : null);
             if (!string.IsNullOrWhiteSpace(key) && !keys.Contains(key.ToLowerInvariant())) keys.Add(key.ToLowerInvariant());
@@ -126,6 +143,19 @@ public sealed class WebyarApi
 
     public async Task<IReadOnlyList<Message>> MessagesAsync(string conversationId, CancellationToken ct = default) =>
         (await _client.GetAsync<MessagesResponse>($"/api/conversations/{Uri.EscapeDataString(conversationId)}/messages", ct: ct).ConfigureAwait(false))?.Messages ?? [];
+
+    /// <summary>
+    /// The thread, incrementally: with a <paramref name="cursor"/> only what
+    /// changed after it (a server that cannot answer that way sends the whole
+    /// thread and says so); with an <paramref name="etag"/> and no cursor, a
+    /// full fetch that costs nothing when the thread has not changed.
+    /// </summary>
+    public Task<Conditional<MessagesPage>> MessagesPageAsync(string conversationId, string? cursor, string? etag, CancellationToken ct = default) =>
+        _client.GetConditionalAsync<MessagesPage>(
+            $"/api/conversations/{Uri.EscapeDataString(conversationId)}/messages",
+            cursor is null ? null : [Q("since", cursor)],
+            cursor is null ? etag : null,
+            ct);
 
     /// <summary>
     /// `clientMessageId` makes a retry safe: the server collapses a replay of

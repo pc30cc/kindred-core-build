@@ -1,14 +1,16 @@
 import { Link, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Inbox, Radar, Menu as MenuIcon } from 'lucide-react';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useInboxCounts } from '@/hooks/useConversations';
+import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
 import { cn } from '@/lib/utils';
 
 /**
  * Fixed bottom tab bar — the primary navigation surface on mobile web/PWA
  * (desktop keeps the permanent AppSidebar rail; see AppLayout.tsx). Only
- * four universal, always-available destinations: everything else (AI
+ * a few destinations — Visitors only when the plan includes it, by the
+ * sidebar's own rule: everything else (AI
  * Agent, Contacts, SEO, Settings, workspace switcher, Super Admin, ...) is
  * one tap away behind "Menu", which opens the full AppSidebar as a Sheet
  * drawer (`variant="drawer"`) — the same entitlement-gated nav content as
@@ -20,6 +22,8 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
   const wsPath = useWorkspacePath();
   const { workspace } = useActiveWorkspace();
   const { data: inboxCounts } = useInboxCounts(workspace?.id);
+  // Visitors is a plan section: the tab follows the sidebar's rule.
+  const sections = useWorkspaceSections();
 
   const isActive = (subPath: string) => {
     const fullPath = wsPath(subPath);
@@ -32,7 +36,9 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
   const tabs: { key: string; icon: React.ElementType; onClick?: () => void; to?: string; active: boolean; badge?: number }[] = [
     { key: 'dashboard', icon: LayoutDashboard, to: wsPath(''), active: isActive('') },
     { key: 'inbox', icon: Inbox, to: wsPath('/inbox'), active: isActive('/inbox'), badge: needsHuman },
-    { key: 'visitors', icon: Radar, to: wsPath('/visitors'), active: isActive('/visitors') },
+    ...(sections.visible('visitors')
+      ? [{ key: 'visitors', icon: Radar, to: wsPath('/visitors'), active: isActive('/visitors') }]
+      : []),
     { key: 'menu', icon: MenuIcon, active: false, onClick: onMenuClick },
   ];
 
@@ -61,7 +67,7 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
               )}
             </span>
             <span className={cn('text-[10px] font-medium', tab.active ? 'text-primary' : 'text-muted-foreground')}>
-              {t(`nav.${tab.key}` as any)}
+              {t(`nav.${tab.key}` as TranslationKey)}
             </span>
           </>
         );

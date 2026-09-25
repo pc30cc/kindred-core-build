@@ -48,7 +48,11 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         Log.Write($"launch {Host.Updates.CurrentVersion}");
-        _ = Task.Run(FileCache.Trim);
+        _ = Task.Run(() =>
+        {
+            FileCache.Trim();
+            AvatarImages.Trim();
+        });
         Host.Notifier.Invoked += OpenFromNotification;
         Host.Notifier.Register();
 

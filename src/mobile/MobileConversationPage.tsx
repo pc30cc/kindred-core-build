@@ -57,7 +57,6 @@ import { cn } from '@/lib/utils';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { conversationsApi } from '@/lib/conversations-api';
 import { toast } from '@/lib/toast';
-import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import { MobileEmojiPicker } from './MobileEmojiPicker';
 
 /** One attachment as `MessageAttachmentView` needs it. */
@@ -77,6 +76,8 @@ interface TimelineMessage {
   created_at: string;
   attachments?: TimelineAttachment[] | null;
   attachment?: TimelineAttachment | null;
+  seen_at?: string | null;
+  read_at?: string | null;
 }
 
 /** The fields of a conversation this screen actually reads. */
@@ -84,11 +85,15 @@ interface TimelineConversation {
   id: string;
   status?: string;
   contacts?: {
+    id?: string | null;
     name?: string | null;
     email?: string | null;
     avatar_url?: string | null;
     visitor_code?: string | null;
+    is_online?: boolean | null;
+    metadata?: { os?: string | null; device?: string | null } | null;
   } | null;
+  visitor_status?: string | null;
   metadata?: { ai_state?: string | null } | null;
   ai_state?: string | null;
   visitor_os?: string | null;
@@ -115,7 +120,7 @@ export default function MobileConversationPage() {
   const { data: conversations } = useConversations(workspace?.id, undefined, 'main');
   const conversation = useMemo(
     () =>
-      ((conversations ?? []) as unknown as (TimelineConversation & Record<string, any>)[]).find(
+      ((conversations ?? []) as unknown as TimelineConversation[]).find(
         (c) => c.id === conversationId,
       ),
     [conversations, conversationId],
@@ -126,8 +131,14 @@ export default function MobileConversationPage() {
   const updateConversation = useUpdateConversation();
   const markSeen = useMarkConversationSeen();
 
-  // Who is answering, and what the plan allows. Both have to say yes before
-  // a composer control appears.
+  // Who is answering decides the composer controls.
+  //
+  // Not the plan: `widget_attachments`, `widget_voice_notes` and `widget_emoji`
+  // govern what VISITORS may do in the chat widget (their registry
+  // definitions, and the only place the server enforces them). Operator
+  // attachments also carry files to Telegram, WhatsApp and Instagram chats,
+  // so gating them on a widget key hid them wherever the key is off (its
+  // default) — the desktop inbox never did. One rule for both.
   //
   // `metadata.ai_state` first, then the top-level column — the same precedence
   // InboxPage reads them in. While the AI owns a thread the operator is
@@ -137,13 +148,9 @@ export default function MobileConversationPage() {
   // visitor the AI knows nothing about.
   const aiManaged =
     (conversation?.metadata?.ai_state || conversation?.ai_state) === 'ai_managed';
-  const { data: entitlements } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
-  // Fail-closed: an unresolved snapshot offers nothing rather than a control
-  // that would fail on use.
-  const planAllows = (key: string) => entitlements?.features?.[key]?.value === true;
-  const canAttach = !aiManaged && planAllows('widget_attachments');
-  const canRecordVoice = !aiManaged && planAllows('widget_voice_notes');
-  const canUseEmoji = !aiManaged && planAllows('widget_emoji');
+  const canAttach = !aiManaged;
+  const canRecordVoice = !aiManaged;
+  const canUseEmoji = !aiManaged;
 
   // contactDisplayName and MessageAttachmentView are keyed by plain strings;
   // the app's `t` is keyed by TranslationKey. This adapter bridges the two
@@ -293,10 +300,10 @@ export default function MobileConversationPage() {
 
   const BackIcon = dir === 'rtl' ? ChevronRight : ChevronLeft;
   const isResolved = conversation?.status === 'resolved' || conversation?.status === 'closed';
-  const isOnline = (conversation as any)?.visitor_status === 'online' || (conversation?.contacts as any)?.is_online;
+  const isOnline = conversation?.visitor_status === 'online' || !!conversation?.contacts?.is_online;
   const canSend = !!(draft.trim() || pending?.id) && !pending?.uploading;
 
-  const list = (messages ?? []) as Array<Record<string, any>>;
+  const list = (messages ?? []) as unknown as TimelineMessage[];
 
   return (
     <div className="fixed inset-0 z-30 flex flex-col bg-muted/40">
@@ -314,17 +321,17 @@ export default function MobileConversationPage() {
         <button
           type="button"
           onClick={() =>
-            (conversation?.contacts as any)?.id && navigate(`/${slug}/contacts/${(conversation.contacts as any).id}`)
+            conversation?.contacts?.id && navigate(`/${slug}/contacts/${conversation.contacts.id}`)
           }
           className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-0.5 py-0.5 text-start active:opacity-70"
         >
           <span className="relative shrink-0">
             <ContactAvatar
-              name={(conversation?.contacts as any)?.name}
-              email={(conversation?.contacts as any)?.email}
-              avatarUrl={(conversation?.contacts as any)?.avatar_url}
-              os={conversation?.visitor_os ?? (conversation?.contacts as any)?.metadata?.os}
-              device={conversation?.visitor_device ?? (conversation?.contacts as any)?.metadata?.device}
+              name={conversation?.contacts?.name}
+              email={conversation?.contacts?.email}
+              avatarUrl={conversation?.contacts?.avatar_url}
+              os={conversation?.visitor_os ?? conversation?.contacts?.metadata?.os}
+              device={conversation?.visitor_device ?? conversation?.contacts?.metadata?.device}
               countryCode={conversation?.visitor_country_code}
               countryName={conversation?.visitor_country_name}
               size="sm"
@@ -337,7 +344,7 @@ export default function MobileConversationPage() {
             <span className="block truncate text-[14px] font-semibold leading-tight text-foreground">
               {name || '…'}
             </span>
-            {(conversation?.contacts as any)?.email && (
+            {conversation?.contacts?.email && (
               // `plaintext` keeps the address itself LTR while the line stays
               // aligned to the reading direction (right, under the name, in fa).
               <span
@@ -362,9 +369,9 @@ export default function MobileConversationPage() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56 rounded-2xl">
-            {(conversation?.contacts as any)?.id && (
+            {conversation?.contacts?.id && (
               <DropdownMenuItem
-                onClick={() => navigate(`/${slug}/contacts/${(conversation.contacts as any).id}`)}
+                onClick={() => navigate(`/${slug}/contacts/${conversation.contacts.id}`)}
               >
                 <User className="me-2 h-4 w-4" /> {t('nav.profile')}
               </DropdownMenuItem>
@@ -409,9 +416,9 @@ export default function MobileConversationPage() {
             ))}
           </div>
         ) : (
-          (list as unknown as Array<TimelineMessage & Record<string, any>>).map((m, i) => {
+          list.map((m, i) => {
             const isOutbound = m.sender_type === 'agent' || m.sender_type === 'ai' || m.sender_type === 'bot';
-            const prev = (list as unknown as TimelineMessage[])[i - 1];
+            const prev = list[i - 1];
             const showDay =
               !prev ||
               new Date(prev.created_at).toDateString() !== new Date(m.created_at).toDateString();

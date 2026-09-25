@@ -22,6 +22,13 @@ public sealed class AppSettings
     public bool StartWithWindows { get; set; }
     public string? ApiOrigin { get; set; }
     public string? WorkspaceId { get; set; }
+
+    /// <summary>
+    /// Whose session the saved token is (a user id, never the token): which
+    /// account's copy on this PC may be shown before the server has answered.
+    /// Set at sign-in, cleared when the session ends.
+    /// </summary>
+    public string? SessionUserId { get; set; }
     public WindowBounds? Window { get; set; }
 
     /// <summary>Ads and announcements the operator closed with ✕.</summary>

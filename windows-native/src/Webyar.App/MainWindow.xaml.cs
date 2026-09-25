@@ -68,8 +68,12 @@ public sealed partial class MainWindow : Window
         Root.AddHandler(UIElement.KeyDownEvent, new Microsoft.UI.Xaml.Input.KeyEventHandler((_, _) => Host.Presence?.NoteInteraction()), true);
         Root.AddHandler(UIElement.PointerPressedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler((_, _) => Host.Presence?.NoteInteraction()), true);
         Host.LanguageChanged += ApplyLanguage;
-        Host.Client.Unauthorized += (_, _) => Host.RunOnUi(SignedOut);
-        _platformTimer.Tick += async (_, _) => await RefreshPlatformQuietlyAsync();
+        Host.Client.Unauthorized += (_, _) => Host.RunOnUi(() => SignedOut());
+        _platformTimer.Tick += async (_, _) =>
+        {
+            await RefreshPlatformQuietlyAsync();
+            Host.LogCacheStats();
+        };
         ApplyLanguage();
         ApplyTheme();
     }
@@ -85,9 +89,18 @@ public sealed partial class MainWindow : Window
     {
         _pendingOpen = launch;
         Splash.Visibility = Visibility.Visible;
-        await RefreshPlatformQuietlyAsync();
         _platformTimer.Start();
 
+        // Local-first: the last session's inbox is on this PC. Show it now and
+        // let the server confirm the session and refresh it in the background,
+        // instead of holding a splash through five requests (or forever offline).
+        if (Host.Client.HasSession && Host.Settings.SessionUserId is { } owner && await TryEnterFromPcAsync(owner))
+        {
+            _ = ConfirmSessionAsync(owner);
+            return;
+        }
+
+        await RefreshPlatformQuietlyAsync();
         if (!Host.Client.HasSession)
         {
             ShowLogin();
@@ -110,9 +123,84 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Opens the shell straight from the PC's copy — only the copy that
+    /// belongs to the account whose session token this is, and only when it
+    /// knows the workspace to show. False when there is nothing to show yet.
+    /// </summary>
+    private async Task<bool> TryEnterFromPcAsync(string owner)
+    {
+        var started = DateTimeOffset.UtcNow;
+        var (user, workspaces) = await Host.RestoreSessionAsync(owner);
+        var workspace = workspaces.FirstOrDefault(w => w.Id == Host.Settings.WorkspaceId);
+        if (user?.Id != owner || workspace is null) return false;
+        Host.User = user;
+        Host.Workspaces = workspaces;
+        Host.Workspace = workspace;
+        await OpenWorkspaceAsync(waitForPlan: false);
+        Log.Write($"[startup] shell from the PC's copy in {(DateTimeOffset.UtcNow - started).TotalMilliseconds:0} ms");
+        OpenPendingNotification();
+        return true;
+    }
+
+    /// <summary>
+    /// After a launch from the PC's copy: the platform settings, the session
+    /// (a 401 signs out through <see cref="ApiClient.Unauthorized"/>), then the
+    /// operator and their workspaces, saved for the next launch. Offline, the
+    /// copy simply stays on screen and the pollers keep trying.
+    /// </summary>
+    private async Task ConfirmSessionAsync(string owner)
+    {
+        await RefreshPlatformQuietlyAsync();
+        // Realtime started on the defaults; if Super Admin has it off, stop it now.
+        if (!Host.Config.RealtimeEnabled && Host.RealtimeConnected) await Host.StartRealtimeAsync();
+        var scope = Host.Scope;
+        try
+        {
+            var user = await Host.Api.CurrentUserAsync();
+            if (user.Id != owner)
+            {
+                // Never shown another account's copy; start over with the right one.
+                Log.Write("[startup] session belongs to another account");
+                SignedOut();
+                return;
+            }
+            if (Host.Scope != scope) return;
+            Host.User = user;
+            var fresh = await Host.Api.WorkspacesAsync();
+            if (Host.Scope != scope || fresh.Count == 0) return;
+            var gone = Host.Workspaces.Where(w => fresh.All(f => f.Id != w.Id)).Select(w => w.Id).ToList();
+            Host.Workspaces = fresh;
+            if (Host.Local is { } store)
+            {
+                // Removed from a workspace: its conversations leave this PC too.
+                foreach (var id in gone) await store.DeleteWorkspaceAsync(id);
+            }
+            await Host.SaveSessionAsync();
+            if (fresh.FirstOrDefault(w => w.Id == Host.Workspace?.Id) is { } current)
+            {
+                Host.Workspace = current;
+                Host.RunOnUi(() => Shell?.RefreshWorkspaces());
+            }
+            else
+            {
+                await SwitchWorkspaceAsync(fresh[0]);
+            }
+        }
+        catch (ApiException e) when (e.Failure == ApiFailure.Unauthorized)
+        {
+            // The Unauthorized event has already started the sign-out.
+        }
+        catch (Exception e)
+        {
+            Log.Error("confirm session", e);
+        }
+    }
+
     /// <summary>After a sign-in or a restored session: pick the workspace and open the shell.</summary>
     public async Task EnterAsync()
     {
+        if (Host.User is { } user) await Host.AttachAccountAsync(user);
         try
         {
             Host.Workspaces = await Host.Api.WorkspacesAsync();
@@ -121,6 +209,8 @@ public sealed partial class MainWindow : Window
         catch (ApiException e) when (e.Failure != ApiFailure.Unauthorized)
         {
             Log.Error("workspaces", e);
+            // Offline: the workspaces this PC knew for this account.
+            if (Host.Workspaces.Count == 0 && Host.Local is { } store) Host.Workspaces = (await store.LoadSessionAsync()).Workspaces;
         }
         Host.Workspace = Host.Workspaces.FirstOrDefault(w => w.Id == Host.Settings.WorkspaceId) ?? Host.Workspaces.FirstOrDefault()
             ?? (Host.Settings.WorkspaceId is { } id ? new Workspace(id, string.Empty) : null);
@@ -129,7 +219,13 @@ public sealed partial class MainWindow : Window
             Host.Settings.WorkspaceId = Host.Workspace.Id;
             Host.Settings.Save();
         }
+        await Host.SaveSessionAsync();
         await OpenWorkspaceAsync();
+        OpenPendingNotification();
+    }
+
+    private void OpenPendingNotification()
+    {
         if (_pendingOpen is { } open)
         {
             _pendingOpen = null;
@@ -140,23 +236,32 @@ public sealed partial class MainWindow : Window
     /// <summary>
     /// Starts the chosen workspace: its plan first (briefly, so the rail does
     /// not show and then hide sections), then realtime, presence and the shell.
+    /// From the PC's copy the plan is not waited for: gated sections appear
+    /// when it arrives, they never disappear.
     /// </summary>
-    private async Task OpenWorkspaceAsync()
+    private async Task OpenWorkspaceAsync(bool waitForPlan = true)
     {
+        // Whatever the last workspace still had in flight is disowned first.
+        Host.BeginWorkspaceScope();
         Host.ResetPlan();
-        await Task.WhenAny(Host.LoadPlanAsync(), Task.Delay(TimeSpan.FromSeconds(5)));
+        // The plan this PC last saw for the workspace first; the server's answer replaces it.
+        await Host.RestorePlanAsync();
+        var plan = Host.LoadPlanAsync();
+        if (waitForPlan && Host.Plan.State == PlanState.Loading) await Task.WhenAny(plan, Task.Delay(TimeSpan.FromSeconds(5)));
         await Host.StartRealtimeAsync();
-        await Host.StartPresenceAsync();
+        var presence = Host.StartPresenceAsync();
         Splash.Visibility = Visibility.Collapsed;
         RootFrame.Navigate(typeof(ShellPage));
         Host.Engagement.Start();
         Host.Engagement.Refresh();
+        await presence;
     }
 
     /// <summary>Moves to another of the operator's workspaces, as the web's workspace menu does.</summary>
     public async Task SwitchWorkspaceAsync(Workspace workspace)
     {
         if (workspace.Id == Host.Workspace?.Id) return;
+        // Cancel the old workspace's work, switch scope, then draw the new one from the PC and sync.
         Shell?.Teardown();
         Host.StopPresence();
         Host.Workspace = workspace;
@@ -176,16 +281,65 @@ public sealed partial class MainWindow : Window
         RootFrame.BackStack.Clear();
     }
 
-    /// <summary>The server no longer knows this session (or the operator signed out).</summary>
-    public async void SignedOut()
+    private bool _signingOut;
+    private string? _forgetAccount;
+
+    /// <summary>
+    /// The server no longer knows this session, or the operator signed out.
+    ///
+    /// What happens to the PC's copy: every view is torn down and every
+    /// memory cache emptied before the sign-in page shows, so the next person
+    /// at this PC sees nothing of this operator, not even for a frame. The
+    /// conversation file itself is deleted when the operator signed out
+    /// (<paramref name="forgetAccount"/>); after a lapsed session it is kept
+    /// and reopened only if the same account signs in again. Downloaded
+    /// files stay (per workspace, and only ever looked up by ids the server
+    /// hands a signed-in member); Clear cache removes them.
+    /// </summary>
+    public async void SignedOut(string? forgetAccount = null)
     {
-        if (RootFrame.Content is LoginPage) return;
-        Shell?.Teardown();
-        Host.User = null;
-        Host.Account = null;
-        Host.StopPresence();
-        await Host.StartRealtimeAsync(); // with no workspace this only stops the old one
-        ShowLogin();
+        if (forgetAccount is not null) _forgetAccount = forgetAccount;
+        if (_signingOut) return;
+        if (RootFrame.Content is LoginPage)
+        {
+            ForgetAccountData();
+            return;
+        }
+        _signingOut = true;
+        try
+        {
+            Shell?.Teardown();
+            Host.User = null;
+            Host.Account = null;
+            Host.StopPresence();
+            // No workspace while signed out (the next sign-in picks it again from the
+            // settings), so this only stops the old channel instead of reopening it.
+            Host.Workspace = null;
+            await Host.StartRealtimeAsync();
+            if (_forgetAccount is null)
+            {
+                // A lapsed session: its token is dead, and the next launch must not show this copy before a sign-in.
+                Host.Client.DiscardSession();
+            }
+            Host.Settings.SessionUserId = null;
+            Host.Settings.Save();
+            await Host.DetachAccountAsync(deleteData: false);
+            ForgetAccountData();
+            _ = Task.Run(OpenedFiles.Clear);
+            ShowLogin();
+        }
+        finally
+        {
+            _signingOut = false;
+        }
+    }
+
+    private void ForgetAccountData()
+    {
+        if (_forgetAccount is not { } owner || Host.Local?.Owner == owner) return;
+        _forgetAccount = null;
+        Core.Local.LocalStore.DeleteFiles(AppPaths.LocalData, owner);
+        Log.Write("[store] account data deleted on sign-out");
     }
 
     public void OpenFromNotification(IReadOnlyDictionary<string, string> args)

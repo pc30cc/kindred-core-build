@@ -169,7 +169,7 @@
                     </StackPanel>
                 </toolkit:SettingsCard>
 
-                <!-- Storage: where downloaded files live, and a way to free the space. -->
+                <!-- Storage: what this PC keeps (conversations, messages, files), where, and a way to free the space. -->
                 <TextBlock x:Name="StorageHeader" Style="{StaticResource Section}" />
                 <toolkit:SettingsExpander x:Name="CacheExpander" IsExpanded="True">
                     <toolkit:SettingsExpander.HeaderIcon>
@@ -183,6 +183,18 @@
                     </toolkit:SettingsExpander.Description>
                     <TextBlock x:Name="CacheSize" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
                     <toolkit:SettingsExpander.Items>
+                        <toolkit:SettingsCard>
+                            <toolkit:SettingsCard.Header>
+                                <TextBlock x:Name="CacheMessagesLabel" />
+                            </toolkit:SettingsCard.Header>
+                            <TextBlock x:Name="CacheMessagesSize" VerticalAlignment="Center" />
+                        </toolkit:SettingsCard>
+                        <toolkit:SettingsCard>
+                            <toolkit:SettingsCard.Header>
+                                <TextBlock x:Name="CacheFilesLabel" />
+                            </toolkit:SettingsCard.Header>
+                            <TextBlock x:Name="CacheFilesSize" VerticalAlignment="Center" />
+                        </toolkit:SettingsCard>
                         <toolkit:SettingsCard>
                             <toolkit:SettingsCard.Header>
                                 <TextBlock x:Name="CacheFolderLabel" />

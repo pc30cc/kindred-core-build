@@ -12,6 +12,7 @@
  * always-on behaviour.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { assignedPlanApplies, type SubscriptionPlanState } from '../billing/planSelection.js';
 
 export interface PoweredByConfig {
   /** Prefix text, e.g. "Powered by". Empty => widget locale default. */
@@ -30,17 +31,20 @@ export const POWERED_BY_ENTITLEMENT_KEY = 'widget_powered_by';
  * (registry default for this capability is `true`).
  */
 export async function isPoweredByAllowedForPlan(
-  sb: SupabaseClient<any, any, any>,
+  sb: Pick<SupabaseClient, 'from'>,
   workspaceId: string,
 ): Promise<boolean> {
   try {
-    const { data: sub } = await sb
+    const { data } = await sb
       .from('workspace_subscriptions')
-      .select('plan_id, status')
+      .select('plan_id, status, trial_end, free_fallback_at, cancel_at_period_end, current_period_end')
       .eq('workspace_id', workspaceId)
       .maybeSingle();
+    const sub = data as SubscriptionPlanState | null;
 
-    const planQuery = sub?.plan_id && ['active', 'trialing'].includes(String(sub.status || ''))
+    // The plan in force by the one rule (planSelection.ts) every other plan
+    // reader uses.
+    const planQuery = sub?.plan_id && assignedPlanApplies(sub)
       ? sb.from('billing_plans').select('entitlements').eq('id', sub.plan_id).maybeSingle()
       : sb.from('billing_plans').select('entitlements').eq('slug', 'free').maybeSingle();
 
@@ -62,7 +66,7 @@ export async function isPoweredByAllowedForPlan(
  * not render at all (platform switch off or plan disallows it).
  */
 export function buildPoweredByConfig(
-  platformWidget: Record<string, any> | null | undefined,
+  platformWidget: Record<string, unknown> | null | undefined,
   platformBrandName: string,
   planAllows: boolean,
 ): PoweredByConfig | null {

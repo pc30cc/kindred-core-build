@@ -15,11 +15,11 @@
  *     never to that workspace's data, even if the caller is a legitimate
  *     member of some OTHER workspace.
  */
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import type { ServerConfig } from '../config.js';
-import { requireModule } from '../middleware/featureGating.js';
+import { enforceModule, requireModule } from '../middleware/featureGating.js';
 import { listWorkspaceSites } from '../services/seo/siteResolver.js';
 import { resolveSeoLimits } from '../services/seo/limits.js';
 import { resolveBacklinksLimits } from '../services/seo/backlinksLimits.js';
@@ -114,9 +114,20 @@ function isUuid(v: unknown): v is string {
   return typeof v === 'string' && UUID_RE.test(v);
 }
 
-function configOf(req: any): ServerConfig {
-  return (req as any).serverConfig as ServerConfig;
+function configOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig: ServerConfig }).serverConfig;
 }
+
+// The whole SEO suite is the `seo` module (its parts — backlinks, keywords,
+// rank tracking… — are further modules gated per route below). A plan without
+// it is refused here, as the app hides the section. Only workspace-scoped
+// paths: the GSC OAuth callback carries no workspace id.
+seoRouter.use('/:workspaceId', async (req, res, next) => {
+  const { workspaceId } = req.params;
+  if (!isUuid(workspaceId)) return next();
+  // The path's workspace, never one named in the body or query.
+  if (await enforceModule(req, res, workspaceId, 'seo')) next();
+});
 
 // ─── GET /:workspaceId/sites — workspace's own registered websites only ───
 seoRouter.get('/:workspaceId/sites', async (req, res) => {
@@ -126,8 +137,8 @@ seoRouter.get('/:workspaceId/sites', async (req, res) => {
   try {
     const sites = await listWorkspaceSites(configOf(req), workspaceId);
     res.json({ sites });
-  } catch (err: any) {
-    res.status(500).json({ error: 'sites_lookup_failed', detail: err?.message });
+  } catch (err) {
+    res.status(500).json({ error: 'sites_lookup_failed', detail: err instanceof Error ? err.message : undefined });
   }
 });
 
@@ -213,7 +224,7 @@ seoRouter.post('/:workspaceId/crawls/:crawlId/cancel', async (req, res) => {
   res.json(result);
 });
 
-async function requireCrawlInWorkspace(req: any, res: any, workspaceId: string, crawlId: string) {
+async function requireCrawlInWorkspace(req: Request, res: Response, workspaceId: string, crawlId: string) {
   if (!isUuid(crawlId)) {
     res.status(400).json({ error: 'invalid_crawl_id' });
     return null;
@@ -234,7 +245,9 @@ seoRouter.get('/:workspaceId/crawls/:crawlId/pages', async (req, res) => {
   if (!(await requireCrawlInWorkspace(req, res, workspaceId, crawlId))) return;
   const { httpStatusClass, indexable, search } = req.query;
   const result = await listCrawlPages(configOf(req), workspaceId, crawlId, {
-    httpStatusClass: httpStatusClass as any,
+    httpStatusClass: httpStatusClass === '2xx' || httpStatusClass === '3xx' || httpStatusClass === '4xx' || httpStatusClass === '5xx'
+      ? httpStatusClass
+      : undefined,
     indexable: indexable === 'true' ? true : indexable === 'false' ? false : undefined,
     search: search ? String(search).slice(0, 200) : undefined,
     limit: parseInt(String(req.query.limit || '50'), 10),
@@ -725,7 +738,7 @@ function gscErrorStatus(code: string): number {
   }
 }
 
-function sendGscError(res: any, err: unknown) {
+function sendGscError(res: Response, err: unknown) {
   if (isGscError(err)) {
     return res.status(gscErrorStatus(err.code)).json({
       error: err.code,
@@ -909,7 +922,7 @@ seoRouter.post('/:workspaceId/gsc/properties/:propertyId/search-analytics', requ
 // workspace never registered.
 // ─────────────────────────────────────────────────────────────────────────
 
-function sendExplorerScanError(res: any, err: unknown) {
+function sendExplorerScanError(res: Response, err: unknown) {
   if (err instanceof ExplorerScanLimitError) {
     const status = err.reason === 'invalid_domain' ? 400 : err.reason === 'module_not_available' ? 403 : 429;
     return res.status(status).json({

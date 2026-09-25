@@ -25,7 +25,8 @@ export function PlanStatusBanner({ workspaceId }: { workspaceId: string | null |
   const wsPath = useWorkspacePath();
   const { data } = useWorkspaceEffectiveEntitlements(workspaceId || null);
 
-  if (!data) return null;
+  // No banner without a snapshot, or where no billing exists (self-host unlimited).
+  if (!data || data.billing === 'unlimited') return null;
 
   const sub = (data.subscription || null) as
     | { status?: string | null; trial_end?: string | null; free_fallback_at?: string | null; plan_id?: string | null }

@@ -42,6 +42,9 @@ public sealed class ApiClient : IDisposable
     /// <summary>Raised on any 401, wherever it comes from, so the app can return to the sign-in screen.</summary>
     public event EventHandler? Unauthorized;
 
+    /// <summary>Requests made and bytes received, for the log and for measuring what the caches save.</summary>
+    public ApiTraffic Traffic { get; } = new();
+
     public Task<T> GetAsync<T>(string path, IEnumerable<KeyValuePair<string, string?>>? query = null, CancellationToken ct = default) =>
         SendAsync<T>(HttpMethod.Get, path, query, body: null, ct);
 
@@ -56,7 +59,41 @@ public sealed class ApiClient : IDisposable
         using var request = Build(HttpMethod.Get, path, null, null);
         using var response = await Execute(request, TimeSpan.FromSeconds(60), ct).ConfigureAwait(false);
         await ThrowIfFailed(response, ct).ConfigureAwait(false);
-        return await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+        var bytes = await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+        Traffic.Received(bytes.LongLength);
+        return bytes;
+    }
+
+    /// <summary>
+    /// A GET that revalidates what the caller already holds: <paramref name="etag"/>
+    /// goes out as If-None-Match and a 304 comes back as <see cref="Conditional{T}.NotModified"/>
+    /// with no body to download or decode. Only for callers that keep the body
+    /// the tag belongs to — never a blanket HTTP cache for authenticated JSON.
+    /// </summary>
+    public async Task<Conditional<T>> GetConditionalAsync<T>(string path, IEnumerable<KeyValuePair<string, string?>>? query, string? etag, CancellationToken ct = default)
+    {
+        using var request = Build(HttpMethod.Get, path, query, null);
+        if (!string.IsNullOrEmpty(etag) && EntityTagHeaderValue.TryParse(etag, out var tag)) request.Headers.IfNoneMatch.Add(tag);
+        using var response = await Execute(request, TimeSpan.FromSeconds(20), ct).ConfigureAwait(false);
+        if (response.StatusCode == HttpStatusCode.NotModified && !string.IsNullOrEmpty(etag))
+        {
+            Traffic.NotModified();
+            return new Conditional<T>(true, default, etag, 0);
+        }
+        await ThrowIfFailed(response, ct).ConfigureAwait(false);
+        var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        var bytes = response.Content.Headers.ContentLength ?? Encoding.UTF8.GetByteCount(text);
+        Traffic.Received(bytes);
+        T value;
+        try
+        {
+            value = JsonSerializer.Deserialize<T>(text.Length == 0 ? "null" : text, Json.Options)!;
+        }
+        catch (JsonException e)
+        {
+            throw new ApiException(ApiFailure.Decoding, (int)response.StatusCode, inner: e);
+        }
+        return new Conditional<T>(false, value, response.Headers.ETag?.ToString(), bytes);
     }
 
     internal async Task<T> SendAsync<T>(HttpMethod method, string path, IEnumerable<KeyValuePair<string, string?>>? query, object? body, CancellationToken ct, bool expectBody = true)
@@ -68,6 +105,7 @@ public sealed class ApiClient : IDisposable
         try
         {
             var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            Traffic.Received(response.Content.Headers.ContentLength ?? Encoding.UTF8.GetByteCount(text));
             return JsonSerializer.Deserialize<T>(text.Length == 0 ? "null" : text, Json.Options)!;
         }
         catch (JsonException e)
@@ -146,6 +184,7 @@ public sealed class ApiClient : IDisposable
         // A hung request is worse than a failed one: fail fast enough to show a retry.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(timeout);
+        Traffic.Sent();
         try
         {
             return await _http.SendAsync(request, HttpCompletionOption.ResponseContentRead, cts.Token).ConfigureAwait(false);
@@ -187,4 +226,25 @@ public sealed class ApiClient : IDisposable
     private sealed record LoginResponse(
         [property: System.Text.Json.Serialization.JsonPropertyName("sessionToken")] string? SessionToken,
         User? User);
+}
+
+/// <summary>A revalidated GET: either a fresh body with its tag, or "what you hold is still current".</summary>
+public sealed record Conditional<T>(bool NotModified, T? Value, string? ETag, long Bytes);
+
+/// <summary>Counters only — never a URL, a header or a body.</summary>
+public sealed class ApiTraffic
+{
+    private long _requests;
+    private long _bytes;
+    private long _notModified;
+
+    public long Requests => Interlocked.Read(ref _requests);
+    public long BytesReceived => Interlocked.Read(ref _bytes);
+    public long NotModifiedCount => Interlocked.Read(ref _notModified);
+
+    internal void Sent() => Interlocked.Increment(ref _requests);
+    internal void Received(long bytes) => Interlocked.Add(ref _bytes, bytes);
+    internal void NotModified() => Interlocked.Increment(ref _notModified);
+
+    public override string ToString() => $"requests={Requests} bytes={BytesReceived} notModified={NotModifiedCount}";
 }

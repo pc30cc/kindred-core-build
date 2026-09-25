@@ -1,13 +1,13 @@
 {
   "slug": "webyar-woocommerce",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "package": "/downloads/webyar-woocommerce.zip",
   "requires": "6.0",
   "requires_php": "7.4",
   "tested": "9.4",
   "homepage": "https://webyar.ai",
   "description": "Connect your WooCommerce store to WebYar for product answers, order status, and shipment tracking.",
-  "changelog": "= 1.2.3 =\n* The admin page follows the WordPress language (English or Persian).\n* Shorter update notes and clearer messages in the admin.\n\n= 1.2.2 =\n* More reliable order lookup and safer plugin updates.\n\n= 1.2.1 =\n* Customer order details and tracking require verified access.\n\n= 1.2.0 =\n* Added automatic updates, product reviews, and signed customer sign-in for chat.\n\n= 1.1.0 =\n* Improved the connection settings page.\n\n= 1.0.0 =\n* First release of the WebYar store connection.",
-  "changelog_fa": "= 1.2.3 =\n* صفحه مدیریت با زبان وردپرس فارسی یا انگلیسی نمایش داده می‌شود.\n* یادداشت‌های به‌روزرسانی و پیام‌های مدیریت کوتاه‌تر و روشن‌تر شدند.\n\n= 1.2.2 =\n* جست‌وجوی سفارش و به‌روزرسانی افزونه مطمئن‌تر شد.\n\n= 1.2.1 =\n* نمایش سفارش و رهگیری فقط پس از تأیید دسترسی مشتری انجام می‌شود.\n\n= 1.2.0 =\n* به‌روزرسانی خودکار، نظرات محصول و شناسایی مشتری واردشده در گفتگو اضافه شد.\n\n= 1.1.0 =\n* صفحه تنظیمات اتصال بهبود یافت.\n\n= 1.0.0 =\n* نسخه نخست اتصال فروشگاه به وب‌یار.",
-  "last_updated": "2026-09-25T08:34:06.914Z"
+  "changelog": "= 1.2.4 =\n* Format update notes in the WordPress plugin details window.\n\n= 1.2.3 =\n* The admin page follows the WordPress language (English or Persian).\n* Shorter update notes and clearer messages in the admin.\n\n= 1.2.2 =\n* More reliable order lookup and safer plugin updates.\n\n= 1.2.1 =\n* Customer order details and tracking require verified access.\n\n= 1.2.0 =\n* Added automatic updates, product reviews, and signed customer sign-in for chat.\n\n= 1.1.0 =\n* Improved the connection settings page.\n\n= 1.0.0 =\n* First release of the WebYar store connection.",
+  "changelog_fa": "= 1.2.4 =\n* نمایش خوانای تغییرات در پنجرهٔ جزئیات افزونه.\n\n= 1.2.3 =\n* صفحه مدیریت با زبان وردپرس فارسی یا انگلیسی نمایش داده می‌شود.\n* یادداشت‌های به‌روزرسانی و پیام‌های مدیریت کوتاه‌تر و روشن‌تر شدند.\n\n= 1.2.2 =\n* جست‌وجوی سفارش و به‌روزرسانی افزونه مطمئن‌تر شد.\n\n= 1.2.1 =\n* نمایش سفارش و رهگیری فقط پس از تأیید دسترسی مشتری انجام می‌شود.\n\n= 1.2.0 =\n* به‌روزرسانی خودکار، نظرات محصول و شناسایی مشتری واردشده در گفتگو اضافه شد.\n\n= 1.1.0 =\n* صفحه تنظیمات اتصال بهبود یافت.\n\n= 1.0.0 =\n* نسخه نخست اتصال فروشگاه به وب‌یار.",
+  "last_updated": "2026-09-25T08:47:30.533Z"
 }

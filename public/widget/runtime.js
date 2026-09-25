@@ -2240,7 +2240,9 @@
       };
     }
 
+    var identityRequest = 0;
     function fetchMe(cb) {
+      var request = ++identityRequest;
       if (!ctx.apiBase || !ctx.workspaceId) {
         identityStore.set({ loaded: true });
         if (cb) cb(false);
@@ -2252,6 +2254,7 @@
       )
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
         .then(function (res) {
+          if (request !== identityRequest) { if (cb) cb(false); return; }
           if (res.ok && res.body) {
             identityStore.set({
               loaded: true,
@@ -2281,6 +2284,7 @@
           if (cb) cb(true);
         })
         .catch(function () {
+          if (request !== identityRequest) { if (cb) cb(false); return; }
           identityStore.set({
             loaded: true,
             identityState: 'anonymous',
@@ -9357,6 +9361,7 @@
         // real renderCallSurface + real CSS do the work.
         callSurface: function (patch) { callSurfaceStore.set(patch); },
       } : undefined,
+      refreshIdentity: function () { identity.fetchMe(function () { renderBody(); }); },
       /** Single source of truth for panel visibility. */
       isOpen: function () { return !!shellStore.get().isOpen; },
 

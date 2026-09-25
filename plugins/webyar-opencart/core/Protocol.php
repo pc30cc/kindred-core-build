@@ -16,7 +16,7 @@ namespace WebYar\OpenCart;
  */
 final class Protocol {
 	public const PROTOCOL_VERSION = 'webyar-commerce/1';
-	public const CONNECTOR_VERSION = '1.1.1';
+	public const CONNECTOR_VERSION = '1.1.2';
 	public const PATH_PREFIX = '/opencart/v1/';
 	public const CLOCK_SKEW_SECONDS = 300;
 	public const MAX_BODY_BYTES = 65536;

@@ -1,3 +1,4 @@
+import { clearContinuityCookie } from '../services/widget/continuity.js';
 /**
  * Widget API — Full-featured widget backend
  *
@@ -411,6 +412,10 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
     const visitor = resolveVisitorIdentity(req, res, resolvedWorkspaceId, {
       forceNew: (req.body as { fresh_visitor?: unknown } | undefined)?.fresh_visitor === true,
     });
+
+    if ((req.body as { fresh_visitor?: unknown } | undefined)?.fresh_visitor === true) {
+      clearContinuityCookie(res, req);
+    }
 
     // No-cache
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');

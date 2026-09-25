@@ -380,9 +380,8 @@
     var connectionId = attr("data-commerce-connection");
     var body = { workspaceId: workspaceId, assertion: assertion };
     if (connectionId) body.connectionId = connectionId;
-    // Fire-and-forget on purpose. The binding is an enhancement: if it fails
-    // the shopper is simply anonymous, which is exactly today's behaviour, and
-    // the chat must not be held up or broken by it.
+    // Await the bounded first attempt before rendering. Transient failures
+    // retry in the background and refresh the profile when binding succeeds.
     // Same credentials as every other widget call: the `dvsid` cookie carries
     // the visitor this link is written against, and the session token is what
     // gets the request past `enforceWidgetToken`. The token is NOT optional —
@@ -393,23 +392,33 @@
     var attempts = 0;
     function sendIdentity() {
       attempts += 1;
+      var abort = typeof AbortController !== "undefined" ? new AbortController() : null;
+      var deadline = setTimeout(function () { if (abort) abort.abort(); }, 4000);
       function retry() {
+        clearTimeout(deadline);
         if (attempts < 3) window.setTimeout(sendIdentity, attempts * 1000);
+        else _commerceBound = false;
       }
       try {
-        fetch(apiBase + "/api/widget/commerce/identity", {
+        return fetch(apiBase + "/api/widget/commerce/identity", {
           method: "POST",
+          signal: abort ? abort.signal : undefined,
           credentials: "include",
           headers: { "Content-Type": "application/json", "X-Widget-Token": token },
           body: JSON.stringify(body),
         }).then(function (r) {
-          if (r.ok) rememberBinding(workspaceId, binding);
-          else if (r.status >= 500 || r.status === 429) retry();
+          clearTimeout(deadline);
+          if (r.ok) {
+            rememberBinding(workspaceId, binding);
+            var instance = runtimeInstanceRef();
+            if (instance && instance.refreshIdentity) instance.refreshIdentity();
+          } else if (r.status >= 500 || r.status === 429) retry();
+          else _commerceBound = false;
           log("commerce identity:", r.ok ? "linked" : "not linked (" + r.status + ")");
         }).catch(retry);
       } catch (_) { retry(); }
     }
-    sendIdentity();
+    return sendIdentity();
   }
 
   // ─── Lazy store identity (OpenCart and any store that opts in) ───
@@ -460,26 +469,22 @@
     } catch (_) { /* no fetch — stay anonymous */ }
   }
 
-  // ─── Who is using this browser, as the embedding site knows it ───
-  // A billing/store plugin may put an opaque per-person fingerprint on the tag
-  // (`data-commerce-subject`: "anon" for a signed-out page, "u<hash>" for a
-  // signed-in user). Logout retains this browser's conversation, including
-  // earlier account replies. WHMCS still revokes its grant and authorizes
-  // every new private read. Only a DIFFERENT signed-in person starts a fresh
-  // visitor. Remember the last signed-in subject across anonymous pages so
-  // login A -> logout -> login B is still an account switch.
+  // WHMCS retains the conversation at logout; eager store contexts rotate
+  // on logout. Both commit the subject only after a successful bootstrap.
   function commerceSubjectChanged(workspaceId) {
     var subject = attr("data-commerce-subject");
-    if (!subject || subject.charAt(0) !== "u" || !workspaceId) return false;
-    var key = "gs:csub:" + workspaceId;
+    var eager = attr("data-commerce-context-eager") === "true";
+    if (!subject || !workspaceId || (!eager && subject.charAt(0) !== "u")) return false;
     var previous = null;
-    try { previous = window.localStorage.getItem(key); } catch (_) { return false; }
-    return !!previous && previous.charAt(0) === "u" && previous !== subject;
+    try { previous = window.localStorage.getItem("gs:csub:" + workspaceId); } catch (_) { return eager; }
+    return (!previous && eager)
+      || (!!previous && previous.charAt(0) === "u" && previous !== subject);
   }
 
   function rememberCommerceSubject(workspaceId) {
     var subject = attr("data-commerce-subject");
-    if (!subject || subject.charAt(0) !== "u" || !workspaceId) return;
+    if (!subject || !workspaceId) return;
+    if (subject.charAt(0) !== "u" && attr("data-commerce-context-eager") !== "true") return;
     try { window.localStorage.setItem("gs:csub:" + workspaceId, subject); } catch (_) {}
   }
 
@@ -1145,7 +1150,7 @@
         // credentials this endpoint needs — the visitor cookie it reads the
         // identity from and the session token it is gated on — so this is the
         // earliest point the link can be made.
-        bindCommerceIdentity(apiBase, WORKSPACE_ID, sessionToken);
+        var identityReady = bindCommerceIdentity(apiBase, WORKSPACE_ID, sessionToken);
 
         // Phase 6C — stash the effective realtime policy snapshot from
         // bootstrap so the runtime can honor degraded/force_polling/typing
@@ -1158,7 +1163,7 @@
           }
         } catch (_) {}
 
-        return fetchWithRetry(
+        var configRequest = fetchWithRetry(
           apiBase + "/api/widget/config?workspace_id=" + encodeURIComponent(WORKSPACE_ID),
           {
             credentials: "include",
@@ -1166,6 +1171,7 @@
           },
           3
         );
+        return Promise.all([configRequest, identityReady]).then(function (ready) { return ready[0]; });
       })
       .then(function (r) {
         if (!r) return null;
@@ -3325,10 +3331,39 @@
     return "Other";
   }
 
+  // OpenCart opts into identity before bootstrap: login upgrades the SAME
+  // guest; logout/account switch requests a fresh visitor before history loads.
+  // The response is never cached or embedded in cacheable storefront HTML.
+  function prepareStoreIdentity() {
+    if (attr("data-commerce-context-eager") !== "true") { bootstrap(); return; }
+    var url;
+    try {
+      url = new URL(attr("data-commerce-context-url"), window.location.href);
+      if (url.origin !== window.location.origin) { bootstrap(); return; }
+    } catch (_) { bootstrap(); return; }
+    var controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timer = setTimeout(function () { if (controller) controller.abort(); }, 4000);
+    fetch(url.href, { credentials: "same-origin", cache: "no-store",
+      headers: { Accept: "application/json" }, signal: controller ? controller.signal : undefined })
+      .then(function (r) { if (!r.ok) throw new Error("store_context_failed"); return r.json(); })
+      .then(function (ctx) {
+        if (ctx && ctx.subject && /^(anon|u[a-f0-9]{64})$/.test(ctx.subject)) {
+          _loaderScript.setAttribute("data-commerce-subject", ctx.subject);
+        }
+        if (ctx && ctx.signed_in === false) _loaderScript.setAttribute("data-commerce-subject", "anon");
+        if (ctx && ctx.assertion) _loaderScript.setAttribute("data-commerce-assertion", String(ctx.assertion));
+        _commerceContextChecked = true;
+      }).catch(function () {
+        // A previous account must never restore private history while the
+        // store cannot establish who is now signed in.
+        _loaderScript.setAttribute("data-commerce-subject", "anon");
+      }).then(function () { clearTimeout(timer); bootstrap(); });
+  }
+
   // ─── Boot ───
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", bootstrap);
+    document.addEventListener("DOMContentLoaded", prepareStoreIdentity);
   } else {
-    bootstrap();
+    prepareStoreIdentity();
   }
 })();

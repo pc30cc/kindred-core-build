@@ -167,7 +167,7 @@ check('never injected twice', Widget::inject($once, $snippet) === $once);
 check('a page that already has a loader is left alone', Widget::inject('<script src="https://app.example/widget/loader.js"></script></body>', $snippet) === '<script src="https://app.example/widget/loader.js"></script></body>');
 $session = [];
 $allowed = 0;
-for ($i = 0; $i < 30; $i++) {
+for ($i = 0; $i < Widget::CONTEXT_LIMIT + 10; $i++) {
 	$allowed += Widget::allowContextRequest($session, 1000) ? 1 : 0;
 }
 check('context endpoint rate limited per session', $allowed === Widget::CONTEXT_LIMIT);
@@ -182,7 +182,7 @@ $tampered['installation_id'] = 'inst-y';
 check('a secret moved to another installation does not decrypt', Connection::fromRecord($tampered, $localKey) === null);
 
 $oc = new FakeOcDb();
-$oc->customers[101] = ['customer_id' => 101, 'customer_group_id' => 1, 'store_id' => 0, 'firstname' => 'A', 'lastname' => 'B', 'email' => 'a@example.test', 'status' => 1];
+$oc->customers[101] = ['customer_id' => 101, 'customer_group_id' => 1, 'store_id' => 0, 'firstname' => 'A', 'lastname' => 'B', 'email' => 'a@example.test', 'telephone' => '+905551234567', 'status' => 1];
 $oc->customers[102] = ['customer_id' => 102, 'customer_group_id' => 2, 'store_id' => 1, 'firstname' => 'C', 'lastname' => 'D', 'email' => 'c@example.test', 'status' => 1];
 $oc->sessions['sessionaaaaaaaaaaaaaaaaaaaaaa'] = ['customer_id' => 101, 'currency' => 'EUR'];
 $platform = new FakePlatform();
@@ -197,6 +197,9 @@ check('session id is never in the clear', strpos((string)$issued['assertion'], '
 $again = $identity->assertionFor($conn, 'sessionaaaaaaaaaaaaaaaaaaaaaa', ['customer_id' => 101]);
 $payload2 = json_decode((string)Crypto::base64urlDecode(explode('.', (string)$again['assertion'])[0]), true);
 check('same session → same reference (Web Yar can skip the write)', $payload2['session_ref'] === $payload['session_ref']);
+check('phone is signed with the profile', $payload['phone'] === '+905551234567');
+check('same customer has stable opaque subject', $again['subject'] === $issued['subject'] && preg_match('/^u[a-f0-9]{64}$/', $issued['subject']) === 1);
+check('guest subject resets the widget', $identity->assertionFor($conn, 'sessionaaaaaaaaaaaaaaaaaaaaaa', [])['subject'] === 'anon');
 check('a guest gets no assertion', $identity->assertionFor($conn, 'sessionaaaaaaaaaaaaaaaaaaaaaa', [])['assertion'] === null);
 
 $ref = ['id' => '101', 'session_ref' => $payload['session_ref']];

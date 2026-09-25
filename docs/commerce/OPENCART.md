@@ -551,3 +551,45 @@ plugins/webyar-opencart/tests/integration/run.sh down   # stop everything, delet
 - The OpenCart admin UI text is English, Persian and Turkish. OpenCart
   language directories named other than `en-gb`, `fa-ir`/`fa` and
   `tr-tr`/`tr` fall back to English.
+
+
+## 1.1.2 — contact identification and platform controls
+
+The uncached context request now runs once per page **before** widget bootstrap.
+It includes an opaque, store-local customer fingerprint; it never exposes the
+OpenCart session cookie. Guest → customer keeps the visitor and merges the signed
+name/email/phone into the contact. Account switch/logout rotates the visitor and
+clears the contact continuity cookie before chat history restoration. Existing
+links also check whether an old anonymous contact needs repair; unchanged complete
+contacts incur a read, no contact write. The widget refreshes its profile after
+binding succeeds. Legacy lazy embeds retain their previous behavior.
+
+The endpoint allows 120 calls per storefront session per ten minutes. This adds
+one same-origin request per page and one customer lookup for signed-in visitors;
+it does not preload orders or catalog data. Profile binding still verifies the
+signature, installation, store, origin, expiry and replay nonce.
+
+Super Admin → Plugins → OpenCart has global products, prices, stock, reviews,
+orders and tracking switches (Persian, English, Turkish). They intersect with
+workspace permissions before cache reads, with at most 15 seconds propagation.
+The gateway also enforces the policy for direct tool calls.
+
+## Release review — 2026-09-25
+
+- Store-name questions now read the store's configured name through the signed
+  store-info endpoint, using the bounded public cache. Mixed order/name questions
+  include both results within the existing per-turn call budget. Replies must
+  preserve that exact name, not substitute OpenCart or the assistant brand.
+- Missing structured shipment tracking is distinguished from merchant-provided
+  tracking codes in order history. Such codes are not live carrier verification;
+  carrier URLs must never be invented.
+- Live demo checks verified customer login, four customer-owned orders, order
+  1002's item and merchant tracking code, guest denial of private orders, a missing
+  order, current product prices, special prices and budget-based suggestions.
+- Contact enrichment, logout/account-switch isolation and global switches have
+  automated coverage but still require deployed application end-to-end checks.
+- Application changes on this branch have not been published. Local tests are
+  not proof that the new store-name/tracking wording is deployed. GitHub publishing
+  was blocked by automatic approval review pending explicit repository permission.
+- The live E2E suite requires environment configuration; updater trust-boundary
+  tests require PHP locally. Skipped tests must not be counted as passed.

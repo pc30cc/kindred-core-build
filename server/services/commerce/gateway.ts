@@ -25,6 +25,7 @@ import { listWorkspaceConnections, selectConnection } from './connectionSelectio
 import { recordCommerceToolAudit, type CommerceToolAuditRow } from './audit.js';
 import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 import { providerProfile } from './providers.js';
+import { assertOpenCartPolicy } from './opencartPolicy.js';
 import { connectionGuard } from './liveGuard.js';
 
 export type CommercePermissionKey =
@@ -191,6 +192,7 @@ export async function withCommerceConnector<T>(
       : await getConnectionForWorkspace(config, workspaceId, connectionId);
     if (!connection) throw new CommerceError('commerce_not_connected', 'no such connection for this workspace');
 
+    if (connection.provider_type === 'opencart') await assertOpenCartPolicy(config, options.permission);
     assertUsable(connection);
     assertCapability(connection, options.capability);
     if (options.permission) assertPermission(connection, options.permission);

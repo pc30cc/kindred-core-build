@@ -463,14 +463,14 @@
   // ─── Who is using this browser, as the embedding site knows it ───
   // A billing/store plugin may put an opaque per-person fingerprint on the tag
   // (`data-commerce-subject`: "anon" for a signed-out page, "u<hash>" for a
-  // signed-in user). When the previous page belonged to a signed-in person
-  // and this one belongs to someone else — or to nobody, after a logout — the
-  // widget asks bootstrap for a FRESH visitor, so the previous person's
-  // conversation is not shown on a shared computer. Pages without the
-  // attribute (every plain embed) are unaffected.
+  // signed-in user). Logout retains this browser's conversation, including
+  // earlier account replies. WHMCS still revokes its grant and authorizes
+  // every new private read. Only a DIFFERENT signed-in person starts a fresh
+  // visitor. Remember the last signed-in subject across anonymous pages so
+  // login A -> logout -> login B is still an account switch.
   function commerceSubjectChanged(workspaceId) {
     var subject = attr("data-commerce-subject");
-    if (!subject || !workspaceId) return false;
+    if (!subject || subject.charAt(0) !== "u" || !workspaceId) return false;
     var key = "gs:csub:" + workspaceId;
     var previous = null;
     try { previous = window.localStorage.getItem(key); } catch (_) { return false; }
@@ -479,7 +479,7 @@
 
   function rememberCommerceSubject(workspaceId) {
     var subject = attr("data-commerce-subject");
-    if (!subject || !workspaceId) return;
+    if (!subject || subject.charAt(0) !== "u" || !workspaceId) return;
     try { window.localStorage.setItem("gs:csub:" + workspaceId, subject); } catch (_) {}
   }
 

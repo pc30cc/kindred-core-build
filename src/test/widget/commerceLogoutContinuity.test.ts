@@ -28,7 +28,7 @@ beforeEach(() => vi.stubEnv('WIDGET_SIGNING_SECRET', 'test-only-widget-signing-s
 afterEach(() => vi.unstubAllEnvs());
 
 describe('commerce logout and contact continuity', () => {
-  it('cannot restore the previous contact after a fresh-visitor bootstrap, while retaining its data', async () => {
+  it.each([false, true])('preserves logout history and isolates account switches (fresh visitor=%s)', async forceNew => {
     const first = response();
     const visitor = resolveVisitorIdentity(request(), first.res, WS);
     const jar: Record<string, string> = { dvcid: createSignedContactContinuityToken(WS, 'contact-a') };
@@ -41,20 +41,22 @@ describe('commerce logout and contact continuity', () => {
     const saved = structuredClone(db.tables);
     const reset = response();
     const req = request({ ...jar });
-    const next = resolveVisitorIdentity(req, reset.res, WS, { forceNew: true });
-    expect(next.visitorId).not.toBe(visitor.visitorId);
-    expect(req.cookies.dvcid).toBeUndefined();
+    const next = resolveVisitorIdentity(req, reset.res, WS, { forceNew });
+    expect(next.visitorId === visitor.visitorId).toBe(!forceNew);
+    expect(Boolean(req.cookies.dvcid)).toBe(!forceNew);
     applyCookies(jar, reset.headers);
     expect(jar.dvsid).toBeTruthy();
-    expect(jar.dvcid).toBeUndefined();
+    expect(Boolean(jar.dvcid)).toBe(!forceNew);
     const contact = await resolveKnownContact(db.client as unknown as SupabaseClient, request(jar), response().res, WS, next.visitorId, 'chat_widget');
-    expect(contact).toBeNull();
+    if (forceNew) expect(contact).toBeNull();
+    else expect(contact).toMatchObject({ id: 'contact-a' });
     expect(db.tables.contacts).toEqual(saved.contacts);
     expect(db.tables.conversations).toEqual(saved.conversations);
-    expect(db.count('rpc') + db.count('update') + db.count('delete')).toBe(0);
+    expect(db.count('delete')).toBe(0);
+    if (forceNew) expect(db.count('rpc') + db.count('update')).toBe(0);
   });
 
-  it.each([true, false])('explicit logout clears both cookies with matching attributes (secure=%s)', secure => {
+  it.each([true, false])('explicit widget identity reset clears both cookies with matching attributes (secure=%s)', secure => {
     const out = response();
     clearVisitorCookie(out.res, request({ dvsid: 'old', dvcid: 'old-contact' }, secure));
     expect(out.headers).toHaveLength(2);

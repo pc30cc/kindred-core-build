@@ -12,6 +12,9 @@ import com.webyar.operator.core.storage.Appearance
 import com.webyar.operator.core.storage.Preferences
 import com.webyar.operator.core.storage.SessionCache
 import com.webyar.operator.i18n.Language
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -259,6 +262,7 @@ class AppState(
                     // nothing selected here may carry across to them.
                     _workspaces.value = emptyList()
                     _selectedWorkspace.value = null
+                    entitlementsRetry?.cancel()
                     _entitlements.value = EntitlementsState.Loading
                     _avatarUrl.value = null
                     _pendingLink.value = null
@@ -307,18 +311,38 @@ class AppState(
         loadEntitlements()
     }
 
+    /** The pending re-ask after a plan that could not be read. */
+    private var entitlementsRetry: Job? = null
+
     private fun loadEntitlements() {
         val workspaceId = _selectedWorkspace.value?.id ?: return
-        viewModelScope.launch {
-            _entitlements.value = runCatching { api.entitlements(workspaceId) }
-                .fold(
-                    onSuccess = { EntitlementsState.Loaded(it) },
-                    // Failed, not Loading: the difference is the whole point of
-                    // the state. Staying in Loading would hide the gated tab
-                    // for ever on a flaky network; Failed resolves, and a
-                    // fail-closed plan simply grants nothing.
-                    onFailure = { EntitlementsState.Failed },
-                )
+        entitlementsRetry?.cancel()
+        entitlementsRetry = viewModelScope.launch {
+            while (true) {
+                val next = runCatching { api.entitlements(workspaceId) }
+                    .fold(
+                        onSuccess = { EntitlementsState.Loaded(it) },
+                        // Failed, not Loading: the difference is the whole point
+                        // of the state. Staying in Loading would hide the gated
+                        // tab for ever on a flaky network; Failed resolves, and
+                        // a fail-closed plan simply grants nothing.
+                        onFailure = { EntitlementsState.Failed },
+                    )
+                // Replaced by a newer load, or a workspace switched to meanwhile
+                // (which has its own load): this answer is not the one to show.
+                ensureActive()
+                if (_selectedWorkspace.value?.id != workspaceId) return@launch
+                _entitlements.value = next
+                if (next is EntitlementsState.Loaded) return@launch
+                // Nothing gated shows while the plan cannot be read (the web's
+                // rule), so ask again soon rather than at the next workspace switch.
+                delay(PLAN_RETRY_MS)
+                if (_selectedWorkspace.value?.id != workspaceId) return@launch
+            }
         }
+    }
+
+    private companion object {
+        const val PLAN_RETRY_MS = 20_000L
     }
 }

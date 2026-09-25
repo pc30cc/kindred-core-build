@@ -28,22 +28,13 @@ data class Entitlements(
     @Serializable
     data class PlanSummary(val slug: String? = null, val name: String? = null, val tier: String? = null)
 
-    // These mirror `AppSidebar.tsx` exactly, including the difference between
-    // the two. Getting them the same way round matters: one decides whether a
-    // whole menu exists, the other whether a single action is allowed.
+    // The web console's one rule (src/lib/planAccess.ts): a capability is
+    // available only when its value is exactly `true`. A key the snapshot does
+    // not carry is not available — the server sends every key it knows and
+    // denies the ones it does not.
 
-    /**
-     * Whether a top-level section belongs in this plan.
-     *
-     * A key the registry does not know about counts as visible, so a module
-     * added server-side does not vanish from an older build. An explicit
-     * `false` hides it.
-     */
-    fun moduleInPlan(key: String): Boolean {
-        val modules = modules ?: return false
-        val state = modules[key] ?: return true
-        return state.value == true
-    }
+    /** Whether a top-level section belongs in this plan. */
+    fun moduleInPlan(key: String): Boolean = modules?.get(key)?.value == true
 
     /**
      * Whether a capability is actually granted. Fail-closed: a missing key or
@@ -57,6 +48,27 @@ data class Entitlements(
     fun channelEnabled(key: String): Boolean = channels?.get(key)?.value == true
 
     fun limit(key: String): Int? = limits?.get(key)?.value
+
+    companion object {
+        /**
+         * Channel keys the plan itself governs; any other channel inbox is
+         * decided by the plugin's own plan check (the catalog's `planAllowed`).
+         */
+        val PLAN_CHANNELS: Set<String> = setOf(
+            "chat_widget", "email", "whatsapp", "sms", "instagram", "telegram", "bale", "gmail", "yahoomail", "voice", "video",
+        )
+
+        /**
+         * A channel inbox from the plugin catalog (already installed,
+         * inbox-capable and `planAllowed`), as the web's `channelInboxVisible`:
+         * a channel the plan governs must be on in a snapshot that is in —
+         * so not while it loads or cannot be read; any other is the plugin's call.
+         */
+        fun channelInboxVisible(entitlements: Entitlements?, key: String): Boolean {
+            val k = key.lowercase()
+            return k !in PLAN_CHANNELS || entitlements?.channelEnabled(k) == true
+        }
+    }
 }
 
 /**

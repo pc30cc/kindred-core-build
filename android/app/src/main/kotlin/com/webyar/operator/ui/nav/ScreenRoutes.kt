@@ -53,6 +53,7 @@ import com.webyar.operator.core.media.AttachmentRules
 import com.webyar.operator.core.model.CallChannel
 import com.webyar.operator.core.model.CallChannels
 import com.webyar.operator.core.model.CannedText
+import com.webyar.operator.core.model.Entitlements
 import com.webyar.operator.feature.chat.CannedResponsePicker
 import com.webyar.operator.feature.chat.ChatSheet
 import com.webyar.operator.feature.chat.ChatViewModel
@@ -168,6 +169,15 @@ fun InboxRoute(
         workspace?.let { conversations.bind(it.id) }
     }
 
+    // The installed channel inboxes the plan lets this workspace work in (the
+    // web's channelInboxVisible). One the plan drops must not stay selected.
+    val visibleChannels = remember(channels, plan) {
+        channels.filter { Entitlements.channelInboxVisible(plan.value, it.key) }
+    }
+    LaunchedEffect(visibleChannels, channel) {
+        if (channel != null && visibleChannels.none { it.key == channel }) conversations.selectChannel(null)
+    }
+
     // Loaded here and offered here, and nowhere else in the app: the inbox is
     // the one screen an operator is not in the middle of something on.
     val promoted by promotions.promotions.collectAsStateWithLifecycle()
@@ -193,7 +203,7 @@ fun InboxRoute(
         allFilters = conversations.filters(plan.value),
         chipFilters = conversations.chips(plan.value),
         counts = counts,
-        channels = channels,
+        channels = visibleChannels,
         selectedChannel = channel,
         intel = intel,
         refreshing = refreshing,
@@ -206,11 +216,9 @@ fun InboxRoute(
         //
         // The keys are the registry's own, checked against
         // `server/services/billing/capabilityRegistry.ts`. They used to be
-        // `team_chat` and `email`, which are not keys at all — and
-        // `moduleInPlan` answers true for a key it has never heard of, so
-        // that a module added server-side does not vanish from an older
-        // build. The effect was both rows showing on every plan, including
-        // the one in front of me whose `email_inbox` is false.
+        // `team_chat` and `email`, which are not keys at all, and so both
+        // rows showed on every plan, including one whose `email_inbox` is
+        // false. Only a key that is exactly true opens a row.
         onOpenColleagues = onOpenColleagues
             .takeIf { plan.value?.featureEnabled("inbox_team_chat") == true },
         onOpenEmail = onOpenEmail
@@ -290,9 +298,7 @@ fun ChatRoute(
         if (graph != null && user != null && ws != null) graph.attachmentSource(CacheScope(user.id, ws)) else null
     }
 
-    val capabilities = remember(conversation, plan) {
-        ComposerCapabilities.resolve(conversation, plan.value)
-    }
+    val capabilities = remember(conversation) { ComposerCapabilities.resolve(conversation) }
     val callChannels = remember(plan) { CallChannels.resolve(plan.value) }
     val aiManaged = capabilities.isAiManaged
 
@@ -633,7 +639,6 @@ fun TeamThreadRoute(
     val thread: TeamThreadViewModel =
         viewModel(factory = viewModelFactory { TeamThreadViewModel(api) { language } })
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
-    val plan by appState.entitlements.collectAsStateWithLifecycle()
     val state by thread.state.collectAsStateWithLifecycle()
     val me by thread.me.collectAsStateWithLifecycle()
     val draft by thread.draft.collectAsStateWithLifecycle()
@@ -702,7 +707,7 @@ fun TeamThreadRoute(
                     language = language,
                     draft = draft,
                     onDraftChange = thread::setDraft,
-                    capabilities = ComposerCapabilities.team(plan.value),
+                    capabilities = ComposerCapabilities.TEAM,
                     sending = sending,
                     onSend = thread::send,
                     onAttachPhoto = {

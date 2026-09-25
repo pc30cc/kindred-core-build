@@ -32,6 +32,15 @@ import com.webyar.operator.core.model.User
 import com.webyar.operator.core.model.VisitorProfile
 import com.webyar.operator.core.model.Workspace
 import com.webyar.operator.core.model.WorkspaceMember
+import com.webyar.operator.core.model.ConversationSlice
+import com.webyar.operator.core.model.InboxPage
+import com.webyar.operator.core.model.MessagesPage
+import com.webyar.operator.core.model.PushDeviceRegistration
+import com.webyar.operator.core.model.PushDeviceResponse
+import com.webyar.operator.core.model.RealtimeConnect
+import com.webyar.operator.core.model.RealtimeSubscribe
+import com.webyar.operator.core.model.SentMessage
+import java.io.File
 
 /**
  * What the app needs from a backend.
@@ -71,6 +80,119 @@ interface WebyarApi {
         clientMessageId: String,
         attachmentId: String? = null,
     )
+
+    // MARK: - Incremental reads
+    //
+    // Each has a default written in terms of the calls above, which is what a
+    // backend with no incremental support answers with — the sample backend
+    // today, and an older server in effect. The real client overrides all of
+    // them.
+
+    /**
+     * The inbox list, unless it is unchanged since [etag].
+     *
+     * The endpoint has no delta, so this is the cheapest way to ask "did
+     * anything change?": the server still builds the list, the phone only
+     * receives a header when the answer is no.
+     */
+    suspend fun inboxPage(workspaceId: String, filter: InboxFilter, etag: String?): InboxPage =
+        InboxPage.Changed(conversations(workspaceId, filter), etag = null)
+
+    /**
+     * These conversations, as they stand — and, when [filter] is given, only
+     * those still in that queue.
+     *
+     * The second half is the point. Whether a thread belongs in a queue is
+     * the server's decision (assignment scope, the AI-intro rule, who handled
+     * a resolved thread), and a phone that guessed it would be wrong in ways
+     * nobody could see. Asking about the handful of ids an event named keeps
+     * the list exact without reading all of it.
+     */
+    suspend fun conversationsByIds(
+        workspaceId: String,
+        ids: List<String>,
+        filter: InboxFilter?,
+    ): ConversationSlice {
+        if (ids.isEmpty()) return ConversationSlice(emptyList())
+        val wanted = ids.toSet()
+        val queues = if (filter != null) listOf(filter) else InboxFilter.entries
+        return ConversationSlice(
+            queues.flatMap { conversations(workspaceId, it) }
+                .filter { it.id in wanted }
+                .distinctBy { it.id },
+        )
+    }
+
+    /** One conversation, whichever queue it is in — for a notification tap. */
+    suspend fun conversation(workspaceId: String, conversationId: String): Conversation? =
+        conversationsByIds(workspaceId, listOf(conversationId), filter = null).rows.firstOrNull()
+
+    /**
+     * The thread, or only what changed in it since [cursor].
+     *
+     * The answer says which it was: a server that cannot do a delta answers
+     * in full, and the caller must then treat it as the whole thread.
+     */
+    suspend fun messagesPage(conversationId: String, cursor: String?): MessagesPage =
+        MessagesPage(messages(conversationId), sync = null)
+
+    /**
+     * Sends, and answers with the row the server stored — which is how a
+     * pending bubble learns its server id without re-reading the thread.
+     * Null from a backend that does not echo the row.
+     */
+    suspend fun sendMessage(
+        body: String,
+        conversationId: String,
+        workspaceId: String,
+        clientMessageId: String,
+        attachmentId: String? = null,
+    ): SentMessage? {
+        send(body, conversationId, workspaceId, clientMessageId, attachmentId)
+        return null
+    }
+
+    /**
+     * An attachment straight to a file, for the kinds that are played or
+     * handed to another app rather than drawn: a voice note, a video, a PDF.
+     *
+     * Streaming, in the real client — a video in a `ByteArray` is the whole
+     * video in the heap of a 2 GB phone.
+     */
+    suspend fun downloadAttachment(id: String, target: File) {
+        target.writeBytes(attachmentData(id))
+    }
+
+    // MARK: - Realtime
+
+    /** Anything but `centrifugo` keeps the app on foreground delta polling. */
+    suspend fun realtimeConnect(workspaceId: String, intent: String): RealtimeConnect =
+        RealtimeConnect(vendor = "disabled")
+
+    suspend fun realtimeInboxSubscribe(workspaceId: String): RealtimeSubscribe =
+        RealtimeSubscribe(vendor = "disabled")
+
+    /**
+     * The operators channel. Being subscribed to it is what the server reads
+     * as "online in an app" (`operatorPresenceSource.ts`), which is what the
+     * availability setting "available while using the app" means.
+     */
+    suspend fun realtimePresenceSubscribe(workspaceId: String): RealtimeSubscribe =
+        RealtimeSubscribe(vendor = "disabled")
+
+    // MARK: - Push devices
+
+    suspend fun registerPushDevice(registration: PushDeviceRegistration): PushDeviceResponse =
+        PushDeviceResponse(ok = true, deviceId = registration.deviceId, pushEnabled = false)
+
+    /**
+     * Stops this device receiving this operator's notifications.
+     *
+     * Must run BEFORE the session is revoked: the route needs it, and the
+     * server deliberately keeps device lifecycle apart from sign-out
+     * (`server/services/push/devices.ts`), so nothing else will.
+     */
+    suspend fun unregisterPushDevice(deviceId: String) {}
     suspend fun markSeen(conversationId: String)
     suspend fun setStatus(status: ConversationStatus, conversationId: String, workspaceId: String)
     suspend fun inboxCounts(workspaceId: String, scope: String): InboxCounts

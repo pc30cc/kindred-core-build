@@ -36,4 +36,136 @@ object StrAndroid {
         Language.FA -> "پاک کردن جست‌وجو"
         Language.TR -> "Aramayı temizle"
     }
+
+    // MARK: - Offline and the outbox
+
+    /**
+     * The line above a list that is on screen from the cache while the server
+     * cannot be reached. Says what the operator is looking at, not what went
+     * wrong with the socket.
+     */
+    fun showingSaved(l: Language): String = when (l) {
+        Language.EN -> "Offline — showing what was saved on this phone"
+        Language.FA -> "آفلاین — آنچه روی این گوشی ذخیره شده نمایش داده می‌شود"
+        Language.TR -> "Çevrimdışı — bu telefonda kayıtlı olanlar gösteriliyor"
+    }
+
+    /** Under a bubble the server has not confirmed yet. */
+    fun messageSending(l: Language): String = when (l) {
+        Language.EN -> "Sending…"
+        Language.FA -> "در حال ارسال…"
+        Language.TR -> "Gönderiliyor…"
+    }
+
+    /** Under a bubble that could not be sent. The bubble itself is the button. */
+    fun messageNotSent(l: Language): String = when (l) {
+        Language.EN -> "Not sent. Tap for options."
+        Language.FA -> "ارسال نشد. برای گزینه‌ها ضربه بزنید."
+        Language.TR -> "Gönderilmedi. Seçenekler için dokunun."
+    }
+
+    /** Takes an unsent message out of the thread. It was never on the server. */
+    fun discardMessage(l: Language): String = when (l) {
+        Language.EN -> "Delete"
+        Language.FA -> "حذف"
+        Language.TR -> "Sil"
+    }
+
+    /** On a photo that Data Saver kept from downloading by itself. */
+    fun tapToLoad(l: Language): String = when (l) {
+        Language.EN -> "Tap to load"
+        Language.FA -> "برای بارگیری ضربه بزنید"
+        Language.TR -> "Yüklemek için dokunun"
+    }
+
+    // MARK: - Storage
+
+    fun storage(l: Language): String = when (l) {
+        Language.EN -> "Storage"
+        Language.FA -> "فضای ذخیره‌سازی"
+        Language.TR -> "Depolama"
+    }
+
+    fun storageConversations(l: Language): String = when (l) {
+        Language.EN -> "Conversations and messages"
+        Language.FA -> "گفت‌وگوها و پیام‌ها"
+        Language.TR -> "Görüşmeler ve mesajlar"
+    }
+
+    fun storageImages(l: Language): String = when (l) {
+        Language.EN -> "Pictures"
+        Language.FA -> "تصاویر"
+        Language.TR -> "Görseller"
+    }
+
+    fun storageMedia(l: Language): String = when (l) {
+        Language.EN -> "Files, voice notes and videos"
+        Language.FA -> "فایل‌ها، پیام‌های صوتی و ویدیوها"
+        Language.TR -> "Dosyalar, sesli notlar ve videolar"
+    }
+
+    fun storageTotal(l: Language): String = when (l) {
+        Language.EN -> "Total"
+        Language.FA -> "مجموع"
+        Language.TR -> "Toplam"
+    }
+
+    fun storageCalculating(l: Language): String = when (l) {
+        Language.EN -> "Calculating…"
+        Language.FA -> "در حال محاسبه…"
+        Language.TR -> "Hesaplanıyor…"
+    }
+
+    fun clearCache(l: Language): String = when (l) {
+        Language.EN -> "Clear cache"
+        Language.FA -> "پاک کردن حافظهٔ موقت"
+        Language.TR -> "Önbelleği temizle"
+    }
+
+    /**
+     * What Clear Cache does and, as importantly, what it does not: nothing
+     * leaves the account, nobody is signed out, no setting changes.
+     */
+    fun clearCacheBody(l: Language): String = when (l) {
+        Language.EN -> "Saved conversations, pictures and files are removed from this phone. " +
+            "Nothing is deleted from your account, you stay signed in, and everything is " +
+            "downloaded again when you need it. Messages still waiting to send are kept."
+        Language.FA -> "گفت‌وگوها، تصاویر و فایل‌های ذخیره‌شده از این گوشی پاک می‌شوند. " +
+            "چیزی از حساب شما حذف نمی‌شود، از حساب خارج نمی‌شوید و هر چیز در صورت نیاز " +
+            "دوباره دریافت می‌شود. پیام‌هایی که هنوز در انتظار ارسال‌اند نگه داشته می‌شوند."
+        Language.TR -> "Kayıtlı görüşmeler, görseller ve dosyalar bu telefondan kaldırılır. " +
+            "Hesabınızdan hiçbir şey silinmez, oturumunuz açık kalır ve her şey gerektiğinde " +
+            "yeniden indirilir. Gönderilmeyi bekleyen mesajlar korunur."
+    }
+
+    fun cacheCleared(l: Language): String = when (l) {
+        Language.EN -> "Cache cleared"
+        Language.FA -> "حافظهٔ موقت پاک شد"
+        Language.TR -> "Önbellek temizlendi"
+    }
+
+    // MARK: - Notifications
+    //
+    // Channel names are shown by the SYSTEM, in its notification settings, so
+    // they are written in the operator's chosen language when the channel is
+    // created and rewritten when the language changes.
+
+    fun channelMessages(l: Language): String = when (l) {
+        Language.EN -> "Messages"
+        Language.FA -> "پیام‌ها"
+        Language.TR -> "Mesajlar"
+    }
+
+    fun channelMessagesDescription(l: Language): String = when (l) {
+        Language.EN -> "New messages in your conversations"
+        Language.FA -> "پیام‌های تازه در گفت‌وگوهای شما"
+        Language.TR -> "Görüşmelerinizdeki yeni mesajlar"
+    }
+
+    /** A notification whose push carried no title of its own. */
+    fun newMessage(l: Language): String = when (l) {
+        Language.EN -> "New message"
+        Language.FA -> "پیام تازه"
+        Language.TR -> "Yeni mesaj"
+    }
 }

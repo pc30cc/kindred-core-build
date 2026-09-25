@@ -61,6 +61,7 @@ type MessageAttachment = {
 };
 import { createStorageUrlResolver, hydrateUserAvatars, hydrateContactAvatars } from '../services/storage/urlResolver.js';
 import { deltaLowerBound, inThreadOrder, nextSyncCursor, parseSyncCursor } from '../services/messageSync.js';
+import { isConversationId, parseConversationIds } from '../services/conversationIds.js';
 import { queueTranscript } from '../services/notificationEmail/producers.js';
 
 
@@ -1079,6 +1080,10 @@ conversationsRouter.get('/', async (req, res) => {
     }
     const { workspace_id, queue, status, assigned_to_me, scope } = parsed.data;
     const needsHuman = parsed.data.needs_human === 'true';
+    const idsParsed = parseConversationIds(req.query.ids);
+    if (idsParsed.ok === false) {
+      return res.status(400).json({ error: 'Invalid query', details: { ids: [idsParsed.error] } });
+    }
     const auth = await authorizeWorkspaceMember(req, res, config, workspace_id);
     if (!auth) return;
     const isPrivileged =
@@ -1087,238 +1092,286 @@ conversationsRouter.get('/', async (req, res) => {
     // it (scope=all). Otherwise their Inbox behaves like an operator's.
     const canSeeAllAssignments = isPrivileged && scope === 'all';
 
-    const sb = getServiceClient(config);
-    let q = sb
-      .from('conversations')
-      .select('*, contacts(id, name, email, avatar_url, avatar_storage_key, visitor_code, metadata)')
-      .eq('workspace_id', workspace_id)
-      .order('updated_at', { ascending: false });
-
-    if (queue === 'automated') {
-      q = q.eq('ai_state', 'ai_managed').neq('status', 'closed').is('assigned_to', null).eq('is_spam', false);
-    } else if (queue === 'spam') {
-      q = q.eq('is_spam', true);
-    } else {
-      q = q.eq('is_spam', false);
-      if (needsHuman) {
-        q = q.eq('ai_state', 'needs_human');
-      } else {
-        q = q.or('ai_state.is.null,ai_state.neq.ai_managed');
-      }
-      if (assigned_to_me) {
-        q = q.eq('assigned_to', assigned_to_me);
-      } else if (!canSeeAllAssignments) {
-        // A claimed conversation belongs to the operator who took it: other
-        // agents must not keep seeing it in their Inbox. Owners/admins and
-        // team leads still get the full workspace view.
-        q = q.or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`);
-      }
-      if (status && status !== 'all') {
-        const parts = status.split(',').map((x) => x.trim()).filter(Boolean);
-        q = parts.length > 1 ? q.in('status', parts) : q.eq('status', parts[0]);
-      }
-    }
-
-    const { data, error } = await q;
-    if (error) return res.status(500).json({ error: error.message });
-    const convos = (data || []);
-    // Contact avatars: derived from the stored key for the workspace's
-    // current provider, one resolution for the whole page.
-    await hydrateContactAvatars(
-      config,
-      workspace_id,
-      convos.map((c) => c.contacts).filter(Boolean),
-    );
-
-    const ids = convos.map((c) => c.id).filter(Boolean);
-    if (ids.length > 0) {
-      const { data: msgs } = await sb
-        .from('conversation_messages')
-        .select('conversation_id, body, created_at, sender_type, sender_id, seen_at, metadata')
-        .in('conversation_id', ids)
-        // Bot menu/button taps are navigation, not chat content — keep them
-        // out of the fetch window entirely so a visitor browsing the bot menu
-        // can never push the real last message out of the preview.
-        .or('metadata->>channel_menu_event.is.null,metadata->>channel_menu_event.neq.true')
-        .order('created_at', { ascending: false })
-        .limit(2000);
-
-      const byConv: Record<string, { body: string; created_at: string; seen_at: string | null }> = {};
-      const lastByConv: Record<string, { body: string; created_at: string; sender_type: string; sender_id?: string | null; sender_name?: string | null; attachment_id?: string | null; attachment_kind?: 'image' | 'audio' | 'video' | 'file' | null; system_kind?: string | null; system_meta?: Record<string, unknown> | null }> = {};
-      // Human operators who ever wrote in the thread — drives "who handled
-      // this" visibility for resolved threads and the list preview label.
-      const agentParticipants: Record<string, Set<string>> = {};
-      const unreadByConv: Record<string, number> = {};
-      // Needs Reply is derived from the message stream, never stored. Rows
-      // arrive newest-first, so the FIRST conversational turn we see per
-      // conversation decides the obligation (see services/needsReply.ts).
-      const needsReplyByConv: Record<string, boolean> = {};
-      const needsReplyDecided = new Set<string>();
-      // Oldest actionable customer turn of the CURRENT unanswered streak, so
-      // the Inbox can rank by real waiting age instead of `updated_at` (which
-      // assignment, routing metadata and delivery receipts also bump).
-      const waitingSinceByConv: Record<string, string | null> = {};
-      for (const m of (msgs || [])) {
-        if (!m.conversation_id) continue;
-        // Channel menu/button taps are navigation, not conversation content:
-        // they must never drive the list preview or the unread badge. Older
-        // rows may carry the flag as a boolean, and menu taps written before
-        // the flag existed still carry `channel_menu_command`.
-        const meta = (m.metadata || {}) as Record<string, unknown>;
-        const isMenuEvent =
-          String(meta.channel_menu_event ?? '') === 'true' || !!meta.channel_menu_command;
-        if (isMenuEvent) continue;
-
-        if (!lastByConv[m.conversation_id]) {
-          lastByConv[m.conversation_id] = {
-            body: m.body ?? '',
-            created_at: m.created_at,
-            sender_type: m.sender_type,
-            sender_id: m.sender_id ?? null,
-            sender_name: null,
-            // A file-only message has an empty body: the list preview must
-            // describe the media instead of claiming "no messages yet".
-            attachment_id: meta?.attachment_id ? String(meta.attachment_id) : null,
-            attachment_kind: null,
-            // Every system notice is stored in English and frozen at insert
-            // time, so the preview has to rebuild the sentence from metadata
-            // (see src/lib/systemMessageText.ts). Shipping the whole object
-            // rather than a field per kind is why the list no longer falls
-            // behind the thread every time a new kind is added.
-            system_kind: meta?.kind ? String(meta.kind) : null,
-            system_meta: meta?.kind ? meta : null,
-          };
-        }
-        if (m.sender_type === 'agent' && m.sender_id) {
-          (agentParticipants[m.conversation_id] ||= new Set<string>()).add(String(m.sender_id));
-        }
-
-
-        // Rows arrive newest-first. The first conversational turn decides the
-        // obligation; we then keep walking back over the customer streak to
-        // find when the wait actually started.
-        if (isQualifiedCustomerFacingAnswer(m as NeedsReplyMessage)) {
-          if (!needsReplyDecided.has(m.conversation_id)) {
-            needsReplyByConv[m.conversation_id] = false;
-          }
-          needsReplyDecided.add(m.conversation_id);
-        } else if (isActionableCustomerTurn(m as NeedsReplyMessage)) {
-          if (!needsReplyDecided.has(m.conversation_id)) {
-            needsReplyByConv[m.conversation_id] = true;
-            waitingSinceByConv[m.conversation_id] = m.created_at ?? null;
-          } else if (needsReplyByConv[m.conversation_id]) {
-            // Still inside the unanswered streak → the wait began earlier.
-            waitingSinceByConv[m.conversation_id] = m.created_at ?? null;
-          }
-        }
-
-        if (m.sender_type !== 'contact') continue;
-        if (!byConv[m.conversation_id]) {
-          byConv[m.conversation_id] = { body: m.body ?? '', created_at: m.created_at, seen_at: m.seen_at ?? null };
-        }
-        if (!m.seen_at) {
-          unreadByConv[m.conversation_id] = (unreadByConv[m.conversation_id] ?? 0) + 1;
-        }
-      }
-
-      // Resolve the media kind of every attachment-only preview in one query,
-      // so the Inbox list can say "sent a photo / voice message / file".
-      const previewAttachmentIds = Array.from(new Set(
-        Object.values(lastByConv)
-          .filter((l) => l.attachment_id && !String(l.body || '').trim())
-          .map((l) => l.attachment_id as string),
-      ));
-      if (previewAttachmentIds.length) {
-        const { data: atts } = await sb
-          .from('conversation_attachments')
-          .select('id, mime_type')
-          .in('id', previewAttachmentIds);
-        const mimeById = new Map<string, string>(
-          ((atts || [])).map((a) => [String(a.id), String(a.mime_type || '')]),
-        );
-        for (const last of Object.values(lastByConv)) {
-          if (!last.attachment_id) continue;
-          const mime = mimeById.get(last.attachment_id) || '';
-          last.attachment_kind = mime.startsWith('image/')
-            ? 'image'
-            : mime.startsWith('audio/')
-              ? 'audio'
-              : mime.startsWith('video/')
-                ? 'video'
-                : 'file';
-        }
-      }
-
-      // Resolve display names for the operators whose message is the list
-      // preview, so the row reads "Ali: …" instead of always "You: …".
-      const agentSenderIds = Array.from(new Set(
-        Object.values(lastByConv)
-          .filter((l) => l.sender_type === 'agent' && l.sender_id)
-          .map((l) => String(l.sender_id)),
-      ));
-      if (agentSenderIds.length) {
-        const { data: profs } = await sb
-          .from('profiles')
-          .select('id, full_name, email')
-          .in('id', agentSenderIds);
-        const nameById = new Map<string, string>(
-          ((profs || [])).map((p) => [
-            String(p.id),
-            String(p.full_name || String(p.email || '').split('@')[0] || ''),
-          ]),
-        );
-        for (const last of Object.values(lastByConv)) {
-          if (last.sender_type !== 'agent' || !last.sender_id) continue;
-          last.sender_name = nameById.get(String(last.sender_id)) || null;
-        }
-      }
-
-      for (const c of convos) {
-        c.last_visitor_message = byConv[c.id] ?? null;
-        c.last_message = lastByConv[c.id] ?? null;
-        c.unread_count = unreadByConv[c.id] ?? 0;
-        c.handled_by = Array.from(agentParticipants[c.id] ?? []);
-        // Only an `open` thread can owe the customer an answer: `pending`
-        // means we are waiting for THEM, `resolved`/`closed` are done.
-        c.needs_reply = c.status === 'open' && (needsReplyByConv[c.id] ?? false);
-        c.waiting_since = c.needs_reply ? (waitingSinceByConv[c.id] ?? null) : null;
-      }
-    }
-
-    let result = convos;
-    if (queue === 'main') {
-      // AI greeting threads (source='ai_agent_intro') the visitor never
-      // answered are not human-actionable — exclude them from Main Inbox
-      // unless a human has already touched the thread.
-      result = convos.filter((c) => {
-        const meta = c?.metadata || {};
-        const introOnly = meta.source === 'ai_agent_intro' && !c.last_visitor_message;
-        const humanTouched = !!c.assigned_to || c.ai_state === 'human_active'
-          || (c.last_message && c.last_message.sender_type === 'agent');
-        return !introOnly || humanTouched;
-      });
-    }
-
-    // A finished thread belongs to whoever actually handled it. An operator
-    // must not see resolved/closed threads that another operator answered,
-    // even when nobody claimed them (`assigned_to` stays null on the
-    // "send & resolve" path). Owners/admins/team leads keep the full view.
-    if (!canSeeAllAssignments) {
-      result = result.filter((c) => {
-        if (c.status !== 'resolved' && c.status !== 'closed') return true;
-        if (c.assigned_to && c.assigned_to !== auth.userId) return false;
-        const handled: string[] = Array.isArray(c.handled_by) ? c.handled_by : [];
-        if (handled.length === 0) return true; // AI/system resolved → shared
-        return handled.includes(auth.userId);
-      });
-    }
-
-    return res.json({ conversations: result });
+    const listed = await listConversationRows(config, auth, {
+      workspaceId: workspace_id,
+      queue,
+      status,
+      needsHuman,
+      assignedToMe: assigned_to_me,
+      canSeeAllAssignments,
+      ids: idsParsed.ids,
+    });
+    if (listed.error) return res.status(500).json({ error: listed.error });
+    // The ids are echoed so a client can tell this answer from an older
+    // server's, which ignores `ids` and sends the whole queue.
+    return res.json(idsParsed.ids ? { conversations: listed.rows, ids: idsParsed.ids } : { conversations: listed.rows });
   } catch (err) {
     console.error('[conversations list] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
 });
+
+type ListQueue = 'main' | 'automated' | 'spam' | 'any';
+
+interface ListOptions {
+  workspaceId: string;
+  queue: ListQueue;
+  status?: string;
+  needsHuman: boolean;
+  assignedToMe?: string;
+  canSeeAllAssignments: boolean;
+  /** Narrow to these conversations (`?ids=`, or one id for `GET /:id`). */
+  ids: string[] | null;
+}
+
+/**
+ * The conversation list, as the Inbox reads it: the queue's rows with the
+ * contact joined and the preview, unread count and needs-reply computed —
+ * shared by the list route and `GET /:id`, so a row fetched by id is in
+ * exactly the shape the list gives it.
+ */
+async function listConversationRows(
+  config: ServerConfig,
+  auth: { userId: string },
+  opts: ListOptions,
+): Promise<{ rows: Array<Record<string, unknown>>; error: string | null }> {
+  const { workspaceId, queue, status, needsHuman, assignedToMe, canSeeAllAssignments } = opts;
+  const onlyIds = opts.ids;
+  const sb = getServiceClient(config);
+  let q = sb
+    .from('conversations')
+    .select('*, contacts(id, name, email, avatar_url, avatar_storage_key, visitor_code, metadata)')
+    .eq('workspace_id', workspaceId)
+    .order('updated_at', { ascending: false });
+
+  // A targeted read: the same query, narrowed to the rows a client named.
+  if (onlyIds && onlyIds.length > 0) q = q.in('id', onlyIds);
+
+  if (queue === 'any') {
+    // By id, whichever queue it is in: no queue, status or assignment
+    // narrowing — the caller already holds the id, and reading a thread's
+    // messages is open to every member of its workspace.
+  } else if (queue === 'automated') {
+    q = q.eq('ai_state', 'ai_managed').neq('status', 'closed').is('assigned_to', null).eq('is_spam', false);
+  } else if (queue === 'spam') {
+    q = q.eq('is_spam', true);
+  } else {
+    q = q.eq('is_spam', false);
+    if (needsHuman) {
+      q = q.eq('ai_state', 'needs_human');
+    } else {
+      q = q.or('ai_state.is.null,ai_state.neq.ai_managed');
+    }
+    if (assignedToMe) {
+      q = q.eq('assigned_to', assignedToMe);
+    } else if (!canSeeAllAssignments) {
+      // A claimed conversation belongs to the operator who took it: other
+      // agents must not keep seeing it in their Inbox. Owners/admins and
+      // team leads still get the full workspace view.
+      q = q.or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`);
+    }
+    if (status && status !== 'all') {
+      const parts = status.split(',').map((x) => x.trim()).filter(Boolean);
+      q = parts.length > 1 ? q.in('status', parts) : q.eq('status', parts[0]);
+    }
+  }
+
+  const { data, error } = await q;
+  if (error) return { rows: [], error: error.message };
+  const convos = (data || []);
+  // Contact avatars: derived from the stored key for the workspace's
+  // current provider, one resolution for the whole page.
+  await hydrateContactAvatars(
+    config,
+    workspaceId,
+    convos.map((c) => c.contacts).filter(Boolean),
+  );
+
+  const ids = convos.map((c) => c.id).filter(Boolean);
+  if (ids.length > 0) {
+    const { data: msgs } = await sb
+      .from('conversation_messages')
+      .select('conversation_id, body, created_at, sender_type, sender_id, seen_at, metadata')
+      .in('conversation_id', ids)
+      // Bot menu/button taps are navigation, not chat content — keep them
+      // out of the fetch window entirely so a visitor browsing the bot menu
+      // can never push the real last message out of the preview.
+      .or('metadata->>channel_menu_event.is.null,metadata->>channel_menu_event.neq.true')
+      .order('created_at', { ascending: false })
+      .limit(2000);
+
+    const byConv: Record<string, { body: string; created_at: string; seen_at: string | null }> = {};
+    const lastByConv: Record<string, { body: string; created_at: string; sender_type: string; sender_id?: string | null; sender_name?: string | null; attachment_id?: string | null; attachment_kind?: 'image' | 'audio' | 'video' | 'file' | null; system_kind?: string | null; system_meta?: Record<string, unknown> | null }> = {};
+    // Human operators who ever wrote in the thread — drives "who handled
+    // this" visibility for resolved threads and the list preview label.
+    const agentParticipants: Record<string, Set<string>> = {};
+    const unreadByConv: Record<string, number> = {};
+    // Needs Reply is derived from the message stream, never stored. Rows
+    // arrive newest-first, so the FIRST conversational turn we see per
+    // conversation decides the obligation (see services/needsReply.ts).
+    const needsReplyByConv: Record<string, boolean> = {};
+    const needsReplyDecided = new Set<string>();
+    // Oldest actionable customer turn of the CURRENT unanswered streak, so
+    // the Inbox can rank by real waiting age instead of `updated_at` (which
+    // assignment, routing metadata and delivery receipts also bump).
+    const waitingSinceByConv: Record<string, string | null> = {};
+    for (const m of (msgs || [])) {
+      if (!m.conversation_id) continue;
+      // Channel menu/button taps are navigation, not conversation content:
+      // they must never drive the list preview or the unread badge. Older
+      // rows may carry the flag as a boolean, and menu taps written before
+      // the flag existed still carry `channel_menu_command`.
+      const meta = (m.metadata || {}) as Record<string, unknown>;
+      const isMenuEvent =
+        String(meta.channel_menu_event ?? '') === 'true' || !!meta.channel_menu_command;
+      if (isMenuEvent) continue;
+
+      if (!lastByConv[m.conversation_id]) {
+        lastByConv[m.conversation_id] = {
+          body: m.body ?? '',
+          created_at: m.created_at,
+          sender_type: m.sender_type,
+          sender_id: m.sender_id ?? null,
+          sender_name: null,
+          // A file-only message has an empty body: the list preview must
+          // describe the media instead of claiming "no messages yet".
+          attachment_id: meta?.attachment_id ? String(meta.attachment_id) : null,
+          attachment_kind: null,
+          // Every system notice is stored in English and frozen at insert
+          // time, so the preview has to rebuild the sentence from metadata
+          // (see src/lib/systemMessageText.ts). Shipping the whole object
+          // rather than a field per kind is why the list no longer falls
+          // behind the thread every time a new kind is added.
+          system_kind: meta?.kind ? String(meta.kind) : null,
+          system_meta: meta?.kind ? meta : null,
+        };
+      }
+      if (m.sender_type === 'agent' && m.sender_id) {
+        (agentParticipants[m.conversation_id] ||= new Set<string>()).add(String(m.sender_id));
+      }
+
+
+      // Rows arrive newest-first. The first conversational turn decides the
+      // obligation; we then keep walking back over the customer streak to
+      // find when the wait actually started.
+      if (isQualifiedCustomerFacingAnswer(m as NeedsReplyMessage)) {
+        if (!needsReplyDecided.has(m.conversation_id)) {
+          needsReplyByConv[m.conversation_id] = false;
+        }
+        needsReplyDecided.add(m.conversation_id);
+      } else if (isActionableCustomerTurn(m as NeedsReplyMessage)) {
+        if (!needsReplyDecided.has(m.conversation_id)) {
+          needsReplyByConv[m.conversation_id] = true;
+          waitingSinceByConv[m.conversation_id] = m.created_at ?? null;
+        } else if (needsReplyByConv[m.conversation_id]) {
+          // Still inside the unanswered streak → the wait began earlier.
+          waitingSinceByConv[m.conversation_id] = m.created_at ?? null;
+        }
+      }
+
+      if (m.sender_type !== 'contact') continue;
+      if (!byConv[m.conversation_id]) {
+        byConv[m.conversation_id] = { body: m.body ?? '', created_at: m.created_at, seen_at: m.seen_at ?? null };
+      }
+      if (!m.seen_at) {
+        unreadByConv[m.conversation_id] = (unreadByConv[m.conversation_id] ?? 0) + 1;
+      }
+    }
+
+    // Resolve the media kind of every attachment-only preview in one query,
+    // so the Inbox list can say "sent a photo / voice message / file".
+    const previewAttachmentIds = Array.from(new Set(
+      Object.values(lastByConv)
+        .filter((l) => l.attachment_id && !String(l.body || '').trim())
+        .map((l) => l.attachment_id as string),
+    ));
+    if (previewAttachmentIds.length) {
+      const { data: atts } = await sb
+        .from('conversation_attachments')
+        .select('id, mime_type')
+        .in('id', previewAttachmentIds);
+      const mimeById = new Map<string, string>(
+        ((atts || [])).map((a) => [String(a.id), String(a.mime_type || '')]),
+      );
+      for (const last of Object.values(lastByConv)) {
+        if (!last.attachment_id) continue;
+        const mime = mimeById.get(last.attachment_id) || '';
+        last.attachment_kind = mime.startsWith('image/')
+          ? 'image'
+          : mime.startsWith('audio/')
+            ? 'audio'
+            : mime.startsWith('video/')
+              ? 'video'
+              : 'file';
+      }
+    }
+
+    // Resolve display names for the operators whose message is the list
+    // preview, so the row reads "Ali: …" instead of always "You: …".
+    const agentSenderIds = Array.from(new Set(
+      Object.values(lastByConv)
+        .filter((l) => l.sender_type === 'agent' && l.sender_id)
+        .map((l) => String(l.sender_id)),
+    ));
+    if (agentSenderIds.length) {
+      const { data: profs } = await sb
+        .from('profiles')
+        .select('id, full_name, email')
+        .in('id', agentSenderIds);
+      const nameById = new Map<string, string>(
+        ((profs || [])).map((p) => [
+          String(p.id),
+          String(p.full_name || String(p.email || '').split('@')[0] || ''),
+        ]),
+      );
+      for (const last of Object.values(lastByConv)) {
+        if (last.sender_type !== 'agent' || !last.sender_id) continue;
+        last.sender_name = nameById.get(String(last.sender_id)) || null;
+      }
+    }
+
+    for (const c of convos) {
+      c.last_visitor_message = byConv[c.id] ?? null;
+      c.last_message = lastByConv[c.id] ?? null;
+      c.unread_count = unreadByConv[c.id] ?? 0;
+      c.handled_by = Array.from(agentParticipants[c.id] ?? []);
+      // Only an `open` thread can owe the customer an answer: `pending`
+      // means we are waiting for THEM, `resolved`/`closed` are done.
+      c.needs_reply = c.status === 'open' && (needsReplyByConv[c.id] ?? false);
+      c.waiting_since = c.needs_reply ? (waitingSinceByConv[c.id] ?? null) : null;
+    }
+  }
+
+  let result = convos;
+  if (queue === 'main') {
+    // AI greeting threads (source='ai_agent_intro') the visitor never
+    // answered are not human-actionable — exclude them from Main Inbox
+    // unless a human has already touched the thread.
+    result = convos.filter((c) => {
+      const meta = c?.metadata || {};
+      const introOnly = meta.source === 'ai_agent_intro' && !c.last_visitor_message;
+      const humanTouched = !!c.assigned_to || c.ai_state === 'human_active'
+        || (c.last_message && c.last_message.sender_type === 'agent');
+      return !introOnly || humanTouched;
+    });
+  }
+
+  // A finished thread belongs to whoever actually handled it. An operator
+  // must not see resolved/closed threads that another operator answered,
+  // even when nobody claimed them (`assigned_to` stays null on the
+  // "send & resolve" path). Owners/admins/team leads keep the full view.
+  if (!canSeeAllAssignments && queue !== 'any') {
+    result = result.filter((c) => {
+      if (c.status !== 'resolved' && c.status !== 'closed') return true;
+      if (c.assigned_to && c.assigned_to !== auth.userId) return false;
+      const handled: string[] = Array.isArray(c.handled_by) ? c.handled_by : [];
+      if (handled.length === 0) return true; // AI/system resolved → shared
+      return handled.includes(auth.userId);
+    });
+  }
+
+  return { rows: result, error: null };
+}
 
 // ─── Sidebar inbox counters ─────────────────────────────────────────
 conversationsRouter.get('/inbox-counts', async (req, res) => {
@@ -1429,6 +1482,41 @@ conversationsRouter.get('/inbox-tab-counts', async (req, res) => {
 
   } catch (err) {
     console.error('[conversations inbox-tab-counts] error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});
+
+/**
+ * GET /api/conversations/:id?workspace_id= — one conversation, in the list's
+ * shape (`{ conversation }`), whichever queue it is in.
+ *
+ * For a native client opening a thread from a notification: it has an id and
+ * no list containing it, and without this it would have to read every queue
+ * to find one row. Registered after every literal GET path on this router,
+ * and it passes anything that is not a UUID on, so no other route is shadowed.
+ */
+conversationsRouter.get('/:id', async (req, res, next) => {
+  const id = String(req.params.id || '');
+  if (!isConversationId(id)) return next();
+  try {
+    const config: ServerConfig = serverConfigOf(req);
+    const workspaceId = String(req.query.workspace_id || '');
+    if (!isConversationId(workspaceId)) return res.status(400).json({ error: 'workspace_id is required' });
+    const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+    if (!auth) return;
+    const listed = await listConversationRows(config, auth, {
+      workspaceId,
+      queue: 'any',
+      needsHuman: false,
+      canSeeAllAssignments: true,
+      ids: [id.toLowerCase()],
+    });
+    if (listed.error) return res.status(500).json({ error: listed.error });
+    const conversation = listed.rows[0];
+    if (!conversation) return res.status(404).json({ error: 'conversation_not_found' });
+    return res.json({ conversation });
+  } catch (err) {
+    console.error('[conversation by id] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
 });

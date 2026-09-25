@@ -117,6 +117,10 @@ import com.webyar.operator.feature.inbox.InboxViewModel
 import com.webyar.operator.ui.components.EmptyState
 import com.webyar.operator.ui.components.bidiContent
 import com.webyar.operator.ui.components.rememberSearchState
+import com.webyar.operator.LocalAppGraph
+import kotlinx.coroutines.launch
+import com.webyar.operator.core.cache.CacheScope
+import androidx.compose.runtime.saveable.rememberSaveable
 
 /**
  * The screens, as the navigation graph sees them.
@@ -148,6 +152,7 @@ fun InboxRoute(
     val channel by conversations.channel.collectAsStateWithLifecycle()
     val intel by conversations.intel.collectAsStateWithLifecycle()
     val refreshing by conversations.refreshing.collectAsStateWithLifecycle()
+    val syncProblem by conversations.syncProblem.collectAsStateWithLifecycle()
 
     // Closing the field on a queue change is the same rule the view model
     // applies to the terms: a search box left open over a list it no longer
@@ -219,6 +224,7 @@ fun InboxRoute(
                 )
             }
         },
+        syncNotice = syncProblem,
     )
 }
 
@@ -232,12 +238,18 @@ fun ChatRoute(
     onBack: () -> Unit,
     onStartCall: (CallChannel) -> Unit,
 ) {
+    val graph = LocalAppGraph.current
     val chatModel: ChatViewModel =
-        viewModel(factory = viewModelFactory { ChatViewModel(api) { language } })
+        viewModel(factory = viewModelFactory {
+            val sync = graph?.syncGraph()
+            if (sync != null) ChatViewModel(api, sync) { language } else ChatViewModel(api) { language }
+        })
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
+    val session by appState.session.collectAsStateWithLifecycle()
     val plan by appState.entitlements.collectAsStateWithLifecycle()
     val inbox by conversations.state.collectAsStateWithLifecycle()
     val chat by chatModel.chat.collectAsStateWithLifecycle()
+    val cachedConversation by chatModel.conversation.collectAsStateWithLifecycle()
     val draft by chatModel.draft.collectAsStateWithLifecycle()
     val sending by chatModel.sending.collectAsStateWithLifecycle()
     val shortcuts by chatModel.shortcuts.collectAsStateWithLifecycle()
@@ -247,17 +259,35 @@ fun ChatRoute(
     val notice by chatModel.notice.collectAsStateWithLifecycle()
 
     // The route carries an id, not an object — which is right, because a route
-    // has to survive process death and an object does not. The conversation is
-    // looked up from the list that is already loaded; if the process WAS
-    // restarted, the list reloads first and this resolves on the next frame.
-    val conversation = (inbox as? InboxState.Loaded)
-        ?.conversations
-        ?.firstOrNull { it.id == conversationId }
+    // has to survive process death and an object does not. The conversation
+    // comes from the cache, by id: the inbox does not have to have loaded, or
+    // even to list it, which is what lets a notification open a thread.
+    val listed = (inbox as? InboxState.Loaded)?.conversations?.firstOrNull { it.id == conversationId }
+    val conversation = cachedConversation ?: listed
 
-    LaunchedEffect(conversationId, conversation?.id, workspace?.id) {
-        val open = conversation ?: return@LaunchedEffect
+    // A chat belongs to the workspace it was opened in. If the operator
+    // switches workspace while it is on the stack, it is closed rather than
+    // re-read under a workspace it is not part of.
+    var openedIn by rememberSaveable(conversationId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(conversationId, workspace?.id) {
         val ws = workspace?.id ?: return@LaunchedEffect
-        chatModel.open(open, ws)
+        val bound = openedIn
+        if (bound != null && bound != ws) {
+            onBack()
+            return@LaunchedEffect
+        }
+        openedIn = ws
+        chatModel.open(conversationId, ws, listed)
+    }
+    // Opening a conversation answers its notification.
+    val context = LocalContext.current
+    LaunchedEffect(conversationId) {
+        com.webyar.operator.core.push.Notifications.cancelConversation(context, conversationId)
+    }
+    val attachmentSource = remember(graph, workspace?.id, session) {
+        val user = (session as? Session.SignedIn)?.user
+        val ws = workspace?.id
+        if (graph != null && user != null && ws != null) graph.attachmentSource(CacheScope(user.id, ws)) else null
     }
 
     val capabilities = remember(conversation, plan) {
@@ -272,7 +302,6 @@ fun ChatRoute(
     // Reading the bytes stays here rather than in the view model: a Uri is a
     // permission grant to one Activity, and a model that outlives the screen
     // would be holding a handle it is no longer allowed to open.
-    val context = LocalContext.current
     val send: (android.net.Uri) -> Unit = { uri ->
         when (val picked = readPickedFile(context, uri)) {
             is PickedFile.Ready -> chatModel.sendAttachment(
@@ -381,6 +410,9 @@ fun ChatRoute(
             }
         },
         loadAttachment = { id -> runCatching { api.attachmentData(id) }.getOrNull() },
+        attachments = attachmentSource,
+        onRetry = chatModel::retry,
+        onDiscard = chatModel::discard,
         header = {
             ConversationMenu(
                 language = language,
@@ -611,6 +643,13 @@ fun TeamThreadRoute(
 
     val colleague = remember(peerId) { colleagues.colleague(peerId) }
     val context = LocalContext.current
+    val graph = LocalAppGraph.current
+    val session by appState.session.collectAsStateWithLifecycle()
+    val attachmentSource = remember(graph, workspace?.id, session) {
+        val user = (session as? Session.SignedIn)?.user
+        val ws = workspace?.id
+        if (graph != null && user != null && ws != null) graph.attachmentSource(CacheScope(user.id, ws)) else null
+    }
 
     LaunchedEffect(workspace?.id, peerId) {
         workspace?.let { thread.open(it.id, peerId) }
@@ -657,6 +696,7 @@ fun TeamThreadRoute(
                 language = language,
                 loadAttachment = thread::attachment,
                 onRetry = thread::retry,
+                attachments = attachmentSource,
             ) {
                 Composer(
                     language = language,
@@ -968,12 +1008,23 @@ fun CallRoute(
 
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
 
-    // Who we are calling, out of the list the inbox already holds. There is no
-    // by-id endpoint for a conversation — the chat reads it the same way — and
-    // a call that could not find its name is still a call.
+    // Who we are calling: the cache's row for this conversation, else the
+    // inbox's. A call that could not find its name is still a call.
     val inbox by conversations.state.collectAsStateWithLifecycle()
     val intel by conversations.intel.collectAsStateWithLifecycle()
-    val conversation = remember(inbox, conversationId) {
+    val graph = LocalAppGraph.current
+    val signedIn by appState.session.collectAsStateWithLifecycle()
+    val cachedFlow = remember(graph, workspace?.id, signedIn, conversationId) {
+        val user = (signedIn as? Session.SignedIn)?.user
+        val ws = workspace?.id
+        if (graph != null && user != null && ws != null) {
+            graph.sync.conversations.observeConversation(CacheScope(user.id, ws), conversationId)
+        } else {
+            kotlinx.coroutines.flow.flowOf(null)
+        }
+    }
+    val cached by cachedFlow.collectAsStateWithLifecycle(initialValue = null)
+    val conversation = cached ?: remember(inbox, conversationId) {
         (inbox as? InboxState.Loaded)?.conversations?.firstOrNull { it.id == conversationId }
     }
 
@@ -1072,6 +1123,13 @@ fun SettingsRoute(
     val user = (session as? Session.SignedIn)?.user
     val avatarUrl by appState.avatarUrl.collectAsStateWithLifecycle()
 
+    // Measured each time the screen is shown; a size is only interesting
+    // when somebody is looking at it.
+    val graph = LocalAppGraph.current
+    val context = LocalContext.current
+    var storage by remember { mutableStateOf<com.webyar.operator.StorageUsage?>(null) }
+    LaunchedEffect(graph) { storage = graph?.storageUsage() }
+
     SettingsScreen(
         language = language,
         appearance = appearance,
@@ -1098,6 +1156,23 @@ fun SettingsRoute(
         onSignOut = appState::logOut,
         modifier = Modifier.statusBarsPadding(),
         contentPadding = PaddingValues(bottom = bottomInset),
+        storage = storage,
+        onClearCache = graph?.let { g ->
+            {
+                storage = null
+                // On the app's scope, not this screen's: a clear that is
+                // half done because the operator tapped Back is worse than
+                // one that finishes.
+                // The application context, not the screen's: this can finish
+                // after the screen is gone and must not hold its Activity.
+                val appContext = context.applicationContext
+                g.appScope.launch {
+                    g.clearCache()
+                    storage = g.storageUsage()
+                    android.widget.Toast.makeText(appContext, StrAndroid.cacheCleared(language), android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        },
     )
 }
 
@@ -1199,10 +1274,14 @@ fun NotificationsRoute(
         }
     }
 
+    val graph = LocalAppGraph.current
     val ask = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { allowed ->
         granted = allowed
+        // The server should know at once: registered when allowed,
+        // unregistered when not — not at the next return to the foreground.
+        graph?.let { g -> g.appScope.launch { g.push.sync("permission ${if (allowed) "granted" else "denied"}") } }
         // Android shows the dialog once. A no here means the only way back
         // is the system settings page, and the banner has to say so.
         refused = !allowed

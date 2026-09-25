@@ -296,7 +296,8 @@ public sealed class AppHost : IAsyncDisposable
     /// Fetches the plan again. The super admin can switch a feature at any
     /// time, so the shell calls this every few minutes. Each answer is kept on
     /// the PC; a failure keeps the last good snapshot (this session's, else the
-    /// PC's), and only with neither does it fall back to "show all", as the web.
+    /// PC's), and only with neither is the plan Failed — gated sections hidden,
+    /// as the web does, and the shell asks again sooner.
     /// </summary>
     public async Task LoadPlanAsync(CancellationToken ct = default)
     {

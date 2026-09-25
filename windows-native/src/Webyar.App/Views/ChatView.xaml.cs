@@ -468,10 +468,12 @@ public sealed partial class ChatView : UserControl
             ClearPendingFile();
         }
         _aiMode = ai;
-        var plan = Host.Plan;
-        AttachButton.Visibility = !ai && plan.Attachments ? Visibility.Visible : Visibility.Collapsed;
-        MicButton.Visibility = !ai && plan.VoiceNotes ? Visibility.Visible : Visibility.Collapsed;
-        EmojiButton.Visibility = !ai && plan.Emoji ? Visibility.Visible : Visibility.Collapsed;
+        // Who is answering decides, as the web: not the plan's widget_* keys,
+        // which govern what visitors may do in the chat widget (operator files
+        // also go to Telegram, WhatsApp and Instagram chats).
+        AttachButton.Visibility = ai ? Visibility.Collapsed : Visibility.Visible;
+        MicButton.Visibility = ai ? Visibility.Collapsed : Visibility.Visible;
+        EmojiButton.Visibility = ai ? Visibility.Collapsed : Visibility.Visible;
         ShortcutsButton.Visibility = ai ? Visibility.Collapsed : Visibility.Visible;
         VoicePicker.Visibility = ai ? Visibility.Visible : Visibility.Collapsed;
         Composer.PlaceholderText = s[ai ? "sayNowPlaceholder" : "messagePlaceholder"];

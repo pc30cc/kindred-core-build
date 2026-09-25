@@ -230,7 +230,9 @@ public sealed partial class ShellPage : Page
         // The super admin can change the plan at any time; pick it up without a restart.
         _planPoller = new Poller("plan", async ct =>
         {
-            await Task.Delay(TimeSpan.FromMinutes(3), ct);
+            // An unreadable plan hides every gated section, so it is asked for
+            // again soon; a good one is refreshed every few minutes.
+            await Task.Delay(Host.Plan.State == PlanState.Failed ? TimeSpan.FromSeconds(20) : TimeSpan.FromMinutes(3), ct);
             await Host.LoadPlanAsync(ct);
         }, () => TimeSpan.Zero);
         _planPoller.Start();

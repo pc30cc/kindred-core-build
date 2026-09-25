@@ -8,9 +8,10 @@ namespace Webyar.Core.Tests;
 
 /// <summary>
 /// The Windows app shows exactly what Super Admin's plan (and the operator's
-/// role) allows, by the same rules as the web console: AppSidebar's
-/// moduleInPlan/channelInPlan, InboxPage's inboxCapAllowed, the AI queue's
-/// capability check, SidebarCallCard, and the plugin catalog's planAllowed.
+/// role) allows, by the web console's one rule (src/lib/planAccess.ts): a
+/// capability is on only when the loaded snapshot says exactly true; nothing
+/// gated shows while it loads or when it cannot be read; channel inboxes the
+/// plan does not govern are the plugin catalog's call (planAllowed).
 /// </summary>
 public class PlanTests
 {
@@ -49,6 +50,7 @@ public class PlanTests
     {
         var api = Api(
             Effective(modules: new() { ["contacts"] = false, ["visitor_tracking"] = true, ["call_center"] = true, ["email_inbox"] = true, ["voice_video"] = true },
+                      features: new() { ["inbox_ai_queue"] = true },
                       channels: new() { ["voice"] = true, ["video"] = false }),
             "owner",
             """{"capabilities":{"ai_agent_enabled":true,"customer_ai_agent_visible":true,"auto_answer_enabled":true}}""",
@@ -83,13 +85,20 @@ public class PlanTests
     }
 
     [Fact]
-    public void Composer_tools_follow_the_widget_features()
+    public void Call_recordings_follow_the_plan_feature()
     {
-        var plan = Loaded(Effective(features: new() { ["widget_attachments"] = true, ["widget_voice_notes"] = false, ["widget_emoji"] = true, ["call_recording"] = false }));
-        Assert.True(plan.Attachments);
-        Assert.False(plan.VoiceNotes);
-        Assert.True(plan.Emoji);
-        Assert.False(plan.CallRecordings);
+        Assert.False(Loaded(Effective(features: new() { ["call_recording"] = false })).CallRecordings);
+        Assert.True(Loaded(Effective(features: new() { ["call_recording"] = true })).CallRecordings);
+    }
+
+    [Fact]
+    public void A_key_the_snapshot_does_not_carry_is_not_available()
+    {
+        // The server sends every registry key (registry default applied), so a
+        // missing one is a key it does not know — and it would refuse it.
+        var plan = Loaded(Effective());
+        Assert.False(plan.Contacts || plan.Visitors || plan.TeamChat || plan.NeedsHumanQueue || plan.VoiceCalls || plan.CallRecordings);
+        Assert.False(plan.ChannelInPlan("telegram"));
     }
 
     [Fact]
@@ -104,7 +113,7 @@ public class PlanTests
     [Fact]
     public void The_ai_queue_is_hidden_when_super_admin_hides_the_ai_or_its_state_is_unknown()
     {
-        var parsed = WorkspacePlan.Parse(JsonDocument.Parse(Effective()).RootElement);
+        var parsed = WorkspacePlan.Parse(JsonDocument.Parse(Effective(features: new() { ["inbox_ai_queue"] = true })).RootElement);
         Assert.False(parsed.With("owner", aiAgent: true, aiAuto: true, callCenter: null, aiVisible: false).AiQueue(3)); // not shown to customers
         Assert.False(parsed.With("owner", aiAgent: false, aiAuto: true, callCenter: null, aiVisible: true).AiQueue(3)); // switched off
         Assert.False(parsed.With("owner", aiAgent: null, aiAuto: null, callCenter: null).AiQueue(3)); // capabilities unreadable: fail closed
@@ -115,33 +124,36 @@ public class PlanTests
     }
 
     [Fact]
-    public void Channels_are_shown_unless_the_plan_turns_them_off()
+    public void Channel_inboxes_the_plan_governs_need_it_on()
     {
         var plan = Loaded(Effective(channels: new() { ["telegram"] = true, ["whatsapp"] = false }));
         Assert.True(plan.ChannelInPlan("telegram"));
         Assert.False(plan.ChannelInPlan("WhatsApp"));
+        Assert.False(plan.ChannelInPlan("bale")); // a plan channel the snapshot does not turn on
         Assert.True(plan.ChannelInPlan("x")); // not a plan channel: the plugin's own plan check decides
     }
 
     [Fact]
-    public void While_loading_nothing_gated_shows_and_an_unreachable_plan_hides_nothing()
+    public void Nothing_gated_shows_while_loading_or_when_the_plan_cannot_be_read()
     {
-        var loading = WorkspacePlan.Loading;
-        Assert.False(loading.Contacts || loading.Visitors || loading.EmailInbox || loading.Attachments || loading.ChannelInPlan("telegram"));
-        var failed = WorkspacePlan.Failed.With("owner", null, null, null);
-        Assert.True(failed.Contacts && failed.Visitors && failed.EmailInbox && failed.Attachments && failed.ChannelInPlan("telegram"));
+        foreach (var plan in new[] { WorkspacePlan.Loading, WorkspacePlan.Failed.With("owner", true, true, true, true) })
+        {
+            Assert.False(plan.Contacts || plan.Visitors || plan.EmailInbox || plan.CallCenter || plan.TeamChat || plan.NeedsHumanQueue);
+            Assert.False(plan.VoiceCalls || plan.CallRecordings || plan.AiQueue(5) || plan.ChannelInPlan("telegram"));
+            Assert.True(plan.ChannelInPlan("x"));
+        }
     }
 
     [Fact]
     public void The_plan_kept_on_the_pc_restores_exactly()
     {
-        var plan = Loaded(Effective(modules: new() { ["contacts"] = false, ["email_inbox"] = true }, features: new() { ["widget_emoji"] = false }, channels: new() { ["video"] = false }), role: "admin");
+        var plan = Loaded(Effective(modules: new() { ["contacts"] = false, ["email_inbox"] = true }, features: new() { ["inbox_team_chat"] = false }, channels: new() { ["video"] = false }), role: "admin");
         var restored = WorkspacePlan.Restore(plan.Serialize())!;
         Assert.Equal(PlanState.Loaded, restored.State);
         Assert.Equal("admin", restored.Role);
         Assert.Equal(plan.Contacts, restored.Contacts);
         Assert.Equal(plan.EmailInbox, restored.EmailInbox);
-        Assert.Equal(plan.Emoji, restored.Emoji);
+        Assert.Equal(plan.TeamChat, restored.TeamChat);
         Assert.Equal(plan.VideoCalls, restored.VideoCalls);
         Assert.Equal(plan.AiQueue(0), restored.AiQueue(0));
         Assert.Null(WorkspacePlan.Loading.Serialize());

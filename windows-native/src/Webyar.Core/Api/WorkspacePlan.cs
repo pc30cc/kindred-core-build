@@ -12,9 +12,11 @@ public enum PlanState
 /// <summary>
 /// What the workspace's plan lets this operator see — the same snapshot the
 /// web console reads (/api/plans/workspace/:id/effective), where the super
-/// admin switches features, modules and channels on and off per plan. The
-/// rules copy the web sidebar and the iOS app: while it loads nothing gated
-/// shows; if it cannot be fetched at all, nothing is hidden (as the web).
+/// admin switches features, modules and channels on and off per plan, and by
+/// the web's one rule (src/lib/planAccess.ts): a capability is available only
+/// when the snapshot is in and says exactly true. While it loads — or when it
+/// cannot be read and no copy is kept on the PC — nothing gated shows (the
+/// server would refuse it anyway) and the shell asks again soon.
 /// </summary>
 public sealed class WorkspacePlan
 {
@@ -106,51 +108,25 @@ public sealed class WorkspacePlan
         }
     }
 
-    /// <summary>The web's moduleInPlan: hidden while loading; shown when the key is absent or on.</summary>
-    public bool ModuleInPlan(string key) => State switch
-    {
-        PlanState.Failed => true,
-        PlanState.Loaded => !_modules.TryGetValue(key, out var v) || v == true,
-        _ => false,
-    };
+    /// <summary>A plan module (contacts, call_center…): on only if the loaded plan says exactly true.</summary>
+    public bool ModuleInPlan(string key) => State == PlanState.Loaded && _modules.TryGetValue(key, out var v) && v == true;
 
-    /// <summary>A plan feature (widget_attachments, inbox_team_chat…): on only if the plan says so.</summary>
-    public bool Feature(string key) => State switch
-    {
-        PlanState.Failed => true,
-        PlanState.Loaded => !_features.TryGetValue(key, out var v) || v == true,
-        _ => false,
-    };
+    /// <summary>A plan feature (inbox_team_chat, call_recording…): on only if the loaded plan says exactly true.</summary>
+    public bool Feature(string key) => State == PlanState.Loaded && _features.TryGetValue(key, out var v) && v == true;
 
-    /// <summary>The inbox's inboxCapAllowed: features[key] ?? modules[key], allowed unless false.</summary>
-    public bool InboxCap(string key) => State switch
-    {
-        PlanState.Failed => true,
-        PlanState.Loaded => (_features.TryGetValue(key, out var f) ? f : _modules.TryGetValue(key, out var m) ? m : null) != false,
-        _ => false,
-    };
+    private bool Channel(string key) => State == PlanState.Loaded && _channels.TryGetValue(key, out var v) && v == true;
 
-    /// <summary>Calls, as the web's SidebarCallCard: voice_video not off, and the channel not off.</summary>
-    private bool Call(string channel) => State switch
-    {
-        PlanState.Failed => true,
-        PlanState.Loaded => (!_modules.TryGetValue("voice_video", out var vv) || vv != false)
-            && (!_channels.TryGetValue(channel, out var c) || c != false),
-        _ => false,
-    };
+    /// <summary>Calls, as the web's SidebarCallCard: the Voice &amp; Video module and the call's channel.</summary>
+    private bool Call(string channel) => ModuleInPlan("voice_video") && Channel(channel);
 
     public bool VoiceCalls => Call("voice");
     public bool VideoCalls => Call("video");
 
-    public bool Attachments => Feature("widget_attachments");
-    public bool VoiceNotes => Feature("widget_voice_notes");
-    public bool Emoji => Feature("widget_emoji");
-
     public bool Contacts => ModuleInPlan("contacts");
     public bool Visitors => ModuleInPlan("visitor_tracking");
-    public bool CallCenter => ModuleInPlan("call_center") && CallCenterVisible != false;
-    public bool TeamChat => InboxCap("inbox_team_chat");
-    public bool NeedsHumanQueue => InboxCap("inbox_needs_human");
+    public bool CallCenter => ModuleInPlan("call_center") && CallCenterVisible == true;
+    public bool TeamChat => Feature("inbox_team_chat");
+    public bool NeedsHumanQueue => Feature("inbox_needs_human");
 
     /// <summary>The mailbox, as the web sidebar shows it: owners and admins, when the plan has the Email Inbox module.</summary>
     public bool EmailInbox => IsAdmin && ModuleInPlan("email_inbox");
@@ -158,16 +134,22 @@ public sealed class WorkspacePlan
     /// <summary>Call recordings, where the plan keeps them (the web's Recordings tab).</summary>
     public bool CallRecordings => Feature("call_recording");
 
-    /// <summary>
-    /// A channel of the plan (telegram, whatsapp, bale…): hidden while loading,
-    /// shown when the plan has it on or does not name it, as the web's channelInPlan.
-    /// </summary>
-    public bool ChannelInPlan(string key) => State switch
+    /// <summary>Channel keys the plan itself governs; the others are decided by the plugin's own plan check.</summary>
+    private static readonly HashSet<string> PlanChannels = new(StringComparer.Ordinal)
     {
-        PlanState.Failed => true,
-        PlanState.Loaded => !_channels.TryGetValue(key.ToLowerInvariant(), out var v) || v != false,
-        _ => false,
+        "chat_widget", "email", "whatsapp", "sms", "instagram", "telegram", "bale", "gmail", "yahoomail", "voice", "video",
     };
+
+    /// <summary>
+    /// A channel inbox (telegram, whatsapp, bale…), as the web's channelInboxVisible:
+    /// a channel the plan governs must be on in the loaded plan; any other one is
+    /// the plugin catalog's call (its planAllowed).
+    /// </summary>
+    public bool ChannelInPlan(string key)
+    {
+        var k = key.ToLowerInvariant();
+        return !PlanChannels.Contains(k) || Channel(k);
+    }
 
     /// <summary>
     /// The AI queue, as the web: the plan's AI queue (inboxCapAllowed), the AI
@@ -176,7 +158,7 @@ public sealed class WorkspacePlan
     /// itself or something already waiting in the queue.
     /// </summary>
     public bool AiQueue(int? automated) =>
-        InboxCap("inbox_ai_queue") && AiAgentEnabled == true && AiCustomerVisible == true && (AiAutoAnswer == true || automated > 0);
+        Feature("inbox_ai_queue") && AiAgentEnabled == true && AiCustomerVisible == true && (AiAutoAnswer == true || automated > 0);
 
     private static Dictionary<string, bool?> Flags(JsonElement root, string name)
     {

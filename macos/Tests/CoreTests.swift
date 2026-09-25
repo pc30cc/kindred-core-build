@@ -241,6 +241,30 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(WorkspacePlan.failed.visitors)
     }
 
+    func testWebAnalyticsFollowsThePlanAndTheRole() throws {
+        let on = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"modules":{"web_analytics":true}}"#.utf8))
+        let off = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"modules":{"web_analytics":false}}"#.utf8))
+        XCTAssertTrue(WorkspacePlan.parse(on).with(role: "owner", aiAgent: nil, aiAuto: nil, callCenter: nil).webAnalytics)
+        XCTAssertTrue(WorkspacePlan.parse(on).with(role: "admin", aiAgent: nil, aiAuto: nil, callCenter: nil).webAnalytics)
+        XCTAssertFalse(WorkspacePlan.parse(on).with(role: "agent", aiAgent: nil, aiAuto: nil, callCenter: nil).webAnalytics)
+        XCTAssertFalse(WorkspacePlan.parse(off).with(role: "owner", aiAgent: nil, aiAuto: nil, callCenter: nil).webAnalytics)
+        XCTAssertFalse(WorkspacePlan.loading.webAnalytics)
+    }
+
+    func testAnalyticsRangesAreWholeDaysBackToBack() throws {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyy-MM-dd"
+        for range in AnalyticsRange.allCases {
+            let now = range.bounds, before = range.previousBounds
+            let start = try XCTUnwrap(f.date(from: now.start)), end = try XCTUnwrap(f.date(from: now.end))
+            XCTAssertEqual(Int(end.timeIntervalSince(start) / 86_400) + 1, range.rawValue)
+            let prevEnd = try XCTUnwrap(f.date(from: before.end))
+            XCTAssertEqual(start.timeIntervalSince(prevEnd), 86_400)
+        }
+    }
+
     // MARK: Realtime
 
     func testParsesCentrifugoFrames() {

@@ -156,13 +156,17 @@ enum DebugTools {
         case "photo":
             // "photo on" uploads a sample picture as the operator's photo, "photo off" removes it.
             Task {
-                if arg == "off" { try? await app.removeAvatar(); return }
-                let image = NSImage(size: NSSize(width: 64, height: 64), flipped: false) { r in
-                    NSColor.systemTeal.setFill(); r.fill(); return true
-                }
-                if let data = AppModel.avatarJPEG(image) {
-                    try? await app.api.uploadAvatar(data: data, contentType: "image/jpeg", fileName: "avatar.jpg")
+                do {
+                    if arg == "off" { try await app.removeAvatar(); return }
+                    let image = NSImage(size: NSSize(width: 64, height: 64), flipped: false) { r in
+                        NSColor.systemTeal.setFill(); r.fill(); return true
+                    }
+                    guard let data = AppModel.avatarJPEG(image) else { return Log.write("[debug] photo: no JPEG") }
+                    try await app.api.uploadAvatar(data: data, contentType: "image/jpeg", fileName: "avatar.jpg")
                     await app.reloadAccount()
+                    Log.write("[debug] photo: \(app.account?.avatarUrl ?? "none")")
+                } catch {
+                    Log.error("debug photo", error)
                 }
             }
         case "signout": app.debugSignOut()

@@ -50,7 +50,7 @@ function patchAppendChild(target: HTMLElement) {
 
 let fetchMock: ReturnType<typeof vi.fn>;
 
-async function boot(attrs: Record<string, string>, identityFailure = 0) {
+async function boot(attrs: Record<string, string>, identityFailure = 0, bootstrapFailure = false) {
   document.head.innerHTML = '';
   document.body.innerHTML = '';
   for (const k of ['__gs', '__gs_id', '__gs_api_base', '__gs_loaded', '__gs_loader_injected', '__gs_token', '__gs_runtime', '__gs_policy']) {
@@ -75,6 +75,7 @@ async function boot(attrs: Record<string, string>, identityFailure = 0) {
       return Promise.resolve(jsonResponse({ ok: true, linked: true }));
     }
     if (u.includes(BOOTSTRAP_PATH)) {
+      if (bootstrapFailure) return Promise.resolve({ ...jsonResponse({}), ok: false, status: 401 });
       return Promise.resolve(jsonResponse({ session_token: 'tok-1', workspace_id: 'ws-test', is_new_visitor: false, availability: { state: 'online' } }));
     }
     if (u.includes('/api/widget/config')) return Promise.resolve(jsonResponse({ enabled: true, features: { chat: true }, primaryColor: '#3B82F6', templateId: 'default' }));
@@ -172,5 +173,24 @@ describe('identity transport recovery', () => {
     await boot(page, 400);
     await new Promise(resolve => setTimeout(resolve, 1100));
     expect(identityCalls()).toHaveLength(1);
+  });
+});
+
+
+describe('logout reset acknowledgement', () => {
+  it('clears tab continuation and retries a failed identity reset on the next page', async () => {
+    window.localStorage.setItem('gs:csub:ws-test', 'ualice');
+    window.sessionStorage.setItem('gs:view:ws-test', JSON.stringify({ tab: 'chat', conversationId: 'private-thread' }));
+    window.sessionStorage.setItem('gs:cbind:ws-test', 'old-binding');
+    await boot({ 'data-commerce-subject': 'anon' }, 0, true);
+    expect(bootstrapBody().fresh_visitor).toBe(true);
+    expect(window.sessionStorage.getItem('gs:view:ws-test')).toBeNull();
+    expect(window.sessionStorage.getItem('gs:cbind:ws-test')).toBeNull();
+    expect(window.localStorage.getItem('gs:csub:ws-test')).toBe('ualice');
+    await boot({ 'data-commerce-subject': 'anon' });
+    expect(bootstrapBody().fresh_visitor).toBe(true);
+    expect(window.localStorage.getItem('gs:csub:ws-test')).toBe('anon');
+    await boot({ 'data-commerce-subject': 'anon' });
+    expect(bootstrapBody()).not.toHaveProperty('fresh_visitor');
   });
 });

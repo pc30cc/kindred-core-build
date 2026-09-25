@@ -94,6 +94,10 @@ final class ChatModel {
 
     // Composer
     var draft = ""
+    /// What Send does after sending, remembered per operator as on the web; Enter runs it.
+    var sendAction: PostSendAction = .none {
+        didSet { UserDefaults.standard.set(sendAction.rawValue, forKey: sendActionKey) }
+    }
     var pendingFile: (name: String, mime: String, data: Data)?
     var voice = ChatModel.voice { didSet { ChatModel.voice = voice } }
     let recorder = VoiceRecorder()
@@ -106,6 +110,7 @@ final class ChatModel {
         self.app = app
         self.id = id
         self.conversation = conversation
+        sendAction = UserDefaults.standard.string(forKey: sendActionKey).flatMap(PostSendAction.init(rawValue:)) ?? .none
     }
 
     var aiMode: Bool { conversation?.isAiManaged == true }
@@ -210,7 +215,10 @@ final class ChatModel {
 
     var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pendingFile != nil }
 
-    func send() {
+    private var sendActionKey: String { "sendAction.\(app.user?.id ?? "")" }
+
+    /// `then` overrides the remembered action for this one message (picking it in the menu sends at once).
+    func send(then override: PostSendAction? = nil) {
         let body = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let file = pendingFile
         guard !body.isEmpty || file != nil, let ws = app.workspace else { return }
@@ -235,8 +243,12 @@ final class ChatModel {
         outbox.append(row)
         rows.append(row)
         Self.group(&rows)
+        thenActions[clientId] = override ?? sendAction
         Task { await deliver(clientId, workspaceId: ws.id, file: file) }
     }
+
+    /// The status change each message in the outbox asked for, kept for a retry.
+    @ObservationIgnored private var thenActions: [String: PostSendAction] = [:]
 
     private func deliver(_ clientId: String, workspaceId: String, file: (name: String, mime: String, data: Data)?) async {
         guard let i = outbox.firstIndex(where: { $0.clientId == clientId }) else { return }
@@ -253,8 +265,12 @@ final class ChatModel {
                     AttachmentStore.shared.alias(local, server)
                 }
             }
-            try await app.api.sendMessage(conversationId: id, workspaceId: workspaceId, body: body, clientMessageId: clientId, attachmentId: attachmentId)
+            let then = thenActions[clientId] ?? .none
+            let result = try await app.api.sendMessage(conversationId: id, workspaceId: workspaceId, body: body, clientMessageId: clientId,
+                                                       attachmentId: attachmentId, then: then)
             outbox.removeAll { $0.clientId == clientId }
+            thenActions[clientId] = nil
+            if then != .none { afterSend(then, result) }
             poller?.kick()
             onChanged?()
         } catch {
@@ -267,6 +283,16 @@ final class ChatModel {
             syncOutbox()
             retryFiles[clientId] = file
             notice = Notice(severity: .error, message: ErrorText.of(error, app.strings), retry: true)
+        }
+    }
+
+    /// The status the server set, on show at once; or why it left it alone.
+    private func afterSend(_ then: PostSendAction, _ result: PostSendResult?) {
+        if result?.changed == true {
+            let next = result?.status ?? (then == .resolve ? ConversationStatus.resolved : ConversationStatus.pending)
+            conversation?.status = next
+        } else if let blocked = result?.blocked, blocked != "no_change" {
+            notice = Notice(severity: .warning, message: app.strings["sendActionBlocked"])
         }
     }
 

@@ -336,7 +336,9 @@ final class SampleBackend: URLProtocol {
             lock.lock()
             sent[id, default: []].append(["id": "sent-\(UUID().uuidString)", "conversation_id": id, "sender_type": "agent", "sender_id": "u-1", "sender_name": "Sara Karimi", "body": body["body"] as? String ?? "", "created_at": ago(0)])
             lock.unlock()
-            return (200, ["ok": true])
+            let then = body["post_send_action"] as? String ?? "none"
+            let status: Any = then == "resolve" ? "resolved" : then == "wait_for_customer" ? "pending" : NSNull()
+            return (200, ["ok": true, "post_send": ["action": then, "changed": then != "none", "status": status, "blocked": NSNull()]])
         case ("GET", "/api/canned-responses"):
             return (200, ["items": [
                 ["id": "cr-1", "shortcut": "/hi", "title": "خوش‌آمدگویی", "body": "سلام! به وب‌یار خوش آمدید. چطور می‌توانم کمکتان کنم؟"],

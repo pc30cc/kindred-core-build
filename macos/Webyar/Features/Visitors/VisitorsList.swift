@@ -78,30 +78,13 @@ struct VisitorsList: View {
             .listStyle(.inset)
             .scrollContentBackground(.hidden)
             .animation(.smooth(duration: 0.2), value: rows.map(\.id))
-            .focusable()
-            .focusEffectDisabled()
-            .onKeyPress(.downArrow) { step(1, in: rows, proxy) }
-            .onKeyPress(.upArrow) { step(-1, in: rows, proxy) }
-            .onKeyPress(.escape) {
-                guard model.selectedId != nil else { return .ignored }
-                model.closeDetail()
-                return .handled
-            }
+            .arrowKeyPicking(rows.map(\.id), selected: model.selectedId, proxy: proxy,
+                             select: { model.select($0) }, clear: { model.closeDetail() })
             .onChange(of: model.reveal) { _, r in
                 guard let r else { return }
                 withAnimation(.smooth) { proxy.scrollTo(r.id, anchor: .center) }
             }
         }
-    }
-
-    /// The arrow keys move the pick up and down the list, as they did with the system selection.
-    private func step(_ by: Int, in rows: [LiveVisitor], _ proxy: ScrollViewProxy) -> KeyPress.Result {
-        guard !rows.isEmpty else { return .ignored }
-        let at = rows.firstIndex { $0.id == model.selectedId }
-        let next = at.map { min(rows.count - 1, max(0, $0 + by)) } ?? (by > 0 ? 0 : rows.count - 1)
-        model.select(rows[next].id)
-        proxy.scrollTo(rows[next].id)
-        return .handled
     }
 
     @ViewBuilder private func rowMenu(_ v: LiveVisitor) -> some View {
@@ -190,7 +173,6 @@ struct VisitorRow: View {
     let now: Date
     var selected = false
     @Environment(AppModel.self) private var app
-    @State private var hovering = false
 
     var body: some View {
         let v = visitor
@@ -218,18 +200,8 @@ struct VisitorRow: View {
             }
         }
         .padding(.vertical, 8)
-        .padding(.horizontal, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(selected ? Palette.selected : hovering ? Palette.hover : Color.clear)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(selected ? Palette.brand.opacity(0.35) : Color.clear, lineWidth: 1)
-        )
-        .contentShape(Rectangle())
-        .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovering)
+        .padding(.horizontal, 2)
+        .selectableRow(selected)
     }
 
     private func whereLine(_ s: Strings) -> String {

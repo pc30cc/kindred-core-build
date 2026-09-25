@@ -55,7 +55,19 @@
   "presenceOutsideSchedule": "Outside your hours",
   "presenceDayOff": "Not a working day",
   "scheduleOfflineNote": "You are outside the hours in your weekly schedule, so visitors and colleagues see you offline.",
-  "scheduleOffAction": "Be available whenever I am online"
+  "scheduleOffAction": "Be available whenever I am online",
+  "composerPlaceholder": "Write your message",
+  "sendActions": "Send actions",
+  "sendOnly": "Send",
+  "sendOnlyShort": "Send",
+  "sendOnlyHint": "Send the reply. The conversation status stays the same.",
+  "sendAndWait": "Send & wait for customer",
+  "sendAndWaitShort": "Wait",
+  "sendAndWaitHint": "Send, then move the conversation to Waiting for customer.",
+  "sendAndResolve": "Send & resolve",
+  "sendAndResolveShort": "Resolve",
+  "sendAndResolveHint": "Send, then mark the conversation resolved.",
+  "sendActionBlocked": "The message was sent, but the conversation status was not changed"
  },
  "fa": {
   "jumpToLatest": "رفتن به آخرین پیام",
@@ -113,7 +125,19 @@
   "presenceOutsideSchedule": "خارج از ساعت کاری",
   "presenceDayOff": "امروز روز کاری نیست",
   "scheduleOfflineNote": "بیرون از ساعت‌های برنامهٔ هفتگی‌تان هستید؛ برای همین بازدیدکنندگان و همکاران شما را آفلاین می‌بینند.",
-  "scheduleOffAction": "همیشه در دسترس باشم (زمان‌بندی خاموش)"
+  "scheduleOffAction": "همیشه در دسترس باشم (زمان‌بندی خاموش)",
+  "composerPlaceholder": "پیام خودتان را بنویسید",
+  "sendActions": "حالت‌های ارسال",
+  "sendOnly": "ارسال",
+  "sendOnlyShort": "ارسال",
+  "sendOnlyHint": "پیام ارسال می‌شود و وضعیت گفتگو تغییر نمی‌کند.",
+  "sendAndWait": "ارسال و انتظار برای مشتری",
+  "sendAndWaitShort": "انتظار مشتری",
+  "sendAndWaitHint": "پیام ارسال می‌شود و گفتگو به «در انتظار مشتری» می‌رود.",
+  "sendAndResolve": "ارسال و حل گفتگو",
+  "sendAndResolveShort": "حل شد",
+  "sendAndResolveHint": "پیام ارسال می‌شود و گفتگو «حل شده» علامت می‌خورد.",
+  "sendActionBlocked": "پیام ارسال شد، ولی وضعیت گفتگو تغییر نکرد"
  },
  "tr": {
   "jumpToLatest": "En son mesaja git",
@@ -171,6 +195,18 @@
   "presenceOutsideSchedule": "Çalışma saatleri dışında",
   "presenceDayOff": "Çalışma günü değil",
   "scheduleOfflineNote": "Haftalık programınızdaki saatlerin dışındasınız; bu yüzden ziyaretçiler ve ekip sizi çevrimdışı görüyor.",
-  "scheduleOffAction": "Çevrimiçiyken her zaman müsait ol"
+  "scheduleOffAction": "Çevrimiçiyken her zaman müsait ol",
+  "composerPlaceholder": "Mesajınızı yazın",
+  "sendActions": "Gönderme seçenekleri",
+  "sendOnly": "Gönder",
+  "sendOnlyShort": "Gönder",
+  "sendOnlyHint": "Yanıtı gönderir. Konuşmanın durumu değişmez.",
+  "sendAndWait": "Gönder ve müşteriyi bekle",
+  "sendAndWaitShort": "Bekle",
+  "sendAndWaitHint": "Gönderir, ardından konuşmayı Müşteri bekleniyor durumuna taşır.",
+  "sendAndResolve": "Gönder ve çöz",
+  "sendAndResolveShort": "Çözüldü",
+  "sendAndResolveHint": "Gönderir, ardından konuşmayı çözüldü olarak işaretler.",
+  "sendActionBlocked": "Mesaj gönderildi ama konuşmanın durumu değişmedi"
  }
 }

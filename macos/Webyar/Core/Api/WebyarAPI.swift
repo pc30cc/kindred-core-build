@@ -139,14 +139,20 @@ final class WebyarAPI {
 
     /// `clientMessageId` makes a retry safe: the server collapses a replay of
     /// the same key. Generate it once per message, not once per attempt.
-    func sendMessage(conversationId: String, workspaceId: String, body: String, clientMessageId: String, attachmentId: String? = nil) async throws {
-        try await client.call("POST", "/api/conversations/send-message", body: [
+    /// `then` is the web's split send: the server moves the conversation only
+    /// once the message really went out, and says whether it did.
+    @discardableResult
+    func sendMessage(conversationId: String, workspaceId: String, body: String, clientMessageId: String, attachmentId: String? = nil,
+                     then: PostSendAction = .none) async throws -> PostSendResult? {
+        let r: SendMessageResponse = try await client.post("/api/conversations/send-message", body: [
             "conversation_id": conversationId,
             "workspace_id": workspaceId,
             "body": body,
             "client_message_id": clientMessageId,
             "attachment_id": attachmentId,
+            "post_send_action": then.rawValue,
         ])
+        return r.postSend
     }
 
     func markSeen(conversationId: String) async throws {
@@ -562,4 +568,23 @@ final class WebyarAPI {
     func visitorMapConfig(workspaceId: String) async throws -> JSONValue {
         try await client.get("/api/visitor-intel/map-config", query: [("workspace_id", workspaceId)])
     }
+}
+
+/// What happens to the conversation once a reply is out, as the web inbox's split Send button.
+enum PostSendAction: String, CaseIterable, Identifiable, Sendable {
+    case none
+    case waitForCustomer = "wait_for_customer"
+    case resolve
+    var id: String { rawValue }
+}
+
+struct PostSendResult: Decodable, Sendable {
+    var changed: Bool?
+    var status: String?
+    /// Why the status stayed ("newer_customer_message", "delivery_failed", "no_change", …).
+    var blocked: String?
+}
+
+private struct SendMessageResponse: Decodable {
+    var postSend: PostSendResult?
 }

@@ -11,6 +11,59 @@ extension View {
     }
 }
 
+extension View {
+    /// A list row's own soft highlight — the brand tint with a thin ring when picked, a
+    /// wash under the pointer — in place of the system's accent-blue selection, which
+    /// left the rows' grey lines unreadable.
+    func selectableRow(_ selected: Bool) -> some View {
+        modifier(SelectableRow(selected: selected))
+    }
+
+    /// Up and down move the pick through `ids` and keep it in view; Escape lets it go
+    /// when `clear` is given. For lists that draw their own selection.
+    func arrowKeyPicking(_ ids: [String], selected: String?, proxy: ScrollViewProxy,
+                         select: @escaping (String) -> Void, clear: (() -> Void)? = nil) -> some View {
+        func step(_ by: Int) -> KeyPress.Result {
+            guard !ids.isEmpty else { return .ignored }
+            let at = selected.flatMap { ids.firstIndex(of: $0) }
+            let next = at.map { min(ids.count - 1, max(0, $0 + by)) } ?? (by > 0 ? 0 : ids.count - 1)
+            select(ids[next])
+            proxy.scrollTo(ids[next])
+            return .handled
+        }
+        return focusable()
+            .focusEffectDisabled()
+            .onKeyPress(.downArrow) { step(1) }
+            .onKeyPress(.upArrow) { step(-1) }
+            .onKeyPress(.escape) {
+                guard let clear, selected != nil else { return .ignored }
+                clear()
+                return .handled
+            }
+    }
+}
+
+private struct SelectableRow: ViewModifier {
+    let selected: Bool
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(selected ? Palette.selected : hovering ? Palette.hover : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(selected ? Palette.brand.opacity(0.35) : Color.clear, lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            .animation(.easeOut(duration: 0.12), value: hovering)
+    }
+}
+
 /// A person, drawn exactly like the web console's ContactAvatar (and the
 /// Windows app's Avatar control) so a visitor looks the same everywhere:
 /// their photo; else their operating system's logo on that OS's gradient;

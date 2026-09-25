@@ -50,17 +50,20 @@ struct ContactsList: View {
     @ViewBuilder private var content: some View {
         let list: [ContactItem] = model.visible
         ZStack {
-            List(selection: Binding<String?>(get: { model.selectedId }, set: { model.select($0) })) {
-                ForEach(list) { item in
-                    ContactRow(item: item)
-                        .tag(item.id)
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
-                        .contextMenu { rowMenu(item) }
+            ScrollViewReader { proxy in
+                List {
+                    ForEach(list) { item in
+                        ContactRow(item: item, selected: item.id == model.selectedId)
+                            .onTapGesture { model.select(item.id) }
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6))
+                            .contextMenu { rowMenu(item) }
+                    }
                 }
+                .listStyle(.inset)
+                .scrollContentBackground(.hidden)
+                .arrowKeyPicking(list.map(\.id), selected: model.selectedId, proxy: proxy, select: { model.select($0) })
             }
-            .listStyle(.inset)
-            .scrollContentBackground(.hidden)
 
             if model.loading && model.all.isEmpty {
                 ProgressView().controlSize(.regular)
@@ -98,6 +101,7 @@ struct ContactsList: View {
 /// One contact in the list.
 struct ContactRow: View {
     let item: ContactItem
+    var selected = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -119,7 +123,7 @@ struct ContactRow: View {
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 2)
-        .contentShape(Rectangle())
+        .selectableRow(selected)
     }
 }
 

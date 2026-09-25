@@ -50,7 +50,7 @@ function patchAppendChild(target: HTMLElement) {
 
 let fetchMock: ReturnType<typeof vi.fn>;
 
-async function boot(attrs: Record<string, string>) {
+async function boot(attrs: Record<string, string>, identityFailure = 0) {
   document.head.innerHTML = '';
   document.body.innerHTML = '';
   for (const k of ['__gs', '__gs_id', '__gs_api_base', '__gs_loaded', '__gs_loader_injected', '__gs_token', '__gs_runtime', '__gs_policy']) {
@@ -66,7 +66,14 @@ async function boot(attrs: Record<string, string>) {
 
   fetchMock = vi.fn((url: string) => {
     const u = String(url);
-    if (u.includes(IDENTITY_PATH)) return Promise.resolve(jsonResponse({ ok: true, linked: true }));
+    if (u.includes(IDENTITY_PATH)) {
+      if (identityFailure) {
+        const status = identityFailure;
+        identityFailure = 0;
+        return Promise.resolve({ ...jsonResponse({}), ok: false, status });
+      }
+      return Promise.resolve(jsonResponse({ ok: true, linked: true }));
+    }
     if (u.includes(BOOTSTRAP_PATH)) {
       return Promise.resolve(jsonResponse({ session_token: 'tok-1', workspace_id: 'ws-test', is_new_visitor: false, availability: { state: 'online' } }));
     }
@@ -133,11 +140,11 @@ describe('a different person on the same browser', () => {
 describe('binding the same grant again', () => {
   const page = { 'data-commerce-assertion': 'whmcs1.payload.signature-long-enough', 'data-commerce-binding': 'bind-1' };
 
-  it('binds once, then skips the same grant on the next page of the tab', async () => {
+  it('reconciles the WHMCS profile on each page even with the same grant', async () => {
     await boot(page);
     expect(identityCalls()).toHaveLength(1);
     await boot(page);
-    expect(identityCalls()).toHaveLength(0);
+    expect(identityCalls()).toHaveLength(1);
   });
 
   it('binds again when the grant changed (new login, other account)', async () => {
@@ -149,6 +156,21 @@ describe('binding the same grant again', () => {
   it('an assertion without a binding hint (WooCommerce) is posted on every page as before', async () => {
     await boot({ 'data-commerce-assertion': 'woo.assertion.value-long-enough' });
     await boot({ 'data-commerce-assertion': 'woo.assertion.value-long-enough' });
+    expect(identityCalls()).toHaveLength(1);
+  });
+});
+
+
+describe('identity transport recovery', () => {
+  const page = { 'data-commerce-assertion': 'whmcs1.payload.signature-long-enough' };
+  it('retries a transient sync failure without a page reload', async () => {
+    await boot(page, 503);
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    expect(identityCalls()).toHaveLength(2);
+  });
+  it('does not retry invalid or cross-user assertions', async () => {
+    await boot(page, 400);
+    await new Promise(resolve => setTimeout(resolve, 1100));
     expect(identityCalls()).toHaveLength(1);
   });
 });

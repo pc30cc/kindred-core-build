@@ -29,6 +29,7 @@ export interface NormalizedMessagePayload {
 
 /** Phase 5 — operator-only event envelope payload. Forward-safe via `kind`. */
 export type OperatorEventKind =
+  | 'contact_updated'
   | 'conversation_updated'
   | 'conversation_resolved'
   | 'conversation_reopened'

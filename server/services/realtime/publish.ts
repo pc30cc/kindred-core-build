@@ -164,6 +164,7 @@ export function buildMessageEnvelope(row: {
 
 /** Discriminated `payload.kind` values for `type: 'event'` envelopes. */
 export type OperatorEventKind =
+  | 'contact_updated'
   | 'conversation_updated'
   | 'conversation_resolved'
   | 'conversation_reopened'

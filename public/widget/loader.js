@@ -367,7 +367,9 @@
     if (_commerceBound) return;   // defence in depth; bootstrap() is not re-entered today
     var assertion = lazyAssertion || attr("data-commerce-assertion");
     if (!assertion || !apiBase || !workspaceId || !token) return;
-    var binding = attr("data-commerce-binding");
+    // WHMCS profile data can change without a new grant. Reconcile each page;
+    // the server writes only when data actually changed.
+    var binding = assertion.indexOf("whmcs1.") === 0 ? null : attr("data-commerce-binding");
     if (alreadyBound(workspaceId, binding)) { _commerceBound = true; log("commerce identity: already linked"); return; }
     _commerceBound = true;
     // The connection id is an optional cross-check, not a requirement: a store
@@ -388,17 +390,26 @@
     // request before Express ever reaches this endpoint's own mount. A
     // cookie-only call was answered with {"code":"MISSING_TOKEN"} against the
     // live API, which is how this was found.
-    try {
-      fetch(apiBase + "/api/widget/commerce/identity", {
-        method: "POST",
-        credentials: "include",           // the visitor cookie bootstrap just set
-        headers: { "Content-Type": "application/json", "X-Widget-Token": token },
-        body: JSON.stringify(body),
-      }).then(function (r) {
-        if (r.ok) rememberBinding(workspaceId, binding);
-        log("commerce identity:", r.ok ? "linked" : "not linked (" + r.status + ")");
-      }).catch(function () { /* offline or blocked — stay anonymous */ });
-    } catch (_) { /* no fetch — stay anonymous */ }
+    var attempts = 0;
+    function sendIdentity() {
+      attempts += 1;
+      function retry() {
+        if (attempts < 3) window.setTimeout(sendIdentity, attempts * 1000);
+      }
+      try {
+        fetch(apiBase + "/api/widget/commerce/identity", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+          body: JSON.stringify(body),
+        }).then(function (r) {
+          if (r.ok) rememberBinding(workspaceId, binding);
+          else if (r.status >= 500 || r.status === 429) retry();
+          log("commerce identity:", r.ok ? "linked" : "not linked (" + r.status + ")");
+        }).catch(retry);
+      } catch (_) { retry(); }
+    }
+    sendIdentity();
   }
 
   // ─── Lazy store identity (OpenCart and any store that opts in) ───

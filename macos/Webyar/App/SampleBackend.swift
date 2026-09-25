@@ -205,6 +205,84 @@ final class SampleBackend: URLProtocol {
         ]
     }
 
+    // MARK: Website analytics
+
+    private static func webAnalytics(_ report: String, _ q: [String: String]) -> (Int, Any) {
+        func rows(_ list: [(String, Int)]) -> [String: Any] {
+            ["rows": list.map { ["key": $0.0, "label": $0.0, "sessions": $0.1, "pageviews": $0.1 * 3] }, "truncated": false]
+        }
+        switch report {
+        case "live-visitors": return (200, ["count": 12])
+        case "overview":
+            let f = DateFormatter()
+            f.locale = Locale(identifier: "en_US_POSIX")
+            f.timeZone = TimeZone(identifier: "UTC")
+            f.dateFormat = "yyyy-MM-dd"
+            let end = q["endDate"].flatMap(f.date) ?? Date()
+            let start = q["startDate"].flatMap(f.date) ?? end.addingTimeInterval(-27 * 86_400)
+            let days = max(1, Int(end.timeIntervalSince(start) / 86_400) + 1)
+            let trend: [[String: Any]] = (0..<days).map { i in
+                let d = start.addingTimeInterval(Double(i) * 86_400)
+                let weekday = Calendar(identifier: .gregorian).component(.weekday, from: d)
+                let base = 420 + Double(i) * 4 + 90 * sin(Double(i) / 2.3) + (weekday == 6 || weekday == 7 ? -110 : 0)
+                let sessions = Int(max(40, base))
+                return ["date": f.string(from: d), "sessions": sessions, "pageviews": Int(Double(sessions) * (2.6 + 0.4 * cos(Double(i) / 3)))]
+            }
+            let sessions = trend.reduce(0) { $0 + ($1["sessions"] as? Int ?? 0) }
+            let pageviews = trend.reduce(0) { $0 + ($1["pageviews"] as? Int ?? 0) }
+            return (200, [
+                "sessions": sessions, "pageviews": pageviews, "uniqueVisitors": Int(Double(sessions) * 0.71),
+                "avgPagesPerSession": Double(pageviews) / Double(max(1, sessions)), "bounceRate": 41.6, "avgVisitDurationSeconds": 168,
+                "trend": trend,
+                "topChannels": [
+                    ["key": "organic_search", "label": "Organic Search", "sessions": sessions * 44 / 100, "pageviews": 0],
+                    ["key": "direct", "label": "Direct", "sessions": sessions * 27 / 100, "pageviews": 0],
+                    ["key": "organic_social", "label": "Organic Social", "sessions": sessions * 13 / 100, "pageviews": 0],
+                    ["key": "referral", "label": "Referral", "sessions": sessions * 9 / 100, "pageviews": 0],
+                    ["key": "email", "label": "Email", "sessions": sessions * 4 / 100, "pageviews": 0],
+                ],
+                "topPages": [["path": "/", "views": pageviews * 31 / 100], ["path": "/pricing", "views": pageviews * 18 / 100], ["path": "/blog/ai-support", "views": pageviews * 11 / 100],
+                             ["path": "/docs/install", "views": pageviews * 7 / 100], ["path": "/checkout", "views": pageviews * 5 / 100]],
+                "truncated": false,
+            ])
+        case "traffic-sources":
+            switch q["dimension"] {
+            case "source": return (200, rows([("google", 5120), ("(direct)", 3140), ("instagram.com", 1210), ("t.me", 820), ("linkedin.com", 410), ("bing", 260), ("newsletter", 190)]))
+            case "campaign": return (200, rows([("yalda-sale", 1340), ("spring-launch", 880), ("webinar-ai", 420), ("(unknown)", 9120)]))
+            default: return (200, rows([("organic_search", 5380), ("direct", 3140), ("organic_social", 1620), ("referral", 1080), ("email", 470), ("paid_search", 310), ("paid_social", 150)]))
+            }
+        case "geography":
+            switch q["dimension"] {
+            case "city": return (200, rows([("Tehran", 4210), ("Istanbul", 1530), ("Mashhad", 980), ("Isfahan", 760), ("Berlin", 420), ("Shiraz", 390), ("Tabriz", 310)]))
+            case "language": return (200, rows([("fa-IR", 7420), ("tr-TR", 1790), ("en-US", 1310), ("de-DE", 460), ("ar", 180)]))
+            default: return (200, rows([("Iran", 7630), ("Turkey", 1790), ("Germany", 610), ("United States", 540), ("United Arab Emirates", 330), ("Canada", 210), ("(unknown)", 140)]))
+            }
+        case "browsers-systems":
+            switch q["dimension"] {
+            case "device": return (200, rows([("desktop", 6120), ("mobile", 4880), ("tablet", 250)]))
+            case "os": return (200, rows([("Windows", 4730), ("Android", 3210), ("iOS", 1720), ("macOS", 1260), ("Linux", 310)]))
+            default: return (200, rows([("Chrome", 7150), ("Safari", 1980), ("Firefox", 830), ("Edge", 790), ("Samsung Internet", 360)]))
+            }
+        case "pages":
+            let list: [(String, Int)]
+            switch q["kind"] {
+            case "entry": list = [("/", 4820), ("/blog/ai-support", 1730), ("/pricing", 1210), ("/fa/landing/yalda", 940), ("/docs/install", 520)]
+            case "exit": list = [("/checkout", 1830), ("/pricing", 1440), ("/", 1320), ("/contact", 610), ("/docs/install", 420)]
+            default: list = [("/", 11_240), ("/pricing", 6530), ("/blog/ai-support", 3980), ("/docs/install", 2610), ("/checkout", 1840), ("/contact", 1120), ("/blog/very-long-article-about-customer-support-automation-in-2026", 640)]
+            }
+            return (200, ["rows": list.map { ["path": $0.0, "views": $0.1] }, "truncated": false])
+        case "events":
+            return (200, ["rows": [
+                ["eventName": "chat_started", "count": 1840, "uniqueSessions": 1610, "conversionRate": 0.142],
+                ["eventName": "signup_submit", "count": 612, "uniqueSessions": 598, "conversionRate": 0.053],
+                ["eventName": "pricing_cta_click", "count": 1290, "uniqueSessions": 1020, "conversionRate": 0.09],
+                ["eventName": "call_requested", "count": 214, "uniqueSessions": 208, "conversionRate": 0.018],
+                ["eventName": "purchase", "count": 96, "uniqueSessions": 94, "conversionRate": 0.0083],
+            ], "truncated": false])
+        default: return (404, ["error": "not found"])
+        }
+    }
+
     // MARK: Routing
 
     private static func answer(_ method: String, _ path: String, _ q: [String: String], _ body: [String: Any]) -> (Int, Any) {
@@ -440,6 +518,7 @@ final class SampleBackend: URLProtocol {
                 ["user_id": "u-3", "presence_state": "away"], ["user_id": "u-4", "presence_state": "disconnected"],
             ]])
         }
+        if parts.count >= 4, parts[1] == "web-analytics" { return webAnalytics(parts[3], q) }
         if parts.count >= 4, parts[1] == "plans" { return (200, ["plan": ["name": "Business"], "features": [String: Any](), "modules": [String: Any](), "channels": [String: Any]()]) }
         if parts.count >= 4, parts[1] == "workspaces", parts[3] == "role" { return (200, ["role": "owner"]) }
         if parts.count >= 3, parts[1] == "contacts" {

@@ -11,6 +11,7 @@ enum Route: Hashable, Sendable {
     case visitors
     case calls
     case email
+    case analytics
 
     var isInbox: Bool {
         switch self {
@@ -385,6 +386,7 @@ final class AppModel {
         case .visitors: return plan.visitors
         case .calls: return plan.callCenter
         case .email: return plan.emailInbox
+        case .analytics: return plan.webAnalytics
         case .colleagues: return plan.teamChat
         case .channel: return plan.isAdmin
         case .inbox(.ai): return plan.aiQueue(automated: counts.automated)
@@ -504,6 +506,7 @@ final class AppModel {
         case "calls": route = .calls
         case "colleagues": route = .colleagues
         case "email": route = .email
+        case "analytics": route = .analytics
         case "settings": showSettings?()
         default: route = .inbox(.open)
         }

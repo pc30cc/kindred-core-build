@@ -52,6 +52,7 @@ final class Pages {
     let calls: CallCenterModel
     let colleagues: ColleaguesModel
     let email: EmailModel
+    let analytics: AnalyticsModel
 
     init(app: AppModel) {
         inbox = InboxModel(app: app)
@@ -60,6 +61,7 @@ final class Pages {
         calls = CallCenterModel(app: app)
         colleagues = ColleaguesModel(app: app)
         email = EmailModel(app: app)
+        analytics = AnalyticsModel(app: app)
     }
 
     func stop() {
@@ -69,6 +71,7 @@ final class Pages {
         calls.stop()
         colleagues.stop()
         email.stop()
+        analytics.stop()
     }
 }
 
@@ -84,6 +87,7 @@ struct PageList: View {
         case .calls: CallCenterList(model: pages.calls)
         case .colleagues: ColleaguesList(model: pages.colleagues)
         case .email: EmailList(model: pages.email)
+        case .analytics: AnalyticsList(model: pages.analytics)
         }
     }
 }
@@ -100,6 +104,7 @@ struct PageDetail: View {
         case .calls: CallCenterDetail(model: pages.calls)
         case .colleagues: ColleagueThread(model: pages.colleagues)
         case .email: EmailDetail(model: pages.email)
+        case .analytics: AnalyticsDetail(model: pages.analytics)
         }
     }
 }
@@ -152,6 +157,9 @@ struct SidebarView: View {
                 }
                 if plan.visitors {
                     section(.visitors, s["navVisitors"], "globe", tint: Color(hex: 0x30A46C), badge: app.visitorsOnline, color: Palette.success)
+                }
+                if plan.webAnalytics {
+                    section(.analytics, s["navAnalytics"], "chart.bar.xaxis", tint: Color(hex: 0x0091FF), badge: 0, color: Palette.brand)
                 }
                 if plan.callCenter {
                     section(.calls, s["navCallCenter"], "phone.fill", tint: Color(hex: 0xE5484D), badge: app.callQueue?.queue.count ?? 0, color: Palette.danger)

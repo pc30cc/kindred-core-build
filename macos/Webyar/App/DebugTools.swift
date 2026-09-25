@@ -73,6 +73,7 @@ enum DebugTools {
             case "calls": app.route = .calls
             case "colleagues": app.route = .colleagues
             case "email": app.route = .email
+            case "analytics": app.route = .analytics
             case "ai": app.route = .inbox(.ai)
             case "pending": app.route = .inbox(.pending)
             case "resolved": app.route = .inbox(.resolved)
@@ -80,6 +81,22 @@ enum DebugTools {
             }
         case "open": app.openConversation(arg)
         case "mail": EmailModel.debugCurrent?.select(arg)
+        case "wa":
+            // "wa sources", "wa geo city", "wa range 7"
+            let bits = arg.split(separator: " ").map(String.init)
+            guard let m = AnalyticsModel.debugCurrent, let first = bits.first else { break }
+            if first == "range", let n = bits.dropFirst().first.flatMap(Int.init), let r = AnalyticsRange(rawValue: n) { m.setRange(r) }
+            else if let section = AnalyticsSection(rawValue: first) {
+                m.section = section
+                if let dim = bits.dropFirst().first {
+                    switch section {
+                    case .sources: m.sourceDimension = dim
+                    case .pages: m.pagesKind = dim
+                    case .geography: m.geoDimension = dim
+                    default: break
+                    }
+                }
+            }
         case "cc":
             CallCenterModel.debugCurrent?.select(arg)
         case "chatcall":

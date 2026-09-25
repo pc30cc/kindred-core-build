@@ -118,6 +118,8 @@ struct WorkspacePlan: Sendable, Equatable {
     /// Recordings of calls, where the plan keeps them.
     var callRecordings: Bool { feature("call_recording") }
     var teamChat: Bool { inboxCap("inbox_team_chat") }
+    /// Website analytics, as the web sidebar shows it: owners and admins, when the plan has the module.
+    var webAnalytics: Bool { isAdmin && moduleInPlan("web_analytics") }
     /// The mailbox, as the web sidebar shows it: owners and admins, when the plan has it.
     var emailInbox: Bool { isAdmin && moduleInPlan("email_inbox") }
 

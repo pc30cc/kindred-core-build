@@ -71,12 +71,23 @@ final class AttachmentStore {
     private var inflight: [String: Task<Data, Error>] = [:]
     weak var api: WebyarAPI?
 
-    private func getBytes(_ id: String) -> Data? { byteCache.object(forKey: id as NSString) as Data? }
-    private func setBytes(_ id: String, _ d: Data) { byteCache.setObject(d as NSData, forKey: id as NSString, cost: d.count) }
+    // Files not sent yet ("local:…") are nowhere else — not on disk, not on the server — so they are
+    // held outright, never evicted.
+    private var localBytes: [String: Data] = [:]
+    private var localImages: [String: NSImage] = [:]
+
+    private func getBytes(_ id: String) -> Data? { localBytes[id] ?? byteCache.object(forKey: id as NSString) as Data? }
+    private func setBytes(_ id: String, _ d: Data) {
+        if id.hasPrefix("local:") { localBytes[id] = d } else { byteCache.setObject(d as NSData, forKey: id as NSString, cost: d.count) }
+    }
+    private func getImage(_ id: String) -> NSImage? { localImages[id] ?? imageCache.object(forKey: id as NSString) }
+    private func setImage(_ id: String, _ i: NSImage) {
+        if id.hasPrefix("local:") { localImages[id] = i } else { imageCache.setObject(i, forKey: id as NSString) }
+    }
 
     func remember(_ id: String, _ data: Data) { setBytes(id, data) }
 
-    func cachedImage(_ id: String) -> NSImage? { imageCache.object(forKey: id as NSString) }
+    func cachedImage(_ id: String) -> NSImage? { getImage(id) }
 
     func data(_ id: String) async throws -> Data {
         if let d = getBytes(id) { return d }
@@ -96,9 +107,9 @@ final class AttachmentStore {
     }
 
     func image(_ id: String) async -> NSImage? {
-        if let i = imageCache.object(forKey: id as NSString) { return i }
+        if let i = getImage(id) { return i }
         guard let d = try? await data(id), let i = NSImage(data: d) else { return nil }
-        imageCache.setObject(i, forKey: id as NSString)
+        setImage(id, i)
         return i
     }
 
@@ -109,13 +120,13 @@ final class AttachmentStore {
             setBytes(server, d)
             FileCache.write(server, d)
         }
-        if let i = imageCache.object(forKey: local as NSString) { imageCache.setObject(i, forKey: server as NSString) }
+        if let i = getImage(local) { setImage(server, i) }
     }
 
     /// Forgets the in-memory copies too, after the disk cache is cleared.
     func clearMemory() {
-        bytes = bytes.filter { $0.key.hasPrefix("local:") }
-        images = images.filter { $0.key.hasPrefix("local:") }
+        byteCache.removeAllObjects()
+        imageCache.removeAllObjects()
     }
 
     /// Opens a file with whatever the Mac opens that kind of file with.

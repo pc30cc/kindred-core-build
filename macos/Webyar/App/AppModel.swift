@@ -292,8 +292,9 @@ final class AppModel {
             await group.next()
             group.cancelAll()
         }
-        // Signed out, or another workspace opened, while the plan was awaited: this start is stale.
-        guard gen == openGeneration, phase != .signedOut else { return }
+        // Signed out (which bumps the generation), or another workspace opened, while the plan was
+        // awaited: this start is stale. Not a phase check — signing in starts from .signedOut.
+        guard gen == openGeneration else { return }
         startRealtime()
         await startPresence()
         startShell()

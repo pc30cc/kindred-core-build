@@ -74,6 +74,8 @@ final class AppModel {
     var pendingConversation: String?
     /// The conversation on screen right now.
     var visibleConversationId: String?
+    /// The chat details floating over a thread in a narrow window (not saved).
+    var detailsFloating = false
     /// The call center should select (or answer) this call when it appears.
     var pendingCall: (id: String, answer: Bool)?
     private(set) var isForeground = true

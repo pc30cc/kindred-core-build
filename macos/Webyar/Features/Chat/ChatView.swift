@@ -37,7 +37,9 @@ struct ThreadView: View {
     /// The details sit beside the thread when both fit; in a narrower window they float over the
     /// thread's end edge instead — never simply gone with their button greyed out.
     private var detailsBeside: Bool { columnWidth >= 700 }
-    private var showDetails: Bool { app.settings.detailsOpen }
+    /// Beside: the saved preference. Floating: only once asked for in this narrow window, so a
+    /// small window does not open every thread with the details over it.
+    private var showDetails: Bool { detailsBeside ? app.settings.detailsOpen : app.detailsFloating }
     private var detailsWidth: CGFloat { columnWidth >= 960 ? 300 : 280 }
     private var width: CGFloat { columnWidth - (showDetails && detailsBeside ? detailsWidth : 0) }
 
@@ -61,6 +63,16 @@ struct ThreadView: View {
                     .frame(maxHeight: .infinity)
                     .background(Palette.surface)
                     .overlay(alignment: .leading) { Divider() }
+                    .overlay(alignment: .topLeading) {
+                        Button { app.detailsFloating = false } label: {
+                            Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).frame(width: 22, height: 22)
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(Palette.text2)
+                        .background(Palette.elevated, in: Circle())
+                        .padding(10)
+                        .help(app.strings["close"])
+                    }
                     .shadow(color: .black.opacity(0.18), radius: 16, x: 0, y: 0)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
@@ -74,7 +86,7 @@ struct ThreadView: View {
             .background(Palette.chatBackground)
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
-                ThreadHeader(chat: chat, width: width)
+                ThreadHeader(chat: chat, width: width, detailsBeside: detailsBeside)
                 // This conversation's call slides down from under the header, and back up when it ends.
                 VStack(spacing: 0) {
                     if let call = CallCoordinator.shared.docksHere(conversationId: chat.conversation?.id) {
@@ -136,7 +148,8 @@ struct ThreadHeader: View {
     let chat: ChatModel
     /// The thread area's width: the action labels fold into icons when it is narrow.
     var width: CGFloat
-    var roomForDetails = true
+    /// Whether the details sit beside the thread (the saved preference) or float over it (this window only).
+    var detailsBeside = true
     @Environment(AppModel.self) private var app
 
     var body: some View {
@@ -159,8 +172,12 @@ struct ThreadHeader: View {
             Spacer(minLength: 8)
             if let c { actions(c, s) }
             Button {
-                app.settings.detailsOpen.toggle()
-                app.saveSettings()
+                if detailsBeside {
+                    app.settings.detailsOpen.toggle()
+                    app.saveSettings()
+                } else {
+                    app.detailsFloating.toggle()
+                }
             } label: {
                 Image(systemName: "sidebar.trailing").frame(width: 18, height: 18)
             }
@@ -168,7 +185,6 @@ struct ThreadHeader: View {
             .buttonBorderShape(.circle)
             .help(s["details"])
             .keyboardShortcut("i", modifiers: [.command, .option])
-            .disabled(!roomForDetails)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)

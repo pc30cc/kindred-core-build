@@ -1,69 +1,74 @@
 import SwiftUI
 import AVFoundation
+import ImageIO
 import AVKit
 import QuickLook
 
-// MARK: - Fetching
+// MARK: - Decoding
 
-/// Attachment bytes, fetched once and kept.
+/// Photo previews, decoded once at the size a bubble draws them.
 ///
-/// Media cannot be loaded by `AsyncImage` or handed straight to `AVPlayer`
-/// here: the stream endpoint authorizes on the operator's bearer token and
-/// neither of those can carry a header. So every file is fetched by hand,
-/// and it is fetched once — a 1.6 MB photo re-downloaded every time a row is
-/// rebuilt is the difference between a chat that feels native and one that
-/// does not.
-actor AttachmentStore {
-    static let shared = AttachmentStore()
+/// The bytes come from `AttachmentStore` (memory, disk, then the server).
+/// What is kept here is the decoded picture, small: a bubble is at most 260
+/// points, so a twelve-megapixel photo is decoded straight to 800 pixels —
+/// a fraction of a megabyte of bitmap instead of fifty — with ImageIO, the
+/// same way `ImageCache` decodes avatars. The full photo is decoded only when
+/// the operator opens it.
+///
+/// On the main actor so a bubble scrolled back into view gets its picture in
+/// the same frame, with no placeholder flash.
+@MainActor
+enum AttachmentPreviews {
+    private static let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = CachePolicy.attachmentPreviewCount
+        return cache
+    }()
 
-    /// `NSCache` rather than a dictionary because it gives the bytes back when
-    /// the system is short of memory, which is not a moment we could pick
-    /// better ourselves.
-    private let cache = NSCache<NSString, NSData>()
-    /// One request per attachment, however many views ask at once.
-    private var inFlight: [String: Task<Data, Error>] = [:]
+    static func cached(_ id: String) -> UIImage? { cache.object(forKey: id as NSString) }
+    static func store(_ image: UIImage, for id: String) { cache.setObject(image, forKey: id as NSString) }
+    static func clear() { cache.removeAllObjects() }
 
-    private init() {
-        cache.totalCostLimit = 48 * 1024 * 1024
+    /// Decodes to at most `maxPixel` on the longest side, off the main thread.
+    /// Nil when the bytes are not a picture.
+    static func decode(_ data: Data, maxPixel: Int) async -> UIImage? {
+        await Task.detached(priority: .userInitiated) {
+            Self.downsample(data, maxPixel: maxPixel)
+        }.value
     }
 
-    func data(for id: String, api: any WebyarAPI) async throws -> Data {
-        if let hit = cache.object(forKey: id as NSString) { return hit as Data }
-        if let running = inFlight[id] { return try await running.value }
-
-        let task = Task<Data, Error> { try await api.attachmentData(id: id) }
-        inFlight[id] = task
-        defer { inFlight[id] = nil }
-
-        let data = try await task.value
-        cache.setObject(data as NSData, forKey: id as NSString, cost: data.count)
-        return data
-    }
-
-    /// Writes the bytes somewhere `AVPlayer` can open them.
-    ///
-    /// `AVPlayer` reads from a URL, not from memory, and the one URL it must
-    /// never be given is the server's — it would arrive without the operator's
-    /// token. A file in the caches directory, named by the attachment, is the
-    /// shortest honest path to a working player.
-    func fileURL(for id: String, fileExtension: String, api: any WebyarAPI) async throws -> URL {
-        let bytes = try await data(for: id, api: api)
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("attachments", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent(id).appendingPathExtension(fileExtension)
-        if !FileManager.default.fileExists(atPath: url.path) {
-            try bytes.write(to: url, options: .atomic)
-        }
-        return url
+    nonisolated static func downsample(_ data: Data, maxPixel: Int) -> UIImage? {
+        // No cache of the full-size decode: only the thumbnail is ever built.
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+        ]
+        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return UIImage(cgImage: thumbnail)
     }
 }
 
-/// What a single attachment view knows about its bytes.
-private enum MediaState {
+/// What a single attachment view knows about its picture.
+private enum PreviewState {
     case loading
-    case ready(Data)
+    case ready(UIImage)
     case failed
+}
+
+/// Holds a file open while something plays or shows it, so neither a trim
+/// nor Clear Cache removes it from under the player.
+private func pin(_ url: URL?) {
+    guard let url else { return }
+    Task { await AttachmentDiskCache.shared.pin(url) }
+}
+
+private func unpin(_ url: URL?) {
+    guard let url else { return }
+    Task { await AttachmentDiskCache.shared.unpin(url) }
 }
 
 // MARK: - Entry point
@@ -106,18 +111,23 @@ struct AttachmentView: View {
 // MARK: - Image
 
 /// A photo, at its own proportions inside a fixed box, opening full screen.
+///
+/// Photos are the one kind of file fetched as soon as the bubble is drawn —
+/// a photo is content to be seen, not an action to take. What is decoded for
+/// the bubble is a thumbnail; the viewer decodes a larger one when opened.
 private struct ImageAttachmentView: View {
     let attachment: MessageAttachment
     let isOutgoing: Bool
     let language: Language
     let hasBeak: Bool
 
-    @State private var state: MediaState = .loading
+    @State private var state: PreviewState = .loading
     @State private var isOpen = false
 
     private var image: UIImage? {
-        guard case .ready(let data) = state else { return nil }
-        return UIImage(data: data)
+        if case .ready(let image) = state { return image }
+        // Already decoded for another bubble, or before a scroll: same frame.
+        return AttachmentPreviews.cached(attachment.id)
     }
 
     var body: some View {
@@ -146,7 +156,7 @@ private struct ImageAttachmentView: View {
         .task { await load() }
         .fullScreenCover(isPresented: $isOpen) {
             if let image {
-                ImageViewer(image: image, language: language)
+                ImageViewer(attachment: attachment, preview: image, language: language)
             }
         }
     }
@@ -165,11 +175,30 @@ private struct ImageAttachmentView: View {
     }
 
     private func load() async {
+        if let cached = AttachmentPreviews.cached(attachment.id) {
+            state = .ready(cached)
+            return
+        }
         guard case .loading = state else { return }
         do {
-            let data = try await AttachmentStore.shared.data(for: attachment.id, api: Backend.current)
-            state = .ready(data)
+            let data = try await AttachmentStore.shared.data(for: attachment, api: Backend.current)
+            if let decoded = await AttachmentPreviews.decode(data, maxPixel: CachePolicy.attachmentPreviewPixels) {
+                AttachmentPreviews.store(decoded, for: attachment.id)
+                state = .ready(decoded)
+                return
+            }
+            // Not a picture after all — most likely a damaged copy on disk.
+            // Dropped, and fetched from the server once more.
+            await AttachmentStore.shared.discard(attachment)
+            let fresh = try await AttachmentStore.shared.data(for: attachment, api: Backend.current)
+            guard let decoded = await AttachmentPreviews.decode(fresh, maxPixel: CachePolicy.attachmentPreviewPixels) else {
+                state = .failed
+                return
+            }
+            AttachmentPreviews.store(decoded, for: attachment.id)
+            state = .ready(decoded)
         } catch {
+            guard !Task.isCancelled else { return }
             state = .failed
         }
     }
@@ -178,12 +207,17 @@ private struct ImageAttachmentView: View {
 /// Full-screen photo, pinchable, dismissed by tapping the close button or
 /// swiping down — the two gestures everyone already tries.
 private struct ImageViewer: View {
-    let image: UIImage
+    let attachment: MessageAttachment
+    /// The bubble's thumbnail, shown at once while the sharper one decodes.
+    let preview: UIImage
     let language: Language
     @Environment(\.dismiss) private var dismiss
 
     @State private var zoom: CGFloat = 1
     @GestureState private var pinch: CGFloat = 1
+    @State private var full: UIImage?
+
+    private var image: UIImage { full ?? preview }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -215,6 +249,15 @@ private struct ImageViewer: View {
             .accessibilityLabel(Str.close(language))
         }
         .preferredColorScheme(.dark)
+        .task {
+            // Sharp enough to zoom into, and still not the full bitmap of a
+            // forty-megapixel original. The bytes are already in memory or on
+            // disk from the bubble, so this does not fetch again.
+            guard full == nil,
+                  let data = try? await AttachmentStore.shared.data(for: attachment, api: Backend.current)
+            else { return }
+            full = await AttachmentPreviews.decode(data, maxPixel: CachePolicy.attachmentViewerPixels)
+        }
     }
 }
 
@@ -232,8 +275,13 @@ private struct VoiceNoteView: View {
     let hasBeak: Bool
 
     @State private var player: AudioNotePlayer?
-    @State private var state: MediaState = .loading
+    /// The file this note plays from, held open (pinned) while it can play.
+    @State private var file: URL?
+    @State private var isFetching = false
+    @State private var failed = false
     @State private var unsupported = false
+    /// Asked for with Play: start as soon as the file is here.
+    @State private var playWhenReady = false
 
     private var tint: Color {
         isOutgoing ? Theme.Palette.bubbleOutgoingText : Theme.Palette.bubbleIncomingText
@@ -253,8 +301,15 @@ private struct VoiceNoteView: View {
             hasBeak: hasBeak,
             pointsRight: isOutgoing
         )
-        .task { await load() }
-        .onDisappear { player?.stop() }
+        // Only a look at this phone's disk: a note already downloaded shows
+        // its length at once. Nothing is fetched until Play is tapped.
+        .task { await prepareFromDisk() }
+        .onDisappear {
+            player?.stop()
+            unpin(file)
+            file = nil
+            player = nil
+        }
     }
 
     @ViewBuilder
@@ -270,12 +325,29 @@ private struct VoiceNoteView: View {
                     .background(Circle().fill(tint.opacity(0.14)))
             }
             .buttonStyle(.plain)
-        } else {
-            Image(systemName: unsupported ? "waveform.slash" : "waveform")
+        } else if isFetching {
+            ProgressView()
+                .tint(tint)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(tint.opacity(0.08)))
+        } else if unsupported {
+            Image(systemName: "waveform.slash")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(tint.opacity(0.5))
                 .frame(width: 32, height: 32)
                 .background(Circle().fill(tint.opacity(0.08)))
+        } else {
+            // Play before the file is here: the tap is what downloads it.
+            Button {
+                Task { await fetchAndPlay() }
+            } label: {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(tint.opacity(0.14)))
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -322,8 +394,10 @@ private struct VoiceNoteView: View {
 
     private var loadingText: String {
         if unsupported { return Str.playbackUnsupported(language) }
-        if case .failed = state { return Str.attachmentFailed(language) }
-        return Str.receivingFile(language)
+        if failed { return Str.attachmentFailed(language) }
+        if isFetching { return Str.receivingFile(language) }
+        // Not downloaded yet: how much tapping Play will cost.
+        return attachment.sizeBytes.map { Format.fileSize($0, language: language) } ?? Str.voiceNote(language)
     }
 
     private func track(progress: Double) -> some View {
@@ -345,22 +419,39 @@ private struct VoiceNoteView: View {
         .frame(height: 4)
     }
 
-    private func load() async {
-        guard case .loading = state, player == nil else { return }
+    private func prepareFromDisk() async {
+        guard player == nil, !unsupported,
+              let saved = await AttachmentStore.shared.cachedFileURL(for: attachment),
+              !Task.isCancelled
+        else { return }
+        adopt(saved)
+    }
+
+    private func fetchAndPlay() async {
+        guard !isFetching, player == nil else { return }
+        isFetching = true
+        failed = false
+        defer { isFetching = false }
         do {
-            let data = try await AttachmentStore.shared.data(for: attachment.id, api: Backend.current)
-            state = .ready(data)
-            // A format with no decoder on this phone — an Opus note from
-            // Telegram, say — throws here. The file is not broken and the
-            // operator should be told which of the two it is.
-            guard let made = AudioNotePlayer(data: data) else {
-                unsupported = true
-                return
-            }
-            player = made
+            let url = try await AttachmentStore.shared.fileURL(for: attachment, api: Backend.current)
+            adopt(url)
+            player?.toggle()
         } catch {
-            state = .failed
+            failed = true
         }
+    }
+
+    private func adopt(_ url: URL) {
+        // A format with no decoder on this phone — an Opus note from
+        // Telegram, say — fails here. The file is not broken and the
+        // operator should be told which of the two it is.
+        guard let made = AudioNotePlayer(url: url) else {
+            unsupported = true
+            return
+        }
+        pin(url)
+        file = url
+        player = made
     }
 }
 
@@ -385,8 +476,9 @@ final class AudioNotePlayer {
         return elapsed / duration
     }
 
-    init?(data: Data) {
-        guard let player = try? AVAudioPlayer(data: data) else { return nil }
+    /// Plays from the file on disk rather than from a copy in memory.
+    init?(url: URL) {
+        guard let player = try? AVAudioPlayer(contentsOf: url) else { return nil }
         self.player = player
         player.prepareToPlay()
     }
@@ -448,52 +540,109 @@ final class AudioNotePlayer {
 
 // MARK: - Video
 
+/// A video: nothing is downloaded until the operator taps it.
+///
+/// Then it is downloaded straight to a file (never held whole in memory) and
+/// played from there, and the file is kept — a video opened once plays again
+/// at once, relaunches included, with no second download. One `AVPlayer`
+/// per bubble, made once; it used to be rebuilt on every redraw.
 private struct VideoAttachmentView: View {
     let attachment: MessageAttachment
     let isOutgoing: Bool
     let language: Language
     let hasBeak: Bool
 
-    @State private var url: URL?
+    @State private var player: AVPlayer?
+    @State private var file: URL?
+    @State private var isFetching = false
     @State private var failed = false
 
     var body: some View {
         Group {
-            if let url {
-                VideoPlayer(player: AVPlayer(url: url))
+            if let player {
+                VideoPlayer(player: player)
                     .frame(width: 240, height: 160)
                     .chatBubbleClip(hasBeak: hasBeak, pointsRight: isOutgoing)
             } else if failed {
-                FileCard(
-                    icon: "video",
-                    title: attachment.displayName ?? Str.videoFile(language),
-                    subtitle: Str.attachmentFailed(language),
-                    isOutgoing: isOutgoing,
-                    hasBeak: hasBeak
-                )
+                Button {
+                    Task { await fetchAndPlay() }
+                } label: {
+                    FileCard(
+                        icon: "video",
+                        title: attachment.displayName ?? Str.videoFile(language),
+                        subtitle: Str.attachmentFailed(language),
+                        isOutgoing: isOutgoing,
+                        hasBeak: hasBeak
+                    )
+                }
+                .buttonStyle(.plain)
             } else {
-                ChatBubble(radius: Theme.Radius.lg, hasBeak: hasBeak, pointsRight: isOutgoing)
-                    .fill(Theme.Palette.surfaceElevated)
-                    .frame(width: 240, height: 160)
-                    .overlay {
-                        Label(Str.receivingFile(language), systemImage: "arrow.down.circle")
-                            .font(Theme.Typo.meta)
-                            .foregroundStyle(Theme.Palette.labelSecondary)
-                    }
+                Button {
+                    Task { await fetchAndPlay() }
+                } label: {
+                    ChatBubble(radius: Theme.Radius.lg, hasBeak: hasBeak, pointsRight: isOutgoing)
+                        .fill(Theme.Palette.surfaceElevated)
+                        .frame(width: 240, height: 160)
+                        .overlay { poster }
+                }
+                .buttonStyle(.plain)
             }
         }
+        // Already on this phone: ready to play, from disk, without a tap to download.
         .task {
-            guard url == nil, !failed else { return }
-            do {
-                url = try await AttachmentStore.shared.fileURL(
-                    for: attachment.id,
-                    fileExtension: AttachmentFormat.fileExtension(for: attachment) ?? "mp4",
-                    api: Backend.current
-                )
-            } catch {
-                failed = true
-            }
+            guard player == nil, let saved = await AttachmentStore.shared.cachedFileURL(for: attachment),
+                  !Task.isCancelled else { return }
+            adopt(saved, autoplay: false)
         }
+        .onDisappear {
+            player?.pause()
+            unpin(file)
+            file = nil
+            player = nil
+        }
+    }
+
+    @ViewBuilder
+    private var poster: some View {
+        if isFetching {
+            Label(Str.receivingFile(language), systemImage: "arrow.down.circle")
+                .font(Theme.Typo.meta)
+                .foregroundStyle(Theme.Palette.labelSecondary)
+        } else {
+            VStack(spacing: Theme.Space.xs) {
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 34))
+                    .foregroundStyle(Theme.Palette.labelSecondary)
+                if let size = attachment.sizeBytes {
+                    Text(Format.fileSize(size, language: language))
+                        .font(Theme.Typo.meta)
+                        .foregroundStyle(Theme.Palette.labelSecondary)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(attachment.displayName ?? Str.videoFile(language))
+        }
+    }
+
+    private func fetchAndPlay() async {
+        guard !isFetching, player == nil else { return }
+        isFetching = true
+        failed = false
+        defer { isFetching = false }
+        do {
+            let url = try await AttachmentStore.shared.fileURL(for: attachment, api: Backend.current)
+            adopt(url, autoplay: true)
+        } catch {
+            failed = true
+        }
+    }
+
+    private func adopt(_ url: URL, autoplay: Bool) {
+        pin(url)
+        file = url
+        let made = AVPlayer(url: url)
+        player = made
+        if autoplay { made.play() }
     }
 }
 
@@ -528,6 +677,11 @@ private struct FileAttachmentView: View {
         }
         .buttonStyle(.plain)
         .quickLookPreview($url)
+        // Held open while Quick Look shows it; let go when it closes.
+        .onChange(of: url) { old, new in
+            unpin(old)
+            pin(new)
+        }
     }
 
     private var subtitle: String? {
@@ -542,11 +696,9 @@ private struct FileAttachmentView: View {
         failed = false
         defer { isOpening = false }
         do {
-            url = try await AttachmentStore.shared.fileURL(
-                for: attachment.id,
-                fileExtension: AttachmentFormat.fileExtension(for: attachment) ?? "dat",
-                api: Backend.current
-            )
+            // From this phone's disk when it was opened before; downloaded
+            // (straight to a file) only the first time.
+            url = try await AttachmentStore.shared.fileURL(for: attachment, api: Backend.current)
         } catch {
             failed = true
         }
@@ -595,27 +747,5 @@ private struct FileCard: View {
             hasBeak: hasBeak,
             pointsRight: isOutgoing
         )
-    }
-}
-
-/// Maps a MIME type onto a file extension, which is the only thing `AVPlayer`
-/// uses to decide how to open a file on disk.
-enum AttachmentFormat {
-    static func fileExtension(for attachment: MessageAttachment) -> String? {
-        // The name is checked before the MIME type because it is the more
-        // specific of the two — but only when it really carries an extension.
-        // A widget voice note arrives named `m4a`, with no dot in it at all.
-        if let name = attachment.fileName,
-           let dot = name.lastIndex(of: "."),
-           dot < name.index(before: name.endIndex) {
-            return String(name[name.index(after: dot)...])
-        }
-        switch attachment.mimeType {
-        case "video/mp4", "video/quicktime": return "mp4"
-        case "video/webm": return "webm"
-        case "audio/mp4", "audio/m4a", "audio/x-m4a": return "m4a"
-        case "audio/mpeg": return "mp3"
-        default: return nil
-        }
     }
 }

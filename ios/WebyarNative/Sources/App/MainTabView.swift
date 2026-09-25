@@ -153,6 +153,14 @@ struct MainTabView: View {
             selection = intent
         }
         .environment(promotions)
+        // Another workspace: a thread or contact of the last one open in a
+        // tab's stack would go on showing it. The stacks start over; the tab
+        // the switch was made from (Settings) keeps its place.
+        .onChange(of: appState.selectedWorkspace?.id) { old, new in
+            guard old != nil, old != new else { return }
+            inboxPath = NavigationPath()
+            contactsPath = NavigationPath()
+        }
         .task(id: appState.selectedWorkspace?.id) {
             await openRequestedScreen()
         }

@@ -48,12 +48,14 @@ struct ThreadView: View {
         // window it reserves the space on one side and draws on the other.
         HStack(spacing: 0) {
             thread
+            // No insertion transition: the column's width is first measured as zero and then its real
+            // size, which inserts and removes the panel in a blink — an animated transition could be
+            // left mid-way, the space kept and the panel invisible.
             if showDetails && detailsBeside {
                 Divider()
                 DetailsPanel(chat: chat)
                     .frame(width: detailsWidth)
                     .background(Palette.surface2.opacity(0.6))
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
         .overlay(alignment: .trailing) {
@@ -64,7 +66,7 @@ struct ThreadView: View {
                     .background(Palette.surface)
                     .overlay(alignment: .leading) { Divider() }
                     .overlay(alignment: .topLeading) {
-                        Button { app.detailsFloating = false } label: {
+                        Button { withAnimation(.smooth(duration: 0.22)) { app.detailsFloating = false } } label: {
                             Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).frame(width: 22, height: 22)
                         }
                         .buttonStyle(.borderless)
@@ -74,11 +76,8 @@ struct ThreadView: View {
                         .help(app.strings["close"])
                     }
                     .shadow(color: .black.opacity(0.18), radius: 16, x: 0, y: 0)
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
-        .animation(.smooth(duration: 0.22), value: showDetails)
-        .animation(.smooth(duration: 0.22), value: detailsBeside)
     }
 
     private var thread: some View {
@@ -172,12 +171,15 @@ struct ThreadHeader: View {
             Spacer(minLength: 8)
             if let c { actions(c, s) }
             Button {
-                if detailsBeside {
-                    app.settings.detailsOpen.toggle()
-                    app.saveSettings()
-                } else {
-                    app.detailsFloating.toggle()
+                // Animated only when the operator opens or closes it.
+                withAnimation(.smooth(duration: 0.22)) {
+                    if detailsBeside {
+                        app.settings.detailsOpen.toggle()
+                    } else {
+                        app.detailsFloating.toggle()
+                    }
                 }
+                if detailsBeside { app.saveSettings() }
             } label: {
                 Image(systemName: "sidebar.trailing").frame(width: 18, height: 18)
             }

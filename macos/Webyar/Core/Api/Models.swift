@@ -49,6 +49,8 @@ struct MessagePreview: Codable, Hashable, Sendable {
     var senderName: String?
     var attachmentKind: String?
     var systemKind: String?
+    /// A system notice's details (who transferred to whom…), to say it in the reader's language.
+    var systemMeta: JSONValue?
 }
 
 enum SenderType {

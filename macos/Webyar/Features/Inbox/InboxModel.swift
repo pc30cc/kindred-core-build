@@ -33,6 +33,15 @@ final class InboxModel {
         events = app.inboxEvents.subscribe { [weak self] _ in self?.poller?.kick() }
     }
 
+    /// The thread open when the queue changed, to close once the new queue shows it is not there.
+    @ObservationIgnored private var closeIfNotListed: String?
+
+    private func closeChat() {
+        chat?.close()
+        chat = nil
+        app.visibleConversationId = nil
+    }
+
     func stop() {
         poller?.stop()
         poller = nil
@@ -63,6 +72,9 @@ final class InboxModel {
         guard f != filter || ch != channel else { return }
         filter = f
         channel = ch
+        // The thread open in the old queue closes if the new one does not list it (checked when it loads),
+        // rather than staying beside an empty or unrelated list.
+        closeIfNotListed = chat?.id
         generation += 1
         conversations = []
         loading = true
@@ -107,6 +119,10 @@ final class InboxModel {
             list = await app.withVisitorProfiles(list)
             guard gen == generation else { return }
             apply(list)
+            if let id = closeIfNotListed {
+                closeIfNotListed = nil
+                if chat?.id == id, !list.contains(where: { $0.id == id }) { closeChat() }
+            }
             error = nil
         } catch let e as ApiError where e.failure != .unauthorized {
             error = ErrorText.of(e, app.strings)

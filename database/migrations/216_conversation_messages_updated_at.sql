@@ -1,4 +1,4 @@
--- 215: conversation_messages.updated_at — the cursor for incremental thread sync.
+-- 216: conversation_messages.updated_at — the cursor for incremental thread sync.
 --
 -- ADDITIVE ONLY. One nullable-free column with a default, one trigger, one
 -- index. No column is dropped, renamed or retyped; no row is deleted.

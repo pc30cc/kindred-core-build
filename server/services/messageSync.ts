@@ -5,7 +5,7 @@
  * card's status, an outbound delivery status, Telegram media landing, the
  * privacy anonymizer) and so does `seen_at`. `created_at > cursor` would miss
  * all of those, so the cursor is `conversation_messages.updated_at`, which a
- * trigger bumps on every UPDATE (migration 215 / 20260925100000).
+ * trigger bumps on every UPDATE (migration 216 / 20260925100000).
  *
  * Commit order is not timestamp order: a transaction that stamped its row a
  * moment before another one can commit after it. The delta query therefore

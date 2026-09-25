@@ -284,6 +284,15 @@ public sealed class LocalStore : IAsyncDisposable
             return (user, workspaces);
         }, (null, []), ct);
 
+    // ── The workspace plan: what the rail and the composer offer, known before the server answers ──
+
+    /// <summary>The last plan the server sent for this workspace (<see cref="WorkspacePlan.Serialize"/>).</summary>
+    public Task SavePlanAsync(string workspaceId, string json, CancellationToken ct = default) =>
+        RunAsync("save plan", _ => SetMeta("plan:" + workspaceId, json), ct);
+
+    public Task<string?> LoadPlanAsync(string workspaceId, CancellationToken ct = default) =>
+        RunAsync<string?>("load plan", _ => GetMeta("plan:" + workspaceId), null, ct);
+
     // ── Conversation lists ──
 
     public Task<CachedList?> LoadListAsync(string workspaceId, string listKey, CancellationToken ct = default) =>
@@ -466,6 +475,7 @@ public sealed class LocalStore : IAsyncDisposable
                 using var cmd = Command($"DELETE FROM {table} WHERE workspace_id = $ws;", tx, ("$ws", workspaceId));
                 cmd.ExecuteNonQuery();
             }
+            using (var plan = Command("DELETE FROM meta WHERE key = $k;", tx, ("$k", "plan:" + workspaceId))) plan.ExecuteNonQuery();
             tx.Commit();
         }, ct);
 

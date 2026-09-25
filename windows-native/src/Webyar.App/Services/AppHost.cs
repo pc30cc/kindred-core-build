@@ -294,30 +294,51 @@ public sealed class AppHost : IAsyncDisposable
 
     /// <summary>
     /// Fetches the plan again. The super admin can switch a feature at any
-    /// time, so the shell calls this every few minutes; a failure keeps the
-    /// last good snapshot, and only a first failure falls back to "show all".
+    /// time, so the shell calls this every few minutes. Each answer is kept on
+    /// the PC; a failure keeps the last good snapshot (this session's, else the
+    /// PC's), and only with neither does it fall back to "show all", as the web.
     /// </summary>
     public async Task LoadPlanAsync(CancellationToken ct = default)
     {
         if (Workspace is not { } ws) return;
+        var store = Local;
         WorkspacePlan next;
         try
         {
             next = await Api.PlanAsync(ws.Id, ct).ConfigureAwait(false);
+            if (store is not null && next.Serialize() is { } json) await store.SavePlanAsync(ws.Id, json, CancellationToken.None).ConfigureAwait(false);
         }
         catch (ApiException e) when (e.Failure != ApiFailure.Unauthorized)
         {
             Log.Error("plan", e);
             if (Plan.State == PlanState.Loaded) return;
-            next = WorkspacePlan.Failed;
+            next = await CachedPlanAsync(store, ws.Id).ConfigureAwait(false) ?? WorkspacePlan.Failed;
         }
         if (Workspace?.Id != ws.Id) return;
         RunOnUi(() =>
         {
+            if (Workspace?.Id != ws.Id) return;
             Plan = next;
             PlanChanged?.Invoke();
         });
     }
+
+    /// <summary>
+    /// The plan this PC last saw for the workspace, shown until the server
+    /// answers: the rail and composer are right from the first frame, and an
+    /// offline launch shows exactly the plan's sections instead of all of them.
+    /// </summary>
+    public async Task RestorePlanAsync()
+    {
+        if (Workspace is not { } ws) return;
+        var cached = await CachedPlanAsync(Local, ws.Id);
+        if (cached is null || Workspace?.Id != ws.Id || Plan.State != PlanState.Loading) return;
+        Plan = cached;
+        PlanChanged?.Invoke();
+    }
+
+    private static async Task<WorkspacePlan?> CachedPlanAsync(LocalStore? store, string workspaceId) =>
+        store is null ? null : WorkspacePlan.Restore(await store.LoadPlanAsync(workspaceId).ConfigureAwait(false));
 
     /// <summary>Forgets the plan when the workspace changes, so nothing from the old one shows.</summary>
     public void ResetPlan()

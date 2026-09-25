@@ -42,6 +42,9 @@ public sealed class WorkspacePlan
     /// <summary>/api/ai-agent/capabilities: the AI agent is on for this workspace.</summary>
     public bool? AiAgentEnabled { get; init; }
 
+    /// <summary>/api/ai-agent/capabilities: Super Admin shows the AI agent to customers.</summary>
+    public bool? AiCustomerVisible { get; init; }
+
     /// <summary>/api/ai-agent/capabilities: the AI answers visitors by itself.</summary>
     public bool? AiAutoAnswer { get; init; }
 
@@ -59,15 +62,49 @@ public sealed class WorkspacePlan
         };
     }
 
-    public WorkspacePlan With(string? role, bool? aiAgent, bool? aiAuto, bool? callCenter) =>
+    public WorkspacePlan With(string? role, bool? aiAgent, bool? aiAuto, bool? callCenter, bool? aiVisible = null) =>
         new(State, _features, _modules, _channels)
         {
             PlanName = PlanName,
             Role = role ?? Role,
             AiAgentEnabled = aiAgent ?? AiAgentEnabled,
+            AiCustomerVisible = aiVisible ?? AiCustomerVisible,
             AiAutoAnswer = aiAuto ?? AiAutoAnswer,
             CallCenterVisible = callCenter ?? CallCenterVisible,
         };
+
+    // ── Kept on the PC: the last plan the server sent, for an offline or instant launch ──
+
+    private sealed record Snapshot(
+        string? PlanName, string? Role, bool? AiAgentEnabled, bool? AiCustomerVisible, bool? AiAutoAnswer, bool? CallCenterVisible,
+        Dictionary<string, bool?> Features, Dictionary<string, bool?> Modules, Dictionary<string, bool?> Channels);
+
+    /// <summary>A loaded plan as JSON (flags and switches only: nothing personal, no limits or usage).</summary>
+    public string? Serialize() => State != PlanState.Loaded ? null : JsonSerializer.Serialize(
+        new Snapshot(PlanName, Role, AiAgentEnabled, AiCustomerVisible, AiAutoAnswer, CallCenterVisible, _features, _modules, _channels));
+
+    /// <summary>The plan <see cref="Serialize"/> wrote, as Loaded; null for anything unreadable.</summary>
+    public static WorkspacePlan? Restore(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            if (JsonSerializer.Deserialize<Snapshot>(json) is not { Features: not null, Modules: not null, Channels: not null } s) return null;
+            return new WorkspacePlan(PlanState.Loaded, s.Features, s.Modules, s.Channels)
+            {
+                PlanName = s.PlanName,
+                Role = s.Role,
+                AiAgentEnabled = s.AiAgentEnabled,
+                AiCustomerVisible = s.AiCustomerVisible,
+                AiAutoAnswer = s.AiAutoAnswer,
+                CallCenterVisible = s.CallCenterVisible,
+            };
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>The web's moduleInPlan: hidden while loading; shown when the key is absent or on.</summary>
     public bool ModuleInPlan(string key) => State switch
@@ -115,9 +152,31 @@ public sealed class WorkspacePlan
     public bool TeamChat => InboxCap("inbox_team_chat");
     public bool NeedsHumanQueue => InboxCap("inbox_needs_human");
 
-    /// <summary>The AI queue: the plan's AI surface, and the AI answering (or something already in it).</summary>
+    /// <summary>The mailbox, as the web sidebar shows it: owners and admins, when the plan has the Email Inbox module.</summary>
+    public bool EmailInbox => IsAdmin && ModuleInPlan("email_inbox");
+
+    /// <summary>Call recordings, where the plan keeps them (the web's Recordings tab).</summary>
+    public bool CallRecordings => Feature("call_recording");
+
+    /// <summary>
+    /// A channel of the plan (telegram, whatsapp, bale…): hidden while loading,
+    /// shown when the plan has it on or does not name it, as the web's channelInPlan.
+    /// </summary>
+    public bool ChannelInPlan(string key) => State switch
+    {
+        PlanState.Failed => true,
+        PlanState.Loaded => !_channels.TryGetValue(key.ToLowerInvariant(), out var v) || v != false,
+        _ => false,
+    };
+
+    /// <summary>
+    /// The AI queue, as the web: the plan's AI queue (inboxCapAllowed), the AI
+    /// surface switched on and shown to customers by Super Admin (fail-closed:
+    /// capabilities that could not be read hide it), and the AI answering by
+    /// itself or something already waiting in the queue.
+    /// </summary>
     public bool AiQueue(int? automated) =>
-        InboxCap("inbox_ai_queue") && AiAgentEnabled != false && (AiAutoAnswer != false || automated > 0);
+        InboxCap("inbox_ai_queue") && AiAgentEnabled == true && AiCustomerVisible == true && (AiAutoAnswer == true || automated > 0);
 
     private static Dictionary<string, bool?> Flags(JsonElement root, string name)
     {

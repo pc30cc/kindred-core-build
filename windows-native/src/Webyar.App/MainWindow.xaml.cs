@@ -244,8 +244,10 @@ public sealed partial class MainWindow : Window
         // Whatever the last workspace still had in flight is disowned first.
         Host.BeginWorkspaceScope();
         Host.ResetPlan();
+        // The plan this PC last saw for the workspace first; the server's answer replaces it.
+        await Host.RestorePlanAsync();
         var plan = Host.LoadPlanAsync();
-        if (waitForPlan) await Task.WhenAny(plan, Task.Delay(TimeSpan.FromSeconds(5)));
+        if (waitForPlan && Host.Plan.State == PlanState.Loading) await Task.WhenAny(plan, Task.Delay(TimeSpan.FromSeconds(5)));
         await Host.StartRealtimeAsync();
         var presence = Host.StartPresenceAsync();
         Splash.Visibility = Visibility.Collapsed;

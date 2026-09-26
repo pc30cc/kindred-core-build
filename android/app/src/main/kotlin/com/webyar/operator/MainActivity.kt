@@ -79,6 +79,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val language by appState.language.collectAsState()
             val appearance by appState.appearance.collectAsState()
+            val dynamicColor by appState.dynamicColor.collectAsState()
 
             // The theme takes the language and sets the layout direction from
             // it — rows, stacks, alignment, which edge padding's leading side
@@ -93,6 +94,7 @@ class MainActivity : ComponentActivity() {
                     Appearance.LIGHT -> false
                     Appearance.DARK -> true
                 },
+                dynamicColor = dynamicColor,
             ) {
                 CompositionLocalProvider(LocalAppGraph provides graph) {
                     Surface(Modifier.fillMaxSize()) {

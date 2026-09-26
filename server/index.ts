@@ -615,9 +615,27 @@ app.use((_req, res) => {
 });
 
 // Error handler
-app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+app.use((err: Error & { status?: number; statusCode?: number }, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) return next(err);
+  // Parser errors carry their own client status — 400 for malformed JSON,
+  // 413 for an oversized body. Answering those with 500 blamed the server for
+  // a client's mistake, logged every one as a server error, and told clients
+  // that retry on 5xx to send the same bad request again.
+  const status = Number(err.status ?? err.statusCode);
+  if (status >= 400 && status < 500) {
+    return res.status(status).json({ error: status === 413 ? 'Payload too large' : 'Bad request' });
+  }
   console.error('Server error:', err.message);
   res.status(500).json({ error: 'Internal server error' });
+});
+
+// Node 20 ends the process on an unhandled promise rejection. For this API
+// that turned one missing .catch on a fire-and-forget write (an audit row, a
+// metric) into an outage for every in-flight request and socket until the
+// container restarted. Log it loudly and keep serving; an uncaught exception
+// still ends the process as before.
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] unhandled promise rejection:', reason instanceof Error ? reason.stack || reason.message : reason);
 });
 
 // Invitation key material must exist before any invitation route or worker

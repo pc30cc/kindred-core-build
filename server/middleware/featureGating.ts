@@ -4,7 +4,8 @@
 // ============================================
 
 import { Request, Response, NextFunction } from 'express';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { ServerConfig } from '../config.js';
 import {
   parseEntitlementResponse,
   parseNumericEntitlementResponse,
@@ -52,18 +53,47 @@ export function clearEntitlementCache(workspaceId?: string): void {
   }
 }
 
+/** Request fields this middleware reads or attaches. */
+type GatedRequest = Request & {
+  serverConfig?: ServerConfig;
+  entitlement?: EntitlementResult;
+  aiCredits?: Awaited<ReturnType<typeof deductAICredits>>;
+};
+
 function extractWorkspaceId(req: Request): string | undefined {
-  return (req.body as any)?.workspaceId
-    || (req.body as any)?.workspace_id
-    || (req.query as any)?.workspaceId
-    || (req.query as any)?.workspace_id
-    || (req.params as any)?.workspaceId;
+  const pick = (source: unknown, key: string): unknown => (source as Record<string, unknown> | undefined)?.[key];
+  const id = pick(req.body, 'workspaceId')
+    || pick(req.body, 'workspace_id')
+    || pick(req.query, 'workspaceId')
+    || pick(req.query, 'workspace_id')
+    || pick(req.params, 'workspaceId');
+  return id ? (id as string) : undefined;
+}
+
+/**
+ * One service client per (url, key), reused.
+ *
+ * createClient() builds a fresh auth client and realtime client every time,
+ * and these helpers run on gated requests — the module and channel checks
+ * are not cached at all — so a busy API built and discarded a client per
+ * request, each for a single RPC. The options match getServiceClient(): a
+ * server-side client never holds a user session.
+ */
+const serviceClients = new Map<string, SupabaseClient>();
+function serviceClientFor(supabaseUrl: string, serviceRoleKey: string): SupabaseClient {
+  const id = `${supabaseUrl}\u0000${serviceRoleKey}`;
+  let client = serviceClients.get(id);
+  if (!client) {
+    client = createClient(supabaseUrl, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } });
+    serviceClients.set(id, client);
+  }
+  return client;
 }
 
 function getSupabaseClient(req: Request) {
-  const config = (req as any).serverConfig;
+  const config = (req as GatedRequest).serverConfig;
   if (!config?.supabaseUrl || !config?.supabaseServiceRoleKey) return null;
-  return { client: createClient(config.supabaseUrl, config.supabaseServiceRoleKey), config };
+  return { client: serviceClientFor(config.supabaseUrl, config.supabaseServiceRoleKey), config };
 }
 
 // ─── Core entitlement check ───
@@ -79,7 +109,7 @@ export async function checkEntitlementFromDB(
   if (cached && cached.expiresAt > Date.now()) return cached.result;
 
   try {
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
     const { data, error } = await supabase.rpc('check_workspace_entitlement', {
       _workspace_id: workspaceId,
       _feature: feature,
@@ -140,7 +170,7 @@ export async function checkEntitlementFromDB(
     cache.set(key, { result, expiresAt: Date.now() + CACHE_TTL });
     boundEntitlementCache();
     return result;
-  } catch (err: any) {
+  } catch (err) {
     console.error('[FeatureGating] Exception:', err.message);
     return { allowed: false, plan: 'error', reason: 'exception' };
   }
@@ -154,7 +184,7 @@ export async function checkModuleAccess(
   moduleKey: string
 ): Promise<EntitlementResult> {
   try {
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
     const { data, error } = await supabase.rpc('check_module_access', {
       _workspace_id: workspaceId,
       _module_key: moduleKey,
@@ -178,7 +208,7 @@ export async function checkChannelAccess(
   channelKey: string
 ): Promise<EntitlementResult> {
   try {
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
     const { data, error } = await supabase.rpc('check_channel_access', {
       _workspace_id: workspaceId,
       _channel_key: channelKey,
@@ -201,7 +231,7 @@ export async function deductAICredits(
   credits: number = 1
 ): Promise<{ success: boolean; credits_used?: number; credits_limit?: number; credits_remaining?: number; reason?: string }> {
   try {
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
     const { data, error } = await supabase.rpc('deduct_ai_credits', {
       _workspace_id: workspaceId,
       _credits: credits,
@@ -225,13 +255,13 @@ export async function incrementUsage(
   amount: number = 1
 ): Promise<void> {
   try {
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
     await supabase.rpc('increment_usage_counter', {
       _workspace_id: workspaceId,
       _counter_name: counter,
       _amount: amount,
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[UsageTracking] Error:', err.message);
   }
 }
@@ -271,7 +301,7 @@ export function requireFeature(feature: string) {
       });
     }
 
-    (req as any).entitlement = result;
+    (req as GatedRequest).entitlement = result;
     next();
   };
 }
@@ -371,7 +401,7 @@ export function requireAICredits(credits: number = 1) {
       });
     }
 
-    (req as any).aiCredits = result;
+    (req as GatedRequest).aiCredits = result;
     next();
   };
 }
@@ -439,10 +469,22 @@ export function requireLimit(
       }
     }
 
-    (req as any).entitlement = result;
+    (req as GatedRequest).entitlement = result;
     next();
   };
 }
+
+/** A billing_plans row. Only `slug` is relied on here; the rest passes through. */
+export type BillingPlanRow = { slug?: string; entitlements?: unknown; limits?: unknown; [column: string]: unknown };
+/** A workspace_subscriptions row, passed through as read. */
+export type WorkspaceSubscriptionRow = { plan_id?: string | null; free_fallback_at?: string | null; [column: string]: unknown };
+
+export type WorkspacePlanInfo = {
+  plan: BillingPlanRow | null;
+  subscription: WorkspaceSubscriptionRow | null;
+  entitlements: Record<string, boolean>;
+  limits: Record<string, number>;
+};
 
 /**
  * Get full workspace plan info (for frontend).
@@ -451,13 +493,8 @@ export async function getWorkspacePlanInfo(
   supabaseUrl: string,
   serviceRoleKey: string,
   workspaceId: string
-): Promise<{
-  plan: any;
-  subscription: any;
-  entitlements: Record<string, boolean>;
-  limits: Record<string, number>;
-}> {
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
+): Promise<WorkspacePlanInfo> {
+  const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
 
   const { data: sub, error: subError } = await supabase
     .from('workspace_subscriptions')
@@ -466,7 +503,7 @@ export async function getWorkspacePlanInfo(
     .maybeSingle();
   if (subError) throw new Error(`workspace_subscription_read_failed:${subError.message}`);
 
-  let plan: any = null;
+  let plan: BillingPlanRow | null = null;
   if (sub?.plan_id) {
     const { data: assignedPlan, error: planError } = await supabase
       .from('billing_plans')
@@ -518,12 +555,12 @@ export async function getWorkspacePlanInfoDetailed(
   serviceRoleKey: string,
   workspaceId: string
 ): Promise<
-  | { ok: true; value: { plan: any; subscription: any; entitlements: Record<string, boolean>; limits: Record<string, number> } }
+  | { ok: true; value: WorkspacePlanInfo }
   | { ok: false; errorCode: 'plan_status_unavailable'; retryable: true }
 > {
   try {
     return { ok: true, value: await getWorkspacePlanInfo(supabaseUrl, serviceRoleKey, workspaceId) };
-  } catch (err: any) {
+  } catch (err) {
     console.error('[FeatureGating] plan info exception:', err?.message);
     return { ok: false, errorCode: 'plan_status_unavailable', retryable: true };
   }

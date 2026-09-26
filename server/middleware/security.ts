@@ -93,13 +93,27 @@ export const authRateLimiter = rateLimit({
   },
 });
 
-// Email: 10 per minute per workspace
+/**
+ * Bucket for emailRateLimiter: the workspace on /api/email, the IP elsewhere.
+ *
+ * The workspace key is only honest where the route then proves access to
+ * that workspace (/api/email). On the unauthenticated /api/auth-email routes
+ * it let a caller pick a fresh bucket per request just by sending any
+ * `workspaceId`: unlimited reset and verification emails, and token or code
+ * guesses, from a single IP.
+ */
+export function emailRateLimitKey(req: Request): string {
+  const workspaceId = req.baseUrl === '/api/email' ? req.body?.workspaceId : undefined;
+  return `email:${workspaceId || ipBucket(req)}`;
+}
+
+// Email: 10 per minute per workspace on /api/email, per IP everywhere else.
 export const emailRateLimiter = rateLimit({
   windowMs: 60_000,
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => `email:${req.body?.workspaceId || ipBucket(req)}`,
+  keyGenerator: emailRateLimitKey,
   handler: async (req, res) => {
     logRateLimited(req, 'warn', { endpoint: '/api/email', limit: '10/min' });
     res.status(429).json({ error: 'Email rate limit exceeded.' });

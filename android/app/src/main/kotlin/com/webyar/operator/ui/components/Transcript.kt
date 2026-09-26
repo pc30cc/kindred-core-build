@@ -46,6 +46,7 @@ import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
 import com.webyar.operator.ui.design.WebyarTheme
 import java.time.Instant
+import androidx.compose.runtime.CompositionLocalProvider
 
 /**
  * One bubble in a transcript, whoever the transcript is with.
@@ -93,14 +94,19 @@ fun MessageBubble(
 ) {
     val colors = WebyarTheme.colors
     var actionsOpen by remember(id) { mutableStateOf(false) }
+    val textDirection = LocalLayoutDirection.current
 
+    // The operator on the right and the visitor on the left, in every
+    // language — the side says who is speaking, and it says it the same way
+    // whichever language the interface is in. So the row is laid out left to
+    // right, and what is INSIDE a bubble gets the interface's own direction
+    // back, so a Persian reply still reads from the right.
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(top = if (startsRun) Space.md else Space.xxs)
             .testTag(A11y.messageRow(id)),
-        // Start and End resolve against the layout direction, so a Persian
-        // transcript mirrors with no conditional here.
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom,
     ) {
@@ -130,10 +136,12 @@ fun MessageBubble(
                 contentColor = if (outgoing) colors.onBubbleOutgoing else colors.onBubbleIncoming,
                 shape = bubbleShape(outgoing = outgoing, startsRun = startsRun),
             ) {
-                Column(
-                    Modifier.padding(horizontal = Space.lg - 2.dp, vertical = Space.sm + 2.dp),
-                    content = content,
-                )
+                CompositionLocalProvider(LocalLayoutDirection provides textDirection) {
+                    Column(
+                        Modifier.padding(horizontal = Space.lg - 2.dp, vertical = Space.sm + 2.dp),
+                        content = content,
+                    )
+                }
             }
             if (status != null) {
                 Box {
@@ -177,6 +185,7 @@ fun MessageBubble(
                 )
             }
         }
+    }
     }
 }
 

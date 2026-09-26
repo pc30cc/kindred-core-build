@@ -38,7 +38,7 @@ public sealed partial class CallDockSlot : Grid
     }
 
     /// <summary>Which call this place is for: "conv:{conversation id}" or "desk:{call id}".</summary>
-    public string? Key
+    public string? CallKey
     {
         get => _key;
         set

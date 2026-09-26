@@ -191,7 +191,7 @@ public sealed partial class ChatView : UserControl
     {
         Close();
         _id = id;
-        DockSlot.Key = $"conv:{id}";
+        DockSlot.CallKey = $"conv:{id}";
         _lastSeenMessage = null;
         _serverShown = false;
         _messages.Clear();

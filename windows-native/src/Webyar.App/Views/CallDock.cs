@@ -97,7 +97,7 @@ internal static class CallDock
             CallDockSlot? holder = null;
             foreach (var slot in Slots)
             {
-                var holds = docked && holder is null && slot.Key is { } key && key == call!.DockKey && slot.IsOnScreen;
+                var holds = docked && holder is null && slot.CallKey is { } key && key == call!.DockKey && slot.IsOnScreen;
                 if (holds) holder = slot;
                 slot.Reserve(holds ? call!.DockHeight + Top + Bottom : 0);
             }

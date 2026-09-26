@@ -512,7 +512,7 @@ public sealed partial class CallCenterPage : Page
         _selectedId = id;
         _selectedCall = call;
         // The call answered on this desk docks over the call it belongs to.
-        DockSlot.Key = $"desk:{id}";
+        DockSlot.CallKey = $"desk:{id}";
         if (item is not null) ShowQueueDetail(item);
         else if (call is not null) ShowCall(call, waiting);
         StartDetailPolling(id);

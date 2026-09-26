@@ -126,9 +126,11 @@ interface LimitRow {
 
 interface Props {
   workspaceId: string;
+  /** The AI credit card; off where the page already has its own AI credit tab. */
+  showAiCredit?: boolean;
 }
 
-export function PlanUsagePanel({ workspaceId }: Props) {
+export function PlanUsagePanel({ workspaceId, showAiCredit = true }: Props) {
   const { t, locale, dir } = useTranslation();
   const L = locale as BillingLocale;
   const { data: eff, loading: effLoading, error: effError, reload } = useWorkspaceEffectiveEntitlements(workspaceId);
@@ -214,7 +216,7 @@ export function PlanUsagePanel({ workspaceId }: Props) {
 
   return (
     <div className="space-y-6" data-testid="plan-usage-panel" dir={dir}>
-      <AiCreditPanel workspaceId={workspaceId} />
+      {showAiCredit && <AiCreditPanel workspaceId={workspaceId} />}
       {rows.length > 0 && (
         <section data-testid="plan-limits">
           <div className="mb-3 flex items-end justify-between gap-3">

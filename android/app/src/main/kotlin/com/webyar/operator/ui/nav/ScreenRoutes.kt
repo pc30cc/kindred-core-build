@@ -44,6 +44,8 @@ import com.webyar.operator.i18n.StrAndroid
 import androidx.compose.material3.Snackbar
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import com.webyar.operator.feature.chat.RecordedVoice
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import com.webyar.operator.feature.settings.NotificationsScreen
@@ -292,6 +294,9 @@ fun ChatRoute(
     val members by chatModel.members.collectAsStateWithLifecycle()
     val voice by chatModel.sayNowVoice.collectAsStateWithLifecycle()
     val notice by chatModel.notice.collectAsStateWithLifecycle()
+    // What the inbox knows about this visitor's device and country: the
+    // face in the chat is the one on the row that was tapped.
+    val intel by conversations.intel.collectAsStateWithLifecycle()
 
     // The route carries an id, not an object — which is right, because a route
     // has to survive process death and an object does not. The conversation
@@ -357,6 +362,12 @@ fun ChatRoute(
     val recorder = remember(context) { VoiceRecorder(context) }
     var recordingSeconds by remember { mutableStateOf<Int?>(null) }
     DisposableEffect(recorder) { onDispose { recorder.cancel() } }
+    // A finished recording, held until it is sent or thrown away. Its file
+    // goes with the screen if neither happens — a note left in the cache is
+    // a stranger's voice on the next operator's phone.
+    var recorded by remember { mutableStateOf<RecordedVoice?>(null) }
+    val pendingClip = rememberUpdatedState(recorded)
+    DisposableEffect(Unit) { onDispose { pendingClip.value?.file?.delete() } }
 
     LaunchedEffect(recordingSeconds != null) {
         if (recordingSeconds == null) return@LaunchedEffect
@@ -433,19 +444,39 @@ fun ChatRoute(
             recordingSeconds = null
         },
         onFinishRecording = {
-            val bytes = recorder.finish()
+            val file = recorder.finishToFile()
             recordingSeconds = null
-            if (bytes == null) {
+            if (file == null) {
                 // Under a second is a mis-tap, not a message.
                 chatModel.report(Str.recordingFailed(language))
             } else {
-                chatModel.sendAttachment(bytes, recorder.fileName, recorder.mimeType)
+                // Held, not sent: the operator hears it first, then sends
+                // it or throws it away.
+                recorded = RecordedVoice(file, recorder.fileName, recorder.mimeType)
             }
+        },
+        recorded = recorded,
+        onSendRecorded = {
+            recorded?.let { clip ->
+                recorded = null
+                val bytes = runCatching { clip.file.readBytes() }.getOrNull()
+                clip.file.delete()
+                if (bytes == null) {
+                    chatModel.report(Str.recordingFailed(language))
+                } else {
+                    chatModel.sendAttachment(bytes, clip.fileName, clip.mimeType)
+                }
+            }
+        },
+        onDiscardRecorded = {
+            recorded?.file?.delete()
+            recorded = null
         },
         loadAttachment = { id -> runCatching { api.attachmentData(id) }.getOrNull() },
         attachments = attachmentSource,
         onRetry = chatModel::retry,
         onDiscard = chatModel::discard,
+        visitor = intel[conversationId],
         header = {
             ConversationMenu(
                 language = language,

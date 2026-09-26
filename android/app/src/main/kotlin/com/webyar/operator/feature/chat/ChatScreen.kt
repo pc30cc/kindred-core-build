@@ -85,6 +85,9 @@ import com.webyar.operator.ui.design.WebyarType
 import kotlinx.coroutines.launch
 import com.webyar.operator.ui.components.avatarKey
 import com.webyar.operator.ui.components.sharedElement
+import androidx.compose.ui.unit.Dp
+import com.webyar.operator.core.model.VisitorProfile
+import com.webyar.operator.ui.components.OperatorAvatar
 
 sealed interface ChatState {
     data object Loading : ChatState
@@ -129,6 +132,10 @@ fun ChatScreen(
     recordingSeconds: Int? = null,
     onDiscardRecording: () -> Unit = {},
     onFinishRecording: () -> Unit = {},
+    /** A finished recording waiting in the composer to be heard and sent. */
+    recorded: RecordedVoice? = null,
+    onSendRecorded: () -> Unit = {},
+    onDiscardRecorded: () -> Unit = {},
     header: (@Composable () -> Unit)? = null,
     /**
      * Fetches an attachment's bytes.
@@ -149,6 +156,12 @@ fun ChatScreen(
     onRetry: (Message) -> Unit = {},
     /** Takes an unsent message out of the thread. */
     onDiscard: (Message) -> Unit = {},
+    /**
+     * What is known about the visitor's device and where they are — the same
+     * facts the inbox row draws its face from, so the face in the bar and
+     * beside the visitor's messages is the one the operator just tapped.
+     */
+    visitor: VisitorProfile? = null,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val source = attachments ?: remember(loadAttachment, context) {
@@ -169,6 +182,7 @@ fun ChatScreen(
                     )
                 },
                 avatarUrl = conversation?.contact?.avatarUrl,
+                visitor = visitor,
                 sharedKey = conversation?.id?.let(::avatarKey),
                 onBack = onBack,
                 actions = header,
@@ -198,7 +212,16 @@ fun ChatScreen(
                         )
                     }
                 } else {
-                    Transcript(state.messages, language, source, onRetry, onDiscard)
+                    Transcript(
+                        messages = state.messages,
+                        language = language,
+                        source = source,
+                        onRetry = onRetry,
+                        onDiscard = onDiscard,
+                        visitorFace = { size ->
+                            VisitorFace(conversation, visitor, language, size)
+                        },
+                    )
                 }
             }
         }
@@ -220,6 +243,9 @@ fun ChatScreen(
             recordingSeconds = recordingSeconds,
             onDiscardRecording = onDiscardRecording,
             onFinishRecording = onFinishRecording,
+            recorded = recorded,
+            onSendRecorded = onSendRecorded,
+            onDiscardRecorded = onDiscardRecorded,
             modifier = Modifier.navigationBarsPadding(),
         )
     }
@@ -256,8 +282,13 @@ private fun layout(messages: List<Message>): List<TranscriptRow> {
         TranscriptRow(
             message = message,
             dayHeader = if (sameDayAsPrevious) null else message.createdAt,
+            // A day header between two messages ends the run above it too:
+            // the face belongs at the foot of each day's run, not only the
+            // last one.
             endsRun = next == null || next.senderType != message.senderType ||
-                next.senderType == SenderType.SYSTEM,
+                next.senderType == SenderType.SYSTEM ||
+                (next.createdAt != null && message.createdAt != null &&
+                    next.createdAt!!.atZone(zone).toLocalDate() != message.createdAt!!.atZone(zone).toLocalDate()),
             startsRun = previous == null || previous.senderType != message.senderType || !sameDayAsPrevious,
         )
     }
@@ -270,6 +301,7 @@ private fun Transcript(
     source: AttachmentSource?,
     onRetry: (Message) -> Unit,
     onDiscard: (Message) -> Unit,
+    visitorFace: @Composable (Dp) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val rows = remember(messages) { layout(messages) }
@@ -301,8 +333,18 @@ private fun Transcript(
                     startsRun = row.startsRun,
                     time = message.createdAt,
                     language = language,
-                    senderName = message.senderName.orEmpty(),
-                    senderAvatarUrl = message.senderAvatar,
+                    // The visitor's face on their side, the sender's own on
+                    // ours: an operator's photo, or the quiet circle while it
+                    // loads or when there is none — never initials.
+                    avatar = if (message.senderType.isOutgoing) {
+                        { OperatorAvatar(imageUrl = message.senderAvatar, size = Size.avatarSmall) }
+                    } else {
+                        { visitorFace(Size.avatarSmall) }
+                    },
+                    // A photo on its own is its own shape; a coloured frame
+                    // around it adds nothing but a border.
+                    bare = message.isAttachmentOnly &&
+                        message.attachments.orEmpty().all { it.resolvedKind == MessageAttachment.Kind.IMAGE },
                     status = when (message.delivery) {
                         Message.Delivery.SENT -> null
                         Message.Delivery.PENDING -> StrAndroid.messageSending(language)
@@ -413,6 +455,7 @@ private fun ChatTopBar(
     avatarUrl: String?,
     onBack: () -> Unit,
     actions: (@Composable () -> Unit)?,
+    visitor: VisitorProfile? = null,
     sharedKey: String? = null,
 ) {
     TopAppBar(
@@ -424,6 +467,9 @@ private fun ChatTopBar(
                         name = title,
                         imageUrl = avatarUrl,
                         size = 40.dp,
+                        os = visitor?.device?.os,
+                        device = visitor?.device?.device,
+                        countryCode = visitor?.geo?.countryCode,
                         modifier = if (sharedKey != null) Modifier.sharedElement(sharedKey) else Modifier,
                     )
                     Text(
@@ -451,5 +497,20 @@ private fun ChatTopBar(
             containerColor = MaterialTheme.colorScheme.surface,
             scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
         ),
+    )
+}
+
+/** The visitor's face — the inbox row's, at any size. */
+@Composable
+private fun VisitorFace(conversation: Conversation?, visitor: VisitorProfile?, language: Language, size: Dp) {
+    Avatar(
+        name = conversation?.contact?.let {
+            Format.contactName(name = it.name, email = it.email, visitorCode = it.visitorCode, language = language)
+        }.orEmpty(),
+        imageUrl = conversation?.contact?.avatarUrl,
+        size = size,
+        os = visitor?.device?.os,
+        device = visitor?.device?.device,
+        countryCode = visitor?.geo?.countryCode,
     )
 }

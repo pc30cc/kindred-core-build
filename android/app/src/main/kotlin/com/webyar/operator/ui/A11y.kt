@@ -29,6 +29,8 @@ object A11y {
     const val SEARCH_FIELD = "search.field"
 
     const val COMPOSER_FIELD = "composer.field"
+    const val COMPOSER_STOP_RECORDING = "composer.stopRecording"
+    const val COMPOSER_RECORDED = "composer.recorded"
     const val COMPOSER_SEND = "composer.send"
     const val CHAT_TRANSCRIPT = "chat.transcript"
     const val CHAT_MENU = "chat.menu"

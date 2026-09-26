@@ -73,14 +73,21 @@ fun MessageBubble(
     language: Language,
     modifier: Modifier = Modifier,
     /**
-     * The sender's name, for the face beside an incoming run.
+     * The sender's face, drawn beside the last bubble of a run on the
+     * outer side — the visitor's on the left, the operator's on the right.
+     * The rest of the run keeps the column's width, so a run reads as one
+     * block with one face at its foot.
      *
-     * Null leaves out the avatar column entirely, which is right for a
-     * two-party thread where every incoming message is the same person and a
-     * column of identical faces would be noise.
+     * Null leaves out the column entirely, which is right for a two-party
+     * thread where every message on a side is the same person and a column
+     * of identical faces would be noise.
      */
-    senderName: String? = null,
-    senderAvatarUrl: String? = null,
+    avatar: (@Composable () -> Unit)? = null,
+    /**
+     * Draws the content without a bubble — for a photo, which is its own
+     * shape and does not need a coloured frame around it.
+     */
+    bare: Boolean = false,
     /**
      * Where an unsent message stands — "Sending…", "Not sent" — shown under
      * the bubble in place of the time, which it does not have yet.
@@ -110,20 +117,7 @@ fun MessageBubble(
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom,
     ) {
-        if (!outgoing && senderName != null) {
-            // Only the last of a run carries a face, and the rest reserve its
-            // width — so a run reads as one block rather than as a column of
-            // avatars.
-            Box(Modifier.size(Size.avatarSmall)) {
-                if (endsRun) {
-                    Avatar(
-                        name = senderName,
-                        imageUrl = senderAvatarUrl,
-                        size = Size.avatarSmall,
-                    )
-                }
-            }
-        }
+        if (!outgoing && avatar != null) AvatarColumn(endsRun, avatar)
 
         Column(
             Modifier
@@ -131,16 +125,22 @@ fun MessageBubble(
                 .widthIn(max = BUBBLE_MAX_WIDTH),
             horizontalAlignment = if (outgoing) Alignment.End else Alignment.Start,
         ) {
-            Surface(
-                color = if (outgoing) colors.bubbleOutgoing else colors.bubbleIncoming,
-                contentColor = if (outgoing) colors.onBubbleOutgoing else colors.onBubbleIncoming,
-                shape = bubbleShape(outgoing = outgoing, startsRun = startsRun),
-            ) {
+            if (bare) {
                 CompositionLocalProvider(LocalLayoutDirection provides textDirection) {
-                    Column(
-                        Modifier.padding(horizontal = Space.lg - 2.dp, vertical = Space.sm + 2.dp),
-                        content = content,
-                    )
+                    Column(content = content)
+                }
+            } else {
+                Surface(
+                    color = if (outgoing) colors.bubbleOutgoing else colors.bubbleIncoming,
+                    contentColor = if (outgoing) colors.onBubbleOutgoing else colors.onBubbleIncoming,
+                    shape = bubbleShape(outgoing = outgoing, startsRun = startsRun),
+                ) {
+                    CompositionLocalProvider(LocalLayoutDirection provides textDirection) {
+                        Column(
+                            Modifier.padding(horizontal = Space.lg - 2.dp, vertical = Space.sm + 2.dp),
+                            content = content,
+                        )
+                    }
                 }
             }
             if (status != null) {
@@ -185,7 +185,24 @@ fun MessageBubble(
                 )
             }
         }
+        if (outgoing && avatar != null) AvatarColumn(endsRun, avatar)
     }
+    }
+}
+
+/**
+ * The column a run's face sits in: the face on the run's last bubble, and
+ * the same width held open on the others. Aligned to the bubble rather than
+ * to the time under it, so the face sits beside what was said.
+ */
+@Composable
+private fun AvatarColumn(endsRun: Boolean, avatar: @Composable () -> Unit) {
+    Box(
+        Modifier
+            .padding(bottom = if (endsRun) Space.lg + Space.xxs else 0.dp)
+            .size(Size.avatarSmall),
+    ) {
+        if (endsRun) avatar()
     }
 }
 

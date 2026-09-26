@@ -22,10 +22,17 @@ namespace Webyar.Setup
         ///   /uninstall            the uninstall page (Settings → Apps → Uninstall runs this)
         ///   /uninstall /silent    remove without a window
         ///   /silent [/launch]     install or update without a window (the app's own updater)
+        ///   /removemachine        remove the old all-users copy (this installer asking Windows for rights)
         /// </summary>
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+            if (Has(e, "removemachine"))
+            {
+                Installer.RemoveMachineInstall();
+                Shutdown(0);
+                return;
+            }
             ApplyTheme();
             // The copy in the install folder only ever uninstalls, however it is started.
             var uninstall = Has(e, "uninstall") || Installer.IsUninstallerCopy;

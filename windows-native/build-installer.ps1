@@ -1,29 +1,21 @@
-# Builds releases\Webyar-Setup.exe from the published app (dotnet publish -o publish).
-#   1. zip the published app: the payload the installer unpacks into Program Files
-#   2. build the installer once without a payload: "Uninstall Webyar.exe"
-#   3. build it again with the payload and that uninstaller inside
+# Builds releases\Webyar-Setup.exe: the installer people download (and the one the
+# app's updater runs to move an old Program Files copy to the per-user install).
+# Inside is Velopack's own setup for this version, from `vpk pack` (run that first).
 param(
-    [string]$Publish = 'publish',
     [string]$Releases = 'releases',
-    [string]$Dotnet = 'dotnet'
+    [string]$Dotnet = 'dotnet',
+    [string]$PackId = 'WebyarWindows'
 )
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
-Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-$payload = Join-Path $PSScriptRoot 'setup-payload.zip'
-if (Test-Path $payload) { Remove-Item $payload -Force }
-[System.IO.Compression.ZipFile]::CreateFromDirectory((Resolve-Path $Publish).Path, $payload, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+$appSetup = Join-Path (Resolve-Path $Releases).Path "$PackId-win-Setup.exe"
+if (-not (Test-Path $appSetup)) { throw "$appSetup is missing: run vpk pack first" }
 
-foreach ($dir in 'setup-uninstaller', 'setup-out') { if (Test-Path $dir) { Remove-Item $dir -Recurse -Force } }
-& $Dotnet build src\Webyar.Setup\Webyar.Setup.csproj -c Release -o setup-uninstaller -v q -clp:NoSummary
-if ($LASTEXITCODE) { throw 'uninstaller build failed' }
-# Two builds of one project: the second must not reuse the first's intermediate output.
+if (Test-Path 'setup-out') { Remove-Item 'setup-out' -Recurse -Force }
 Remove-Item src\Webyar.Setup\obj -Recurse -Force -ErrorAction SilentlyContinue
-& $Dotnet build src\Webyar.Setup\Webyar.Setup.csproj -c Release -o setup-out -v q -clp:NoSummary "-p:PayloadPath=$payload" "-p:UninstallerPath=$(Resolve-Path setup-uninstaller\Webyar-Setup.exe)"
+& $Dotnet build src\Webyar.Setup\Webyar.Setup.csproj -c Release -o setup-out -v q -clp:NoSummary "-p:PayloadPath=$appSetup"
 if ($LASTEXITCODE) { throw 'installer build failed' }
 
-New-Item -ItemType Directory -Force $Releases | Out-Null
 Copy-Item setup-out\Webyar-Setup.exe (Join-Path $Releases 'Webyar-Setup.exe') -Force
-Remove-Item $payload -Force
 Get-Item (Join-Path $Releases 'Webyar-Setup.exe') | Select-Object Name, Length

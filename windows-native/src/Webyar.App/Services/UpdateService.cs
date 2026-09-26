@@ -24,12 +24,14 @@ public enum UpdateStatus
 /// <summary>
 /// Self-update from the feed Super Admin → Windows app names, in one of two ways:
 /// <list type="bullet">
-/// <item>An older per-user copy installed by Velopack updates through Velopack,
-/// which reads `releases.&lt;channel&gt;.json`, downloads the package (a delta
-/// when it can) and verifies it before anything runs.</item>
-/// <item>The machine-wide install under Program Files (Webyar-Setup) takes the
-/// newest `Webyar-Setup.exe` from the feed's GitHub releases and runs it
-/// silently; Windows asks the operator to allow it, as for any installer.</item>
+/// <item>The per-user install (Webyar-Setup, as Slack and Discord install) updates
+/// through Velopack, which reads `releases.&lt;channel&gt;.json`, downloads the
+/// package (a delta when it can) and verifies it; "Restart and update" swaps it
+/// in and reopens the app in a moment, with no Windows prompt.</item>
+/// <item>A copy still installed for all users under Program Files (versions 2.2
+/// to 2.5.1) takes the newest `Webyar-Setup.exe` from the feed's GitHub releases
+/// and runs it silently; Windows asks the operator to allow it, once, and the
+/// installer moves the app to the per-user install.</item>
 /// </list>
 /// Either way the update applies on the next restart, or at once when the operator agrees.
 /// Only feeds on the build's allow-list are used (<see cref="UpdateFeeds"/>):

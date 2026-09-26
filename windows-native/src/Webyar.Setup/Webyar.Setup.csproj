@@ -1,18 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!--
     Webyar-Setup.exe: the installer people download, in the app's own look
-    (Fluent, as in the WinUI Gallery). It installs Webyar for all users under
-    Program Files, with Start menu and desktop shortcuts and an entry in
-    Settings → Apps / Control Panel, and it doubles as the uninstaller
-    ("Uninstall Webyar.exe" in the install folder). .NET Framework 4.8 ships
-    with every supported Windows 10 and 11, so this runs with nothing
-    installed first and stays one file.
+    (Fluent, as in the WinUI Gallery). It installs Webyar for the signed-in
+    user with no administrator rights, as Slack and Discord do: inside is
+    Velopack's own setup for the app, run silently, which puts the app in
+    %LOCALAPPDATA%\WebyarWindows with its shortcuts and Apps entry and lets it
+    update itself in place. It also moves installs of versions 2.2 to 2.5.1
+    out of Program Files. .NET Framework 4.8 ships with every supported
+    Windows 10 and 11, so this runs with nothing installed first and stays one file.
 
-    Built twice (build-installer.ps1 does both):
-      1. without a payload: the uninstaller
-           dotnet build -c Release -o setup-uninstaller
-      2. with the published app zipped, and the uninstaller inside
-           dotnet build -c Release -p:PayloadPath=payload.zip -p:UninstallerPath=setup-uninstaller\Webyar-Setup.exe
+    build-installer.ps1 builds it with Velopack's setup inside:
+      dotnet build -c Release -p:PayloadPath=releases\WebyarWindows-win-Setup.exe
   -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -39,12 +37,10 @@
     <Resource Include="..\Webyar.App\Assets\icon.png" Link="Assets\icon.png" />
     <Resource Include="..\Webyar.App\Assets\Fonts\IRANSans.ttc" Link="Fonts\IRANSans.ttc" />
     <Resource Include="..\Webyar.App\Assets\Fonts\Vazirmatn.ttf" Link="Fonts\Vazirmatn.ttf" />
-    <EmbeddedResource Include="$(PayloadPath)" LogicalName="payload.zip" Condition="'$(PayloadPath)' != '' And Exists('$(PayloadPath)')" />
-    <EmbeddedResource Include="$(UninstallerPath)" LogicalName="uninstaller.exe" Condition="'$(UninstallerPath)' != '' And Exists('$(UninstallerPath)')" />
+    <EmbeddedResource Include="$(PayloadPath)" LogicalName="app-setup.exe" Condition="'$(PayloadPath)' != '' And Exists('$(PayloadPath)')" />
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="System.IO.Compression" />
-    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Management" />
   </ItemGroup>
 </Project>

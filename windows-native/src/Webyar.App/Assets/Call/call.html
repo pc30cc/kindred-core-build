@@ -13,7 +13,8 @@
   html,body { margin:0; height:100%; background:var(--bg); color:var(--text); font-family: Vazirmatn, 'Segoe UI Variable Text', 'Segoe UI', sans-serif; overflow:hidden; user-select:none; }
   [hidden] { display:none !important; }
   #stage { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; box-sizing:border-box; transition: padding .22s; }
-  body.notes-open:not(.video-live) #stage { padding-inline-start:316px; }
+  #card { position:absolute; inset:0; }
+  body.notes-open:not(.video-live):not(.docked) #stage { padding-inline-start:316px; }
   /* Flipped once, as the web console flips every call video: the visitor's camera arrives mirrored. */
   #remote { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; background:#000; display:none; transform:scaleX(-1); }
   #local { position:absolute; width:26%; max-width:260px; aspect-ratio:16/10; object-fit:cover; bottom:96px; inset-inline-end:18px; border-radius:14px; border:2px solid rgba(255,255,255,.18); transform:scaleX(-1); display:none; background:#000; box-shadow:0 12px 32px rgba(0,0,0,.5); }
@@ -109,9 +110,51 @@
   .btn { border:none; border-radius:8px; padding:6px 14px; cursor:pointer; font:inherit; font-size:13px; background:rgba(255,255,255,.1); color:var(--text); }
   .btn.primary { background:var(--brand); color:#fff; }
   .btn:disabled { opacity:.5; cursor:default; }
+
+  /* Docked in its page, as the Mac's panel: a rounded dark card that is as tall as it needs to be (the app
+     sizes the view from the "height" it is told). Voice is one row — who, the controls, the window buttons —
+     with notices under it; video is the picture, 300 high, with everything laid over it. Notes and the
+     transfer card open under either, and the card grows for them. */
+  html.docked, html.docked body { height:auto; background:transparent; }
+  body.docked #card { position:relative; inset:auto; background:var(--bg); border-radius:16px; border:1px solid rgba(255,255,255,.07); overflow:hidden; display:grid; box-sizing:border-box; }
+  body.docked:not(.video) #card { grid-template-columns:minmax(0,1fr) auto auto; grid-template-areas:"who bar win" "notices notices notices" "panel panel panel"; align-items:center; column-gap:12px; padding:12px; }
+  body.docked:not(.video) #stage { grid-area:who; position:static; display:block; min-width:0; }
+  body.docked:not(.video) #who { flex-direction:row; gap:10px; align-items:center; min-width:0; }
+  body.docked:not(.video) #who > div:last-child { min-width:0; }
+  body.docked:not(.video) #avatar { width:40px; height:40px; font-size:16px; box-shadow:none; animation:none; }
+  body.docked:not(.video) #flag { display:none; }
+  body.docked:not(.video) #name { font-size:14px; font-weight:600; text-align:start; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  body.docked:not(.video) #status { font-size:12px; text-align:start; }
+  body.docked:not(.video) .round { width:34px; height:34px; }
+  body.docked:not(.video) .round svg { width:16px; height:16px; }
+  body.docked #bar { grid-area:bar; position:static; gap:8px; }
+  body.docked #winbar { grid-area:win; position:static; gap:6px; }
+  body.docked .corner { width:28px; height:28px; background:rgba(0,0,0,.35); }
+  body.docked #notices { grid-area:notices; position:static; transform:none; max-width:none; align-items:flex-start; margin-top:8px; }
+  body.docked #notices:not(:has(> :not([hidden]))) { display:none; }
+  body.docked #notices .pill { font-size:11.5px; padding:5px 10px; text-align:start; }
+  body.docked .panel { grid-area:panel; position:static; transform:none; width:auto; max-height:none; margin-top:10px; box-shadow:none; }
+  body.docked #notes { width:auto; height:320px; }
+  body.docked #transferPanel { width:auto; transform:none; max-height:none; }
+  body.docked #tList { height:180px; }
+  body.docked.video #card { grid-template-columns:minmax(0,1fr); grid-template-areas:"media" "panel"; }
+  body.docked.video #stage { grid-area:media; position:relative; height:300px; }
+  body.docked.video .panel { margin:10px 12px 12px; }
+  body.docked.video #winbar { grid-area:media; align-self:start; justify-self:end; margin:10px; z-index:3; }
+  body.docked.video #bar { grid-area:media; align-self:end; justify-self:center; margin-bottom:12px; z-index:2; }
+  body.docked.video .round { width:40px; height:40px; }
+  body.docked.video .round svg { width:19px; height:19px; }
+  body.docked.video #notices { grid-area:media; align-self:end; justify-self:center; margin:0 12px 64px; z-index:3; }
+  body.docked.video #local { width:168px; bottom:64px; inset-inline-end:12px; border-radius:10px; }
+  body.docked.video:not(.video-live) #avatar { width:72px; height:72px; font-size:28px; }
+  body.docked.video.video-live #who { top:12px; inset-inline-start:12px; }
+  body.docked.video.video-live #avatar { width:32px; height:32px; font-size:13px; }
+  body.docked.video.video-live #name { font-size:14px; }
+  body.docked.video.video-live #status { font-size:12px; }
 </style>
 </head>
 <body class="waiting">
+<div id="card">
   <div id="stage">
     <video id="remote" autoplay playsinline></video>
     <video id="local" autoplay playsinline muted></video>
@@ -123,8 +166,10 @@
     <div id="perm" hidden><span id="permText"></span><button id="permButton" class="btn"></button></div>
   </div>
   <div id="winbar">
+    <button id="dockBtn" class="corner" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M12 13v5M9.5 15.5 12 18l2.5-2.5"/></svg></button>
     <button id="fullBtn" class="corner" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path id="fullIcon" d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
     <button id="topBtn" class="corner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg></button>
+    <button id="popBtn" class="corner" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></button>
   </div>
   <div id="notes" class="panel" hidden>
     <div class="head"><span id="notesTitle"></span><button id="notesClose" class="x"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
@@ -151,6 +196,7 @@
     <button id="transferBtn" class="round" disabled hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 4 7l4 4M4 7h16M16 21l4-4-4-4M20 17H4"/></svg></button>
     <button id="hang" class="round hang"><svg id="hangIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(135deg)"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg><svg id="leaveIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" hidden><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></button>
   </div>
+</div>
 <script>
 (() => {
   const host = window.chrome && window.chrome.webview;
@@ -164,6 +210,9 @@
   let notesOpen = false, lastNoteId = null;
   let transferOpen = false, tab = 'operators', options = null, picked = { operators: null, departments: null }, transferBusy = false;
   let fullScreen = false;
+  // In its page (the app's docked panel) rather than a window of its own: known from the address, before init.
+  const docked = new URLSearchParams(location.search).has('docked');
+  if (docked) { document.documentElement.classList.add('docked'); document.body.classList.add('docked'); }
 
   // The operating systems' logos, as the app's avatars draw them (Controls/Avatar.xaml.cs), on a 24×24 grid.
   const OS = {
@@ -239,6 +288,10 @@
     $('mic').classList.toggle('off', muted);
     $('cam').classList.toggle('off', video && !camOn);
     $('fullBtn').hidden = !video;
+    $('popBtn').hidden = !docked;
+    $('dockBtn').hidden = docked || fullScreen;
+    $('topBtn').hidden = docked || fullScreen;
+    for (const id of ['popBtn', 'fullBtn', 'dockBtn']) $(id).disabled = ended;
   }
 
   // Only the visitor's camera, in a fixed order: an operator in the room (a colleague taking a handed-over
@@ -303,10 +356,26 @@
     document.querySelectorAll('audio').forEach(a => a.remove());
   }
 
+  // The call moves to another copy of this page (into its own window, or back into its page): leave the
+  // room without ending the call, and say when out, so the other copy joins an operator short, not two.
+  async function detach() {
+    ended = true;
+    clearInterval(tick);
+    clearTimeout(goneTimer);
+    clearTimeout(leftTimer);
+    const r = room;
+    room = null;
+    if (r) { try { r.removeAllListeners(); await r.disconnect(); } catch (e) {} }
+    document.querySelectorAll('audio').forEach(a => a.remove());
+    post({ type: 'detached' });
+  }
+
   async function join(msg) {
     if (!L) { finish('failed', 'livekit_not_loaded'); return; }
     video = msg.channel === 'video';
-    camOn = video;
+    // A page taking over from another carries on as the call was: muted or not, the camera, the running time.
+    camOn = video && msg.camOn !== false;
+    muted = !!msg.muted;
     syncControls();
     L.setLogLevel(L.LogLevel.info);
     L.setLogExtension((level, m, ctx) => { if (level >= L.LogLevel.info) log('lk', L.LogLevel[level], m, ctx ? JSON.stringify(ctx).slice(0, 400) : ''); });
@@ -339,17 +408,18 @@
     if (ended) return;
     // Publishing is best-effort: a microphone or camera that will not start is a reason to carry on and
     // say so, not to drop a call the visitor already answered.
-    try { await r.localParticipant.setMicrophoneEnabled(true); } catch (e) { muted = true; post({ type: 'degraded', what: 'noMicrophone', blocked: blocked(e) }); }
-    if (video) { try { await r.localParticipant.setCameraEnabled(true); } catch (e) { camOn = false; post({ type: 'degraded', what: 'noCamera', blocked: blocked(e) }); } }
+    if (!muted) { try { await r.localParticipant.setMicrophoneEnabled(true); } catch (e) { muted = true; post({ type: 'degraded', what: 'noMicrophone', blocked: blocked(e) }); } }
+    if (camOn) { try { await r.localParticipant.setCameraEnabled(true); } catch (e) { camOn = false; post({ type: 'degraded', what: 'noCamera', blocked: blocked(e) }); } }
     if (ended) return;
     // The room may have dropped while the devices were starting: a dead room is not a connected call.
     if (r.state !== L.ConnectionState.Connected) { finish('visitorLeft'); return; }
     connected = true;
-    since = Date.now();
-    setStatus(clock(0), 'connected');
+    since = Number(msg.since) > 0 ? Number(msg.since) : Date.now();
+    setStatus(clock((Date.now() - since) / 1000), 'connected');
     tick = setInterval(() => { if (!ended) $('status').textContent = clock((Date.now() - since) / 1000); }, 500);
     post({ type: 'connected' });
     post({ type: 'mute', on: muted });
+    post({ type: 'camera', on: camOn });
     syncControls();
     syncVideo();
     reportRoom();
@@ -371,6 +441,7 @@
     if (!room || !video || !connected || ended) return;
     camOn = !camOn;
     syncControls();
+    post({ type: 'camera', on: camOn });
     room.localParticipant.setCameraEnabled(camOn).catch((e) => { camOn = false; syncControls(); post({ type: 'degraded', what: 'noCamera', blocked: blocked(e) }); });
   }
 
@@ -508,6 +579,8 @@
   $('hang').onclick = () => { if (transferred) post({ type: 'leave' }); else finish('hungUp'); };
   $('fullBtn').onclick = () => post({ type: 'fullScreen' });
   $('topBtn').onclick = () => post({ type: 'keepOnTop' });
+  $('popBtn').onclick = () => post({ type: 'popOut' });
+  $('dockBtn').onclick = () => post({ type: 'dockBack' });
   $('permButton').onclick = () => post({ type: 'openPrivacy', kind: $('permButton').dataset.kind || 'microphone' });
   $('noteSend').onclick = sendNote;
   $('noteBox').addEventListener('input', fitBox);
@@ -538,6 +611,7 @@
       document.documentElement.dir = msg.rtl ? 'rtl' : 'ltr';
       S = msg.strings || {};
       video = msg.channel === 'video';
+      document.body.classList.toggle('video', video);
       canTransfer = !!msg.canTransfer;
       hasNotes = !!msg.hasNotes;
       $('name').textContent = msg.name;
@@ -547,6 +621,8 @@
       $('transferBtn').title = S.transfer || '';
       $('topBtn').title = S.keepOnTop || '';
       $('fullBtn').title = S.fullScreen || '';
+      $('popBtn').title = S.popOut || '';
+      $('dockBtn').title = S.dockBack || '';
       $('notesTitle').textContent = S.notes || '';
       $('notesClose').title = S.close || '';
       $('noteBox').placeholder = S.notePlaceholder || '';
@@ -558,7 +634,7 @@
       $('tHint').textContent = S.transferHint || '';
       $('tCancel').textContent = S.cancel || '';
       $('tSubmit').textContent = S.submit || '';
-      setStatus(msg.status, 'waiting');
+      setStatus(msg.status, msg.waiting ? 'waiting' : null);
       syncControls();
     } else if (msg.type === 'face') {
       renderFace(msg.face);
@@ -576,6 +652,8 @@
       join(msg);
     } else if (msg.type === 'hangup') {
       finish('hungUp');
+    } else if (msg.type === 'detach') {
+      detach();
     } else if (msg.type === 'setMute') {
       setMute(!!msg.on);
     } else if (msg.type === 'notes') {
@@ -599,9 +677,17 @@
       $('fullIcon').setAttribute('d', fullScreen ? FULL_OUT : FULL_IN);
       $('fullBtn').title = fullScreen ? (S.exitFullScreen || '') : (S.fullScreen || '');
       $('topBtn').classList.toggle('on', !!msg.onTop);
-      $('topBtn').hidden = fullScreen;
+      syncControls();
     }
   });
+  // Docked, the app sizes the view to the card: tell it the card's height whenever that changes.
+  if (docked && window.ResizeObserver) {
+    let last = 0;
+    new ResizeObserver(() => {
+      const h = Math.ceil($('card').getBoundingClientRect().height);
+      if (h !== last) { last = h; post({ type: 'height', h }); }
+    }).observe($('card'));
+  }
   post({ type: 'ready' });
 })();
 </script>

@@ -14,6 +14,7 @@ public partial class App : Application
     private MainWindow? _window;
     private TaskbarIcon? _tray;
     private MenuFlyoutItem? _trayCalls;
+    private bool _trayRinging;
     private bool _quitting;
 
     public App(bool startHidden)
@@ -90,7 +91,7 @@ public partial class App : Application
         // A call ends properly rather than just vanishing; the hang-up gets a moment to reach the server.
         try
         {
-            await Views.CallWindow.EndForQuitAsync(TimeSpan.FromSeconds(2));
+            await Views.LiveCall.EndForQuitAsync(TimeSpan.FromSeconds(2));
         }
         catch (Exception e)
         {
@@ -175,6 +176,18 @@ public partial class App : Application
         if (_trayCalls is null) return;
         _trayCalls.Text = Host.Strings.Get("menuWaitingCalls", "count", count);
         _trayCalls.Visibility = callCenter ? Visibility.Visible : Visibility.Collapsed;
+        // While calls wait, the tray icon carries a red phone, as the Mac's menu bar icon turns into one.
+        var ringing = callCenter && count > 0;
+        if (_tray is null || ringing == _trayRinging) return;
+        _trayRinging = ringing;
+        try
+        {
+            _tray.IconSource = new BitmapImage(new Uri(ringing ? AppPaths.CallsWaitingIcon : AppPaths.WindowIcon));
+        }
+        catch (Exception e)
+        {
+            Log.Error("tray icon", e);
+        }
     }
 
     /// <summary>The tray tooltip carries the unread count, like the taskbar badge in the old app.</summary>

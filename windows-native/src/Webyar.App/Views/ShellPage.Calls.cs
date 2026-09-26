@@ -12,10 +12,11 @@ using Webyar.Core.Inbox;
 namespace Webyar.App.Views;
 
 /// <summary>
-/// The shell's call surfaces beyond the ringing banner, as on the Mac: the
-/// banner for a call a colleague handed to this operator, the bar for the call
-/// running in its own window (mute, back to it, hang up or leave), the waiting
-/// count in the tray, and the ring spreading from a ringing caller's face.
+/// The shell's call surfaces beyond the ringing card, as on the Mac: the card
+/// for a call a colleague handed to this operator, the layer the docked call is
+/// drawn on, the call bar at the foot of the sidebar while the call's page is
+/// not on screen (mute, back to it, out into a window, hang up or leave), the
+/// waiting count in the tray, and the ring spreading from a ringing caller's face.
 /// </summary>
 public sealed partial class ShellPage
 {
@@ -32,18 +33,35 @@ public sealed partial class ShellPage
 
     private void StartCalls()
     {
-        CallWindow.Changed += RenderActiveCall;
+        CallDock.SetLayer(CallLayer);
+        LiveCall.Changed += OnCallChanged;
+        CallDock.Changed += RenderActiveCall;
+        Nav.PaneOpened += OnPaneChanged;
+        Nav.PaneClosed += OnPaneChanged;
         Host.Callers.Changed += OnCallerProfiles;
         RenderActiveCall();
         RenderHanded();
     }
 
+    private void OnCallChanged()
+    {
+        CallDock.Place();
+        RenderActiveCall();
+    }
+
+    private void OnPaneChanged(NavigationView sender, object args) => RenderActiveCall();
+
     private void StopCalls()
     {
-        CallWindow.Changed -= RenderActiveCall;
+        LiveCall.Changed -= OnCallChanged;
+        CallDock.Changed -= RenderActiveCall;
+        Nav.PaneOpened -= OnPaneChanged;
+        Nav.PaneClosed -= OnPaneChanged;
         Host.Callers.Changed -= OnCallerProfiles;
+        CallDock.SetLayer(null);
         _callClock?.Stop();
         ActiveCallBar.Visibility = Visibility.Collapsed;
+        ActiveCallRail.Visibility = Visibility.Collapsed;
         // A handed-over call belongs to the workspace (and operator) it came in for.
         _handed.Reset();
         _handedError = null;
@@ -125,7 +143,7 @@ public sealed partial class ShellPage
     private void OnActiveCalls(IReadOnlyList<CallSession> calls)
     {
         var before = _handed.Current;
-        var fresh = Host.Plan.CallCenter ? _handed.Notice(calls, Host.User?.Id, CallWindow.ActiveCallId) : null;
+        var fresh = Host.Plan.CallCenter ? _handed.Notice(calls, Host.User?.Id, LiveCall.ActiveCallId) : null;
         if (fresh is not null)
         {
             Log.Write($"[calls] handed over {fresh.Id}");
@@ -209,7 +227,7 @@ public sealed partial class ShellPage
     {
         if (_handed.Current is not { } c || Host.Workspace is not { } ws || _joiningHanded) return;
         var s = Host.Strings;
-        if (CallWindow.IsBusy)
+        if (LiveCall.IsBusy)
         {
             _handedError = s["ccOnCall"];
             RenderHanded();
@@ -228,7 +246,7 @@ public sealed partial class ShellPage
             else if (Host.Workspace?.Id == ws.Id)
             {
                 _handed.Dismiss();
-                CallWindow.StartDesk(c.Id, accept, ws.Id, c.IsVideo ? "video" : "audio", CallNames.Caller(c, c.ContactId ?? c.VisitorSessionId ?? c.Id, s), c);
+                LiveCall.StartDesk(c.Id, accept, ws.Id, c.IsVideo ? "video" : "audio", CallNames.Caller(c, c.ContactId ?? c.VisitorSessionId ?? c.Id, s), c);
             }
         }
         catch (Exception ex)
@@ -243,31 +261,36 @@ public sealed partial class ShellPage
         }
     }
 
-    // ── The call running in its own window ──
+    // ── The call bar, while the docked call's page is not on screen ──
 
     private void RenderActiveCall()
     {
-        if (CallWindow.Running is not { } call)
+        // As on the Mac: only for a call in its page, and only while that page is not the one on show.
+        if (LiveCall.Running is not { } call || call.Shown != LiveCall.Presentation.Docked || CallDock.IsOnScreen)
         {
             ActiveCallBar.Visibility = Visibility.Collapsed;
+            ActiveCallRail.Visibility = Visibility.Collapsed;
             _callClock?.Stop();
             return;
         }
         var s = Host.Strings;
         var face = call.Face;
-        ActiveCallAvatar.DisplayName = face.Name;
-        ActiveCallAvatar.Email = face.Email;
-        ActiveCallAvatar.Os = face.Os;
-        ActiveCallAvatar.CountryCode = face.CountryCode;
-        ActiveCallAvatar.ImageUrl = face.ImageUrl;
+        foreach (var avatar in new[] { ActiveCallAvatar, ActiveCallRailAvatar })
+        {
+            avatar.DisplayName = face.Name;
+            avatar.Email = face.Email;
+            avatar.Os = face.Os;
+            avatar.CountryCode = face.CountryCode;
+            avatar.ImageUrl = face.ImageUrl;
+        }
         ActiveCallName.Text = call.Name;
-        ActiveCallGlyph.Glyph = call.IsVideo ? "" : "";
+        ActiveCallGlyph.Glyph = call.IsVideo ? "\uE714" : "\uE717";
         var tint = call.IsConnected && call.IsLive ? CallLive : CallQuiet;
         ActiveCallGlyph.Foreground = tint;
         ActiveCallStatus.Foreground = tint;
         ActiveCallStatus.Text = call.StatusText;
 
-        ActiveCallMuteGlyph.Glyph = call.IsMuted ? "" : "";
+        ActiveCallMuteGlyph.Glyph = call.IsMuted ? "\uEC54" : "\uE720";
         if (call.IsMuted)
         {
             ActiveCallMute.Background = new SolidColorBrush(Colors.White);
@@ -281,12 +304,19 @@ public sealed partial class ShellPage
         ActiveCallMute.IsEnabled = call.IsConnected && call.IsLive;
         ToolTipService.SetToolTip(ActiveCallMute, s[call.IsMuted ? "unmute" : "mute"]);
         ToolTipService.SetToolTip(ActiveCallBack, s["callBackToCall"]);
+        ToolTipService.SetToolTip(ActiveCallReturn, s["callBackToCall"]);
+        ToolTipService.SetToolTip(ActiveCallRail, $"{call.Name} — {s["callBackToCall"]}");
+        ToolTipService.SetToolTip(ActiveCallPopOut, s["callPopOut"]);
+        ActiveCallPopOut.IsEnabled = call.IsLive;
         // Handed on: hanging up here would end the call for the colleague too.
-        ActiveCallHangUpGlyph.Glyph = call.IsTransferred ? "" : "";
+        ActiveCallHangUpGlyph.Glyph = call.IsTransferred ? "\uF3B1" : "\uE778";
         ActiveCallHangUp.Background = call.IsTransferred ? CallWarning : CallDanger;
         ActiveCallHangUp.IsEnabled = call.IsLive;
         ToolTipService.SetToolTip(ActiveCallHangUp, s[call.IsTransferred ? "callLeave" : "hangUpCall"]);
-        ActiveCallBar.Visibility = Visibility.Visible;
+        // The narrow rail has room for the face alone.
+        var open = Nav.IsPaneOpen;
+        ActiveCallBar.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        ActiveCallRail.Visibility = open ? Visibility.Collapsed : Visibility.Visible;
 
         if (call.IsConnected && call.IsLive)
         {
@@ -296,7 +326,7 @@ public sealed partial class ShellPage
                 _callClock.Interval = TimeSpan.FromSeconds(1);
                 _callClock.Tick += (_, _) =>
                 {
-                    if (CallWindow.Running is { } running) ActiveCallStatus.Text = running.StatusText;
+                    if (LiveCall.Running is { } running) ActiveCallStatus.Text = running.StatusText;
                     else _callClock?.Stop();
                 };
             }
@@ -308,9 +338,11 @@ public sealed partial class ShellPage
         }
     }
 
-    private void OnActiveCallMute(object sender, RoutedEventArgs e) => CallWindow.Running?.ToggleMute();
+    private void OnActiveCallMute(object sender, RoutedEventArgs e) => LiveCall.Running?.ToggleMute();
 
-    private void OnActiveCallBack(object sender, RoutedEventArgs e) => CallWindow.Running?.BringToFront();
+    private void OnActiveCallBack(object sender, RoutedEventArgs e) => LiveCall.Running?.ShowCallPage();
 
-    private void OnActiveCallHangUp(object sender, RoutedEventArgs e) => CallWindow.Running?.HangUpOrLeave();
+    private void OnActiveCallPopOut(object sender, RoutedEventArgs e) => LiveCall.Running?.PopOut();
+
+    private void OnActiveCallHangUp(object sender, RoutedEventArgs e) => LiveCall.Running?.HangUpOrLeave();
 }

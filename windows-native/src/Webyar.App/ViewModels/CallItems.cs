@@ -37,6 +37,15 @@ public sealed partial class QueueItem : ObservableObject
     [ObservableProperty] private string _priorityText = string.Empty;
     [ObservableProperty] private bool _busy;
 
+    private Visibility _detailVisibility = Visibility.Collapsed;
+
+    /// <summary>The line under the name shows only when there is something to say.</summary>
+    public Visibility DetailVisibility
+    {
+        get => _detailVisibility;
+        private set => SetProperty(ref _detailVisibility, value);
+    }
+
     public DateTimeOffset Since => Entry.CreatedAt ?? Entry.CallSession?.CreatedAt ?? DateTimeOffset.Now;
 
     public void Update(QueueEntry q, int rank, Strings s)
@@ -48,6 +57,7 @@ public sealed partial class QueueItem : ObservableObject
         Detail = q.CallSession?.Subject is { Length: > 0 } subject ? subject
             : q.CallSession?.PageTitle is { Length: > 0 } title ? title
             : Views.CallText.ShortUrl(q.CallSession?.PageUrl);
+        DetailVisibility = string.IsNullOrEmpty(Detail) ? Visibility.Collapsed : Visibility.Visible;
         RankText = Digits.Localize($"#{rank}", s.Language);
         ChannelGlyph = q.IsVideo ? "" : "";
         ChannelText = s[q.IsVideo ? "ccVideo" : "ccVoice"];
@@ -91,14 +101,16 @@ public sealed partial class QueueItem : ObservableObject
     }
 }
 
-/// <summary>A finished or ongoing call in the history list.</summary>
-public sealed class CallHistoryItem
+/// <summary>A finished or ongoing call in the history list: the caller's face, with the channel in the state's colour.</summary>
+public sealed class CallHistoryItem : ObservableObject
 {
     public CallHistoryItem(CallSession c, Strings s)
     {
         Call = c;
         Name = CallNames.Caller(c, c.ContactId ?? c.VisitorSessionId ?? c.Id, s);
-        IconGlyph = c.IsVideo ? "" : "";
+        AvatarName = c.VisitorName ?? Name;
+        Email = c.VisitorEmail;
+        IconGlyph = c.IsVideo ? "\uE714" : "\uE717";
         StateText = Views.CallText.State(c.State, s);
         var (fore, back) = Views.CallText.StateColors(c.State);
         StateBrush = Palette.Resource(fore);
@@ -107,10 +119,14 @@ public sealed class CallHistoryItem
         WhenText = c.CreatedAt is { } at ? Webyar.Core.Inbox.Display.ListStamp(at, DateTimeOffset.Now, s) : string.Empty;
         SpamText = c.IsSpam ? s["callSpam"] : string.Empty;
         SpamVisibility = c.IsSpam ? Visibility.Visible : Visibility.Collapsed;
+        ShowDevice();
     }
 
     public CallSession Call { get; }
     public string Name { get; }
+    /// <summary>The name the face is drawn from: the visitor's own, else the caller's label.</summary>
+    public string AvatarName { get; }
+    public string? Email { get; }
     public string IconGlyph { get; }
     public string StateText { get; }
     public Brush StateBrush { get; }
@@ -121,4 +137,29 @@ public sealed class CallHistoryItem
     /// <summary>Marked as spam on the desk.</summary>
     public string SpamText { get; }
     public Visibility SpamVisibility { get; }
+
+    private string? _os;
+    private string? _countryCode;
+
+    /// <summary>The caller's device, from their visitor session, for the face.</summary>
+    public string? Os
+    {
+        get => _os;
+        private set => SetProperty(ref _os, value);
+    }
+
+    /// <summary>The caller's country, from their visitor session, for the face.</summary>
+    public string? CountryCode
+    {
+        get => _countryCode;
+        private set => SetProperty(ref _countryCode, value);
+    }
+
+    /// <summary>The caller's OS and country once known (asked for once, in a batch with the other faces).</summary>
+    public void ShowDevice()
+    {
+        var profile = AppHost.Current.Callers.For(Call.VisitorSessionId);
+        Os = profile?.Device?.Os;
+        CountryCode = profile?.Geo?.CountryCode;
+    }
 }

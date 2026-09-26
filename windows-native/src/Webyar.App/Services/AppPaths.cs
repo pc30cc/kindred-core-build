@@ -39,6 +39,9 @@ public static class AppPaths
     public static string Icon => Path.Combine(AppContext.BaseDirectory, "Assets", "icon.png");
     public static string WindowIcon => Path.Combine(AppContext.BaseDirectory, "Assets", "Webyar.ico");
 
+    /// <summary>The app icon with a red phone badge: the tray's icon while calls wait, as the Mac's menu bar icon changes.</summary>
+    public static string CallsWaitingIcon => Path.Combine(AppContext.BaseDirectory, "Assets", "WebyarCalls.ico");
+
     private static string Ensure(string dir)
     {
         Directory.CreateDirectory(dir);

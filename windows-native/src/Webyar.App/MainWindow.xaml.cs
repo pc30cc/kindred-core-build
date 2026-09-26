@@ -262,7 +262,7 @@ public sealed partial class MainWindow : Window
     {
         if (workspace.Id == Host.Workspace?.Id) return;
         // A call belongs to the workspace it started in.
-        await CallWindow.EndForQuitAsync(TimeSpan.FromSeconds(2));
+        await LiveCall.EndForQuitAsync(TimeSpan.FromSeconds(2));
         // Cancel the old workspace's work, switch scope, then draw the new one from the PC and sync.
         Shell?.Teardown();
         Host.StopPresence();
@@ -311,7 +311,7 @@ public sealed partial class MainWindow : Window
         try
         {
             // Nothing would be left on screen to hang up with, and the microphone would stay live.
-            _ = CallWindow.EndForQuitAsync(TimeSpan.Zero);
+            _ = LiveCall.EndForQuitAsync(TimeSpan.Zero);
             Shell?.Teardown();
             Host.User = null;
             Host.Account = null;

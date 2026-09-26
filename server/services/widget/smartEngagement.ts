@@ -12,6 +12,7 @@
  */
 
 import type { ServerConfig } from '../../config.js';
+import type { ServiceClient } from '../../supabase.js';
 
 export const SMART_PUBLIC_RULE_LIMIT = 20;
 const MAX_BODY = 400;
@@ -24,7 +25,7 @@ export function sanitizeSmartText(input: unknown, max = MAX_BODY): string {
     .replace(/<[^>]*>/g, '')
     .replace(/\son[a-z]+\s*=/gi, ' ')
     .replace(/javascript:/gi, '')
-    .replace(/\u0000/g, '')
+    .split('\u0000').join('')
     .slice(0, max);
 }
 
@@ -40,7 +41,33 @@ export function isSafeSmartUrl(url: unknown): boolean {
   }
 }
 
-export function toPublicSmartRule(row: Record<string, any>) {
+/** The published rule columns toPublicSmartRule reads; JSON configs stay opaque. */
+interface SmartRuleSource {
+  id?: unknown;
+  status?: unknown;
+  priority?: unknown;
+  schema_version?: unknown;
+  published_version?: unknown;
+  trigger_config?: unknown;
+  audience_config?: unknown;
+  content_config?: {
+    default_locale?: string;
+    locales?: Record<string, { title?: unknown; body?: unknown; cta_label?: unknown } | null | undefined>;
+  } | null;
+  presentation_config?: {
+    mode?: unknown;
+    action?: string;
+    article_slug?: string | null;
+    url?: unknown;
+    open_in_new_tab?: unknown;
+    dismissible?: unknown;
+  } | null;
+  schedule_config?: unknown;
+  frequency_config?: unknown;
+  behavior_config?: unknown;
+}
+
+export function toPublicSmartRule(row: SmartRuleSource) {
   const content = row.content_config || { default_locale: 'en', locales: {} };
   const locales: Record<string, { title: string; body: string; cta_label: string }> = {};
   for (const key of Object.keys(content.locales || {})) {
@@ -82,13 +109,14 @@ export function toPublicSmartRule(row: Record<string, any>) {
  * payload stays small.
  */
 export async function loadPublicSmartRules(
-  supabase: any,
+  /** The service client; `unknown` so a test can hand in a minimal fake. */
+  supabase: unknown,
   workspaceId: string,
   masterEnabled: boolean,
 ): Promise<{ enabled: boolean; rules: ReturnType<typeof toPublicSmartRule>[] }> {
   if (!masterEnabled) return { enabled: false, rules: [] };
   try {
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as ServiceClient)
       .from('widget_smart_rules')
       .select('id, status, priority, schema_version, published_version, published_trigger_config, published_audience_config, published_content_config, published_presentation_config, published_schedule_config, published_frequency_config, published_behavior_config, published_priority, published_schema_version, published_at')
       .eq('workspace_id', workspaceId)
@@ -101,10 +129,10 @@ export async function loadPublicSmartRules(
     const rules = (data || [])
       // A row with no published snapshot has never been published (or was
       // unpublished) — never fall back to the draft columns.
-      .filter((row: any) => row.published_trigger_config != null
+      .filter((row) => row.published_trigger_config != null
         && row.published_content_config != null
         && row.published_presentation_config != null)
-      .map((row: any) => ({
+      .map((row) => ({
         id: row.id,
         status: row.status,
         priority: row.published_priority,
@@ -118,15 +146,15 @@ export async function loadPublicSmartRules(
         frequency_config: row.published_frequency_config,
         behavior_config: row.published_behavior_config,
       }))
-      .filter((row: any) => {
-        const end = row?.schedule_config?.end_at;
+      .filter((row) => {
+        const end = (row?.schedule_config as { end_at?: string } | null)?.end_at;
         if (!end) return true;
         const ts = Date.parse(end);
         return !isFinite(ts) || ts >= now;
       })
       .map(toPublicSmartRule);
     return { enabled: true, rules };
-  } catch (err: any) {
+  } catch (err) {
     console.warn('[smart-engagement] rule load failed:', err?.message || err);
     return { enabled: masterEnabled, rules: [] };
   }
@@ -137,7 +165,8 @@ const EVENT_TYPES = new Set([
 ]);
 
 export async function recordSmartEvent(
-  supabase: any,
+  /** The service client; `unknown` so the security tests can hand in a fake. */
+  supabase: unknown,
   payload: {
     workspaceId: string;
     ruleId?: string | null;
@@ -163,6 +192,7 @@ export async function recordSmartEvent(
    */
   config?: ServerConfig,
 ): Promise<{ ok: boolean; reason?: string }> {
+  const sb = supabase as ServiceClient;
   if (!EVENT_TYPES.has(payload.eventType)) return { ok: false, reason: 'invalid_event_type' };
   if (!payload.idempotencyKey) return { ok: false, reason: 'missing_idempotency_key' };
 
@@ -176,7 +206,7 @@ export async function recordSmartEvent(
     // actually belongs to the resolved workspace before inserting, so a
     // forged/cross-workspace nudge_id can never attribute an event to
     // another tenant's data.
-    const { data: nudgeRow, error: nudgeErr } = await supabase
+    const { data: nudgeRow, error: nudgeErr } = await sb
       .from('widget_ai_nudges')
       .select('workspace_id')
       .eq('id', payload.aiNudgeId)
@@ -196,7 +226,7 @@ export async function recordSmartEvent(
     // arrival (e.g. a click racing ahead of the shown ack) is absorbed by
     // the RPC atomically backfilling the implied shown step first; an
     // invalid transition returns ok:false without inserting any event. ───
-    const { data: rpcData, error: rpcError } = await supabase.rpc('ai_nudge_apply_lifecycle_event', {
+    const { data: rpcData, error: rpcError } = await sb.rpc('ai_nudge_apply_lifecycle_event', {
       _workspace_id: payload.workspaceId,
       _nudge_id: payload.aiNudgeId,
       _event_type: payload.eventType,
@@ -215,7 +245,7 @@ export async function recordSmartEvent(
   // the rule actually belongs to the resolved workspace before inserting so
   // a forged workspace_id can never attribute telemetry to another tenant's
   // rule (or vice versa).
-  const { data: ruleRow, error: ruleErr } = await supabase
+  const { data: ruleRow, error: ruleErr } = await sb
     .from('widget_smart_rules')
     .select('workspace_id')
     .eq('id', payload.ruleId)
@@ -236,7 +266,19 @@ export async function recordSmartEvent(
   // helper directly with a fake client, keep exercising the write path.
   if (config?.productAnalyticsLoggingEnabled === false) return { ok: true };
 
-  const { error } = await supabase.from('widget_smart_events').insert({
+  // 'suppressed' (a rule that evaluated but did not show: mobile disabled,
+  // chat open, another rule showing, …) is accepted and not stored. The
+  // widget reports one per page view per suppressed rule, before any
+  // audience or page check, and nothing reads them back: the smart-rule
+  // stats count only shown / opened / dismissed / CTA / conversation events,
+  // and the AI nudge stats read their own source. Stored, they were the
+  // bulk of this table's writes — and, because the stats read at most 5,000
+  // rows of every type, they crowded real events out of the 30-day numbers.
+  // Placed after the tenant check, like the flag above, so a forged rule_id
+  // still gets the same answer.
+  if (payload.eventType === 'suppressed') return { ok: true };
+
+  const { error } = await sb.from('widget_smart_events').insert({
     workspace_id: payload.workspaceId,
     source: 'rule',
     rule_id: payload.ruleId,
@@ -248,6 +290,6 @@ export async function recordSmartEvent(
     idempotency_key: String(payload.idempotencyKey).slice(0, 120),
   });
   // 23505 = duplicate idempotency key → already recorded, treat as success.
-  if (error && (error as any).code !== '23505') return { ok: false, reason: error.message };
+  if (error && error.code !== '23505') return { ok: false, reason: error.message };
   return { ok: true };
 }

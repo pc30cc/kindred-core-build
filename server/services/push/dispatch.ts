@@ -22,7 +22,7 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { sendFcmMessage, isPushConfigured, type ApnsDelivery } from './fcm.js';
 import { sendApnsAlert, isApnsConfigured, nativeBundleId } from './apns.js';
-import { listActiveDevices, disableToken } from './devices.js';
+import { listActiveDevices, disableToken, type PushDeviceRow } from './devices.js';
 import { resolveRecipients, unreadBadgeCount, type PushEventType } from './recipients.js';
 import {
   loadPushPlatformSettings,
@@ -192,7 +192,23 @@ export async function notifyInboundMessage(
     };
     if (input.channel) data.channel = String(input.channel).slice(0, 32);
 
+    // One device lookup for every recipient, up front. A recipient with no
+    // active device has nothing to deliver to, so they get no claim row and
+    // no status update: those were two writes per member per message (for a
+    // team where only a few people install the app, most of this table),
+    // recording only "no_devices", plus a device query each. Every recipient
+    // WITH a device is claimed, sent and logged exactly as before.
+    const devicesByUser = new Map<string, PushDeviceRow[]>();
+    for (const device of await listActiveDevices(config, recipients.map((r) => r.userId))) {
+      const list = devicesByUser.get(device.user_id);
+      if (list) list.push(device);
+      else devicesByUser.set(device.user_id, [device]);
+    }
+
     for (const recipient of recipients) {
+      const devices = devicesByUser.get(recipient.userId) ?? [];
+      if (!devices.length) continue;
+
       // Idempotency gate: the UNIQUE index rejects the second attempt for the
       // same (workspace, user, message) — that rejection IS the suppression.
       const { error: claimError } = await sb.from('push_dispatch_log').insert({
@@ -205,12 +221,6 @@ export async function notifyInboundMessage(
         status: 'attempted',
       });
       if (claimError) continue; // duplicate (or logging outage) → stay silent
-
-      const devices = await listActiveDevices(config, [recipient.userId]);
-      if (!devices.length) {
-        await finish(config, input, recipient.userId, dedupeKey, 0, 0, 0, 'no_devices');
-        continue;
-      }
 
       const badge = policy.badge_enabled
         ? await unreadBadgeCount(config, recipient.userId, input.workspaceId)

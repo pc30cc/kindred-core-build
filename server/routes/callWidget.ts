@@ -48,7 +48,6 @@ import {
 import type { Request as ExpressRequest } from 'express';
 import {
   createSignedContactContinuityToken,
-  persistContinuityToken,
   readContinuityCookie,
   resolveContinuityToken,
   setContinuityCookie,
@@ -185,23 +184,13 @@ async function issueContinuityCookieForContact(
   workspaceId: string,
   contactId: string,
 ): Promise<void> {
-  const existingCookie = readContinuityCookie(req);
-  if (!existingCookie) {
-    const sb = getServiceClient(config);
-    await persistContinuityToken(sb, {
-      workspaceId,
-      contactId,
-      deviceInfo: {
-        source: 'call_widget',
-        ua: req.headers['user-agent'] || null,
-        origin: getOrigin(req),
-      },
-    });
-  }
-  // Always refresh a signed, DB-independent continuity cookie last so it is
-  // the browser's stored value. This prevents the call widget from asking for
-  // contact details again after refresh even if the DB token table is missing
-  // or the anonymous visitor cookie was partitioned/rotated.
+  // Refresh the signed, DB-independent continuity cookie so it is the
+  // browser's stored value. This prevents the call widget from asking for
+  // contact details again after refresh even if the anonymous visitor cookie
+  // was partitioned/rotated. It used to ALSO insert a user_continuity_tokens
+  // row for a random token nobody was ever given (see
+  // issueContinuityCookieForContact in services/widget/crossWidgetIdentity.ts):
+  // a dead write on every call-widget page load without the cookie.
   setContinuityCookie(res, createSignedContactContinuityToken(workspaceId, contactId), req);
 }
 
@@ -248,14 +237,19 @@ async function ensureVisitorSessionRow(
 ): Promise<string | null> {
   const sb = getServiceClient(config);
   const net = req ? await resolveSessionNetworkContext(sb, req, workspaceId) : null;
+  // The bootstrap knows only the embedding site's origin, not the page; a
+  // callback/call request may carry the real page_url. The origin is still
+  // what a brand-new session starts with, but it must not overwrite the real
+  // URL the chat widget's /track keeps on an existing session.
+  const realPage = pageUrl && pageUrl !== origin ? pageUrl : null;
   return ensureSharedVisitorSessionRow(
     sb,
     workspaceId,
     visitorId,
-    pageUrl || origin || null,
+    realPage || origin || null,
     'call_widget',
     net,
-    { config, touchPresence: true },
+    { config, touchPresence: true, pageUrlOnlyOnCreate: !realPage },
   );
 }
 

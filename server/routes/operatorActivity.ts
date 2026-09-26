@@ -78,6 +78,22 @@ export function floorToBucket(d: Date | string): string {
 const lastWrittenBucket = new Map<string, string>();
 const LAST_WRITTEN_MAX = 5000;
 
+/**
+ * Per-process memo of the last successful live-presence lease write for a
+ * (workspace, user). One operator usually has several sources beating every
+ * 2 minutes each — every open tab, the desktop app, the phone — and every
+ * beat rewrote the same row. A beat within LEASE_REWRITE_MS of the last write
+ * now skips the upsert. 90s keeps the lease under ~2 minutes old while ANY
+ * source is beating, far inside the 5-minute liveness window
+ * (PRESENCE_LIVENESS_MS, operatorPresenceSource.ts), so an open panel can
+ * never read as offline because of it. A lone source still writes on every
+ * beat (its beats are 120s apart). Only this route writes the lease and
+ * nothing deletes it, so the memo cannot mask a missing row; a failed write
+ * is not remembered, so the next beat retries.
+ */
+const LEASE_REWRITE_MS = 90_000;
+const lastLeaseWriteAt = new Map<string, number>();
+
 // operator_activity_samples was dropped from the database, so there is
 // nothing left to prune. Kept as a no-op rather than deleted so the call
 // sites stay in one place if the analytics table is ever reinstated; the
@@ -115,7 +131,9 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
     const bucket = floorToBucket(now);
     const memoKey = `${workspaceId}:${auth.userId}`;
 
-    // LIVE PRESENCE — the lease is now refreshed on EVERY beat, not only in
+    // LIVE PRESENCE — the lease is now refreshed on every beat (coalesced to
+    // one write per LEASE_REWRITE_MS per operator per process across that
+    // operator's sources), not only in
     // database-fallback mode. Rationale: a *successful but empty* Centrifugo
     // presence read is indistinguishable from "this operator's subscription
     // silently died", which used to pin a working, open panel to "offline"
@@ -125,7 +143,13 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
     // second signal. Presence reads UNION realtime with this lease; realtime
     // remains the fast path and the lease can only ever add an operator.
     const fallbackPresence = await shouldWriteFallbackPresence(config, now.getTime(), workspaceId);
-    await recordOperatorPresenceBeat(config, workspaceId, auth.userId, now);
+    const lastLease = lastLeaseWriteAt.get(memoKey);
+    if (lastLease === undefined || now.getTime() - lastLease >= LEASE_REWRITE_MS) {
+      if (await recordOperatorPresenceBeat(config, workspaceId, auth.userId, now)) {
+        if (lastLeaseWriteAt.size >= LAST_WRITTEN_MAX) lastLeaseWriteAt.clear();
+        lastLeaseWriteAt.set(memoKey, now.getTime());
+      }
+    }
 
 
     // ANALYTICS — already recorded this bucket in this process, so no sample

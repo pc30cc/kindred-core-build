@@ -1122,6 +1122,7 @@ fun SettingsRoute(
     val session by appState.session.collectAsStateWithLifecycle()
     val user = (session as? Session.SignedIn)?.user
     val avatarUrl by appState.avatarUrl.collectAsStateWithLifecycle()
+    val dynamicColor by appState.dynamicColor.collectAsStateWithLifecycle()
 
     // Measured each time the screen is shown; a size is only interesting
     // when somebody is looking at it.
@@ -1154,8 +1155,11 @@ fun SettingsRoute(
         onSetAvailableWhenUsingApp = settings::setAvailableWhenUsingApp,
         onSetScheduleEnabled = settings::setScheduleEnabled,
         onSignOut = appState::logOut,
-        modifier = Modifier.statusBarsPadding(),
         contentPadding = PaddingValues(bottom = bottomInset),
+        // Wallpaper colours exist from Android 12; before that there is
+        // nothing to offer and the row is left out.
+        dynamicColor = dynamicColor.takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.S },
+        onSetDynamicColor = appState::setDynamicColor,
         storage = storage,
         onClearCache = graph?.let { g ->
             {

@@ -1,12 +1,11 @@
 package com.webyar.operator.feature.settings
 
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -15,10 +14,11 @@ import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
 import com.webyar.operator.ui.components.PillTone
 import com.webyar.operator.ui.components.QuietRow
-import com.webyar.operator.ui.components.RowDivider
 import com.webyar.operator.ui.components.StatusPill
+import com.webyar.operator.ui.components.segmentedShape
 import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
+import com.webyar.operator.ui.design.WebyarType
 
 /**
  * Whether the operator is taking work, and why.
@@ -44,40 +44,46 @@ fun AvailabilitySection(
 
         AvailabilityState.Failed -> QuietRow(Str.offlineTitle(language), modifier)
 
-        is AvailabilityState.Loaded -> Column(modifier.fillMaxWidth()) {
+        is AvailabilityState.Loaded -> Group(modifier) {
             val prefs = state.response.prefs
             val online = state.response.status.isOnline
+            val count = 4
 
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = Size.minTouchTarget)
-                    .padding(horizontal = Space.screenInset, vertical = Space.sm),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    Str.availabilitySeenAs(language),
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.weight(1f),
-                )
-                StatusPill(
-                    label = if (online) {
-                        Str.availabilityOnline(language)
-                    } else {
-                        Str.availabilityOffline(language)
-                    },
-                    tone = if (online) PillTone.SUCCESS else PillTone.NEUTRAL,
-                )
+            Surface(color = groupColor(), shape = segmentedShape(0, count), modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = Size.rowMinHeight)
+                        .padding(horizontal = Space.lg, vertical = Space.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        Str.availabilitySeenAs(language),
+                        style = WebyarType.bodyLargeEmphasized,
+                        modifier = Modifier.weight(1f),
+                    )
+                    StatusPill(
+                        label = if (online) {
+                            Str.availabilityOnline(language)
+                        } else {
+                            Str.availabilityOffline(language)
+                        },
+                        tone = if (online) PillTone.SUCCESS else PillTone.NEUTRAL,
+                    )
+                }
             }
-            RowDivider()
 
             SwitchRow(
+                index = 1,
+                count = count,
                 title = Str.availabilityForceOffline(language),
                 hint = Str.availabilityForceOfflineHint(language),
                 checked = prefs.forceOffline,
                 onChange = onSetForceOffline,
             )
             SwitchRow(
+                index = 2,
+                count = count,
                 title = Str.availabilityWhenUsingApp(language),
                 hint = Str.availabilityWhenUsingAppHint(language),
                 checked = prefs.availableWhenUsingApp,
@@ -88,6 +94,8 @@ fun AvailabilitySection(
                 onChange = onSetAvailableWhenUsingApp,
             )
             SwitchRow(
+                index = 3,
+                count = count,
                 title = Str.availabilitySchedule(language),
                 hint = Str.availabilityScheduleHint(language),
                 checked = prefs.scheduleEnabled,
@@ -95,42 +103,14 @@ fun AvailabilitySection(
                 onChange = onSetScheduleEnabled,
             )
 
-            if (saveFailed) QuietRow(Str.availabilitySaveFailed(language))
-        }
-    }
-}
-
-@Composable
-private fun SwitchRow(
-    title: String,
-    hint: String?,
-    checked: Boolean,
-    onChange: (Boolean) -> Unit,
-    enabled: Boolean = true,
-) {
-    Column {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .heightIn(min = Size.rowMinHeight)
-                .padding(horizontal = Space.screenInset, vertical = Space.sm),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f).padding(end = Space.md)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge)
-                if (hint != null) {
-                    Text(
-                        hint,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            if (saveFailed) {
+                Text(
+                    Str.availabilitySaveFailed(language),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = Space.lg, vertical = Space.sm),
+                )
             }
-            // The Switch owns the semantics: a Row that was also toggleable
-            // would announce the whole row as a switch AND contain one, which
-            // a screen reader reads out twice.
-            Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
         }
-        RowDivider()
     }
 }

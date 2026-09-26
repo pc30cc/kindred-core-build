@@ -171,7 +171,11 @@ export type OperatorEventKind =
   | 'note_added'
   | 'note_deleted'
   | 'timeline_event'
-  | 'spam_changed';
+  | 'spam_changed'
+  // The AI hand-over pair (services/ai-agent/handoffState.ts): published
+  // on the same channel, and read by the apps like any other kind.
+  | 'ai_handoff_requested'
+  | 'ai_human_takeover';
 
 export interface OperatorEventPayload {
   kind: OperatorEventKind;

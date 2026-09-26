@@ -134,6 +134,7 @@ fun ProfileScreen(
                     // language puts its own digits: a phone number typed in
                     // Persian digits is not a phone number anyone can dial.
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    ltr = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

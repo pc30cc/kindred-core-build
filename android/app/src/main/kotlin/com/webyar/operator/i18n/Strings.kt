@@ -327,7 +327,7 @@ object Str {
 
     fun pushPresenceFooter(l: Language): String = when (l) {
         Language.EN -> "Webyar knows you are at your desk while the web console is open. Turn the first off to keep the phone quiet while you are already answering there."
-        Language.FA -> "وب\\u{200C}یار وقتی کنسول وب باز است می\\u{200C}داند پشت میزتان هستید. اولی را خاموش کنید تا وقتی همان\\u{200C}جا پاسخ می\\u{200C}دهید، گوشی ساکت بماند."
+        Language.FA -> "وب‌یار وقتی کنسول وب باز است می‌داند پشت میزتان هستید. اولی را خاموش کنید تا وقتی همان‌جا پاسخ می‌دهید، گوشی ساکت بماند."
         Language.TR -> "Web konsolu açıkken masanızda olduğunuz bilinir. Orada zaten yanıtlarken telefonun sessiz kalması için ilkini kapatın."
     }
 

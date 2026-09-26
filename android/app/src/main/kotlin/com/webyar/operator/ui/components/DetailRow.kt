@@ -56,8 +56,8 @@ fun DetailRow(
             .fillMaxWidth()
             // A minimum rather than a height, so the row still grows when the
             // font scale does.
-            .heightIn(min = Size.minTouchTarget + 16.dp)
-            .padding(horizontal = Space.lg, vertical = Space.md),
+            .heightIn(min = Size.minTouchTarget + 8.dp)
+            .padding(horizontal = Space.lg, vertical = Space.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {

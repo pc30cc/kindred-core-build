@@ -93,7 +93,7 @@ fun ContactDetailScreen(
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(bottom = Space.lg),
+                .padding(bottom = Space.md),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(Space.sm),
         ) {
@@ -109,7 +109,7 @@ fun ContactDetailScreen(
                 Avatar(
                     name = name,
                     imageUrl = contact.avatarUrl,
-                    size = Size.avatarLarge,
+                    size = HeroSize - 20.dp,
                     os = profile?.device?.os,
                     device = profile?.device?.device,
                     countryCode = profile?.geo?.countryCode,
@@ -192,7 +192,7 @@ fun ContactDetailScreen(
     }
 }
 
-private val HeroSize = 100.dp
+private val HeroSize = 92.dp
 
 /**
  * One line of the facts section.

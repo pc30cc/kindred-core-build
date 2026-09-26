@@ -91,8 +91,25 @@ function parse(swift) {
   return { simple, manual };
 }
 
+// The body of a Swift string literal, as the string it denotes. Swift
+// writes a zero-width non-joiner as `\u{200C}`; copied through as text, a
+// Persian sentence showed the escape itself — «وب\u{200C}یار» on screen.
+function swiftUnescape(value) {
+  return value.replace(/\\(u\{([0-9a-fA-F]{1,8})\}|[\\"'nrt0])/g, (_, esc, hex) => {
+    if (hex) return String.fromCodePoint(parseInt(hex, 16));
+    return { '\\': '\\', '"': '"', "'": "'", n: '\n', r: '\r', t: '\t', 0: '\0' }[esc];
+  });
+}
+
+// A Kotlin literal for a string.
 function kotlinLiteral(value) {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$');
+  return swiftUnescape(value)
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\$/g, '\\$')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t');
 }
 
 function render({ simple, manual }) {

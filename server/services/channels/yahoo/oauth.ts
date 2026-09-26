@@ -28,7 +28,7 @@ import {
 import { getYahooOAuthConfig } from './oauthConfig.js';
 import { buildYahooAuthUrl, createYahooAdapter, type YahooAdapter } from '../../../../channels/mail/yahoo/client.js';
 import { YahooError, type YahooConnectionInfo } from './types.js';
-import { enqueueChannelJob } from '../jobs.js';
+import { seedPollLoop } from '../jobs.js';
 import { YAHOO_PLUGIN_ID, YAHOO_REFRESH_TOKEN_KEY } from '../../../../shared/channels/yahooKeys.js';
 
 export { YAHOO_PLUGIN_ID, YAHOO_REFRESH_TOKEN_KEY };
@@ -119,7 +119,7 @@ export async function handleYahooOAuthCallback(
   const email = await ya.fetchAccountEmail(tokens.accessToken);
   if (!email) throw new YahooError('yahoo_auth_failed', undefined, 'Could not resolve the connected Yahoo Mail address');
 
-  let integration: ChannelIntegration =
+  const integration: ChannelIntegration =
     (await getIntegrationForInstallation(config, installationId)) ??
     (await createIntegration(config, { workspaceId, installationId, provider: 'yahoo' }));
 
@@ -145,8 +145,10 @@ export async function handleYahooOAuthCallback(
 
   // Seed the first poll immediately rather than waiting a full interval —
   // the job carries no checkpoint yet, so it fetches the most recent
-  // messages and establishes the UID watermark for every poll after.
-  await enqueueChannelJob(sb, {
+  // messages and establishes the UID watermark for every poll after. A
+  // reconnect replaces the loop rather than starting a second one beside it
+  // (which kept polling the previous address forever).
+  await seedPollLoop(sb, {
     provider: 'yahoo',
     jobType: 'yahoo_poll_inbox',
     workspaceId,

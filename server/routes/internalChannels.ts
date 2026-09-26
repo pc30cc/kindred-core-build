@@ -54,7 +54,7 @@ import {
   type TelegramMediaOutcome,
 } from '../services/channels/telegram/mediaIngest.js';
 import { markAvatarChecked } from '../services/channels/telegram/avatarSync.js';
-import { botJobType, enqueueChannelJob, queueMetrics } from '../services/channels/jobs.js';
+import { botJobType, enqueueChannelJob, enqueueNextPoll, queueMetrics } from '../services/channels/jobs.js';
 import { BOT_PROVIDER_IDS } from '../../shared/channels/botProviders.js';
 import { processInboundMessage } from '../services/channels/inboundProcessing.js';
 import { normalizeTelegramUpdate } from '../services/channels/telegram/normalize.js';
@@ -258,7 +258,8 @@ internalChannelsRouter.post('/x/reschedule-poll', async (req: Request, res) => {
   try {
     const config = serverConfigOf(req);
     const sb = getServiceClient(config);
-    await enqueueChannelJob(sb, {
+    // At most one waiting run per integration: a forked loop merges back.
+    const { enqueued } = await enqueueNextPoll(sb, {
       provider: 'x',
       jobType: 'x_poll_dm_events',
       workspaceId: parsed.data.workspace_id,
@@ -266,7 +267,7 @@ internalChannelsRouter.post('/x/reschedule-poll', async (req: Request, res) => {
       payload: { self_user_id: parsed.data.self_user_id },
       availableAt: new Date(Date.now() + (parsed.data.delay_ms ?? 60_000)),
     });
-    res.json({ ok: true });
+    res.json({ ok: true, ...(enqueued ? {} : { already_scheduled: true }) });
   } catch (err) {
     console.error('[internal-channels] x reschedule-poll failed:', err instanceof Error ? err.message : err);
     res.status(500).json({ error: 'reschedule_failed' });
@@ -687,7 +688,8 @@ internalChannelsRouter.post('/yahoo/reschedule-poll', async (req: Request, res) 
   try {
     const config = serverConfigOf(req);
     const sb = getServiceClient(config);
-    await enqueueChannelJob(sb, {
+    // At most one waiting run per integration: a forked loop merges back.
+    const { enqueued } = await enqueueNextPoll(sb, {
       provider: 'yahoo',
       jobType: 'yahoo_poll_inbox',
       workspaceId: parsed.data.workspace_id,
@@ -695,7 +697,7 @@ internalChannelsRouter.post('/yahoo/reschedule-poll', async (req: Request, res) 
       payload: { email_address: parsed.data.email_address, since_uid: parsed.data.since_uid ?? null },
       availableAt: new Date(Date.now() + (parsed.data.delay_ms ?? 75_000)),
     });
-    res.json({ ok: true });
+    res.json({ ok: true, ...(enqueued ? {} : { already_scheduled: true }) });
   } catch (err) {
     console.error('[internal-channels] yahoo reschedule-poll failed:', err instanceof Error ? err.message : err);
     res.status(500).json({ error: 'reschedule_failed' });

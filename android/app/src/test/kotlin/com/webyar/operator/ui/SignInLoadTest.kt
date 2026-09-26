@@ -18,6 +18,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -77,6 +78,10 @@ class SignInLoadTest {
     private class SlowWorkspacesApi(
         private val real: SampleApi = SampleApi(),
     ) : WebyarApi by real {
+        // Nothing stored: the launch's own restore signs nobody in, so the
+        // only workspace load is the one the sign-in starts.
+        override suspend fun hasToken(): Boolean = false
+
         override suspend fun workspaces(): List<Workspace> {
             delay(1_000)
             return real.workspaces()
@@ -86,18 +91,15 @@ class SignInLoadTest {
     @Test
     fun `the workspace load survives the login screen going away`() = runTest(dispatcher) {
         val app = state(SlowWorkspacesApi())
-        testScheduler.advanceUntilIdle()
+        app.session.first { it !is Session.Restoring }
 
         // The login screen's scope: it lives exactly as long as the screen.
         val loginScreenScope = CoroutineScope(dispatcher + Job())
         loginScreenScope.launch { app.logIn("operator@webyar.app", "whatever") }
 
-        // Far enough for the sign-in to succeed and the load to be in flight,
-        // not far enough for the load to have finished.
-        testScheduler.advanceTimeBy(300)
-
-        // Setting the session is what replaces the screen, so this is what
-        // really happens next.
+        // Setting the session is what replaces the screen, so the screen's
+        // scope goes the moment it is set — with the load a second from done.
+        app.session.first { it is Session.SignedIn }
         loginScreenScope.cancel()
         testScheduler.advanceUntilIdle()
 
@@ -114,8 +116,10 @@ class SignInLoadTest {
         testScheduler.advanceUntilIdle()
 
         val loginScreenScope = CoroutineScope(dispatcher + Job())
-        loginScreenScope.launch { app.logIn("operator@webyar.app", "whatever") }
-        testScheduler.advanceUntilIdle()
+        val login = loginScreenScope.launch { app.logIn("operator@webyar.app", "whatever") }
+        // The screen goes once the sign-in has answered — which includes the
+        // session's save, on DataStore's threads rather than this scheduler.
+        login.join()
         loginScreenScope.cancel()
         testScheduler.advanceUntilIdle()
 

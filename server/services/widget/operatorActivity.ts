@@ -21,22 +21,21 @@
  *      ACTIVITY_WRITE_COALESCE_MS while they are interacting) — never on a
  *      timer, never against PostgreSQL. Read with ZSCORE, so cross-node
  *      `away` lands exactly at 5 minutes, not 5–10.
- *   3. `operator_activity_samples` (5-minute analytics buckets) — READ ONLY,
- *      and only as a LAST RESORT when no exact index is configured/reachable.
- *      Coarse by construction (±5 min); it can only make an operator look
- *      active longer, never falsely away.
  *
- * ZERO new PostgreSQL writes are introduced by this module.
+ * Without the exact index a node knows only the interactions it received
+ * itself, so on a multi-node deployment an operator active on another node
+ * reads as `away` (never offline: connection state comes from elsewhere).
+ * The coarse `operator_activity_samples` fallback that used to cover that gap
+ * went with its table (database/migrations/223).
+ *
+ * This module never reads or writes PostgreSQL.
  */
 
 import type { ServerConfig } from '../../config.js';
-import { getServiceClient } from '../../supabase.js';
 import { getRedisClient } from '../../lib/redisClient.js';
 
 /** Inactivity threshold that separates `active` from `away`. */
 export const OPERATOR_ACTIVITY_ACTIVE_MS = 5 * 60_000;
-/** Analytics buckets are floored to 5 minutes; add that to the read window. */
-const ANALYTICS_BUCKET_MS = 5 * 60_000;
 
 /** At most one Redis write per operator per this window while interacting. */
 export const ACTIVITY_WRITE_COALESCE_MS = 20_000;
@@ -59,7 +58,7 @@ const metrics = { writes: 0, writes_coalesced: 0, write_failures: 0, reads: 0, r
 export const operatorActivityKey = (workspaceId: string) => `op:activity:${workspaceId}`;
 
 export function getOperatorActivityMetrics() {
-  return { ...metrics, backend: activityRedisUrl() ? 'redis' : 'analytics_buckets' };
+  return { ...metrics, backend: activityRedisUrl() ? 'redis' : 'process_local' };
 }
 
 function key(workspaceId: string, userId: string): string {
@@ -168,7 +167,7 @@ export async function publishOperatorActivity(
         lastRedisWriteAt.delete(k); // force the flush past the coalescing gate
         void publishOperatorActivity(workspaceId, userId, ts);
       }, delay);
-      (timer as any).unref?.();
+      (timer as { unref?: () => void }).unref?.();
       flushTimers.set(k, timer);
     }
     return;
@@ -222,8 +221,6 @@ export function __evictActivityCoalesceState(): void {
 /** Test/ops hook. */
 export function resetOperatorActivity(): void {
   zaddGtSupported = null;
-  analyticsTableMissing = false;
-  analyticsSchemaCacheMisses = 0;
   local.clear();
   lastRedisWriteAt.clear();
   lastPruneAt.clear();
@@ -259,67 +256,10 @@ async function readExactActivity(
 }
 
 /**
- * `operator_activity_samples` has been dropped on installs that ran the
- * Live Monitoring cleanup — its writer is already gone (see
- * server/routes/operatorActivity.ts). The coarse read below stays for
- * installs that still have the table, but where it is absent every call was
- * a guaranteed PostgREST 404 that could only ever return zero rows, several
- * hundred times a day. Latch the first "this relation does not exist"
- * answer and stop asking; the fallback behaviour is identical either way
- * (local map only). Cleared by resetOperatorActivity(), so a restart — or a
- * restored table — re-probes exactly once.
- */
-let analyticsTableMissing = false;
-
-/**
- * Consecutive PGRST205 answers. PGRST205 is strong but not conclusive on its
- * own (see classifyAnalyticsRelationError), so the latch arms on the second
- * one in a row; any other outcome resets the count.
- */
-let analyticsSchemaCacheMisses = 0;
-
-type AnalyticsRelationVerdict = 'usable' | 'dropped' | 'not_in_schema_cache';
-
-/**
- * Classifies an error as evidence that `operator_activity_samples` ITSELF is
- * absent. A missing column, a missing function, a permission error or a code
- * naming some other relation is a different bug and must keep using the
- * ordinary fallback instead of latching this read off.
- *
- * This previously required 42P01 and explicitly refused PostgREST's PGRST205,
- * reasoning that a dropped table would eventually report 42P01 once the schema
- * cache settled. That premise is wrong: PostgREST resolves an unknown relation
- * from its schema cache and never issues the statement, so Postgres is never
- * asked and 42P01 can never arrive. The latch could therefore never arm, and
- * this install — where the table really was dropped by the Live Monitoring
- * cleanup — issued a guaranteed-404 request roughly a hundred times a day,
- * indefinitely.
- *
- * PGRST205 is now accepted, matching isPlatformSettingsTableMissing in
- * server/services/ai-agent/platformSettings.ts, which the original comment
- * already claimed this was shaped after. The author's concern — a transient
- * cache miss right after a migration on an install where the table DOES exist
- * — is handled by requiring two consecutive PGRST205s rather than by ignoring
- * the code, so a single blip can no longer disable the read.
- */
-const classifyAnalyticsRelationError = (
-  error: { code?: string; message?: string; details?: string } | null | undefined,
-): AnalyticsRelationVerdict => {
-  const code = String(error?.code || '');
-  // 42P01 = undefined_table (Postgres). PGRST205 = relation not in PostgREST's
-  // schema cache — the only answer a dropped table can actually produce here.
-  if (code !== '42P01' && code !== 'PGRST205') return 'usable';
-  const haystack = `${error?.message || ''} ${error?.details || ''}`.toLowerCase();
-  if (!haystack.includes('operator_activity_samples')) return 'usable';
-  if (/\bcolumn\b|\bfunction\b|permission denied/.test(haystack)) return 'usable';
-  return code === '42P01' ? 'dropped' : 'not_in_schema_cache';
-};
-
-/**
  * Last-activity timestamp (ms) per operator. Missing ⇒ no activity known.
  */
 export async function getOperatorLastActivity(
-  config: ServerConfig,
+  _config: ServerConfig,
   workspaceId: string,
   userIds: string[],
   now: Date = new Date(),
@@ -331,65 +271,21 @@ export async function getOperatorLastActivity(
     if (v) out.set(id, v);
   }
 
-  const staleOrMissing = () =>
-    userIds.filter((id) => {
-      const v = out.get(id);
-      return !v || ts - v >= OPERATOR_ACTIVITY_ACTIVE_MS;
-    });
-
-  let missing = staleOrMissing();
+  const missing = userIds.filter((id) => {
+    const v = out.get(id);
+    return !v || ts - v >= OPERATOR_ACTIVITY_ACTIVE_MS;
+  });
   if (!missing.length) return out;
 
-  // 1) Exact distributed index — precise to the millisecond, so `away`
-  //    triggers at exactly 5 minutes even when the beat landed elsewhere.
+  // Exact distributed index — precise to the millisecond, so `away` triggers
+  // at exactly 5 minutes even when the beat landed elsewhere. Without it only
+  // this node's own map answers (see the header).
   const exact = await readExactActivity(workspaceId, missing);
   if (exact) {
     for (const [id, at] of exact) {
       const capped = Math.min(at, ts);
       if (capped > (out.get(id) || 0)) out.set(id, capped);
     }
-    // The exact index answered — the coarse analytics fallback must NOT run,
-    // otherwise it would re-inflate a correctly-aged operator back to active.
-    return out;
-  }
-
-  missing = staleOrMissing();
-  if (!missing.length) return out;
-
-  if (analyticsTableMissing) return out;
-
-  try {
-    const sb = getServiceClient(config);
-    const since = new Date(ts - OPERATOR_ACTIVITY_ACTIVE_MS - ANALYTICS_BUCKET_MS).toISOString();
-    const { data, error } = await sb
-      .from('operator_activity_samples')
-      .select('user_id, bucket')
-      .eq('workspace_id', workspaceId)
-      .in('user_id', missing)
-      .gte('bucket', since);
-    const verdict = classifyAnalyticsRelationError(error);
-    if (verdict === 'dropped') {
-      // Definitive — arm immediately.
-      analyticsTableMissing = true;
-      return out;
-    }
-    if (verdict === 'not_in_schema_cache') {
-      analyticsSchemaCacheMisses += 1;
-      if (analyticsSchemaCacheMisses >= 2) analyticsTableMissing = true;
-      return out;
-    }
-    analyticsSchemaCacheMisses = 0;
-    for (const row of (data || []) as Array<{ user_id: string; bucket: string }>) {
-      // A bucket labelled T covers [T, T+5m); credit its end so a beat inside
-      // the bucket is not aged by up to five extra minutes.
-      const at = (Date.parse(row.bucket) || 0) + ANALYTICS_BUCKET_MS;
-      const capped = Math.min(at, ts);
-      const prev = out.get(row.user_id) || 0;
-      if (capped > prev) out.set(row.user_id, capped);
-    }
-  } catch {
-    // Analytics unreadable ⇒ fall back to the local map only. Worst case an
-    // operator on another node shows as `away`, never as offline.
   }
   return out;
 }

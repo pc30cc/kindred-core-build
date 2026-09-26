@@ -299,6 +299,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/217_definer_execute_customer_role_lockdown.sql',
     hosted: 'supabase/migrations/20260926090000_definer_execute_customer_role_lockdown.sql',
   },
+  {
+    label: '223 — operator_activity_samples dropped, as production already has',
+    selfHost: 'database/migrations/223_drop_operator_activity_samples.sql',
+    hosted: 'supabase/migrations/20260926130000_drop_operator_activity_samples.sql',
+  },
 
   // intentionally asymmetric, not a drift bug.
 

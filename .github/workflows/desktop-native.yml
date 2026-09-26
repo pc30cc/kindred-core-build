@@ -75,11 +75,14 @@ jobs:
         run: |
           $vpkVersion = ([xml](Get-Content src/Webyar.App/Webyar.App.csproj)).Project.ItemGroup.PackageReference | Where-Object { $_.Include -eq 'Velopack' } | ForEach-Object { $_.Version }
           dotnet tool install -g vpk --version $vpkVersion
+          # The newest published release, so the pack carries a delta from it: apps then download
+          # only what changed. The first release (or a failed download) just ships the full package.
+          vpk download github --repoUrl https://github.com/pc30cc/webyar-desktop-releases --outputDir releases
+          if ($LASTEXITCODE) { Write-Host "no previous release to make a delta from" }
           vpk pack --packId $env:PACK_ID --packVersion ${{ steps.version.outputs.version }} --packDir publish --mainExe Webyar.exe --packTitle Webyar --packAuthors Webyar --icon src/Webyar.App/Assets/Webyar.ico --outputDir releases
 
-      # The installer people download: our own window around the Velopack setup
-      # (src/Webyar.Setup). It carries the setup inside it and the unpacked size
-      # of the app, which drives its progress bar.
+      # The installer people download: our own window around Velopack's per-user
+      # setup (src/Webyar.Setup), which also moves an old Program Files copy over.
       - name: Build installer
         # Program Files installer with its own uninstaller; see build-installer.ps1.
         run: ./build-installer.ps1

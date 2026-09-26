@@ -2,8 +2,9 @@ namespace Webyar.App.Services;
 
 /// <summary>
 /// Everything the app keeps lives in %APPDATA%\WebyarWindows and
-/// %LOCALAPPDATA%\WebyarWindows — never in the install folder, which under
-/// Program Files is read-only and is replaced by every update.
+/// %LOCALAPPDATA%\WebyarWindows — never in the install folder
+/// (%LOCALAPPDATA%\Programs\Webyar, or Program Files for versions 2.2 to 2.5.1),
+/// which every update replaces.
 /// </summary>
 public static class AppPaths
 {
@@ -11,16 +12,12 @@ public static class AppPaths
     public static string Logs { get; } = Ensure(Path.Combine(Data, "logs"));
     public static string Settings => Path.Combine(Data, "settings.json");
     public static string Session => Path.Combine(Data, "session.bin");
-    /// <summary>
-    /// Downloaded files, beside the installed app in %LOCALAPPDATA%\WebyarWindows
-    /// (Velopack's install root). Updates only replace "current", so the cache
-    /// survives them, and uninstalling removes it with the app.
-    /// </summary>
+    /// <summary>Downloaded files, in the cache: updates never touch it.</summary>
     public static string Files { get; } = Ensure(Path.Combine(Cache, "files"));
 
     /// <summary>
-    /// Everything disposable, beside the installed app in %LOCALAPPDATA%\WebyarWindows\cache:
-    /// Clear cache and uninstalling remove it, while settings and the DPAPI
+    /// Everything disposable, in %LOCALAPPDATA%\WebyarWindows\cache: Clear cache (and
+    /// uninstalling with "remove my data") removes it, while settings and the DPAPI
     /// session stay in %APPDATA% and are never touched by either.
     /// </summary>
     public static string Cache => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WebyarWindows", "cache");

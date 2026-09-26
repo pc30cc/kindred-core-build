@@ -278,6 +278,8 @@ const whatsappConnectSchema = z.object({
   phone_number_id: z.string().min(5).max(64).regex(/^\d+$/, 'Invalid phone number id'),
   access_token: z.string().min(20).max(512),
   business_account_id: z.string().max(64).optional().nullable(),
+  /** Optional Meta App Secret: enables X-Hub-Signature-256 webhook verification. */
+  app_secret: z.string().max(256).optional().nullable(),
 });
 
 /**
@@ -291,6 +293,8 @@ const instagramConnectSchema = z.object({
   ig_account_id: z.string().min(5).max(64).regex(/^\d+$/, 'Invalid Instagram account id'),
   access_token: z.string().min(20).max(512),
   page_id: z.string().max(64).optional().nullable(),
+  /** Optional Meta App Secret: enables X-Hub-Signature-256 webhook verification. */
+  app_secret: z.string().max(256).optional().nullable(),
 });
 
 /**
@@ -321,6 +325,7 @@ function parseConnectCredential(
         ig_account_id: parsed.data.ig_account_id,
         access_token: parsed.data.access_token,
         page_id: parsed.data.page_id || null,
+        ...(parsed.data.app_secret?.trim() ? { app_secret: parsed.data.app_secret.trim() } : {}),
       }),
     };
   }
@@ -333,6 +338,7 @@ function parseConnectCredential(
         phone_number_id: parsed.data.phone_number_id,
         access_token: parsed.data.access_token,
         business_account_id: parsed.data.business_account_id || null,
+        ...(parsed.data.app_secret?.trim() ? { app_secret: parsed.data.app_secret.trim() } : {}),
       }),
     };
   }

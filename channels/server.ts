@@ -54,7 +54,16 @@ for (const forbidden of ['SUPABASE_SERVICE_ROLE_KEY', 'PLUGIN_SECRETS_MASTER_KEY
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', true);
-app.use(express.json({ limit: MAX_BODY_BYTES }));
+app.use(
+  express.json({
+    limit: MAX_BODY_BYTES,
+    // Keep the exact body bytes: Meta's X-Hub-Signature-256 is an HMAC over
+    // the raw body, which Core verifies (the gateway holds no app secret).
+    verify: (req, _res, buf) => {
+      (req as unknown as { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+    },
+  }),
+);
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'channels-gateway', ts: new Date().toISOString() });
@@ -187,6 +196,17 @@ app.post('/hooks/:provider/:publicIntegrationId', async (req, res) => {
     }
   }
 
+  // Meta (WhatsApp Cloud / Instagram) signs the body with the app secret.
+  // Forward the raw bytes + signature header so Core can verify it.
+  const metaSigned = descriptor.dialect === 'whatsapp-cloud' || descriptor.dialect === 'instagram-graph';
+  const rawBody = (req as unknown as { rawBody?: Buffer }).rawBody;
+  const signatureFields = metaSigned
+    ? {
+        raw_body_b64: rawBody ? rawBody.toString('base64') : undefined,
+        signature_256: req.header('x-hub-signature-256') ?? null,
+      }
+    : {};
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FORWARD_TIMEOUT_MS);
   try {
@@ -201,6 +221,7 @@ app.post('/hooks/:provider/:publicIntegrationId', async (req, res) => {
         public_integration_id: publicIntegrationId,
         update: req.body ?? {},
         received_at: new Date().toISOString(),
+        ...signatureFields,
       }),
       signal: controller.signal,
     });

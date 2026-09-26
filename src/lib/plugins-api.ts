@@ -223,7 +223,7 @@ export const pluginsApi = {
    */
   whatsappConnect: (
     workspaceId: string,
-    input: { phoneNumberId: string; accessToken: string; businessAccountId?: string },
+    input: { phoneNumberId: string; accessToken: string; businessAccountId?: string; appSecret?: string },
   ) =>
     jsonFetch<{ ok: true; bot: { id: number; username: string | null; firstName: string | null }; webhookUrl: string }>(
       '/api/plugins/bot/whatsapp/connect',
@@ -234,6 +234,7 @@ export const pluginsApi = {
           phone_number_id: input.phoneNumberId,
           access_token: input.accessToken,
           business_account_id: input.businessAccountId || null,
+          ...(input.appSecret ? { app_secret: input.appSecret } : {}),
         }),
       },
     ),
@@ -244,7 +245,7 @@ export const pluginsApi = {
    */
   instagramConnect: (
     workspaceId: string,
-    input: { igAccountId: string; accessToken: string; pageId?: string },
+    input: { igAccountId: string; accessToken: string; pageId?: string; appSecret?: string },
   ) =>
     jsonFetch<{ ok: true; bot: { id: number; username: string | null; firstName: string | null }; webhookUrl: string }>(
       '/api/plugins/bot/instagram/connect',
@@ -255,6 +256,7 @@ export const pluginsApi = {
           ig_account_id: input.igAccountId,
           access_token: input.accessToken,
           page_id: input.pageId || null,
+          ...(input.appSecret ? { app_secret: input.appSecret } : {}),
         }),
       },
     ),

@@ -25,8 +25,9 @@
  */
 
 import { createHmac, randomBytes } from 'node:crypto';
-import { TelegramApiError, type BotCredential } from '../telegram/client.js';
+import { TelegramApiError, mediaDownloadError, type BotCredential } from '../telegram/client.js';
 import type { XDmEvent } from '../../../shared/channels/xDmEvent.js';
+import { assertPublicHttpUrl, fetchBytesBounded } from '../../../shared/net/boundedFetch.js';
 
 const API_ROOT = 'https://api.twitter.com';
 const UPLOAD_ROOT = 'https://upload.twitter.com';
@@ -310,16 +311,20 @@ export async function downloadFile(_credential: BotCredential, filePath: string,
   if (!/^https:\/\//i.test(filePath)) {
     throw new TelegramApiError('X media URL is not https', 400, null, null, false);
   }
-  const response = await fetch(filePath);
-  if (!response.ok) {
-    throw new TelegramApiError(`X media download failed [${response.status}]`, response.status, null, null, response.status >= 500 || response.status === 429);
+  try {
+    const { bytes } = await fetchBytesBounded(filePath, {
+      maxBytes,
+      maxRedirects: 3,
+      validate: (url) => assertPublicHttpUrl(url),
+    });
+    return bytes;
+  } catch (err) {
+    throw mediaDownloadError(err, 'X');
   }
-  const buffer = new Uint8Array(await response.arrayBuffer());
-  if (buffer.byteLength > maxBytes) {
-    throw new TelegramApiError('X media exceeds allowed size', 413, null, null, false);
-  }
-  return buffer;
 }
+
+/** X's simple (non-chunked) media upload accepts images up to 5 MB. */
+const X_SIMPLE_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 
 /**
  * Uploads bytes to the (still-live) v1.1 media endpoint and attaches the
@@ -369,10 +374,15 @@ export async function sendMedia(
 
   if (mimeType) {
     try {
-      const response = await fetch(input.url);
-      if (!response.ok) throw new Error(`fetch failed [${response.status}]`);
-      const bytes = new Uint8Array(await response.arrayBuffer());
-      if (bytes.byteLength <= 5 * 1024 * 1024) {
+      // The URL comes from a queued job payload: SSRF-guard every hop and
+      // cap the download at the upload limit (an oversized image falls
+      // through to the link fallback below, exactly as before).
+      const { bytes } = await fetchBytesBounded(input.url, {
+        maxBytes: X_SIMPLE_UPLOAD_MAX_BYTES,
+        maxRedirects: 3,
+        validate: (url) => assertPublicHttpUrl(url, { allowHttp: true }),
+      });
+      if (bytes.byteLength > 0) {
         const mediaId = await uploadMedia(cred, bytes, mimeType);
         const result = await apiV2<any>(cred, 'POST', `dm_conversations/${percentEncode(dmConversationId)}/messages`, {
           jsonBody: { attachments: [{ media_id: mediaId }], ...(input.caption?.trim() ? { text: input.caption.slice(0, 10_000) } : {}) },

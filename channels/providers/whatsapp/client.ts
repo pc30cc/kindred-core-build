@@ -11,7 +11,8 @@
  *   classification stays identical across providers.
  */
 
-import { TelegramApiError, type BotCredential } from '../telegram/client.js';
+import { TelegramApiError, mediaDownloadError, type BotCredential } from '../telegram/client.js';
+import { assertPublicHttpUrl, fetchBytesBounded } from '../../../shared/net/boundedFetch.js';
 
 const GRAPH_ROOT = 'https://graph.facebook.com';
 const GRAPH_VERSION = 'v21.0';
@@ -260,6 +261,12 @@ export async function getFile(
   mediaId: string,
 ): Promise<{ file_path: string; file_size?: number }> {
   const cred = parseWhatsAppCredential(credential);
+  // The media id comes from the (unsigned) webhook body and is interpolated
+  // into a Graph path that is called WITH our access token — anything but a
+  // plain numeric id could steer that call to another Graph edge.
+  if (!/^\d{1,32}$/.test(String(mediaId ?? ''))) {
+    throw new TelegramApiError('WhatsApp media id is invalid', 400, null, null, false);
+  }
   const meta = await graph<any>(cred, 'GET', mediaId);
   if (!meta?.url) {
     throw new TelegramApiError('WhatsApp media has no download URL', 404, null, null, false);
@@ -277,21 +284,25 @@ export async function downloadFile(
   if (!/^https:\/\//i.test(filePath)) {
     throw new TelegramApiError('WhatsApp media URL is not https', 400, null, null, false);
   }
-  const response = await fetch(filePath, { headers: { Authorization: `Bearer ${cred.accessToken}` } });
-  if (!response.ok) {
-    throw new TelegramApiError(
-      `WhatsApp media download failed [${response.status}]`,
-      response.status,
-      null,
-      null,
-      response.status >= 500 || response.status === 429,
-    );
+  let origin: string;
+  try {
+    origin = new URL(filePath).origin;
+  } catch {
+    throw new TelegramApiError('WhatsApp media URL is invalid', 400, null, null, false);
   }
-  const buffer = new Uint8Array(await response.arrayBuffer());
-  if (buffer.byteLength > maxBytes) {
-    throw new TelegramApiError('WhatsApp media exceeds allowed size', 413, null, null, false);
+  try {
+    const { bytes } = await fetchBytesBounded(filePath, {
+      maxBytes,
+      maxRedirects: 3,
+      validate: (url) => assertPublicHttpUrl(url),
+      // The token authenticates the Graph-issued media URL only; it is never
+      // replayed to a redirect target on another origin.
+      headers: (url) => (url.origin === origin ? { Authorization: `Bearer ${cred.accessToken}` } : undefined),
+    });
+    return bytes;
+  } catch (err) {
+    throw mediaDownloadError(err, 'WhatsApp');
   }
-  return buffer;
 }
 
 const MEDIA_TYPES: Record<string, string> = {

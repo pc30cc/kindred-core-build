@@ -47,6 +47,7 @@ import { enforceMaxConversationsLimit } from '../services/billing/conversationLi
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { dispatchOutboundIfChannelConversation } from '../services/channels/outbound.js';
 import { enqueueOutboundMediaIfChannelConversation } from '../services/channels/mediaOutbound.js';
+import { sanitizeClientMessageMetadata } from '../services/channels/clientMessageMetadata.js';
 
 import { applyPostSendAction } from '../services/conversationPostSend.js';
 import { isActionableCustomerTurn, isQualifiedCustomerFacingAnswer, type NeedsReplyMessage } from '../services/needsReply.js';
@@ -264,9 +265,14 @@ conversationsRouter.post('/send-message', async (req, res) => {
     // Insert message. body may be empty when only an attachment is sent.
     const messageBody = parsed.data.body || '';
     const clientMessageId = parsed.data.client_message_id ?? null;
+    // Server-owned control keys (`attachments`, `channel_*`, …) are dropped
+    // from client metadata: the outbound DB trigger turns `attachments` into
+    // a media job whose URLs the Channels Worker fetches (SSRF). Real
+    // attachments go through `attachment_id` → mediaOutbound.ts.
+    const clientMetadata = sanitizeClientMessageMetadata(parsed.data.metadata);
     const baseMetadata: Record<string, unknown> = {
-      ...(parsed.data.metadata ?? {}),
-      source: parsed.data.metadata?.source ?? 'inbox',
+      ...clientMetadata,
+      source: clientMetadata.source ?? 'inbox',
     };
     if (parsed.data.attachment_id) baseMetadata.attachment_id = parsed.data.attachment_id;
     if (clientMessageId) baseMetadata.client_message_id = clientMessageId;

@@ -13,7 +13,13 @@
  *   classification stays identical across providers.
  */
 
-import { TelegramApiError, type BotCredential } from '../telegram/client.js';
+import { TelegramApiError, mediaDownloadError, type BotCredential } from '../telegram/client.js';
+import {
+  BoundedFetchError,
+  assertPublicHttpUrl,
+  fetchBytesBounded,
+  hostMatches,
+} from '../../../shared/net/boundedFetch.js';
 
 const GRAPH_ROOT = 'https://graph.facebook.com';
 const GRAPH_VERSION = 'v21.0';
@@ -241,6 +247,46 @@ export async function answerCallbackQuery(): Promise<void> {
 // ── media ─────────────────────────────────────────────────────────────
 
 /**
+ * Where an inbound Instagram media URL may point.
+ *
+ * The URL comes straight out of the webhook body, so it is attacker-supplied
+ * until proven otherwise. Only Meta's own media CDNs are fetched, and the
+ * access token is attached ONLY for the Graph API host — CDN URLs are
+ * pre-signed and never need it, and sending it anywhere else would hand the
+ * page token to whoever controls that host.
+ */
+export const INSTAGRAM_MEDIA_CDN_HOSTS = [
+  '*.fbcdn.net',
+  '*.cdninstagram.com',
+  'lookaside.fbsbx.com',
+  'lookaside.instagram.com',
+] as const;
+const INSTAGRAM_GRAPH_HOSTS = ['graph.facebook.com', 'graph.instagram.com'] as const;
+const INSTAGRAM_MEDIA_MAX_REDIRECTS = 3;
+
+function graphHosts(cred: InstagramCredential): string[] {
+  const hosts: string[] = [...INSTAGRAM_GRAPH_HOSTS];
+  try {
+    hosts.push(new URL(cred.apiRoot).hostname.toLowerCase());
+  } catch {
+    /* default Graph hosts only */
+  }
+  return hosts;
+}
+
+/** True when `url` is an https URL on a Meta Graph or Meta media CDN host. */
+export function isAllowedInstagramMediaUrl(url: string | URL, extraGraphHosts: string[] = []): boolean {
+  let u: URL;
+  try {
+    u = url instanceof URL ? url : new URL(url);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'https:' || u.username || u.password) return false;
+  return hostMatches(u.hostname, [...INSTAGRAM_GRAPH_HOSTS, ...extraGraphHosts, ...INSTAGRAM_MEDIA_CDN_HOSTS]);
+}
+
+/**
  * Instagram inbound attachments arrive as absolute CDN URLs, so the mapper
  * stores the URL itself as the `file_id` and there is nothing to resolve.
  */
@@ -250,6 +296,9 @@ export async function getFile(
 ): Promise<{ file_path: string; file_size?: number }> {
   if (!/^https:\/\//i.test(fileId)) {
     throw new TelegramApiError('Instagram media reference is not a URL', 400, null, null, false);
+  }
+  if (!isAllowedInstagramMediaUrl(fileId)) {
+    throw new TelegramApiError('Instagram media URL is not on a Meta media host', 400, null, null, false);
   }
   return { file_path: fileId };
 }
@@ -263,21 +312,23 @@ export async function downloadFile(
   if (!/^https:\/\//i.test(filePath)) {
     throw new TelegramApiError('Instagram media URL is not https', 400, null, null, false);
   }
-  const response = await fetch(filePath, { headers: { Authorization: `Bearer ${cred.accessToken}` } });
-  if (!response.ok) {
-    throw new TelegramApiError(
-      `Instagram media download failed [${response.status}]`,
-      response.status,
-      null,
-      null,
-      response.status >= 500 || response.status === 429,
-    );
+  const tokenHosts = graphHosts(cred);
+  try {
+    const { bytes } = await fetchBytesBounded(filePath, {
+      maxBytes,
+      maxRedirects: INSTAGRAM_MEDIA_MAX_REDIRECTS,
+      // Every hop (initial URL and each redirect) must stay on Meta hosts.
+      validate: async (url) => {
+        if (!isAllowedInstagramMediaUrl(url, tokenHosts)) throw new BoundedFetchError('host_not_allowed');
+        await assertPublicHttpUrl(url);
+      },
+      headers: (url) =>
+        hostMatches(url.hostname, tokenHosts) ? { Authorization: `Bearer ${cred.accessToken}` } : undefined,
+    });
+    return bytes;
+  } catch (err) {
+    throw mediaDownloadError(err, 'Instagram');
   }
-  const buffer = new Uint8Array(await response.arrayBuffer());
-  if (buffer.byteLength > maxBytes) {
-    throw new TelegramApiError('Instagram media exceeds allowed size', 413, null, null, false);
-  }
-  return buffer;
 }
 
 const MEDIA_TYPES: Record<string, string> = {

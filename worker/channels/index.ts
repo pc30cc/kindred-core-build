@@ -50,6 +50,14 @@ import {
 } from '../../channels/mail/yahoo/client.js';
 import { YAHOO_REFRESH_TOKEN_KEY } from '../../shared/channels/yahooKeys.js';
 import { botApiFor } from './botApi.js';
+import { gmailCheckpointDecision, isGmailMessageGone } from './gmailCheckpoint.js';
+import {
+  OUTBOUND_MEDIA_MAX_BYTES,
+  fetchOutboundMediaCandidate,
+  internalBaseList,
+  outboundMediaCandidates,
+  trustedCoreOrigins,
+} from './outboundMedia.js';
 import {
   CORE_INTERNAL_SERVICE_NAME,
   evaluateCoreReadiness,
@@ -557,6 +565,7 @@ async function handleJob(job: ChannelJob): Promise<void> {
         newHistoryId = await ga.getProfileHistoryId(accessToken);
       }
 
+      const failedMessageIds: string[] = [];
       for (const gmailMessageId of messageIds) {
         try {
           const parsed = await ga.getMessage(accessToken, gmailMessageId);
@@ -604,12 +613,41 @@ async function handleJob(job: ChannelJob): Promise<void> {
             }
           }
         } catch (msgErr) {
-          // One malformed/unfetchable message must not sink the whole
-          // batch — the next push (or the next history.list call, since
-          // the checkpoint below only advances past what actually landed)
-          // will pick it up again.
+          // Core itself unreachable/misrouted: requeue the whole job without
+          // spending a retry (see the job loop) instead of marking messages.
+          if (isInfrastructureError(msgErr)) throw msgErr;
+          // Deleted/purged between the history entry and our fetch: nothing
+          // left to import, so it must not hold the checkpoint back.
+          if (isGmailMessageGone(msgErr)) {
+            console.warn(`[channels-worker] gmail message ${gmailMessageId} no longer exists; skipping`);
+            continue;
+          }
+          // One malformed/unfetchable message must not sink the rest of the
+          // batch — keep going, but remember it so the checkpoint below does
+          // NOT advance past it.
+          failedMessageIds.push(gmailMessageId);
           console.error('[channels-worker] gmail message sync failed:', (msgErr as Error)?.message || msgErr);
         }
+      }
+
+      // The checkpoint only advances past what actually landed (see
+      // ./gmailCheckpoint.ts): with failures and retry budget left, the job
+      // fails and is retried from the SAME start_history_id; on the final
+      // attempt it advances anyway so one bad message cannot pin it forever.
+      const decision = gmailCheckpointDecision({
+        failedCount: failedMessageIds.length,
+        attemptCount: job.attempt_count,
+        maxAttempts: job.max_attempts,
+      });
+      if (decision === 'hold_and_retry') {
+        throw new Error(
+          `gmail_sync_incomplete: ${failedMessageIds.length}/${messageIds.length} message(s) failed; history checkpoint held for retry`,
+        );
+      }
+      if (decision === 'advance_giving_up') {
+        console.error(
+          `[channels-worker] gmail sync for integration ${job.integration_id} giving up on ${failedMessageIds.length} message(s) after ${job.attempt_count} attempts: ${failedMessageIds.join(', ')}`,
+        );
       }
 
       if (newHistoryId) {
@@ -901,17 +939,15 @@ async function handleJob(job: ChannelJob): Promise<void> {
         for (const [index, attachment] of attachments.entries()) {
           const url = String(attachment?.url ?? attachment?.public_url ?? '');
           if (!/^https?:\/\//i.test(url)) continue; // never send an unsafe URL
-          // Domain-change resilience: also try the worker's own internal API
-          // base with the relative signed path, in case the absolute host
-          // stored at enqueue time is no longer reachable.
-          const relPath = attachment?.path ? String(attachment.path) : null;
           // Core is always reachable from the worker (that is how jobs are
           // claimed), so its base is the most reliable candidate of all.
-          const internalBases = [coreBaseUrl, process.env.INTERNAL_API_BASE_URL, process.env.API_BASE_URL]
-            .map((b) => (b ? b.trim().replace(/\/+$/, '') : ''))
-            .filter(Boolean);
-          const fetchCandidates = [url, ...(relPath ? internalBases.map((b) => `${b}${relPath}`) : [])]
-            .filter((u, i, arr) => arr.indexOf(u) === i);
+          // Domain-change resilience: the relative signed path is also tried
+          // against these bases in case the absolute host stored at enqueue
+          // time is no longer reachable — but ONLY when it is exactly the
+          // signed media route Core mints (see ./outboundMedia.ts).
+          const coreBases = [coreBaseUrl, process.env.INTERNAL_API_BASE_URL, process.env.API_BASE_URL];
+          const fetchCandidates = outboundMediaCandidates(attachment, internalBaseList(coreBases));
+          const trustedOrigins = trustedCoreOrigins(coreBases);
 
           const kind = String(attachment?.kind ?? 'document');
           const caption = index === 0 ? String(payload.text ?? '') || null : null;
@@ -927,14 +963,15 @@ async function handleJob(job: ChannelJob): Promise<void> {
               const fetchErrors: string[] = [];
               for (const candidate of fetchCandidates) {
                 try {
-                  const res = await fetch(candidate, { redirect: 'follow' });
-                  if (!res.ok) throw new Error(`http_${res.status}`);
-                  const buf = new Uint8Array(await res.arrayBuffer());
-                  if (buf.byteLength === 0) throw new Error('empty_body');
-                  bytes = buf;
+                  // SSRF-guarded, redirect-validated, byte-capped download.
+                  bytes = await fetchOutboundMediaCandidate(candidate, {
+                    trustedOrigins,
+                    maxBytes: OUTBOUND_MEDIA_MAX_BYTES,
+                  });
                   break;
                 } catch (e: any) {
-                  fetchErrors.push(`${candidate} → ${e?.message || e}`);
+                  // Never echo the signed query string into logs/job errors.
+                  fetchErrors.push(`${candidate.replace(/\?.*$/, '')} → ${e?.message || e}`);
                 }
               }
               if (!bytes) {

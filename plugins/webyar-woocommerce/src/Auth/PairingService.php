@@ -57,6 +57,40 @@ final class PairingService {
 		return '' !== $url ? $url : self::app_base_url();
 	}
 
+	/**
+	 * An admin-entered Web Yar / API URL, reduced to an https origin (plus an
+	 * optional path prefix for a sub-path install), or '' when it is not one.
+	 * No credentials, query or fragment: nothing that could smuggle a second
+	 * meaning into URLs built from it.
+	 */
+	public static function normalize_base_url( string $raw ): string {
+		$raw   = trim( $raw );
+		$parts = '' === $raw ? false : wp_parse_url( $raw );
+		if ( ! is_array( $parts ) || 'https' !== strtolower( (string) ( $parts['scheme'] ?? '' ) ) ) {
+			return '';
+		}
+		$host = strtolower( (string) ( $parts['host'] ?? '' ) );
+		if ( '' === $host || isset( $parts['user'] ) || isset( $parts['pass'] ) || isset( $parts['query'] ) || isset( $parts['fragment'] ) ) {
+			return '';
+		}
+		if ( ! preg_match( '/^[a-z0-9.-]+$/', $host ) ) {
+			return '';
+		}
+		$path = (string) ( $parts['path'] ?? '' );
+		if ( '' !== $path && ! preg_match( '#^(/[A-Za-z0-9._~-]+)*/?$#', $path ) ) {
+			return '';
+		}
+		$port = isset( $parts['port'] ) ? ':' . (int) $parts['port'] : '';
+		return untrailingslashit( 'https://' . $host . $port . $path );
+	}
+
+	/** Pairing sends the PKCE verifier and receives the store's secret: https only. */
+	private static function require_https( string $base ): void {
+		if ( '' === self::normalize_base_url( $base ) ) {
+			throw new \RuntimeException( __( 'The WebYar URL must start with https://.', 'webyar-woocommerce' ) );
+		}
+	}
+
 	private static function base64url( string $raw ): string {
 		return rtrim( strtr( base64_encode( $raw ), '+/', '-_' ), '=' ); // phpcs:ignore
 	}
@@ -66,6 +100,8 @@ final class PairingService {
 		if ( ! self::app_base_url_configured() ) {
 			throw new \RuntimeException( __( 'Enter the WebYar URL before connecting.', 'webyar-woocommerce' ) );
 		}
+		self::require_https( self::app_base_url() );
+		self::require_https( self::api_base_url() );
 
 		$state          = self::base64url( random_bytes( 24 ) );
 		$code_verifier  = self::base64url( random_bytes( 32 ) );
@@ -83,7 +119,7 @@ final class PairingService {
 			false
 		);
 
-		$register = wp_remote_post(
+		$register = wp_safe_remote_post(
 			trailingslashit( self::api_base_url() ) . 'api/commerce/pairing/register',
 			array(
 				'timeout' => 10,
@@ -144,7 +180,8 @@ final class PairingService {
 			throw new \RuntimeException( __( 'The connection request expired. Please try again.', 'webyar-woocommerce' ) );
 		}
 
-		$response = wp_remote_post(
+		self::require_https( self::api_base_url() );
+		$response = wp_safe_remote_post(
 			trailingslashit( self::api_base_url() ) . 'api/commerce/pairing/exchange',
 			array(
 				'timeout' => 15,

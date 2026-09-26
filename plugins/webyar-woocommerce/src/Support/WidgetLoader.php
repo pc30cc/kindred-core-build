@@ -44,6 +44,13 @@ final class WidgetLoader {
 			return;
 		}
 
+		// The script runs on every storefront page: only ever from an https
+		// Web Yar origin (a plain-http loader is replaceable in transit, and a
+		// value that is not a clean https URL was never set by the connect form).
+		if ( '' === PairingService::normalize_base_url( PairingService::app_base_url() ) ) {
+			return;
+		}
+
 		$loader_url = apply_filters( 'webyar_commerce_widget_loader_url', trailingslashit( PairingService::app_base_url() ) . 'widget/loader.js' );
 		$asset_base = untrailingslashit( PairingService::app_base_url() );
 		$api_base   = untrailingslashit( PairingService::api_base_url() );

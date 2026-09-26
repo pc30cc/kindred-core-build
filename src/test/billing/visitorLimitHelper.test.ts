@@ -7,6 +7,7 @@
  *   - read errors fail OPEN (treat as in-month) by contract
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { Request, Response } from "express";
 
 const rpcMock = vi.fn();
 
@@ -33,30 +34,40 @@ import { clearEntitlementCache } from "../../../server/middleware/featureGating"
  * Returns a chain whose terminal `.maybeSingle()` resolves with the value
  * configured per test.
  */
-function makeSupabaseStub(maybeSingleResult: { data: any; error: any }) {
-  const chain: any = {
+type SupabaseStub = Parameters<typeof enforceMaxVisitorsLimitIfNewThisMonth>[2];
+
+interface StubChain {
+  select: () => StubChain;
+  eq: () => StubChain;
+  gte: () => StubChain;
+  limit: () => StubChain;
+  maybeSingle: () => Promise<{ data: unknown; error: unknown }>;
+}
+
+function makeSupabaseStub(maybeSingleResult: { data: unknown; error: unknown }) {
+  const chain: StubChain = {
     select: () => chain,
     eq: () => chain,
     gte: () => chain,
     limit: () => chain,
     maybeSingle: async () => maybeSingleResult,
   };
-  const sb: any = { from: () => chain };
+  const sb = { from: () => chain } as unknown as SupabaseStub;
   return sb;
 }
 
 function makeReqRes() {
-  const req: any = {
+  const req = {
     body: { workspace_id: "ws-vis" },
     query: {},
     params: {},
     serverConfig: { supabaseUrl: "http://stub", supabaseServiceRoleKey: "key" },
-  };
+  } as unknown as Request;
   let statusCode: number | undefined;
-  const res: any = {
+  const res = {
     status(code: number) { statusCode = code; return res; },
     json() { return res; },
-  };
+  } as unknown as Response;
   return { req, res, getStatus: () => statusCode };
 }
 
@@ -112,6 +123,26 @@ describe("enforceMaxVisitorsLimitIfNewThisMonth — runtime behavior", () => {
     );
     expect(ok).toBe(false);
     expect(getStatus()).toBe(403);
+  });
+
+  it("evaluates the workspace argument, ignoring a spoofed body workspaceId", async () => {
+    // Regression: the helper received the authorized workspace but the
+    // shared middleware re-read req.body, preferring body.workspaceId.
+    rpcMock.mockImplementation(async (_fn: string, args: { _workspace_id: string }) => ({
+      data: args._workspace_id === "ws-unlimited"
+        ? { allowed: true, limit: -1, plan: "enterprise" }
+        : { allowed: true, limit: 0, plan: "free" },
+      error: null,
+    }));
+    const sb = makeSupabaseStub({ data: null, error: null });
+    const { req, res, getStatus } = makeReqRes();
+    req.body = { workspace_id: "ws-vis-5", workspaceId: "ws-unlimited" };
+    const ok = await enforceMaxVisitorsLimitIfNewThisMonth(
+      req, res, sb, "ws-vis-5", "visitor-5",
+    );
+    expect(ok).toBe(false);
+    expect(getStatus()).toBe(403);
+    expect(rpcMock.mock.calls[0][1]._workspace_id).toBe("ws-vis-5");
   });
 
   it("fails OPEN (returns true, no rpc call) when the in-month membership read errors", async () => {

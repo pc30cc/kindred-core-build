@@ -168,6 +168,7 @@ const tr: TranslationKeys = {
     errors: {
       generic: 'Bir sorun oluştu. Lütfen tekrar deneyin.',
       STALE_PREVIEW: 'Tutar değişti. Lütfen özeti tekrar inceleyin.',
+      INTERVAL_CHANGE_NOT_IMMEDIATE: 'Anında yükseltmede faturalama dönemi değiştirilemez. Bu yükseltme için mevcut döneminizi seçin.',
       INVOICE_NOT_PAYABLE: 'Bu fatura şu anda ödenemez.',
       AMOUNT_OUT_OF_RANGE: 'Tutar izin verilen aralığın dışında.',
       AMOUNT_NOT_ALLOWED: 'Lütfen önerilen tutarlardan birini seçin.',

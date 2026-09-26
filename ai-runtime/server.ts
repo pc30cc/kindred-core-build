@@ -151,6 +151,12 @@ app.use((_req, res) => {
   res.status(404).json({ error: 'invalid_request', message: 'Not found' });
 });
 
+// Node's default for an unhandled rejection is to kill the process (every
+// in-flight AI request with it). Log it instead — never silently.
+process.on('unhandledRejection', (reason) => {
+  console.error('[ai-runtime] unhandledRejection:', reason);
+});
+
 app.listen(PORT, () => {
   console.log(`[ai-runtime] listening on :${PORT} (contract ${AI_RUNTIME_CONTRACT_VERSION})`);
 });

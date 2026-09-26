@@ -17,15 +17,31 @@
  * catalogue. A sweep that fired there would empty the index — which is why
  * that case is tested here as carefully as the sweep itself.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const CONN = 'conn-1';
 const WS = 'ws-1';
 
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
+interface FakeProduct { externalId: string; [key: string]: unknown }
+interface FakeBuilder {
+  _patch: Row | null;
+  _in: string[] | null;
+  _selecting: boolean;
+  _cols?: string;
+  select: (cols?: string) => FakeBuilder;
+  eq: () => FakeBuilder;
+  is: () => FakeBuilder;
+  in: (_col: string, vals: string[]) => FakeBuilder;
+  or: () => FakeBuilder;
+  update: (patch: Row) => FakeBuilder;
+  upsert: (row: Row) => Promise<{ data: null; error: null }>;
+  maybeSingle: () => Promise<{ data: Row | null; error: { code: string; message: string } | null }>;
+  then: (resolve: (v: { data: unknown; error: null }) => unknown) => unknown;
+}
 
 /** What the fake store returns, one entry per page. */
-let storePages: Array<{ products: any[]; has_more: boolean }> = [];
+let storePages: Array<{ products: FakeProduct[]; has_more: boolean }> = [];
 /** How many rows the sweep's SQL reports removing. */
 let sweptCount = 0;
 let cursorRow: Row | null = null;
@@ -46,9 +62,9 @@ const seen = {
 
 function fakeClient() {
   const make = (table: string) => {
-    const b: any = {
-      _patch: null as Row | null,
-      _in: null as string[] | null,
+    const b: FakeBuilder = {
+      _patch: null,
+      _in: null,
       _selecting: false,
       select: (cols?: string) => { b._selecting = true; b._cols = cols ?? ''; return b; },
       eq: () => b,
@@ -69,7 +85,7 @@ function fakeClient() {
           error: null,
         };
       },
-      then: (resolve: any) => {
+      then: (resolve) => {
         if (table === 'commerce_products') {
           if (b._patch?.last_seen_at) seen.stampedIds.push(b._in ?? []);
           else if (b._patch?.deleted_at) seen.softDeleted.push(table);
@@ -95,11 +111,11 @@ vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeClie
 vi.mock('../../../server/services/commerce/credentials.js', () => ({ readInstallationSecret: async () => 'secret' }));
 vi.mock('../../../server/services/commerce/signing.js', () => ({ buildSignedHeaders: () => ({}) }));
 vi.mock('../../../server/services/commerce/productIndex.js', () => ({
-  upsertProductInIndex: async (_c: any, _w: string, _conn: string, p: any) => { seen.upserted.push(p.externalId); return p.externalId; },
+  upsertProductInIndex: async (_c: unknown, _w: string, _conn: string, p: FakeProduct) => { seen.upserted.push(p.externalId); return p.externalId; },
 }));
 vi.mock('../../../server/services/commerce/connectors/woocommerce.js', () => ({
   WooCommerceConnector: class {},
-  normalizeWooCommerceProduct: (raw: any) => raw,
+  normalizeWooCommerceProduct: (raw: unknown) => raw,
 }));
 vi.mock('../../../server/services/commerce/httpClient.js', () => ({
   commerceHttpRequest: async ({ url }: { url: string }) => {
@@ -112,9 +128,9 @@ vi.mock('../../../server/services/commerce/httpClient.js', () => ({
 
 const { runSyncJobOnce } = await import('../../../server/services/commerce/sync.js');
 
-const CONFIG: any = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' };
+const CONFIG = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' } as unknown as Parameters<typeof runSyncJobOnce>[0];
 const product = (id: string) => ({ externalId: id, sku: `SKU-${id}`, title: `P${id}`, variants: [] });
-const job = (o: Partial<Row> = {}): any => ({
+const job = (o: Partial<Row> = {}): Parameters<typeof runSyncJobOnce>[1] => ({
   id: 'job-1', workspace_id: WS, connection_id: CONN, job_type: 'manual_resync',
   status: 'running', attempts: 0, max_attempts: 5, ...o,
 });
@@ -125,7 +141,7 @@ beforeEach(() => {
   cursorRow = null;
   sweepColumnMissing = false;
   connectionRow = { id: CONN, workspace_id: WS, installation_id: 'inst-1', approved_origin: 'https://shop.example.com', revoked_at: null };
-  for (const k of Object.keys(seen)) (seen as any)[k].length = 0;
+  for (const k of Object.keys(seen) as Array<keyof typeof seen>) seen[k].length = 0;
 });
 
 describe('a full sync sweeps what the store no longer has', () => {
@@ -257,6 +273,83 @@ describe('a database without migration 198', () => {
     await runSyncJobOnce(CONFIG, job());
 
     expect(seen.upserted).toEqual(['7']);
+  });
+});
+
+describe('incremental and reconciliation syncs resume their cursor', () => {
+  // A change set larger than MAX_PAGES_PER_RUN (20 pages) spans several
+  // worker ticks. These job types used to restart at page 1 on every tick,
+  // so such a change set was re-queued forever and never completed.
+  const WATERMARK = '2026-09-20T18:00:00.000Z';
+  const pageOf = (url: string) => Number(new URL(url).searchParams.get('page'));
+  const manyPages = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ products: [product(String(i + 1))], has_more: i + 1 < n }));
+
+  afterEach(() => { vi.useRealTimers(); });
+
+  for (const job_type of ['incremental_sync', 'reconciliation'] as const) {
+    it(`${job_type} continues where the previous run stopped and then completes`, async () => {
+      storePages = manyPages(25);
+      cursorRow = { page: 1, modified_after: WATERMARK, sweep_epoch: null, after_cursor: null };
+
+      await runSyncJobOnce(CONFIG, job({ job_type }));
+      expect(seen.requestedPaths.map(pageOf)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+      expect(seen.jobUpdates).toContainEqual({ status: 'queued' });
+      const checkpoint = seen.cursorWrites[seen.cursorWrites.length - 1];
+      expect(checkpoint.page).toBe(21);
+      expect(checkpoint.modified_after).toBe(WATERMARK); // same watermark for the whole walk
+      expect(checkpoint.after_cursor).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+      // Next tick: the worker reads back what the previous one stored.
+      cursorRow = { ...checkpoint };
+      for (const k of Object.keys(seen) as Array<keyof typeof seen>) seen[k].length = 0;
+      await runSyncJobOnce(CONFIG, job({ job_type }));
+
+      expect(seen.requestedPaths.map(pageOf)).toEqual([21, 22, 23, 24, 25]);
+      expect(seen.requestedPaths.every((u) => u.includes('modified_after='))).toBe(true);
+      expect(seen.jobUpdates).toContainEqual({ status: 'succeeded' });
+      const final = seen.cursorWrites[seen.cursorWrites.length - 1];
+      expect(final.page).toBe(1);
+      expect(final.after_cursor).toBeNull();
+      // The new watermark is when the WALK began (first tick), not now.
+      expect(final.modified_after).toBe(checkpoint.after_cursor);
+    });
+  }
+
+  it('records the run START time as the next watermark, not the finish time', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const T0 = new Date('2026-09-25T10:00:00.000Z');
+    vi.setSystemTime(T0);
+    // Every page fetch takes a minute of store time: a change made while the
+    // run is in flight must still be after the stored watermark.
+    storePages = manyPages(3).map((p) => ({
+      has_more: p.has_more,
+      get products() { vi.setSystemTime(Date.now() + 60_000); return p.products; },
+    }));
+    cursorRow = { page: 1, modified_after: WATERMARK, sweep_epoch: null, after_cursor: null };
+
+    await runSyncJobOnce(CONFIG, job({ job_type: 'incremental_sync' }));
+
+    const final = seen.cursorWrites[seen.cursorWrites.length - 1];
+    expect(Date.now()).toBeGreaterThan(T0.getTime());
+    expect(final.modified_after).toBe(T0.toISOString());
+  });
+
+  it('a full resync never resumes an interrupted incremental walk mid-way', async () => {
+    cursorRow = { page: 5, modified_after: WATERMARK, sweep_epoch: null, after_cursor: '2026-09-21T00:00:00.000Z' };
+    await runSyncJobOnce(CONFIG, job({ job_type: 'manual_resync' }));
+
+    expect(pageOf(seen.requestedPaths[0])).toBe(1);
+    expect(seen.requestedPaths[0]).not.toContain('modified_after=');
+  });
+
+  it('restarts an incremental walk whose start time was never recorded', async () => {
+    // A cursor written by an older build: resuming it could hand over a
+    // watermark later than the pages it already walked, so start over.
+    cursorRow = { page: 5, modified_after: WATERMARK, sweep_epoch: null, after_cursor: null };
+    await runSyncJobOnce(CONFIG, job({ job_type: 'incremental_sync' }));
+
+    expect(pageOf(seen.requestedPaths[0])).toBe(1);
   });
 });
 

@@ -120,13 +120,57 @@ if ( ! class_exists( 'WP_Error' ) ) {
 		public function get_error_code() { return $this->code; }
 	}
 }
-/** The manifest fetch, scripted by each test through $GLOBALS. */
-if ( ! function_exists( 'wp_remote_get' ) ) {
-	function wp_remote_get( string $url, array $args = array() ) {
+/**
+ * The manifest/signature fetches, scripted by each test through $GLOBALS:
+ * `__webyar_test_http_by_url[url]` answers that URL, `__webyar_test_http`
+ * answers anything else.
+ */
+if ( ! function_exists( 'wp_safe_remote_get' ) ) {
+	function wp_safe_remote_get( string $url, array $args = array() ) {
 		$GLOBALS['__webyar_test_fetched'][] = $url;
-		$next = $GLOBALS['__webyar_test_http'] ?? null;
+		$next = $GLOBALS['__webyar_test_http_by_url'][ $url ] ?? $GLOBALS['__webyar_test_http'] ?? null;
 		return $next ?? new WP_Error( 'no_response_scripted' );
 	}
+}
+/** The package download WordPress would do, scripted as `__webyar_test_package` (bytes) per test. */
+if ( ! function_exists( 'download_url' ) ) {
+	function download_url( string $url, int $timeout = 300 ) {
+		$GLOBALS['__webyar_test_downloaded'][] = $url;
+		if ( ! isset( $GLOBALS['__webyar_test_package'] ) ) {
+			return new WP_Error( 'http_404' );
+		}
+		$file = tempnam( sys_get_temp_dir(), 'wywc' );
+		file_put_contents( $file, $GLOBALS['__webyar_test_package'] );
+		return $file;
+	}
+}
+if ( ! function_exists( 'wp_delete_file' ) ) {
+	function wp_delete_file( string $file ): void {
+		if ( is_file( $file ) ) {
+			unlink( $file );
+		}
+	}
+}
+if ( ! function_exists( 'current_user_can' ) ) {
+	function current_user_can( string $capability ): bool {
+		return in_array( $capability, $GLOBALS['__webyar_test_caps'] ?? array(), true );
+	}
+}
+if ( ! function_exists( 'esc_html' ) ) {
+	function esc_html( string $text ): string {
+		return htmlspecialchars( $text, ENT_QUOTES, 'UTF-8' );
+	}
+}
+
+// A throwaway release key: the updater verifies against it instead of the
+// real one (the wp-config.php override staging sites use).
+$GLOBALS['__webyar_test_release_key'] = sodium_crypto_sign_keypair();
+if ( ! defined( 'WEBYAR_UPDATE_PUBLIC_KEY' ) ) {
+	define( 'WEBYAR_UPDATE_PUBLIC_KEY', base64_encode( sodium_crypto_sign_publickey( $GLOBALS['__webyar_test_release_key'] ) ) );
+}
+/** Signs a manifest body like the release host does (base64 detached Ed25519). */
+function webyar_test_sign( string $body, ?string $secret_key = null ): string {
+	return base64_encode( sodium_crypto_sign_detached( $body, $secret_key ?? sodium_crypto_sign_secretkey( $GLOBALS['__webyar_test_release_key'] ) ) );
 }
 if ( ! function_exists( 'wp_remote_retrieve_response_code' ) ) {
 	function wp_remote_retrieve_response_code( $response ) {
@@ -188,6 +232,7 @@ if ( ! function_exists( '__' ) ) {
 }
 
 require_once __DIR__ . '/../src/Support/Version.php';
+require_once __DIR__ . '/../src/Support/Logger.php';
 require_once __DIR__ . '/../src/Auth/RequestSigner.php';
 require_once __DIR__ . '/../src/Auth/CredentialStore.php';
 require_once __DIR__ . '/../src/Auth/PairingService.php';

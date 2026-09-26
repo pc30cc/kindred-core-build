@@ -17,6 +17,7 @@ import {
   type RestrictedNetwork,
 } from './helpers/restrictedNetwork.js';
 import { AI_RUNTIME_ROUTES } from '../../../shared/ai/internalRoutes.js';
+import type * as SafeCrawlModule from '../../../server/services/ai-agent/crawler/safeCrawlFetch.js';
 
 const WORKSPACE_ID = 'ws-1';
 const CRAWL_HOST = 'docs.example.com';
@@ -31,9 +32,26 @@ vi.mock('../../../server/middleware/adminBypass.js', () => ({
 }));
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeSb }));
 
+// The crawler now goes through the hardened transport (per-hop validation +
+// pinned node:http(s) sockets). Keep its real hop/redirect policy but route
+// the socket through the stubbed global fetch and a public DNS answer, so the
+// restricted-network harness still observes the crawl hop.
+vi.mock('../../../server/services/ai-agent/crawler/safeCrawlFetch.js', async (importOriginal) => {
+  const orig = await importOriginal<typeof SafeCrawlModule>();
+  return {
+    ...orig,
+    safeCrawlFetch: (url: string, opts: Parameters<typeof SafeCrawlModule.safeCrawlFetch>[1]) =>
+      orig.safeCrawlFetch(url, {
+        ...opts,
+        fetchImpl: (u: Parameters<typeof fetch>[0], init?: RequestInit) => globalThis.fetch(u, init),
+        lookupImpl: async () => [{ address: '93.184.216.34', family: 4 }],
+      }),
+  };
+});
+
 const { processJob } = await import('../../../worker/intelligence/processor.js');
 
-let fakeSb: any;
+let fakeSb: ReturnType<typeof makeFakeSupabase>;
 let net: RestrictedNetwork;
 
 const PAGE_HTML = `<html><head><title>Reset your password</title></head><body>
@@ -66,10 +84,7 @@ beforeEach(() => {
     // The crawler legitimately reaches the customer's own website from Core.
     allowHost: (url, host) => {
       if (host !== CRAWL_HOST) return undefined;
-      const res = new Response(PAGE_HTML, { status: 200, headers: { 'content-type': 'text/html' } });
-      // The crawler re-validates the post-redirect host via `res.url`.
-      Object.defineProperty(res, 'url', { value: url });
-      return res;
+      return new Response(PAGE_HTML, { status: 200, headers: { 'content-type': 'text/html' } });
     },
 
     providerResponse: (url) =>
@@ -89,12 +104,12 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('restricted network — KB Builder AI generation', () => {
   it('generates an article draft through the AI Runtime while Core only reaches the crawled site', async () => {
-    const env: any = {
+    const env = {
       supabaseUrl: 'https://example.supabase.co',
       supabaseServiceRoleKey: 'SERVICE_KEY',
       aiRuntimeBaseUrl: RUNTIME_BASE,
       aiRuntimeInternalSecret: RUNTIME_SECRET,
-    };
+    } as unknown as Parameters<typeof processJob>[1];
     const job = {
       id: 'job-1',
       workspace_id: WORKSPACE_ID,
@@ -102,11 +117,11 @@ describe('restricted network — KB Builder AI generation', () => {
       locale: 'en',
       pages_failed: 0,
       plan_snapshot: { maxPages: 1, maxDepth: 0, maxArticles: 1 },
-    };
+    } as unknown as Parameters<typeof processJob>[2];
 
-    await processJob(fakeSb, env, job);
+    await processJob(fakeSb as unknown as Parameters<typeof processJob>[0], env, job);
 
-    const drafts = (fakeSb.__store['ai_kb_generated_articles'] || []) as any[];
+    const drafts = (fakeSb.__store['ai_kb_generated_articles'] || []) as Array<{ title?: string }>;
     expect(drafts.length).toBe(1);
     expect(drafts[0].title).toBe('Reset your password');
 

@@ -32,6 +32,7 @@
 import type { Request, Response } from 'express';
 import type { ServerConfig } from '../../config.js';
 import { requireLimit, checkEntitlementFromDB } from '../../middleware/featureGating.js';
+import { setTrustedGateWorkspaceId } from '../../middleware/gateWorkspace.js';
 import { isUnreadableEntitlementReason } from './entitlementParse.js';
 import { usageFnForLimit, resolveUsage } from './usageResolvers.js';
 
@@ -68,7 +69,7 @@ export async function checkMaxConversationsAllowance(
       config.supabaseServiceRoleKey,
       workspaceId,
       LIMIT_KEY,
-      { numeric: true, selfHostBillingUnlimited: (config as any).selfHostBillingUnlimited === true },
+      { numeric: true, selfHostBillingUnlimited: config.selfHostBillingUnlimited === true },
     );
   } catch {
     return { allowed: false, reason: 'entitlement_unavailable', retryable: true };
@@ -107,10 +108,21 @@ export async function checkMaxConversationsAllowance(
   return { allowed: true, reason: 'ok', retryable: false, plan: result.plan, limit: result.limit, used };
 }
 
+/**
+ * `workspaceId` MUST be the caller's already-authorized workspace (widget
+ * token / membership). The cap is evaluated on it alone — never on raw
+ * `req.body` fields, which a caller could pad with a different workspace.
+ */
 export async function enforceMaxConversationsLimit(
   req: Request,
   res: Response,
+  workspaceId: string,
 ): Promise<boolean> {
+  if (!workspaceId) {
+    res.status(400).json({ error: 'Missing workspaceId for limit check' });
+    return false;
+  }
+  setTrustedGateWorkspaceId(req, workspaceId);
   let proceeded = false;
   await conversationLimitMiddleware(req, res, () => {
     proceeded = true;

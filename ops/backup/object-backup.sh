@@ -27,8 +27,8 @@ for bucket in $MINIO_BUCKETS; do
   # propagate into the backup copy, or a bad DELETE destroys both sides.
   mc mirror --overwrite --preserve \
     "${MINIO_ALIAS}/${bucket}" "${MINIO_BACKUP_ALIAS}/webyar-backups/objects/${bucket}" \
-    >/tmp/mc-mirror.out 2>&1 || {
-      log "mirror FAILED for $bucket: $(tail -c 300 /tmp/mc-mirror.out)"
+    >"$BACKUP_TMP/mc-mirror.out" 2>&1 || {
+      log "mirror FAILED for $bucket: $(tail -c 300 "$BACKUP_TMP/mc-mirror.out")"
       report "$(cat <<JSON
 {"backup_id":"$BACKUP_ID","kind":"object","status":"failed","started_at":"$STARTED",
  "finished_at":"$(now_iso)","encrypted":true,
@@ -44,8 +44,8 @@ JSON
 done
 
 # Bucket policies/configuration — the objects alone do not restore a bucket.
-mc admin bucket info --json "${MINIO_ALIAS}" > /tmp/bucket-config.json 2>/dev/null || true
-mc cp /tmp/bucket-config.json \
+mc admin bucket info --json "${MINIO_ALIAS}" > "$BACKUP_TMP/bucket-config.json" 2>/dev/null || true
+mc cp "$BACKUP_TMP/bucket-config.json" \
   "${MINIO_BACKUP_ALIAS}/webyar-backups/objects/_config/buckets-$(date -u +%Y%m%d).json" >/dev/null 2>&1 || true
 
 log "object mirror complete: $TOTAL_OBJECTS objects, $TOTAL_BYTES bytes"

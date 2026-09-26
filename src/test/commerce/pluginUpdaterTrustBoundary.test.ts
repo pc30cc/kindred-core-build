@@ -8,9 +8,10 @@
  * boundary in the middle of it: WordPress will fetch whatever URL it is
  * handed, unzip it and run it.
  *
- * The manifest is data pulled over the network. If it could name its own
- * download host, tampering with it would be a way to install anything on
- * every connected store. So the host comes from what the admin configured
+ * The manifest is data pulled over the network. It is trusted only when
+ * signed by the Web Yar release key (the archive must then match its signed
+ * sha256 — plugins/webyar-woocommerce/tests/unit/UpdaterTest.php covers
+ * both). On top of that, the host comes from what the admin configured
  * locally and the manifest only gets to say which path on it.
  *
  * This runs the REAL PHP — the same file that ships — rather than asserting
@@ -64,9 +65,13 @@ function checkForUpdate(opts: {
     $in = json_decode($argv[1], true);
     $GLOBALS["__webyar_test_options"]["webyar_wc_settings"] = $in["appUrl"] === null ? [] : ["app_url" => $in["appUrl"]];
     $body = is_string($in["manifest"]) ? $in["manifest"] : json_encode($in["manifest"]);
-    $GLOBALS["__webyar_test_http"] = $in["networkError"]
-      ? new WP_Error("timeout")
-      : ["response" => ["code" => $in["status"]], "body" => $body];
+    // Served next to a valid release signature, so each case isolates the
+    // one thing it varies (tests/bootstrap.php holds a throwaway release key).
+    $base = rtrim((string) $in["appUrl"], "/") . "/downloads/webyar-woocommerce.json";
+    $GLOBALS["__webyar_test_http_by_url"] = [
+      $base => $in["networkError"] ? new WP_Error("timeout") : ["response" => ["code" => $in["status"]], "body" => $body],
+      $base . ".sig" => ["response" => ["code" => 200], "body" => webyar_test_sign($body)],
+    ];
     $GLOBALS["__webyar_test_fetched"] = [];
     $class = "WebYar\\\\WooCommerce\\\\Support\\\\Updater";
     $u = new $class();
@@ -93,6 +98,8 @@ const MANIFEST = {
   slug: 'webyar-woocommerce',
   version: '1.2.0',
   package: '/downloads/webyar-woocommerce.zip',
+  sha256: 'a'.repeat(64),
+  size: 1024,
   requires: '6.0',
   requires_php: '7.4',
   tested: '9.4',
@@ -146,8 +153,8 @@ describe.skipIf(!hasPhp())('a plugin update may only come from the configured We
     expect(resolvePackage('http://app.example.com/p.zip', BASE)).toBeNull();
   });
 
-  it('allows http only for a localhost dev install', () => {
-    expect(resolvePackage('http://localhost/p.zip', 'http://localhost')).toBe('http://localhost/p.zip');
+  it('refuses http even for localhost (updates are https-only)', () => {
+    expect(resolvePackage('http://localhost/p.zip', 'http://localhost')).toBeNull();
   });
 
   it('refuses an empty or host-less value rather than guessing', () => {
@@ -253,7 +260,8 @@ describe.skipIf(!hasPhp())('what the store is told about a new build', () => {
     // would put every store on a loop against the dashboard.
     const result = checkForUpdate({ manifest: MANIFEST, repeat: 3 });
 
-    expect(result.fetches).toBe(1);
+    // The manifest and its signature, once.
+    expect(result.fetches).toBe(2);
     expect(result.url).toBe('https://app.example.com/downloads/webyar-woocommerce.json');
   });
 });

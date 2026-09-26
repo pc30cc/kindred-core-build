@@ -15,6 +15,7 @@ import {
 } from '../services/billing/entitlementParse.js';
 import { getCapability } from '../services/billing/capabilityRegistry.js';
 import { assignedPlanApplies, type SubscriptionPlanState } from '../services/billing/planSelection.js';
+import { getTrustedGateWorkspaceId } from './gateWorkspace.js';
 
 interface EntitlementResult {
   allowed: boolean;
@@ -63,16 +64,59 @@ type GatedRequest = Request & {
   aiCredits?: Awaited<ReturnType<typeof deductAICredits>>;
 };
 
-function extractWorkspaceId(req: Request): string | undefined {
-  const pick = (bag: unknown, key: string): string | undefined => {
-    const value = bag && typeof bag === 'object' ? (bag as Record<string, unknown>)[key] : undefined;
-    return typeof value === 'string' && value ? value : undefined;
-  };
-  return pick(req.body, 'workspaceId')
-    || pick(req.body, 'workspace_id')
-    || pick(req.query, 'workspaceId')
-    || pick(req.query, 'workspace_id')
-    || pick(req.params, 'workspaceId');
+type GateWorkspaceResolution =
+  | { ok: true; workspaceId: string | undefined }
+  | { ok: false; error: 'workspace_id_mismatch' | 'invalid_workspace_id' };
+
+/**
+ * Resolves the workspace a gate must evaluate.
+ *
+ *   1. A server-pinned id (setTrustedGateWorkspaceId) wins outright.
+ *   2. Otherwise every request source is collected — route param first
+ *      (that is what route handlers authorize and act on), then body and
+ *      query in both spellings. If they disagree, the request is rejected:
+ *      otherwise `?workspaceId=<entitled ws>` could pass the gate while the
+ *      handler operates on `/:workspaceId` of a different workspace.
+ */
+export function resolveGateWorkspaceId(req: Request): GateWorkspaceResolution {
+  const trusted = getTrustedGateWorkspaceId(req);
+  if (trusted) return { ok: true, workspaceId: trusted };
+
+  const params = req.params as Record<string, unknown> | null | undefined;
+  const body = req.body as Record<string, unknown> | null | undefined;
+  const query = req.query as Record<string, unknown> | null | undefined;
+  const candidates: unknown[] = [
+    params?.workspaceId,
+    body?.workspaceId,
+    body?.workspace_id,
+    query?.workspaceId,
+    query?.workspace_id,
+  ];
+  let resolved: string | undefined;
+  for (const value of candidates) {
+    if (value === undefined || value === null || value === '') continue;
+    if (typeof value !== 'string') return { ok: false, error: 'invalid_workspace_id' };
+    if (resolved === undefined) resolved = value;
+    else if (resolved !== value) return { ok: false, error: 'workspace_id_mismatch' };
+  }
+  return { ok: true, workspaceId: resolved };
+}
+
+/**
+ * Shared prologue for every gate: resolves the workspace or writes the 400.
+ * Returns null when a response has already been written.
+ */
+function gateWorkspaceIdOrRespond(req: Request, res: Response, missingMessage: string): string | null {
+  const r = resolveGateWorkspaceId(req);
+  if (r.ok === false) {
+    res.status(400).json({ error: r.error });
+    return null;
+  }
+  if (!r.workspaceId) {
+    res.status(400).json({ error: missingMessage });
+    return null;
+  }
+  return r.workspaceId;
 }
 
 function getSupabaseClient(req: Request) {
@@ -349,10 +393,8 @@ export function requireFeature(feature: string) {
     const sb = getSupabaseClient(req);
     if (!sb) return next();
 
-    const workspaceId = extractWorkspaceId(req);
-    if (!workspaceId) {
-      return res.status(400).json({ error: 'Missing workspaceId for feature check' });
-    }
+    const workspaceId = gateWorkspaceIdOrRespond(req, res, 'Missing workspaceId for feature check');
+    if (!workspaceId) return;
 
     const result = await checkEntitlementFromDB(sb.config.supabaseUrl, sb.config.supabaseServiceRoleKey, workspaceId, feature, {
       selfHostBillingUnlimited: sb.config.selfHostBillingUnlimited === true,
@@ -385,10 +427,8 @@ export function requireModule(moduleKey: string) {
     const sb = getSupabaseClient(req);
     if (!sb) return next();
 
-    const workspaceId = extractWorkspaceId(req);
-    if (!workspaceId) {
-      return res.status(400).json({ error: 'Missing workspaceId for module check' });
-    }
+    const workspaceId = gateWorkspaceIdOrRespond(req, res, 'Missing workspaceId for module check');
+    if (!workspaceId) return;
 
     if (await enforceModule(req, res, workspaceId, moduleKey)) next();
   };
@@ -434,10 +474,8 @@ export function requireChannel(channelKey: string) {
     const sb = getSupabaseClient(req);
     if (!sb) return next();
 
-    const workspaceId = extractWorkspaceId(req);
-    if (!workspaceId) {
-      return res.status(400).json({ error: 'Missing workspaceId for channel check' });
-    }
+    const workspaceId = gateWorkspaceIdOrRespond(req, res, 'Missing workspaceId for channel check');
+    if (!workspaceId) return;
 
     const result = await checkChannelAccess(sb.config.supabaseUrl, sb.config.supabaseServiceRoleKey, workspaceId, channelKey, {
       selfHostBillingUnlimited: sb.config.selfHostBillingUnlimited === true,
@@ -462,10 +500,8 @@ export function requireAICredits(credits: number = 1) {
     const sb = getSupabaseClient(req);
     if (!sb) return next();
 
-    const workspaceId = extractWorkspaceId(req);
-    if (!workspaceId) {
-      return res.status(400).json({ error: 'Missing workspaceId for AI credit check' });
-    }
+    const workspaceId = gateWorkspaceIdOrRespond(req, res, 'Missing workspaceId for AI credit check');
+    if (!workspaceId) return;
 
     const result = await deductAICredits(sb.config.supabaseUrl, sb.config.supabaseServiceRoleKey, workspaceId, credits);
 
@@ -504,10 +540,8 @@ export function requireLimit(
     const sb = getSupabaseClient(req);
     if (!sb) return next();
 
-    const workspaceId = extractWorkspaceId(req);
-    if (!workspaceId) {
-      return res.status(400).json({ error: 'Missing workspaceId for limit check' });
-    }
+    const workspaceId = gateWorkspaceIdOrRespond(req, res, 'Missing workspaceId for limit check');
+    if (!workspaceId) return;
 
     // R7.4 §6/§8 — numeric mode: `allowed:true` without a usable numeric
     // limit is UNREADABLE, never "limit zero".

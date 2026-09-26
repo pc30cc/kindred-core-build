@@ -20,6 +20,7 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { checkWorkspaceProviderBaseUrl } from '../../shared/ai/endpointPolicy.js';
 import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
 
 export const workspaceIntegrationsRouter = Router();
@@ -243,11 +244,38 @@ const upsertProviderSchema = z.object({
   secrets: z.record(z.string(), z.unknown()),
 });
 
+/**
+ * SSRF guard on write for a workspace AI endpoint (`base_url` / `endpoint`):
+ * https to a public host only, unless the operator allow-listed the host in
+ * AI_PROVIDER_PRIVATE_HOSTS. The AI Runtime enforces the same policy again at
+ * connect time (with DNS pinning) — this just rejects a bad value up front.
+ */
+async function invalidAiEndpoint(cfg: Record<string, unknown>): Promise<string | null> {
+  for (const key of ['base_url', 'endpoint']) {
+    const value = cfg[key];
+    if (value === undefined || value === null) continue;
+    if (typeof value !== 'string') return key;
+    if (!value.trim()) continue;
+    const check = await checkWorkspaceProviderBaseUrl(value.trim());
+    if (!check.ok) return key;
+  }
+  return null;
+}
+
 workspaceIntegrationsRouter.put('/:workspaceId/providers', async (req, res) => {
   const config = serverConfigOf(req);
   const parsed = upsertProviderSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
   if (!(await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true }))) return;
+  if (parsed.data.provider_type === 'ai') {
+    const badKey = await invalidAiEndpoint(parsed.data.config);
+    if (badKey) {
+      return res.status(400).json({
+        error: 'invalid_base_url',
+        message: `${badKey} must be an https URL on a public host`,
+      });
+    }
+  }
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('workspace_provider_settings')

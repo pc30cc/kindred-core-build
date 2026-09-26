@@ -28,12 +28,13 @@ while true; do
   if [ -z "$CMD_ID" ]; then sleep "$INTERVAL"; continue; fi
   log "claimed command $CMD ($CMD_ID)"
 
+  CMD_OUT="$BACKUP_TMP/cmd.out"
   set +e
   case "$CMD" in
-    run_base_backup)    ./base-backup.sh    > /tmp/cmd.out 2>&1 ;;
-    run_logical_backup) ./logical-backup.sh > /tmp/cmd.out 2>&1 ;;
-    verify_latest_backup) ./verify-backup.sh > /tmp/cmd.out 2>&1 ;;
-    *) echo "unknown command: $CMD" > /tmp/cmd.out; false ;;
+    run_base_backup)    ./base-backup.sh    > "$CMD_OUT" 2>&1 ;;
+    run_logical_backup) ./logical-backup.sh > "$CMD_OUT" 2>&1 ;;
+    verify_latest_backup) ./verify-backup.sh > "$CMD_OUT" 2>&1 ;;
+    *) echo "unknown command: $CMD" > "$CMD_OUT"; false ;;
   esac
   RC=$?
   set -e
@@ -42,7 +43,7 @@ while true; do
     api complete "{\"id\":\"$CMD_ID\",\"status\":\"succeeded\",\"result\":{\"exit_code\":0}}" >/dev/null
     log "command $CMD succeeded"
   else
-    api complete "{\"id\":\"$CMD_ID\",\"status\":\"failed\",\"error\":$(json_escape "$(tail -c 900 /tmp/cmd.out)")}" >/dev/null
+    api complete "{\"id\":\"$CMD_ID\",\"status\":\"failed\",\"error\":$(json_escape "$(tail -c 900 "$CMD_OUT")")}" >/dev/null
     log "command $CMD failed (rc=$RC)"
   fi
 done

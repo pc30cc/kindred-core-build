@@ -13,7 +13,13 @@
  *   classification stays identical across providers.
  */
 
-import { TelegramApiError, type BotCredential } from '../telegram/client.js';
+import { TelegramApiError, mediaDownloadError, type BotCredential } from '../telegram/client.js';
+import {
+  BoundedFetchError,
+  assertPublicHttpUrl,
+  fetchBytesBounded,
+  hostMatches,
+} from '../../../shared/net/boundedFetch.js';
 
 const GRAPH_ROOT = 'https://graph.facebook.com';
 const GRAPH_VERSION = 'v21.0';
@@ -40,7 +46,7 @@ export function parseInstagramCredential(credential: BotCredential): InstagramCr
     /\/+$/,
     '',
   );
-  let parsed: any;
+  let parsed: { ig_account_id?: unknown; access_token?: unknown; page_id?: unknown } | null;
   try {
     parsed = JSON.parse(raw);
   } catch {
@@ -65,7 +71,7 @@ export function parseInstagramCredential(credential: BotCredential): InstagramCr
   };
 }
 
-async function graph<T = any>(
+async function graph<T = unknown>(
   cred: InstagramCredential,
   method: 'GET' | 'POST',
   path: string,
@@ -100,7 +106,7 @@ async function graph<T = any>(
   }
 
   const raw = await response.text();
-  let parsed: any = null;
+  let parsed: { error?: { code?: unknown; message?: unknown } } | null = null;
   try {
     parsed = raw ? JSON.parse(raw) : null;
   } catch {
@@ -135,7 +141,11 @@ async function graph<T = any>(
 
 export async function getMe(credential: BotCredential) {
   const cred = parseInstagramCredential(credential);
-  const profile = await graph<any>(cred, 'GET', `${cred.igAccountId}?fields=username,name`);
+  const profile = await graph<{ username?: string; name?: string } | null>(
+    cred,
+    'GET',
+    `${cred.igAccountId}?fields=username,name`,
+  );
   return {
     id: cred.igAccountId,
     username: profile?.username ?? null,
@@ -159,6 +169,9 @@ export async function getWebhookInfo() {
 
 // ── messaging ─────────────────────────────────────────────────────────
 
+/** One button of a Bot-API inline or reply keyboard, as far as it is read here. */
+type KeyboardButtonLike = { text?: unknown; callback_data?: unknown };
+
 /**
  * Translates a Bot-API keyboard into Instagram quick replies.
  *
@@ -167,10 +180,10 @@ export async function getWebhookInfo() {
  * 20-character title.
  */
 export function quickRepliesFromReplyMarkup(
-  replyMarkup: Record<string, any> | undefined,
+  replyMarkup: Record<string, unknown> | undefined,
 ): Array<Record<string, unknown>> | null {
   if (!replyMarkup) return null;
-  const rows: any[] = Array.isArray(replyMarkup.inline_keyboard)
+  const rows: unknown[] = Array.isArray(replyMarkup.inline_keyboard)
     ? replyMarkup.inline_keyboard
     : Array.isArray(replyMarkup.keyboard)
       ? replyMarkup.keyboard
@@ -178,7 +191,8 @@ export function quickRepliesFromReplyMarkup(
 
   const chips = rows
     .flat()
-    .map((button: any) => {
+    .map((entry) => {
+      const button = entry as KeyboardButtonLike | null | undefined;
       const label = String(button?.text ?? '').trim();
       if (!label) return null;
       return {
@@ -193,7 +207,10 @@ export function quickRepliesFromReplyMarkup(
 }
 
 async function send(cred: InstagramCredential, recipientId: string, message: Record<string, unknown>) {
-  const result = await graph<any>(cred, 'POST', `${cred.igAccountId}/messages`, {
+  const result = await graph<{
+    message_id?: number | string;
+    messages?: Array<{ id?: number | string }>;
+  } | null>(cred, 'POST', `${cred.igAccountId}/messages`, {
     messaging_product: 'instagram',
     recipient: { id: recipientId },
     message,
@@ -212,7 +229,7 @@ export async function sendMessage(
   },
 ): Promise<{ message_id: number | string }> {
   const cred = parseInstagramCredential(credential);
-  const quickReplies = quickRepliesFromReplyMarkup(input.replyMarkup as any);
+  const quickReplies = quickRepliesFromReplyMarkup(input.replyMarkup);
   const message: Record<string, unknown> = { text: input.text.slice(0, 1000) || '…' };
   if (quickReplies) message.quick_replies = quickReplies;
   return send(cred, String(input.chatId), message);
@@ -241,6 +258,46 @@ export async function answerCallbackQuery(): Promise<void> {
 // ── media ─────────────────────────────────────────────────────────────
 
 /**
+ * Where an inbound Instagram media URL may point.
+ *
+ * The URL comes straight out of the webhook body, so it is attacker-supplied
+ * until proven otherwise. Only Meta's own media CDNs are fetched, and the
+ * access token is attached ONLY for the Graph API host — CDN URLs are
+ * pre-signed and never need it, and sending it anywhere else would hand the
+ * page token to whoever controls that host.
+ */
+export const INSTAGRAM_MEDIA_CDN_HOSTS = [
+  '*.fbcdn.net',
+  '*.cdninstagram.com',
+  'lookaside.fbsbx.com',
+  'lookaside.instagram.com',
+] as const;
+const INSTAGRAM_GRAPH_HOSTS = ['graph.facebook.com', 'graph.instagram.com'] as const;
+const INSTAGRAM_MEDIA_MAX_REDIRECTS = 3;
+
+function graphHosts(cred: InstagramCredential): string[] {
+  const hosts: string[] = [...INSTAGRAM_GRAPH_HOSTS];
+  try {
+    hosts.push(new URL(cred.apiRoot).hostname.toLowerCase());
+  } catch {
+    /* default Graph hosts only */
+  }
+  return hosts;
+}
+
+/** True when `url` is an https URL on a Meta Graph or Meta media CDN host. */
+export function isAllowedInstagramMediaUrl(url: string | URL, extraGraphHosts: string[] = []): boolean {
+  let u: URL;
+  try {
+    u = url instanceof URL ? url : new URL(url);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'https:' || u.username || u.password) return false;
+  return hostMatches(u.hostname, [...INSTAGRAM_GRAPH_HOSTS, ...extraGraphHosts, ...INSTAGRAM_MEDIA_CDN_HOSTS]);
+}
+
+/**
  * Instagram inbound attachments arrive as absolute CDN URLs, so the mapper
  * stores the URL itself as the `file_id` and there is nothing to resolve.
  */
@@ -250,6 +307,9 @@ export async function getFile(
 ): Promise<{ file_path: string; file_size?: number }> {
   if (!/^https:\/\//i.test(fileId)) {
     throw new TelegramApiError('Instagram media reference is not a URL', 400, null, null, false);
+  }
+  if (!isAllowedInstagramMediaUrl(fileId)) {
+    throw new TelegramApiError('Instagram media URL is not on a Meta media host', 400, null, null, false);
   }
   return { file_path: fileId };
 }
@@ -263,21 +323,23 @@ export async function downloadFile(
   if (!/^https:\/\//i.test(filePath)) {
     throw new TelegramApiError('Instagram media URL is not https', 400, null, null, false);
   }
-  const response = await fetch(filePath, { headers: { Authorization: `Bearer ${cred.accessToken}` } });
-  if (!response.ok) {
-    throw new TelegramApiError(
-      `Instagram media download failed [${response.status}]`,
-      response.status,
-      null,
-      null,
-      response.status >= 500 || response.status === 429,
-    );
+  const tokenHosts = graphHosts(cred);
+  try {
+    const { bytes } = await fetchBytesBounded(filePath, {
+      maxBytes,
+      maxRedirects: INSTAGRAM_MEDIA_MAX_REDIRECTS,
+      // Every hop (initial URL and each redirect) must stay on Meta hosts.
+      validate: async (url) => {
+        if (!isAllowedInstagramMediaUrl(url, tokenHosts)) throw new BoundedFetchError('host_not_allowed');
+        await assertPublicHttpUrl(url);
+      },
+      headers: (url) =>
+        hostMatches(url.hostname, tokenHosts) ? { Authorization: `Bearer ${cred.accessToken}` } : undefined,
+    });
+    return bytes;
+  } catch (err) {
+    throw mediaDownloadError(err, 'Instagram');
   }
-  const buffer = new Uint8Array(await response.arrayBuffer());
-  if (buffer.byteLength > maxBytes) {
-    throw new TelegramApiError('Instagram media exceeds allowed size', 413, null, null, false);
-  }
-  return buffer;
 }
 
 const MEDIA_TYPES: Record<string, string> = {
@@ -330,7 +392,7 @@ export async function getUserProfilePhotoFileId(
 ): Promise<string | null> {
   try {
     const cred = parseInstagramCredential(credential);
-    const profile = await graph<any>(cred, 'GET', `${userId}?fields=profile_pic`);
+    const profile = await graph<{ profile_pic?: unknown } | null>(cred, 'GET', `${userId}?fields=profile_pic`);
     const url = profile?.profile_pic ? String(profile.profile_pic) : null;
     return url && /^https:\/\//i.test(url) ? url : null;
   } catch {

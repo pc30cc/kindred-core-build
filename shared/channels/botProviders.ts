@@ -153,9 +153,11 @@ const DESCRIPTORS: Record<BotProviderId, BotProviderDescriptor> = {
     apiVersion: 'v21.0',
     tokenPattern: /^\{[\s\S]*"access_token"[\s\S]*\}$/,
     // Meta signs the body with the app secret (X-Hub-Signature-256), which
-    // the credential-free Gateway cannot verify. Authenticity therefore rests
-    // on the unguessable 192-bit public integration id in the callback path,
-    // exactly as for Bale.
+    // the credential-free Gateway cannot verify: it forwards the raw body and
+    // header to Core, which verifies them whenever an app secret is
+    // configured (credential `app_secret` or META_APP_SECRET — see
+    // server/services/channels/metaSignature.ts). Without one, authenticity
+    // rests on the unguessable 192-bit public integration id in the path.
     webhookSecretHeader: null,
     supportsSecretToken: false,
     supportsAllowedUpdates: false,
@@ -184,9 +186,9 @@ const DESCRIPTORS: Record<BotProviderId, BotProviderDescriptor> = {
     apiVersion: 'v21.0',
     // Credential envelope: { ig_account_id, access_token, page_id? }.
     tokenPattern: /^\{[\s\S]*"access_token"[\s\S]*\}$/,
-    // Meta signs the body with the app secret (X-Hub-Signature-256), which
-    // the credential-free Gateway cannot verify; authenticity rests on the
-    // unguessable 192-bit public integration id in the callback path.
+    // Meta signs the body with the app secret (X-Hub-Signature-256); Core
+    // verifies it (raw body forwarded by the Gateway) whenever an app secret
+    // is configured — see server/services/channels/metaSignature.ts.
     webhookSecretHeader: null,
     supportsSecretToken: false,
     supportsAllowedUpdates: false,

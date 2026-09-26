@@ -13,11 +13,22 @@ import { checkModuleAccess, deductAICredits, incrementUsage } from '../middlewar
 import {
   authorizeWorkspaceAccess,
   requirePlatformAdmin,
-  checkOutboundUrl,
 } from '../lib/workspaceAuth.js';
+import { checkWorkspaceProviderBaseUrl } from '../../shared/ai/endpointPolicy.js';
 
 
 export const aiRouter = Router();
+
+/** Fields the server attaches to every request before route handlers run. */
+interface AiRouteRequestExtras {
+  serverConfig: ServerConfig;
+  aiCredits?: unknown;
+}
+
+/** Reads `.message` exactly like the untyped handlers did (no normalisation). */
+function messageOf(err: unknown): string | undefined {
+  return (err as { message?: string }).message;
+}
 
 // Rate limit tracking per workspace
 const wsUsageCounters = new Map<string, { count: number; windowStart: number }>();
@@ -56,7 +67,7 @@ const completionSchema = z.object({
  */
 aiRouter.post('/complete', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as typeof req & AiRouteRequestExtras).serverConfig;
 
     const parsed = completionSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -107,7 +118,7 @@ aiRouter.post('/complete', async (req, res) => {
         upgrade_required: true,
       });
     }
-    (req as any).aiCredits = credits;
+    (req as typeof req & AiRouteRequestExtras).aiCredits = credits;
 
     // Build the request explicitly: zod's inferred output marks every property
     // optional under `strictNullChecks: false`, while AIRequest requires
@@ -137,9 +148,9 @@ aiRouter.post('/complete', async (req, res) => {
       latencyMs: result.latencyMs,
       credits,
     });
-  } catch (err: any) {
-    console.error('[ai] Completion error:', err.message);
-    return res.status(500).json({ error: err.message || 'AI completion failed' });
+  } catch (err: unknown) {
+    console.error('[ai] Completion error:', messageOf(err));
+    return res.status(500).json({ error: messageOf(err) || 'AI completion failed' });
   }
 });
 
@@ -156,7 +167,7 @@ const testSchema = z.object({
  */
 aiRouter.post('/test', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as typeof req & AiRouteRequestExtras).serverConfig;
     // Provider connection testing is a platform-admin operation: it makes the
     // AI Runtime issue an outbound request with operator-supplied parameters.
     if (!(await requirePlatformAdmin(req, res))) return;
@@ -170,8 +181,10 @@ aiRouter.post('/test', async (req, res) => {
     // SSRF pre-check in Core (fail-closed) on the operator-supplied endpoint.
     // The connection itself is made by the AI Runtime, which re-validates and
     // pins DNS inside its own transport — Core never opens the socket.
+    // Same policy as workspace endpoints: public https, or a host explicitly
+    // allow-listed by the operator in AI_PROVIDER_PRIVATE_HOSTS.
     if (parsed.data.baseUrl) {
-      const urlCheck = await checkOutboundUrl(parsed.data.baseUrl);
+      const urlCheck = await checkWorkspaceProviderBaseUrl(parsed.data.baseUrl);
       if (!urlCheck.ok) {
         return res.status(400).json({ success: false, error: 'baseUrl is not an allowed https endpoint' });
       }
@@ -186,14 +199,14 @@ aiRouter.post('/test', async (req, res) => {
     });
 
     return res.json(result);
-  } catch (err: any) {
+  } catch (err: unknown) {
     // A runtime-boundary failure is surfaced verbatim (with its stable code) so
     // operators see "AI runtime not configured/unreachable" instead of a
     // misleading "provider rejected your key".
     if (err instanceof AiRuntimeError) {
       return res.status(502).json({ success: false, error: err.message, code: err.code });
     }
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, error: messageOf(err) });
   }
 });
 
@@ -203,7 +216,7 @@ aiRouter.post('/test', async (req, res) => {
  */
 aiRouter.get('/config/:workspaceId', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as typeof req & AiRouteRequestExtras).serverConfig;
     if (!(await authorizeWorkspaceAccess(req, res, req.params.workspaceId))) return;
 
     const aiConfig = await resolveAIConfig(config, req.params.workspaceId);
@@ -218,7 +231,7 @@ aiRouter.get('/config/:workspaceId', async (req, res) => {
       maxTokens: aiConfig.maxTokens,
       temperature: aiConfig.temperature,
     });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: messageOf(err) });
   }
 });

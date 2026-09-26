@@ -9,7 +9,7 @@
  * back. Every response returns `hasToken` instead of the value.
  */
 
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { authorizeWorkspaceAccess, requirePlatformAdmin, serverConfigOf } from '../lib/workspaceAuth.js';
 import { redactSecrets } from '../lib/redactSecrets.js';
@@ -83,8 +83,11 @@ export const pluginsRouter = Router();
 
 const MANAGE_ROLES = ['owner', 'admin'];
 
+/** Requests on `adminPluginsRouter` carry the Super Admin id set by its guard. */
+type PlatformAdminRequest = Request & { platformAdminId?: string };
+
 /** Workspace guard: real JWT + membership + manage-level role. */
-async function requireManager(req: any, res: any, workspaceId: string) {
+async function requireManager(req: Request, res: Response, workspaceId: string) {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return null;
   if (!auth.isAdmin && !MANAGE_ROLES.includes(auth.role ?? '')) {
@@ -129,7 +132,7 @@ async function isPluginAllowedByPlan(
 }
 
 /** A plugin is usable only when platform state AND the plan both allow it. */
-async function resolveAvailability(req: any, workspaceId: string, pluginId: string) {
+async function resolveAvailability(req: Request, workspaceId: string, pluginId: string) {
   const config = serverConfigOf(req);
   const def = getPluginDefinition(pluginId);
   if (!def) return { ok: false as const, reason: 'unknown_plugin' };
@@ -146,7 +149,7 @@ async function resolveAvailability(req: any, workspaceId: string, pluginId: stri
 
 // ── Catalog ───────────────────────────────────────────────────────────
 
-pluginsRouter.get('/catalog', async (req: any, res) => {
+pluginsRouter.get('/catalog', async (req, res) => {
   const workspaceId = String(req.query.workspace_id || '');
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
   // Plugin catalog is an owner/admin surface (matches the sidebar gating).
@@ -196,7 +199,7 @@ const installSchema = z.object({
   plugin_id: z.string().min(1).max(64),
 });
 
-pluginsRouter.post('/install', async (req: any, res) => {
+pluginsRouter.post('/install', async (req, res) => {
   const parsed = installSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
   const { workspace_id: workspaceId, plugin_id: pluginId } = parsed.data;
@@ -217,7 +220,7 @@ pluginsRouter.post('/install', async (req: any, res) => {
   }
 });
 
-pluginsRouter.post('/uninstall', async (req: any, res) => {
+pluginsRouter.post('/uninstall', async (req, res) => {
   const parsed = installSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
   const { workspace_id: workspaceId, plugin_id: pluginId } = parsed.data;
@@ -250,7 +253,7 @@ pluginsRouter.post('/uninstall', async (req: any, res) => {
 // every provider is also reachable at `/bot/:provider/*`.
 
 /** Resolves and validates the bot provider addressed by the request. */
-function botProviderOf(req: any, res: any): string | null {
+function botProviderOf(req: Request, res: Response): string | null {
   const provider = String(req.params?.provider || 'telegram');
   if (!isBotProvider(provider)) {
     res.status(404).json({ error: 'unknown_provider' });
@@ -278,6 +281,8 @@ const whatsappConnectSchema = z.object({
   phone_number_id: z.string().min(5).max(64).regex(/^\d+$/, 'Invalid phone number id'),
   access_token: z.string().min(20).max(512),
   business_account_id: z.string().max(64).optional().nullable(),
+  /** Optional Meta App Secret: enables X-Hub-Signature-256 webhook verification. */
+  app_secret: z.string().max(256).optional().nullable(),
 });
 
 /**
@@ -291,6 +296,8 @@ const instagramConnectSchema = z.object({
   ig_account_id: z.string().min(5).max(64).regex(/^\d+$/, 'Invalid Instagram account id'),
   access_token: z.string().min(20).max(512),
   page_id: z.string().max(64).optional().nullable(),
+  /** Optional Meta App Secret: enables X-Hub-Signature-256 webhook verification. */
+  app_secret: z.string().max(256).optional().nullable(),
 });
 
 /**
@@ -321,6 +328,7 @@ function parseConnectCredential(
         ig_account_id: parsed.data.ig_account_id,
         access_token: parsed.data.access_token,
         page_id: parsed.data.page_id || null,
+        ...(parsed.data.app_secret?.trim() ? { app_secret: parsed.data.app_secret.trim() } : {}),
       }),
     };
   }
@@ -333,6 +341,7 @@ function parseConnectCredential(
         phone_number_id: parsed.data.phone_number_id,
         access_token: parsed.data.access_token,
         business_account_id: parsed.data.business_account_id || null,
+        ...(parsed.data.app_secret?.trim() ? { app_secret: parsed.data.app_secret.trim() } : {}),
       }),
     };
   }
@@ -354,7 +363,7 @@ function parseConnectCredential(
   return { workspaceId: parsed.data.workspace_id, credential: parsed.data.bot_token };
 }
 
-pluginsRouter.post(botPaths('connect'), async (req: any, res) => {
+pluginsRouter.post(botPaths('connect'), async (req, res) => {
   const provider = botProviderOf(req, res);
   if (!provider) return;
   const parsed = parseConnectCredential(provider, req.body);
@@ -464,7 +473,7 @@ pluginsRouter.post(botPaths('connect'), async (req: any, res) => {
 
 });
 
-pluginsRouter.get(botPaths('status'), async (req: any, res) => {
+pluginsRouter.get(botPaths('status'), async (req, res) => {
   const provider = botProviderOf(req, res);
   if (!provider) return;
   const workspaceId = String(req.query.workspace_id || '');
@@ -492,9 +501,9 @@ pluginsRouter.get(botPaths('status'), async (req: any, res) => {
         ]);
         return {
           platformAllowed: platformGate.allowed === true,
-          platformReason: platformGate.allowed === true ? null : (platformGate as any).reason,
-          agentEnabled: !!(agentSettings as any)?.enabled && (agentSettings as any)?.mode !== 'off',
-          agentMode: (agentSettings as any)?.mode ?? null,
+          platformReason: platformGate.allowed === true ? null : platformGate.reason,
+          agentEnabled: !!agentSettings?.enabled && agentSettings?.mode !== 'off',
+          agentMode: agentSettings?.mode ?? null,
         };
       } catch {
         return null;
@@ -557,7 +566,7 @@ pluginsRouter.get(botPaths('status'), async (req: any, res) => {
  * route's await deadline and the reverse proxy would answer 502 with no
  * explanation. Detect it up front and say so.
  */
-async function channelsWorkerOffline(req: any): Promise<boolean> {
+async function channelsWorkerOffline(req: Request): Promise<boolean> {
   try {
     const config = serverConfigOf(req);
     // CHANNELS_WORKER_HEARTBEAT=off — FAIL OPEN. With the beacon switched off
@@ -582,7 +591,7 @@ async function channelsWorkerOffline(req: any): Promise<boolean> {
   }
 }
 
-pluginsRouter.post(botPaths('diagnostics'), async (req: any, res) => {
+pluginsRouter.post(botPaths('diagnostics'), async (req, res) => {
   const provider = botProviderOf(req, res);
   if (!provider) return;
 
@@ -621,7 +630,7 @@ pluginsRouter.post(botPaths('diagnostics'), async (req: any, res) => {
  * credential. Used when diagnostics report drift (wrong URL, provider-side
  * reset) without asking the operator to paste the token again.
  */
-pluginsRouter.post(botPaths('reconnect'), async (req: any, res) => {
+pluginsRouter.post(botPaths('reconnect'), async (req, res) => {
   const provider = botProviderOf(req, res);
   if (!provider) return;
   const workspaceId = String(req.body?.workspace_id || '');
@@ -661,7 +670,7 @@ pluginsRouter.post(botPaths('reconnect'), async (req: any, res) => {
  * Disconnect: removes the provider webhook and the stored credential but
  * KEEPS the installation and all conversation history.
  */
-pluginsRouter.post(botPaths('disconnect'), async (req: any, res) => {
+pluginsRouter.post(botPaths('disconnect'), async (req, res) => {
   const provider = botProviderOf(req, res);
   if (!provider) return;
   const workspaceId = String(req.body?.workspace_id || '');
@@ -696,7 +705,7 @@ const telegramProfileSchema = z.object({
     .optional(),
 });
 
-pluginsRouter.post(botPaths('profile'), async (req: any, res) => {
+pluginsRouter.post(botPaths('profile'), async (req, res) => {
   const provider = botProviderOf(req, res);
   if (!provider) return;
   const parsed = telegramProfileSchema.safeParse(req.body);
@@ -727,7 +736,7 @@ pluginsRouter.post(botPaths('profile'), async (req: any, res) => {
     if (settled?.status !== 'succeeded') {
       return res.status(202).json({ ok: false, pending: true, operationId: operation.id });
     }
-    res.json({ ok: true, applied: (settled.result as any)?.applied ?? [], operationId: operation.id });
+    res.json({ ok: true, applied: settled.result?.applied ?? [], operationId: operation.id });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown error';
     console.error('[plugins] telegram profile failed:', message);
@@ -741,7 +750,7 @@ const settingsSchema = z.object({
   settings: z.record(z.unknown()),
 });
 
-pluginsRouter.put('/settings', async (req: any, res) => {
+pluginsRouter.put('/settings', async (req, res) => {
   const parsed = settingsSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
   const { workspace_id: workspaceId, plugin_id: pluginId, settings } = parsed.data;
@@ -754,7 +763,7 @@ pluginsRouter.put('/settings', async (req: any, res) => {
     const installation = await getInstallation(config, workspaceId, pluginId);
     if (!installation) return res.status(404).json({ error: 'Plugin is not installed' });
     // Settings never carry credentials.
-    delete (settings as any).bot_token;
+    delete settings.bot_token;
 
     let toPersist: Record<string, unknown> = settings;
     if (isBotProvider(pluginId)) {
@@ -798,8 +807,32 @@ pluginsRouter.put('/settings', async (req: any, res) => {
 
 // ── Activity log (workspace surface) ──────────────────────────────────
 
+/** The `channel_jobs` columns the activity logs select. */
+type ChannelJobLogRow = {
+  id: string;
+  provider: string;
+  job_type: string;
+  status: string;
+  attempt_count: number;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string | null;
+  workspace_id: string | null;
+};
+
+/** The `channel_inbound_events` columns the activity logs select. */
+type InboundEventLogRow = {
+  id: string;
+  provider: string;
+  status: string;
+  last_error: string | null;
+  created_at: string;
+  processed_at: string | null;
+  workspace_id: string | null;
+};
+
 /** Shapes a job row into a provider-neutral, credential-free log entry. */
-function jobLogEntry(row: any) {
+function jobLogEntry(row: ChannelJobLogRow) {
   return {
     id: row.id,
     kind: 'job' as const,
@@ -814,7 +847,7 @@ function jobLogEntry(row: any) {
 }
 
 /** Inbound events never expose the raw provider payload (PII + tokens). */
-function inboundLogEntry(row: any) {
+function inboundLogEntry(row: InboundEventLogRow) {
   return {
     id: row.id,
     kind: 'inbound' as const,
@@ -833,7 +866,7 @@ function inboundLogEntry(row: any) {
  * deliberately payload-free: operators need status and failure reasons, not
  * message contents, on an observability screen.
  */
-pluginsRouter.get('/logs', async (req: any, res) => {
+pluginsRouter.get('/logs', async (req, res) => {
   const workspaceId = String(req.query.workspace_id || '');
   const pluginId = String(req.query.plugin_id || '');
   if (!/^[0-9a-f-]{36}$/i.test(workspaceId) || !getPluginDefinition(pluginId)) {
@@ -879,14 +912,14 @@ pluginsRouter.get('/logs', async (req: any, res) => {
 
 export const adminPluginsRouter = Router();
 
-adminPluginsRouter.use(async (req: any, res, next) => {
+adminPluginsRouter.use(async (req, res, next) => {
   const adminId = await requirePlatformAdmin(req, res);
   if (!adminId) return;
-  req.platformAdminId = adminId;
+  (req as PlatformAdminRequest).platformAdminId = adminId;
   next();
 });
 
-adminPluginsRouter.get('/', async (req: any, res) => {
+adminPluginsRouter.get('/', async (req, res) => {
   try {
     const states = await listPlatformState(serverConfigOf(req));
     const stateById = new Map(states.map((s) => [s.plugin_id, s]));
@@ -919,7 +952,7 @@ const adminStateSchema = z.object({
   policy: z.record(z.unknown()).optional(),
 });
 
-adminPluginsRouter.patch('/:pluginId', async (req: any, res) => {
+adminPluginsRouter.patch('/:pluginId', async (req, res) => {
   const pluginId = String(req.params.pluginId);
   if (!getPluginDefinition(pluginId)) return res.status(404).json({ error: 'Unknown plugin' });
 
@@ -927,7 +960,12 @@ adminPluginsRouter.patch('/:pluginId', async (req: any, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
 
   try {
-    const state = await updatePlatformState(serverConfigOf(req), pluginId, parsed.data as any, req.platformAdminId);
+    const state = await updatePlatformState(
+      serverConfigOf(req),
+      pluginId,
+      parsed.data,
+      (req as PlatformAdminRequest).platformAdminId,
+    );
     res.json({ state });
   } catch (err) {
     console.error('[plugins] admin update failed:', err);
@@ -947,16 +985,16 @@ adminPluginsRouter.patch('/:pluginId', async (req: any, res) => {
  * deployment env vars, for the Super Admin plugin page's setup instructions.
  * Never returns a secret value, only whether each var is present.
  */
-adminPluginsRouter.get('/gmail/env-status', async (req: any, res) => {
+adminPluginsRouter.get('/gmail/env-status', async (req, res) => {
   res.json(getGmailPlatformEnvStatus());
 });
 
 /** GET /admin/yahoo/env-status — same secret-free contract as Gmail's. */
-adminPluginsRouter.get('/yahoo/env-status', async (req: any, res) => {
+adminPluginsRouter.get('/yahoo/env-status', async (req, res) => {
   res.json(getYahooPlatformEnvStatus());
 });
 
-adminPluginsRouter.get('/channels/integrations', async (req: any, res) => {
+adminPluginsRouter.get('/channels/integrations', async (req, res) => {
   try {
     const sb = getServiceClient(serverConfigOf(req));
     const { data, error } = await sb
@@ -975,8 +1013,16 @@ adminPluginsRouter.get('/channels/integrations', async (req: any, res) => {
   }
 });
 
+/** The `channel_worker_heartbeats` columns the health panel selects. */
+type WorkerHeartbeatRow = {
+  worker_id: string;
+  worker_kind: string;
+  last_seen_at: string;
+  code_version: string | null;
+};
+
 /** Queue depth, lag, dead-letter count and worker liveness. */
-adminPluginsRouter.get('/channels/health', async (req: any, res) => {
+adminPluginsRouter.get('/channels/health', async (req, res) => {
   try {
     const sb = getServiceClient(serverConfigOf(req));
     // 150s window: worker heartbeat cadence is 45s, so a live worker always
@@ -998,7 +1044,7 @@ adminPluginsRouter.get('/channels/health', async (req: any, res) => {
         .limit(20),
     ]);
 
-    const workers = (heartbeats.data ?? []).map((w: any) => ({
+    const workers = ((heartbeats.data ?? []) as WorkerHeartbeatRow[]).map((w) => ({
       ...w,
       alive: w.last_seen_at > staleBefore,
     }));
@@ -1006,7 +1052,7 @@ adminPluginsRouter.get('/channels/health', async (req: any, res) => {
     res.json({
       queue: metrics,
       workers,
-      workersAlive: workers.filter((w: any) => w.alive).length,
+      workersAlive: workers.filter((w) => w.alive).length,
       deadLetters: failures.data ?? [],
     });
   } catch (err) {
@@ -1024,7 +1070,7 @@ const retryChannelJobsSchema = z.object({
  * repaired. This is deliberately admin-triggered and bounded; a deploy must
  * never replay failed provider events implicitly.
  */
-adminPluginsRouter.post('/channels/jobs/retry', async (req: any, res) => {
+adminPluginsRouter.post('/channels/jobs/retry', async (req, res) => {
   const parsed = retryChannelJobsSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
 
@@ -1047,7 +1093,7 @@ adminPluginsRouter.post('/channels/jobs/retry', async (req: any, res) => {
     if (error) throw new Error(error.message);
 
     console.info(
-      `[plugins] platform admin ${req.platformAdminId} requeued ${(data ?? []).length} channel jobs`,
+      `[plugins] platform admin ${(req as PlatformAdminRequest).platformAdminId} requeued ${(data ?? []).length} channel jobs`,
     );
     res.json({ ok: true, requeued: (data ?? []).length });
   } catch (err) {
@@ -1060,7 +1106,7 @@ adminPluginsRouter.post('/channels/jobs/retry', async (req: any, res) => {
  * Emergency stop: force-disconnects one integration (removes the provider
  * webhook and the credential). Kept admin-only and explicitly audited.
  */
-adminPluginsRouter.post('/channels/integrations/:integrationId/disconnect', async (req: any, res) => {
+adminPluginsRouter.post('/channels/integrations/:integrationId/disconnect', async (req, res) => {
   const integrationId = String(req.params.integrationId || '');
   try {
     const config = serverConfigOf(req);
@@ -1068,9 +1114,10 @@ adminPluginsRouter.post('/channels/integrations/:integrationId/disconnect', asyn
     if (!integration) return res.status(404).json({ error: 'Unknown integration' });
     if (!isBotProvider(integration.provider)) return res.status(400).json({ error: 'Unsupported provider' });
 
-    await requestTelegramDisconnect(config, integration.installation_id, req.platformAdminId ?? null);
+    const adminId = (req as PlatformAdminRequest).platformAdminId;
+    await requestTelegramDisconnect(config, integration.installation_id, adminId ?? null);
     console.warn(
-      `[plugins] platform admin ${req.platformAdminId} force-disconnected integration ${integrationId}`,
+      `[plugins] platform admin ${adminId} force-disconnected integration ${integrationId}`,
     );
     res.json({ ok: true });
   } catch (err) {
@@ -1083,7 +1130,7 @@ adminPluginsRouter.post('/channels/integrations/:integrationId/disconnect', asyn
  * Platform-wide activity for ONE plugin. Same payload-free contract as the
  * workspace surface, plus the workspace id so an admin can correlate.
  */
-adminPluginsRouter.get('/:pluginId/logs', async (req: any, res) => {
+adminPluginsRouter.get('/:pluginId/logs', async (req, res) => {
   const pluginId = String(req.params.pluginId);
   if (!getPluginDefinition(pluginId)) return res.status(404).json({ error: 'Unknown plugin' });
 
@@ -1148,7 +1195,7 @@ function gmailErrorStatus(code: string): number {
   }
 }
 
-function sendGmailError(res: any, err: unknown) {
+function sendGmailError(res: Response, err: unknown) {
   if (isGmailError(err)) {
     return res.status(gmailErrorStatus(err.code)).json({ error: err.code, message: err.message, detail: err.detail });
   }
@@ -1156,7 +1203,7 @@ function sendGmailError(res: any, err: unknown) {
   res.status(500).json({ error: 'gmail_unexpected_error', detail: (err as Error)?.message });
 }
 
-pluginsRouter.get('/gmail/connection', async (req: any, res) => {
+pluginsRouter.get('/gmail/connection', async (req, res) => {
   const workspaceId = String(req.query.workspace_id || '');
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
@@ -1169,7 +1216,7 @@ pluginsRouter.get('/gmail/connection', async (req: any, res) => {
   }
 });
 
-pluginsRouter.post('/gmail/oauth/start', async (req: any, res) => {
+pluginsRouter.post('/gmail/oauth/start', async (req, res) => {
   const workspaceId = String(req.body?.workspace_id || '');
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
   const auth = await requireManager(req, res, workspaceId);
@@ -1187,7 +1234,7 @@ pluginsRouter.post('/gmail/oauth/start', async (req: any, res) => {
 // NOT workspace-scoped — Google requires one fixed, pre-registered
 // redirect_uri; the workspace travels inside the signed, single-use `state`
 // token instead (see handleGmailOAuthCallback).
-pluginsRouter.get('/gmail/oauth/callback', async (req: any, res) => {
+pluginsRouter.get('/gmail/oauth/callback', async (req, res) => {
   const config = serverConfigOf(req);
   const code = typeof req.query.code === 'string' ? req.query.code : '';
   const state = typeof req.query.state === 'string' ? req.query.state : '';
@@ -1214,7 +1261,7 @@ pluginsRouter.get('/gmail/oauth/callback', async (req: any, res) => {
   }
 });
 
-pluginsRouter.post('/gmail/disconnect', async (req: any, res) => {
+pluginsRouter.post('/gmail/disconnect', async (req, res) => {
   const workspaceId = String(req.body?.workspace_id || '');
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
   const auth = await requireManager(req, res, workspaceId);
@@ -1252,7 +1299,7 @@ function yahooErrorStatus(code: string): number {
   }
 }
 
-function sendYahooError(res: any, err: unknown) {
+function sendYahooError(res: Response, err: unknown) {
   if (isYahooError(err)) {
     return res.status(yahooErrorStatus(err.code)).json({ error: err.code, message: err.message, detail: err.detail });
   }
@@ -1260,7 +1307,7 @@ function sendYahooError(res: any, err: unknown) {
   res.status(500).json({ error: 'yahoo_unexpected_error', detail: (err as Error)?.message });
 }
 
-pluginsRouter.get('/yahoo/connection', async (req: any, res) => {
+pluginsRouter.get('/yahoo/connection', async (req, res) => {
   const workspaceId = String(req.query.workspace_id || '');
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
@@ -1273,7 +1320,7 @@ pluginsRouter.get('/yahoo/connection', async (req: any, res) => {
   }
 });
 
-pluginsRouter.post('/yahoo/oauth/start', async (req: any, res) => {
+pluginsRouter.post('/yahoo/oauth/start', async (req, res) => {
   const workspaceId = String(req.body?.workspace_id || '');
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
   const auth = await requireManager(req, res, workspaceId);
@@ -1289,7 +1336,7 @@ pluginsRouter.post('/yahoo/oauth/start', async (req: any, res) => {
 });
 
 // NOT workspace-scoped — same reasoning as Gmail's callback above.
-pluginsRouter.get('/yahoo/oauth/callback', async (req: any, res) => {
+pluginsRouter.get('/yahoo/oauth/callback', async (req, res) => {
   const config = serverConfigOf(req);
   const code = typeof req.query.code === 'string' ? req.query.code : '';
   const state = typeof req.query.state === 'string' ? req.query.state : '';
@@ -1312,7 +1359,7 @@ pluginsRouter.get('/yahoo/oauth/callback', async (req: any, res) => {
   }
 });
 
-pluginsRouter.post('/yahoo/disconnect', async (req: any, res) => {
+pluginsRouter.post('/yahoo/disconnect', async (req, res) => {
   const workspaceId = String(req.body?.workspace_id || '');
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
   const auth = await requireManager(req, res, workspaceId);

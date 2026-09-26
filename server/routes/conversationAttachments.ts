@@ -21,15 +21,16 @@
  * Attaching to a message happens via POST /api/conversations/send-message
  * by passing `attachment_id` (handled there).
  */
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { uploadFile, downloadFileRange } from '../services/storage/index.js';
 import { chatAttachmentKey } from '../services/storage/keys.js';
 import { requireLimit } from '../middleware/featureGating.js';
+import { setTrustedGateWorkspaceId } from '../middleware/gateWorkspace.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
-import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { verifyAttachmentAccess } from '../services/channels/mediaOutbound.js';
 
 export const conversationAttachmentsRouter = Router();
@@ -42,9 +43,9 @@ export const conversationAttachmentsRouter = Router();
 // cookie. The signature is scoped to one attachment id and expires, so this
 // is not a general public bucket.
 // ═══════════════════════════════════════════════════════════════════
-conversationAttachmentsRouter.get('/:id/public', async (req: any, res: any) => {
+conversationAttachmentsRouter.get('/:id/public', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const exp = Number(req.query.exp);
     const sig = String(req.query.sig || '');
     if (!verifyAttachmentAccess(String(req.params.id), exp, sig)) {
@@ -78,7 +79,7 @@ conversationAttachmentsRouter.get('/:id/public', async (req: any, res: any) => {
       `inline; filename="${String(row.file_name || 'file').replace(/"/g, '')}"`,
     );
     return res.status(200).send(dl.data);
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[conversationAttachments/public]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
@@ -103,7 +104,7 @@ const EXT_BY_MIME: Record<string, string> = {
 
 function safeFileName(name: string, mime: string): string {
   const stripped = String(name || '')
-    .replace(/[^\w.\-]+/g, '_')
+    .replace(/[^\w.-]+/g, '_')
     .replace(/_+/g, '_')
     .replace(/^[._]+|[._]+$/g, '')
     .slice(0, 80);
@@ -123,7 +124,7 @@ function buildStoragePath(workspaceId: string, fileName: string, mime: string): 
 
 /** Authenticate caller as a workspace member. Sends 401/403 on failure. */
 async function authorizeMember(
-  req: any, res: any, _config: ServerConfig, workspaceId: string,
+  req: Request, res: Response, _config: ServerConfig, workspaceId: string,
 ): Promise<{ userId: string } | null> {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return null;
@@ -144,7 +145,7 @@ const initSchema = z.object({
 
 conversationAttachmentsRouter.post('/init', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const parsed = initSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten().fieldErrors });
@@ -190,7 +191,7 @@ conversationAttachmentsRouter.post('/init', async (req, res) => {
         .select('value')
         .eq('key', 'default_storage_provider')
         .maybeSingle();
-      providerName = (globalCfg?.value as any)?.provider || 'local';
+      providerName = (globalCfg?.value as { provider?: string } | null | undefined)?.provider || 'local';
     }
 
     const storagePath = buildStoragePath(data.workspace_id, data.file_name, data.mime_type);
@@ -222,9 +223,9 @@ conversationAttachmentsRouter.post('/init', async (req, res) => {
       mime_type: row.mime_type,
       size_bytes: row.size_bytes,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[conversationAttachments/init]', err);
-    return res.status(500).json({ error: err?.message || 'Internal error' });
+    return res.status(500).json({ error: (err instanceof Error ? err.message : '') || 'Internal error' });
   }
 });
 
@@ -239,7 +240,7 @@ const uploadSchema = z.object({
 
 conversationAttachmentsRouter.post('/:id/upload', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const parsed = uploadSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid body' });
 
@@ -276,6 +277,8 @@ conversationAttachmentsRouter.post('/:id/upload', async (req, res) => {
     // docs/STORAGE_LIMIT_POLICY.md. No route-local storage math — the shared
     // resolver reads canonical workspace_usage_counters.storage_bytes. On a
     // 403, flip the reserved row to 'failed' so it doesn't strand 'uploading'.
+    // Evaluate the cap on the validated workspace, not raw body fields.
+    setTrustedGateWorkspaceId(req, parsed.data.workspace_id);
     const limitMw = requireLimit('storage_gb', usageFnForLimit('storage_gb'));
     let proceeded = false;
     await limitMw(req, res, () => { proceeded = true; });
@@ -306,9 +309,9 @@ conversationAttachmentsRouter.post('/:id/upload', async (req, res) => {
       .eq('id', row.id);
 
     return res.json({ attachment_id: row.id, status: 'uploaded' });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[conversationAttachments/upload]', err);
-    return res.status(500).json({ error: err?.message || 'Internal error' });
+    return res.status(500).json({ error: (err instanceof Error ? err.message : '') || 'Internal error' });
   }
 });
 
@@ -318,7 +321,7 @@ conversationAttachmentsRouter.post('/:id/upload', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════
 conversationAttachmentsRouter.delete('/:id', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const workspaceId = String(req.query.workspace_id || '');
     if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
 
@@ -340,9 +343,9 @@ conversationAttachmentsRouter.delete('/:id', async (req, res) => {
 
     await sb.from('conversation_attachments').delete().eq('id', row.id);
     return res.json({ ok: true });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[conversationAttachments/delete]', err);
-    return res.status(500).json({ error: err?.message || 'Internal error' });
+    return res.status(500).json({ error: (err instanceof Error ? err.message : '') || 'Internal error' });
   }
 });
 
@@ -357,9 +360,9 @@ conversationAttachmentsRouter.delete('/:id', async (req, res) => {
 // and membership is re-verified per call. Provider URLs never reach the
 // client. Range requests are honored so <audio>/<video> can seek.
 // ═══════════════════════════════════════════════════════════════════
-conversationAttachmentsRouter.get('/:id/file', async (req: any, res: any) => {
+conversationAttachmentsRouter.get('/:id/file', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const sb = getServiceClient(config);
 
     const { data: row } = await sb
@@ -415,7 +418,7 @@ conversationAttachmentsRouter.get('/:id/file', async (req: any, res: any) => {
       return res.status(206).send(dl.data);
     }
     return res.status(200).send(dl.data);
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[conversationAttachments/file]', err);
     return res.status(500).json({ error: 'internal_error' });
   }

@@ -32,10 +32,11 @@ export async function resolveEmbeddingProvider(
       baseUrl: ai.baseUrl,
       model: DEFAULT_EMBEDDING_MODEL,
       orgId: ai.orgId,
+      endpointScope: ai.endpointScope,
       dimensions: DEFAULT_DIMENSIONS,
     });
   } catch (err) {
-    console.warn('[ai-agent.embeddings] resolve failed, using noop:', (err as any)?.message);
+    console.warn('[ai-agent.embeddings] resolve failed, using noop:', (err as { message?: unknown } | null | undefined)?.message);
     return noopEmbeddingProvider;
   }
 }

@@ -17,8 +17,7 @@ import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 import type { MapMarker, MapTilesConfig } from '@/lib/visitors-api';
 import { Globe2 } from 'lucide-react';
 import { useTranslation } from '@/i18n';
-import { localizedLocationLabel } from '@/lib/geo/localizedGeo';
-import { isolateBidi } from '@/lib/bidi';
+import { STATUS_COLORS, buildTooltipHtml, lookup } from './visitorMapTooltip';
 
 interface Props {
   config: MapTilesConfig | undefined;
@@ -26,22 +25,6 @@ interface Props {
   selectedId: string | null;
   onSelect: (id: string) => void;
 }
-
-const STATUS_COLORS: Record<string, string> = {
-  // Deliberately NOT green: map tiles are full of green landmass, so an
-  // online visitor needs a hue that never occurs on the basemap.
-  online: 'hsl(340, 85%, 52%)',
-  idle: 'hsl(38, 92%, 50%)',
-  offline: 'hsl(215, 20%, 55%)',
-  unknown: 'hsl(215, 20%, 55%)',
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  online: 'Online',
-  idle: 'Idle',
-  offline: 'Offline',
-  unknown: 'Unknown',
-};
 
 /**
  * Build a Leaflet divIcon for a visitor marker.
@@ -52,7 +35,7 @@ const STATUS_LABEL: Record<string, string> = {
  * Online pins keep a pulsing ground ring at the tip.
  */
 function buildVisitorIcon(status: MapMarker['status'], selected: boolean): L.DivIcon {
-  const color = STATUS_COLORS[status] ?? STATUS_COLORS.unknown;
+  const color = lookup(STATUS_COLORS, status, STATUS_COLORS.unknown);
   const w = selected ? 32 : 26;
   const h = Math.round(w * 1.32);
   const pin = `
@@ -84,63 +67,6 @@ function buildVisitorIcon(status: MapMarker['status'], selected: boolean): L.Div
   });
 }
 
-
-/** Trim a URL/path for the tooltip — host + first path segment is enough. */
-function shortPage(p: string | null | undefined): string {
-  if (!p) return '';
-  try {
-    const u = new URL(p, 'http://x');
-    const host = u.host && u.host !== 'x' ? u.host : '';
-    const path = u.pathname.length > 28 ? u.pathname.slice(0, 28) + '…' : u.pathname;
-    return host ? `${host}${path}` : path;
-  } catch {
-    return p.length > 32 ? p.slice(0, 32) + '…' : p;
-  }
-}
-
-function relTime(iso: string | undefined | null): string {
-  if (!iso) return '';
-  const diff = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-  if (diff < 60) return 'just now';
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
-}
-
-/** Compact, label-driven HTML tooltip with location + status + page. */
-function buildTooltipHtml(m: MapMarker, locale: string): string {
-  // Raw HTML string, not a React text node — bidi-isolate the localized
-  // place name so it can't be visually reordered by whatever direction the
-  // page/tooltip container happens to inherit (see src/lib/bidi.ts).
-  const loc = isolateBidi(
-    localizedLocationLabel(
-      { city: m.city, country: m.country, country_code: m.country_code },
-      locale,
-    ) || 'Unknown location',
-  );
-  const statusColor = STATUS_COLORS[m.status] ?? STATUS_COLORS.unknown;
-  const statusLabel = STATUS_LABEL[m.status] ?? 'Unknown';
-  const page = shortPage(m.current_page);
-  const flag = m.country_code
-    ? `<span class="vm-flag">${m.country_code.toUpperCase()}</span>`
-    : '';
-  const when = relTime(m.last_activity_at);
-  return `
-    <div class="vm-tip">
-      <div class="vm-tip-row vm-tip-head">
-        <span class="vm-status-dot" style="background:${statusColor}"></span>
-        <span class="vm-status-label">${statusLabel}</span>
-        ${when ? `<span class="vm-when">· ${when}</span>` : ''}
-      </div>
-      <div class="vm-tip-row vm-tip-loc">
-        ${flag}<span class="vm-loc-text">${loc}</span>
-      </div>
-      ${page ? `<div class="vm-tip-row vm-page">${page}</div>` : ''}
-      ${m.source === 'centroid'
-        ? `<div class="vm-tip-row vm-approx">Approximate location</div>` : ''}
-    </div>
-  `;
-}
 
 export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
   const { t, locale } = useTranslation();
@@ -198,7 +124,7 @@ export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
     // Treat any manual zoom/drag as "user took control" — stop auto-fitting.
     const markInteracted = () => { userInteractedRef.current = true; };
     map.on('dragstart', markInteracted);
-    map.on('zoomstart', (e: any) => {
+    map.on('zoomstart', (e: L.LeafletEvent & { originalEvent?: Event }) => {
       // Programmatic fitBounds also fires zoomstart; ignore those by checking
       // the originalEvent presence (only set for user-driven zooms).
       if (e?.originalEvent) markInteracted();

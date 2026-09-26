@@ -7,6 +7,8 @@
  *   rate-limit failures from permanent 4xx rejections.
  */
 
+import { BoundedFetchError, fetchBytesBounded } from '../../../shared/net/boundedFetch.js';
+
 const TELEGRAM_API_ROOT = 'https://api.telegram.org';
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -42,12 +44,39 @@ export class TelegramApiError extends Error {
   }
 }
 
+/**
+ * Maps a bounded media-download failure (shared/net/boundedFetch.ts) onto the
+ * dispatcher's TelegramApiError contract, preserving retryability: provider
+ * 5xx/429/timeouts retry, policy rejections and oversize bodies do not.
+ */
+export function mediaDownloadError(err: unknown, label: string): unknown {
+  if (!(err instanceof BoundedFetchError)) return err;
+  if (err.reason === 'http_status') {
+    const status = err.status ?? 502;
+    return new TelegramApiError(`${label} media download failed [${status}]`, status, null, null, status >= 500 || status === 429);
+  }
+  if (err.reason === 'too_large') return new TelegramApiError(`${label} media exceeds allowed size`, 413, null, null, false);
+  if (err.reason === 'timeout' || err.reason === 'dns_failure') {
+    return new TelegramApiError(`${label} media download failed (${err.reason})`, 504, null, null, true);
+  }
+  return new TelegramApiError(`${label} media URL rejected (${err.reason})`, 400, null, null, false);
+}
+
 /** Redacts any bot token accidentally present in a string. */
 export function redactToken(text: string): string {
   return text.replace(/\d{6,}:[A-Za-z0-9_-]{20,}/g, '[REDACTED_BOT_TOKEN]');
 }
 
-export async function callTelegram<T = any>(
+/** The Bot API response envelope, as far as it is read here. */
+type TelegramEnvelope<T> = {
+  ok?: boolean;
+  result?: T;
+  error_code?: number;
+  description?: unknown;
+  parameters?: { retry_after?: number };
+} | null;
+
+export async function callTelegram<T = unknown>(
   botToken: BotCredential,
   method: string,
   body?: Record<string, unknown>,
@@ -79,7 +108,7 @@ export async function callTelegram<T = any>(
   }
 
   const raw = await response.text();
-  let parsed: any = null;
+  let parsed: TelegramEnvelope<T> = null;
   try {
     parsed = raw ? JSON.parse(raw) : null;
   } catch {
@@ -116,7 +145,7 @@ export type TelegramBotIdentity = {
 };
 
 export async function getMe(botToken: BotCredential): Promise<TelegramBotIdentity> {
-  const me = await callTelegram<any>(botToken, 'getMe');
+  const me = await callTelegram<{ id: number; username?: string; first_name?: string }>(botToken, 'getMe');
   return { id: me.id, username: me.username ?? null, firstName: me.first_name ?? null };
 }
 
@@ -213,21 +242,24 @@ export async function downloadFile(
   maxBytes: number,
 ): Promise<Uint8Array> {
   const { token, apiRoot } = credentialParts(botToken);
-  const response = await fetch(`${apiRoot}/file/bot${token}/${filePath}`);
-  if (!response.ok) {
-    throw new TelegramApiError(
-      `Telegram file download failed [${response.status}]`,
-      response.status,
-      null,
-      null,
-      response.status >= 500 || response.status === 429,
-    );
+  try {
+    // `apiRoot` is the configured Bot API host (possibly a self-hosted Bot
+    // API server on a private address), so no public-address policy applies
+    // here; the body is streamed with a hard byte cap instead of being
+    // buffered whole before the size check.
+    const { bytes } = await fetchBytesBounded(`${apiRoot}/file/bot${token}/${filePath}`, {
+      maxBytes,
+      maxRedirects: 3,
+      validate: () => undefined,
+    });
+    return bytes;
+  } catch (err) {
+    const mapped = mediaDownloadError(err, 'Telegram');
+    if (mapped instanceof TelegramApiError && mapped.httpStatus === 413) {
+      throw new TelegramApiError('Telegram file exceeds allowed size', 413, null, null, false);
+    }
+    throw mapped;
   }
-  const buffer = new Uint8Array(await response.arrayBuffer());
-  if (buffer.byteLength > maxBytes) {
-    throw new TelegramApiError('Telegram file exceeds allowed size', 413, null, null, false);
-  }
-  return buffer;
 }
 
 // ── Bot branding / commands (APPLY ON DEMAND ONLY) ────────────────────
@@ -335,16 +367,17 @@ export async function sendMediaBytes(
       body: form,
       signal: controller.signal,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = (err as { message?: unknown } | null | undefined)?.message;
     throw new TelegramApiError(
-      `Telegram ${method} upload transport error: ${redactToken(String(err?.message || err))}`,
+      `Telegram ${method} upload transport error: ${redactToken(String(message || err))}`,
       0, null, null, true,
     );
   } finally {
     clearTimeout(timer);
   }
 
-  const payload: any = await response.json().catch(() => null);
+  const payload: TelegramEnvelope<{ message_id: number }> = await response.json().catch(() => null);
   if (!response.ok || !payload?.ok) {
     const description = redactToken(String(payload?.description ?? response.statusText));
     const retryAfter = payload?.parameters?.retry_after ?? null;

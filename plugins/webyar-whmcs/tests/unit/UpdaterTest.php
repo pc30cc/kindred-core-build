@@ -9,9 +9,14 @@ final class UpdaterTest extends TestCase
     private $root;
     private $target;
     private $work;
+    /** Throwaway release key; the addon is pointed at it via WEBYAR_UPDATE_PUBLIC_KEY. */
+    private $signingKey;
     protected function setUp(): void
     {
         WhmcsDb::boot(); WhmcsDb::seed();
+        $pair = sodium_crypto_sign_keypair();
+        $this->signingKey = sodium_crypto_sign_secretkey($pair);
+        putenv('WEBYAR_UPDATE_PUBLIC_KEY=' . base64_encode(sodium_crypto_sign_publickey($pair)));
         $this->root = sys_get_temp_dir() . '/webyar-updater-test-' . bin2hex(random_bytes(6));
         $this->target = $this->root . '/modules/addons/webyar';
         $this->work = $this->root . '/private';
@@ -22,6 +27,7 @@ final class UpdaterTest extends TestCase
     protected function tearDown(): void
     {
         Updater::$downloadOverride = null;
+        putenv('WEBYAR_UPDATE_PUBLIC_KEY');
         Updater::removeTree($this->root);
         Updater::removeTree(Updater::workDir(dirname(__DIR__, 2) . '/modules/addons/webyar'));
     }
@@ -125,16 +131,92 @@ final class UpdaterTest extends TestCase
         Updater::run(); Updater::run();
         $this->assertSame(1, $calls); $this->assertSame('paused', Updater::readStatus()['code']);
     }
+    private function sign($body, $key = null)
+    {
+        return base64_encode(sodium_crypto_sign_detached($body, $key === null ? $this->signingKey : $key));
+    }
+    /** Scripted publisher: URL suffix => body (null = HTTP failure); records every URL asked for. */
+    private function publish(array $files, array &$asked)
+    {
+        Updater::$downloadOverride = function ($url) use ($files, &$asked) {
+            $asked[] = $url;
+            foreach ($files as $suffix => $body) {
+                if (substr($url, -strlen($suffix)) === $suffix) {
+                    if ($body === null) { throw new RuntimeException('failed'); }
+                    return $body;
+                }
+            }
+            throw new RuntimeException('failed');
+        };
+    }
+    private static function zipRequests(array $asked)
+    {
+        return count(array_filter($asked, function ($url) { return substr($url, -4) === '.zip'; }));
+    }
     public function test_current_release_does_not_download_zip(): void
     {
-        $calls = 0; $m = $this->manifest(); $m['version'] = Version::ADDON;
-        Updater::$downloadOverride = function () use (&$calls, $m) { return ++$calls === 1 ? '{"enabled":true}' : json_encode($m); };
-        Updater::run(); $this->assertSame(2, $calls); $this->assertSame('current', Updater::readStatus()['code']);
+        $m = $this->manifest(); $m['version'] = Version::ADDON; $body = json_encode($m); $asked = array();
+        $this->publish(array('/updates' => '{"enabled":true}', '/webyar-whmcs.json' => $body, '/webyar-whmcs.json.sig' => $this->sign($body)), $asked);
+        Updater::run();
+        $this->assertCount(3, $asked); $this->assertSame('current', Updater::readStatus()['code']);
     }
     public function test_bad_checksum_never_installs(): void
     {
-        $calls = 0; $m = $this->manifest(); $m['size'] = 3;
-        Updater::$downloadOverride = function () use (&$calls, $m) { $calls++; return $calls === 1 ? '{"enabled":true}' : ($calls === 2 ? json_encode($m) : 'bad'); };
+        $m = $this->manifest(); $m['size'] = 3; $body = json_encode($m); $asked = array();
+        $this->publish(array('/updates' => '{"enabled":true}', '/webyar-whmcs.json' => $body, '/webyar-whmcs.json.sig' => $this->sign($body), '/webyar-whmcs.zip' => 'bad'), $asked);
         Updater::run(); $this->assertSame('integrity', Updater::readStatus()['code']);
+    }
+    public function test_unsigned_manifest_never_downloads_the_package(): void
+    {
+        // A host that serves a manifest but no signature: an old deploy, or
+        // someone who controls the host but not the release key.
+        $body = json_encode($this->manifest()); $asked = array();
+        $this->publish(array('/updates' => '{"enabled":true}', '/webyar-whmcs.json' => $body, '/webyar-whmcs.json.sig' => null, '/webyar-whmcs.zip' => 'zip'), $asked);
+        Updater::run();
+        $this->assertSame('unsigned', Updater::readStatus()['code']);
+        $this->assertSame(0, self::zipRequests($asked));
+    }
+    public function test_tampered_manifest_never_downloads_the_package(): void
+    {
+        // The attack this exists to stop: the host swaps in the checksum of
+        // its own archive. The signature covers every byte of the manifest.
+        $signed = json_encode($this->manifest());
+        $m = $this->manifest(); $m['sha256'] = str_repeat('b', 64); $asked = array();
+        $this->publish(array('/updates' => '{"enabled":true}', '/webyar-whmcs.json' => json_encode($m), '/webyar-whmcs.json.sig' => $this->sign($signed), '/webyar-whmcs.zip' => 'zip'), $asked);
+        Updater::run();
+        $this->assertSame('signature', Updater::readStatus()['code']);
+        $this->assertSame(0, self::zipRequests($asked));
+    }
+    public function test_manifest_signed_by_another_key_is_refused(): void
+    {
+        $body = json_encode($this->manifest()); $asked = array();
+        $other = sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair());
+        $this->publish(array('/updates' => '{"enabled":true}', '/webyar-whmcs.json' => $body, '/webyar-whmcs.json.sig' => $this->sign($body, $other), '/webyar-whmcs.zip' => 'zip'), $asked);
+        Updater::run();
+        $this->assertSame('signature', Updater::readStatus()['code']);
+        $this->assertSame(0, self::zipRequests($asked));
+    }
+    public function test_verify_manifest_returns_the_signed_data(): void
+    {
+        $body = json_encode($this->manifest());
+        $data = Updater::verifyManifest($body, $this->sign($body) . "\n", Updater::publicKey());
+        $this->assertSame('9.0.0', $data['version']);
+    }
+    /** @dataProvider badSignatures */
+    public function test_verify_manifest_rejects_malformed_signatures($signature, $code): void
+    {
+        $this->expectExceptionMessage($code);
+        Updater::verifyManifest(json_encode($this->manifest()), $signature, Updater::publicKey());
+    }
+    public static function badSignatures(): array
+    {
+        return array(
+            array('', 'unsigned'), array('not base64!', 'unsigned'), array(base64_encode('short'), 'unsigned'),
+            array(base64_encode(str_repeat("\0", 64)), 'signature'),
+        );
+    }
+    public function test_built_in_release_key_is_an_ed25519_public_key(): void
+    {
+        $this->assertSame(32, strlen((string) base64_decode(Updater::UPDATE_PUBLIC_KEY, true)));
     }
 }

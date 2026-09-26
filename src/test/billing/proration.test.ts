@@ -3,7 +3,7 @@
  * rial in, exact integer rial out, no floats, no "close enough".
  */
 import { describe, it, expect } from 'vitest';
-import { computeUpgradeProration, computeDowngradeEffect } from '../../../server/services/billing/proration';
+import { computeUpgradeProration, computeDowngradeEffect, resolvePaidInterval } from '../../../server/services/billing/proration';
 
 const START = new Date('2026-01-01T00:00:00.000Z');
 const END = new Date('2026-02-01T00:00:00.000Z'); // 31 days
@@ -104,6 +104,27 @@ describe('upgrade proration', () => {
         interval: 'monthly',
       }),
     ).toThrow(/proration_invalid_amount/);
+  });
+});
+
+describe('interval the current period was paid at', () => {
+  it('prefers the stored interval (period first, then subscription)', () => {
+    expect(resolvePaidInterval({ storedIntervals: ['yearly', 'monthly'] })).toBe('yearly');
+    expect(resolvePaidInterval({ storedIntervals: [null, 'monthly'] })).toBe('monthly');
+  });
+
+  it('infers it from the window length only when nothing is stored', () => {
+    expect(resolvePaidInterval({ storedIntervals: [null, undefined], periodStart: START, periodEnd: END })).toBe('monthly');
+    expect(resolvePaidInterval({
+      storedIntervals: [],
+      periodStart: '2026-01-01T00:00:00.000Z',
+      periodEnd: '2027-01-01T00:00:00.000Z',
+    })).toBe('yearly');
+  });
+
+  it('returns null when nothing is known', () => {
+    expect(resolvePaidInterval({ storedIntervals: ['weekly'] })).toBeNull();
+    expect(resolvePaidInterval({ storedIntervals: [], periodStart: END, periodEnd: START })).toBeNull();
   });
 });
 

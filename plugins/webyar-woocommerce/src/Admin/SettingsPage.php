@@ -108,7 +108,16 @@ final class SettingsPage {
 			<?php endif; ?>
 
 			<?php
-			if ( null === $credential ) {
+			if ( null === $credential && ! Capabilities::current_user_can_connect() ) {
+				// Shop managers see the status, but which Web Yar the store
+				// trusts is an administrator's decision (see Capabilities).
+				?>
+				<div class="webyar-card">
+					<h2><?php esc_html_e( 'Connect your store', 'webyar-woocommerce' ); ?></h2>
+					<p class="webyar-sub"><?php esc_html_e( 'The store is not connected to WebYar. Ask a site administrator to connect it.', 'webyar-woocommerce' ); ?></p>
+				</div>
+				<?php
+			} elseif ( null === $credential ) {
 				$this->render_connect_form( $settings );
 			} else {
 				$this->render_connected( $credential, $settings );
@@ -134,7 +143,7 @@ final class SettingsPage {
 				<div class="webyar-field">
 					<label for="webyar_wc_app_url"><?php esc_html_e( 'WebYar URL', 'webyar-woocommerce' ); ?></label>
 					<input
-						type="url" id="webyar_wc_app_url" name="app_url" dir="ltr" required
+						type="url" id="webyar_wc_app_url" name="app_url" dir="ltr" required pattern="https://.+"
 						placeholder="https://app.webyar.ai"
 						value="<?php echo esc_attr( $settings['app_url'] ?? '' ); ?>"
 					/>
@@ -154,7 +163,7 @@ final class SettingsPage {
 					<div class="webyar-field">
 						<label for="webyar_wc_api_url"><?php esc_html_e( 'API URL', 'webyar-woocommerce' ); ?></label>
 						<input
-							type="url" id="webyar_wc_api_url" name="api_url" dir="ltr"
+							type="url" id="webyar_wc_api_url" name="api_url" dir="ltr" pattern="https://.+"
 							placeholder="https://api.webyar.ai"
 							value="<?php echo esc_attr( $settings['api_url'] ?? '' ); ?>"
 						/>
@@ -225,12 +234,14 @@ final class SettingsPage {
 					<input type="hidden" name="action" value="webyar_wc_sync_now" />
 					<button type="submit" class="webyar-btn"><?php esc_html_e( 'Sync products', 'webyar-woocommerce' ); ?></button>
 				</form>
+				<?php if ( Capabilities::current_user_can_connect() ) : ?>
 				<span class="webyar-spacer"></span>
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('<?php echo esc_js( __( 'Disconnect this store from WebYar?', 'webyar-woocommerce' ) ); ?>');">
 					<?php wp_nonce_field( 'webyar_wc_disconnect' ); ?>
 					<input type="hidden" name="action" value="webyar_wc_disconnect" />
 					<button type="submit" class="webyar-btn webyar-btn-danger"><?php esc_html_e( 'Disconnect', 'webyar-woocommerce' ); ?></button>
 				</form>
+				<?php endif; ?>
 			</div>
 		</div>
 

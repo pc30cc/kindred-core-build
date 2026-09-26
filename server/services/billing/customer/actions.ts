@@ -14,7 +14,7 @@
 
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
-import { computeUpgradeProration } from '../proration.js';
+import { computeUpgradeProration, resolvePaidInterval } from '../proration.js';
 import { issueSubscriptionInvoice } from '../invoice/issue.js';
 import { isV2Active } from '../rollout.js';
 import type { InvoiceRow } from '../invoice/types.js';
@@ -38,14 +38,50 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function planPriceIrr(plan: any, interval: 'monthly' | 'yearly'): number {
+/** The `billing_plans` columns this module reads. */
+interface PlanRow {
+  id: string;
+  name: string;
+  is_active?: boolean | null;
+  prices?: { IRR?: { monthly?: unknown; yearly?: unknown } | null } | null;
+  price_monthly?: unknown;
+  price_yearly?: unknown;
+  limits?: { ai_credits_per_month?: unknown } | null;
+}
+
+interface SubscriptionContextRow {
+  id: string;
+  status: string | null;
+  plan_id: string | null;
+  billing_interval: string | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  pending_change_type: string | null;
+  next_plan_id: string | null;
+}
+
+interface PeriodContextRow {
+  id: string;
+  period_start: string | null;
+  period_end: string | null;
+  billing_interval: string | null;
+  plan_id: string | null;
+}
+
+interface EntitlementCycleRow {
+  cycle_id?: string | null;
+  start: string;
+  end: string;
+}
+
+function planPriceIrr(plan: PlanRow | null | undefined, interval: 'monthly' | 'yearly'): number {
   const raw = plan?.prices?.IRR?.[interval] ?? (interval === 'yearly' ? plan?.price_yearly : plan?.price_monthly);
   const value = Math.round(num(raw));
   if (value < 0) throw new BillingActionError('plan price invalid', 500, 'PLAN_PRICE_INVALID');
   return value;
 }
 
-function monthlyAllowanceIrr(plan: any): number {
+function monthlyAllowanceIrr(plan: PlanRow | null | undefined): number {
   return Math.max(0, Math.round(num(plan?.limits?.ai_credits_per_month)));
 }
 
@@ -66,6 +102,12 @@ export interface PlanChangePreview {
   effectiveAt: string;
   periodEnd: string | null;
   annualMonthlyAllowance: boolean;
+  /**
+   * True when an "upgrade" is really a new purchase: there is no paid time to
+   * credit (a zero-priced current plan) and the interval changes, so the new
+   * plan starts a fresh full period now at its full price.
+   */
+  freshPurchase: boolean;
 }
 
 async function loadContext(config: ServerConfig, workspaceId: string) {
@@ -86,7 +128,11 @@ async function loadContext(config: ServerConfig, workspaceId: string) {
   const { data: cycle } = await sb.rpc('billing_v2_current_entitlement_cycle', {
     p_workspace_id: workspaceId,
   });
-  return { sub: sub as any, period: period as any, cycle: (cycle as any) ?? null };
+  return {
+    sub: sub as SubscriptionContextRow | null,
+    period: period as PeriodContextRow | null,
+    cycle: (cycle as EntitlementCycleRow | null) ?? null,
+  };
 }
 
 export async function previewPlanChange(
@@ -99,19 +145,22 @@ export async function previewPlanChange(
     throw new BillingActionError('workspace is not on billing engine v2', 409, 'BILLING_V2_REQUIRED');
   }
 
-  const { data: target } = await sb.from('billing_plans').select('*').eq('id', input.planId).maybeSingle();
-  if (!target || (target as any).is_active === false) {
+  const { data: targetData } = await sb.from('billing_plans').select('*').eq('id', input.planId).maybeSingle();
+  const target = targetData as PlanRow | null;
+  if (!target || target.is_active === false) {
     throw new BillingActionError('unknown plan', 404, 'UNKNOWN_PLAN');
   }
 
   const { sub, period, cycle } = await loadContext(config, workspaceId);
   const currentPlanId = sub?.plan_id ?? null;
-  const { data: current } = currentPlanId
+  const { data: currentData } = currentPlanId
     ? await sb.from('billing_plans').select('*').eq('id', currentPlanId).maybeSingle()
     : { data: null };
+  const current = currentData as PlanRow | null;
 
   const interval = input.interval;
   const targetPrice = planPriceIrr(target, interval);
+  // Tier comparison: both plans priced at the SAME (requested) interval.
   const currentPrice = current ? planPriceIrr(current, interval) : 0;
   const direction: PlanChangePreview['direction'] =
     targetPrice > currentPrice ? 'upgrade' : targetPrice < currentPrice ? 'downgrade' : 'same';
@@ -119,6 +168,20 @@ export async function previewPlanChange(
   const periodStart = period?.period_start ?? sub?.current_period_start ?? null;
   const periodEnd = period?.period_end ?? sub?.current_period_end ?? null;
   const now = new Date();
+
+  // The interval the running period was actually paid at. Proration credits
+  // the unused part of THAT period at THAT price; pricing it at the requested
+  // interval would credit a monthly window at the yearly price (or vice versa).
+  const currentInterval = currentPlanId
+    ? resolvePaidInterval({
+        storedIntervals: [period?.billing_interval, sub?.billing_interval],
+        periodStart,
+        periodEnd,
+      })
+    : null;
+  const paidInterval = currentInterval ?? interval;
+  const currentPaidPrice = current ? planPriceIrr(current, paidInterval) : 0;
+  const intervalChange = !!currentPlanId && paidInterval !== interval;
 
   // A downgrade is next-cycle only (V1 policy, no refunds). An upgrade may be
   // taken immediately only when there is a paid window left to prorate into.
@@ -135,15 +198,37 @@ export async function previewPlanChange(
   let remainingMs = 0;
   let aiCycleDeltaIrr = 0;
   let effectiveAt = periodEnd ?? now.toISOString();
+  let freshPurchase = false;
 
-  if (mode === 'immediate' && periodEnd && currentPlanId) {
+  if (mode === 'immediate' && periodEnd && currentPlanId && intervalChange) {
+    // An immediate upgrade keeps the current window, so it cannot also change
+    // the interval: the window would be one interval long and billed as the
+    // other. With nothing paid to credit (free plan) the change is simply a
+    // new purchase: full price, fresh period from now. With paid time left,
+    // it is refused rather than mispriced.
+    if (currentPaidPrice === 0 && targetPrice > 0) {
+      freshPurchase = true;
+      amountIrr = targetPrice;
+      effectiveAt = now.toISOString();
+    } else {
+      throw new BillingActionError(
+        'the billing interval cannot change in an immediate upgrade; keep the current interval',
+        409,
+        'INTERVAL_CHANGE_NOT_IMMEDIATE',
+        { currentInterval: paidInterval, requestedInterval: interval },
+      );
+    }
+  } else if (mode === 'immediate' && periodEnd && currentPlanId) {
+    // Same interval on both sides: credit the unused part of the current
+    // period at the price actually paid for it, charge the target plan's
+    // price for that same interval over the same remaining window.
     const proration = computeUpgradeProration({
       now,
       currentPeriodStart: new Date(periodStart ?? now.toISOString()),
       currentPeriodEnd: new Date(periodEnd),
-      currentPlanPriceIrr: currentPrice,
+      currentPlanPriceIrr: currentPaidPrice,
       targetPlanPriceIrr: targetPrice,
-      interval,
+      interval: paidInterval,
     });
     if (proration.isDowngrade) {
       throw new BillingActionError('not an upgrade', 409, 'NOT_AN_UPGRADE');
@@ -178,12 +263,12 @@ export async function previewPlanChange(
     direction,
     currentPlan: {
       id: currentPlanId,
-      name: (current as any)?.name ?? null,
-      interval: (sub?.billing_interval as any) ?? null,
+      name: current?.name ?? null,
+      interval: currentInterval ?? ((sub?.billing_interval as 'monthly' | 'yearly' | null | undefined) ?? null),
     },
     targetPlan: {
-      id: (target as any).id,
-      name: (target as any).name,
+      id: target.id,
+      name: target.name,
       interval,
       fullPriceIrr: targetPrice,
     },
@@ -195,6 +280,7 @@ export async function previewPlanChange(
     effectiveAt,
     periodEnd,
     annualMonthlyAllowance: interval === 'yearly',
+    freshPurchase,
   };
 }
 
@@ -244,7 +330,7 @@ export async function applyPlanChange(
   const { sub, period } = await loadContext(config, workspaceId);
 
   if (input.mode === 'immediate') {
-    const action = sub?.plan_id ? 'plan_upgrade' : 'plan_new';
+    const action = sub?.plan_id && !preview.freshPurchase ? 'plan_upgrade' : 'plan_new';
     const invoice = await issueSubscriptionInvoice(config, {
       workspaceId,
       subscriptionId: sub?.id ?? null,
@@ -252,6 +338,10 @@ export async function applyPlanChange(
       interval: input.interval,
       action,
       currentPlanId: sub?.plan_id ?? null,
+      currentInterval:
+        preview.currentPlan.interval === 'monthly' || preview.currentPlan.interval === 'yearly'
+          ? preview.currentPlan.interval
+          : null,
       currentPeriodStart: period?.period_start ?? sub?.current_period_start ?? null,
       currentPeriodEnd: period?.period_end ?? sub?.current_period_end ?? null,
       metadata: { origin: 'customer_immediate_upgrade' },
@@ -260,7 +350,7 @@ export async function applyPlanChange(
       mode: 'immediate',
       invoiceId: invoice.id,
       invoiceNumber: invoice.invoice_number,
-      amountIrr: num((invoice as any).amount_due_irr),
+      amountIrr: num(invoice.amount_due_irr),
       effectiveAt: preview.effectiveAt,
       pending: false,
     };
@@ -284,14 +374,15 @@ export async function applyPlanChange(
     p_workspace_id: workspaceId,
     p_force: false,
   });
-  if ((reissued as any)?.invoice_id) {
-    invoiceId = (reissued as any).invoice_id;
+  const reissuedRow = reissued as { invoice_id?: string | null } | null;
+  if (reissuedRow?.invoice_id) {
+    invoiceId = reissuedRow.invoice_id;
     const { data: inv } = await sb
       .from('billing_invoices')
       .select('invoice_number')
       .eq('id', invoiceId)
       .maybeSingle();
-    invoiceNumber = (inv as any)?.invoice_number ?? null;
+    invoiceNumber = (inv as { invoice_number: string | null } | null)?.invoice_number ?? null;
   }
 
   return {
@@ -318,7 +409,7 @@ export async function cancelPendingPlanChange(
     .select('id, pending_change_type')
     .eq('workspace_id', workspaceId)
     .maybeSingle();
-  if (!(sub as any)?.pending_change_type) return { canceled: false };
+  if (!(sub as { pending_change_type: string | null } | null)?.pending_change_type) return { canceled: false };
 
   const { data: paidFuture } = await sb
     .from('billing_invoices')
@@ -366,7 +457,7 @@ export async function setWalletAutoPay(
     .select('auto_pay_enabled')
     .eq('workspace_id', workspaceId)
     .maybeSingle();
-  return { autoPayEnabled: Boolean((fresh as any)?.auto_pay_enabled) };
+  return { autoPayEnabled: Boolean((fresh as { auto_pay_enabled: boolean | null } | null)?.auto_pay_enabled) };
 }
 
 /** Server-validated AI credit purchase → an invoice, never a direct grant. */

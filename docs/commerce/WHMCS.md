@@ -444,13 +444,26 @@ checks retry in an hour. Pausing takes effect on the next check (it does not can
 an installation already in progress).
 
 Only the preconfigured HTTPS API/app hosts are contacted; WHMCS administrators
-cannot change them through the addon form. The HTTPS publisher is the trust root
-(the checksum detects corruption and mismatched deployments, not a compromised
-publisher). Redirects, external manifest package paths, oversized archives, ZIP
+cannot change them through the addon form. **The trust root is the Web Yar
+release key (1.2.2+), not the publisher:** `/downloads/webyar-whmcs.json.sig`
+must be an Ed25519 signature (base64) over the exact manifest bytes that
+verifies against `Updater::UPDATE_PUBLIC_KEY` — the same key as OpenCart — and
+the archive must match the signed sha256 and size. An unsigned or tampered
+manifest is never acted on (status `unsigned` / `signature`, plus a WHMCS
+Activity Log entry); without PHP sodium the status is `unsupported` and the
+operator updates by hand. A staging install may set `WEBYAR_UPDATE_PUBLIC_KEY`
+in the server environment. Redirects, external manifest package paths, oversized archives, ZIP
 symlinks, traversal, unexpected file types, syntax errors and incompatible minimum
 PHP/WHMCS versions are rejected before replacing any installed code. Downgrades
 and same-version reinstalls are skipped. Publish a higher patch version to roll
-back a defective release. No release signing key is required by this transport.
+back a defective release.
+
+*Releasing.* `node scripts/build-whmcs-addon-zip.mjs` builds a reproducible zip
+and manifest (both committed); sign on the release host with
+`openssl pkeyutl -sign -rawin -inkey <key> -in webyar-whmcs.json | base64 -w0 > webyar-whmcs.json.sig`
+and commit the `.sig`. A signed version is frozen: rebuilding keeps the signed
+archive. Installs on 1.2.0–1.2.1 (unsigned-era updater) take 1.2.2 once from
+the unchanged manifest fields; from then on only signed releases install.
 
 Updates require cURL, ZipArchive, PHP tokenizer, writable addon parent and a
 private working directory **on the same filesystem** as the addon. By default it

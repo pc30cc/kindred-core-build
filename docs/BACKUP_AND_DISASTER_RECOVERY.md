@@ -5,8 +5,9 @@
 **NOT READY — RECOVERY SYSTEM INCOMPLETE**
 
 The registry and operational scripts are scaffolding, not a tested recovery system.
-All scripts sourcing `ops/backup/lib.sh` deliberately exit before performing work.
-Do not remove that interlock until the issues below are resolved and reviewed.
+All scripts sourcing `ops/backup/lib.sh` deliberately exit (status 78) before performing work
+unless the operator explicitly opts in with `WEBYAR_BACKUP_ENABLED=1`.
+Do not set that opt-in, or remove the interlock, until the issues below are resolved and reviewed.
 No production restore, backup expiry, destructive retention, or legacy-table removal is authorized by this document.
 
 ## Evidence and limits

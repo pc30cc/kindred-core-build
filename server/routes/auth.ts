@@ -40,6 +40,13 @@ import { readSessionToken } from '../lib/sessionTransport.js';
 import { allowsMobileTokenIssuance } from '../services/platformOrigins.js';
 import { getSignupVerificationPolicy } from '../services/auth/signupPolicy.js';
 import { getClientIp } from '../utils/clientIp.js';
+import { serverConfigOf } from '../lib/workspaceAuth.js';
+
+/** Shape of the `captcha_provider` row in app_runtime_config. */
+interface CaptchaSettings {
+  provider?: 'turnstile' | 'recaptcha';
+  secretKey: string;
+}
 
 /**
  * The single writer of `login_attempts` — the durable record of who tried to
@@ -133,7 +140,7 @@ authSecurityRouter.post('/check-brute-force', authRateLimiter, async (req, res) 
  */
 authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
@@ -161,7 +168,7 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
         .single();
 
       if (captchaConfig?.value) {
-        const captchaSettings = captchaConfig.value as any;
+        const captchaSettings = captchaConfig.value as CaptchaSettings;
         if (!captchaToken) {
           return res.status(400).json({ error: 'Captcha verification required', requiresCaptcha: true });
         }
@@ -321,7 +328,7 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
  */
 authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const parsed = signupSchema.safeParse(req.body);
 
     if (!parsed.success) {
@@ -461,7 +468,7 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
  */
 authSecurityRouter.get('/session', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const { token } = readSessionToken(req);
     const session = await validateSessionToken(config, token);
     if (!session) return res.json({ user: null });
@@ -489,7 +496,7 @@ authSecurityRouter.get('/session', async (req, res) => {
  */
 authSecurityRouter.post('/logout', authRateLimiter, async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const { token, transport } = readSessionToken(req);
     // CSRF only applies to the browser-cookie transport (see
     // workspaceAuth.requireUser): a Bearer token is never auto-attached.
@@ -533,7 +540,7 @@ authSecurityRouter.post('/logout', authRateLimiter, async (req, res) => {
  */
 authSecurityRouter.post('/logout-all', authRateLimiter, async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const { token, transport } = readSessionToken(req);
     if (transport === 'cookie' && !verifyOriginForMutation(req, config.corsOrigins)) {
       return res.status(403).json({ error: 'Origin not allowed' });
@@ -561,40 +568,48 @@ authSecurityRouter.post('/logout-all', authRateLimiter, async (req, res) => {
  * magic-link verify URL; the frontend just opens this URL in a new tab.
  */
 authSecurityRouter.get('/impersonate', authRateLimiter, async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
-  const redeemed = await redeemImpersonationToken(config, req.query.token as string | undefined);
-  if (!redeemed) {
-    return res.status(400).send('This impersonation link is invalid or has expired.');
-  }
+  try {
+    const config: ServerConfig = serverConfigOf(req);
+    const redeemed = await redeemImpersonationToken(config, req.query.token as string | undefined);
+    if (!redeemed) {
+      return res.status(400).send('This impersonation link is invalid or has expired.');
+    }
 
-  const identity = await findIdentityById(config, redeemed.targetUserId);
-  if (!identity) {
-    return res.status(404).send('Target user no longer exists.');
-  }
-  if (identity.status === 'disabled') {
-    // Blocking a user revokes their existing sessions (see
-    // admin_set_user_block_status, database/migrations/034), but a
-    // one-time impersonation token issued BEFORE the block (and redeemed
-    // after) is a separate session-creation path that check doesn't cover
-    // — an already-disabled target must never receive a fresh, valid
-    // session through this route either.
-    return res.status(403).send('This user account has been disabled.');
-  }
+    const identity = await findIdentityById(config, redeemed.targetUserId);
+    if (!identity) {
+      return res.status(404).send('Target user no longer exists.');
+    }
+    if (identity.status === 'disabled') {
+      // Blocking a user revokes their existing sessions (see
+      // admin_set_user_block_status, database/migrations/034), but a
+      // one-time impersonation token issued BEFORE the block (and redeemed
+      // after) is a separate session-creation path that check doesn't cover
+      // — an already-disabled target must never receive a fresh, valid
+      // session through this route either.
+      return res.status(403).send('This user account has been disabled.');
+    }
 
-  const session = await createSession(config, {
-    userId: identity.id,
-    email: identity.email,
-    ipAddress: getClientIp(req) || null,
-    userAgent: (req.headers['user-agent'] as string | undefined) || null,
-  });
-  setSessionCookie(res, session.token, session.expiresAt);
-  await logSecurityEvent(req, 'admin_impersonation', 'warn', {
-    userId: identity.id,
-    adminUserId: redeemed.createdBy,
-  });
+    const session = await createSession(config, {
+      userId: identity.id,
+      email: identity.email,
+      ipAddress: getClientIp(req) || null,
+      userAgent: (req.headers['user-agent'] as string | undefined) || null,
+    });
+    setSessionCookie(res, session.token, session.expiresAt);
+    await logSecurityEvent(req, 'admin_impersonation', 'warn', {
+      userId: identity.id,
+      adminUserId: redeemed.createdBy,
+    });
 
-  const redirectBase = await resolveAppBaseUrl(config, req);
-  return res.redirect(302, `${redirectBase || ''}/app`);
+    const redirectBase = await resolveAppBaseUrl(config, req);
+    return res.redirect(302, `${redirectBase || ''}/app`);
+  } catch (err) {
+    // Redemption / session creation hit the DB; a failure must answer a
+    // generic error, never escape as an unhandled rejection.
+    console.error('[auth] Impersonation redeem error:', err);
+    if (res.headersSent) return;
+    return res.status(500).send('Internal error');
+  }
 });
 
 /**
@@ -603,7 +618,7 @@ authSecurityRouter.get('/impersonate', authRateLimiter, async (req, res) => {
  */
 authSecurityRouter.post('/verify-captcha', authRateLimiter, async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const { token } = req.body;
     if (!token) return res.status(400).json({ error: 'Captcha token required' });
 
@@ -619,7 +634,7 @@ authSecurityRouter.post('/verify-captcha', authRateLimiter, async (req, res) => 
       return res.json({ success: true, message: 'No captcha provider configured' });
     }
 
-    const settings = captchaConfig.value as any;
+    const settings = captchaConfig.value as CaptchaSettings;
     const result = await verifyCaptcha(token, settings.provider || 'turnstile', settings.secretKey, req.ip);
 
     if (!result.success) {
@@ -641,7 +656,7 @@ authSecurityRouter.post('/verify-captcha', authRateLimiter, async (req, res) => 
  */
 authSecurityRouter.get('/signup-policy', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const policy = await getSignupVerificationPolicy(config);
     return res.json(policy);
   } catch (err) {

@@ -29,8 +29,15 @@ const layer = L.layerGroup().addTo(map);
 let selected = null;
 let fitted = false;
 
+// Marker/tooltip HTML goes through innerHTML and every field in it comes
+// from visitor data, so escape for both text and quoted attributes.
+function esc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
 function icon(status, id) {
-  return L.divIcon({ className: '', iconSize: [14, 14], html: `<div class="dot ${status || 'unknown'} ${id === selected ? 'selected' : ''}"></div>` });
+  return L.divIcon({ className: '', iconSize: [14, 14], html: `<div class="dot ${esc(status || 'unknown')} ${id === selected ? 'selected' : ''}"></div>` });
 }
 
 function config(c) {
@@ -48,7 +55,7 @@ function markers(list) {
     if (typeof m.lat !== 'number' || typeof m.lng !== 'number') continue;
     const mk = L.marker([m.lat, m.lng], { icon: icon(m.status, m.id), riseOnHover: true });
     const place = [m.city, m.country].filter(Boolean).join(', ');
-    mk.bindTooltip(`${place || ''}${m.current_page ? '<br>' + String(m.current_page).replace(/</g, '&lt;') : ''}`, { direction: 'top', offset: [0, -8] });
+    mk.bindTooltip(`${esc(place)}${m.current_page ? '<br>' + esc(m.current_page) : ''}`, { direction: 'top', offset: [0, -8] });
     mk.on('click', () => host && host.postMessage({ type: 'select', id: m.id }));
     mk.addTo(layer);
     pts.push([m.lat, m.lng]);

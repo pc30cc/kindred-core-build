@@ -32,6 +32,7 @@ import com.webyar.operator.ui.design.Motion
 import com.webyar.operator.ui.design.Radius
 import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
+import androidx.compose.ui.graphics.graphicsLayer
 
 /**
  * The shape of a row that has not arrived yet.
@@ -48,19 +49,19 @@ import com.webyar.operator.ui.design.Space
  */
 @Composable
 private fun Shimmer(modifier: Modifier, shape: androidx.compose.ui.graphics.Shape) {
-    val transition = rememberInfiniteTransition(label = "skeleton")
-    val alpha by transition.animateFloat(
-        initialValue = 0.45f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
+    val alpha by rememberLoop(
+        label = "skeleton.alpha",
+        from = 0.45f,
+        to = 1f,
+        spec = infiniteRepeatable(
             animation = tween(Motion.skeletonPulse, easing = androidx.compose.animation.core.LinearEasing),
             repeatMode = RepeatMode.Reverse,
         ),
-        label = "skeleton.alpha",
+        rest = 0.7f,
     )
     Box(
         modifier
-            .alpha(alpha)
+            .graphicsLayer { this.alpha = alpha }
             .background(MaterialTheme.colorScheme.surfaceContainerHighest, shape)
     )
 }
@@ -68,7 +69,7 @@ private fun Shimmer(modifier: Modifier, shape: androidx.compose.ui.graphics.Shap
 /** One grey bar. Width is given because a run of equal bars reads as a table. */
 @Composable
 fun SkeletonBar(width: Dp, height: Dp = 12.dp, modifier: Modifier = Modifier) {
-    Shimmer(modifier.width(width).height(height), RoundedCornerShape(Radius.sm))
+    Shimmer(modifier.width(width).height(height), RoundedCornerShape(Radius.pill))
 }
 
 /**
@@ -84,18 +85,18 @@ fun SkeletonRow(modifier: Modifier = Modifier, lines: Int = 2) {
     Row(
         modifier
             .fillMaxWidth()
-            .heightIn(min = Size.rowMinHeight)
-            .padding(horizontal = Space.screenInset, vertical = Space.sm)
+            .heightIn(min = Size.rowMinHeight + 12.dp)
+            .padding(horizontal = Space.sm + Space.md, vertical = Space.md)
             .semantics { hideFromAccessibility() },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Shimmer(Modifier.size(Size.avatarMedium), CircleShape)
+        Shimmer(Modifier.size(52.dp), CircleShape)
         Column(
-            Modifier.padding(horizontal = Space.md),
+            Modifier.padding(horizontal = Space.lg),
             verticalArrangement = Arrangement.spacedBy(Space.sm),
         ) {
-            SkeletonBar(width = 130.dp, height = 13.dp)
-            if (lines > 1) SkeletonBar(width = 180.dp, height = 11.dp)
+            SkeletonBar(width = 140.dp, height = 14.dp)
+            if (lines > 1) SkeletonBar(width = 200.dp, height = 12.dp)
         }
     }
 }
@@ -106,7 +107,6 @@ fun SkeletonList(modifier: Modifier = Modifier, rows: Int = 10, lines: Int = 2) 
     Column(modifier.fillMaxWidth()) {
         repeat(rows) {
             SkeletonRow(lines = lines)
-            RowDivider()
         }
     }
 }

@@ -28,6 +28,8 @@ enum SettingsRoute: Hashable {
     case profile
     case notifications
     case security
+    /// What the app keeps on this phone, and Clear Cache.
+    case storage
     /// Pushed from Security rather than from here — it is the far end of the
     /// account section, not a top-level setting — but it is on this type so
     /// that the whole stack travels through one path.
@@ -152,6 +154,11 @@ struct SettingsView: View {
                     Label(Str.security(language), systemImage: "lock.shield")
                 }
 
+                NavigationLink(value: SettingsRoute.storage) {
+                    Label(Str.storage(language), systemImage: "internaldrive")
+                }
+                .accessibilityIdentifier(A11y.storageRow)
+
                 Button {
                     isConfirmingSignOut = true
                 } label: {
@@ -195,6 +202,7 @@ struct SettingsView: View {
             case .profile: ProfileView()
             case .notifications: NotificationSettingsView()
             case .security: SecurityView()
+            case .storage: StorageView()
             case .deleteAccount: DeleteAccountView()
             }
         }

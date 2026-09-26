@@ -5,12 +5,16 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { createClient } from '@supabase/supabase-js';
+import type { ServerConfig } from '../config.js';
 import {
   parseEntitlementResponse,
   parseNumericEntitlementResponse,
   isUnreadableEntitlementReason,
   isCheckWorkspaceEntitlementFunctionMissing,
+  isRelationMissing,
 } from '../services/billing/entitlementParse.js';
+import { getCapability } from '../services/billing/capabilityRegistry.js';
+import { assignedPlanApplies, type SubscriptionPlanState } from '../services/billing/planSelection.js';
 
 interface EntitlementResult {
   allowed: boolean;
@@ -52,18 +56,57 @@ export function clearEntitlementCache(workspaceId?: string): void {
   }
 }
 
+/** Express request as the server hands it to route middleware. */
+type GatedRequest = Request & {
+  serverConfig?: ServerConfig;
+  entitlement?: EntitlementResult;
+  aiCredits?: Awaited<ReturnType<typeof deductAICredits>>;
+};
+
 function extractWorkspaceId(req: Request): string | undefined {
-  return (req.body as any)?.workspaceId
-    || (req.body as any)?.workspace_id
-    || (req.query as any)?.workspaceId
-    || (req.query as any)?.workspace_id
-    || (req.params as any)?.workspaceId;
+  const pick = (bag: unknown, key: string): string | undefined => {
+    const value = bag && typeof bag === 'object' ? (bag as Record<string, unknown>)[key] : undefined;
+    return typeof value === 'string' && value ? value : undefined;
+  };
+  return pick(req.body, 'workspaceId')
+    || pick(req.body, 'workspace_id')
+    || pick(req.query, 'workspaceId')
+    || pick(req.query, 'workspace_id')
+    || pick(req.params, 'workspaceId');
 }
 
 function getSupabaseClient(req: Request) {
-  const config = (req as any).serverConfig;
+  const config = (req as GatedRequest).serverConfig;
   if (!config?.supabaseUrl || !config?.supabaseServiceRoleKey) return null;
   return { client: createClient(config.supabaseUrl, config.supabaseServiceRoleKey), config };
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Reason stamped on an answer that came from the registry default. */
+export const REGISTRY_DEFAULT = 'registry_default';
+
+/** Reason stamped on every answer of a self-host install without billing. */
+export const SELF_HOST_UNLIMITED = 'self_host_billing_schema_absent';
+
+/**
+ * A key the plan JSON never mentions takes its registry default —
+ * `override ?? plan ?? registry default` (docs/ENTITLEMENT_ARCHITECTURE.md §6),
+ * which is also what GET /api/plans/workspace/:id/effective shows every app.
+ * `check_workspace_entitlement` answers `feature_not_in_plan` for such a key,
+ * so the default is applied here, once, for every caller. Keys the registry
+ * does not know (legacy aliases) stay denied.
+ */
+function registryDefault(feature: string, plan: string | undefined): EntitlementResult | null {
+  const cap = getCapability(feature);
+  if (!cap || cap.deprecated) return null;
+  if (cap.type === 'limit') {
+    if (typeof cap.defaultValue !== 'number' || !Number.isFinite(cap.defaultValue)) return null;
+    return { allowed: true, limit: cap.defaultValue, limitValid: true, plan, reason: REGISTRY_DEFAULT };
+  }
+  return { allowed: cap.defaultValue === true, plan, reason: REGISTRY_DEFAULT };
 }
 
 // ─── Core entitlement check ───
@@ -110,7 +153,7 @@ export async function checkEntitlementFromDB(
         limit: -1,
         limitValid: true,
         plan: 'self-host-unlimited',
-        reason: 'self_host_billing_schema_absent',
+        reason: SELF_HOST_UNLIMITED,
       };
       cache.set(key, { result, expiresAt: Date.now() + CACHE_TTL });
     boundEntitlementCache();
@@ -129,21 +172,56 @@ export async function checkEntitlementFromDB(
       return { allowed: false, plan: 'error', reason: parsed.reason };
     }
 
-    const result: EntitlementResult = {
-      allowed: parsed.allowed === true,
-      limit: parsed.limit,
-      limitValid: parsed.limitValid === true,
-      plan: parsed.plan,
-      reason: parsed.reason,
-    };
+    const result: EntitlementResult =
+      (parsed.allowed === false && parsed.reason === 'feature_not_in_plan' && registryDefault(feature, parsed.plan)) || {
+        allowed: parsed.allowed === true,
+        limit: parsed.limit,
+        limitValid: parsed.limitValid === true,
+        plan: parsed.plan,
+        reason: parsed.reason,
+      };
 
     cache.set(key, { result, expiresAt: Date.now() + CACHE_TTL });
     boundEntitlementCache();
     return result;
-  } catch (err: any) {
-    console.error('[FeatureGating] Exception:', err.message);
+  } catch (err) {
+    console.error('[FeatureGating] Exception:', errorMessage(err));
     return { allowed: false, plan: 'error', reason: 'exception' };
   }
+}
+
+/**
+ * A self-host install without the billing subsystem, detected exactly as
+ * checkEntitlementFromDB detects it (the explicit SELF_HOST_BILLING_MODE flag
+ * AND check_workspace_entitlement absent): everything is allowed. The
+ * module/channel RPCs belong to that same missing subsystem, so without this
+ * every module check answered 503 there. Hosted deployments never set the
+ * flag and never reach it.
+ */
+async function selfHostUnlimited(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  workspaceId: string,
+  key: string,
+): Promise<EntitlementResult | null> {
+  const probe = await checkEntitlementFromDB(supabaseUrl, serviceRoleKey, workspaceId, key, { selfHostBillingUnlimited: true });
+  return probe.reason === SELF_HOST_UNLIMITED ? probe : null;
+}
+
+/**
+ * The module/channel RPCs report a plan denial without saying whether the
+ * plan said no or never mentioned the key; the entitlement RPC does, and the
+ * registry default decides the second case.
+ */
+async function planDenialOrDefault(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  workspaceId: string,
+  key: string,
+  denial: EntitlementResult,
+): Promise<EntitlementResult> {
+  const plan = await checkEntitlementFromDB(supabaseUrl, serviceRoleKey, workspaceId, key);
+  return plan.reason === REGISTRY_DEFAULT ? plan : denial;
 }
 
 // ─── Module access (plan + override) ───
@@ -151,8 +229,13 @@ export async function checkModuleAccess(
   supabaseUrl: string,
   serviceRoleKey: string,
   workspaceId: string,
-  moduleKey: string
+  moduleKey: string,
+  opts: { selfHostBillingUnlimited?: boolean } = {},
 ): Promise<EntitlementResult> {
+  if (opts.selfHostBillingUnlimited) {
+    const unlimited = await selfHostUnlimited(supabaseUrl, serviceRoleKey, workspaceId, moduleKey);
+    if (unlimited) return unlimited;
+  }
   try {
     const supabase = createClient(supabaseUrl, serviceRoleKey);
     const { data, error } = await supabase.rpc('check_module_access', {
@@ -164,7 +247,11 @@ export async function checkModuleAccess(
       console.error('[ModuleGating] Unreadable module result:', parsed.reason, error?.message);
       return { allowed: false, reason: parsed.reason };
     }
-    return { allowed: parsed.allowed === true, plan: parsed.plan, reason: parsed.reason };
+    const result: EntitlementResult = { allowed: parsed.allowed === true, plan: parsed.plan, reason: parsed.reason };
+    if (!result.allowed && parsed.reason === 'plan') {
+      return await planDenialOrDefault(supabaseUrl, serviceRoleKey, workspaceId, moduleKey, result);
+    }
+    return result;
   } catch {
     return { allowed: false, reason: 'exception' };
   }
@@ -175,8 +262,13 @@ export async function checkChannelAccess(
   supabaseUrl: string,
   serviceRoleKey: string,
   workspaceId: string,
-  channelKey: string
+  channelKey: string,
+  opts: { selfHostBillingUnlimited?: boolean } = {},
 ): Promise<EntitlementResult> {
+  if (opts.selfHostBillingUnlimited) {
+    const unlimited = await selfHostUnlimited(supabaseUrl, serviceRoleKey, workspaceId, channelKey);
+    if (unlimited) return unlimited;
+  }
   try {
     const supabase = createClient(supabaseUrl, serviceRoleKey);
     const { data, error } = await supabase.rpc('check_channel_access', {
@@ -187,7 +279,16 @@ export async function checkChannelAccess(
       console.error('[ChannelGating] RPC error:', error.message);
       return { allowed: false, reason: 'rpc_error' };
     }
-    return { allowed: data?.allowed ?? false, plan: data?.plan, reason: data?.source };
+    const row = (data && typeof data === 'object' ? data : {}) as { allowed?: unknown; plan?: unknown; source?: unknown };
+    const result: EntitlementResult = {
+      allowed: row.allowed === true,
+      plan: typeof row.plan === 'string' ? row.plan : undefined,
+      reason: typeof row.source === 'string' ? row.source : undefined,
+    };
+    if (!result.allowed && result.reason === 'plan') {
+      return await planDenialOrDefault(supabaseUrl, serviceRoleKey, workspaceId, channelKey, result);
+    }
+    return result;
   } catch {
     return { allowed: false, reason: 'exception' };
   }
@@ -231,8 +332,8 @@ export async function incrementUsage(
       _counter_name: counter,
       _amount: amount,
     });
-  } catch (err: any) {
-    console.error('[UsageTracking] Error:', err.message);
+  } catch (err) {
+    console.error('[UsageTracking] Error:', errorMessage(err));
   }
 }
 
@@ -271,7 +372,7 @@ export function requireFeature(feature: string) {
       });
     }
 
-    (req as any).entitlement = result;
+    (req as GatedRequest).entitlement = result;
     next();
   };
 }
@@ -289,26 +390,40 @@ export function requireModule(moduleKey: string) {
       return res.status(400).json({ error: 'Missing workspaceId for module check' });
     }
 
-    const result = await checkModuleAccess(sb.config.supabaseUrl, sb.config.supabaseServiceRoleKey, workspaceId, moduleKey);
-
-    // R7.4 §7 — an unreadable module RPC is an outage, not a plan denial.
-    if (isUnreadableEntitlementReason(result.reason)) {
-      return res.status(503).json({
-        error: 'module_status_unavailable',
-        module: moduleKey,
-        retryable: true,
-      });
-    }
-
-    if (!result.allowed) {
-      return res.status(403).json({
-        error: `Module '${moduleKey}' is not enabled`,
-        module: moduleKey, plan: result.plan, upgrade_required: true,
-      });
-    }
-
-    next();
+    if (await enforceModule(req, res, workspaceId, moduleKey)) next();
   };
+}
+
+/**
+ * The module check behind {@link requireModule}, for a handler that has to
+ * authorize the caller first. Writes the 403/503 itself and returns false
+ * when the caller must stop.
+ */
+export async function enforceModule(req: Request, res: Response, workspaceId: string, moduleKey: string): Promise<boolean> {
+  const sb = getSupabaseClient(req);
+  if (!sb) return true;
+  const result = await checkModuleAccess(sb.config.supabaseUrl, sb.config.supabaseServiceRoleKey, workspaceId, moduleKey, {
+    selfHostBillingUnlimited: sb.config.selfHostBillingUnlimited === true,
+  });
+
+  // R7.4 §7 — an unreadable module RPC is an outage, not a plan denial.
+  if (isUnreadableEntitlementReason(result.reason)) {
+    res.status(503).json({
+      error: 'module_status_unavailable',
+      module: moduleKey,
+      retryable: true,
+    });
+    return false;
+  }
+
+  if (!result.allowed) {
+    res.status(403).json({
+      error: `Module '${moduleKey}' is not enabled`,
+      module: moduleKey, plan: result.plan, upgrade_required: true,
+    });
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -324,7 +439,9 @@ export function requireChannel(channelKey: string) {
       return res.status(400).json({ error: 'Missing workspaceId for channel check' });
     }
 
-    const result = await checkChannelAccess(sb.config.supabaseUrl, sb.config.supabaseServiceRoleKey, workspaceId, channelKey);
+    const result = await checkChannelAccess(sb.config.supabaseUrl, sb.config.supabaseServiceRoleKey, workspaceId, channelKey, {
+      selfHostBillingUnlimited: sb.config.selfHostBillingUnlimited === true,
+    });
 
     if (!result.allowed) {
       return res.status(403).json({
@@ -371,7 +488,7 @@ export function requireAICredits(credits: number = 1) {
       });
     }
 
-    (req as any).aiCredits = result;
+    (req as GatedRequest).aiCredits = result;
     next();
   };
 }
@@ -439,49 +556,81 @@ export function requireLimit(
       }
     }
 
-    (req as any).entitlement = result;
+    (req as GatedRequest).entitlement = result;
     next();
   };
 }
 
+/** A `billing_plans` row as the plan lookups read it (select *). */
+export interface BillingPlanRow {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  is_free?: boolean | null;
+  localized?: Record<string, { name?: string | null; description?: string | null } | null | undefined> | null;
+  entitlements?: Record<string, unknown> | null;
+  limits?: Record<string, unknown> | null;
+}
+
+/** A `workspace_subscriptions` row as the plan lookups read it (select *). */
+export interface WorkspaceSubscriptionRow extends SubscriptionPlanState {
+  workspace_id?: string;
+  billing_interval?: string | null;
+  past_due_since?: string | null;
+  grace_period_ends_at?: string | null;
+}
+
+export interface WorkspacePlanInfo {
+  /** The plan in force — the assigned one, or Free (planSelection.ts decides). */
+  plan: BillingPlanRow;
+  subscription: WorkspaceSubscriptionRow | null;
+  entitlements: Record<string, boolean>;
+  /** The plan's limits with the workspace's limit overrides applied. */
+  limits: Record<string, number>;
+  /** The plan's own limits, before overrides. */
+  planLimits: Record<string, number>;
+  /** Super Admin's per-workspace limit overrides (limit key → value). */
+  limitOverrides: Record<string, { value: number; note: string | null }>;
+}
+
 /**
- * Get full workspace plan info (for frontend).
+ * The plan a workspace is on, as every client is shown it and as
+ * `check_workspace_entitlement` enforces it (see planSelection.ts).
+ * Throws when any of it cannot be read; callers choose how to fail.
  */
 export async function getWorkspacePlanInfo(
   supabaseUrl: string,
   serviceRoleKey: string,
   workspaceId: string
-): Promise<{
-  plan: any;
-  subscription: any;
-  entitlements: Record<string, boolean>;
-  limits: Record<string, number>;
-}> {
+): Promise<WorkspacePlanInfo> {
   const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-  const { data: sub, error: subError } = await supabase
-    .from('workspace_subscriptions')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
+  const [{ data: subRow, error: subError }, { data: overrideRows, error: overrideError }] = await Promise.all([
+    supabase.from('workspace_subscriptions').select('*').eq('workspace_id', workspaceId).maybeSingle(),
+    supabase.from('workspace_limit_overrides').select('limit_key, limit_value, admin_notes').eq('workspace_id', workspaceId),
+  ]);
   if (subError) throw new Error(`workspace_subscription_read_failed:${subError.message}`);
+  // Self-host ships without the override tables: absent means none.
+  if (overrideError && !isRelationMissing(overrideError, 'workspace_limit_overrides')) {
+    throw new Error(`workspace_limit_overrides_read_failed:${overrideError.message}`);
+  }
+  const sub = (subRow as WorkspaceSubscriptionRow | null) ?? null;
 
-  let plan: any = null;
-  if (sub?.plan_id) {
+  let plan: BillingPlanRow | null = null;
+  if (sub?.plan_id && assignedPlanApplies(sub)) {
     const { data: assignedPlan, error: planError } = await supabase
       .from('billing_plans')
       .select('*')
       .eq('id', sub.plan_id)
       .maybeSingle();
     if (planError) throw new Error(`workspace_plan_read_failed:${planError.message}`);
-    plan = assignedPlan;
+    plan = (assignedPlan as BillingPlanRow | null) ?? null;
   }
 
-  // Billing V2 keeps the paid entitlement during grace/past-due and until an
-  // explicit free fallback is recorded. A status whitelist incorrectly
-  // demoted those customers in the UI and entitlement checks.
-  const hasAssignedEntitlement = Boolean(plan && sub?.plan_id && !sub?.free_fallback_at);
-  if (!hasAssignedEntitlement) {
+  // No subscription, a subscription that no longer grants its plan, or a plan
+  // row that is gone: the Free plan applies.
+  if (!plan) {
     const { data: freePlan, error: freeError } = await supabase
       .from('billing_plans')
       .select('*')
@@ -490,18 +639,30 @@ export async function getWorkspacePlanInfo(
       .maybeSingle();
     if (freeError) throw new Error(`free_plan_read_failed:${freeError.message}`);
     if (!freePlan) throw new Error('free_plan_not_found');
-    plan = freePlan;
+    plan = freePlan as BillingPlanRow;
   }
 
-  if (typeof plan?.slug !== 'string' || !plan.slug.trim()) {
+  if (typeof plan.slug !== 'string' || !plan.slug.trim()) {
     throw new Error('resolved_plan_has_no_valid_slug');
   }
 
+  const planLimits = (plan.limits as Record<string, number> | null | undefined) || {};
+  const limitOverrides: WorkspacePlanInfo['limitOverrides'] = {};
+  for (const row of (overrideRows || []) as Array<{ limit_key: string; limit_value: number; admin_notes?: string | null }>) {
+    if (typeof row.limit_key === 'string' && typeof row.limit_value === 'number' && Number.isFinite(row.limit_value)) {
+      limitOverrides[row.limit_key] = { value: row.limit_value, note: row.admin_notes ?? null };
+    }
+  }
+  const limits: Record<string, number> = { ...planLimits };
+  for (const [limitKey, override] of Object.entries(limitOverrides)) limits[limitKey] = override.value;
+
   return {
-    plan: plan || null,
-    subscription: sub || null,
-    entitlements: (plan?.entitlements as Record<string, boolean>) || {},
-    limits: (plan?.limits as Record<string, number>) || {},
+    plan,
+    subscription: sub,
+    entitlements: (plan.entitlements as Record<string, boolean> | null | undefined) || {},
+    limits,
+    planLimits,
+    limitOverrides,
   };
 }
 
@@ -518,13 +679,13 @@ export async function getWorkspacePlanInfoDetailed(
   serviceRoleKey: string,
   workspaceId: string
 ): Promise<
-  | { ok: true; value: { plan: any; subscription: any; entitlements: Record<string, boolean>; limits: Record<string, number> } }
+  | { ok: true; value: WorkspacePlanInfo }
   | { ok: false; errorCode: 'plan_status_unavailable'; retryable: true }
 > {
   try {
     return { ok: true, value: await getWorkspacePlanInfo(supabaseUrl, serviceRoleKey, workspaceId) };
-  } catch (err: any) {
-    console.error('[FeatureGating] plan info exception:', err?.message);
+  } catch (err) {
+    console.error('[FeatureGating] plan info exception:', errorMessage(err));
     return { ok: false, errorCode: 'plan_status_unavailable', retryable: true };
   }
 }

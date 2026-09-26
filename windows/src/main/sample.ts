@@ -164,7 +164,11 @@ const entitlements = {
     widget_emoji: { value: true },
     mobile_promo_banner: { value: false },
   },
-  channels: { voice: { value: true }, video: { value: true } },
+  // Only a key that is exactly true is on, so the channel inboxes the sample lays out are listed too.
+  channels: {
+    chat_widget: { value: true }, voice: { value: true }, video: { value: true },
+    telegram: { value: true }, whatsapp: { value: true }, bale: { value: true },
+  },
   limits: {},
 }
 

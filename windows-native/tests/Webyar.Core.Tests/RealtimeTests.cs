@@ -94,6 +94,48 @@ public class RealtimeTests
         Assert.Single(http.Requests);
     }
 
+    [Fact]
+    public async Task A_dropped_connection_reports_down_then_up_again_so_the_app_can_reconcile()
+    {
+        var http = new FakeHttp((req, _) => req.RequestUri!.AbsolutePath switch
+        {
+            "/api/realtime/operator-connect" => (HttpStatusCode.OK, """{"vendor":"centrifugo","ws_url":"wss://rt.example/connection/websocket","token":"ct","expires_at":4102444800000}"""),
+            "/api/realtime/operator-presence-subscribe" => (HttpStatusCode.OK, """{"vendor":"polling_builtin"}"""),
+            _ => (HttpStatusCode.OK, """{"vendor":"centrifugo","channel":"ws:w1:inbox","token":"st","expires_at":4102444800000}"""),
+        });
+        using var client = new ApiClient(new MemorySessionStore("t"), handler: http);
+        var sockets = Channel.CreateUnbounded<FakeSocket>();
+        await using var rt = new InboxRealtime(new WebyarApi(client), "w1", () =>
+        {
+            var s = new FakeSocket();
+            sockets.Writer.TryWrite(s);
+            return s;
+        });
+        var states = Channel.CreateUnbounded<bool>();
+        rt.ConnectionChanged += up => states.Writer.TryWrite(up);
+        rt.Start();
+
+        async Task Handshake(FakeSocket socket)
+        {
+            await socket.Sent.Reader.ReadAsync();
+            socket.Incoming.Writer.TryWrite("""{"id":1,"connect":{}}""");
+            await socket.Sent.Reader.ReadAsync();
+            socket.Incoming.Writer.TryWrite("""{"id":2,"subscribe":{}}""");
+        }
+
+        var first = await sockets.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        await Handshake(first);
+        Assert.True(await states.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+
+        first.Incoming.Writer.TryWrite(null); // the network drops
+        Assert.False(await states.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+
+        var second = await sockets.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+        await Handshake(second);
+        // Up again: the app's cue to sync every open view from its last cursor (events in between were missed).
+        Assert.True(await states.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
     private sealed class FakeSocket : IRealtimeSocket
     {
         public Channel<string> Sent { get; } = Channel.CreateUnbounded<string>();

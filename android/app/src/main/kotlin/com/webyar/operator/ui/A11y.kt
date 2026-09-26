@@ -19,6 +19,7 @@ object A11y {
 
     const val INBOX_LIST = "inbox.list"
     const val INBOX_EMPTY = "inbox.empty"
+    const val INBOX_SYNC_NOTICE = "inbox.syncNotice"
     const val INBOX_SEARCH = "inbox.search"
     const val INBOX_FILTER = "inbox.filter"
     const val INBOX_TITLE_MENU = "inbox.title.menu"
@@ -26,7 +27,6 @@ object A11y {
     /** Absent from the tree when the search is closed, which several tests
      *  are about — see `SearchState`. */
     const val SEARCH_FIELD = "search.field"
-    const val TAB_BAR = "tab.bar"
 
     const val COMPOSER_FIELD = "composer.field"
     const val COMPOSER_SEND = "composer.send"
@@ -80,6 +80,10 @@ object A11y {
     fun attachmentVoiceNote(id: String) = "attachment.voice.$id"
     fun attachmentVoicePlay(id: String) = "attachment.voice.play.$id"
     fun attachmentFile(id: String) = "attachment.file.$id"
+    fun messageStatus(id: String) = "message.status.$id"
+    const val SETTINGS_STORAGE = "settings.storage"
+    const val SETTINGS_CLEAR_CACHE = "settings.clearCache"
+    const val SETTINGS_CLEAR_CACHE_CONFIRM = "settings.clearCache.confirm"
     const val ATTACHMENT_VIEWER_CLOSE = "attachment.viewer.close"
 
     const val SETTINGS_NOTIFICATIONS = "settings.notifications"

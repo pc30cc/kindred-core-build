@@ -72,15 +72,15 @@ fun RemoteImage(
  */
 @Composable
 private fun Skeleton(modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "skeleton")
-    val shimmer by transition.animateFloat(
-        initialValue = 0.45f,
-        targetValue = 0.85f,
-        animationSpec = infiniteRepeatable(
+    val shimmer by rememberLoop(
+        label = "skeleton-alpha",
+        from = 0.45f,
+        to = 0.85f,
+        spec = infiniteRepeatable(
             animation = tween(820),
             repeatMode = RepeatMode.Reverse,
         ),
-        label = "skeleton-alpha",
+        rest = 0.65f,
     )
     Box(
         modifier

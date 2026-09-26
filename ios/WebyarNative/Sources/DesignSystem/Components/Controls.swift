@@ -158,6 +158,34 @@ struct ErrorStateView: View {
     }
 }
 
+/// One quiet line above content the phone saved earlier, when the server
+/// cannot be reached right now.
+///
+/// Not an error screen: the conversations are still there and still
+/// readable, and replacing them with "can't reach the server" would take away
+/// the one thing that is useful in a lift. This only says how old they may be.
+struct OfflineNotice: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: Theme.Space.xs) {
+            Image(systemName: "icloud.slash")
+                .font(.caption)
+            Text(text)
+                .font(Theme.Typo.meta)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(Theme.Palette.labelSecondary)
+        .padding(.horizontal, Theme.Space.md)
+        .padding(.vertical, Theme.Space.sm)
+        .background(Capsule().fill(Theme.Palette.surfaceElevated))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(A11y.offlineNotice)
+    }
+}
+
 // MARK: - Badges
 
 /// The unread counter on an inbox row.

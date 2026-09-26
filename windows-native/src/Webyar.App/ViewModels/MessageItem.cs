@@ -122,6 +122,13 @@ public sealed partial class MessageItem : ObservableObject
     [ObservableProperty]
     private string _meta;
 
+    /// <summary>
+    /// For a reply the server has stored: the first sync numbered at least
+    /// this started after the send returned, so its answer holds the stored
+    /// copy. 0 while the reply is still on its way (or failed).
+    /// </summary>
+    public int ConfirmedBySync { get; set; }
+
     [ObservableProperty]
     private bool _pending;
 

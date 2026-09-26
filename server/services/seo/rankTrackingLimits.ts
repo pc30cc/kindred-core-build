@@ -1,16 +1,22 @@
 /**
- * SEO Rank Tracking — plan-limit resolver, mirroring
- * server/services/seo/backlinksLimits.ts's shape. Two limits here, neither
- * shaped like a "per-request" cap: `seo_rank_tracking_max_keywords` bounds
- * the size of a site's persistent watchlist (enforced when a keyword is
- * added, in server/services/seo/rankTrackingService.ts), and
- * `seo_rank_tracking_check_frequency_hours` is read by
- * rankTrackingTicker.ts to decide how often each tracked keyword is
- * re-checked. Opt-in per plan (Free fallback is 0) because every check
- * costs the platform real money.
+ * SEO Rank Tracking — plan-limit resolver.
+ *
+ * Every limit here is a registry capability and resolves exactly as
+ * GET /api/plans/workspace/:id/effective shows it: workspace override ??
+ * plan ?? registry default (billing/servicePlanLimits.ts). A platform admin
+ * changes them per plan in the existing plan editor.
+ *
+ * Two limits here, neither shaped like a "per-request" cap:
+ * `seo_rank_tracking_max_keywords` bounds the size of a site's persistent
+ * watchlist (enforced when a keyword is added, in
+ * server/services/seo/rankTrackingService.ts), and
+ * `seo_rank_tracking_check_frequency_hours` is read by rankTrackingTicker.ts
+ * to decide how often each tracked keyword is re-checked. Opt-in per plan
+ * (registry default 0 keywords) because every check costs the platform real
+ * money.
  */
 import type { ServerConfig } from '../../config.js';
-import { getWorkspacePlanInfo } from '../../middleware/featureGating.js';
+import { readServicePlanInfo, registryLimits, servicePlanIdentity } from '../billing/servicePlanLimits.js';
 import { getServiceClient } from '../../supabase.js';
 
 export interface SeoRankTrackingLimits {
@@ -18,23 +24,11 @@ export interface SeoRankTrackingLimits {
   seo_rank_tracking_check_frequency_hours: number;
 }
 
-const FALLBACKS: Record<string, SeoRankTrackingLimits> = {
-  free: { seo_rank_tracking_max_keywords: 0, seo_rank_tracking_check_frequency_hours: 168 },
-  pro: { seo_rank_tracking_max_keywords: 25, seo_rank_tracking_check_frequency_hours: 168 },
-  business: { seo_rank_tracking_max_keywords: 200, seo_rank_tracking_check_frequency_hours: 24 },
-  enterprise: { seo_rank_tracking_max_keywords: 200, seo_rank_tracking_check_frequency_hours: 24 },
-};
-const STRICT = FALLBACKS.free;
-
-function num(v: unknown, fallback: number): number {
-  if (v === null || v === undefined) return fallback;
-  if (typeof v === 'number' && Number.isFinite(v)) return v;
-  if (typeof v === 'string' && v.trim()) {
-    const n = Number(v);
-    if (Number.isFinite(n)) return n;
-  }
-  return fallback;
-}
+/** Registry limits: override ?? plan ?? registry default. */
+export const SEO_RANK_TRACKING_PLAN_KEYS = [
+  'seo_rank_tracking_max_keywords',
+  'seo_rank_tracking_check_frequency_hours',
+] as const satisfies readonly (keyof SeoRankTrackingLimits)[];
 
 export interface ResolvedSeoRankTrackingLimits {
   limits: SeoRankTrackingLimits;
@@ -43,19 +37,8 @@ export interface ResolvedSeoRankTrackingLimits {
 }
 
 export async function resolveRankTrackingLimits(config: ServerConfig, workspaceId: string): Promise<ResolvedSeoRankTrackingLimits> {
-  let info: { plan: any; limits: Record<string, number> } | null = null;
-  try {
-    info = await getWorkspacePlanInfo(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId);
-  } catch {
-    info = null;
-  }
-  const slug = (info?.plan?.slug || 'free') as string;
-  const fallback = FALLBACKS[slug] || STRICT;
-  const db = (info?.limits || {}) as Record<string, unknown>;
-  const keys = Object.keys(fallback) as (keyof SeoRankTrackingLimits)[];
-  const limits = {} as SeoRankTrackingLimits;
-  for (const key of keys) limits[key] = num(db[key], fallback[key]);
-  return { planSlug: slug, planName: info?.plan?.name || null, limits };
+  const info = await readServicePlanInfo(config, workspaceId);
+  return { ...servicePlanIdentity(info), limits: registryLimits(info, SEO_RANK_TRACKING_PLAN_KEYS) };
 }
 
 export async function countActiveTrackedKeywords(config: ServerConfig, websiteId: string): Promise<number> {

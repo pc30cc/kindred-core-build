@@ -2,17 +2,23 @@ package com.webyar.operator.feature.inbox
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.webyar.operator.core.cache.CacheScope
 import com.webyar.operator.core.model.ChannelInbox
 import com.webyar.operator.core.model.Conversation
 import com.webyar.operator.core.model.Entitlements
 import com.webyar.operator.core.model.InboxCounts
 import com.webyar.operator.core.model.InboxFilter
 import com.webyar.operator.core.model.VisitorProfile
+import com.webyar.operator.core.model.WorkspaceAccess
 import com.webyar.operator.core.model.channelKey
 import com.webyar.operator.core.net.WebyarApi
+import com.webyar.operator.core.sync.SyncGraph
+import com.webyar.operator.core.sync.isOffline
+import com.webyar.operator.i18n.StrAndroid
 import com.webyar.operator.i18n.Format
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.displayText
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,6 +28,14 @@ import kotlinx.coroutines.launch
 /**
  * The inbox: which queue, which channel, what is in it, and how much.
  *
+ * **Local-first.** What the screen shows is the cache ([SyncGraph]'s Room
+ * flow for this scope and queue), from the first frame of a cold start —
+ * the network only ever writes the cache, and the cache's flow carries the
+ * change here. A failed refresh therefore never costs the operator the list
+ * they were reading: with rows on screen it becomes [syncProblem], a line
+ * above the list, and only a queue that has never once been read can end in
+ * [InboxState.Failed].
+ *
  * Search is done HERE rather than by the server, because the conversations
  * endpoint has no query parameter — the console narrows its own list the same
  * way. That is fine for a phone, where the page is fifty rows; it would not be
@@ -30,6 +44,8 @@ import kotlinx.coroutines.launch
  */
 class InboxViewModel(
     private val api: WebyarApi,
+    /** Last-but-one so `InboxViewModel(api) { language }` still reads as it always did. */
+    private val sync: SyncGraph = SyncGraph.inMemory(api),
     private val language: () -> Language,
 ) : ViewModel() {
 
@@ -58,22 +74,49 @@ class InboxViewModel(
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
 
-    private var workspaceId: String? = null
+    /**
+     * Why the list on screen may be out of date — offline, the server
+     * refusing — or null when the last read worked. Shown above the rows,
+     * never instead of them.
+     */
+    private val _syncProblem = MutableStateFlow<String?>(null)
+    val syncProblem: StateFlow<String?> = _syncProblem.asStateFlow()
 
-    /** Everything loaded for the current queue, before search and channel. */
-    private var loaded: List<Conversation> = emptyList()
+    private var workspaceId: String? = null
+    private var scope: CacheScope? = null
+
+    /** The queue as the cache last said, before search and channel. Null until it has said anything. */
+    private var loaded: List<Conversation>? = null
+
+    /** Whether this queue has been read from the server at least once in this scope. */
+    private var everRead = false
+
+    /** The last refresh's failure, for a queue with nothing cached to show instead. */
+    private var failure: String? = null
+
+    private var listJob: Job? = null
+    private var countsJob: Job? = null
+
+    /** Rows whose visitor intel has been asked for, so a re-emission does not ask again. */
+    private val intelAsked = HashSet<String>()
 
     // MARK: - Loading
 
     fun bind(workspaceId: String) {
         if (this.workspaceId == workspaceId) return
         this.workspaceId = workspaceId
+        scope = sync.scope(workspaceId)
         // A different workspace is a different plan and a different list, so
         // nothing from the old one carries over — including the channel
         // filter, which may name a plugin this workspace has never installed.
         _channel.value = null
         _query.value = ""
         _intel.value = emptyMap()
+        intelAsked.clear()
+        _counts.value = InboxCounts()
+        _syncProblem.value = null
+        observe()
+        observeCounts()
         load()
         loadChannels()
     }
@@ -96,6 +139,8 @@ class InboxViewModel(
             // A different queue is a different question: carrying the search
             // terms across would silently filter a list nobody searched.
             _query.value = ""
+            observe()
+            observeCounts()
             load()
         } else {
             // Same queue, channel lifted: the list is already in hand.
@@ -113,6 +158,8 @@ class InboxViewModel(
         if (key != null && _filter.value != InboxFilter.OPEN) {
             _filter.value = InboxFilter.OPEN
             _query.value = ""
+            observe()
+            observeCounts()
             load()
         } else {
             publish()
@@ -124,34 +171,73 @@ class InboxViewModel(
         publish()
     }
 
+    /** Pull-to-refresh: a real request, not a conditional one. */
     fun refresh() {
         _refreshing.value = true
-        load(showSpinner = false)
+        load(force = true)
     }
 
-    private fun load(showSpinner: Boolean = true) {
-        val workspace = workspaceId ?: return
-        if (showSpinner) _state.value = InboxState.Loading
-        viewModelScope.launch {
-            runCatching { api.conversations(workspace, _filter.value) }
-                .onSuccess {
-                    loaded = it
-                    publish()
-                    loadIntel(it)
-                }
-                .onFailure { _state.value = InboxState.Failed(it.displayText(language())) }
-            _refreshing.value = false
-            loadCounts()
+    /**
+     * The cache's copy of this queue, for as long as this queue is the one on
+     * screen. The first emission is whatever was saved — which on a warm
+     * cache is the inbox, before any request has been made.
+     */
+    private fun observe() {
+        val scope = scope ?: return
+        val filter = _filter.value
+        listJob?.cancel()
+        loaded = null
+        everRead = false
+        failure = null
+        publish()
+        sync.coordinator.focusInbox(scope, filter)
+        listJob = viewModelScope.launch {
+            everRead = sync.conversations.hasList(scope, filter)
+            sync.conversations.observeInbox(scope, filter).collect { rows ->
+                loaded = rows
+                publish()
+                loadIntel(rows)
+            }
         }
     }
 
-    private fun loadCounts() {
-        val workspace = workspaceId ?: return
+    private fun observeCounts() {
+        val scope = scope ?: return
+        val queue = _filter.value.queue
+        countsJob?.cancel()
+        countsJob = viewModelScope.launch {
+            sync.coordinator.counts.collect { snapshot ->
+                if (snapshot != null && snapshot.matches(scope, queue)) _counts.value = snapshot.counts
+            }
+        }
+    }
+
+    private fun load(force: Boolean = false) {
+        val scope = scope ?: return
+        val filter = _filter.value
         viewModelScope.launch {
-            // Advisory: a badge that failed to load is a missing number, not a
-            // reason to show the operator an error over a list that loaded.
-            runCatching { api.inboxCounts(workspace, _filter.value.queue) }
-                .onSuccess { _counts.value = it }
+            val result = sync.coordinator.refreshInbox(scope, filter, force = force, reason = if (force) "pull" else "open")
+            // The answer is for the queue that was asked about. If the
+            // operator has moved on, the cache has it for when they return,
+            // and this screen has nothing to say about it.
+            if (this@InboxViewModel.scope == scope && _filter.value == filter) {
+                result
+                    .onSuccess {
+                        everRead = true
+                        failure = null
+                        _syncProblem.value = null
+                    }
+                    .onFailure { error ->
+                        val text = error.displayText(language())
+                        failure = text
+                        // Offline says what the operator is looking at: what
+                        // this phone saved. Any other failure says itself.
+                        _syncProblem.value = if (error.isOffline) StrAndroid.showingSaved(language()) else text
+                    }
+                publish()
+            }
+            _refreshing.value = false
+            sync.coordinator.refreshCounts(scope, filter.queue)
         }
     }
 
@@ -159,6 +245,7 @@ class InboxViewModel(
         val workspace = workspaceId ?: return
         viewModelScope.launch {
             runCatching { api.channelInboxes(workspace) }.onSuccess { fresh ->
+                if (workspaceId != workspace) return@onSuccess
                 _channels.value = fresh
                 // A channel that has just left the plan must not stay
                 // selected with nothing behind it, or the list is filtered by
@@ -174,31 +261,45 @@ class InboxViewModel(
     /**
      * Where the visitors are and what they are on.
      *
-     * One batched call for the whole page rather than one per row: fifty rows
-     * appearing at once would otherwise be fifty requests, and the rows that
-     * scrolled past before their answer came back would have paid for nothing.
+     * One batched call for the rows it does not already know, rather than
+     * one per row: fifty rows appearing at once would otherwise be fifty
+     * requests, and a list that re-emits because one row changed would ask
+     * for all fifty again. Kept in memory for the life of this workspace —
+     * it is advisory decoration, not something worth a table.
      */
     private fun loadIntel(conversations: List<Conversation>) {
         val workspace = workspaceId ?: return
-        val ids = conversations.map { it.id }
+        val known = _intel.value.keys
+        val ids = conversations.map { it.id }.filter { it !in known && it !in intelAsked }
         if (ids.isEmpty()) return
+        intelAsked += ids
         viewModelScope.launch {
             runCatching { api.visitorIntelByConversation(workspace, ids) }
-                .onSuccess { fresh -> _intel.update { it + fresh } }
+                .onSuccess { fresh -> if (workspaceId == workspace) _intel.update { it + fresh } }
+                .onFailure { intelAsked -= ids.toSet() }
         }
     }
 
     // MARK: - What the screen sees
 
     private fun publish() {
+        val rows = loaded
+        _state.value = when {
+            rows == null -> InboxState.Loading
+            // Nothing cached and never read: the skeleton while the first
+            // read is out, and its failure if it fails — the one case where
+            // there is nothing better to show than the error.
+            rows.isEmpty() && !everRead -> failure?.let(InboxState::Failed) ?: InboxState.Loading
+            else -> InboxState.Loaded(narrow(rows))
+        }
+    }
+
+    private fun narrow(rows: List<Conversation>): List<Conversation> {
         val terms = _query.value.trim()
         val channel = _channel.value
-
-        val filtered = loaded
+        return rows
             .filter { channel == null || it.channelKey == channel }
             .filter { terms.isEmpty() || it.matches(terms) }
-
-        _state.value = InboxState.Loaded(filtered)
     }
 
     /**
@@ -220,9 +321,11 @@ class InboxViewModel(
         ).any { it.lowercase().contains(needle) }
     }
 
-    /** The queues this plan includes. */
-    fun filters(entitlements: Entitlements?): List<InboxFilter> = InboxFilter.available(entitlements)
+    /** The queues this plan (and the AI switches, for the AI queue) include. */
+    fun filters(entitlements: Entitlements?, access: WorkspaceAccess, automated: Int?): List<InboxFilter> =
+        InboxFilter.available(entitlements, access, automated)
 
     /** The subset that stays on the strip above the list. */
-    fun chips(entitlements: Entitlements?): List<InboxFilter> = InboxFilter.chips(entitlements)
+    fun chips(entitlements: Entitlements?, access: WorkspaceAccess, automated: Int?): List<InboxFilter> =
+        InboxFilter.chips(entitlements, access, automated)
 }

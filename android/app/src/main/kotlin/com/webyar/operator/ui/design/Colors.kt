@@ -1,5 +1,6 @@
 package com.webyar.operator.ui.design
 
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Immutable
@@ -164,6 +165,24 @@ internal val WebyarDarkExtras = WebyarColors(
     badge = Color(0xFFFF6B6B),
     onBadge = Color(0xFF410002),
 )
+
+/**
+ * The same roles, read off a scheme that is not the brand's — wallpaper
+ * colours. Success and warning keep their meaning (green is still "online")
+ * and only the brand-derived colours follow the scheme.
+ */
+internal fun extrasFrom(scheme: ColorScheme, dark: Boolean): WebyarColors {
+    val base = if (dark) WebyarDarkExtras else WebyarLightExtras
+    return base.copy(
+        bubbleOutgoing = if (dark) scheme.primaryContainer else scheme.primary,
+        onBubbleOutgoing = if (dark) scheme.onPrimaryContainer else scheme.onPrimary,
+        bubbleIncoming = scheme.surfaceContainerHigh,
+        onBubbleIncoming = scheme.onSurface,
+        labelTertiary = scheme.outline,
+        badge = scheme.error,
+        onBadge = scheme.onError,
+    )
+}
 
 /**
  * Static rather than dynamic: these change only when the theme does, and a

@@ -4,36 +4,111 @@
 <meta charset="utf-8" />
 <title>Call</title>
 <!-- The media side of a call: LiveKit, the same SDK version the web console uses. The window around it
-     (invitation, token, hang-up) is native; it drives this page with postMessage. -->
+     (invitation, token, hang-up, notes and transfer requests) is native; it drives this page with postMessage,
+     and this page only draws what it is sent and says what the operator did. -->
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.18.7/dist/livekit-client.umd.min.js"></script>
 <style>
   @font-face { font-family: Vazirmatn; src: url('../Fonts/Vazirmatn.ttf'); }
-  :root { --bg:#0c0e14; --surface:#13161e; --text:#e8ecf4; --text2:#98a2b3; --danger:#e5484d; --brand:#5a94ff; --success:#3dd68c; }
+  :root { --bg:#0c0e14; --surface:#13161e; --card:#14171f; --text:#e8ecf4; --text2:#98a2b3; --danger:#e5484d; --brand:#5a94ff; --success:#3dd68c; --warning:#f76b15; }
   html,body { margin:0; height:100%; background:var(--bg); color:var(--text); font-family: Vazirmatn, 'Segoe UI Variable Text', 'Segoe UI', sans-serif; overflow:hidden; user-select:none; }
-  #stage { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
-  #remote { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; background:#000; display:none; }
+  [hidden] { display:none !important; }
+  #stage { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; box-sizing:border-box; transition: padding .22s; }
+  body.notes-open:not(.video-live) #stage { padding-inline-start:316px; }
+  /* Flipped once, as the web console flips every call video: the visitor's camera arrives mirrored. */
+  #remote { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; background:#000; display:none; transform:scaleX(-1); }
   #local { position:absolute; width:26%; max-width:260px; aspect-ratio:16/10; object-fit:cover; bottom:96px; inset-inline-end:18px; border-radius:14px; border:2px solid rgba(255,255,255,.18); transform:scaleX(-1); display:none; background:#000; box-shadow:0 12px 32px rgba(0,0,0,.5); }
   #who { display:flex; flex-direction:column; align-items:center; gap:14px; z-index:1; }
-  #avatar { width:112px; height:112px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:42px; font-weight:600; color:#fff; box-shadow:0 0 0 10px rgba(90,148,255,.08), 0 0 0 22px rgba(90,148,255,.04); }
+  #avatar { position:relative; width:112px; height:112px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:42px; font-weight:600; color:#fff; box-shadow:0 0 0 10px rgba(90,148,255,.08), 0 0 0 22px rgba(90,148,255,.04); flex:none; }
+  #avatar .gloss { position:absolute; inset:0; border-radius:50%; background:linear-gradient(to bottom, rgba(255,255,255,.28), rgba(255,255,255,0) 55%); pointer-events:none; }
+  #avatar svg { width:50%; height:50%; position:relative; }
+  #avatar img { position:absolute; inset:0; width:100%; height:100%; border-radius:50%; object-fit:cover; }
+  #flag { position:absolute; left:-4px; bottom:-4px; min-width:28px; height:22px; padding:0 3px; box-sizing:border-box; border-radius:999px; background:var(--surface); border:1px solid #313848; color:var(--text2); font-size:10.5px; font-weight:700; display:flex; align-items:center; justify-content:center; }
   body.waiting #avatar { animation: pulse 1.8s ease-in-out infinite; }
   @keyframes pulse { 0%,100% { box-shadow:0 0 0 10px rgba(90,148,255,.10), 0 0 0 22px rgba(90,148,255,.05);} 50% { box-shadow:0 0 0 16px rgba(90,148,255,.16), 0 0 0 34px rgba(90,148,255,.06);} }
-  #name { font-size:22px; font-weight:700; }
-  #status { font-size:14px; color:var(--text2); font-variant-numeric: tabular-nums; }
+  #name { font-size:22px; font-weight:700; text-align:center; }
+  #status { font-size:14px; color:var(--text2); font-variant-numeric: tabular-nums; text-align:center; }
   body.connected #status { color:var(--success); }
   body.video-live #who { position:absolute; top:18px; inset-inline-start:20px; flex-direction:row; gap:12px; }
   body.video-live #avatar { width:40px; height:40px; font-size:16px; box-shadow:none; }
-  body.video-live #name { font-size:15px; text-shadow:0 1px 4px rgba(0,0,0,.6); }
-  body.video-live #status { text-shadow:0 1px 4px rgba(0,0,0,.6); }
-  #warn { position:absolute; top:14px; left:50%; transform:translateX(-50%); background:rgba(247,107,21,.16); color:#ff8b3e; padding:6px 12px; border-radius:999px; font-size:12px; display:none; z-index:2; }
+  body.video-live #flag { display:none; }
+  body.video-live #name { font-size:15px; text-align:start; text-shadow:0 1px 4px rgba(0,0,0,.6); }
+  body.video-live #status { text-align:start; text-shadow:0 1px 4px rgba(0,0,0,.6); }
+
+  #notices { position:absolute; top:14px; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; align-items:center; gap:8px; z-index:3; max-width:min(520px, calc(100% - 140px)); }
+  .pill { padding:6px 12px; border-radius:999px; font-size:12px; text-align:center; }
+  #warn { background:rgba(247,107,21,.16); color:#ff8b3e; }
+  #handover { background:rgba(90,148,255,.22); color:var(--text); }
+  #perm { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:12px; background:rgba(20,23,31,.92); border:1px solid rgba(255,255,255,.1); font-size:12px; }
+  #perm button { white-space:nowrap; }
+
+  /* Round controls: glass, or a solid disc when switched off (white) or to hang up (red). */
   #bar { position:absolute; bottom:22px; left:0; right:0; display:flex; justify-content:center; gap:14px; z-index:2; }
-  button { width:56px; height:56px; border-radius:50%; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.12); color:#fff; transition:background .15s, transform .1s; backdrop-filter: blur(8px); }
-  button:hover { background:rgba(255,255,255,.2); }
-  button:active { transform:scale(.95); }
-  button.off { background:#fff; color:#0c0e14; }
-  button.hang { background:var(--danger); }
-  button.hang:hover { background:#f2555a; }
-  button svg { width:24px; height:24px; }
-  body.ended #bar button:not(.hang), body.ended #bar .hang { opacity:.4; pointer-events:none; }
+  .round { width:56px; height:56px; border-radius:50%; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.12); color:#fff; transition:background .15s, transform .1s, opacity .15s; backdrop-filter: blur(8px); padding:0; }
+  .round:hover { background:rgba(255,255,255,.2); }
+  .round:active { transform:scale(.95); }
+  .round.off, .round.on { background:#fff; color:#0c0e14; }
+  .round.hang { background:var(--danger); }
+  .round.hang:hover { background:#f2555a; }
+  .round.leave { background:var(--warning); }
+  .round svg { width:24px; height:24px; }
+  .round:disabled { opacity:.4; pointer-events:none; }
+  body.ended #bar { opacity:.4; pointer-events:none; }
+
+  /* Full screen and keep on top, in the corner away from the caller's name. */
+  #winbar { position:absolute; top:12px; inset-inline-end:14px; display:flex; gap:8px; z-index:3; }
+  .corner { width:30px; height:30px; border-radius:50%; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.12); color:rgba(255,255,255,.85); padding:0; }
+  .corner:hover { background:rgba(255,255,255,.2); }
+  .corner.on { color:var(--brand); background:rgba(90,148,255,.18); }
+  .corner svg { width:15px; height:15px; }
+
+  /* Notes beside the call, and the transfer card over the controls. */
+  .panel { position:absolute; z-index:4; background:var(--card); border:1px solid rgba(255,255,255,.08); border-radius:18px; box-shadow:0 18px 48px rgba(0,0,0,.45); box-sizing:border-box; display:flex; flex-direction:column; gap:10px; padding:14px; user-select:text; }
+  #notes { top:52px; bottom:104px; inset-inline-start:14px; width:300px; }
+  body.video-live #notes { top:72px; }
+  .head { display:flex; align-items:center; justify-content:space-between; font-size:13px; font-weight:600; }
+  .x { width:22px; height:22px; border:none; border-radius:50%; background:transparent; color:rgba(255,255,255,.7); cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; }
+  .x:hover { background:rgba(255,255,255,.1); }
+  .x svg { width:12px; height:12px; }
+  #noteList { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; scrollbar-width:none; }
+  .muted { color:var(--text2); font-size:12px; }
+  .note { background:rgba(255,255,255,.07); border-radius:10px; padding:8px 10px; display:flex; flex-direction:column; gap:3px; }
+  .note.going { background:rgba(255,255,255,.045); opacity:.75; }
+  .note.failed { background:rgba(255,255,255,.045); }
+  .note .nh { font-size:11px; color:var(--text2); }
+  .note .nt { font-size:12.5px; white-space:pre-wrap; word-break:break-word; }
+  .note .ns { font-size:11px; font-weight:600; color:var(--text2); display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .note .ns .bad { color:var(--danger); }
+  .link { border:none; background:none; padding:0; cursor:pointer; font:inherit; color:var(--brand); }
+  .link.quiet { color:var(--text2); }
+  .err { color:var(--danger); font-size:11.5px; }
+  .compose { display:flex; align-items:flex-end; gap:8px; }
+  textarea, input[type=text] { flex:1; resize:none; border:none; outline:none; border-radius:10px; background:rgba(255,255,255,.08); color:var(--text); font:inherit; font-size:13px; padding:8px 10px; box-sizing:border-box; max-height:120px; }
+  textarea:focus, input[type=text]:focus { box-shadow:0 0 0 1px rgba(90,148,255,.6); }
+  #noteSend { width:30px; height:30px; border-radius:50%; border:none; background:var(--brand); color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; flex:none; }
+  #noteSend:disabled { background:rgba(255,255,255,.14); cursor:default; }
+  #noteSend svg { width:16px; height:16px; }
+  .spin { width:16px; height:16px; border-radius:50%; border:2px solid rgba(255,255,255,.2); border-top-color:#fff; animation:spin .8s linear infinite; margin:20px auto; }
+  .spin.small { width:10px; height:10px; margin:0; display:inline-block; vertical-align:middle; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  #transferPanel { bottom:96px; left:50%; transform:translateX(-50%); width:340px; max-height:calc(100% - 120px); }
+  #tTitle { font-size:14px; font-weight:700; }
+  .seg { display:flex; background:rgba(255,255,255,.06); border-radius:9px; padding:2px; }
+  .seg button { flex:1; border:none; background:transparent; color:var(--text2); border-radius:7px; padding:5px 8px; cursor:pointer; font:inherit; font-size:12.5px; }
+  .seg button.sel { background:rgba(255,255,255,.14); color:var(--text); }
+  #tList { height:220px; overflow-y:auto; display:flex; flex-direction:column; gap:4px; }
+  .row { display:flex; align-items:center; gap:10px; padding:7px 10px; border-radius:8px; background:rgba(255,255,255,.06); border:none; color:var(--text); cursor:pointer; font:inherit; text-align:start; width:100%; }
+  .row.sel { background:rgba(90,148,255,.24); }
+  .row .dot { width:8px; height:8px; border-radius:50%; flex:none; }
+  .row .rt { flex:1; min-width:0; }
+  .row .rn { font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .rs { font-size:11px; color:var(--text2); }
+  .row .check { color:var(--brand); font-weight:700; font-size:12px; }
+  .hint { font-size:11.5px; color:var(--text2); }
+  .actions { display:flex; justify-content:flex-end; gap:8px; }
+  .btn { border:none; border-radius:8px; padding:6px 14px; cursor:pointer; font:inherit; font-size:13px; background:rgba(255,255,255,.1); color:var(--text); }
+  .btn.primary { background:var(--brand); color:#fff; }
+  .btn:disabled { opacity:.5; cursor:default; }
 </style>
 </head>
 <body class="waiting">
@@ -42,11 +117,39 @@
     <video id="local" autoplay playsinline muted></video>
     <div id="who"><div id="avatar"></div><div><div id="name"></div><div id="status"></div></div></div>
   </div>
-  <div id="warn"></div>
+  <div id="notices">
+    <div id="handover" class="pill" hidden></div>
+    <div id="warn" class="pill" hidden></div>
+    <div id="perm" hidden><span id="permText"></span><button id="permButton" class="btn"></button></div>
+  </div>
+  <div id="winbar">
+    <button id="fullBtn" class="corner" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path id="fullIcon" d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+    <button id="topBtn" class="corner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg></button>
+  </div>
+  <div id="notes" class="panel" hidden>
+    <div class="head"><span id="notesTitle"></span><button id="notesClose" class="x"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div id="noteList"></div>
+    <div id="noteError" class="err" hidden></div>
+    <div class="compose">
+      <textarea id="noteBox" rows="1" maxlength="2000"></textarea>
+      <button id="noteSend" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+    </div>
+  </div>
+  <div id="transferPanel" class="panel" hidden>
+    <div id="tTitle"></div>
+    <div class="seg"><button id="tabOps" class="sel"></button><button id="tabDeps"></button></div>
+    <div id="tList"></div>
+    <input id="tReason" type="text" maxlength="200" />
+    <div id="tHint" class="hint"></div>
+    <div id="tError" class="err" hidden></div>
+    <div class="actions"><button id="tCancel" class="btn"></button><button id="tSubmit" class="btn primary" disabled></button></div>
+  </div>
   <div id="bar">
-    <button id="mic" title=""><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1M12 18v4"/></svg></button>
-    <button id="cam" title="" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.2 3.5a.5.5 0 0 0 .8-.4V7.9a.5.5 0 0 0-.8-.4L16 11"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg></button>
-    <button id="hang" class="hang" title=""><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(135deg)"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg></button>
+    <button id="mic" class="round" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1M12 18v4"/></svg></button>
+    <button id="cam" class="round" disabled hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.2 3.5a.5.5 0 0 0 .8-.4V7.9a.5.5 0 0 0-.8-.4L16 11"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg></button>
+    <button id="notesBtn" class="round" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg></button>
+    <button id="transferBtn" class="round" disabled hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 4 7l4 4M4 7h16M16 21l4-4-4-4M20 17H4"/></svg></button>
+    <button id="hang" class="round hang"><svg id="hangIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(135deg)"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg><svg id="leaveIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" hidden><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></button>
   </div>
 <script>
 (() => {
@@ -54,9 +157,30 @@
   const post = (m) => host && host.postMessage(JSON.stringify(m));
   const log = (...a) => post({ type: 'log', text: a.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' ').slice(0, 800) });
   const $ = (id) => document.getElementById(id);
-  let room = null, video = false, muted = false, camOn = false, since = 0, tick = null, leftTimer = null, ended = false;
   const L = window.LivekitClient;
+  let room = null, video = false, muted = false, camOn = false, since = 0, tick = null, leftTimer = null, ended = false;
+  let connected = false, transferred = false, canTransfer = false, hasNotes = false, S = {};
+  let shownTrack = null, goneTimer = null, localShown = false;
+  let notesOpen = false, lastNoteId = null;
+  let transferOpen = false, tab = 'operators', options = null, picked = { operators: null, departments: null }, transferBusy = false;
+  let fullScreen = false;
 
+  // The operating systems' logos, as the app's avatars draw them (Controls/Avatar.xaml.cs), on a 24×24 grid.
+  const OS = {
+    windows: '<path fill="#fff" d="M3 5.5l8-1.1v7.1H3V5.5zm0 13l8 1.1v-7H3v5.9zm9 1.2l9 1.3v-8.5h-9v7.2zm0-15.4l9-1.3v8.5h-9V4.3z"/>',
+    linux: '<path fill="#fff" d="M12 2.4c-2 0-3.4 1.7-3.4 3.9 0 1 .3 1.9.7 2.6-.9.6-1.8 1.6-2.4 2.9-.9 2-1.4 4-2.2 5.5-.4.7-.9 1.2-.9 1.8 0 .8.8 1.3 1.7 1.5.7.2 1.4.3 1.7.6.4.4.8 1 2.1 1.2 1 .2 2.1-.1 2.7-.5.6.4 1.7.7 2.7.5 1.3-.2 1.7-.8 2.1-1.2.3-.3 1-.4 1.7-.6.9-.2 1.7-.7 1.7-1.5 0-.6-.5-1.1-.9-1.8-.8-1.5-1.3-3.5-2.2-5.5-.6-1.3-1.5-2.3-2.4-2.9.4-.7.7-1.6.7-2.6 0-2.2-1.4-3.9-3.4-3.9zm-1.4 4.1c.3 0 .5.4.5.9 0 .2 0 .4-.1.5-.1-.1-.3-.1-.4-.1-.4 0-.7.3-.7.7v.1c-.2-.2-.3-.5-.3-.8 0-.7.5-1.3 1-1.3zm2.8 0c.5 0 1 .6 1 1.3 0 .3-.1.6-.3.8v-.1c0-.4-.3-.7-.7-.7-.1 0-.3 0-.4.1-.1-.1-.1-.3-.1-.5 0-.5.2-.9.5-.9z"/>',
+    apple: '<path fill="#fff" stroke="#fff" stroke-width="2" stroke-linejoin="round" d="M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06Z"/><path fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" d="M10 2c1 .5 2 2 2 5"/>',
+    android: '<path fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z M12 18h.01"/>',
+  };
+  const FULL_IN = 'M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7';
+  const FULL_OUT = 'M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7';
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
   function setStatus(text, cls) {
     $('status').textContent = text;
     document.body.classList.remove('waiting', 'connected', 'ended');
@@ -67,20 +191,113 @@
     const p = (n) => String(n).padStart(2, '0');
     return (h ? p(h) + ':' : '') + p(m) + ':' + p(r);
   }
+  const isColor = (c) => typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c);
+
+  // The caller's face: the photo, else their device's logo, else their initials, on the web console's gradient.
+  function renderFace(f) {
+    const a = $('avatar');
+    a.textContent = '';
+    if (!f) return;
+    const angle = Number(f.angle) || 135;
+    if (isColor(f.from) && isColor(f.to)) a.style.background = `linear-gradient(${angle}deg, ${f.from}, ${f.to})`;
+    if (f.os && OS[f.os]) {
+      a.appendChild(el('div', 'gloss'));
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.innerHTML = OS[f.os];
+      a.appendChild(svg);
+    } else {
+      a.appendChild(el('span', null, f.initials || '?'));
+    }
+    if (f.image) {
+      const img = el('img');
+      img.alt = '';
+      img.onerror = () => img.remove();
+      img.src = f.image;
+      a.appendChild(img);
+    }
+    if (f.country) a.appendChild(el('div', null, f.country)).id = 'flag';
+  }
+
+  function syncControls() {
+    $('mic').disabled = !connected || ended;
+    $('cam').disabled = !connected || ended;
+    $('cam').hidden = !video;
+    $('notesBtn').hidden = !hasNotes;
+    $('notesBtn').classList.toggle('on', notesOpen);
+    // Only a call-center call can be handed on; once it is, hanging up would end it for the colleague too.
+    $('transferBtn').hidden = !canTransfer || transferred;
+    $('transferBtn').disabled = !connected || ended;
+    $('transferBtn').classList.toggle('on', transferOpen);
+    $('hang').disabled = ended;
+    $('hang').classList.toggle('hang', !transferred);
+    $('hang').classList.toggle('leave', transferred);
+    $('hangIcon').hidden = transferred;
+    $('leaveIcon').hidden = !transferred;
+    $('hang').title = transferred ? (S.leave || '') : (S.hangUp || '');
+    $('mic').title = muted ? (S.unmute || '') : (S.mute || '');
+    $('mic').classList.toggle('off', muted);
+    $('cam').classList.toggle('off', video && !camOn);
+    $('fullBtn').hidden = !video;
+  }
+
+  // Only the visitor's camera, in a fixed order: an operator in the room (a colleague taking a handed-over
+  // call, or this operator's own web console) is not who the call shows, and picking among participants in
+  // a changing order made the picture come and go.
   function syncVideo() {
     if (!room) return;
-    const remote = [...room.remoteParticipants.values()].flatMap(p => [...p.videoTrackPublications.values()]).find(p => p.isSubscribed && !p.isMuted && p.track);
+    const visitors = [...room.remoteParticipants.values()]
+      .filter(p => !String(p.identity || '').startsWith('operator:'))
+      .sort((a, b) => String(a.identity || '').localeCompare(String(b.identity || '')));
+    const remote = visitors.flatMap(p => [...p.videoTrackPublications.values()]).find(p => p.isSubscribed && !p.isMuted && p.track);
     const rv = $('remote');
-    if (remote) { remote.track.attach(rv); rv.style.display = 'block'; } else { rv.style.display = 'none'; }
+    if (remote) {
+      clearTimeout(goneTimer); goneTimer = null;
+      if (shownTrack !== remote.track) { if (shownTrack) shownTrack.detach(rv); remote.track.attach(rv); shownTrack = remote.track; }
+      rv.style.display = 'block';
+    } else if (shownTrack && !goneTimer) {
+      // A picture that goes away is let go only if it stays away a moment: a track that is re-published
+      // or briefly unsubscribed must not flip the layout back and forth.
+      goneTimer = setTimeout(() => {
+        goneTimer = null;
+        if (shownTrack) { shownTrack.detach(rv); shownTrack = null; }
+        rv.style.display = 'none';
+        syncVideo();
+      }, 1500);
+    }
     const local = [...room.localParticipant.videoTrackPublications.values()].find(p => !p.isMuted && p.track);
     const lv = $('local');
     if (local) { local.track.attach(lv); lv.style.display = 'block'; } else { lv.style.display = 'none'; }
-    document.body.classList.toggle('video-live', !!remote || !!local);
+    localShown = !!local;
+    syncLayout();
   }
+  // The video layout is decided by the call, not by whether a frame arrives this instant: a voice call never
+  // takes it, and a video call keeps it once connected.
+  function syncLayout() {
+    document.body.classList.toggle('video-live', video && (connected || !!shownTrack || localShown));
+  }
+  function reportRoom() {
+    if (!room) return;
+    post({
+      type: 'room',
+      local: room.localParticipant.identity || null,
+      operators: [...room.remoteParticipants.values()].map(p => String(p.identity || '')).filter(id => id.startsWith('operator:')),
+    });
+  }
+  // Windows keeps the microphone or camera from desktop apps (Settings → Privacy): the browser says "not allowed".
+  function blocked(e) {
+    const name = e && e.name || '';
+    const text = String(e && e.message || e || '');
+    return name === 'NotAllowedError' || /NotAllowed|Permission denied/i.test(text);
+  }
+
   async function finish(reason, detail) {
     if (ended) return;
     ended = true;
     clearInterval(tick);
+    clearTimeout(goneTimer);
+    closeTransfer();
+    syncControls();
     post({ type: 'ended', reason, detail: detail || null });
     if (room) { try { room.removeAllListeners(); await room.disconnect(); } catch (e) {} room = null; }
     document.querySelectorAll('audio').forEach(a => a.remove());
@@ -90,23 +307,28 @@
     if (!L) { finish('failed', 'livekit_not_loaded'); return; }
     video = msg.channel === 'video';
     camOn = video;
-    $('cam').style.display = video ? 'flex' : 'none';
+    syncControls();
     L.setLogLevel(L.LogLevel.info);
     L.setLogExtension((level, m, ctx) => { if (level >= L.LogLevel.info) log('lk', L.LogLevel[level], m, ctx ? JSON.stringify(ctx).slice(0, 400) : ''); });
     const r = new L.Room({ adaptiveStream: true, dynacast: true, videoCaptureDefaults: { resolution: { width: 1280, height: 720 } } });
     room = r;
     r.on(L.RoomEvent.TrackSubscribed, (track) => {
-      if (track.kind === L.Track.Kind.Audio) { const el = track.attach(); el.style.display = 'none'; document.body.appendChild(el); }
+      if (track.kind === L.Track.Kind.Audio) { const a = track.attach(); a.style.display = 'none'; document.body.appendChild(a); }
       syncVideo();
     });
-    r.on(L.RoomEvent.TrackUnsubscribed, (track) => { track.detach().forEach(el => el.remove && el.tagName === 'AUDIO' && el.remove()); syncVideo(); });
+    r.on(L.RoomEvent.TrackUnsubscribed, (track) => {
+      if (track === shownTrack) { syncVideo(); return; }
+      track.detach().forEach(x => x.tagName === 'AUDIO' && x.remove());
+      syncVideo();
+    });
     ['LocalTrackPublished', 'LocalTrackUnpublished', 'TrackMuted', 'TrackUnmuted'].forEach(e => r.on(L.RoomEvent[e], syncVideo));
+    r.on(L.RoomEvent.ParticipantConnected, () => { syncVideo(); reportRoom(); });
     // A reconnect drops and re-adds everyone, so an empty room only means "the visitor left" after a grace period.
     const checkLeft = () => {
       clearTimeout(leftTimer);
       leftTimer = setTimeout(() => { if (room === r && r.state === L.ConnectionState.Connected && r.remoteParticipants.size === 0) finish('visitorLeft'); }, 4000);
     };
-    r.on(L.RoomEvent.ParticipantDisconnected, checkLeft);
+    r.on(L.RoomEvent.ParticipantDisconnected, () => { syncVideo(); reportRoom(); checkLeft(); });
     r.on(L.RoomEvent.Reconnected, checkLeft);
     r.on(L.RoomEvent.Disconnected, () => finish('visitorLeft'));
     // Only an rtcConfig with a TURN relay: an empty iceServers list would throw away the server's own.
@@ -114,37 +336,270 @@
     try {
       await r.connect(msg.url, msg.token, opts);
     } catch (e) { finish('failed', String(e && e.message || e)); return; }
-    try { await r.localParticipant.setMicrophoneEnabled(true); } catch (e) { muted = true; $('mic').classList.add('off'); post({ type: 'degraded', what: 'noMicrophone' }); }
-    if (video) { try { await r.localParticipant.setCameraEnabled(true); } catch (e) { camOn = false; $('cam').classList.add('off'); post({ type: 'degraded', what: 'noCamera' }); } }
+    if (ended) return;
+    // Publishing is best-effort: a microphone or camera that will not start is a reason to carry on and
+    // say so, not to drop a call the visitor already answered.
+    try { await r.localParticipant.setMicrophoneEnabled(true); } catch (e) { muted = true; post({ type: 'degraded', what: 'noMicrophone', blocked: blocked(e) }); }
+    if (video) { try { await r.localParticipant.setCameraEnabled(true); } catch (e) { camOn = false; post({ type: 'degraded', what: 'noCamera', blocked: blocked(e) }); } }
+    if (ended) return;
+    // The room may have dropped while the devices were starting: a dead room is not a connected call.
+    if (r.state !== L.ConnectionState.Connected) { finish('visitorLeft'); return; }
+    connected = true;
     since = Date.now();
     setStatus(clock(0), 'connected');
     tick = setInterval(() => { if (!ended) $('status').textContent = clock((Date.now() - since) / 1000); }, 500);
     post({ type: 'connected' });
+    post({ type: 'mute', on: muted });
+    syncControls();
     syncVideo();
+    reportRoom();
   }
 
-  $('mic').onclick = () => { if (!room) return; muted = !muted; $('mic').classList.toggle('off', muted); room.localParticipant.setMicrophoneEnabled(!muted); };
-  $('cam').onclick = () => { if (!room || !video) return; camOn = !camOn; $('cam').classList.toggle('off', !camOn); room.localParticipant.setCameraEnabled(camOn); };
-  $('hang').onclick = () => { finish('hungUp'); };
+  async function setMute(on) {
+    if (!room || !connected || ended) return;
+    muted = on;
+    syncControls();
+    try {
+      await room.localParticipant.setMicrophoneEnabled(!muted);
+    } catch (e) {
+      // Unmuting failed (no microphone access): say muted, not "on" with nothing sent.
+      if (!muted) { muted = true; syncControls(); post({ type: 'degraded', what: 'noMicrophone', blocked: blocked(e) }); }
+    }
+    post({ type: 'mute', on: muted });
+  }
+  function toggleCamera() {
+    if (!room || !video || !connected || ended) return;
+    camOn = !camOn;
+    syncControls();
+    room.localParticipant.setCameraEnabled(camOn).catch((e) => { camOn = false; syncControls(); post({ type: 'degraded', what: 'noCamera', blocked: blocked(e) }); });
+  }
+
+  // ── Notes beside the call ──
+
+  function toggleNotes(open) {
+    notesOpen = open === undefined ? !notesOpen : open;
+    $('notes').hidden = !notesOpen;
+    document.body.classList.toggle('notes-open', notesOpen);
+    syncControls();
+    post({ type: 'notesOpen', open: notesOpen });
+    if (notesOpen) setTimeout(() => $('noteBox').focus(), 0);
+  }
+  function renderNotes(msg) {
+    const list = $('noteList');
+    list.textContent = '';
+    const notes = msg.notes;
+    if (!notes) { list.appendChild(el('div', 'spin')); }
+    else if (!notes.length) { list.appendChild(el('div', 'muted', S.notesEmpty || '')); }
+    else {
+      for (const n of notes) {
+        const box = el('div', 'note' + (n.sending === 'going' ? ' going' : n.sending === 'failed' ? ' failed' : ''));
+        if (n.head) box.appendChild(el('div', 'nh', n.head));
+        box.appendChild(el('div', 'nt', n.text));
+        if (n.sending === 'going') {
+          const row = el('div', 'ns');
+          row.appendChild(el('span', 'spin small'));
+          row.appendChild(el('span', null, S.noteSending || ''));
+          box.appendChild(row);
+        } else if (n.sending === 'failed') {
+          const row = el('div', 'ns');
+          row.appendChild(el('span', 'bad', S.noteFailed || ''));
+          const retry = el('button', 'link', S.noteRetry || '');
+          retry.onclick = () => post({ type: 'retryNote', id: n.id });
+          const drop = el('button', 'link quiet', S.noteDiscard || '');
+          drop.onclick = () => post({ type: 'discardNote', id: n.id });
+          row.appendChild(retry); row.appendChild(drop);
+          box.appendChild(row);
+        }
+        list.appendChild(box);
+      }
+      const last = notes[notes.length - 1].id;
+      if (last !== lastNoteId) { lastNoteId = last; list.scrollTop = list.scrollHeight; }
+    }
+    $('noteError').hidden = !msg.error;
+    $('noteError').textContent = msg.error || '';
+  }
+  function sendNote() {
+    const box = $('noteBox');
+    const text = box.value.trim();
+    if (!text) return;
+    post({ type: 'addNote', text });
+    box.value = '';
+    fitBox();
+    box.focus();
+  }
+  function fitBox() {
+    const box = $('noteBox');
+    box.style.height = 'auto';
+    box.style.height = Math.min(box.scrollHeight, 120) + 'px';
+    $('noteSend').disabled = !box.value.trim();
+  }
+
+  // ── Handing the call on ──
+
+  function openTransfer() {
+    if (transferOpen || !canTransfer || transferred || !connected) return;
+    transferOpen = true;
+    options = null;
+    picked = { operators: null, departments: null };
+    $('tReason').value = '';
+    $('tError').hidden = true;
+    $('transferPanel').hidden = false;
+    renderTransfer();
+    syncControls();
+    post({ type: 'openTransfer' });
+  }
+  function closeTransfer() {
+    transferOpen = false;
+    $('transferPanel').hidden = true;
+    syncControls();
+  }
+  const DOTS = { available: '#3dd68c', busy: '#5a94ff', away: '#f76b15' };
+  function renderTransfer() {
+    $('tabOps').classList.toggle('sel', tab === 'operators');
+    $('tabDeps').classList.toggle('sel', tab === 'departments');
+    const list = $('tList');
+    list.textContent = '';
+    if (!options) { list.appendChild(el('div', 'spin')); }
+    else {
+      const items = tab === 'operators' ? options.operators || [] : options.departments || [];
+      if (!items.length) {
+        const empty = el('div', 'muted', tab === 'operators' ? S.noOperators : S.noDepartments);
+        empty.style.textAlign = 'center'; empty.style.padding = '24px 0';
+        list.appendChild(empty);
+      }
+      for (const it of items) {
+        const row = el('button', 'row' + (picked[tab] === it.id ? ' sel' : ''));
+        const dot = el('span', 'dot');
+        dot.style.background = tab === 'operators' ? (DOTS[it.status] || '#8a8f98') : '#5a94ff';
+        row.appendChild(dot);
+        const text = el('div', 'rt');
+        text.appendChild(el('div', 'rn', it.name));
+        if (it.label) text.appendChild(el('div', 'rs', it.label));
+        row.appendChild(text);
+        if (picked[tab] === it.id) row.appendChild(el('span', 'check', '✓'));
+        row.onclick = () => { picked[tab] = it.id; renderTransfer(); };
+        list.appendChild(row);
+      }
+    }
+    $('tSubmit').disabled = !picked[tab] || transferBusy;
+    $('tSubmit').textContent = transferBusy ? '…' : (S.submit || '');
+  }
+  function submitTransfer() {
+    const id = picked[tab];
+    if (!id || transferBusy || !options) return;
+    const list = tab === 'operators' ? options.operators : options.departments;
+    const it = (list || []).find(x => x.id === id);
+    post({
+      type: 'transfer',
+      agentId: tab === 'operators' ? id : null,
+      departmentId: tab === 'departments' ? id : null,
+      name: it ? it.name : '',
+      reason: $('tReason').value.trim(),
+    });
+  }
+
+  // ── Controls ──
+
+  $('mic').onclick = () => setMute(!muted);
+  $('cam').onclick = toggleCamera;
+  $('notesBtn').onclick = () => toggleNotes();
+  $('notesClose').onclick = () => toggleNotes(false);
+  $('transferBtn').onclick = () => transferOpen ? closeTransfer() : openTransfer();
+  $('hang').onclick = () => { if (transferred) post({ type: 'leave' }); else finish('hungUp'); };
+  $('fullBtn').onclick = () => post({ type: 'fullScreen' });
+  $('topBtn').onclick = () => post({ type: 'keepOnTop' });
+  $('permButton').onclick = () => post({ type: 'openPrivacy', kind: $('permButton').dataset.kind || 'microphone' });
+  $('noteSend').onclick = sendNote;
+  $('noteBox').addEventListener('input', fitBox);
+  // Enter adds the note; Shift+Enter starts a new line, as in the chat composer.
+  $('noteBox').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.isComposing) { e.preventDefault(); sendNote(); }
+  });
+  $('tabOps').onclick = () => { tab = 'operators'; renderTransfer(); };
+  $('tabDeps').onclick = () => { tab = 'departments'; renderTransfer(); };
+  $('tCancel').onclick = closeTransfer;
+  $('tSubmit').onclick = submitTransfer;
+  $('tReason').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); submitTransfer(); } });
+  // Ctrl+Shift+M mutes, +V the camera, +N the notes — by key position, so a Persian layout works too.
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.shiftKey && !e.altKey) {
+      if (e.code === 'KeyM') { e.preventDefault(); if (!$('mic').disabled) setMute(!muted); }
+      else if (e.code === 'KeyV') { e.preventDefault(); if (!$('cam').disabled) toggleCamera(); }
+      else if (e.code === 'KeyN') { e.preventDefault(); if (hasNotes) toggleNotes(); }
+    } else if (e.key === 'Escape') {
+      if (transferOpen) closeTransfer();
+      else if (fullScreen) post({ type: 'exitFullScreen' });
+    }
+  });
 
   if (host) host.addEventListener('message', (e) => {
     const msg = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
     if (msg.type === 'init') {
       document.documentElement.dir = msg.rtl ? 'rtl' : 'ltr';
+      S = msg.strings || {};
+      video = msg.channel === 'video';
+      canTransfer = !!msg.canTransfer;
+      hasNotes = !!msg.hasNotes;
       $('name').textContent = msg.name;
-      $('avatar').textContent = msg.initials;
-      $('avatar').style.background = `linear-gradient(135deg, ${msg.color}, ${msg.color}cc)`;
-      $('mic').title = msg.strings.mute; $('cam').title = msg.strings.camera; $('hang').title = msg.strings.hangUp;
-      $('cam').style.display = msg.channel === 'video' ? 'flex' : 'none';
+      renderFace(msg.face);
+      $('cam').title = S.camera || '';
+      $('notesBtn').title = S.notes || '';
+      $('transferBtn').title = S.transfer || '';
+      $('topBtn').title = S.keepOnTop || '';
+      $('fullBtn').title = S.fullScreen || '';
+      $('notesTitle').textContent = S.notes || '';
+      $('notesClose').title = S.close || '';
+      $('noteBox').placeholder = S.notePlaceholder || '';
+      $('noteSend').title = S.noteSend || '';
+      $('tTitle').textContent = S.transfer || '';
+      $('tabOps').textContent = S.operators || '';
+      $('tabDeps').textContent = S.departments || '';
+      $('tReason').placeholder = S.reason || '';
+      $('tHint').textContent = S.transferHint || '';
+      $('tCancel').textContent = S.cancel || '';
+      $('tSubmit').textContent = S.submit || '';
       setStatus(msg.status, 'waiting');
+      syncControls();
+    } else if (msg.type === 'face') {
+      renderFace(msg.face);
     } else if (msg.type === 'status') {
-      setStatus(msg.text, msg.ended ? 'ended' : (msg.waiting ? 'waiting' : null));
+      setStatus(msg.text, msg.ended ? 'ended' : (msg.waiting ? 'waiting' : (connected ? 'connected' : null)));
+      if (msg.ended) { ended = true; syncControls(); }
     } else if (msg.type === 'warn') {
-      $('warn').textContent = msg.text; $('warn').style.display = 'block';
+      $('warn').textContent = msg.text; $('warn').hidden = false;
+    } else if (msg.type === 'permission') {
+      $('permText').textContent = msg.text;
+      $('permButton').textContent = msg.button;
+      $('permButton').dataset.kind = msg.kind;
+      $('perm').hidden = false;
     } else if (msg.type === 'join') {
       join(msg);
     } else if (msg.type === 'hangup') {
       finish('hungUp');
+    } else if (msg.type === 'setMute') {
+      setMute(!!msg.on);
+    } else if (msg.type === 'notes') {
+      renderNotes(msg);
+    } else if (msg.type === 'transferOptions') {
+      options = msg;
+      if (!picked.operators && !picked.departments && !(msg.operators || []).length && (msg.departments || []).length) tab = 'departments';
+      if (transferOpen) renderTransfer();
+    } else if (msg.type === 'transferState') {
+      transferBusy = !!msg.busy;
+      $('tError').hidden = !msg.error;
+      $('tError').textContent = msg.error || '';
+      if (msg.done) closeTransfer(); else if (transferOpen) renderTransfer();
+    } else if (msg.type === 'transferred') {
+      transferred = true;
+      $('handover').textContent = msg.text;
+      $('handover').hidden = false;
+      syncControls();
+    } else if (msg.type === 'window') {
+      fullScreen = !!msg.fullScreen;
+      $('fullIcon').setAttribute('d', fullScreen ? FULL_OUT : FULL_IN);
+      $('fullBtn').title = fullScreen ? (S.exitFullScreen || '') : (S.fullScreen || '');
+      $('topBtn').classList.toggle('on', !!msg.onTop);
+      $('topBtn').hidden = fullScreen;
     }
   });
   post({ type: 'ready' });

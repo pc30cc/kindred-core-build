@@ -1,15 +1,19 @@
 package com.webyar.operator.feature.settings
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -23,20 +27,28 @@ import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
 import com.webyar.operator.i18n.StrManual
 import com.webyar.operator.ui.A11y
+import com.webyar.operator.ui.components.FilledField
 import com.webyar.operator.ui.components.PillTone
 import com.webyar.operator.ui.components.PrimaryButton
 import com.webyar.operator.ui.components.QuietRow
-import com.webyar.operator.ui.components.RowDivider
 import com.webyar.operator.ui.components.StatusPill
+import com.webyar.operator.ui.components.segmentedShape
 import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
+import com.webyar.operator.ui.design.WebyarTheme
+import com.webyar.operator.ui.design.WebyarType
 
 /**
- * The password, and everywhere this account is signed in.
+ * Everywhere this account is signed in, and the password.
  *
  * The two live together because they answer the same question — "is my account
  * still mine?" — and somebody who has just changed their password is exactly
  * the person who wants to see the other sessions and end them.
+ *
+ * The sessions come first: looking at where the account is signed in is the
+ * thing done often, changing the password the thing done rarely. Both are
+ * Android 16's grouped cards — each session a row of one group, the password
+ * form a card of its own.
  */
 @Composable
 fun SecurityScreen(
@@ -58,72 +70,22 @@ fun SecurityScreen(
     // `imePadding` for the two password fields: the Scaffold above passes the
     // system bars down in `modifier` but never the keyboard. Shortening the
     // list's viewport is what lets a focused field scroll clear of it.
-    LazyColumn(modifier.fillMaxWidth().imePadding()) {
-        item {
-            Column(
-                Modifier.fillMaxWidth().padding(Space.screenInset),
-            ) {
-                Text(Str.changePassword(language), style = MaterialTheme.typography.titleMedium)
-                OutlinedTextField(
-                    value = currentPassword,
-                    onValueChange = onCurrentPasswordChange,
-                    label = { Text(Str.currentPassword(language)) },
-                    singleLine = true,
-                    enabled = !busy,
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth().padding(top = Space.md),
-                )
-                OutlinedTextField(
-                    value = newPassword,
-                    onValueChange = onNewPasswordChange,
-                    label = { Text(Str.newPassword(language)) },
-                    singleLine = true,
-                    enabled = !busy,
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth().padding(top = Space.sm),
-                )
-                if (message != null) {
-                    Text(
-                        message,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (isError) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            com.webyar.operator.ui.design.WebyarTheme.colors.success
-                        },
-                        modifier = Modifier.padding(top = Space.sm),
-                    )
-                }
-                PrimaryButton(
-                    label = Str.changePassword(language),
-                    onClick = onChangePassword,
-                    busy = busy,
-                    // The length rule is the server's; checking it here only
-                    // saves a round trip, so the button stays honest about
-                    // what it will accept rather than about what it will send.
-                    enabled = currentPassword.isNotEmpty() && newPassword.length >= MIN_PASSWORD,
-                    modifier = Modifier.padding(top = Space.lg),
-                )
-            }
-        }
-
-        item {
-            Text(
-                Str.activeSessions(language),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(
-                    start = Space.screenInset, end = Space.screenInset, top = Space.xl,
-                ),
-            )
-        }
+    LazyColumn(
+        modifier.fillMaxWidth().imePadding(),
+        contentPadding = PaddingValues(bottom = Space.xl),
+        verticalArrangement = Arrangement.spacedBy(SessionGap),
+    ) {
+        item { SectionHeader(Str.activeSessions(language)) }
 
         if (sessions.isEmpty()) {
             item { QuietRow("—") }
         } else {
-            items(sessions, key = { it.id }) { session ->
+            itemsIndexed(sessions, key = { _, it -> it.id }) { index, session ->
                 SessionRow(
                     session = session,
                     language = language,
+                    index = index,
+                    count = sessions.size,
                     isCurrent = session.isCurrent == true || session.id == currentSessionId,
                     onRevoke = { onRevoke(session) },
                 )
@@ -135,24 +97,81 @@ fun SecurityScreen(
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = Space.screenInset, vertical = Space.lg),
+                            .padding(horizontal = Space.lg, vertical = Space.md),
+                        verticalArrangement = Arrangement.spacedBy(Space.sm),
                     ) {
-                        TextButton(
+                        FilledTonalButton(
                             onClick = onRevokeOthers,
                             enabled = !busy,
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                            ),
                             modifier = Modifier.testTag(A11y.SECURITY_REVOKE_OTHERS),
                         ) {
-                            Text(
-                                StrManual.signOutOtherDevices(language),
-                                color = MaterialTheme.colorScheme.error,
-                            )
+                            Text(StrManual.signOutOtherDevices(language))
                         }
                         Text(
                             StrManual.signOutOtherDevicesHelp(language),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = Space.sm),
                         )
                     }
+                }
+            }
+        }
+
+        item { SectionHeader(Str.changePassword(language)) }
+
+        item {
+            Surface(
+                color = groupColor(),
+                shape = segmentedShape(0, 1),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg),
+            ) {
+                Column(
+                    Modifier.padding(Space.lg),
+                    verticalArrangement = Arrangement.spacedBy(Space.sm),
+                ) {
+                    FilledField(
+                        value = currentPassword,
+                        onValueChange = onCurrentPasswordChange,
+                        label = Str.currentPassword(language),
+                        enabled = !busy,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    FilledField(
+                        value = newPassword,
+                        onValueChange = onNewPasswordChange,
+                        label = Str.newPassword(language),
+                        enabled = !busy,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (message != null) {
+                        Text(
+                            message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (isError) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                WebyarTheme.colors.success
+                            },
+                        )
+                    }
+                    PrimaryButton(
+                        label = Str.changePassword(language),
+                        onClick = onChangePassword,
+                        busy = busy,
+                        // The length rule is the server's; checking it here
+                        // only saves a round trip, so the button stays honest
+                        // about what it will accept rather than about what it
+                        // will send.
+                        enabled = currentPassword.isNotEmpty() && newPassword.length >= MIN_PASSWORD,
+                        modifier = Modifier.padding(top = Space.sm),
+                    )
                 }
             }
         }
@@ -161,19 +180,28 @@ fun SecurityScreen(
 
 private const val MIN_PASSWORD = 8
 
+/** Rows of one group sit this close; everything else is spaced by its own padding. */
+private val SessionGap = com.webyar.operator.ui.components.SegmentGap
+
 @Composable
 private fun SessionRow(
     session: AccountSession,
     language: Language,
+    index: Int,
+    count: Int,
     isCurrent: Boolean,
     onRevoke: () -> Unit,
 ) {
-    Column {
+    Surface(
+        color = groupColor(),
+        shape = segmentedShape(index, count),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg),
+    ) {
         Row(
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = Size.rowMinHeight)
-                .padding(horizontal = Space.screenInset, vertical = Space.sm),
+                .padding(horizontal = Space.lg, vertical = Space.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f).padding(end = Space.md)) {
@@ -181,7 +209,7 @@ private fun SessionRow(
                     listOfNotNull(session.browser, session.os).joinToString(" · ").ifEmpty {
                         session.device ?: "—"
                     },
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = if (isCurrent) WebyarType.bodyLargeEmphasized else MaterialTheme.typography.bodyLarge,
                 )
                 val detail = listOfNotNull(
                     session.locationLabel,
@@ -205,6 +233,5 @@ private fun SessionRow(
                 }
             }
         }
-        RowDivider()
     }
 }

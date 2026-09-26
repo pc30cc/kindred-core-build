@@ -54,6 +54,7 @@ struct WebyarApp: App {
 /// launch state until we know which one is correct.
 struct RootView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -111,6 +112,25 @@ struct RootView: View {
                 signedIn: appState.session.user != nil,
                 workspaceID: appState.selectedWorkspace?.id
             )
+        }
+        // Realtime runs only while the app is in front of the operator.
+        //
+        // Active: the saved copy is already on screen; realtime connects and
+        // whatever changed while away is read (a delta, a revalidated list).
+        // Background: the socket closes at once and nothing polls — APNs is
+        // how the operator is reached from there, and iOS would suspend a
+        // socket kept open anyway. Inactive (Control Centre, the app
+        // switcher) changes nothing: it is usually over in a second.
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .active:
+                SyncCoordinator.shared.appBecameActive()
+                Task { await appState.refreshIfStale() }
+            case .background:
+                SyncCoordinator.shared.appEnteredBackground()
+            default:
+                break
+            }
         }
     }
 

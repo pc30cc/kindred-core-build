@@ -21,7 +21,7 @@ import { api } from '@/api/client'
 import type { Conversation, ConversationStatus, Message } from '@/api/types'
 import { useApp, currentUser, planValue, displayNameOf } from '@/store/app'
 import { useT } from '@/hooks/useT'
-import { callChannels, featureEnabled } from '@/lib/entitlements'
+import { callChannels } from '@/lib/entitlements'
 import { contactName, dayHeader, errorText, parseDate, systemText, timeOfDay } from '@/lib/format'
 import { AIAvatar, Avatar } from '@/components/Avatar'
 import { Button, EmptyState, ErrorState, IconButton, Menu, Spinner } from '@/components/ui'
@@ -52,10 +52,12 @@ export function ChatPane({ conversation }: { conversation: Conversation }) {
   const [dragging, setDragging] = useState(false)
   const addFiles = useRef<((files: File[]) => void) | null>(null)
 
+  // Only the AI owning the thread hides the composer's tools. The plan's widget_* keys govern the
+  // customer-facing website widget, not the operator's composer, as on the web and the other apps.
   const capabilities = {
-    canAttach: !aiManaged && featureEnabled(plan, 'widget_attachments'),
-    canRecordVoice: !aiManaged && featureEnabled(plan, 'widget_voice_notes'),
-    canUseEmoji: !aiManaged && featureEnabled(plan, 'widget_emoji'),
+    canAttach: !aiManaged,
+    canRecordVoice: !aiManaged,
+    canUseEmoji: !aiManaged,
     aiManaged,
   }
 

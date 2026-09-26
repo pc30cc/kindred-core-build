@@ -36,3 +36,9 @@ gradle/gradle-daemon-jvm.properties
 *.pepk
 keystore.properties
 signing.properties
+
+# Firebase's client configuration is supplied at build time
+# (WEBYAR_FIREBASE_* — see app/build.gradle.kts), never as a committed
+# google-services.json: one project's keys in the repository is every fork
+# and every CI log registering devices against it.
+google-services.json

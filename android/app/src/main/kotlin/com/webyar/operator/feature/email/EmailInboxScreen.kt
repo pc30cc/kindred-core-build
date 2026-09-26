@@ -35,7 +35,6 @@ import com.webyar.operator.ui.A11y
 import com.webyar.operator.ui.components.Avatar
 import com.webyar.operator.ui.components.EmptyState
 import com.webyar.operator.ui.components.ErrorState
-import com.webyar.operator.ui.components.RowDivider
 import com.webyar.operator.ui.components.SearchField
 import com.webyar.operator.ui.components.SearchState
 import com.webyar.operator.ui.components.SkeletonList
@@ -43,6 +42,19 @@ import com.webyar.operator.ui.components.bidiContent
 import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
 import com.webyar.operator.ui.design.WebyarTheme
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import com.webyar.operator.ui.components.PullIndicator
+import com.webyar.operator.ui.design.Radius
 
 /**
  * The mailbox: who it is with, what it is about, and the last line of it.
@@ -68,13 +80,20 @@ fun EmailInboxScreen(
     onRetry: () -> Unit = {},
 ) {
     Column(modifier.fillMaxSize()) {
-        if (search != null && search.isVisible) {
-            SearchField(state = search, prompt = Str.search(language))
+        AnimatedVisibility(
+            visible = search != null && search.isVisible,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            if (search != null) SearchField(state = search, prompt = Str.search(language))
         }
 
+        val pullState = rememberPullToRefreshState()
         PullToRefreshBox(
             isRefreshing = refreshing,
             onRefresh = onRefresh,
+            state = pullState,
+            indicator = { PullIndicator(pullState, refreshing) },
             modifier = Modifier.weight(1f),
         ) {
             when (state) {
@@ -115,10 +134,13 @@ fun EmailInboxScreen(
                 } else {
                     LazyColumn(
                         Modifier.fillMaxSize().testTag(A11y.EMAIL_LIST),
-                        contentPadding = contentPadding,
+                        contentPadding = PaddingValues(
+                            top = Space.xs + contentPadding.calculateTopPadding(),
+                            bottom = Space.lg + contentPadding.calculateBottomPadding(),
+                        ),
                     ) {
                         items(state.threads, key = { it.id }) { thread ->
-                            EmailThreadRow(thread, mailbox, language) { onOpen(thread) }
+                            EmailThreadRow(thread, mailbox, language, Modifier.animateItem()) { onOpen(thread) }
                         }
                     }
                 }
@@ -132,13 +154,19 @@ private fun EmailThreadRow(
     thread: EmailThreadSummary,
     mailbox: String?,
     language: Language,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val unread = thread.isRead != true
     val people = thread.people(excludingMailbox = mailbox)
 
-    Column(
-        Modifier
+    // The inbox's rounded row, with its tone under what is unread.
+    Box(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = Space.sm, vertical = 1.dp)
+            .clip(RoundedCornerShape(Radius.xl))
+            .background(if (unread) MaterialTheme.colorScheme.surfaceContainerLow else Color.Transparent)
             .clickable(onClick = onClick)
             .testTag(A11y.emailRow(thread.id))
     ) {
@@ -146,7 +174,7 @@ private fun EmailThreadRow(
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = Size.rowMinHeight)
-                .padding(horizontal = Space.screenInset, vertical = Space.sm),
+                .padding(horizontal = Space.md, vertical = Space.md),
             verticalAlignment = Alignment.Top,
         ) {
             Avatar(name = people, size = Size.avatarSmall)
@@ -157,7 +185,7 @@ private fun EmailThreadRow(
                         style = MaterialTheme.typography.titleMedium.bidiContent(),
                         // An unread thread is heavier. That is the one
                         // difference Mail leans on, and it is enough.
-                        fontWeight = if (unread) FontWeight.Bold else FontWeight.SemiBold,
+                        fontWeight = if (unread) FontWeight.Bold else FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
@@ -172,8 +200,8 @@ private fun EmailThreadRow(
                     }
                     Text(
                         Format.listTimestamp(thread.lastMessageAt, language),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = WebyarTheme.colors.labelTertiary,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (unread) MaterialTheme.colorScheme.primary else WebyarTheme.colors.labelTertiary,
                         maxLines = 1,
                         modifier = Modifier.padding(start = Space.sm),
                     )
@@ -202,6 +230,5 @@ private fun EmailThreadRow(
                 }
             }
         }
-        RowDivider()
     }
 }

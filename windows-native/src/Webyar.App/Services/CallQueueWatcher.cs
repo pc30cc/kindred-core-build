@@ -18,6 +18,7 @@ public sealed class CallQueueWatcher : IDisposable
     private Poller? _poller;
     private bool _primed;
     private bool _disabled;
+    private int _polls;
 
     public CallQueueWatcher(AppHost host, string workspaceId)
     {
@@ -33,6 +34,13 @@ public sealed class CallQueueWatcher : IDisposable
     /// <summary>Raised on the UI thread for each call that newly joins the line.</summary>
     public event Action<QueueEntry>? Ringing;
 
+    /// <summary>
+    /// Raised on the UI thread with the calls under way, every other poll: one a
+    /// colleague handed to this operator left the line long ago, so the line
+    /// alone never shows it.
+    /// </summary>
+    public event Action<IReadOnlyList<CallSession>>? ActiveCalls;
+
     /// <summary>The web desk refetches the queue every 5 s; a ring lasts at most 45 s.</summary>
     private static readonly TimeSpan Every = TimeSpan.FromSeconds(4);
 
@@ -47,6 +55,20 @@ public sealed class CallQueueWatcher : IDisposable
     private async Task PollAsync(CancellationToken ct)
     {
         if (_disabled) return;
+        // The desk is off (the plan still loading or unreadable, or the platform
+        // switched calls off): nothing waits, and whatever is waiting when it
+        // comes back is learnt, not rung.
+        if (!_host.Plan.CallCenter)
+        {
+            _known.Clear();
+            _primed = false;
+            if (Queue.Count > 0)
+            {
+                Queue = [];
+                Changed?.Invoke();
+            }
+            return;
+        }
         IReadOnlyList<QueueEntry> queue;
         try
         {
@@ -60,6 +82,19 @@ public sealed class CallQueueWatcher : IDisposable
             Queue = [];
             Changed?.Invoke();
             return;
+        }
+        _polls++;
+        if (_polls % 2 == 1 && ActiveCalls is not null)
+        {
+            // Best-effort: the line is what matters here, so a failure is only logged.
+            try
+            {
+                ActiveCalls?.Invoke(await _host.Api.ActiveCallsAsync(_workspaceId, ct));
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                if (e is not ApiException { Failure: ApiFailure.Transport }) Log.Error("active calls", e);
+            }
         }
         var fresh = queue.Where(q => !_known.Contains(q.CallSessionId)).ToList();
         _known.IntersectWith(queue.Select(q => q.CallSessionId));
@@ -89,7 +124,7 @@ public sealed class CallQueueWatcher : IDisposable
         var s = _host.Strings;
         var name = CallNames.Caller(entry, s);
         _host.Notifier.Show(s["incomingCallTitle"], s.Get("incomingCallBody", "name", name), s.IsRightToLeft, silent: true,
-            new Dictionary<string, string> { ["page"] = "calls", ["call"] = entry.CallSessionId });
+            new Dictionary<string, string> { ["page"] = "calls", ["call"] = entry.CallSessionId, ["workspace"] = _workspaceId });
     }
 
     public void Dispose() => _poller?.Dispose();

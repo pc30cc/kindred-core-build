@@ -48,7 +48,9 @@ public sealed partial class ShellPage : Page
         {
             q.Changed += ShowCallsBadge;
             q.Ringing += OnRinging;
+            q.ActiveCalls += OnActiveCalls;
         }
+        StartCalls();
         ApplyLanguage();
         ShowCallsBadge();
         ShowUpdate();
@@ -66,7 +68,7 @@ public sealed partial class ShellPage : Page
             _notifier.UnreadChanged += SetUnread;
             _notifier.Start();
         }
-        // Webyar.exe --page=contacts|visitors|calls|settings opens straight on that section.
+        // Webyar.exe --page=contacts|visitors|analytics|calls|settings opens straight on that section.
         var page = Environment.GetCommandLineArgs().FirstOrDefault(a => a.StartsWith("--page=", StringComparison.Ordinal))?[7..];
         OpenPage(page);
     }
@@ -96,8 +98,10 @@ public sealed partial class ShellPage : Page
         {
             q.Changed -= ShowCallsBadge;
             q.Ringing -= OnRinging;
+            q.ActiveCalls -= OnActiveCalls;
         }
         StopRinging();
+        StopCalls();
         Inbox?.Teardown();
     }
 
@@ -112,7 +116,7 @@ public sealed partial class ShellPage : Page
         Nav.SelectedItem = InboxOpenItem;
     }
 
-    /// <summary>Shows a section by its tag: inbox, contacts, visitors, calls or settings.</summary>
+    /// <summary>Shows a section by its tag: inbox, contacts, visitors, analytics, calls or settings.</summary>
     public void OpenPage(string? tag)
     {
         // The settings item only exists once the pane's template is applied.
@@ -125,8 +129,10 @@ public sealed partial class ShellPage : Page
         {
             "contacts" => ContactsItem,
             "visitors" => VisitorsItem,
+            "analytics" => AnalyticsItem,
             "calls" => CallCenterItem,
             "colleagues" => ColleaguesItem,
+            "email" => EmailItem,
             "settings" => Nav.SettingsItem ?? InboxOpenItem,
             _ => InboxOpenItem,
         };
@@ -141,13 +147,22 @@ public sealed partial class ShellPage : Page
     private void OnNavigate(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         var tag = args.IsSettingsSelected ? "settings" : (args.SelectedItem as NavigationViewItem)?.Tag as string ?? "inbox";
+        // A toast, a --page= launch or a stale selection can point at a section
+        // the plan does not include: it never opens, the inbox does instead.
+        if (!Allowed(tag))
+        {
+            Nav.SelectedItem = InboxOpenItem;
+            return;
+        }
         var page = tag switch
         {
             "settings" => typeof(SettingsPage),
             "contacts" => typeof(ContactsPage),
             "visitors" => typeof(VisitorsPage),
+            "analytics" => typeof(AnalyticsPage),
             "calls" => typeof(CallCenterPage),
             "colleagues" => typeof(ColleaguesPage),
+            "email" => typeof(EmailPage),
             _ => typeof(InboxPage),
         };
         if (ContentFrame.Content?.GetType() != page)
@@ -221,7 +236,9 @@ public sealed partial class ShellPage : Page
         // The super admin can change the plan at any time; pick it up without a restart.
         _planPoller = new Poller("plan", async ct =>
         {
-            await Task.Delay(TimeSpan.FromMinutes(3), ct);
+            // An unreadable plan hides every gated section, so it is asked for
+            // again soon; a good one is refreshed every few minutes.
+            await Task.Delay(Host.Plan.State == PlanState.Failed ? TimeSpan.FromSeconds(20) : TimeSpan.FromMinutes(3), ct);
             await Host.LoadPlanAsync(ct);
         }, () => TimeSpan.Zero);
         _planPoller.Start();
@@ -241,20 +258,70 @@ public sealed partial class ShellPage : Page
         static Visibility V(bool on) => on ? Visibility.Visible : Visibility.Collapsed;
         ContactsItem.Visibility = V(plan.Contacts);
         VisitorsItem.Visibility = V(plan.Visitors);
+        AnalyticsItem.Visibility = V(plan.WebAnalytics);
         CallCenterItem.Visibility = V(plan.CallCenter);
+        EmailItem.Visibility = V(plan.EmailInbox);
         InboxAiItem.Visibility = V(plan.AiQueue(_automated));
         InboxNeedsHumanItem.Visibility = V(plan.NeedsHumanQueue);
         InternalInboxItem.Visibility = V(plan.TeamChat);
-        OtherInboxesItem.Visibility = V(plan.IsAdmin && _channels.Count > 0);
+        // The desk just went away: no ringing, and no handed-over call to join, for a desk that is gone.
+        if (!plan.CallCenter)
+        {
+            StopRinging();
+            _handed.Dismiss();
+            RenderHanded();
+        }
+        ShowWaitingInTray();
+        foreach (var item in OtherInboxesItem.MenuItems.OfType<NavigationViewItem>())
+        {
+            if (item.Tag is string t && t.StartsWith("channel/", StringComparison.Ordinal)) item.Visibility = V(plan.ChannelInPlan(t[8..]));
+        }
+        OtherInboxesItem.Visibility = V(plan.IsAdmin && _channels.Any(plan.ChannelInPlan));
+        // A plan change may add or remove channel inboxes: ask the server again (it applies the plan).
+        if (plan.State != PlanState.Loading && !ReferenceEquals(plan, _channelsPlan))
+        {
+            _channelsPlan = plan;
+            _channelsLoaded = false;
+            _countsPoller?.Kick();
+        }
         if (Nav.SelectedItem is NavigationViewItem selected)
         {
             var tag = selected.Tag as string ?? string.Empty;
-            var gone = selected.Visibility == Visibility.Collapsed
-                || (tag == "colleagues" && !plan.TeamChat)
-                || (tag.StartsWith("channel/", StringComparison.Ordinal) && !plan.IsAdmin);
+            var gone = selected.Visibility == Visibility.Collapsed || !Allowed(tag);
             if (gone) Nav.SelectedItem = InboxOpenItem;
         }
         RenderWorkspaces();
+    }
+
+    private WorkspacePlan? _channelsPlan;
+
+    /// <summary>
+    /// Whether the plan (and the operator's role) includes the section a pane
+    /// tag stands for — the same rules that show or hide its item. While the
+    /// plan is still loading nothing is refused here; the rail hides gated
+    /// items, and the plan's arrival takes the operator out of a section it excludes.
+    /// </summary>
+    private bool Allowed(string tag)
+    {
+        var plan = Host.Plan;
+        if (plan.State == PlanState.Loading) return true;
+        if (tag.StartsWith("channel/", StringComparison.Ordinal))
+        {
+            var key = tag[8..];
+            return plan.IsAdmin && plan.ChannelInPlan(key) && _channels.Contains(key);
+        }
+        return tag switch
+        {
+            "contacts" => plan.Contacts,
+            "visitors" => plan.Visitors,
+            "analytics" => plan.WebAnalytics,
+            "calls" => plan.CallCenter,
+            "colleagues" => plan.TeamChat,
+            "email" => plan.EmailInbox,
+            "inbox/Ai" => plan.AiQueue(_automated),
+            "inbox/NeedsHuman" => plan.NeedsHumanQueue,
+            _ => true,
+        };
     }
 
     // ── Super Admin announcements and broadcasts ──
@@ -326,6 +393,13 @@ public sealed partial class ShellPage : Page
         RenderAnnouncements();
         if (Host.Settings.Notifications)
             Host.Notifier.Show(b.Title, b.Body ?? string.Empty, s.IsRightToLeft, silent: !Host.Settings.NotificationSound, new Dictionary<string, string>());
+    }
+
+    /// <summary>The workspaces came back from the server after a launch from the PC's copy.</summary>
+    public void RefreshWorkspaces()
+    {
+        RenderWorkspaces();
+        BuildAccountMenu();
     }
 
     /// <summary>The workspace header: name and logo, and the others to switch to.</summary>
@@ -405,10 +479,11 @@ public sealed partial class ShellPage : Page
         Badge(SpamBadge, counts.Spam);
         // "Other inboxes" is for owners and admins only, as on the web.
         if (_channelsLoaded || !Host.Plan.IsAdmin) return;
-        _channelsLoaded = true;
         try
         {
+            // Installed inbox plugins the plan still allows (the server's planAllowed).
             ShowChannels(await Host.Api.PluginInboxesAsync(workspaceId, ct));
+            _channelsLoaded = true;
         }
         catch (ApiException e) when (e.Status is 401 or 403 or 404)
         {
@@ -425,6 +500,11 @@ public sealed partial class ShellPage : Page
     private void ShowChannels(IReadOnlyList<string> keys)
     {
         var s = Host.Strings;
+        if (keys.SequenceEqual(_channels) && OtherInboxesItem.MenuItems.Count == keys.Count)
+        {
+            ApplyPlan();
+            return;
+        }
         OtherInboxesItem.MenuItems.Clear();
         foreach (var key in keys)
         {
@@ -436,7 +516,9 @@ public sealed partial class ShellPage : Page
             });
         }
         _channels = keys;
-        OtherInboxesItem.Visibility = keys.Count > 0 && Host.Plan.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
+        // Each channel's item and the group follow the plan; a channel inbox on
+        // show that the plan dropped sends the operator back to the inbox.
+        ApplyPlan();
     }
 
     private void SyncSelection()
@@ -448,8 +530,10 @@ public sealed partial class ShellPage : Page
             SettingsPage => Nav.SettingsItem,
             ContactsPage => ContactsItem,
             VisitorsPage => VisitorsItem,
+            AnalyticsPage => AnalyticsItem,
             CallCenterPage => CallCenterItem,
             ColleaguesPage => ColleaguesItem,
+            EmailPage => EmailItem,
             _ => InboxOpenItem,
         };
         if (!ReferenceEquals(Nav.SelectedItem, want)) Nav.SelectedItem = want;
@@ -460,6 +544,7 @@ public sealed partial class ShellPage : Page
         var n = Host.CallQueue?.Queue.Count ?? 0;
         CallsBadge.Value = n;
         CallsBadge.Visibility = n > 0 ? Visibility.Visible : Visibility.Collapsed;
+        ShowWaitingInTray();
         // The caller hung up, or a colleague answered: the banner goes with the call.
         if (_ringing is { } r && Host.CallQueue?.Queue.Any(e => e.CallSessionId == r.CallSessionId) != true)
         {
@@ -486,6 +571,8 @@ public sealed partial class ShellPage : Page
 
     private void Ring(QueueEntry entry)
     {
+        // No desk, no calls: nothing to ring for.
+        if (!Host.Plan.CallCenter) return;
         var s = Host.Strings;
         _ringing = entry;
         _ringSince = DateTimeOffset.Now;
@@ -496,13 +583,13 @@ public sealed partial class ShellPage : Page
         var meta = new[] { c?.VisitorPhone, c?.VisitorEmail, c?.PageTitle }.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct();
         CallBarMeta.Text = string.Join(" · ", meta);
         CallBarMeta.Visibility = CallBarMeta.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-        CallBarAvatar.DisplayName = c?.VisitorName;
-        CallBarAvatar.Email = c?.VisitorEmail;
+        ShowCallerFace(CallBarAvatar, c, entry.VisitorSessionId);
         CallBarAnswerText.Text = s["callAnswer"];
         CallBarRejectText.Text = s["ccReject"];
         CallBarOpen.Content = s["callOpenDesk"];
         CallBarAnswer.IsEnabled = CallBarReject.IsEnabled = true;
         CallBar.Visibility = Visibility.Visible;
+        StartPulse();
 
         if (Host.Settings.NotificationSound) Chime.Play();
         _ringTimer ??= CreateRingTimer();
@@ -527,6 +614,7 @@ public sealed partial class ShellPage : Page
         _ringTimer?.Stop();
         _ringing = null;
         CallBar.Visibility = Visibility.Collapsed;
+        StopPulse();
     }
 
     private void OnCallBarAnswer(object sender, RoutedEventArgs e)
@@ -616,7 +704,9 @@ public sealed partial class ShellPage : Page
         if (Inbox is { } inbox && Nav.SelectedItem is NavigationViewItem { Tag: string tag }) ShowInbox(inbox, tag);
         ContactsItem.Content = s["tabContacts"];
         VisitorsItem.Content = s["navVisitors"];
+        AnalyticsItem.Content = s["navAnalytics"];
         CallCenterItem.Content = s["navCallCenter"];
+        EmailItem.Content = s["emailInbox"];
         if (Nav.SettingsItem is NavigationViewItem settings) settings.Content = s["tabSettings"];
         var name = Host.User?.FullName is { Length: > 0 } n ? n : Host.User?.Email ?? s["account"];
         ToolTipService.SetToolTip(AccountItem, Host.Workspace?.Name is { Length: > 0 } w ? $"{name} — {w}" : name);
@@ -705,6 +795,8 @@ public sealed partial class ShellPage : Page
     private async Task SwitchWorkspaceAsync(Core.Api.Workspace ws)
     {
         if (ws.Id == Host.Workspace?.Id) return;
+        // A call belongs to the workspace it started in.
+        await CallWindow.EndForQuitAsync(TimeSpan.FromSeconds(2));
         Host.Settings.WorkspaceId = ws.Id;
         Host.Settings.Save();
         Teardown();
@@ -713,6 +805,7 @@ public sealed partial class ShellPage : Page
 
     public async Task SignOutAsync()
     {
+        var owner = Host.User?.Id ?? Host.Settings.SessionUserId;
         var s = Host.Strings;
         var dialog = new ContentDialog
         {
@@ -725,6 +818,8 @@ public sealed partial class ShellPage : Page
             DefaultButton = ContentDialogButton.Close,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        // Nothing would be left on screen to hang up with, and the session the hang-up needs ends next.
+        await CallWindow.EndForQuitAsync(TimeSpan.FromSeconds(2));
         try
         {
             await Host.Client.LogoutAsync();
@@ -735,7 +830,8 @@ public sealed partial class ShellPage : Page
             Log.Error("logout", e);
             Host.Client.DiscardSession();
         }
-        App.Current.Window!.SignedOut();
+        // An explicit sign-out takes this operator's conversations off the PC too.
+        App.Current.Window!.SignedOut(forgetAccount: owner);
     }
 
     private void SetUnread(int count)

@@ -27,6 +27,7 @@ public sealed class BackgroundNotifier : IDisposable
         _workspaceId = workspaceId;
         _poller = new Poller("notifier", TickAsync, () => _host.PollInterval(TimeSpan.FromSeconds(_host.Config.PollIntervalSeconds)));
         _host.InboxChanged += OnInboxChanged;
+        _host.RealtimeChanged += OnRealtimeChanged;
     }
 
     /// <summary>The conversation on screen right now, which needs no toast while the window has focus.</summary>
@@ -44,9 +45,16 @@ public sealed class BackgroundNotifier : IDisposable
         if (e.IsMessage) _poller.Kick();
     }
 
+    /// <summary>A reconnect may follow missed messages: look now.</summary>
+    private void OnRealtimeChanged(bool up) => _poller.Kick();
+
     private async Task TickAsync(CancellationToken ct)
     {
-        var open = await _host.Api.ConversationsAsync(_workspaceId, InboxFilter.Open, ct);
+        // The same revalidated queue the inbox shows (Open): when both ask at
+        // once it is one request, and an unchanged queue is a 304.
+        var result = await _host.Lists.FetchAsync(_workspaceId, InboxFilter.Open, ct);
+        if (result.WorkspaceId != _host.Workspace?.Id) return;
+        var open = result.Conversations;
         UnreadChanged?.Invoke(open.Sum(c => Math.Max(0, c.UnreadCount ?? 0)));
 
         var fresh = _rules.Fresh(open);
@@ -90,6 +98,7 @@ public sealed class BackgroundNotifier : IDisposable
     public void Dispose()
     {
         _host.InboxChanged -= OnInboxChanged;
+        _host.RealtimeChanged -= OnRealtimeChanged;
         _poller.Dispose();
     }
 }

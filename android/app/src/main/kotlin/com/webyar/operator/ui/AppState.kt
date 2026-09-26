@@ -3,14 +3,21 @@ package com.webyar.operator.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.webyar.operator.core.model.EntitlementsState
+import com.webyar.operator.core.model.WorkspaceAccess
 import com.webyar.operator.core.model.User
 import com.webyar.operator.core.model.Workspace
 import com.webyar.operator.core.net.ApiError
 import com.webyar.operator.core.net.WebyarApi
+import com.webyar.operator.core.push.PushPayload
 import com.webyar.operator.core.storage.Appearance
 import com.webyar.operator.core.storage.Preferences
 import com.webyar.operator.core.storage.SessionCache
 import com.webyar.operator.i18n.Language
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,6 +45,7 @@ class AppState(
     private val api: WebyarApi,
     private val cache: SessionCache,
     private val prefs: Preferences,
+    private val hooks: SessionHooks = SessionHooks.None,
 ) : ViewModel() {
 
     private val _session = MutableStateFlow<Session>(Session.Restoring)
@@ -48,6 +56,10 @@ class AppState(
 
     private val _appearance = MutableStateFlow(Appearance.SYSTEM)
     val appearance: StateFlow<Appearance> = _appearance.asStateFlow()
+
+    /** Wallpaper colours instead of the brand's — see [Preferences.dynamicColor]. */
+    private val _dynamicColor = MutableStateFlow(false)
+    val dynamicColor: StateFlow<Boolean> = _dynamicColor.asStateFlow()
 
     private val _workspaces = MutableStateFlow<List<Workspace>>(emptyList())
     val workspaces: StateFlow<List<Workspace>> = _workspaces.asStateFlow()
@@ -69,6 +81,13 @@ class AppState(
 
     private val _entitlements = MutableStateFlow<EntitlementsState>(EntitlementsState.Loading)
     val entitlements: StateFlow<EntitlementsState> = _entitlements.asStateFlow()
+
+    /**
+     * The operator's role and the AI / call-center switches, read with the
+     * plan. Unknown (null) hides whatever depends on it.
+     */
+    private val _access = MutableStateFlow(WorkspaceAccess.UNKNOWN)
+    val access: StateFlow<WorkspaceAccess> = _access.asStateFlow()
 
     /**
      * Which tab is open, held here rather than in the shell.
@@ -105,19 +124,54 @@ class AppState(
         _selectedTab.value = tab
     }
 
+    /**
+     * A conversation a notification asked to open, until the shell opens it.
+     *
+     * Held here rather than acted on where the tap arrived: the tap can come
+     * before the session is restored or the workspaces are loaded, and the
+     * workspace it names has to be checked against THIS operator's before
+     * anything is shown.
+     */
+    private val _pendingLink = MutableStateFlow<PushPayload?>(null)
+    val pendingLink: StateFlow<PushPayload?> = _pendingLink.asStateFlow()
+
+    fun openFromNotification(link: PushPayload) {
+        if (link.opensConversation) _pendingLink.value = link
+    }
+
+    /**
+     * The link, once it can be followed: signed in, the workspaces known,
+     * and the one it names among them — switched to if it is not the one in
+     * front. A link to a workspace this operator does not have is dropped.
+     */
+    fun resolvePendingLink(): PushPayload? {
+        val link = _pendingLink.value ?: return null
+        if (_session.value !is Session.SignedIn) return null
+        val list = _workspaces.value
+        if (list.isEmpty()) return null
+        val target = list.firstOrNull { it.id == link.workspaceId }
+        _pendingLink.value = null
+        if (target == null) return null
+        if (target.id != _selectedWorkspace.value?.id) selectWorkspace(target)
+        return link
+    }
+
     init {
         viewModelScope.launch {
             // Before restore(), so the login screen is already in the right
             // language and the right way round rather than flipping once the
             // preference arrives.
             prefs.language()?.let { _language.value = it }
+            hooks.languageChanged(_language.value)
             _appearance.value = prefs.appearance()
+            _dynamicColor.value = prefs.dynamicColor()
             restore()
         }
     }
 
     fun setLanguage(language: Language) {
         _language.value = language
+        hooks.languageChanged(language)
         viewModelScope.launch {
             prefs.setLanguage(language)
             // Tell the server too, so the console and the emails this operator
@@ -131,6 +185,11 @@ class AppState(
     fun setAppearance(appearance: Appearance) {
         _appearance.value = appearance
         viewModelScope.launch { prefs.setAppearance(appearance) }
+    }
+
+    fun setDynamicColor(on: Boolean) {
+        _dynamicColor.value = on
+        viewModelScope.launch { prefs.setDynamicColor(on) }
     }
 
     /**
@@ -150,15 +209,23 @@ class AppState(
         try {
             val user = api.currentUser()
             cache.save(user)
+            hooks.signedIn(user)
             _session.value = Session.SignedIn(user)
             loadWorkspaces()
         } catch (e: ApiError) {
             if (e.isAuthFailure) {
+                val stale = cache.read()
                 api.discardSession()
                 cache.clear()
+                // The session was revoked elsewhere: whatever this phone
+                // cached for it goes, exactly as at a sign-out.
+                runCatching { hooks.signedOut(stale?.id) }
                 _session.value = Session.SignedOut
             } else {
                 val cached = cache.read()
+                // Offline at launch: the cached operator stands in, and so
+                // does their cache — which is the whole point of having one.
+                cached?.let(hooks::signedIn)
                 _session.value = if (cached != null) Session.SignedIn(cached) else Session.SignedOut
                 if (cached != null) loadWorkspaces()
             }
@@ -190,15 +257,38 @@ class AppState(
     suspend fun logIn(email: String, password: String): Result<Unit> = runCatching {
         val user = api.logIn(email.trim(), password)
         cache.save(user)
+        hooks.signedIn(user)
         _session.value = Session.SignedIn(user)
         viewModelScope.launch { loadWorkspaces() }
     }
 
+    /**
+     * Signs out, in the order the server needs it: the push registration is
+     * withdrawn while the session can still authorise that, THEN the session
+     * is revoked, THEN everything this phone holds for the operator goes —
+     * socket, token, cached rows and files, notifications, in-memory state —
+     * before the login screen appears. Nothing of theirs is left for whoever
+     * signs in next.
+     */
     fun logOut() {
+        val user = (_session.value as? Session.SignedIn)?.user
         viewModelScope.launch {
+            user?.let { runCatching { hooks.beforeSignOut(it) } }
             runCatching { api.logOut() }
                 .onSuccess {
                     cache.clear()
+                    runCatching { hooks.signedOut(user?.id) }
+                    // A different operator is a different set of workspaces:
+                    // nothing selected here may carry across to them.
+                    _workspaces.value = emptyList()
+                    _selectedWorkspace.value = null
+                    entitlementsRetry?.cancel()
+                    _entitlements.value = EntitlementsState.Loading
+                    _access.value = WorkspaceAccess.UNKNOWN
+                    planLoadedAt = null
+                    _avatarUrl.value = null
+                    _pendingLink.value = null
+                    _selectedTab.value = AppTab.INBOX
                     _session.value = Session.SignedOut
                 }
             // A failure here proves nothing about the server's view of the
@@ -220,33 +310,101 @@ class AppState(
             loadAvatar()
             if (_selectedWorkspace.value == null) {
                 _selectedWorkspace.value = list.firstOrNull()
+                announceWorkspace()
                 loadEntitlements()
             }
         }
     }
 
+    private fun announceWorkspace() {
+        val user = (_session.value as? Session.SignedIn)?.user ?: return
+        val workspace = _selectedWorkspace.value ?: return
+        hooks.workspaceSelected(user, workspace, _workspaces.value)
+    }
+
     fun selectWorkspace(workspace: Workspace) {
         if (workspace.id == _selectedWorkspace.value?.id) return
         _selectedWorkspace.value = workspace
+        announceWorkspace()
         // A different workspace is a different plan, so the old answer is
         // wrong rather than merely stale. Back to Loading, which is what keeps
         // a gated tab from lingering across the switch.
         _entitlements.value = EntitlementsState.Loading
+        _access.value = WorkspaceAccess.UNKNOWN
+        planLoadedAt = null
         loadEntitlements()
     }
 
+    /** The plan load in flight, or its pending re-ask after a plan that could not be read. */
+    private var entitlementsRetry: Job? = null
+
+    /** When this workspace's plan was last read ([System.nanoTime]); null until it is. */
+    private var planLoadedAt: Long? = null
+
+    /**
+     * Asks for the plan again if the one in hand is over three minutes old —
+     * Super Admin can change it at any time and nothing announces it. Called
+     * when the app comes to the foreground and when a screen that depends on
+     * the plan is shown, so there is no timer running in the background; a
+     * load or a 20-second re-ask already on its way is left to finish.
+     */
+    fun refreshPlanIfStale() {
+        if (_selectedWorkspace.value == null) return
+        if (entitlementsRetry?.isActive == true) return
+        val loadedAt = planLoadedAt
+        if (loadedAt != null && System.nanoTime() - loadedAt < PLAN_REFRESH_NS) return
+        loadEntitlements()
+    }
+
+    /**
+     * The plan, with the operator's role and the AI and call-center switches
+     * read alongside it (a side request that fails leaves its value unknown,
+     * and never fails the plan).
+     */
     private fun loadEntitlements() {
         val workspaceId = _selectedWorkspace.value?.id ?: return
-        viewModelScope.launch {
-            _entitlements.value = runCatching { api.entitlements(workspaceId) }
-                .fold(
-                    onSuccess = { EntitlementsState.Loaded(it) },
-                    // Failed, not Loading: the difference is the whole point of
-                    // the state. Staying in Loading would hide the gated tab
-                    // for ever on a flaky network; Failed resolves, and a
-                    // fail-closed plan simply grants nothing.
-                    onFailure = { EntitlementsState.Failed },
-                )
+        entitlementsRetry?.cancel()
+        entitlementsRetry = viewModelScope.launch {
+            while (true) {
+                val (next, nextAccess) = coroutineScope {
+                    val side = async { runCatching { api.workspaceAccess(workspaceId) }.getOrNull() }
+                    val plan = runCatching { api.entitlements(workspaceId) }
+                        .fold(
+                            onSuccess = { EntitlementsState.Loaded(it) },
+                            // Failed, not Loading: the difference is the whole point
+                            // of the state. Staying in Loading would hide the gated
+                            // tab for ever on a flaky network; Failed resolves, and
+                            // a fail-closed plan simply grants nothing.
+                            onFailure = { EntitlementsState.Failed },
+                        )
+                    plan to (side.await() ?: WorkspaceAccess.UNKNOWN)
+                }
+                // Replaced by a newer load, or a workspace switched to meanwhile
+                // (which has its own load): this answer is not the one to show.
+                ensureActive()
+                if (_selectedWorkspace.value?.id != workspaceId) return@launch
+                if (next is EntitlementsState.Loaded) {
+                    _entitlements.value = next
+                    _access.value = nextAccess
+                    planLoadedAt = System.nanoTime()
+                    return@launch
+                }
+                // A refresh that fails keeps the snapshot already in hand for this
+                // workspace, with the role and switches read with it, as the web's
+                // query does; the next foreground asks again.
+                if (_entitlements.value is EntitlementsState.Loaded) return@launch
+                _entitlements.value = next
+                _access.value = nextAccess
+                // Nothing gated shows while the plan cannot be read (the web's
+                // rule), so ask again soon rather than at the next workspace switch.
+                delay(PLAN_RETRY_MS)
+                if (_selectedWorkspace.value?.id != workspaceId) return@launch
+            }
         }
+    }
+
+    private companion object {
+        const val PLAN_RETRY_MS = 20_000L
+        const val PLAN_REFRESH_NS = 3 * 60 * 1_000_000_000L
     }
 }

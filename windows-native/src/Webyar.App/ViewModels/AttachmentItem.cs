@@ -4,20 +4,26 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Webyar.App.Services;
 using Webyar.Core.Api;
+using Webyar.Core.Caching;
 using Webyar.Core.Localization;
+using Webyar.Core.Sync;
 
 namespace Webyar.App.ViewModels;
 
-/// <summary>A file on a message. Photos load their preview on demand; bytes are kept in memory and on disk (<see cref="FileCache"/>).</summary>
+/// <summary>
+/// A file on a message. Photos load their preview as the thread renders;
+/// voice notes, videos and documents only when played or opened
+/// (<see cref="AttachmentPolicy"/>). Bytes come through <see cref="AttachmentStore"/>.
+/// </summary>
 public sealed partial class AttachmentItem : ObservableObject
 {
-    private static readonly Dictionary<string, byte[]> Cache = [];
-
     /// <summary>
-    /// Decoded photos by attachment id. Each poll builds fresh items; a photo
+    /// Decoded photos by attachment id. Each sync builds fresh items; a photo
     /// already shown comes back at once at its size instead of flashing empty.
+    /// Bounded by decoded size (width × height × 4 bytes): 48 MB of pixels,
+    /// about forty 640 px photos — the ones in the threads just looked at.
     /// </summary>
-    private static readonly Dictionary<string, (BitmapImage Image, double Width, double Height)> Previews = [];
+    private static readonly LruCache<string, (BitmapImage Image, double Width, double Height)> Previews = new(48L * 1024 * 1024, 16L * 1024 * 1024);
 
     /// <summary>The largest a photo is drawn in the thread, either way.</summary>
     private const double MaxSide = 320;
@@ -25,6 +31,8 @@ public sealed partial class AttachmentItem : ObservableObject
     public AttachmentItem(MessageAttachment a, Strings s)
     {
         Id = a.Id;
+        // Captured once: a file belongs to the workspace whose thread showed it.
+        WorkspaceId = AppHost.Current.Workspace?.Id;
         MimeType = a.MimeType ?? string.Empty;
         Kind = a.Kind is "image" or "audio" or "video" or "file" ? a.Kind
             : MimeType.StartsWith("image/", StringComparison.Ordinal) ? "image"
@@ -45,17 +53,18 @@ public sealed partial class AttachmentItem : ObservableObject
         ImageVisibility = IsImage ? Visibility.Visible : Visibility.Collapsed;
         AudioVisibility = IsAudio ? Visibility.Visible : Visibility.Collapsed;
         FileVisibility = IsImage || IsAudio ? Visibility.Collapsed : Visibility.Visible;
-        Glyph = Kind switch { "audio" => "", "video" => "", "image" => "", _ => "" };
+        Glyph = Kind switch { "audio" => "", "video" => "", "image" => "", _ => "" };
     }
 
     /// <summary>A file the operator picked and is sending now.</summary>
     public AttachmentItem(string fileName, string mimeType, byte[] data, Strings s)
         : this(new MessageAttachment("local:" + Guid.NewGuid(), fileName, mimeType, data.LongLength), s)
     {
-        Cache[Id] = data;
+        AttachmentStore.AddOutgoing(Id, data);
     }
 
     public string Id { get; }
+    public string? WorkspaceId { get; }
     public string MimeType { get; }
     public string Kind { get; }
     public string FileName { get; }
@@ -67,6 +76,9 @@ public sealed partial class AttachmentItem : ObservableObject
     public Visibility AudioVisibility { get; }
     public Visibility FileVisibility { get; }
 
+    /// <summary>Fetched as soon as the message is drawn (photos only); the rest wait for the operator.</summary>
+    public bool FetchOnRender => AttachmentPolicy.FetchOnRender(Kind);
+
     [ObservableProperty]
     private BitmapImage? _preview;
 
@@ -76,31 +88,21 @@ public sealed partial class AttachmentItem : ObservableObject
     [ObservableProperty]
     private double _previewHeight = 180;
 
-    public async Task<byte[]> BytesAsync()
-    {
-        if (Cache.TryGetValue(Id, out var cached)) return cached;
-        var data = await Task.Run(() => FileCache.Read(Id));
-        if (data is null)
-        {
-            data = await AppHost.Current.Api.AttachmentDataAsync(Id);
-            var bytes = data;
-            _ = Task.Run(() => FileCache.Write(Id, bytes));
-        }
-        Cache[Id] = data;
-        return data;
-    }
+    public Task<byte[]> BytesAsync() => AttachmentStore.GetAsync(Id, WorkspaceId);
 
     /// <summary>Loads the thumbnail for a photo; a failure leaves the file chip instead of an error.</summary>
     public async Task LoadPreviewAsync()
     {
         if (!IsImage || Preview is not null) return;
-        if (Previews.TryGetValue(Id, out var known))
+        if (Previews.TryGet(Id, out var known))
         {
             Show(known);
             return;
         }
         try
         {
+            // There is no thumbnail endpoint: the photo itself is fetched (once,
+            // then from the PC) and only decoded small, which saves memory, not bandwidth.
             var data = await BytesAsync();
             using var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
             await stream.WriteAsync(data.AsBuffer());
@@ -108,8 +110,9 @@ public sealed partial class AttachmentItem : ObservableObject
             var image = new BitmapImage { DecodePixelWidth = 640 };
             await image.SetSourceAsync(stream);
             var (w, h) = Fit(image.PixelWidth, image.PixelHeight);
-            Previews[Id] = (image, w, h);
-            Show(Previews[Id]);
+            var entry = (image, w, h);
+            Previews.Set(Id, entry, Math.Max(1L, (long)image.PixelWidth * image.PixelHeight * 4));
+            Show(entry);
         }
         catch (Exception e)
         {
@@ -141,20 +144,35 @@ public sealed partial class AttachmentItem : ObservableObject
     /// A file the operator just sent now has its server id: the bytes and the
     /// decoded photo carry over, so the confirmed message does not reload it.
     /// </summary>
-    public static void Alias(string localId, string serverId)
+    public static void Alias(string localId, string serverId, string? workspaceId = null)
     {
-        if (Cache.TryGetValue(localId, out var data))
+        AttachmentStore.Alias(localId, serverId, workspaceId ?? AppHost.Current.Workspace?.Id);
+        if (Previews.TryGet(localId, out var preview))
         {
-            Cache[serverId] = data;
-            _ = Task.Run(() => FileCache.Write(serverId, data));
+            Previews.Set(serverId, preview, Math.Max(1L, (long)preview.Image.PixelWidth * preview.Image.PixelHeight * 4));
+            Previews.Remove(localId);
         }
-        if (Previews.TryGetValue(localId, out var preview)) Previews[serverId] = preview;
+    }
+
+    /// <summary>A picked file that will not be sent (the thread was left with the send failed).</summary>
+    public static void Forget(string localId)
+    {
+        AttachmentStore.Forget(localId);
+        Previews.Remove(localId);
     }
 
     /// <summary>Forgets the in-memory copies too, after the disk cache is cleared.</summary>
     public static void ClearMemory()
     {
-        foreach (var key in Cache.Keys.Where(k => !k.StartsWith("local:", StringComparison.Ordinal)).ToList()) Cache.Remove(key);
+        AttachmentStore.ClearMemory();
+        Previews.Clear();
+    }
+
+    /// <summary>Sign-out: no decoded photo or bytes of the last operator stay in memory.</summary>
+    public static void ClearAll()
+    {
+        AttachmentStore.ClearAll();
+        Previews.Clear();
     }
 
     public static string FormatSize(long bytes, Strings s)

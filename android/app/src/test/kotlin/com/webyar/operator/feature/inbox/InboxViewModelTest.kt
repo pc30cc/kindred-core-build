@@ -3,6 +3,7 @@ package com.webyar.operator.feature.inbox
 import com.webyar.operator.core.model.EffectiveBool
 import com.webyar.operator.core.model.Entitlements
 import com.webyar.operator.core.model.InboxFilter
+import com.webyar.operator.core.model.WorkspaceAccess
 import com.webyar.operator.core.net.SampleApi
 import com.webyar.operator.i18n.Language
 import kotlinx.coroutines.Dispatchers
@@ -265,7 +266,9 @@ class InboxViewModelTest {
                 "inbox_needs_human" to EffectiveBool(value = true),
             ),
         )
-        assertEquals(InboxFilter.available(full), InboxFilter.chips(full))
+        // The AI queue also needs the AI switched on, shown to customers and answering.
+        val ai = WorkspaceAccess(role = "agent", aiAgentEnabled = true, aiCustomerVisible = true, aiAutoAnswer = true)
+        assertEquals(InboxFilter.available(full, ai), InboxFilter.chips(full, ai))
         assertEquals(
             listOf(
                 InboxFilter.OPEN,
@@ -275,7 +278,7 @@ class InboxViewModelTest {
                 InboxFilter.RESOLVED,
                 InboxFilter.SPAM,
             ),
-            InboxFilter.chips(full),
+            InboxFilter.chips(full, ai),
         )
     }
 }

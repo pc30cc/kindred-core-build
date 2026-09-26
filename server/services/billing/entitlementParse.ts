@@ -160,3 +160,29 @@ export function parseNumericEntitlementResponse(
   if (parsed.limitValid) return parsed;
   return { outcome: 'unavailable', allowed: null, reason: INVALID_ENTITLEMENT_LIMIT };
 }
+
+/**
+ * True only when the database reports that `relation` itself does not exist
+ * (42P01 / PostgREST PGRST205 naming it) — the same precision as
+ * isPlatformSettingsTableMissing. Self-host installs ship without the
+ * workspace override tables; their absence means "no overrides", while any
+ * other read failure must still fail closed.
+ */
+export function isRelationMissing(
+  error: { code?: string; message?: string; details?: string } | null | undefined,
+  relation: string,
+): boolean {
+  const code = String(error?.code || '');
+  if (code !== '42P01' && code !== 'PGRST205') return false;
+  const haystack = `${error?.message || ''} ${error?.details || ''}`.toLowerCase();
+  if (!haystack.trim()) return false;
+  const named = new RegExp(`(^|[^a-z0-9_])(public\\.)?${relation}([^a-z0-9_]|$)`).test(haystack);
+  if (!named) return false;
+  if (/\bcolumn\b/.test(haystack) || /\bfunction\b/.test(haystack) || /permission denied/.test(haystack)) return false;
+  return (
+    /relation .* does not exist/.test(haystack) ||
+    /could not find the table/.test(haystack) ||
+    /table .* does not exist/.test(haystack)
+  );
+}
+

@@ -103,6 +103,37 @@ jobs:
         working-directory: android
         run: ./gradlew :app:assembleDebug --stacktrace
 
+      # The Room cache's schema, as the build just exported it. Uploaded so a
+      # schema change can be committed from any machine, including one that
+      # cannot run this build itself.
+      - name: Room schema (artifact)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: room-schema
+          path: android/app/schemas/
+          if-no-files-found: error
+          retention-days: 14
+
+      # Every version of the schema is committed: it is what a migration is
+      # written, and tested, against. A build whose export differs from what
+      # is committed fails here, so an entity change cannot ship without its
+      # schema. The fix is to commit the room-schema artifact of this run.
+      - name: Room schema is committed
+        working-directory: android
+        run: |
+          set -eu
+          changed=$(git status --porcelain -- app/schemas)
+          if [ -n "$changed" ]; then
+            echo "$changed"
+            echo "::error::The Room schema changed. Commit android/app/schemas: the room-schema artifact of this run, or the block below (strip the timestamps, then: base64 -d | tar xz -C android)."
+            echo "----- BEGIN ROOM SCHEMA -----"
+            tar czf - app/schemas | base64 -w 76
+            echo "----- END ROOM SCHEMA -----"
+            exit 1
+          fi
+          echo "Room schema matches the committed one."
+
       # The JVM layer, which is where most of the suite lives: no device, no
       # KVM, no emulator (ADR-003 §5). Instrumented tests are a separate job
       # on a schedule, because the emulator's ~4GB does not coexist with a
@@ -119,6 +150,12 @@ jobs:
           for f in app/build/test-results/testDebugUnitTest/*.xml; do
             [ -e "$f" ] || continue
             sed -n 's/.*<testsuite name="\([^"]*\)" tests="\([0-9]*\)" skipped="\([0-9]*\)" failures="\([0-9]*\)" errors="\([0-9]*\)".*/\1: \2 tests, \4 failures, \5 errors/p' "$f"
+          done
+          # Gradle's console names a failed test and a line number; the
+          # reason is only in the XML. Print it, so a red run says why.
+          for f in app/build/test-results/testDebugUnitTest/*.xml; do
+            [ -e "$f" ] || continue
+            grep -A12 '<failure' "$f" | head -40 || true
           done
 
       - name: Lint

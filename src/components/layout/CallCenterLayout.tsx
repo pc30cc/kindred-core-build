@@ -21,6 +21,7 @@ import {
   Inbox, Activity, ChevronDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useCallCenterCapabilities, useCallCenterOverview } from '@/hooks/useCallCenter';
 import { Button } from '@/components/ui/button';
@@ -32,6 +33,7 @@ import { callCenterApi } from '@/lib/call-center-api';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useTranslation } from '@/i18n';
 import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
+import { usePlanAccess } from '@/hooks/useEntitlements';
 import { LiveDot, StatusChip, type Tone } from '@/features/calls/callCenterUi';
 
 type TabDef = {
@@ -41,14 +43,16 @@ type TabDef = {
   end?: boolean;
   requiresCallback?: boolean;
   requiresRecording?: boolean;
+  /** Plan feature the tab needs (the route refuses without it too). */
+  planFeature?: string;
 };
 
 const ALL_TABS: TabDef[] = [
   { to: '', icon: LayoutDashboard, i18nKey: 'overview', end: true },
-  { to: 'queue', icon: Headphones, i18nKey: 'queue' },
+  { to: 'queue', icon: Headphones, i18nKey: 'queue', planFeature: 'call_queue' },
   { to: 'calls', icon: Phone, i18nKey: 'calls' },
-  { to: 'callbacks', icon: PhoneCall, i18nKey: 'callbacks', requiresCallback: true },
-  { to: 'recordings', icon: Mic, i18nKey: 'recordings', requiresRecording: true },
+  { to: 'callbacks', icon: PhoneCall, i18nKey: 'callbacks', requiresCallback: true, planFeature: 'call_callbacks' },
+  { to: 'recordings', icon: Mic, i18nKey: 'recordings', requiresRecording: true, planFeature: 'call_recording' },
   { to: 'install', icon: Code2, i18nKey: 'install' },
   { to: 'settings', icon: SettingsIcon, i18nKey: 'settings' },
 ];
@@ -59,7 +63,7 @@ const PRESENCE: Array<{ value: string; tone: Tone; i18nKey: string }> = [
   { value: 'away', tone: 'warning', i18nKey: 'away' },
 ];
 
-export function CallCenterLayout() {
+function CallCenterShell() {
   const { slug } = useParams();
   const { workspace } = useActiveWorkspace();
   const { user } = useAuth();
@@ -80,10 +84,12 @@ export function CallCenterLayout() {
   // call recording — operators should not see the surface at all in that case.
   const recordingOn =
     !!caps?.recording?.enabled_by_platform && !!caps?.recording?.enabled_by_plan;
+  const plan = usePlanAccess(workspace?.id);
   const tabs = ALL_TABS.filter(
     (tab) =>
       (!tab.requiresCallback || callbackOn) &&
-      (!tab.requiresRecording || recordingOn),
+      (!tab.requiresRecording || recordingOn) &&
+      (!tab.planFeature || plan.feature(tab.planFeature)),
   );
 
   const { data: agentStatus } = useQuery({
@@ -252,10 +258,54 @@ export function CallCenterLayout() {
       </header>
 
       <main className="flex-1 overflow-y-auto p-5">
-        <PlanLockedOverlay moduleKey="call_center">
-          <Outlet />
-        </PlanLockedOverlay>
+        <Outlet />
       </main>
+    </div>
+  );
+}
+
+/**
+ * The Call Center route. Nothing of it mounts — not even the masthead with
+ * its live counters — unless the plan includes `call_center` and the same
+ * visibility switch the sidebar uses says this member may see it (off for
+ * operators while the workspace has the call center switched off).
+ */
+export function CallCenterLayout() {
+  return (
+    <PlanLockedOverlay moduleKey="call_center">
+      <CallCenterVisibility>
+        <CallCenterShell />
+      </CallCenterVisibility>
+    </PlanLockedOverlay>
+  );
+}
+
+function CallCenterVisibility({ children }: { children: React.ReactNode }) {
+  const { workspace } = useActiveWorkspace();
+  const { t, dir } = useTranslation();
+  const { data: caps, isError } = useCallCenterCapabilities(workspace?.id);
+  if (!caps && !isError) {
+    return (
+      <div className="p-8 space-y-4" dir={dir}>
+        <Skeleton className="h-9 w-64" />
+        <Skeleton className="h-40 w-full rounded-xl" />
+      </div>
+    );
+  }
+  if (caps?.workspace_call_center_visible === true) return <>{children}</>;
+  return (
+    <div className="flex items-start justify-center p-8" dir={dir}>
+      <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-8 text-center shadow-xl">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-muted">
+          <Headset className="h-7 w-7 text-muted-foreground" />
+        </div>
+        <h2 className="mb-2 text-lg font-semibold">{t('callCenter.layout.unavailableTitle')}</h2>
+        <p className="text-sm text-muted-foreground">
+          {caps && !caps.platform_enabled
+            ? t('callCenter.layout.unavailablePlatform')
+            : t('callCenter.layout.unavailableWorkspace')}
+        </p>
+      </div>
     </div>
   );
 }

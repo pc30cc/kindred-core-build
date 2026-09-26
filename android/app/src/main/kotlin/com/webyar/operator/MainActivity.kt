@@ -1,6 +1,17 @@
 package com.webyar.operator
 
 import android.os.Bundle
+import android.content.Intent
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import com.webyar.operator.core.push.Notifications
+import com.webyar.operator.core.push.PushPayload
+import com.webyar.operator.core.push.from
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -19,12 +30,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.collectAsState
-import com.webyar.operator.core.net.Backend
 import com.webyar.operator.core.net.WebyarApi
 import com.webyar.operator.core.storage.Appearance
-import com.webyar.operator.core.storage.Preferences
-import com.webyar.operator.core.storage.SecureStore
-import com.webyar.operator.core.storage.SessionCache
 import com.webyar.operator.feature.auth.LoginScreen
 import com.webyar.operator.feature.inbox.InboxScreen
 import com.webyar.operator.feature.chat.ChatScreen
@@ -44,6 +51,9 @@ import com.webyar.operator.ui.nav.AppShell
 import com.webyar.operator.ui.design.WebyarTheme
 
 class MainActivity : ComponentActivity() {
+
+    private lateinit var appState: AppState
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -54,15 +64,22 @@ class MainActivity : ComponentActivity() {
         // with it would let a promotion in on a first run.
         PromoCounters(applicationContext).noteLaunch()
 
-        val api = Backend.create(applicationContext)
-        val store = SecureStore(applicationContext)
-        val cache = SessionCache(store)
-        val prefs = Preferences(store)
+        val graph = appGraph
+        graph.start()
+        val api = graph.api
+
+        appState = ViewModelProvider(
+            this,
+            factory { AppState(api, graph.sessionCache, graph.preferences, graph.hooks) },
+        )[AppState::class.java]
+        // A notification tap that started the app. Not on a recreation: that
+        // intent has already been followed.
+        if (savedInstanceState == null) handleNotificationTap(intent)
 
         setContent {
-            val appState: AppState = viewModel(factory = factory { AppState(api, cache, prefs) })
             val language by appState.language.collectAsState()
             val appearance by appState.appearance.collectAsState()
+            val dynamicColor by appState.dynamicColor.collectAsState()
 
             // The theme takes the language and sets the layout direction from
             // it — rows, stacks, alignment, which edge padding's leading side
@@ -77,12 +94,37 @@ class MainActivity : ComponentActivity() {
                     Appearance.LIGHT -> false
                     Appearance.DARK -> true
                 },
+                dynamicColor = dynamicColor,
             ) {
-                Surface(Modifier.fillMaxSize()) {
-                    RootScreen(appState, api, language)
+                CompositionLocalProvider(LocalAppGraph provides graph) {
+                    Surface(Modifier.fillMaxSize()) {
+                        RootScreen(appState, api, language)
+                    }
                 }
             }
         }
+    }
+
+    /**
+     * A notification tapped while the app was already running. The activity
+     * is `singleTop`, so this is the same instance and the same back stack —
+     * the conversation opens on top of wherever the operator was.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNotificationTap(intent)
+    }
+
+    private fun handleNotificationTap(intent: Intent?) {
+        // Reopened from Recents after the process died: the system hands back
+        // the intent that first launched it, and that tap was already followed.
+        if (intent == null || intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
+        // This activity is exported; extras another app put there are not
+        // worth a crash at launch.
+        val link = runCatching { PushPayload.from(intent) }.getOrNull() ?: return
+        appState.openFromNotification(link)
+        link.conversationId?.let { Notifications.cancelConversation(this, it) }
     }
 }
 
@@ -90,6 +132,13 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun RootScreen(appState: AppState, api: WebyarApi, language: Language) {
     val session by appState.session.collectAsState()
+    val stores: SessionStores = viewModel(factory = factory { SessionStores() })
+
+    // Signed out: every view model the session made is cleared now, so the
+    // next operator starts from nothing — not from the last one's inbox.
+    LaunchedEffect(session) {
+        if (session is Session.SignedOut) stores.release()
+    }
 
     when (val current = session) {
         is Session.Restoring -> Box(Modifier.fillMaxSize(), Alignment.Center) {
@@ -104,17 +153,58 @@ private fun RootScreen(appState: AppState, api: WebyarApi, language: Language) {
             onSubmit = appState::logIn,
         )
 
-        is Session.SignedIn -> SignedInScreen(appState, api, language)
+        is Session.SignedIn -> {
+            val owner = remember(current.user.id) {
+                object : ViewModelStoreOwner {
+                    override val viewModelStore: ViewModelStore = stores.storeFor(current.user.id)
+                }
+            }
+            CompositionLocalProvider(LocalViewModelStoreOwner provides owner) {
+                SignedInScreen(appState, api, language)
+            }
+        }
     }
+}
+
+/**
+ * The view models of one signed-in session, in a store of their own.
+ *
+ * The inbox, the chats, the contacts — held by the activity, they would
+ * survive a sign-out and greet the next operator with the last one's rows.
+ * Held here, they are cleared the moment the session ends.
+ */
+class SessionStores : ViewModel() {
+    private var owner: String? = null
+    private var store: ViewModelStore? = null
+
+    fun storeFor(userId: String): ViewModelStore {
+        if (owner != userId) release()
+        return store ?: ViewModelStore().also {
+            store = it
+            owner = userId
+        }
+    }
+
+    fun release() {
+        store?.clear()
+        store = null
+        owner = null
+    }
+
+    override fun onCleared() = release()
 }
 
 @Composable
 private fun SignedInScreen(appState: AppState, api: WebyarApi, language: Language) {
+    val graph = LocalAppGraph.current
+    val sync = remember(graph) { graph?.syncGraph() }
     // Held here rather than inside a route: the inbox and the chat are two
     // views of the same thing, and a view model per route would make the chat
     // re-fetch a list the inbox already has.
     val conversations: InboxViewModel =
-        viewModel(factory = factory { InboxViewModel(api) { language } })
+        viewModel(factory = factory {
+            if (sync != null) InboxViewModel(api, sync) { language } else InboxViewModel(api) { language }
+        })
     // Held here rather than in the contacts route for the same reason: the
     // detail screen reads the row out of the list the list already fetched,
     // and a model scoped to the route would drop it on the way in.
@@ -139,6 +229,13 @@ private fun SignedInScreen(appState: AppState, api: WebyarApi, language: Languag
         language = language,
     )
 }
+
+/**
+ * The app's graph, for the routes that build view models from it. Null in
+ * previews and in tests that compose a screen on its own — the routes then
+ * fall back to an in-memory sync layer.
+ */
+val LocalAppGraph = staticCompositionLocalOf<AppGraph?> { null }
 
 /** A one-off factory, so a view model can take what it needs in its constructor. */
 private inline fun <reified T : ViewModel> factory(crossinline create: () -> T) =

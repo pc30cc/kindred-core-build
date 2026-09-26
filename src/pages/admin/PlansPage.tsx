@@ -30,6 +30,7 @@ import {
 } from '@/hooks/useEntitlements';
 import {
   validatePlanPayload,
+  type PlanValidationIssue,
   setWorkspaceModuleOverride,
   setWorkspaceChannelOverride,
   deleteWorkspaceModuleOverride,
@@ -68,10 +69,6 @@ import {
   capabilityDescription,
   capabilityGroupLabel,
   capabilityUnitLabel,
-  currencyLabel,
-  languageLabel,
-  planBucketLabel,
-  planIssueMessage,
 } from '@/lib/capability-i18n';
 
 // ─── Constants ───
@@ -90,35 +87,76 @@ interface LocalizedPlan {
   description: string;
 }
 
+/** A `billing_plans` row as the Super Admin plan endpoints return it. */
 interface AdminPlan {
   id: string;
   name: string;
   slug: string;
   description?: string | null;
-  is_free?: boolean;
-  is_active?: boolean;
-  is_hidden?: boolean;
-  sort_order?: number;
-  trial_days?: number;
-  default_currency?: string;
-  prices?: Record<string, { monthly: number; yearly: number }>;
-  entitlements?: Record<string, unknown>;
-  limits?: Record<string, unknown>;
-  provider_price_ids?: Record<string, unknown>;
-  localized?: Record<string, LocalizedPlan>;
+  is_free?: boolean | null;
+  is_active?: boolean | null;
+  is_hidden?: boolean | null;
+  sort_order?: number | null;
+  trial_days?: number | null;
+  default_currency?: string | null;
+  prices?: Record<string, { monthly: number; yearly: number }> | null;
+  entitlements?: Record<string, unknown> | null;
+  limits?: Record<string, unknown> | null;
+  provider_price_ids?: Record<string, unknown> | null;
+  localized?: Record<string, LocalizedPlan> | null;
 }
 
+/** A `workspace_subscriptions` row with its plan, as /admin/subscriptions returns it. */
 interface AdminSubscription {
   id: string;
   workspace_id: string;
   plan_id?: string | null;
-  status: string;
+  status?: string | null;
   provider_name?: string | null;
   current_period_end?: string | null;
-  billing_plans?: { name?: string | null } | null;
+  billing_plans?: { id: string; name: string; slug: string } | null;
 }
 
-const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e ?? ''));
+/** The message of a thrown error, if it has one. */
+function errorText(e: unknown): string | undefined {
+  return e instanceof Error && e.message ? e.message : undefined;
+}
+
+/** A status label; a status the translations do not know yet shows as it is. */
+function statusLabel(t: (key: TranslationKey) => string, status: string | null | undefined): string {
+  if (!status) return t('admin.plans.statuses.none');
+  const key = `admin.plans.statuses.${status}` as TranslationKey;
+  const label = t(key);
+  return label && label !== key ? label : status;
+}
+
+/** A plan's name in the admin's language (its own translations), else its base name. */
+function planName(plan: { name?: string | null; localized?: Record<string, { name?: string | null } | null | undefined> | null } | null | undefined, locale: string): string {
+  return plan?.localized?.[locale]?.name?.trim() || plan?.name || '—';
+}
+
+/** A capability's name and description in the admin's language (src/lib/capability-i18n.ts). */
+const capName = (cap: CapabilityDefinition, locale: string) => capabilityLabel(cap.key, locale, cap.label);
+const capText = (cap: CapabilityDefinition, locale: string) => capabilityDescription(cap.key, locale, cap.description);
+
+/** A currency's name in the admin's language with its code, e.g. «دلار آمریکا (USD)». */
+function currencyName(code: string, locale: string): string {
+  try {
+    const name = new Intl.DisplayNames([locale], { type: 'currency' }).of(code);
+    return name && name !== code ? `${name} (${code})` : code;
+  } catch {
+    return code;
+  }
+}
+
+/** A language's name in the admin's language, e.g. `en` → «انگلیسی». */
+function languageName(code: string, locale: string): string {
+  try {
+    return new Intl.DisplayNames([locale], { type: 'language' }).of(code) || code;
+  } catch {
+    return code;
+  }
+}
 
 interface PlanFormData {
   name: string;
@@ -152,11 +190,7 @@ function usePlatformLocales() {
 
 // ─── Registry-aware form helpers ───
 
-function buildFormFromRegistry(
-  capabilities: CapabilityDefinition[],
-  locales: string[],
-  plan?: AdminPlan,
-): PlanFormData {
+function buildFormFromRegistry(capabilities: CapabilityDefinition[], locales: string[], plan?: AdminPlan | null): PlanFormData {
   const knownKeys = new Set(capabilities.map((c) => c.key));
   const entitlements: Record<string, boolean> = {};
   const limits: Record<string, number> = {};
@@ -235,7 +269,7 @@ function PlanFormDialog({
   locales,
   capabilities,
 }: {
-  plan?: AdminPlan;
+  plan?: AdminPlan | null;
   onClose: () => void;
   locales: string[];
   capabilities: CapabilityDefinition[];
@@ -243,11 +277,10 @@ function PlanFormDialog({
   const { t, locale } = useTranslation();
   const [form, setForm] = useState<PlanFormData>(() => buildFormFromRegistry(capabilities, locales, plan));
   const [activeSection, setActiveSection] = useState('general');
-  const [issues, setIssues] = useState<Array<{ level: 'error' | 'warning'; key: string; message: string }>>([]);
+  const [issues, setIssues] = useState<PlanValidationIssue[]>([]);
   const createPlan = useCreatePlan();
   const updatePlan = useUpdatePlan();
-  const planId = plan?.id;
-  const isEdit = !!planId;
+  const isEdit = !!plan?.id;
   const isPending = createPlan.isPending || updatePlan.isPending;
 
   // Partition capabilities by type. Deprecated / non-plan-configurable keys
@@ -289,11 +322,11 @@ function PlanFormDialog({
       }
     } catch (e) {
       // Validation endpoint failure is non-fatal
-      console.warn('Validation skipped:', errorMessage(e));
+      console.warn('Validation skipped:', errorText(e));
     }
     try {
-      if (planId) {
-        await updatePlan.mutateAsync({ planId, ...payload });
+      if (isEdit) {
+        await updatePlan.mutateAsync({ planId: plan.id, ...payload });
         toast.success(t('admin.plans.messages.updated'));
       } else {
         await createPlan.mutateAsync(payload);
@@ -301,7 +334,7 @@ function PlanFormDialog({
       }
       onClose();
     } catch (e) {
-      toast.error(errorMessage(e));
+      toast.error(errorText(e) ?? t('admin.plans.messages.actionFailed'));
     }
   }
 
@@ -340,7 +373,7 @@ function PlanFormDialog({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className={`text-sm font-medium ${enabled ? 'text-foreground' : 'text-muted-foreground'}`}>
-                  {capabilityLabel(cap, locale)}
+                  {capName(cap, locale)}
                 </span>
                 <Badge variant="outline" className="text-[10px] font-mono">
                   {cap.key}
@@ -356,9 +389,7 @@ function PlanFormDialog({
                   </Badge>
                 )}
               </div>
-              {cap.description && (
-                <p className="text-[11px] text-muted-foreground mt-0.5">{capabilityDescription(cap, locale)}</p>
-              )}
+              {capText(cap, locale) && <p className="text-[11px] text-muted-foreground mt-0.5">{capText(cap, locale)}</p>}
             </div>
             <Switch checked={enabled} onCheckedChange={(v) => setBool(cap.key, v)} />
           </div>
@@ -478,9 +509,7 @@ function PlanFormDialog({
               <p className="text-xs text-muted-foreground">{t('admin.plans.form.featuresHint')}</p>
               {Object.entries(featuresByGroup).map(([group, caps]) => (
                 <div key={group} className="space-y-1">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {capabilityGroupLabel(group, locale)}
-                  </p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{capabilityGroupLabel(group, locale)}</p>
                   {renderBoolList(caps)}
                 </div>
               ))}
@@ -495,14 +524,12 @@ function PlanFormDialog({
               </p>
               {Object.entries(limitsByGroup).map(([group, caps]) => (
                 <div key={group} className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {capabilityGroupLabel(group, locale)}
-                  </p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{capabilityGroupLabel(group, locale)}</p>
                   <div className="grid grid-cols-2 gap-3">
                     {caps.map((cap) => (
                       <div key={cap.key} className="space-y-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <Label className="text-xs">{capabilityLabel(cap, locale)}</Label>
+                          <Label className="text-xs">{capName(cap, locale)}</Label>
                           {cap.unit && (
                             <Badge variant="outline" className="text-[9px] font-normal">
                               {capabilityUnitLabel(cap.unit, locale)}
@@ -514,9 +541,7 @@ function PlanFormDialog({
                           value={form.limits[cap.key] ?? 0}
                           onChange={(e) => setLimit(cap.key, parseInt(e.target.value) || 0)}
                         />
-                        {cap.description && (
-                          <p className="text-[10px] text-muted-foreground">{capabilityDescription(cap, locale)}</p>
-                        )}
+                        {capText(cap, locale) && <p className="text-[10px] text-muted-foreground">{capText(cap, locale)}</p>}
                       </div>
                     ))}
                   </div>
@@ -532,7 +557,7 @@ function PlanFormDialog({
                 {CURRENCIES.map((cur) => (
                   <Card key={cur} className="bg-muted/20 border-border">
                     <CardContent className="pt-3 pb-3 space-y-2">
-                      <p className="text-xs font-bold text-foreground">{currencyLabel(cur, locale)}</p>
+                      <p className="text-xs font-bold text-foreground">{currencyName(cur, locale)}</p>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label className="text-[11px]">{t('admin.plans.monthly')}</Label>
@@ -581,20 +606,18 @@ function PlanFormDialog({
                 <Card key={loc} className="bg-muted/20 border-border">
                   <CardContent className="pt-3 pb-3 space-y-2">
                     <p className="text-xs font-bold text-foreground">
-                      {LOCALE_FLAGS[loc]} {languageLabel(loc, locale)}
+                      {LOCALE_FLAGS[loc]} {languageName(loc, locale)}
                     </p>
                     <Input
                       value={form.localized[loc]?.name || ''}
                       onChange={(e) => updateLocalized(loc, 'name', e.target.value)}
-                      placeholder={t('admin.plans.form.localizedName', { locale: languageLabel(loc, locale) })}
+                      placeholder={t('admin.plans.form.localizedName', { locale: languageName(loc, locale) })}
                       dir={loc === 'fa' || loc === 'ar' ? 'rtl' : 'ltr'}
                     />
                     <Textarea
                       value={form.localized[loc]?.description || ''}
                       onChange={(e) => updateLocalized(loc, 'description', e.target.value)}
-                      placeholder={t('admin.plans.form.localizedDescription', {
-                        locale: languageLabel(loc, locale),
-                      })}
+                      placeholder={t('admin.plans.form.localizedDescription', { locale: languageName(loc, locale) })}
                       rows={2}
                       dir={loc === 'fa' || loc === 'ar' ? 'rtl' : 'ltr'}
                     />
@@ -657,7 +680,7 @@ function PlanFormDialog({
                     <AlertTriangle className="w-3 h-3 mt-0.5" />
                   )}
                   <span>
-                    <code className="font-mono">{i.key}</code> — {planIssueMessage(i.message, locale)}
+                    <code className="font-mono">{i.key}</code> — {i.code ? t(`admin.plans.validation.issues.${i.code}` as TranslationKey) : i.message}
                   </span>
                 </div>
               ))}
@@ -745,7 +768,7 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
       toast.success(t('admin.plans.console.overrideApplied'));
       reload();
     } catch (e) {
-      toast.error((e instanceof Error && e.message) || t('admin.plans.console.overrideFailed'));
+      toast.error(errorText(e) || t('admin.plans.console.overrideFailed'));
     } finally {
       setBusy(null);
     }
@@ -766,7 +789,7 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
       toast.success(t('admin.plans.console.overrideCleared'));
       reload();
     } catch (e) {
-      toast.error((e instanceof Error && e.message) || t('admin.plans.console.clearFailed'));
+      toast.error(errorText(e) || t('admin.plans.console.clearFailed'));
     } finally {
       setBusy(null);
     }
@@ -799,7 +822,7 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
       });
       reload();
     } catch (e) {
-      toast.error((e instanceof Error && e.message) || t('admin.plans.console.overrideFailed'));
+      toast.error(errorText(e) || t('admin.plans.console.overrideFailed'));
     } finally {
       setBusy(null);
     }
@@ -823,7 +846,7 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
       });
       reload();
     } catch (e) {
-      toast.error((e instanceof Error && e.message) || t('admin.plans.console.clearFailed'));
+      toast.error(errorText(e) || t('admin.plans.console.clearFailed'));
     } finally {
       setBusy(null);
     }
@@ -872,7 +895,7 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
                   ) : (
                     <XCircle className="w-3.5 h-3.5 text-muted-foreground opacity-50" />
                   )}
-                  <span className="text-sm">{capabilityLabel(cap, locale)}</span>
+                  <span className="text-sm">{capName(cap, locale)}</span>
                   <Badge variant="outline" className="text-[9px] font-mono">
                     {cap.key}
                   </Badge>
@@ -982,7 +1005,7 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
             <div className="flex flex-wrap gap-3 text-xs">
               <div className="px-3 py-2 rounded-lg bg-muted/40">
                 <span className="text-muted-foreground">{t('admin.plans.plan')}:</span>{' '}
-                <span className="font-medium text-foreground">{data.plan?.name || '—'}</span>
+                <span className="font-medium text-foreground">{planName(data.plan, locale)}</span>
                 {data.plan?.slug && (
                   <Badge variant="outline" className="ml-1.5 text-[10px] font-mono">
                     {data.plan.slug}
@@ -993,7 +1016,7 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
                 <span className="text-muted-foreground">{t('admin.plans.subscription')}:</span>{' '}
                 <span className="font-medium text-foreground">
                   {data.subscription?.status
-                    ? t(`admin.plans.statuses.${data.subscription.status}` as TranslationKey)
+                    ? statusLabel(t, data.subscription.status)
                     : t('admin.plans.statuses.none')}
                 </span>
               </div>
@@ -1044,7 +1067,7 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-xs text-foreground">{capabilityLabel(cap, locale)}</span>
+                          <span className="text-xs text-foreground">{capName(cap, locale)}</span>
                           <Badge variant="outline" className="text-[9px] font-mono">
                             {cap.key}
                           </Badge>
@@ -1210,7 +1233,7 @@ function DiagnosticsPanel() {
                       </Badge>
                       <span className="font-mono">{u.key}</span>
                       <Badge variant="secondary" className="text-[9px]">
-                        {planBucketLabel(u.bucket, locale)}
+                        {u.bucket}
                       </Badge>
                     </div>
                   ))}
@@ -1313,7 +1336,7 @@ export default function AdminPlansPage() {
       await deletePlan.mutateAsync(planId);
       toast.success(t('admin.plans.messages.deactivated'));
     } catch (e) {
-      toast.error(errorMessage(e));
+      toast.error(errorText(e) ?? t('admin.plans.messages.actionFailed'));
     }
   }
 
@@ -1324,7 +1347,7 @@ export default function AdminPlansPage() {
       toast.success(t('admin.plans.messages.assigned'));
       setAssignForm({ workspaceId: '', planId: '' });
     } catch (e) {
-      toast.error(errorMessage(e));
+      toast.error(errorText(e) ?? t('admin.plans.messages.actionFailed'));
     }
   }
 
@@ -1334,7 +1357,7 @@ export default function AdminPlansPage() {
       await revokePlan.mutateAsync(wsId);
       toast.success(t('admin.plans.messages.revoked'));
     } catch (e) {
-      toast.error(errorMessage(e));
+      toast.error(errorText(e) ?? t('admin.plans.messages.actionFailed'));
     }
   }
 
@@ -1395,7 +1418,7 @@ export default function AdminPlansPage() {
             </Card>
           ) : (
             <div className="grid gap-4">
-              {plans!.map((plan: AdminPlan) => {
+              {(plans as AdminPlan[]).map((plan) => {
                 const localized = (plan.localized || {}) as Record<string, LocalizedPlan>;
                 const entitlements = (plan.entitlements || {}) as Record<string, boolean>;
                 const limits = (plan.limits || {}) as Record<string, number>;
@@ -1421,7 +1444,7 @@ export default function AdminPlansPage() {
                           </div>
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
-                              <CardTitle className="text-lg">{plan.name}</CardTitle>
+                              <CardTitle className="text-lg">{planName(plan, locale)}</CardTitle>
                               <Badge variant="outline" className="text-[10px] font-mono">
                                 {plan.slug}
                               </Badge>
@@ -1464,7 +1487,7 @@ export default function AdminPlansPage() {
                             <DialogContent className="max-w-5xl w-[95vw] p-0 gap-0 max-h-[90vh] flex flex-col overflow-hidden">
                               <DialogHeader className="px-5 py-4 border-b border-border shrink-0">
                                 <DialogTitle>
-                                  {t('admin.plans.editPlan')}: {plan.name}
+                                  {t('admin.plans.editPlan')}: {planName(plan, locale)}
                                 </DialogTitle>
                               </DialogHeader>
                               <PlanFormDialog
@@ -1545,7 +1568,7 @@ export default function AdminPlansPage() {
                                 className="text-[10px] gap-1 bg-primary/5 text-primary border-primary/20"
                               >
                                 <CheckCircle2 className="w-3 h-3" />
-                                {capabilityLabel(c, locale)}
+                                {capName(c, locale)}
                               </Badge>
                             );
                           })}
@@ -1558,7 +1581,7 @@ export default function AdminPlansPage() {
                           if (val === undefined) return null;
                           return (
                             <Badge key={cap.key} variant="secondary" className="text-[11px] font-normal">
-                              {capabilityLabel(cap, locale)}: {val === -1 ? '∞' : val?.toLocaleString(locale)}
+                              {capName(cap, locale)}: {val === -1 ? '∞' : val?.toLocaleString(locale)}
                               {cap.unit ? ` ${capabilityUnitLabel(cap.unit, locale)}` : ''}
                             </Badge>
                           );
@@ -1593,7 +1616,7 @@ export default function AdminPlansPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  subscriptions.map((sub: AdminSubscription) => (
+                  (subscriptions as AdminSubscription[]).map((sub) => (
                     <TableRow key={sub.id} className="border-border hover:bg-muted/50">
                       <TableCell className="font-mono text-xs">{sub.workspace_id?.slice(0, 8)}...</TableCell>
                       <TableCell>{sub.billing_plans?.name || sub.plan_id?.slice(0, 8)}</TableCell>
@@ -1607,7 +1630,7 @@ export default function AdminPlansPage() {
                                 : 'destructive'
                           }
                         >
-                          {t(`admin.plans.statuses.${sub.status}` as TranslationKey)}
+                          {statusLabel(t, sub.status)}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-muted-foreground">{sub.provider_name}</TableCell>
@@ -1671,7 +1694,7 @@ export default function AdminPlansPage() {
                         .filter((p: AdminPlan) => p.is_active)
                         .map((p: AdminPlan) => (
                           <SelectItem key={p.id} value={p.id}>
-                            {p.name}
+                            {planName(p, locale)}
                           </SelectItem>
                         ))}
                     </SelectContent>

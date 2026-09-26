@@ -4,7 +4,7 @@ import { useSearchParams, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useBranding } from '@/hooks/useBranding';
-import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations, useMarkConversationSeen, useInboxTabCounts, type InboxQueue } from '@/hooks/useConversations';
+import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations, useMarkConversationSeen, useInboxTabCounts, useInboxCounts, type InboxQueue } from '@/hooks/useConversations';
 import type { MessageAttachment } from '@/hooks/useConversations';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
 import { emitInvitationChanged } from '@/lib/call-invitations-events';
@@ -74,7 +74,8 @@ import { PresenceBadge, PresenceDot } from '@/components/inbox/PresenceIndicator
 import { formatTime, formatLongDate, formatRelative, formatDateTime } from '@/lib/date';
 import TeamChatPanel from '@/components/inbox/TeamChatPanel';
 import { useColleagues } from '@/hooks/useTeamChat';
-import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
+import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
+import { aiQueueVisible, colleaguesQueueVisible, needsHumanQueueVisible } from '@/lib/planAccess';
 import {
   useOperatorMessageChime,
   getOperatorMessageSoundEnabled,
@@ -135,8 +136,38 @@ function isPlaceholderSubject(subject?: string | null): boolean {
   return !s || PLACEHOLDER_SUBJECTS.has(s);
 }
 
+/** A conversation row as the inbox lists it (server-enriched). */
+type InboxConversation = NonNullable<ReturnType<typeof useConversations>['data']>[number] & {
+  needs_reply?: boolean | null;
+  waiting_since?: string | null;
+  ai_state?: string | null;
+  is_spam?: boolean | null;
+};
+
+/** The conversation metadata fields the inbox reads. */
+interface ConversationMeta {
+  ai_state?: string;
+  ai_handoff_reason?: string;
+  channel?: string;
+  [key: string]: unknown;
+}
+
+/** The message of a thrown error, if it has one. */
+function errorText(e: unknown): string | undefined {
+  return e instanceof Error ? e.message : undefined;
+}
+
+function metaOf(conv: { metadata?: unknown } | null | undefined): ConversationMeta {
+  const meta = conv?.metadata;
+  return meta && typeof meta === 'object' && !Array.isArray(meta) ? (meta as ConversationMeta) : {};
+}
+
 /** Display title for a conversation: contact identity first, subject second. */
-function conversationTitle(conv: any, t: (k: string, vars?: Record<string, string>) => string, locale?: string): string {
+function conversationTitle(
+  conv: InboxConversation | null | undefined,
+  t: (k: string, vars?: Record<string, string>) => string,
+  locale?: string,
+): string {
   return (
     (conv?.contacts
       ? contactDisplayName(conv.contacts, conv?.contact_id ?? conv?.id, t, conv?.visitor_network?.geo, locale)
@@ -201,20 +232,20 @@ export default function InboxPage() {
     statusParam === 'all'
       ? statusParam
       : 'open';
-  // Plan gating for the Inbox tab strip. While the snapshot is unknown we hide
-  // the gated tabs (and show placeholders) so a plan-locked tab is never
-  // rendered for a moment and then removed.
-  const { data: inboxEnts, loading: inboxEntsLoading, error: inboxEntsError } =
-    useWorkspaceEffectiveEntitlements(workspace?.id || null);
-  const entsReady = !!inboxEnts || (!inboxEntsLoading && !!inboxEntsError);
-  const inboxCapAllowed = useCallback((key: string): boolean => {
-    if (!inboxEnts) return !!inboxEntsError; // unknown => hidden, error => permissive
-    const f = (inboxEnts.features as any)?.[key] ?? (inboxEnts.modules as any)?.[key];
-    return f ? f.value !== false : true;
-  }, [inboxEnts, inboxEntsError]);
-  const aiTabAllowed = inboxCapAllowed('inbox_ai_queue');
-  const needsHumanTabAllowed = inboxCapAllowed('inbox_needs_human');
-  const colleaguesTabAllowed = inboxCapAllowed('inbox_team_chat');
+  // The Inbox tab strip follows exactly the rules of the sidebar's inbox links
+  // (src/lib/planAccess.ts). While the plan snapshot is unknown the gated tabs
+  // stay hidden (placeholders show), so a plan-locked tab never flashes in.
+  const sections = useWorkspaceSections();
+  const entsReady = sections.ready;
+  const { data: inboxCounts } = useInboxCounts(workspace?.id);
+  const aiTabAllowed = aiQueueVisible(sections, inboxCounts?.automated ?? 0);
+  const needsHumanTabAllowed = needsHumanQueueVisible(sections.plan);
+  const colleaguesTabAllowed = colleaguesQueueVisible(sections.plan);
+  // AI drafting for the operator is a plan feature the server enforces.
+  const operatorAssistAllowed = sections.plan.feature('ai_operator_assist');
+  // The contact profile is part of the Contacts section (its API refuses
+  // without the plan's `contacts` module).
+  const contactsInPlan = sections.visible('contacts');
   const queue: InboxQueue = rawQueue === 'automated' && !aiTabAllowed ? 'main' : rawQueue;
   const isQueueMode = queue !== 'main';
 
@@ -394,7 +425,7 @@ export default function InboxPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContentRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const selectedSnapshotRef = useRef<any>(null);
+  const selectedSnapshotRef = useRef<InboxConversation | null>(null);
   const pendingScrollConvRef = useRef<string | null>(null);
 
   // Deep link: /inbox?c=<conversationId> — open that conversation directly
@@ -413,7 +444,7 @@ export default function InboxPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepLinkConvId]);
 
-  const { data: conversations, isLoading: isLoadingConvos, isPlaceholderData: isStaleConvos } = useConversations(
+  const { data: listedConversations, isLoading: isLoadingConvos, isPlaceholderData: isStaleConvos } = useConversations(
     workspace?.id,
     filter === 'all' ? undefined : filter === 'resolved' ? 'resolved,closed' : filter,
     queue,
@@ -425,6 +456,7 @@ export default function InboxPage() {
         }
       : { scope },
   );
+  const conversations = listedConversations as InboxConversation[] | undefined;
   const { data: rawMessages } = useConversationMessages(selectedId ?? undefined);
   const sendMessage = useSendMessage(selectedId ?? undefined, workspace?.id);
   const updateConv = useUpdateConversation();
@@ -584,10 +616,10 @@ export default function InboxPage() {
         title: 'Conversations deleted',
         description: `${res.deleted} conversation(s) removed.`,
       });
-    } catch (e: any) {
+    } catch (e) {
       toast({
         title: 'Error',
-        description: e?.message || 'Failed to delete conversations',
+        description: errorText(e) || 'Failed to delete conversations',
         variant: 'destructive',
       });
     }
@@ -603,16 +635,16 @@ export default function InboxPage() {
 
   /* Human Guidance UX — guidance surfaces (composer mode switch + sidebar
      viewer) exist only while the AI still owns the conversation. */
-  const aiManagedConversation = (selected as any)?.metadata?.ai_state === 'ai_managed';
+  const aiManagedConversation = metaOf(selected).ai_state === 'ai_managed';
 
 
 
   const [contactDrawerId, setContactDrawerId] = useState<string | null>(null);
   const openContactProfile = useCallback(() => {
-    const cid = (selected as any)?.contact_id;
-    if (!cid) return;
+    const cid = selected?.contact_id;
+    if (!cid || !contactsInPlan) return;
     setContactDrawerId(cid);
-  }, [selected]);
+  }, [selected, contactsInPlan]);
 
   // Selection safety — when the active conversation drops out of the
   // current queue/filter (AI handoff, takeover, spam toggle, platform AI
@@ -712,11 +744,11 @@ export default function InboxPage() {
         onProgress: (pct) => setAtt((s) => ({ ...s, progress: Math.max(s.progress, pct) })),
       });
       setAtt((s) => ({ ...s, status: 'ready', progress: 100 }));
-    } catch (e: any) {
-      setAtt((s) => ({ ...s, status: 'error', error: e?.message || 'Upload failed' }));
+    } catch (e) {
+      setAtt((s) => ({ ...s, status: 'error', error: errorText(e) || 'Upload failed' }));
       toast({
         title: t('inbox.attachUploadFailed') || 'Upload failed',
-        description: e?.message || '',
+        description: errorText(e) || '',
         variant: 'destructive',
       });
     }
@@ -976,7 +1008,8 @@ export default function InboxPage() {
         postSendAction: actionOverride ?? sendAction,
       },
       {
-        onSuccess: (res: any) => {
+        onSuccess: (sent: unknown) => {
+          const res = sent as { post_send?: { changed?: boolean; blocked?: string | null } } | null;
           pendingSendKeyRef.current = null;
           const action = actionOverride ?? sendAction;
           if (action === 'none') return;
@@ -1069,7 +1102,7 @@ export default function InboxPage() {
     if (!conversations) return [];
     const filtered = conversations.filter(c => {
       if (channelParam) {
-        const ch = resolveChannelKey((c as any)?.metadata, (c as any)?.contacts?.metadata);
+        const ch = resolveChannelKey(c?.metadata, c?.contacts?.metadata);
         if (ch !== channelParam) return false;
       }
       if (!search) return true;
@@ -1081,7 +1114,7 @@ export default function InboxPage() {
     // (needs_reply, derived server-side from the message stream) outrank
     // merely-unread ones; within each group the server's updated_at DESC
     // order is preserved (stable sort).
-    return [...filtered].sort((a: any, b: any) => {
+    return [...filtered].sort((a: InboxConversation, b: InboxConversation) => {
       const na = a.needs_reply ? 1 : 0;
       const nb = b.needs_reply ? 1 : 0;
       if (na !== nb) return nb - na;
@@ -1106,7 +1139,7 @@ export default function InboxPage() {
 
   const totalUnread = useMemo(() => {
     if (!conversations) return 0;
-    return (conversations as any[]).reduce((n, c) => n + (c.unread_count ?? 0), 0);
+    return (conversations ?? []).reduce((n, c) => n + (c.unread_count ?? 0), 0);
   }, [conversations]);
 
   const statusLabels: Record<string, string> = {
@@ -1513,7 +1546,7 @@ export default function InboxPage() {
             filteredConvos.map(conv => {
               const isActive = selectedId === conv.id;
               const name = conversationTitle(conv, t, locale);
-              const unreadCount = (conv as any).unread_count ?? 0;
+              const unreadCount = conv?.unread_count ?? 0;
               const hasUnread = unreadCount > 0 && !isActive;
 
               return (
@@ -1546,10 +1579,10 @@ export default function InboxPage() {
                         name={conv.contacts?.name}
                         email={conv.contacts?.email}
                         avatarUrl={conv.contacts?.avatar_url}
-                        os={(conv as any).visitor_os}
-                        device={(conv as any).visitor_device}
-                        countryCode={(conv as any).visitor_country_code}
-                        countryName={localizedCountryName((conv as any).visitor_country_code, locale, (conv as any).visitor_country_name)}
+                        os={conv?.visitor_os}
+                        device={conv?.visitor_device}
+                        countryCode={conv?.visitor_country_code}
+                        countryName={localizedCountryName(conv?.visitor_country_code, locale, conv?.visitor_country_name)}
                         size="lg"
                         ringClassName={
                           isActive ? 'ring-primary/40'
@@ -1580,8 +1613,8 @@ export default function InboxPage() {
                           )}
                           <span className="truncate">{name}</span>
                           {(() => {
-                            const ch = resolveChannelKey((conv as any)?.metadata, (conv as any)?.contacts?.metadata);
-                            return ch === 'widget' ? null : <ChannelBadge channel={ch} t={t as any} size="xs" className="shrink-0" />;
+                            const ch = resolveChannelKey(conv?.metadata, conv?.contacts?.metadata);
+                            return ch === 'widget' ? null : <ChannelBadge channel={ch} t={t} size="xs" className="shrink-0" />;
                           })()}
                         </span>
                         <span className={cn(
@@ -1598,7 +1631,7 @@ export default function InboxPage() {
                           hasUnread ? 'text-foreground font-medium' : 'text-muted-foreground',
                         )}>
                           {(() => {
-                            const last = (conv as any).last_message as
+                            const last = conv?.last_message as
                               | { body: string; sender_type: string; sender_id?: string | null; sender_name?: string | null; attachment_kind?: string | null; system_kind?: string | null; system_meta?: SystemMessageMeta | null }
                               | null
                               | undefined;
@@ -1681,7 +1714,7 @@ export default function InboxPage() {
                         )}
                         {/* Needs Reply — the customer is waiting for US. Independent
                             of unread: opening the thread clears unread, not this. */}
-                        {(conv as any).needs_reply && (
+                        {conv?.needs_reply && (
                           <span
                             className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
                             title={t('inbox.needsReplyTip') || 'Customer is waiting for a reply'}
@@ -1696,10 +1729,10 @@ export default function InboxPage() {
                         )}
                         {/* AI lifecycle badge — Automated / Needs human / Human active */}
                         {(() => {
-                          const aiState = (conv as any)?.metadata?.ai_state
-                            || (conv as any)?.ai_state;
+                          const aiState = metaOf(conv).ai_state
+                            || conv?.ai_state;
                           if (!aiState) return null;
-                          const reason = (conv as any)?.metadata?.ai_handoff_reason as string | undefined;
+                          const reason = metaOf(conv).ai_handoff_reason as string | undefined;
                           if (aiState === 'ai_managed') {
                             return (
                               <span
@@ -1737,11 +1770,11 @@ export default function InboxPage() {
                         })()}
                         {/* Inline take-over action on Automated / Needs human rows */}
                         {(() => {
-                          const aiState = (conv as any)?.metadata?.ai_state
-                            || (conv as any)?.ai_state;
+                          const aiState = metaOf(conv).ai_state
+                            || conv?.ai_state;
                           if (aiState !== 'ai_managed' && aiState !== 'needs_human') return null;
                           // Don't offer take-over on spam rows.
-                          if ((conv as any)?.is_spam) return null;
+                          if (conv?.is_spam) return null;
                           return (
                             <button
                               onClick={async (e) => {
@@ -1758,8 +1791,8 @@ export default function InboxPage() {
                                   qc.invalidateQueries({ queryKey: ['conversation', conv.id] });
                                   qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
                                   qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspace.id] });
-                                } catch (err: any) {
-                                  toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: err?.message || '—', variant: 'destructive' });
+                                } catch (err) {
+                                  toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: errorText(err) || '—', variant: 'destructive' });
                                 }
                               }}
 
@@ -1771,7 +1804,7 @@ export default function InboxPage() {
                           );
                         })()}
                         {/* Spam badge — visible in any queue when flagged */}
-                        {(conv as any)?.is_spam && (
+                        {conv?.is_spam && (
                           <span
                             className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-medium bg-warning/15 text-warning border border-warning/30"
                             title={t('inbox.markedSpamTitle') || 'Marked as spam'}
@@ -1875,10 +1908,10 @@ export default function InboxPage() {
                     name={selected.contacts?.name}
                     email={selected.contacts?.email}
                     avatarUrl={selected.contacts?.avatar_url}
-                    os={(selected as any)?.visitor_os}
-                    device={(selected as any)?.visitor_device}
-                    countryCode={(selected as any)?.visitor_country_code}
-                    countryName={localizedCountryName((selected as any)?.visitor_country_code, locale, (selected as any)?.visitor_country_name)}
+                    os={selected?.visitor_os}
+                    device={selected?.visitor_device}
+                    countryCode={selected?.visitor_country_code}
+                    countryName={localizedCountryName(selected?.visitor_country_code, locale, selected?.visitor_country_name)}
                     size="md"
                   />
                   {presence && presence.status !== 'unknown' ? (
@@ -1893,7 +1926,7 @@ export default function InboxPage() {
                   <button
                     type="button"
                     onClick={openContactProfile}
-                    disabled={!(selected as any)?.contact_id}
+                    disabled={!selected?.contact_id || !contactsInPlan}
                     className="text-[14.5px] font-bold text-foreground hover:text-primary transition-colors disabled:hover:text-foreground disabled:cursor-default text-start"
                     title={t('inbox.openContact') || 'View contact'}
                   >
@@ -1901,8 +1934,8 @@ export default function InboxPage() {
                   </button>
                   <div className="text-[12px] text-muted-foreground flex items-center gap-1.5">
                     {(() => {
-                      const ch = resolveChannelKey((selected as any)?.metadata, (selected as any)?.contacts?.metadata);
-                      return ch === 'widget' ? null : <ChannelBadge channel={ch} t={t as any} size="xs" />;
+                      const ch = resolveChannelKey(selected?.metadata, selected?.contacts?.metadata);
+                      return ch === 'widget' ? null : <ChannelBadge channel={ch} t={t} size="xs" />;
                     })()}
                     {selected.contacts?.email && <span className="truncate">{selected.contacts.email}</span>}
                     {presence && presence.status !== 'unknown' && (
@@ -1925,7 +1958,7 @@ export default function InboxPage() {
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
-                {(selected as any)?.metadata?.ai_state === 'ai_managed' && (
+                {metaOf(selected).ai_state === 'ai_managed' && (
                   <>
                     <Badge variant="secondary" className="text-[11px] gap-1">
                       <Bot className="w-3.5 h-3.5" /> {t('inbox.aiManaged') || 'AI managed'}
@@ -1942,8 +1975,8 @@ export default function InboxPage() {
                           qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
                           qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
                                   qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspace.id] });
-                        } catch (e: any) {
-                          toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: e?.message || '—', variant: 'destructive' });
+                        } catch (e) {
+                          toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: errorText(e) || '—', variant: 'destructive' });
                         }
                       }}
                     >
@@ -1952,14 +1985,14 @@ export default function InboxPage() {
                     </Button>
                   </>
                 )}
-                {(selected as any)?.metadata?.ai_state === 'needs_human' && (
+                {metaOf(selected).ai_state === 'needs_human' && (
                   <>
                     <Badge
                       variant="destructive"
                       className="text-[11px] gap-1"
                       title={
-                        ((selected as any)?.metadata?.ai_handoff_reason as string)
-                          ? `${t('inbox.handoffReason') || 'Handoff reason'}: ${(selected as any).metadata.ai_handoff_reason}`
+                        (metaOf(selected).ai_handoff_reason as string)
+                          ? `${t('inbox.handoffReason') || 'Handoff reason'}: ${metaOf(selected).ai_handoff_reason}`
                           : (t('inbox.needsHumanTip') || 'AI handed off — needs human')
                       }
                     >
@@ -1977,8 +2010,8 @@ export default function InboxPage() {
                           qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
                           qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
                                   qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspace.id] });
-                        } catch (e: any) {
-                          toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: e?.message || '—', variant: 'destructive' });
+                        } catch (e) {
+                          toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: errorText(e) || '—', variant: 'destructive' });
                         }
                       }}
                     >
@@ -1987,12 +2020,12 @@ export default function InboxPage() {
                     </Button>
                   </>
                 )}
-                {(selected as any)?.metadata?.ai_state === 'human_active' && (
+                {metaOf(selected).ai_state === 'human_active' && (
                   <Badge variant="outline" className="text-[11px] gap-1">
                     <UserCheck className="w-3.5 h-3.5" /> {t('inbox.humanActive') || 'Human active'}
                   </Badge>
                 )}
-                {(selected as any)?.is_spam && (
+                {selected?.is_spam && (
                   <Badge
                     variant="outline"
                     className="text-[11px] gap-1 border-warning/40 text-warning bg-warning/10"
@@ -2118,8 +2151,8 @@ export default function InboxPage() {
                 // Channel menu taps (e.g. Telegram bot buttons) are navigation,
                 // not conversation content: consecutive taps collapse into a
                 // single horizontal strip so they never mix with real messages.
-                const isMenuEvent = (m: unknown) =>
-                  String(((m as any)?.metadata || {}).channel_menu_event || '') === 'true';
+                const isMenuEvent = (m: { metadata?: unknown } | null | undefined) =>
+                  String(metaOf(m).channel_menu_event || '') === 'true';
                 const sameSenderAsPrev = !!prev
                   && !showDaySeparator
                   && !isMenuEvent(prev)
@@ -2133,8 +2166,9 @@ export default function InboxPage() {
                   if (d.toDateString() === yesterday.toDateString()) return t('inbox.yesterday') || 'Yesterday';
                   return formatLongDate(d);
                 })();
-                const senderName = (msg as any).sender_name as string | null | undefined;
-                const senderAvatar = (msg as any).sender_avatar as string | null | undefined;
+                const sender = msg as { sender_name?: string | null; sender_avatar?: string | null };
+                const senderName = sender.sender_name;
+                const senderAvatar = sender.sender_avatar;
                 const agentLabel = isAi
                   ? (senderName || t('inbox.aiAssistant') || 'AI assistant')
                   : (senderName || t('inbox.support') || 'Support');
@@ -2306,10 +2340,10 @@ export default function InboxPage() {
                           name={selected?.contacts?.name}
                           email={selected?.contacts?.email}
                           avatarUrl={selected?.contacts?.avatar_url}
-                          os={(selected as any)?.visitor_os}
-                          device={(selected as any)?.visitor_device}
-                          countryCode={(selected as any)?.visitor_country_code}
-                          countryName={localizedCountryName((selected as any)?.visitor_country_code, locale, (selected as any)?.visitor_country_name)}
+                          os={selected?.visitor_os}
+                          device={selected?.visitor_device}
+                          countryCode={selected?.visitor_country_code}
+                          countryName={localizedCountryName(selected?.visitor_country_code, locale, selected?.visitor_country_name)}
                           size="sm"
                           className="mb-5"
                         />
@@ -2357,7 +2391,7 @@ export default function InboxPage() {
                           const rest = lines.slice(i).join('\n').replace(/^\n+/, '');
                           if (!quoteLines.length) {
                             return raw ? (
-                              <p className={cn((msg as any).attachment ? 'mt-2' : '', 'whitespace-pre-wrap break-words')}>{raw}</p>
+                              <p className={cn((msg as { attachment?: unknown }).attachment ? 'mt-2' : '', 'whitespace-pre-wrap break-words')}>{raw}</p>
                             ) : null;
                           }
                           const qText = quoteLines.join('\n').trim();
@@ -2505,7 +2539,7 @@ export default function InboxPage() {
               )}
               {selectedId && !aiManagedConversation && (
                 <div className="mb-2 flex items-start gap-2 flex-wrap">
-                  {workspace?.id && (
+                  {workspace?.id && operatorAssistAllowed && (
                     <div className="[&>div]:mb-0">
                       <OperatorAssistPanel
                         workspaceId={workspace.id}
@@ -2870,10 +2904,10 @@ export default function InboxPage() {
                         name={selected.contacts?.name}
                         email={selected.contacts?.email}
                         avatarUrl={selected.contacts?.avatar_url}
-                        os={(selected as any)?.visitor_os}
-                        device={(selected as any)?.visitor_device}
-                        countryCode={(selected as any)?.visitor_country_code}
-                        countryName={localizedCountryName((selected as any)?.visitor_country_code, locale, (selected as any)?.visitor_country_name)}
+                        os={selected?.visitor_os}
+                        device={selected?.visitor_device}
+                        countryCode={selected?.visitor_country_code}
+                        countryName={localizedCountryName(selected?.visitor_country_code, locale, selected?.visitor_country_name)}
                         size="lg"
                         ringClassName="ring-2 ring-primary/20"
                       />
@@ -2886,7 +2920,7 @@ export default function InboxPage() {
                       <button
                         type="button"
                         onClick={openContactProfile}
-                        disabled={!(selected as any)?.contact_id}
+                        disabled={!selected?.contact_id || !contactsInPlan}
                         title={t('inbox.openContact') || 'View contact'}
                         className="block w-full text-start text-[15px] font-bold text-foreground truncate hover:text-primary transition-colors disabled:hover:text-foreground disabled:cursor-default"
                       >
@@ -2902,7 +2936,7 @@ export default function InboxPage() {
 
                   {/* Quick actions — spam + resolve, right under the profile */}
                   <div className="mt-3 flex items-center gap-2">
-                    {(selected as any)?.is_spam ? (
+                    {selected?.is_spam ? (
                       <Button
                         size="sm"
                         variant="outline"
@@ -2913,8 +2947,8 @@ export default function InboxPage() {
                             await conversationsApi.unmarkSpam({ workspace_id: workspace.id, conversation_id: selectedId });
                             toast({ title: t('inbox.removedFromSpam') || 'Removed from spam' });
                             qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
-                          } catch (e: any) {
-                            toast({ title: t('inbox.actionFailed') || 'Action failed', description: e?.message || '—', variant: 'destructive' });
+                          } catch (e) {
+                            toast({ title: t('inbox.actionFailed') || 'Action failed', description: errorText(e) || '—', variant: 'destructive' });
                           }
                         }}
                       >
@@ -2935,8 +2969,8 @@ export default function InboxPage() {
                               description: t('inbox.markedSpamDesc') || 'Conversation moved to Spam.',
                             });
                             qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
-                          } catch (e: any) {
-                            toast({ title: t('inbox.actionFailed') || 'Action failed', description: e?.message || '—', variant: 'destructive' });
+                          } catch (e) {
+                            toast({ title: t('inbox.actionFailed') || 'Action failed', description: errorText(e) || '—', variant: 'destructive' });
                           }
                         }}
                       >
@@ -3020,11 +3054,11 @@ export default function InboxPage() {
                 {/* Provider-side identity (Telegram & other channels). */}
                 <ChannelIdentityCard
                   metadata={{
-                    ...(((selected as any)?.contacts?.metadata as Record<string, unknown>) || {}),
-                    ...(((selected as any)?.metadata?.channel ? { channel: (selected as any).metadata.channel } : {}) as Record<string, unknown>),
+                    ...((selected?.contacts?.metadata as Record<string, unknown> | null | undefined) || {}),
+                    ...((metaOf(selected).channel ? { channel: metaOf(selected).channel } : {}) as Record<string, unknown>),
                   }}
-                  t={t as any}
-                  dir={dir as any}
+                  t={t}
+                  dir={dir === 'rtl' ? 'rtl' : 'ltr'}
                 />
 
                 {/* Canonical visitor network identity (shared with Call Center
@@ -3032,8 +3066,8 @@ export default function InboxPage() {
                 <VisitorNetworkCard
                   workspaceId={workspace?.id}
                   reference={{ conversationId: selectedId }}
-                  t={t as any}
-                  dir={dir as any}
+                  t={t}
+                  dir={dir === 'rtl' ? 'rtl' : 'ltr'}
                   locale={locale}
                 />
 

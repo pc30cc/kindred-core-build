@@ -15,6 +15,7 @@
 import { Router, raw, type Response } from 'express';
 import { z } from 'zod';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
+import { enforceModule } from '../middleware/featureGating.js';
 import {
   EmailInboxError,
   listThreads,
@@ -28,6 +29,10 @@ import {
 } from '../services/email/inbox.js';
 
 export const emailInboxRouter = Router();
+
+// Every route below also answers to the workspace plan: the Email Inbox is the
+// `email_inbox` module, and a plan without it gets a 403 here exactly as the
+// app hides the section.
 
 function sendEmailInboxError(res: Response, err: unknown) {
   if (err instanceof EmailInboxError) {
@@ -46,6 +51,7 @@ emailInboxRouter.get('/:workspaceId/threads', async (req, res) => {
   const { workspaceId } = req.params;
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
+  if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
   try {
     const result = await listThreads(serverConfigOf(req), workspaceId, {
       limit: req.query.limit ? Number(req.query.limit) : undefined,
@@ -64,6 +70,7 @@ emailInboxRouter.get('/:workspaceId/threads/:threadId', async (req, res) => {
   const { workspaceId, threadId } = req.params;
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
+  if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
   try {
     const result = await getThread(serverConfigOf(req), workspaceId, threadId);
     res.json(result);
@@ -79,6 +86,7 @@ emailInboxRouter.post('/:workspaceId/threads/:threadId/read', async (req, res) =
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
+  if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
   try {
     await setThreadRead(serverConfigOf(req), workspaceId, threadId, parsed.data.is_read);
     res.json({ ok: true });
@@ -94,6 +102,7 @@ emailInboxRouter.post('/:workspaceId/threads/:threadId/star', async (req, res) =
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
+  if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
   try {
     await setThreadStarred(serverConfigOf(req), workspaceId, threadId, parsed.data.starred);
     res.json({ ok: true });
@@ -113,6 +122,7 @@ emailInboxRouter.get('/:workspaceId/attachments/:attachmentId/file', async (req,
   const { workspaceId, attachmentId } = req.params;
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
+  if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
   try {
     const file = await getAttachmentFile(serverConfigOf(req), workspaceId, attachmentId);
     if (!file) return res.status(404).json({ error: 'attachment_not_found' });
@@ -138,6 +148,7 @@ emailInboxRouter.post('/:workspaceId/attachments', raw({ type: '*/*', limit: '25
   const { workspaceId } = req.params;
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
+  if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
   try {
     const filename = typeof req.query.filename === 'string' ? req.query.filename : 'attachment';
     const contentType = typeof req.query.content_type === 'string' ? req.query.content_type : 'application/octet-stream';
@@ -172,6 +183,7 @@ emailInboxRouter.post('/:workspaceId/send', async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload', details: parsed.error.flatten() });
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
+  if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
   try {
     const attachments: StagedAttachment[] | undefined = parsed.data.attachments?.map((a) => ({
       storageKey: a.storageKey,

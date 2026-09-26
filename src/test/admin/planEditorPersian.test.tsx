@@ -18,8 +18,6 @@ import {
   capabilityGroupLabel,
   capabilityLabel,
   capabilityUnitLabel,
-  currencyLabel,
-  languageLabel,
 } from '@/lib/capability-i18n';
 
 const PLAN = vi.hoisted(() => ({
@@ -79,6 +77,7 @@ const asciiDigits = (text: string) => text.replace(/[۰-۹]/g, (d) => String('۰
 const editable = CAPABILITY_REGISTRY.filter((c) => !c.deprecated && c.planConfigurable !== false);
 const byType = (type: CapabilityDefinition['type']) => editable.filter((c) => c.type === type);
 const sections = fa.admin.plans.form.sections;
+const persianName = (type: 'currency' | 'language', code: string) => new Intl.DisplayNames(['fa'], { type }).of(code)!;
 const sectionName = (label: string) => label.replace(/\s*\(\{\{count\}\}\)/, '');
 
 async function openPlanEditor() {
@@ -111,11 +110,11 @@ async function showSection(dialog: HTMLElement, label: string) {
 /** Persian copy present, the registry English absent (unless kept on purpose, e.g. «SSO / SAML»). */
 function expectPersian(text: string, caps: CapabilityDefinition[]) {
   for (const cap of caps) {
-    const label = capabilityLabel(cap, 'fa');
+    const label = asciiDigits(capabilityLabel(cap.key, 'fa', cap.label));
     expect(text).toContain(label);
     if (!label.includes(cap.label)) expect(text).not.toContain(cap.label);
     if (cap.description) {
-      expect(text).toContain(capabilityDescription(cap, 'fa'));
+      expect(text).toContain(asciiDigits(capabilityDescription(cap.key, 'fa', cap.description)!));
       expect(text).not.toContain(cap.description);
     }
   }
@@ -132,7 +131,7 @@ describe('Super Admin plan editor in Persian', () => {
 
   it('shows every tab of an opened plan in Persian', async () => {
     const dialog = await openPlanEditor();
-    expect(within(dialog).getByText(`${fa.admin.plans.editPlan}: ${PLAN.name}`)).toBeInTheDocument();
+    expect(within(dialog).getByText(`${fa.admin.plans.editPlan}: ${PLAN.localized.fa.name}`)).toBeInTheDocument();
 
     const general = await showSection(dialog, sections.general);
     expect(general).toContain(fa.admin.plans.form.planName);
@@ -156,11 +155,10 @@ describe('Super Admin plan editor in Persian', () => {
     expect(limits).not.toMatch(/\b(per_month|per_day)\b/);
 
     const pricing = await showSection(dialog, sections.pricing);
-    for (const code of ['USD', 'EUR', 'TRY', 'IRR']) expect(pricing).toContain(currencyLabel(code, 'fa'));
-    expect(pricing).toContain('دلار آمریکا (USD)');
+    for (const code of ['USD', 'EUR', 'TRY', 'IRR']) expect(pricing).toContain(`${persianName('currency', code)} (${code})`);
 
     const translations = await showSection(dialog, sections.translations);
-    for (const code of ['en', 'fa', 'tr']) expect(translations).toContain(languageLabel(code, 'fa'));
+    for (const code of ['en', 'fa', 'tr']) expect(translations).toContain(persianName('language', code));
     expect(translations).not.toMatch(/English|Türkçe/);
 
     const legacy = await showSection(dialog, sections.legacy);

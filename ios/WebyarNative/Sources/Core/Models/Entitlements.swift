@@ -33,19 +33,14 @@ struct Entitlements: Codable, Sendable {
 
     // MARK: - Gates
     //
-    // These mirror `AppSidebar.tsx` exactly, including the difference between
-    // the two. Getting them the same way round matters: one decides whether a
-    // whole menu exists, the other whether a single action is allowed.
+    // The web console's one rule (src/lib/planAccess.ts): a capability is
+    // available only when its value is exactly `true`. A key the snapshot does
+    // not carry is not available — the server sends every key it knows and
+    // denies the ones it does not.
 
     /// Whether a top-level section belongs in this plan.
-    ///
-    /// A key the registry does not know about counts as visible, so a module
-    /// added server-side does not vanish from an older build. An explicit
-    /// `false` hides it.
     func moduleInPlan(_ key: String) -> Bool {
-        guard let modules else { return false }
-        guard let state = modules[key] else { return true }
-        return state.value == true
+        modules?[key]?.value == true
     }
 
     /// Whether a capability is actually granted. Fail-closed: a missing key or
@@ -62,6 +57,12 @@ struct Entitlements: Codable, Sendable {
     func channelEnabled(_ key: String) -> Bool {
         channels?[key]?.value == true
     }
+
+    /// Channel keys the plan itself governs; any other channel inbox is decided
+    /// by the plugin's own plan check (the catalog's `planAllowed`).
+    static let planChannels: Set<String> = [
+        "chat_widget", "email", "whatsapp", "sms", "instagram", "telegram", "bale", "gmail", "yahoomail", "voice", "video",
+    ]
 
     func limit(_ key: String) -> Int? {
         limits?[key]?.value
@@ -88,5 +89,82 @@ enum EntitlementsState: Sendable {
         case .loading: false
         case .loaded, .failed: true
         }
+    }
+}
+
+/// What the operator's role and the platform's switches add to the plan — the
+/// web's `SectionContext` (src/hooks/useWorkspaceSections.ts), read alongside
+/// the snapshot the way the desktop apps read it.
+///
+/// Each value is nil until it is read, and stays nil when it cannot be read:
+/// both hide what depends on it (fail closed), because every gate asks for
+/// exactly `true`.
+struct WorkspaceAccess: Sendable, Equatable {
+    /// owner, admin, agent… from `GET /api/workspaces/:id/role`.
+    var role: String?
+    /// `GET /api/ai-agent/capabilities`: the AI agent is on for this workspace.
+    var aiAgentEnabled: Bool?
+    /// The same: Super Admin shows the AI agent to this workspace's customers.
+    var aiCustomerVisible: Bool?
+    /// The same: the AI answers visitors by itself.
+    var aiAutoAnswer: Bool?
+    /// `GET /api/call-center/capabilities`: `workspace_call_center_visible`.
+    var callCenterVisible: Bool?
+
+    static let unknown = WorkspaceAccess()
+
+    /// Owners and admins: the web's admin-only sections (the mailbox, the
+    /// other inboxes…) are theirs alone.
+    var isAdmin: Bool { role == "owner" || role == "admin" }
+
+    /// The web's `aiQueueVisible`, given the plan's `inbox_ai_queue`: the AI
+    /// switched on and shown to customers, and either answering by itself or
+    /// already holding threads.
+    func aiQueueVisible(inPlan: Bool, automated: Int?) -> Bool {
+        inPlan && aiAgentEnabled == true && aiCustomerVisible == true
+            && (aiAutoAnswer == true || (automated ?? 0) > 0)
+    }
+}
+
+/// `GET /api/workspaces/:id/role`.
+struct WorkspaceRoleResponse: Decodable, Sendable {
+    let role: String?
+}
+
+/// `GET /api/ai-agent/capabilities` — the flags under `capabilities`, or at the
+/// top level on a server that sends them flat. A value of the wrong kind reads
+/// as unknown rather than failing the whole answer.
+struct AICapabilitiesResponse: Decodable, Sendable {
+    let aiAgentEnabled: Bool?
+    let customerAIAgentVisible: Bool?
+    let autoAnswerEnabled: Bool?
+
+    private enum Keys: String, CodingKey {
+        case capabilities
+        case aiAgentEnabled = "ai_agent_enabled"
+        case customerAIAgentVisible = "customer_ai_agent_visible"
+        case autoAnswerEnabled = "auto_answer_enabled"
+    }
+
+    init(from decoder: Decoder) throws {
+        let root = try decoder.container(keyedBy: Keys.self)
+        let flags = (try? root.nestedContainer(keyedBy: Keys.self, forKey: .capabilities)) ?? root
+        aiAgentEnabled = try? flags.decodeIfPresent(Bool.self, forKey: .aiAgentEnabled)
+        customerAIAgentVisible = try? flags.decodeIfPresent(Bool.self, forKey: .customerAIAgentVisible)
+        autoAnswerEnabled = try? flags.decodeIfPresent(Bool.self, forKey: .autoAnswerEnabled)
+    }
+}
+
+/// `GET /api/call-center/capabilities`.
+struct CallCenterCapabilitiesResponse: Decodable, Sendable {
+    let workspaceCallCenterVisible: Bool?
+
+    private enum Keys: String, CodingKey {
+        case workspaceCallCenterVisible = "workspace_call_center_visible"
+    }
+
+    init(from decoder: Decoder) throws {
+        let root = try decoder.container(keyedBy: Keys.self)
+        workspaceCallCenterVisible = try? root.decodeIfPresent(Bool.self, forKey: .workspaceCallCenterVisible)
     }
 }

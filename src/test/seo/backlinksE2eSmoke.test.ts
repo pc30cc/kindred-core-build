@@ -17,6 +17,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { makeFakeSupabase, type FakeTables } from './testUtils/fakeSupabase.js';
+import type { ServerConfig } from '../../../server/config.js';
 
 const WORKER_ID = 'worker-1';
 
@@ -30,7 +31,12 @@ let fakeSb: ReturnType<typeof makeFakeSupabase>;
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeSb }));
 vi.mock('../../../server/middleware/featureGating.js', () => ({
-  getWorkspacePlanInfo: vi.fn(async () => ({ plan: { slug: 'pro', name: 'Pro' }, limits: {} })),
+  // A Pro plan that grants backlinks. Keys it leaves out would take the
+  // registry default (0 per scan), exactly as GET /effective shows them.
+  getWorkspacePlanInfo: vi.fn(async () => {
+    const planLimits = { seo_backlinks_max_per_scan: 1000, seo_backlinks_workspace_concurrent_scans: 1 };
+    return { plan: { slug: 'pro', name: 'Pro' }, limits: planLimits, planLimits, limitOverrides: {} };
+  }),
 }));
 vi.mock('../../../server/services/seo/backlinks/index.js', () => ({
   fetchBacklinksForTarget: vi.fn(async (_config: unknown, target: string) => ({
@@ -74,7 +80,7 @@ function seedTables(): FakeTables {
   };
 }
 
-const config = {} as any;
+const config = {} as unknown as ServerConfig;
 
 describe('SEO Backlinks end-to-end backend/worker pipeline', () => {
   beforeEach(() => {
@@ -86,7 +92,7 @@ describe('SEO Backlinks end-to-end backend/worker pipeline', () => {
     const scan = await createBacklinkScan(config, { workspaceId: WORKSPACE_A, siteId: SITE_A, userId: USER_ID });
     expect(scan.target_url).toBe('https://example.com');
     expect(scan.status).toBe('queued');
-    expect(scan.max_backlinks).toBe(1000); // pro-plan fallback (billing_plans.limits not overridden in this test)
+    expect(scan.max_backlinks).toBe(1000); // the plan's seo_backlinks_max_per_scan
   });
 
   it('rejects starting a scan for a site that belongs to a different workspace', async () => {
@@ -126,7 +132,7 @@ describe('SEO Backlinks end-to-end backend/worker pipeline', () => {
 
     const { backlinks, total } = await listBacklinks(config, WORKSPACE_A, scan.id);
     expect(total).toBe(2);
-    expect(backlinks.map((b: any) => b.source_domain).sort()).toEqual(['ref1.example', 'ref2.example']);
+    expect(backlinks.map((b: { source_domain: string }) => b.source_domain).sort()).toEqual(['ref1.example', 'ref2.example']);
   });
 
   it('rejects a second concurrent scan beyond the workspace plan limit', async () => {

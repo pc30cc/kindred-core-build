@@ -178,6 +178,13 @@ const tr: TranslationKeys = {
       INSUFFICIENT_FUNDS: 'Cüzdan bakiyeniz yeterli değil.',
       FORBIDDEN: 'Bu işlem için yetkiniz yok.',
     },
+    planLimits: {
+      description: 'Planınızdaki tüm limitler; ölçülebilenler için güncel kullanımla birlikte',
+      allowance: 'Plan hakkı',
+      limitReached: 'Limite ulaşıldı',
+      otherGroup: 'Diğer',
+      usageUnavailable: 'Güncel kullanım yüklenemedi',
+    },
   },
   planBanner: {
     trialTitle: 'Deneme planındasınız',
@@ -3028,6 +3035,9 @@ const tr: TranslationKeys = {
     layout: {
       headerTitle: 'Çağrı Merkezi',
       headerSubtitle: 'Bağımsız ses ve görüntü modülü — sohbetten ayrıdır.',
+      unavailableTitle: 'Çağrı merkezi kullanılamıyor',
+      unavailablePlatform: 'Çağrı merkezi platformda kapatılmış.',
+      unavailableWorkspace: 'Çağrı merkezi çalışma alanınızda kapalı. Bir sahip veya yönetici, çağrı merkezi ayarlarından açabilir.',
       pill: {
         loading: 'Yükleniyor…',
         platformDisabled: 'Platform devre dışı',
@@ -5348,8 +5358,8 @@ const tr: TranslationKeys = {
     },
     plans: {
       title: "Plan yönetimi", capabilitiesLoaded: "Kayıt tabanlı · {{count}} özellik yüklendi", createPlan: "Plan oluştur", createNewPlan: "Yeni plan oluştur", editPlan: "Düzenle", empty: "Henüz plan yok", active: "Etkin", inactive: "Devre dışı", free: "Ücretsiz", hidden: "Gizli", trialDays: "{{count}} günlük deneme", legacyCount: "{{count}} eski anahtar", noDescription: "Açıklama yok", monthly: "Aylık", yearly: "Yıllık", monthShort: "ay", yearShort: "yıl", capabilitySummary: "Özellikler ({{enabled}}/{{total}}) · {{modules}} modül · {{channels}} kanal · {{features}} özellik", workspace: "Çalışma alanı", plan: "Plan", subscription: "Abonelik", status: "Durum", provider: "Sağlayıcı", periodEnd: "Dönem sonu", actions: "İşlemler", noSubscriptions: "Abonelik yok", revoke: "İptal et", selectWorkspace: "Çalışma alanı seç", selectPlan: "Plan seç", registryLoadFailed: "Özellik kaydı yüklenemedi", confirmDeactivate: "Bu plan devre dışı bırakılsın mı?", confirmRevoke: "Bu çalışma alanının aboneliği iptal edilsin mi?", modules: "Modüller", channels: "Kanallar", features: "Özellikler", limits: "Sınırlar", unlimited: "Sınırsız", reload: "Yeniden yükle", cancel: "İptal", update: "Güncelle", set: "Ayarla",
-      tabs: { plans: "Planlar ({{count}})", subscriptions: "Abonelikler ({{count}})", assign: "Ata", console: "Çalışma alanı konsolu", diagnostics: "Tanılama" }, badges: { noOverride: "Geçersiz kılınamaz", internal: "Dahili", locked: "Kilitli" }, sources: { override: "Geçersiz kılma", plan: "Plan", default: "Varsayılan", registry: "Kayıt" }, statuses: { none: "Yok", active: "Etkin", trialing: "Deneme", canceled: "İptal edildi", cancelled: "İptal edildi", past_due: "Vadesi geçmiş", expired: "Süresi doldu", inactive: "Devre dışı" },
-      messages: { created: "Plan oluşturuldu", updated: "Plan güncellendi", deactivated: "Plan devre dışı bırakıldı", assigned: "Plan atandı", revoked: "Abonelik iptal edildi" }, validation: { title: "Doğrulama", nameSlugRequired: "Ad ve plan kimliği zorunludur", errors: "{{count}} doğrulama hatası", unknownKeys: "{{count}} bilinmeyen anahtar kaydedilirken korunacak" },
+      tabs: { plans: "Planlar ({{count}})", subscriptions: "Abonelikler ({{count}})", assign: "Ata", console: "Çalışma alanı konsolu", diagnostics: "Tanılama" }, badges: { noOverride: "Geçersiz kılınamaz", internal: "Dahili", locked: "Kilitli" }, sources: { override: "Geçersiz kılma", plan: "Plan", default: "Varsayılan", registry: "Kayıt" }, statuses: { none: "Yok", active: "Etkin", trialing: "Deneme", canceled: "İptal edildi", cancelled: "İptal edildi", past_due: "Vadesi geçmiş", expired: "Süresi doldu", inactive: "Devre dışı", free_fallback: "Ücretsiz plana düştü", paused: "Duraklatıldı", pending: "Beklemede" },
+      messages: { created: "Plan oluşturuldu", updated: "Plan güncellendi", deactivated: "Plan devre dışı bırakıldı", assigned: "Plan atandı", revoked: "Abonelik iptal edildi", actionFailed: "İşlem başarısız oldu. Lütfen tekrar deneyin." }, validation: { title: "Doğrulama", nameSlugRequired: "Ad ve plan kimliği zorunludur", errors: "{{count}} doğrulama hatası", unknownKeys: "{{count}} bilinmeyen anahtar kaydedilirken korunacak", issues: { unknown_entitlement: "Özellik kaydında yok — kaydederken olduğu gibi korunur.", entitlement_not_boolean: "Açık veya kapalı (true/false) olmalıdır.", limit_in_entitlements: "Bu bir sınırdır; açık/kapalı yetkilerde değil, Sınırlar bölümünde olmalıdır.", unknown_limit: "Özellik kaydında yok — kaydederken olduğu gibi korunur.", limit_not_number: "Sayı olmalıdır (-1 sınırsız demektir).", not_a_limit: "Bu anahtar kayıtta bir sınır değil." } },
       form: { planName: "Plan adı", slug: "Plan kimliği", description: "Açıklama", sortOrder: "Sıralama", trialDays: "Deneme günleri", freePlan: "Ücretsiz plan", hidden: "Kullanıcılardan gizle", modulesHint: "Özellik kaydından alınan, bu plana dahil üst düzey modüller.", channelsHint: "Bu plandaki çalışma alanlarının kullanabileceği mesajlaşma kanalları.", featuresHint: "Alana göre gruplanmış açık/kapalı özellikler.", limitsHintBefore: "Sayısal sınırlar; sınırsız için", limitsHintAfter: "kullanın.", pricingHint: "Para birimine göre fiyat; ödeme ağ geçidi dile göre otomatik seçilir.", translationsHint: "Her dil için yerelleştirilmiş plan adı ve açıklaması.", localizedName: "{{locale}} dilinde plan adı", localizedDescription: "{{locale}} dilinde açıklama", legacyHint: "Bu anahtarlar planda kayıtlı ancak mevcut özellik kaydında yok. Kaydederken korunur ve Tanılama bölümünde incelenebilir.", legacyEntitlements: "Eski yetkiler", legacyLimits: "Eski sınırlar", updatePlan: "Planı güncelle", createPlan: "Plan oluştur", sections: { general: "Genel", modules: "Modüller ({{count}})", channels: "Kanallar ({{count}})", features: "Özellikler ({{count}})", limits: "Sınırlar ({{count}})", pricing: "Fiyatlandırma", translations: "Çeviriler", legacy: "⚠ Eski" } },
       console: { title: "Çalışma alanı etkin yetkileri", description: "Çözümlenen planı, geçersiz kılmaları ve kullanımı incelemek için çalışma alanı seçin. Kaynak rozetleri her değerin kaynağını gösterir; geçersiz kılmayı temizlemek plan veya kayıt varsayılanını devralır.", selectHint: "Etkin yetkileri görmek için yukarıdan bir çalışma alanı seçin.", overrideApplied: "Geçersiz kılma uygulandı", overrideFailed: "Geçersiz kılma başarısız", overrideIdMissing: "Geçersiz kılma kimliği bulunamadı; yeniden yükleyin", confirmClear: "Bu geçersiz kılma kaldırılsın mı? Plan veya kayıt varsayılanı devralınacak.", overrideCleared: "Geçersiz kılma kaldırıldı; plan devralınıyor", clearFailed: "Geçersiz kılma kaldırılamadı", enterLimit: "Bir değer girin; sınırsız için -1 kullanın", invalidLimit: "Değer -1 veya negatif olmayan bir tam sayı olmalıdır", limitApplied: "Sınır geçersiz kılması uygulandı", limitCleared: "Sınır geçersiz kılması kaldırıldı", forcedOn: "Geçersiz kılma etkin — zorunlu açık", forcedOff: "Geçersiz kılma etkin — zorunlu kapalı", overrideActive: "Geçersiz kılma etkin", note: "Not", forceOffTitle: "Bu çalışma alanında özelliği zorunlu kapat", forceOnTitle: "Bu çalışma alanında özelliği zorunlu aç", forceOff: "Zorunlu kapat", forceOn: "Zorunlu aç", clearTitle: "Geçersiz kılmayı kaldır ve planı veya kaydı devral", clear: "Temizle", renews: "Yenileme", limitHintBefore: "Sınırsız için", limitHintAfter: "kullanın. Buradaki değer plan sınırını geçersiz kılar; temizlemek devralmayı geri getirir.", effective: "Etkin", setLimitTitle: "Bu sınır için çalışma alanı geçersiz kılması ayarla", usageSnapshot: "Kullanım özeti" },
       diagnostics: { title: "Yetki tanılama", description: "Kaydedilmiş plan JSON'u ile özellik kaydı arasındaki sapma.", registry: "Kayıt", plansChecked: "Kontrol edilen planlar", unknownKeys: "Bilinmeyen veritabanı anahtarları", missingKeys: "Kullanılmayan kayıt anahtarları", invalidLimits: "Geçersiz sınırlar", unknownTitle: "Bilinmeyen veritabanı anahtarları (eski veya sapma)", noUnknown: "Yok; tüm kayıtlı anahtarlar özellik kaydıyla eşleşiyor.", unusedTitle: "Hiçbir planda kullanılmayan kayıt anahtarları", allUsed: "Her kayıt anahtarı en az bir planda yer alıyor.", invalidTitle: "Geçersiz sınır değerleri" },
@@ -7570,6 +7580,13 @@ const tr: TranslationKeys = {
     },
   },
   plan: {
+    accessCheck: {
+      errorTitle: 'Plan erişiminiz doğrulanamadı',
+      errorBody: 'Planınızın hangi özellikleri içerdiğini doğrulayamadık. Lütfen tekrar deneyin.',
+      retry: 'Erişimi yeniden denetle',
+      configTitle: 'Plan yapılandırması eksik',
+      configBody: 'Bu özellik çalışma alanınızın planında tanımlı değil. Lütfen yöneticinizle iletişime geçin.',
+    },
     locked: {
       title: 'Bu bölüm mevcut planınızda kullanılamıyor',
       message: 'Mevcut planınız {module} özelliğini içermiyor. Bu özelliği açmak için planınızı yükseltin.',

@@ -130,4 +130,18 @@ object WebyarType {
     val button = WebyarTypography.labelLarge
     /** Chat message text. */
     val message = WebyarTypography.bodyLarge
+
+    // Expressive's emphasized styles: the same size, one weight heavier, for
+    // the one line on a screen that should be read first — a hero title, the
+    // name at the top of a profile, an unread row. Vazirmatn ships four
+    // weights, so "one heavier" tops out at Bold.
+    val displaySmallEmphasized = WebyarTypography.displaySmall.copy(letterSpacing = (-0.5).sp)
+    val headlineLargeEmphasized = WebyarTypography.headlineLarge.copy(letterSpacing = (-0.25).sp)
+    val headlineMediumEmphasized = WebyarTypography.headlineMedium
+    val headlineSmallEmphasized = WebyarTypography.headlineSmall.copy(fontWeight = FontWeight.Bold)
+    val titleLargeEmphasized = WebyarTypography.titleLarge.copy(fontWeight = FontWeight.Bold)
+    val titleMediumEmphasized = WebyarTypography.titleMedium.copy(fontWeight = FontWeight.Bold)
+    val bodyLargeEmphasized = WebyarTypography.bodyLarge.copy(fontWeight = FontWeight.Medium)
+    val bodyMediumEmphasized = WebyarTypography.bodyMedium.copy(fontWeight = FontWeight.Medium)
+    val labelLargeEmphasized = WebyarTypography.labelLarge.copy(fontWeight = FontWeight.Bold)
 }

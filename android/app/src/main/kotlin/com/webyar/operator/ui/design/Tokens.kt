@@ -1,9 +1,9 @@
 package com.webyar.operator.ui.design
 
-import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.staticCompositionLocalOf
 
 /**
  * Spacing, radius and size, in one place.
@@ -40,11 +40,23 @@ object Space {
     val screenInset = lg
 }
 
+/**
+ * Corner radii — Material 3 Expressive's corner scale.
+ *
+ * Expressive leans on larger, softer corners than the 2021 scale did, and
+ * uses the difference between them as hierarchy: a sheet is rounder than a
+ * card, a card rounder than a chip. These are the scale's own steps, so a
+ * surface here reads like the same surface in the system's own apps.
+ */
 object Radius {
+    val xs = 4.dp
     val sm = 8.dp
     val md = 12.dp
     val lg = 16.dp
-    val xl = 22.dp
+    val lgIncreased = 20.dp
+    val xl = 28.dp
+    val xlIncreased = 32.dp
+    val xxl = 48.dp
     /** Fully rounded — pills, avatars, the composer field. */
     val pill = 999.dp
 }
@@ -60,6 +72,9 @@ object Size {
      */
     val minTouchTarget = 48.dp
 
+    /** A screen's main button — Material 3 Expressive's medium size. */
+    val buttonHeight = 56.dp
+
     val avatarSmall = 32.dp
     val avatarMedium = 44.dp
     val avatarLarge = 76.dp
@@ -72,19 +87,6 @@ object Size {
      * devices of the people who most need it not to be.
      */
     val rowMinHeight = 60.dp
-
-    /** The floating tab bar: one item plus the capsule's padding. */
-    val floatingBarHeight = minTouchTarget + 4.dp + Space.sm * 2
-
-    /**
-     * How far the bar's bottom edge sits from the bottom of the window.
-     *
-     * Measured from the window, not from the safe area, because the bar
-     * deliberately reaches into the gesture-navigation strip — the same
-     * arrangement as iOS, for the same reason: the strip is wasted space
-     * otherwise, and the bar is the one thing that can share it.
-     */
-    val floatingBarBottomGap = 16.dp
 
     /** Stroke for hairline dividers, thin enough not to read as a border. */
     val hairline = 1.dp
@@ -100,27 +102,57 @@ object Size {
 }
 
 /**
- * Motion.
+ * Motion — Material 3 Expressive's springs.
  *
- * Durations are short on purpose. This is a tool an operator uses for hours,
- * and an animation that is charming on the first run is friction on the
- * thousandth.
+ * Springs rather than durations: a spring answers an interruption (a second
+ * tap, a flick back) from wherever it is, where a tween restarts or jumps.
+ * The values are the Expressive scheme's own tokens (material3's
+ * `ExpressiveMotionTokens`), which the stable line of the library keeps
+ * internal, so they are restated here and used by every animation the app
+ * draws itself.
+ *
+ * **Spatial** springs move and resize things and are allowed to overshoot a
+ * little — that bounce is the "expressive" part. **Effects** springs change
+ * colour and opacity and never overshoot, because an alpha of 1.04 is not a
+ * bounce, it is a flicker.
  */
+/**
+ * True when motion that loops should stand still.
+ *
+ * Set from the system's "remove animations" (an animator scale of zero), so
+ * the shapes that turn and breathe while something waits — the loading
+ * indicator, the ringing call, the sign-in backdrop — hold one steady pose
+ * for the people who asked for that. Screenshot tests set it too: a picture
+ * of a loop is a picture of one frame, and a capture has to be able to wait
+ * for the screen to go still.
+ */
+val LocalReducedMotion = staticCompositionLocalOf { false }
+
 object Motion {
+    /** Most movement: a panel opening, an indicator sliding, a row settling. */
+    fun <T> spatial(): SpringSpec<T> = spring(dampingRatio = 0.8f, stiffness = 380f)
+
+    /** Small, quick movement — a button's shape on press, a toggle's thumb. */
+    fun <T> fastSpatial(): SpringSpec<T> = spring(dampingRatio = 0.6f, stiffness = 800f)
+
+    /** Large movement across the screen — a pane, a sheet, a hero. */
+    fun <T> slowSpatial(): SpringSpec<T> = spring(dampingRatio = 0.8f, stiffness = 200f)
+
+    /** Colour and opacity. */
+    fun <T> effects(): SpringSpec<T> = spring(dampingRatio = 1f, stiffness = 1600f)
+
+    fun <T> fastEffects(): SpringSpec<T> = spring(dampingRatio = 1f, stiffness = 3800f)
+
+    fun <T> slowEffects(): SpringSpec<T> = spring(dampingRatio = 1f, stiffness = 800f)
+
     /** Content appearing or changing. */
-    fun <T> standard() = tween<T>(durationMillis = 220)
+    fun <T> standard(): SpringSpec<T> = effects()
 
     /** A message arriving in the transcript — springy, because it is an event. */
-    fun <T> bubble() = spring<T>(
-        dampingRatio = 0.82f,
-        stiffness = Spring.StiffnessMediumLow,
-    )
+    fun <T> bubble(): SpringSpec<T> = spatial()
 
-    /** The tab bar's selection indicator: short travel, so crisp not wobbly. */
-    fun <T> tabIndicator() = spring<T>(
-        dampingRatio = 0.86f,
-        stiffness = Spring.StiffnessMedium,
-    )
+    /** The navigation indicator: short travel, so crisp not wobbly. */
+    fun <T> tabIndicator(): SpringSpec<T> = fastSpatial()
 
     /**
      * Half a cycle of a loading placeholder's pulse.

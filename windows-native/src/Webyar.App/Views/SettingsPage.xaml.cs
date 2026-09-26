@@ -84,14 +84,16 @@ public sealed partial class SettingsPage : Page
         SignOutButton.Content = s["signOut"];
 
         StorageHeader.Text = s["storage"];
-        CacheLabel.Text = s["fileCache"];
-        CacheHint.Text = s["fileCacheHint"];
+        CacheLabel.Text = s["cacheTotal"];
+        CacheHint.Text = s["cacheTotalHint"];
+        CacheMessagesLabel.Text = s["cacheMessages"];
+        CacheFilesLabel.Text = s["cacheFiles"];
         CacheFolderLabel.Text = s["fileCacheFolder"];
-        CachePath.Text = FileCache.Folder;
+        CachePath.Text = AppPaths.Cache;
         OpenCacheButton.Content = s["openFolder"];
         ToolTipService.SetToolTip(CopyPathButton, s["copyPath"]);
         ClearCacheLabel.Text = s["clearCache"];
-        ClearCacheHint.Text = s["clearCacheHint"];
+        ClearCacheHint.Text = s["clearCacheAllHint"];
         ClearCacheButton.Content = s["clearCache"];
     }
 
@@ -173,17 +175,19 @@ public sealed partial class SettingsPage : Page
 
     private async Task ShowCacheAsync()
     {
-        var (bytes, count) = await Task.Run(FileCache.Measure);
+        var (data, files, photos) = await Task.Run(AppHost.MeasureLocalData);
         var s = Host.Strings;
-        CacheSize.Text = AttachmentItem.FormatSize(bytes, s);
-        ClearCacheButton.IsEnabled = count > 0;
+        CacheMessagesSize.Text = AttachmentItem.FormatSize(data, s);
+        CacheFilesSize.Text = AttachmentItem.FormatSize(files + photos, s);
+        CacheSize.Text = AttachmentItem.FormatSize(data + files + photos, s);
+        ClearCacheButton.IsEnabled = data + files + photos > 0;
     }
 
     private void OnOpenCache(object sender, RoutedEventArgs e)
     {
         try
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{FileCache.Folder}\"") { UseShellExecute = true });
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{AppPaths.Cache}\"") { UseShellExecute = true });
         }
         catch (Exception ex)
         {
@@ -194,7 +198,7 @@ public sealed partial class SettingsPage : Page
     private void OnCopyCachePath(object sender, RoutedEventArgs e)
     {
         var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
-        package.SetText(FileCache.Folder);
+        package.SetText(AppPaths.Cache);
         Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
     }
 
@@ -205,7 +209,7 @@ public sealed partial class SettingsPage : Page
         {
             XamlRoot = XamlRoot,
             Title = s["clearCache"],
-            Content = s["clearCacheConfirm"],
+            Content = s["clearCacheAllConfirm"],
             PrimaryButtonText = s["clearCache"],
             CloseButtonText = s["cancel"],
             DefaultButton = ContentDialogButton.Close,
@@ -213,8 +217,16 @@ public sealed partial class SettingsPage : Page
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         ClearCacheButton.IsEnabled = false;
-        await Task.Run(FileCache.Clear);
-        AttachmentItem.ClearMemory();
+        try
+        {
+            // Conversations, messages, files, photos and every memory copy. Not the
+            // session, not the settings, nothing on the server. Open views sync again.
+            await Host.ClearLocalDataAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("clear cache", ex);
+        }
         await ShowCacheAsync();
         ClearCacheHint.Text = s["cacheCleared"];
     }

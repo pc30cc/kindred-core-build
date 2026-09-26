@@ -129,4 +129,59 @@ public class ApiTests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
             throw new HttpRequestException("offline");
     }
+
+    [Fact]
+    public async Task A_revalidating_get_sends_the_tag_and_turns_a_304_into_not_modified()
+    {
+        var http = new FakeHttp(req =>
+        {
+            var tagged = req.Headers.IfNoneMatch.Any(t => t.ToString() == "W/\"abc\"");
+            var r = new HttpResponseMessage(tagged ? HttpStatusCode.NotModified : HttpStatusCode.OK)
+            {
+                Content = new StringContent(tagged ? "" : """{"conversations":[{"id":"c1","workspace_id":"w1","status":"open"}]}"""),
+            };
+            r.Headers.TryAddWithoutValidation("ETag", "W/\"abc\"");
+            return Task.FromResult(r);
+        });
+        using var client = new ApiClient(new MemorySessionStore("t"), handler: http);
+        var api = new WebyarApi(client);
+
+        var fresh = await api.ConversationsConditionalAsync("w1", InboxFilter.Open, null);
+        Assert.False(fresh.NotModified);
+        Assert.Equal("W/\"abc\"", fresh.ETag);
+        Assert.Equal("c1", fresh.Value!.Single().Id);
+        Assert.Empty(http.Requests[0].Request.Headers.IfNoneMatch);
+
+        var same = await api.ConversationsConditionalAsync("w1", InboxFilter.Open, fresh.ETag);
+        Assert.True(same.NotModified);
+        Assert.Null(same.Value);
+        Assert.Equal(2, client.Traffic.Requests);
+        Assert.Equal(1, client.Traffic.NotModifiedCount);
+    }
+
+    [Fact]
+    public async Task A_thread_page_sends_the_cursor_and_decodes_the_sync_block()
+    {
+        var http = new FakeHttp((req, _) => (HttpStatusCode.OK,
+            """{"messages":[{"id":"m2","conversation_id":"c1","sender_type":"agent","body":"hi","created_at":"2026-09-01T10:00:00.5+00:00","updated_at":"2026-09-01T10:00:01.123456+00:00","metadata":{"client_message_id":"k-1"}}],"sync":{"mode":"delta","cursor":"v1.99","total":7}}"""));
+        using var client = new ApiClient(new MemorySessionStore("t"), handler: http);
+        var page = await new WebyarApi(client).MessagesPageAsync("c1", "v1.42", null);
+        Assert.Equal("since=v1.42", http.Requests[0].Request.RequestUri!.Query.TrimStart('?'));
+        Assert.True(page.Value!.Sync!.IsDelta);
+        Assert.Equal("v1.99", page.Value.Sync.Cursor);
+        Assert.Equal(7, page.Value.Sync.Total);
+        var m = page.Value.Messages!.Single();
+        Assert.Equal("k-1", m.ClientMessageId);
+        Assert.NotNull(m.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task An_older_server_without_a_sync_block_still_decodes()
+    {
+        var http = new FakeHttp((_, _) => (HttpStatusCode.OK, """{"messages":[{"id":"m1","conversation_id":"c1","sender_type":"contact","body":"hi"}]}"""));
+        using var client = new ApiClient(new MemorySessionStore("t"), handler: http);
+        var page = await new WebyarApi(client).MessagesPageAsync("c1", "v1.1", null);
+        Assert.Null(page.Value!.Sync);
+        Assert.Single(page.Value.Messages!);
+    }
 }

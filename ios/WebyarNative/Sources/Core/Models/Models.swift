@@ -329,6 +329,11 @@ struct Message: Codable, Identifiable, Hashable, Sendable {
     let senderId: String?
     let body: String
     let createdAt: Date?
+    /// When the server last changed this row — its metadata, its files, its
+    /// seen state. Nil from a server not migrated yet and on a realtime row,
+    /// which is the row as inserted. It is what decides which of two copies of
+    /// one message is the newer (`ThreadSync`).
+    let updatedAt: Date?
     let senderName: String?
     let senderAvatar: String?
     /// Server bookkeeping. For a system notice this is what the sentence has
@@ -345,6 +350,7 @@ struct Message: Codable, Identifiable, Hashable, Sendable {
         case senderId = "sender_id"
         case body
         case createdAt = "created_at"
+        case updatedAt = "updated_at"
         case senderName = "sender_name"
         case senderAvatar = "sender_avatar"
         case metadata, attachments
@@ -357,6 +363,7 @@ struct Message: Codable, Identifiable, Hashable, Sendable {
         senderId: String?,
         body: String,
         createdAt: Date?,
+        updatedAt: Date? = nil,
         senderName: String?,
         senderAvatar: String?,
         metadata: [String: JSONValue]? = nil,
@@ -368,10 +375,39 @@ struct Message: Codable, Identifiable, Hashable, Sendable {
         self.senderId = senderId
         self.body = body
         self.createdAt = createdAt
+        self.updatedAt = updatedAt
         self.senderName = senderName
         self.senderAvatar = senderAvatar
         self.metadata = metadata
         self.attachments = attachments
+    }
+
+    /// The idempotency key the sender chose, which the server keeps in the
+    /// row's metadata. It is how a message this phone sent is recognised when
+    /// it comes back — by a read, by realtime or by both — so it is shown once.
+    var clientMessageID: String? {
+        metadata?["client_message_id"]?.stringValue
+    }
+
+    /// This row, with what it lacks taken from an older copy of itself.
+    ///
+    /// A realtime row is the message as inserted: no sender name, no photo,
+    /// and no files yet. Showing it bare over a copy that had them would make
+    /// the bubble lose its face for the moment until the next read.
+    func filling(from older: Message) -> Message {
+        Message(
+            id: id,
+            conversationId: conversationId,
+            senderType: senderType,
+            senderId: senderId ?? older.senderId,
+            body: body,
+            createdAt: createdAt ?? older.createdAt,
+            updatedAt: updatedAt ?? older.updatedAt,
+            senderName: senderName ?? older.senderName,
+            senderAvatar: senderAvatar ?? older.senderAvatar,
+            metadata: metadata ?? older.metadata,
+            attachments: attachments ?? older.attachments
+        )
     }
 
     /// Whether this message is nothing but its files. The text bubble is
@@ -404,6 +440,25 @@ struct ConversationsResponse: Decodable, Sendable {
 
 struct MessagesResponse: Decodable, Sendable {
     let messages: [Message]
+    /// How the server answered a `?since=` read. Absent from a server that
+    /// predates incremental sync, which is read as "the whole thread, no
+    /// cursor" — exactly what it sent.
+    let sync: MessageSyncInfo?
+}
+
+/// `sync` on the thread response (`server/services/messageSync.ts`).
+struct MessageSyncInfo: Decodable, Sendable, Equatable {
+    /// `delta`: only rows created or changed since the cursor sent. Anything
+    /// else is the whole thread.
+    let mode: String?
+    /// The cursor to send next time; nil until the server's database has
+    /// `updated_at`, in which case every read stays a whole one.
+    let cursor: String?
+}
+
+/// `GET /api/conversations/:id` — one conversation in the list's own shape.
+struct ConversationResponse: Decodable, Sendable {
+    let conversation: Conversation
 }
 
 struct ContactsResponse: Decodable, Sendable {

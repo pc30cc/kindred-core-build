@@ -13,6 +13,7 @@ public partial class App : Application
     private readonly bool _startHidden;
     private MainWindow? _window;
     private TaskbarIcon? _tray;
+    private MenuFlyoutItem? _trayCalls;
     private bool _quitting;
 
     public App(bool startHidden)
@@ -80,9 +81,21 @@ public partial class App : Application
         _tray = null;
     }
 
-    public void Quit()
+    public void Quit() => _ = QuitAsync();
+
+    private async Task QuitAsync()
     {
+        if (_quitting) return;
         _quitting = true;
+        // A call ends properly rather than just vanishing; the hang-up gets a moment to reach the server.
+        try
+        {
+            await Views.CallWindow.EndForQuitAsync(TimeSpan.FromSeconds(2));
+        }
+        catch (Exception e)
+        {
+            Log.Error("hang up on quit", e);
+        }
         Host.Updates.ApplyOnExit();
         _tray?.Dispose();
         _window?.Close();
@@ -117,6 +130,14 @@ public partial class App : Application
         var quit = new MenuFlyoutItem { Text = s["trayQuit"] };
         quit.Click += (_, _) => Quit();
         menu.Items.Add(open);
+        // While the plan has the call center: how many calls wait, and the desk one click away (the Mac's menu bar).
+        _trayCalls = new MenuFlyoutItem { Text = s.Get("menuWaitingCalls", "count", 0), Visibility = Visibility.Collapsed };
+        _trayCalls.Click += (_, _) =>
+        {
+            ShowWindow();
+            _window?.Shell?.OpenPage("calls");
+        };
+        menu.Items.Add(_trayCalls);
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(quit);
 
@@ -146,6 +167,14 @@ public partial class App : Application
         var path = (Environment.ProcessPath ?? "Webyar").ToLowerInvariant();
         var hash = System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes("webyar-tray:" + path));
         return new Guid(hash);
+    }
+
+    /// <summary>The tray menu's waiting-calls line; hidden while the workspace has no call center (or no one is signed in).</summary>
+    public void SetWaitingCalls(int count, bool callCenter)
+    {
+        if (_trayCalls is null) return;
+        _trayCalls.Text = Host.Strings.Get("menuWaitingCalls", "count", count);
+        _trayCalls.Visibility = callCenter ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>The tray tooltip carries the unread count, like the taskbar badge in the old app.</summary>

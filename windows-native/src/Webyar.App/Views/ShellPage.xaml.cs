@@ -48,7 +48,9 @@ public sealed partial class ShellPage : Page
         {
             q.Changed += ShowCallsBadge;
             q.Ringing += OnRinging;
+            q.ActiveCalls += OnActiveCalls;
         }
+        StartCalls();
         ApplyLanguage();
         ShowCallsBadge();
         ShowUpdate();
@@ -96,8 +98,10 @@ public sealed partial class ShellPage : Page
         {
             q.Changed -= ShowCallsBadge;
             q.Ringing -= OnRinging;
+            q.ActiveCalls -= OnActiveCalls;
         }
         StopRinging();
+        StopCalls();
         Inbox?.Teardown();
     }
 
@@ -260,6 +264,14 @@ public sealed partial class ShellPage : Page
         InboxAiItem.Visibility = V(plan.AiQueue(_automated));
         InboxNeedsHumanItem.Visibility = V(plan.NeedsHumanQueue);
         InternalInboxItem.Visibility = V(plan.TeamChat);
+        // The desk just went away: no ringing, and no handed-over call to join, for a desk that is gone.
+        if (!plan.CallCenter)
+        {
+            StopRinging();
+            _handed.Dismiss();
+            RenderHanded();
+        }
+        ShowWaitingInTray();
         foreach (var item in OtherInboxesItem.MenuItems.OfType<NavigationViewItem>())
         {
             if (item.Tag is string t && t.StartsWith("channel/", StringComparison.Ordinal)) item.Visibility = V(plan.ChannelInPlan(t[8..]));
@@ -532,6 +544,7 @@ public sealed partial class ShellPage : Page
         var n = Host.CallQueue?.Queue.Count ?? 0;
         CallsBadge.Value = n;
         CallsBadge.Visibility = n > 0 ? Visibility.Visible : Visibility.Collapsed;
+        ShowWaitingInTray();
         // The caller hung up, or a colleague answered: the banner goes with the call.
         if (_ringing is { } r && Host.CallQueue?.Queue.Any(e => e.CallSessionId == r.CallSessionId) != true)
         {
@@ -558,6 +571,8 @@ public sealed partial class ShellPage : Page
 
     private void Ring(QueueEntry entry)
     {
+        // No desk, no calls: nothing to ring for.
+        if (!Host.Plan.CallCenter) return;
         var s = Host.Strings;
         _ringing = entry;
         _ringSince = DateTimeOffset.Now;
@@ -568,13 +583,13 @@ public sealed partial class ShellPage : Page
         var meta = new[] { c?.VisitorPhone, c?.VisitorEmail, c?.PageTitle }.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct();
         CallBarMeta.Text = string.Join(" · ", meta);
         CallBarMeta.Visibility = CallBarMeta.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-        CallBarAvatar.DisplayName = c?.VisitorName;
-        CallBarAvatar.Email = c?.VisitorEmail;
+        ShowCallerFace(CallBarAvatar, c, entry.VisitorSessionId);
         CallBarAnswerText.Text = s["callAnswer"];
         CallBarRejectText.Text = s["ccReject"];
         CallBarOpen.Content = s["callOpenDesk"];
         CallBarAnswer.IsEnabled = CallBarReject.IsEnabled = true;
         CallBar.Visibility = Visibility.Visible;
+        StartPulse();
 
         if (Host.Settings.NotificationSound) Chime.Play();
         _ringTimer ??= CreateRingTimer();
@@ -599,6 +614,7 @@ public sealed partial class ShellPage : Page
         _ringTimer?.Stop();
         _ringing = null;
         CallBar.Visibility = Visibility.Collapsed;
+        StopPulse();
     }
 
     private void OnCallBarAnswer(object sender, RoutedEventArgs e)
@@ -779,6 +795,8 @@ public sealed partial class ShellPage : Page
     private async Task SwitchWorkspaceAsync(Core.Api.Workspace ws)
     {
         if (ws.Id == Host.Workspace?.Id) return;
+        // A call belongs to the workspace it started in.
+        await CallWindow.EndForQuitAsync(TimeSpan.FromSeconds(2));
         Host.Settings.WorkspaceId = ws.Id;
         Host.Settings.Save();
         Teardown();
@@ -800,6 +818,8 @@ public sealed partial class ShellPage : Page
             DefaultButton = ContentDialogButton.Close,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        // Nothing would be left on screen to hang up with, and the session the hang-up needs ends next.
+        await CallWindow.EndForQuitAsync(TimeSpan.FromSeconds(2));
         try
         {
             await Host.Client.LogoutAsync();

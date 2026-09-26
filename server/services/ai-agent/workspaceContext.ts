@@ -7,8 +7,10 @@
  *   - an indexed `ai_knowledge_chunks.source_url` for this workspace, or
  *   - a published `knowledge_base_articles.slug` under /help/<slug>.
  *
- * The verified workspace domain is read from `workspaces.verified_domain`
- * when available, otherwise omitted (no fallback domain).
+ * The domain is the workspace's VERIFIED domain from `workspace_domains`
+ * (the primary one first), otherwise omitted: an unverified domain is never
+ * offered as a fallback. `workspaces` has no domain column; reading
+ * `workspaces.verified_domain` failed on every call, so no domain was ever set.
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
@@ -43,12 +45,16 @@ export async function loadWorkspaceContext(
   const sb = getServiceClient(config);
   let domain: string | null = null;
   try {
-    const { data: ws } = await sb
-      .from('workspaces')
-      .select('verified_domain, domain')
-      .eq('id', workspaceId)
-      .maybeSingle();
-    domain = ((ws as any)?.verified_domain || (ws as any)?.domain || null) || null;
+    const { data: domains } = await sb
+      .from('workspace_domains')
+      .select('domain')
+      .eq('workspace_id', workspaceId)
+      .eq('verified', true)
+      .order('is_primary', { ascending: false })
+      .order('created_at', { ascending: true })
+      .limit(1);
+    const first = (domains as Array<{ domain: string | null }> | null)?.[0];
+    domain = first?.domain?.trim() || null;
   } catch { /* best-effort */ }
 
   const urls = new Set<string>();
@@ -60,9 +66,8 @@ export async function loadWorkspaceContext(
       .eq('status', 'active')
       .not('source_url', 'is', null)
       .limit(500);
-    for (const r of chunks || []) {
-      const u = (r as any).source_url as string | null;
-      if (u) urls.add(u);
+    for (const r of (chunks || []) as Array<{ source_url: string | null }>) {
+      if (r.source_url) urls.add(r.source_url);
     }
   } catch { /* best-effort */ }
 
@@ -74,9 +79,8 @@ export async function loadWorkspaceContext(
       .eq('status', 'published')
       .not('slug', 'is', null)
       .limit(200);
-    for (const r of arts || []) {
-      const s = (r as any).slug as string | null;
-      if (s) urls.add(`/help/${s}`);
+    for (const r of (arts || []) as Array<{ slug: string | null }>) {
+      if (r.slug) urls.add(`/help/${r.slug}`);
     }
   } catch { /* best-effort */ }
 

@@ -21,6 +21,36 @@ export interface GuidanceRule {
   metadata: Record<string, unknown>;
 }
 
+/**
+ * An `ai_agent_guidance_rules` row as the table stores it and the guidance
+ * API (server/routes/ai-agent/automation.ts) writes it. The table never had
+ * `type`, `body` or `metadata` columns: asking for them made PostgREST reject
+ * the whole query, so no guidance rule ever reached the prompt.
+ */
+interface GuidanceRuleRow {
+  id: string;
+  rule_type: string;
+  title: string;
+  description: string | null;
+  instruction: string | null;
+  condition_json: Record<string, unknown> | null;
+  priority: number;
+  enabled: boolean;
+}
+
+function toGuidanceRule(row: GuidanceRuleRow): GuidanceRule {
+  return {
+    id: row.id,
+    type: row.rule_type,
+    title: row.title,
+    description: row.description,
+    body: row.instruction,
+    priority: row.priority,
+    enabled: row.enabled,
+    metadata: row.condition_json || {},
+  };
+}
+
 export interface RoutingRule {
   id: string;
   name: string;
@@ -131,7 +161,7 @@ export async function loadAiAgentRuntimeConfig(
     await Promise.all([
       sb
         .from('ai_agent_guidance_rules')
-        .select('id,type,title,description,body,priority,enabled,metadata')
+        .select('id,rule_type,title,description,instruction,condition_json,priority,enabled')
         .eq('workspace_id', workspaceId)
         .eq('enabled', true)
         .order('priority', { ascending: true }),
@@ -185,8 +215,8 @@ export async function loadAiAgentRuntimeConfig(
 
   const workflows = (workflowsRes.data || []) as WorkflowRecord[];
   if (workflows.length) warnings.push('workflows_planned_only');
-  const externalEnabledTools = (allEnabledToolsRes.data || []).filter(
-    (t: any) => t.tool_type && t.tool_type !== 'internal',
+  const externalEnabledTools = ((allEnabledToolsRes.data || []) as Array<{ tool_type: string | null }>).filter(
+    (t) => t.tool_type && t.tool_type !== 'internal',
   );
   if (externalEnabledTools.length) warnings.push('external_tools_runtime_disabled');
   const triggersList = (triggersRes.data || []) as MessageTrigger[];
@@ -197,12 +227,12 @@ export async function loadAiAgentRuntimeConfig(
     warnings.push('unsupported_trigger_actions');
   }
 
-  const instructions: ExtendedInstructions = (settings.instructions as any) || {};
+  const instructions: ExtendedInstructions = (settings.instructions as ExtendedInstructions | undefined) || {};
 
   const out: AiAgentRuntimeConfig = {
     settings,
     instructions,
-    guidanceRules: (guidanceRes.data || []) as GuidanceRule[],
+    guidanceRules: ((guidanceRes.data || []) as GuidanceRuleRow[]).map(toGuidanceRule),
     routingRules: (routingRes.data || []) as RoutingRule[],
     topics: (topicsRes.data || []) as TopicRecord[],
     messageTriggers: triggersList,

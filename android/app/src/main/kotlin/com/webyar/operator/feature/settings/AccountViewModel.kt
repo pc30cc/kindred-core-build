@@ -125,23 +125,35 @@ class AccountViewModel(
         _profile.update { it.copy(phone = value, error = null, touched = true) }
     }
 
-    fun saveProfile(onDone: () -> Unit = {}) {
+    /**
+     * Saves what this phone may change — nothing else goes in the request.
+     *
+     * A locked field is left out rather than sent back unchanged: the server
+     * treats a missing key as "leave it", so a name renamed on the web while
+     * this screen was open is not overwritten with the copy the phone loaded.
+     */
+    fun saveProfile(
+        nameEditable: Boolean = true,
+        phoneEditable: Boolean = true,
+        onDone: () -> Unit = {},
+    ) {
+        if (!nameEditable && !phoneEditable) return
         val form = _profile.value
         val first = form.firstName.trim()
         val last = form.lastName.trim()
         // A family name is optional — plenty of people have one name — but a
         // first name is what everything else in the app labels them by.
-        if (first.isEmpty()) return
+        if (nameEditable && first.isEmpty()) return
         _profile.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             runCatching {
                 api.updateProfile(
-                    firstName = first,
-                    lastName = last,
+                    firstName = first.takeIf { nameEditable },
+                    lastName = last.takeIf { nameEditable },
                     // Empty rather than null: the route reads `phone || null`,
                     // and a null would be dropped from the body entirely and
                     // leave the old number standing.
-                    phone = form.phone.trim(),
+                    phone = form.phone.trim().takeIf { phoneEditable },
                 )
             }
                 .onSuccess { account ->

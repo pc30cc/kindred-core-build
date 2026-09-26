@@ -88,6 +88,9 @@ import com.webyar.operator.ui.components.sharedElement
 import androidx.compose.ui.unit.Dp
 import com.webyar.operator.core.model.VisitorProfile
 import com.webyar.operator.ui.components.OperatorAvatar
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.webyar.operator.ui.design.Radius
 
 sealed interface ChatState {
     data object Loading : ChatState
@@ -162,6 +165,8 @@ fun ChatScreen(
      * beside the visitor's messages is the one the operator just tapped.
      */
     visitor: VisitorProfile? = null,
+    /** Opens the visitor as a contact — from their face or name in the bar, or their face in the thread. */
+    onOpenVisitor: (() -> Unit)? = null,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val source = attachments ?: remember(loadAttachment, context) {
@@ -183,6 +188,7 @@ fun ChatScreen(
                 },
                 avatarUrl = conversation?.contact?.avatarUrl,
                 visitor = visitor,
+                onOpenVisitor = onOpenVisitor,
                 sharedKey = conversation?.id?.let(::avatarKey),
                 onBack = onBack,
                 actions = header,
@@ -219,7 +225,20 @@ fun ChatScreen(
                         onRetry = onRetry,
                         onDiscard = onDiscard,
                         visitorFace = { size ->
-                            VisitorFace(conversation, visitor, language, size)
+                            VisitorFace(
+                                conversation,
+                                visitor,
+                                language,
+                                size,
+                                modifier = if (onOpenVisitor != null) {
+                                    Modifier.clip(CircleShape).clickable(
+                                        onClickLabel = StrAndroid.openContact(language),
+                                        onClick = onOpenVisitor,
+                                    )
+                                } else {
+                                    Modifier
+                                },
+                            )
                         },
                     )
                 }
@@ -456,12 +475,29 @@ private fun ChatTopBar(
     onBack: () -> Unit,
     actions: (@Composable () -> Unit)?,
     visitor: VisitorProfile? = null,
+    onOpenVisitor: (() -> Unit)? = null,
     sharedKey: String? = null,
 ) {
     TopAppBar(
         title = {
             if (title != null) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // The face and the name are one target: either opens the
+                // visitor's contact page.
+                Row(
+                    modifier = if (onOpenVisitor != null) {
+                        Modifier
+                            .clip(RoundedCornerShape(Radius.pill))
+                            .clickable(
+                                onClickLabel = StrAndroid.openContact(language),
+                                onClick = onOpenVisitor,
+                            )
+                            .padding(end = Space.sm)
+                            .testTag(A11y.CHAT_OPEN_VISITOR)
+                    } else {
+                        Modifier
+                    },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     // The face from the inbox row, carried up into the bar.
                     Avatar(
                         name = title,
@@ -502,8 +538,15 @@ private fun ChatTopBar(
 
 /** The visitor's face — the inbox row's, at any size. */
 @Composable
-private fun VisitorFace(conversation: Conversation?, visitor: VisitorProfile?, language: Language, size: Dp) {
+private fun VisitorFace(
+    conversation: Conversation?,
+    visitor: VisitorProfile?,
+    language: Language,
+    size: Dp,
+    modifier: Modifier = Modifier,
+) {
     Avatar(
+        modifier = modifier,
         name = conversation?.contact?.let {
             Format.contactName(name = it.name, email = it.email, visitorCode = it.visitorCode, language = language)
         }.orEmpty(),

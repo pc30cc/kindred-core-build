@@ -113,6 +113,7 @@ fun AppShell(
 ) {
     val tabs by appState.tabs.collectAsStateWithLifecycle()
     val selectedTab by appState.selectedTab.collectAsStateWithLifecycle()
+    val appConfig by appState.appConfig.collectAsStateWithLifecycle()
     val navigator = rememberNavigator(
         currentTab = { appState.selectedTab.value },
         selectTab = appState::selectTab,
@@ -173,8 +174,18 @@ fun AppShell(
                     language = language,
                     onBack = { navigator.back() },
                     onStartCall = { channel -> navigator.open(CallKey(key.conversationId, channel.wire)) },
+                    onOpenVisitor = { navigator.open(it) },
                 )
             }
+        }
+        entry<VisitorKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = InboxKey) + tabOf(AppTab.INBOX)) { key ->
+            VisitorContactRoute(
+                key = key,
+                contacts = contacts,
+                conversations = conversations,
+                language = language,
+                onBack = { navigator.back() },
+            )
         }
         entry<CallKey>(metadata = tabOf(AppTab.INBOX)) { key ->
             CallRoute(
@@ -274,7 +285,7 @@ fun AppShell(
             )
         }
         entry<ProfileKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = SettingsKey) + tabOf(AppTab.SETTINGS)) {
-            ProfileRoute(api = api, language = language, onBack = { navigator.back() })
+            ProfileRoute(api = api, language = language, onBack = { navigator.back() }, config = appConfig)
         }
         entry<SecurityKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = SettingsKey) + tabOf(AppTab.SETTINGS)) {
             SecurityRoute(api = api, language = language, onBack = { navigator.back() })

@@ -3,6 +3,7 @@ package com.webyar.operator.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.webyar.operator.core.model.EntitlementsState
+import com.webyar.operator.core.model.MobileAppConfig
 import com.webyar.operator.core.model.WorkspaceAccess
 import com.webyar.operator.core.model.User
 import com.webyar.operator.core.model.Workspace
@@ -21,6 +22,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
@@ -58,9 +60,26 @@ class AppState(
     private val _appearance = MutableStateFlow(Appearance.SYSTEM)
     val appearance: StateFlow<Appearance> = _appearance.asStateFlow()
 
-    /** Wallpaper colours instead of the brand's — see [Preferences.dynamicColor]. */
+    /**
+     * Super Admin's switches for this app — which Settings sections show,
+     * what the profile lets an operator change. See [MobileAppConfig].
+     */
+    private val _appConfig = MutableStateFlow(MobileAppConfig.DEFAULT)
+    val appConfig: StateFlow<MobileAppConfig> = _appConfig.asStateFlow()
+
+    /** The operator's own choice, kept even while Super Admin disallows it. */
     private val _dynamicColor = MutableStateFlow(false)
-    val dynamicColor: StateFlow<Boolean> = _dynamicColor.asStateFlow()
+
+    /**
+     * Wallpaper colours instead of the brand's — see [Preferences.dynamicColor].
+     *
+     * The operator's choice, and only while the platform allows it: turned
+     * off in Super Admin, every phone goes back to the brand colours, and
+     * turned on again, each operator gets back whatever they had chosen.
+     */
+    val dynamicColor: StateFlow<Boolean> = combine(_dynamicColor, _appConfig) { chosen, config ->
+        chosen && config.allowWallpaperColors
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     private val _workspaces = MutableStateFlow<List<Workspace>>(emptyList())
     val workspaces: StateFlow<List<Workspace>> = _workspaces.asStateFlow()
@@ -166,6 +185,7 @@ class AppState(
             hooks.languageChanged(_language.value)
             _appearance.value = prefs.appearance()
             _dynamicColor.value = prefs.dynamicColor()
+            _appConfig.value = prefs.appConfig()
             restore()
         }
     }
@@ -213,6 +233,7 @@ class AppState(
             hooks.signedIn(user)
             _session.value = Session.SignedIn(user)
             loadWorkspaces()
+            loadAppConfig()
         } catch (e: ApiError) {
             if (e.isAuthFailure) {
                 val stale = cache.read()
@@ -261,6 +282,7 @@ class AppState(
         hooks.signedIn(user)
         _session.value = Session.SignedIn(user)
         loadWorkspaces()
+        loadAppConfig()
     }
 
     /**
@@ -299,7 +321,29 @@ class AppState(
         }
     }
 
-    /** Advisory: no picture is a fallback to initials, not an error to show. */
+    private var appConfigJob: Job? = null
+
+    /**
+     * Asks for Super Admin's switches. The endpoint needs a session, so only
+     * while signed in; a failure keeps the answer in hand — the last one
+     * stored, or the defaults — and the next foreground asks again.
+     */
+    private fun loadAppConfig() {
+        if (_session.value !is Session.SignedIn) return
+        if (appConfigJob?.isActive == true) return
+        appConfigJob = viewModelScope.launch {
+            val config = runCatching { api.mobileAppConfig() }.getOrNull() ?: return@launch
+            if (config != _appConfig.value) {
+                _appConfig.value = config
+                // Stored on the side, so this job ends when the answer is
+                // in hand: a write still queued on DataStore's own threads
+                // must not make the next foreground skip its ask.
+                viewModelScope.launch { prefs.setAppConfig(config) }
+            }
+        }
+    }
+
+    /** Advisory: no picture is a quiet circle, not an error to show. */
     private fun loadAvatar() {
         viewModelScope.launch {
             runCatching { api.account() }
@@ -408,6 +452,9 @@ class AppState(
      * load or a 20-second re-ask already on its way is left to finish.
      */
     fun refreshPlanIfStale() {
+        // A switch flipped in Super Admin reaches the phone the next time it
+        // is opened. One small request, so no staleness window of its own.
+        loadAppConfig()
         if (_selectedWorkspace.value == null) {
             // No workspace means the launch never got one; coming back to
             // the app is as good a moment as any to ask again.

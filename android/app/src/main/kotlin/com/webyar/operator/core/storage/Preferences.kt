@@ -1,7 +1,9 @@
 package com.webyar.operator.core.storage
 
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.webyar.operator.core.model.MobileAppConfig
 import com.webyar.operator.i18n.Language
+import kotlinx.serialization.json.Json
 
 /**
  * The two choices that must survive a restart, and one that must not.
@@ -15,6 +17,8 @@ class Preferences(private val store: SecureStore) {
     private val languageKey = stringPreferencesKey("prefs.language")
     private val appearanceKey = stringPreferencesKey("prefs.appearance")
     private val dynamicColorKey = stringPreferencesKey("prefs.dynamicColor")
+    private val appConfigKey = stringPreferencesKey("prefs.appConfig")
+    private val json = Json { ignoreUnknownKeys = true }
 
     /**
      * Null when the operator has never chosen.
@@ -49,6 +53,21 @@ class Preferences(private val store: SecureStore) {
 
     suspend fun setDynamicColor(on: Boolean) {
         store.write(dynamicColorKey, if (on) "on" else "off")
+    }
+
+    /**
+     * The last switches Super Admin sent ([MobileAppConfig]), so a launch
+     * without a network keeps honouring them. Platform-wide, nothing about
+     * the operator, so it outlives a sign-out. The defaults until one has
+     * ever arrived, or if what is stored no longer reads.
+     */
+    suspend fun appConfig(): MobileAppConfig =
+        store.read(appConfigKey)
+            ?.let { runCatching { json.decodeFromString(MobileAppConfig.serializer(), it) }.getOrNull() }
+            ?: MobileAppConfig.DEFAULT
+
+    suspend fun setAppConfig(config: MobileAppConfig) {
+        store.write(appConfigKey, json.encodeToString(MobileAppConfig.serializer(), config))
     }
 }
 

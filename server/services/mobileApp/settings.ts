@@ -127,6 +127,32 @@ export interface MobileAppSettings {
   testflight_group: string | null;
   release_notes: string | null;
 
+  // ─── Android (migration 223) ───
+  //
+  // Identity and release are the Play Console record — what is listed and
+  // what is shipping. Nothing reads them at runtime.
+  android_package_name: string;
+  android_app_name: string;
+  android_play_store_url: string | null;
+  android_version_name: string;
+  android_version_code: number;
+  android_min_sdk: number;
+  android_target_sdk: number;
+  android_release_track: 'internal' | 'closed' | 'open' | 'production';
+  android_rollout_percent: number;
+  /// Play's "What's new", per language: `{ en, fa, tr }`.
+  android_release_notes: Record<string, string>;
+
+  // The in-app switches: served to the installed app by
+  // GET /api/mobile-app/config and applied without a new build.
+  android_app_show_storage: boolean;
+  android_app_show_security: boolean;
+  android_app_show_notification_settings: boolean;
+  android_app_allow_wallpaper_colors: boolean;
+  android_app_profile_name_editable: boolean;
+  android_app_profile_phone_editable: boolean;
+  android_app_profile_photo_editable: boolean;
+
   checklist: Record<string, { done: boolean; at?: string; by?: string }>;
   updated_at?: string | null;
 }
@@ -223,6 +249,25 @@ export const MOBILE_APP_DEFAULTS: MobileAppSettings = {
   testflight_group: null,
   release_notes: null,
 
+  android_package_name: 'com.webyar.operator',
+  android_app_name: 'Webyar',
+  android_play_store_url: null,
+  android_version_name: '1.0.0',
+  android_version_code: 1,
+  android_min_sdk: 24,
+  android_target_sdk: 37,
+  android_release_track: 'internal',
+  android_rollout_percent: 100,
+  android_release_notes: {},
+
+  android_app_show_storage: true,
+  android_app_show_security: true,
+  android_app_show_notification_settings: true,
+  android_app_allow_wallpaper_colors: true,
+  android_app_profile_name_editable: false,
+  android_app_profile_phone_editable: false,
+  android_app_profile_photo_editable: true,
+
   checklist: {},
   updated_at: null,
 };
@@ -274,6 +319,40 @@ export function normalize(row: Record<string, unknown>): MobileAppSettings {
     ? (row.third_party_sdks as string[])
     : MOBILE_APP_DEFAULTS.third_party_sdks;
   out.build_number = Number(row.build_number ?? MOBILE_APP_DEFAULTS.build_number) || 1;
+  out.android_version_code = Number(row.android_version_code ?? MOBILE_APP_DEFAULTS.android_version_code) || 1;
+  out.android_release_notes =
+    row.android_release_notes && typeof row.android_release_notes === 'object' && !Array.isArray(row.android_release_notes)
+      ? (row.android_release_notes as Record<string, string>)
+      : {};
   out.updated_at = (row.updated_at as string | null) ?? null;
   return out as unknown as MobileAppSettings;
+}
+
+/**
+ * What the installed Android app is told about how to behave — the in-app
+ * switches only, never the Play record or anything iOS. Keys are camelCase,
+ * like every other payload the apps read.
+ */
+export interface AndroidAppConfig {
+  platform: 'android';
+  showStorage: boolean;
+  showSecurity: boolean;
+  showNotificationSettings: boolean;
+  allowWallpaperColors: boolean;
+  profileNameEditable: boolean;
+  profilePhoneEditable: boolean;
+  profilePhotoEditable: boolean;
+}
+
+export function toAndroidAppConfig(settings: MobileAppSettings): AndroidAppConfig {
+  return {
+    platform: 'android',
+    showStorage: settings.android_app_show_storage,
+    showSecurity: settings.android_app_show_security,
+    showNotificationSettings: settings.android_app_show_notification_settings,
+    allowWallpaperColors: settings.android_app_allow_wallpaper_colors,
+    profileNameEditable: settings.android_app_profile_name_editable,
+    profilePhoneEditable: settings.android_app_profile_phone_editable,
+    profilePhotoEditable: settings.android_app_profile_photo_editable,
+  };
 }

@@ -51,6 +51,26 @@ sealed interface Screen : NavKey {
     override val tab get() = AppTab.INBOX
 }
 
+/**
+ * The visitor of an open chat, as a contact — opened from the face or the
+ * name in the chat, and kept on the inbox's stack so Back returns to the
+ * chat rather than to the address book.
+ *
+ * It carries what the chat already knows about the contact, so the page has
+ * something to show even when the address book was never loaded (or the plan
+ * has no Contacts tab); the address book's fuller row wins when it is there.
+ */
+@Serializable data class VisitorKey(
+    val conversationId: String,
+    val contactId: String?,
+    val name: String?,
+    val email: String?,
+    val avatarUrl: String?,
+    val visitorCode: String?,
+) : Screen {
+    override val tab get() = AppTab.INBOX
+}
+
 @Serializable data object ContactsKey : Screen { override val tab get() = AppTab.CONTACTS }
 
 @Serializable data class ContactKey(val contactId: String) : Screen {

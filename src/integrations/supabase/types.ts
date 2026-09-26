@@ -10052,6 +10052,23 @@ export type Database = {
           ads_min_interval_minutes: number
           ads_start_after_launches: number
           age_rating: string
+          android_app_allow_wallpaper_colors: boolean
+          android_app_name: string
+          android_app_profile_name_editable: boolean
+          android_app_profile_phone_editable: boolean
+          android_app_profile_photo_editable: boolean
+          android_app_show_notification_settings: boolean
+          android_app_show_security: boolean
+          android_app_show_storage: boolean
+          android_min_sdk: number
+          android_package_name: string
+          android_play_store_url: string | null
+          android_release_notes: Json
+          android_release_track: string
+          android_rollout_percent: number
+          android_target_sdk: number
+          android_version_code: number
+          android_version_name: string
           app_group_id: string | null
           app_name: string
           app_sku: string | null
@@ -10136,6 +10153,23 @@ export type Database = {
           ads_min_interval_minutes?: number
           ads_start_after_launches?: number
           age_rating?: string
+          android_app_allow_wallpaper_colors?: boolean
+          android_app_name?: string
+          android_app_profile_name_editable?: boolean
+          android_app_profile_phone_editable?: boolean
+          android_app_profile_photo_editable?: boolean
+          android_app_show_notification_settings?: boolean
+          android_app_show_security?: boolean
+          android_app_show_storage?: boolean
+          android_min_sdk?: number
+          android_package_name?: string
+          android_play_store_url?: string | null
+          android_release_notes?: Json
+          android_release_track?: string
+          android_rollout_percent?: number
+          android_target_sdk?: number
+          android_version_code?: number
+          android_version_name?: string
           app_group_id?: string | null
           app_name?: string
           app_sku?: string | null
@@ -10220,6 +10254,23 @@ export type Database = {
           ads_min_interval_minutes?: number
           ads_start_after_launches?: number
           age_rating?: string
+          android_app_allow_wallpaper_colors?: boolean
+          android_app_name?: string
+          android_app_profile_name_editable?: boolean
+          android_app_profile_phone_editable?: boolean
+          android_app_profile_photo_editable?: boolean
+          android_app_show_notification_settings?: boolean
+          android_app_show_security?: boolean
+          android_app_show_storage?: boolean
+          android_min_sdk?: number
+          android_package_name?: string
+          android_play_store_url?: string | null
+          android_release_notes?: Json
+          android_release_track?: string
+          android_rollout_percent?: number
+          android_target_sdk?: number
+          android_version_code?: number
+          android_version_name?: string
           app_group_id?: string | null
           app_name?: string
           app_sku?: string | null

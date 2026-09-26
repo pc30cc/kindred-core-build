@@ -305,9 +305,9 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     hosted: 'supabase/migrations/20260926130000_drop_operator_activity_samples.sql',
   },
   {
-    label: '224 — desktop_app_settings.storage_settings_visible',
-    selfHost: 'database/migrations/224_desktop_app_storage_settings_visible.sql',
-    hosted: 'supabase/migrations/20260926140000_desktop_app_storage_settings_visible.sql',
+    label: '225 — desktop_app_settings.storage_settings_visible',
+    selfHost: 'database/migrations/225_desktop_app_storage_settings_visible.sql',
+    hosted: 'supabase/migrations/20260926150000_desktop_app_storage_settings_visible.sql',
   },
 
   // intentionally asymmetric, not a drift bug.

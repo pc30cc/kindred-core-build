@@ -1,7 +1,7 @@
 -- ============================================================
--- desktop_app_settings.storage_settings_visible
+-- 225: desktop_app_settings.storage_settings_visible
 --
--- Self-host mirror: database/migrations/224_desktop_app_storage_settings_visible.sql
+-- Hosted mirror: supabase/migrations/20260926150000_desktop_app_storage_settings_visible.sql
 -- (functionally identical; registered in
 -- src/test/integration/migrationMirrorParity.test.ts).
 --

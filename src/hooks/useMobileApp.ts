@@ -131,6 +131,27 @@ export interface MobileAppSettings {
   testflight_group: string | null;
   release_notes: string | null;
 
+  /** Android: the Play Console record — nothing reads these at runtime. */
+  android_package_name: string;
+  android_app_name: string;
+  android_play_store_url: string | null;
+  android_version_name: string;
+  android_version_code: number;
+  android_min_sdk: number;
+  android_target_sdk: number;
+  android_release_track: 'internal' | 'closed' | 'open' | 'production';
+  android_rollout_percent: number;
+  android_release_notes: Partial<Record<'en' | 'fa' | 'tr', string>>;
+
+  /** Android: in-app switches, read live by the installed app (GET /api/mobile-app/config). */
+  android_app_show_storage: boolean;
+  android_app_show_security: boolean;
+  android_app_show_notification_settings: boolean;
+  android_app_allow_wallpaper_colors: boolean;
+  android_app_profile_name_editable: boolean;
+  android_app_profile_phone_editable: boolean;
+  android_app_profile_photo_editable: boolean;
+
   checklist: Record<string, { done: boolean; at?: string; by?: string }>;
   updated_at?: string | null;
 }

@@ -157,6 +157,63 @@ class AccountViewModelTest {
         assertNull(account.profile.value.error)
     }
 
+    /**
+     * Super Admin locked the name (the default): it is not in the request at
+     * all, so a rename made on the web meanwhile is not written back over.
+     */
+    @Test
+    fun `a locked name is left out of the save`() = runTest(dispatcher) {
+        val api = StubAccountApi()
+        val account = model(api)
+
+        account.setPhone("+989121234567")
+        account.saveProfile(nameEditable = false, phoneEditable = true)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(1, api.profileSaves)
+        assertNull("the name travelled although it is locked", api.lastSavedFirst)
+        assertNull(api.lastSavedLast)
+        assertEquals("+989121234567", api.lastSavedPhone)
+    }
+
+    @Test
+    fun `a locked phone is left out of the save`() = runTest(dispatcher) {
+        val api = StubAccountApi()
+        val account = model(api)
+
+        account.setFirstName("رضا")
+        account.saveProfile(nameEditable = true, phoneEditable = false)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals("رضا", api.lastSavedFirst)
+        assertNull("the phone travelled although it is locked", api.lastSavedPhone)
+    }
+
+    /** With the name locked, an empty first name is no reason to refuse. */
+    @Test
+    fun `a locked empty name does not block saving the phone`() = runTest(dispatcher) {
+        val api = StubAccountApi()
+        val account = model(api)
+
+        account.setFirstName("")
+        account.saveProfile(nameEditable = false, phoneEditable = true)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(1, api.profileSaves)
+    }
+
+    @Test
+    fun `nothing editable means nothing is sent`() = runTest(dispatcher) {
+        val api = StubAccountApi()
+        val account = model(api)
+
+        account.saveProfile(nameEditable = false, phoneEditable = false)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(0, api.profileSaves)
+        assertFalse(account.profile.value.busy)
+    }
+
     // MARK: - The avatar
 
     /**

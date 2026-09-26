@@ -29,6 +29,7 @@ object A11y {
     const val SEARCH_FIELD = "search.field"
 
     const val COMPOSER_FIELD = "composer.field"
+    const val CHAT_OPEN_VISITOR = "chat.openVisitor"
     const val COMPOSER_STOP_RECORDING = "composer.stopRecording"
     const val COMPOSER_RECORDED = "composer.recorded"
     const val COMPOSER_SEND = "composer.send"
@@ -89,6 +90,11 @@ object A11y {
     const val ATTACHMENT_VIEWER_CLOSE = "attachment.viewer.close"
 
     const val SETTINGS_NOTIFICATIONS = "settings.notifications"
+    const val SETTINGS_SECURITY = "settings.security"
+    const val PROFILE_FIRST_NAME = "profile.firstName"
+    const val PROFILE_PHONE_FIELD = "profile.phoneField"
+    const val PROFILE_NAME = "profile.name"
+    const val PROFILE_PHONE = "profile.phone"
     const val SECURITY_REVOKE_OTHERS = "security.revokeOthers"
     const val NOTIFICATIONS_LIST = "notifications.list"
     const val NOTIFICATIONS_RETRY = "notifications.retry"

@@ -120,6 +120,10 @@ fun SettingsScreen(
      */
     dynamicColor: Boolean? = null,
     onSetDynamicColor: (Boolean) -> Unit = {},
+    /** Super Admin can take the Notifications row out of the app. */
+    showNotifications: Boolean = true,
+    /** …and the Security row. With both gone, so is their section. */
+    showSecurity: Boolean = true,
 ) {
     var confirmingSignOut by remember { mutableStateOf(false) }
     var confirmingClear by remember { mutableStateOf(false) }
@@ -182,20 +186,32 @@ fun SettingsScreen(
 
         item { SectionHeader(Str.language(language)) }
         item {
-            Group(Modifier.selectableGroup()) {
-                Language.entries.forEachIndexed { index, option ->
-                    GroupRow(
-                        index = index,
-                        count = Language.entries.size,
-                        onClick = { onSelectLanguage(option) },
-                        selected = option == language,
-                        role = Role.RadioButton,
+            // Three buttons side by side, the way Appearance is: one choice
+            // out of three is a segmented control, not a list to scroll.
+            Group {
+                Surface(
+                    color = groupColor(),
+                    shape = segmentedShape(0, 1),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        Modifier
+                            .selectableGroup()
+                            .padding(horizontal = Space.md, vertical = Space.md),
+                        horizontalArrangement = Arrangement.spacedBy(Space.xs),
                     ) {
-                        // Each language names itself, which is the only form a
-                        // picker should use: somebody looking for Türkçe is not
-                        // looking for "Turkish".
-                        Text(option.endonym, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                        if (option == language) Tick()
+                        Language.entries.forEach { option ->
+                            // Each language names itself, which is the only
+                            // form a picker should use: somebody looking for
+                            // Türkçe is not looking for "Turkish".
+                            ChoiceButton(
+                                label = option.endonym,
+                                selected = option == language,
+                                language = language,
+                                onClick = { onSelectLanguage(option) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
                 }
             }
@@ -256,24 +272,33 @@ fun SettingsScreen(
             )
         }
 
-        item { SectionHeader(Str.notifications(language)) }
-        item {
-            Group {
-                NavRow(
-                    index = 0,
-                    count = 2,
-                    icon = Icons.Outlined.Notifications,
-                    title = Str.notifications(language),
-                    onClick = onOpenNotifications,
-                    modifier = Modifier.testTag(A11y.SETTINGS_NOTIFICATIONS),
-                )
-                NavRow(
-                    index = 1,
-                    count = 2,
-                    icon = Icons.Outlined.Lock,
-                    title = Str.security(language),
-                    onClick = onOpenSecurity,
-                )
+        if (showNotifications || showSecurity) {
+            // Named for what is left in it when Super Admin has taken one out.
+            item { SectionHeader(if (showNotifications) Str.notifications(language) else Str.security(language)) }
+            item {
+                Group {
+                    val count = listOf(showNotifications, showSecurity).count { it }
+                    if (showNotifications) {
+                        NavRow(
+                            index = 0,
+                            count = count,
+                            icon = Icons.Outlined.Notifications,
+                            title = Str.notifications(language),
+                            onClick = onOpenNotifications,
+                            modifier = Modifier.testTag(A11y.SETTINGS_NOTIFICATIONS),
+                        )
+                    }
+                    if (showSecurity) {
+                        NavRow(
+                            index = count - 1,
+                            count = count,
+                            icon = Icons.Outlined.Lock,
+                            title = Str.security(language),
+                            onClick = onOpenSecurity,
+                            modifier = Modifier.testTag(A11y.SETTINGS_SECURITY),
+                        )
+                    }
+                }
             }
         }
 

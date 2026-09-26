@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.webyar.operator.core.model.Entitlements
 import com.webyar.operator.core.model.EntitlementsState
+import com.webyar.operator.core.model.MobileAppConfig
 import com.webyar.operator.core.model.Workspace
 import com.webyar.operator.core.net.ApiError
 import com.webyar.operator.core.net.SampleApi
@@ -23,6 +24,8 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -170,5 +173,71 @@ class SignInLoadTest {
         )
         // At least: the launch's own session restore may ask once more.
         assertTrue("only ${api.workspaceCalls} workspace calls", api.workspaceCalls >= 3)
+    }
+
+    /** Super Admin's switches, as `GET /api/mobile-app/config` answers them. */
+    private class ConfigApi(
+        var config: MobileAppConfig,
+        private val real: SampleApi = SampleApi(),
+    ) : WebyarApi by real {
+        var configCalls = 0
+
+        override suspend fun mobileAppConfig(): MobileAppConfig {
+            configCalls++
+            return config
+        }
+    }
+
+    @Test
+    fun `Super Admin's switches arrive with the sign-in`() = runTest(dispatcher) {
+        val api = ConfigApi(MobileAppConfig(showStorage = false, profileNameEditable = true))
+        val app = state(api)
+        testScheduler.advanceUntilIdle()
+
+        app.logIn("operator@webyar.app", "whatever")
+        testScheduler.advanceUntilIdle()
+
+        assertTrue("the config was never asked for", api.configCalls >= 1)
+        assertFalse(app.appConfig.value.showStorage)
+        assertTrue(app.appConfig.value.profileNameEditable)
+    }
+
+    /**
+     * Turned off on the web, wallpaper colours go on every phone — but the
+     * operator's own choice is kept, for the day they are allowed again.
+     */
+    @Test
+    fun `wallpaper colours follow Super Admin over the operator's choice`() = runTest(dispatcher) {
+        val api = ConfigApi(MobileAppConfig(allowWallpaperColors = false))
+        val app = state(api)
+        testScheduler.advanceUntilIdle()
+        app.setDynamicColor(true)
+
+        app.logIn("operator@webyar.app", "whatever")
+        testScheduler.advanceUntilIdle()
+        assertFalse("wallpaper colours stayed on against Super Admin", app.dynamicColor.value)
+
+        // Allowed again, and the app comes back to the foreground.
+        api.config = MobileAppConfig(allowWallpaperColors = true)
+        app.refreshPlanIfStale()
+        testScheduler.advanceUntilIdle()
+        assertTrue("the operator's own choice was lost", app.dynamicColor.value)
+    }
+
+    /** A request that fails keeps the defaults rather than an empty state. */
+    @Test
+    fun `a config that cannot be read leaves the app as it was`() = runTest(dispatcher) {
+        val failing = object : WebyarApi by SampleApi() {
+            override suspend fun mobileAppConfig(): MobileAppConfig = throw ApiError.Transport()
+        }
+        val app = state(failing)
+        testScheduler.advanceUntilIdle()
+        // The defaults, or the last answer this phone stored.
+        val before = app.appConfig.value
+
+        app.logIn("operator@webyar.app", "whatever")
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(before, app.appConfig.value)
     }
 }

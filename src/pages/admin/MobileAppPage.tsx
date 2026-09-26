@@ -1,21 +1,30 @@
 /**
- * Super Admin → Mobile App (iOS).
+ * Super Admin → Mobile App, for both native apps.
  *
- * The single place an operator configures the native app and proves it is
- * ready for the App Store. Everything on this screen is real configuration —
- * the values here are what `npm run ios:sync` writes into the Xcode project
- * (Info.plist, entitlements, privacy manifest, build settings), and the
- * readiness verdicts are recomputed server-side on every read and save.
+ * The single place an operator configures the iOS and Android apps. A switch
+ * at the top picks the platform; each has its own tabs over the same row.
+ *
+ *   • iOS: everything is real configuration — the values are what
+ *     `npm run ios:sync` writes into the Xcode project (Info.plist,
+ *     entitlements, privacy manifest, build settings), and the App Store
+ *     readiness verdicts are recomputed server-side on every read and save.
+ *   • Android: the Play identity and release, and the in-app switches the
+ *     installed app reads live from `GET /api/mobile-app/config` — hiding
+ *     Storage, locking the name on the profile — without a new build.
+ *
+ * Promotions are one set of copy shown by both apps, so the tab is the same
+ * component under either platform.
  *
  * Editing model: one draft held here, sections mutate it through `set`, and a
  * single sticky bar saves. A tab switch never loses an unsaved edit, and the
  * server's normalized row replaces the draft on success so what is shown is
  * always what was stored.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type SVGProps } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Smartphone, Fingerprint, Hammer, ToggleRight, ShieldCheck, ClipboardCheck,
-  UserCheck, Rocket, Terminal, Loader2, AlertTriangle, Megaphone,
+  UserCheck, Rocket, Terminal, Loader2, AlertTriangle, Megaphone, Apple, Settings2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -38,8 +47,16 @@ import { MobileReviewTab } from '@/components/admin/mobile/MobileReviewTab';
 import { MobileReleaseTab } from '@/components/admin/mobile/MobileReleaseTab';
 import { MobileBuildGuideTab } from '@/components/admin/mobile/MobileBuildGuideTab';
 import { MobilePromotionsTab } from '@/components/admin/mobile/MobilePromotionsTab';
+import { AndroidOverviewTab } from '@/components/admin/mobile/android/AndroidOverviewTab';
+import { androidChecks } from '@/components/admin/mobile/android/androidChecks';
+import { AndroidIdentityTab } from '@/components/admin/mobile/android/AndroidIdentityTab';
+import { AndroidReleaseTab } from '@/components/admin/mobile/android/AndroidReleaseTab';
+import { AndroidInAppTab } from '@/components/admin/mobile/android/AndroidInAppTab';
+import { cn } from '@/lib/utils';
 
-const TABS = [
+type Platform = 'ios' | 'android';
+
+const IOS_TABS = [
   { value: 'overview', icon: Smartphone },
   { value: 'identity', icon: Fingerprint },
   { value: 'build', icon: Hammer },
@@ -52,12 +69,53 @@ const TABS = [
   { value: 'buildGuide', icon: Terminal },
 ] as const;
 
+const ANDROID_TABS = [
+  { value: 'overview', icon: Smartphone },
+  { value: 'identity', icon: Fingerprint },
+  { value: 'release', icon: Rocket },
+  { value: 'inApp', icon: Settings2 },
+  { value: 'promotions', icon: Megaphone },
+] as const;
+
+/** The Android robot's head — Lucide ships no brand marks. */
+function AndroidGlyph(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden {...props}>
+      <path d="M17.6 9.48l1.84-3.18a.38.38 0 0 0-.66-.38l-1.87 3.23A11.4 11.4 0 0 0 12 8.1c-1.76 0-3.4.37-4.91 1.05L5.22 5.92a.38.38 0 0 0-.66.38L6.4 9.48A10.8 10.8 0 0 0 1 18h22a10.8 10.8 0 0 0-5.4-8.52zM7 15.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5zm10 0a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5z" />
+    </svg>
+  );
+}
+
+function AppleGlyph({ className }: { className?: string }) {
+  return <Apple className={className} fill="currentColor" />;
+}
+
+const PLATFORMS = [
+  { value: 'ios', icon: AppleGlyph },
+  { value: 'android', icon: AndroidGlyph },
+] as const;
+
 export default function MobileAppPage() {
   const { t } = useTranslation();
   const { data, isLoading, error } = useMobileAppSettings();
   const save = useSaveMobileAppSettings();
 
+  // The platform rides in the URL, so a link can open the Android side.
+  const [params, setParams] = useSearchParams();
+  const platform: Platform = params.get('platform') === 'android' ? 'android' : 'ios';
   const [tab, setTab] = useState<string>('overview');
+  const choosePlatform = (next: Platform) => {
+    setTab('overview');
+    setParams(
+      (previous) => {
+        const updated = new URLSearchParams(previous);
+        if (next === 'ios') updated.delete('platform');
+        else updated.set('platform', next);
+        return updated;
+      },
+      { replace: true },
+    );
+  };
   const [draft, setDraft] = useState<MobileAppSettings | null>(null);
 
   // The saved row is authoritative: adopt it on load and after every save, so
@@ -101,6 +159,11 @@ export default function MobileAppPage() {
     );
   }
 
+  // Against the draft, so the badge moves as a fix is typed rather than after it is saved.
+  const android = androidChecks(draft, data.environment.pushConfigured);
+  const androidPassed = android.filter((check) => check.ok).length;
+  const androidTotal = android.length;
+
   return (
     <div className="space-y-6 p-6 pb-28">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -113,14 +176,46 @@ export default function MobileAppPage() {
             <p className="text-sm text-muted-foreground">{t('admin.mobileApp.subtitle')}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge variant={data.summary.submittable ? 'default' : 'secondary'}>
-            {t('admin.mobileApp.overview.scoreBadge', { score: data.summary.score })}
-          </Badge>
-          {data.summary.blockers > 0 && (
-            <Badge variant="destructive" className="gap-1">
-              <AlertTriangle className="h-3 w-3" />
-              {t('admin.mobileApp.overview.blockersBadge', { count: data.summary.blockers })}
+        <div className="flex flex-wrap items-center gap-2">
+          <div
+            role="radiogroup"
+            aria-label={t('admin.mobileApp.platform.label')}
+            className="inline-flex rounded-xl border border-border/70 bg-muted/40 p-1"
+          >
+            {PLATFORMS.map((entry) => (
+              <button
+                key={entry.value}
+                type="button"
+                role="radio"
+                aria-checked={platform === entry.value}
+                onClick={() => choosePlatform(entry.value)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
+                  platform === entry.value
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <entry.icon className="h-4 w-4" />
+                {t(`admin.mobileApp.platform.${entry.value}` as TranslationKey)}
+              </button>
+            ))}
+          </div>
+          {platform === 'ios' ? (
+            <>
+              <Badge variant={data.summary.submittable ? 'default' : 'secondary'}>
+                {t('admin.mobileApp.overview.scoreBadge', { score: data.summary.score })}
+              </Badge>
+              {data.summary.blockers > 0 && (
+                <Badge variant="destructive" className="gap-1">
+                  <AlertTriangle className="h-3 w-3" />
+                  {t('admin.mobileApp.overview.blockersBadge', { count: data.summary.blockers })}
+                </Badge>
+              )}
+            </>
+          ) : (
+            <Badge variant={androidPassed === androidTotal ? 'default' : 'secondary'} className="tabular-nums">
+              {t('admin.mobileApp.android.overview.passed', { passed: androidPassed, total: androidTotal })}
             </Badge>
           )}
         </div>
@@ -132,47 +227,76 @@ export default function MobileAppPage() {
         </p>
       )}
 
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
-          {TABS.map((entry) => (
-            <TabsTrigger key={entry.value} value={entry.value} className="gap-1.5">
-              <entry.icon className="h-4 w-4" />
-              {t(`admin.mobileApp.tabs.${entry.value}` as TranslationKey)}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+      {platform === 'ios' ? (
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
+            {IOS_TABS.map((entry) => (
+              <TabsTrigger key={entry.value} value={entry.value} className="gap-1.5">
+                <entry.icon className="h-4 w-4" />
+                {t(`admin.mobileApp.tabs.${entry.value}` as TranslationKey)}
+              </TabsTrigger>
+            ))}
+          </TabsList>
 
-        <TabsContent value="overview" className="space-y-4">
-          <MobileOverviewTab data={data} onGoToTab={setTab} />
-        </TabsContent>
-        <TabsContent value="identity" className="space-y-4">
-          <MobileIdentityTab draft={draft} set={set} />
-        </TabsContent>
-        <TabsContent value="build" className="space-y-4">
-          <MobileBuildTab draft={draft} set={set} />
-        </TabsContent>
-        <TabsContent value="capabilities" className="space-y-4">
-          <MobileCapabilitiesTab draft={draft} set={set} environment={data.environment} />
-        </TabsContent>
-        <TabsContent value="privacy" className="space-y-4">
-          <MobilePrivacyTab draft={draft} set={set} />
-        </TabsContent>
-        <TabsContent value="promotions" className="space-y-4">
-          <MobilePromotionsTab draft={draft} set={set} />
-        </TabsContent>
-        <TabsContent value="appStore" className="space-y-4">
-          <MobileAppStoreTab checks={data.checks} summary={data.summary} settings={data.settings} />
-        </TabsContent>
-        <TabsContent value="review" className="space-y-4">
-          <MobileReviewTab draft={draft} set={set} />
-        </TabsContent>
-        <TabsContent value="release" className="space-y-4">
-          <MobileReleaseTab draft={draft} set={set} />
-        </TabsContent>
-        <TabsContent value="buildGuide" className="space-y-4">
-          <MobileBuildGuideTab active={tab === 'buildGuide'} settings={data.settings} />
-        </TabsContent>
-      </Tabs>
+          <TabsContent value="overview" className="space-y-4">
+            <MobileOverviewTab data={data} onGoToTab={setTab} />
+          </TabsContent>
+          <TabsContent value="identity" className="space-y-4">
+            <MobileIdentityTab draft={draft} set={set} />
+          </TabsContent>
+          <TabsContent value="build" className="space-y-4">
+            <MobileBuildTab draft={draft} set={set} />
+          </TabsContent>
+          <TabsContent value="capabilities" className="space-y-4">
+            <MobileCapabilitiesTab draft={draft} set={set} environment={data.environment} />
+          </TabsContent>
+          <TabsContent value="privacy" className="space-y-4">
+            <MobilePrivacyTab draft={draft} set={set} />
+          </TabsContent>
+          <TabsContent value="promotions" className="space-y-4">
+            <MobilePromotionsTab draft={draft} set={set} />
+          </TabsContent>
+          <TabsContent value="appStore" className="space-y-4">
+            <MobileAppStoreTab checks={data.checks} summary={data.summary} settings={data.settings} />
+          </TabsContent>
+          <TabsContent value="review" className="space-y-4">
+            <MobileReviewTab draft={draft} set={set} />
+          </TabsContent>
+          <TabsContent value="release" className="space-y-4">
+            <MobileReleaseTab draft={draft} set={set} />
+          </TabsContent>
+          <TabsContent value="buildGuide" className="space-y-4">
+            <MobileBuildGuideTab active={tab === 'buildGuide'} settings={data.settings} />
+          </TabsContent>
+        </Tabs>
+      ) : (
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
+            {ANDROID_TABS.map((entry) => (
+              <TabsTrigger key={entry.value} value={entry.value} className="gap-1.5">
+                <entry.icon className="h-4 w-4" />
+                {t(`admin.mobileApp.androidTabs.${entry.value}` as TranslationKey)}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
+          <TabsContent value="overview" className="space-y-4">
+            <AndroidOverviewTab data={{ ...data, settings: draft }} onGoToTab={setTab} />
+          </TabsContent>
+          <TabsContent value="identity" className="space-y-4">
+            <AndroidIdentityTab draft={draft} set={set} />
+          </TabsContent>
+          <TabsContent value="release" className="space-y-4">
+            <AndroidReleaseTab draft={draft} set={set} />
+          </TabsContent>
+          <TabsContent value="inApp" className="space-y-4">
+            <AndroidInAppTab draft={draft} set={set} />
+          </TabsContent>
+          <TabsContent value="promotions" className="space-y-4">
+            <MobilePromotionsTab draft={draft} set={set} />
+          </TabsContent>
+        </Tabs>
+      )}
 
       {/* Sticky save bar: an edit is never lost behind a tab switch, and the
           operator always sees whether the draft differs from what is stored. */}

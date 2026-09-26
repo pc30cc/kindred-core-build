@@ -25,6 +25,7 @@ import com.webyar.operator.core.model.GmailConnection
 import com.webyar.operator.core.model.InboxCounts
 import com.webyar.operator.core.model.InboxFilter
 import com.webyar.operator.core.model.Message
+import com.webyar.operator.core.model.MobileAppConfig
 import com.webyar.operator.core.model.Promotions
 import com.webyar.operator.core.model.SayNowVoice
 import com.webyar.operator.core.model.TeamThreadResponse
@@ -326,6 +327,12 @@ interface WebyarApi {
     suspend fun availability(): AvailabilityResponse
     suspend fun updateAvailability(update: AvailabilityUpdate): AvailabilityResponse
     suspend fun promotions(workspaceId: String, locale: String): Promotions
+
+    /**
+     * Super Admin's switches for this app. Defaulted, so a fake that has no
+     * opinion behaves like a platform that never touched them.
+     */
+    suspend fun mobileAppConfig(): MobileAppConfig = MobileAppConfig.DEFAULT
 
     // MARK: - Calls
 

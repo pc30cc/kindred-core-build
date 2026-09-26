@@ -212,10 +212,31 @@ object StrAndroid {
         Language.TR -> "Son mesaja git"
     }
 
+    /** What tapping the visitor's face or name in a chat does, for a screen reader. */
+    fun openContact(l: Language): String = when (l) {
+        Language.EN -> "Open contact"
+        Language.FA -> "باز کردن مخاطب"
+        Language.TR -> "Kişiyi aç"
+    }
+
     /** Ends a recording and keeps it, to be heard and then sent or thrown away. */
     fun stopRecording(l: Language): String = when (l) {
         Language.EN -> "Stop recording"
         Language.FA -> "پایان ضبط"
         Language.TR -> "Kaydı durdur"
+    }
+
+    /** The operator's name on the profile, when it is shown as a fact. */
+    fun fullName(l: Language): String = when (l) {
+        Language.EN -> "Name"
+        Language.FA -> "نام و نام خانوادگی"
+        Language.TR -> "Ad soyad"
+    }
+
+    /** Under the profile's read-only rows: why they are not fields. */
+    fun profileManaged(l: Language): String = when (l) {
+        Language.EN -> "Set by your workspace. To change it, use the web console or ask an admin."
+        Language.FA -> "این موارد را فضای کاری شما تعیین می‌کند. برای تغییرشان از پنل وب استفاده کنید یا به مدیر بگویید."
+        Language.TR -> "Bunları çalışma alanınız belirler. Değiştirmek için web panelini kullanın ya da bir yöneticiye sorun."
     }
 }

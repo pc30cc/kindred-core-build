@@ -140,7 +140,7 @@ class ApiClient(
          * branch away and the shipped app neither logs nor carries the
          * plugin. Headers are logged but `Authorization` is redacted — a
          * session token in logcat is a session token any app on the device
-         * can read.
+         * can read — and bodies are not logged at all.
          */
         if (BuildConfig.DEBUG) {
             install(Logging) {
@@ -149,11 +149,17 @@ class ApiClient(
                         android.util.Log.d(LOG_TAG, message)
                     }
                 }
-                level = LogLevel.ALL
+                // Headers, not bodies. A body is a visitor's message, a
+                // customer's email, a contact's address — none of which may
+                // sit in logcat, debug build or not. The URL, the method and
+                // the status are what tell a request that went from one that
+                // did not, which is what this log is for.
+                level = LogLevel.HEADERS
                 sanitizeHeader { name -> name.equals(HttpHeaders.Authorization, ignoreCase = true) }
                 // Auth is not logged AT ALL, and the reason is the request
-                // body rather than the response. `LogLevel.ALL` writes bodies,
-                // and the body of a sign-in is somebody's password in plain
+                // body rather than the response. Should the level ever go
+                // back to `ALL`, that writes bodies, and the body of a
+                // sign-in is somebody's password in plain
                 // text — in logcat, which every app with READ_LOGS and anyone
                 // holding the phone over adb can read. Redacting the
                 // Authorization header covers the token and does nothing at

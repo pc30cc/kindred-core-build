@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
@@ -259,7 +260,7 @@ class AppState(
         cache.save(user)
         hooks.signedIn(user)
         _session.value = Session.SignedIn(user)
-        viewModelScope.launch { loadWorkspaces() }
+        loadWorkspaces()
     }
 
     /**
@@ -279,7 +280,9 @@ class AppState(
                     cache.clear()
                     runCatching { hooks.signedOut(user?.id) }
                     // A different operator is a different set of workspaces:
-                    // nothing selected here may carry across to them.
+                    // nothing selected here may carry across to them — and
+                    // no retry still in flight may bring the last one's back.
+                    workspacesJob?.cancel()
                     _workspaces.value = emptyList()
                     _selectedWorkspace.value = null
                     entitlementsRetry?.cancel()
@@ -304,16 +307,72 @@ class AppState(
         }
     }
 
-    private suspend fun loadWorkspaces() {
-        runCatching { api.workspaces() }.onSuccess { list ->
-            _workspaces.value = list
-            loadAvatar()
-            if (_selectedWorkspace.value == null) {
-                _selectedWorkspace.value = list.firstOrNull()
-                announceWorkspace()
-                loadEntitlements()
+    private var workspacesJob: Job? = null
+
+    /**
+     * Loads the workspace list, and tries again until it lands.
+     *
+     * Everything else hangs off the workspace — the conversations, the plan,
+     * and through the plan the Contacts tab and the AI queues. A single
+     * attempt that failed used to be the end of it: an app opened a moment
+     * before the network was up (the emulator's DNS for its first seconds, a
+     * phone coming out of a lift) sat on grey placeholder rows with two tabs
+     * until it was killed, while every later request went through.
+     *
+     * So a failure waits and tries again, the waits growing to half a minute,
+     * for a few minutes; after that, pulling the list to refresh starts it
+     * over ([retryIfIncomplete]). Not for an auth failure — that is a
+     * signed-out session, which the next request reports and the app acts on.
+     */
+    private fun loadWorkspaces() {
+        if (workspacesJob?.isActive == true) return
+        workspacesJob = viewModelScope.launch {
+            retrying { api.workspaces() }?.let { list ->
+                if (_session.value !is Session.SignedIn) return@let
+                _workspaces.value = list
+                loadAvatar()
+                if (_selectedWorkspace.value == null) {
+                    _selectedWorkspace.value = list.firstOrNull()
+                    announceWorkspace()
+                    loadEntitlements()
+                }
             }
         }
+    }
+
+    /**
+     * Pull to refresh on a list that has nothing under it: whatever did not
+     * load at launch is asked for again.
+     */
+    fun retryIfIncomplete() {
+        if (_session.value !is Session.SignedIn) return
+        if (_selectedWorkspace.value == null) {
+            loadWorkspaces()
+        } else if (_entitlements.value == EntitlementsState.Failed) {
+            loadEntitlements()
+        }
+    }
+
+    /**
+     * [block], again after a growing wait each time it fails, until it
+     * succeeds, the session ends, or the attempts run out. Null when it never
+     * succeeded.
+     */
+    private suspend fun <T> retrying(block: suspend () -> T): T? {
+        var wait = RETRY_FIRST_MS
+        repeat(RETRY_ATTEMPTS) { attempt ->
+            try {
+                return block()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (e is ApiError && e.isAuthFailure) return null
+            }
+            if (_session.value !is Session.SignedIn || attempt == RETRY_ATTEMPTS - 1) return null
+            delay(wait)
+            wait = (wait * 2).coerceAtMost(RETRY_MAX_MS)
+        }
+        return null
     }
 
     private fun announceWorkspace() {
@@ -349,7 +408,12 @@ class AppState(
      * load or a 20-second re-ask already on its way is left to finish.
      */
     fun refreshPlanIfStale() {
-        if (_selectedWorkspace.value == null) return
+        if (_selectedWorkspace.value == null) {
+            // No workspace means the launch never got one; coming back to
+            // the app is as good a moment as any to ask again.
+            if (_session.value is Session.SignedIn) loadWorkspaces()
+            return
+        }
         if (entitlementsRetry?.isActive == true) return
         val loadedAt = planLoadedAt
         if (loadedAt != null && System.nanoTime() - loadedAt < PLAN_REFRESH_NS) return
@@ -406,5 +470,9 @@ class AppState(
     private companion object {
         const val PLAN_RETRY_MS = 20_000L
         const val PLAN_REFRESH_NS = 3 * 60 * 1_000_000_000L
+        /** 1, 2, 4, 8, 16, 30, 30… seconds: about five minutes in all. */
+        const val RETRY_FIRST_MS = 1_000L
+        const val RETRY_MAX_MS = 30_000L
+        const val RETRY_ATTEMPTS = 12
     }
 }

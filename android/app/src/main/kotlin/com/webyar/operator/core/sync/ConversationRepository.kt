@@ -128,6 +128,14 @@ class ConversationRepository(
         ids: Collection<String>,
         filter: InboxFilter?,
         reason: String,
+        /**
+         * By id only: whether a conversation the server does not return is
+         * removed. False for a supplementary read (an open chat re-read so
+         * its header follows it): a missing row there must not wipe the
+         * transcript under the operator — the thread's own read is what
+         * says a conversation is gone.
+         */
+        removeMissing: Boolean = true,
     ) {
         val wanted = ids.filter { it.isNotBlank() }.distinct()
         if (wanted.isEmpty()) return
@@ -137,6 +145,7 @@ class ConversationRepository(
                 for (id in wanted) {
                     val row = api.conversation(scope.workspaceId, id)
                     if (row == null) {
+                        if (!removeMissing) continue
                         store.removeConversation(scope, id)
                         diag.info(AREA, "conversation ${Diag.id(id)} gone; removed ($reason)")
                     } else {

@@ -319,7 +319,9 @@ class SyncCoordinator(
         // old state. By id, the row is rewritten wherever it went.
         val open = ids.filter { it in openThreads.value }
         if (open.isNotEmpty()) {
-            runCatchingUnlessCancelled { conversations.refreshConversations(f.scope, open, filter = null, reason = reasons) }
+            runCatchingUnlessCancelled {
+                conversations.refreshConversations(f.scope, open, filter = null, reason = reasons, removeMissing = false)
+            }
                 .onFailure { diag.warn(AREA, "open-thread read failed ($reasons): ${it.javaClass.simpleName}") }
         }
         runCatchingUnlessCancelled { refreshCounts(f.scope, f.filter.queue) }

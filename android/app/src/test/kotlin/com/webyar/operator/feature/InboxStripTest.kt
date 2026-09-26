@@ -1,6 +1,8 @@
 package com.webyar.operator.feature
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -101,7 +103,11 @@ class InboxStripTest {
         )
         screen(conversations = listOf(telegram) + base.drop(1))
 
-        compose.onNodeWithTag("channel.telegram", useUnmergedTree = true).assertIsDisplayed()
+        // On the row it belongs to (the sample has a Telegram thread of its own).
+        compose.onNode(
+            hasTestTag("channel.telegram") and hasAnyAncestor(hasTestTag(A11y.conversationRow("tg-1"))),
+            useUnmergedTree = true,
+        ).assertIsDisplayed()
         // The rest came from the site's own chat, and say so.
         assertTrue(compose.onAllNodesWithTag("channel.${ConversationChannel.WEB}", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
     }

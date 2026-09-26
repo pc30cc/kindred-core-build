@@ -76,13 +76,13 @@ import {
 
 // ─── Constants ───
 const CURRENCIES = ['USD', 'EUR', 'TRY', 'IRR'];
-const LOCALE_LABELS: Record<string, string> = {
-  en: '🇬🇧 English',
-  tr: '🇹🇷 Türkçe',
-  fa: '🇮🇷 فارسی',
-  de: '🇩🇪 Deutsch',
-  fr: '🇫🇷 Français',
-  ar: '🇸🇦 العربية',
+const LOCALE_FLAGS: Record<string, string> = {
+  en: '🇬🇧',
+  tr: '🇹🇷',
+  fa: '🇮🇷',
+  de: '🇩🇪',
+  fr: '🇫🇷',
+  ar: '🇸🇦',
 };
 
 interface LocalizedPlan {
@@ -580,7 +580,9 @@ function PlanFormDialog({
               {locales.map((loc) => (
                 <Card key={loc} className="bg-muted/20 border-border">
                   <CardContent className="pt-3 pb-3 space-y-2">
-                    <p className="text-xs font-bold text-foreground">{LOCALE_LABELS[loc] || loc.toUpperCase()}</p>
+                    <p className="text-xs font-bold text-foreground">
+                      {LOCALE_FLAGS[loc]} {languageLabel(loc, locale)}
+                    </p>
                     <Input
                       value={form.localized[loc]?.name || ''}
                       onChange={(e) => updateLocalized(loc, 'name', e.target.value)}
@@ -1492,7 +1494,7 @@ export default function AdminPlansPage() {
                             d.name ? (
                               <Badge key={loc} variant="outline" className="text-[11px] gap-1 font-normal">
                                 <Globe className="w-3 h-3" />
-                                {LOCALE_LABELS[loc]?.split(' ')[0] || loc} {d.name}
+                                {LOCALE_FLAGS[loc] || loc} {d.name}
                               </Badge>
                             ) : null,
                           )}

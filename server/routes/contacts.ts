@@ -173,9 +173,8 @@ contactsRouter.post('/', async (req, res) => {
       ...contactExtrasFeatures([parsed.data]),
     ]))) return;
 
-    // Canonical TS limit check. The middleware reads workspace_id off
-    // req.body — already validated above.
-    const ok = await enforceMaxContactsCreate(req, res);
+    // Canonical TS limit check, evaluated on the workspace authorized above.
+    const ok = await enforceMaxContactsCreate(req, res, parsed.data.workspace_id);
     if (!ok) return;
 
     const sb = getServiceClient(config);

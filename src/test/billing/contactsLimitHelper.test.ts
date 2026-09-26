@@ -66,7 +66,7 @@ describe('contacts limit helper — single create', () => {
     rpcMock.mockResolvedValue({ data: { allowed: true, limit: 100, plan: 'pro' }, error: null });
     countMock.mockResolvedValue({ count: 3, error: null });
     const { req, res, getStatus } = makeReqRes();
-    const ok = await enforceMaxContactsCreate(req, res);
+    const ok = await enforceMaxContactsCreate(req, res, 'ws-x');
     expect(ok).toBe(true);
     expect(getStatus()).toBeUndefined();
   });
@@ -75,16 +75,26 @@ describe('contacts limit helper — single create', () => {
     rpcMock.mockResolvedValue({ data: { allowed: true, limit: 3, plan: 'free' }, error: null });
     countMock.mockResolvedValue({ count: 3, error: null });
     const { req, res, getStatus } = makeReqRes();
-    const ok = await enforceMaxContactsCreate(req, res);
+    const ok = await enforceMaxContactsCreate(req, res, 'ws-x');
     expect(ok).toBe(false);
     expect(getStatus()).toBe(403);
   });
 
   it('returns 400 when workspace_id is missing', async () => {
     const { req, res, getStatus } = makeReqRes({});
-    const ok = await enforceMaxContactsCreate(req, res);
+    const ok = await enforceMaxContactsCreate(req, res, '');
     expect(ok).toBe(false);
     expect(getStatus()).toBe(400);
+  });
+
+  it('evaluates the authorized workspace, ignoring a spoofed body workspaceId', async () => {
+    rpcMock.mockResolvedValue({ data: { allowed: true, limit: 3, plan: 'free' }, error: null });
+    countMock.mockResolvedValue({ count: 3, error: null });
+    const { req, res, getStatus } = makeReqRes({ workspace_id: 'ws-x', workspaceId: 'ws-unlimited' });
+    const ok = await enforceMaxContactsCreate(req, res, 'ws-x');
+    expect(ok).toBe(false);
+    expect(getStatus()).toBe(403);
+    expect(rpcMock.mock.calls[0][1]._workspace_id).toBe('ws-x');
   });
 });
 

@@ -27,10 +27,10 @@
  * `visitor_sessions`; it never increments any counter and never
  * writes a `visitor_sessions` row.
  *
- * Callers MUST have already verified `workspace_id` (widget token /
- * origin / workspace membership) before calling this helper, and
- * MUST place `req.body.workspace_id` on the request — the underlying
- * `requireLimit` middleware reads it from there.
+ * Callers MUST have already verified `workspaceId` (widget token /
+ * origin / workspace membership) before calling this helper. The cap is
+ * evaluated on that argument only (pinned via setTrustedGateWorkspaceId);
+ * request-supplied `workspaceId`/`workspace_id` fields are ignored.
  *
  * Returns `true` when the caller may proceed, `false` when the
  * middleware has already written its 403 response. Callers must
@@ -40,6 +40,7 @@
 import type { Request, Response } from 'express';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { requireLimit } from '../../middleware/featureGating.js';
+import { setTrustedGateWorkspaceId } from '../../middleware/gateWorkspace.js';
 import { usageFnForLimit } from './usageResolvers.js';
 
 const visitorLimitMiddleware = requireLimit(
@@ -100,7 +101,13 @@ export async function enforceMaxVisitorsLimitIfNewThisMonth(
   if (await hasInMonthVisitorSession(supabase, workspaceId, visitorId)) {
     return true;
   }
-  // True new-this-month visitor → defer to the shared limit middleware.
+  // True new-this-month visitor → defer to the shared limit middleware,
+  // evaluated on the authorized workspace passed in, not on req.body.
+  if (!workspaceId) {
+    res.status(400).json({ error: 'Missing workspaceId for limit check' });
+    return false;
+  }
+  setTrustedGateWorkspaceId(req, workspaceId);
   let proceeded = false;
   await visitorLimitMiddleware(req, res, () => {
     proceeded = true;

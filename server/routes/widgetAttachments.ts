@@ -38,6 +38,7 @@ import {
 import { uploadFile, downloadFile } from '../services/storage/index.js';
 import { chatAttachmentKey } from '../services/storage/keys.js';
 import { requireLimit } from '../middleware/featureGating.js';
+import { setTrustedGateWorkspaceId } from '../middleware/gateWorkspace.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 
 export const widgetAttachmentsRouter = Router();
@@ -285,11 +286,11 @@ widgetAttachmentsRouter.post('/:id/upload', widgetRateLimit('upload'), async (re
   // ── storage_gb cap enforcement (visitor-facing) ──
   // Mirrors the operator upload routes; see docs/STORAGE_LIMIT_POLICY.md.
   // workspace_id is the server-resolved one from the validated widget token
-  // (X-Widget-Token + cookie). We inject it into req.body so the shared
-  // extractWorkspaceId() helper sees the trusted value — the body schema is
-  // {data: base64} and intentionally never carried workspace_id from the
-  // visitor. Forward-correct only; no route-local storage math.
-  (req.body as any).workspace_id = workspaceId;
+  // (X-Widget-Token + cookie). It is pinned on the request so the shared
+  // gate evaluates it and ignores any workspaceId/workspace_id the visitor
+  // put in the body (the schema is {data: base64} and never carries one).
+  // Forward-correct only; no route-local storage math.
+  setTrustedGateWorkspaceId(req, workspaceId);
   const limitMw = requireLimit('storage_gb', usageFnForLimit('storage_gb'));
   let proceeded = false;
   await limitMw(req, res, () => { proceeded = true; });

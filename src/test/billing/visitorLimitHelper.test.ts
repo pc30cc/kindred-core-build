@@ -114,6 +114,26 @@ describe("enforceMaxVisitorsLimitIfNewThisMonth — runtime behavior", () => {
     expect(getStatus()).toBe(403);
   });
 
+  it("evaluates the workspace argument, ignoring a spoofed body workspaceId", async () => {
+    // Regression: the helper received the authorized workspace but the
+    // shared middleware re-read req.body, preferring body.workspaceId.
+    rpcMock.mockImplementation(async (_fn: string, args: { _workspace_id: string }) => ({
+      data: args._workspace_id === "ws-unlimited"
+        ? { allowed: true, limit: -1, plan: "enterprise" }
+        : { allowed: true, limit: 0, plan: "free" },
+      error: null,
+    }));
+    const sb = makeSupabaseStub({ data: null, error: null });
+    const { req, res, getStatus } = makeReqRes();
+    req.body = { workspace_id: "ws-vis-5", workspaceId: "ws-unlimited" };
+    const ok = await enforceMaxVisitorsLimitIfNewThisMonth(
+      req, res, sb, "ws-vis-5", "visitor-5",
+    );
+    expect(ok).toBe(false);
+    expect(getStatus()).toBe(403);
+    expect(rpcMock.mock.calls[0][1]._workspace_id).toBe("ws-vis-5");
+  });
+
   it("fails OPEN (returns true, no rpc call) when the in-month membership read errors", async () => {
     const sb = makeSupabaseStub({ data: null, error: { message: "db down" } });
     const { req, res } = makeReqRes();

@@ -21,6 +21,7 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { requireLimit } from '../middleware/featureGating.js';
+import { setTrustedGateWorkspaceId } from '../middleware/gateWorkspace.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import { requireUser as requireSessionUser, authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
@@ -295,6 +296,8 @@ aiKbRouter.post('/jobs', async (req: Request, res: Response) => {
   // The bypass is kept explicit and local (per docs/PLAN_LIMIT_ALIGNMENT.md)
   // — we do NOT add a global admin short-circuit to requireLimit.
   if (!auth.isAdmin) {
+    // Evaluate the cap on the workspace authorized above.
+    setTrustedGateWorkspaceId(req, workspaceId);
     const limitMw = requireLimit(
       'ai_kb_jobs_per_month',
       usageFnForLimit('ai_kb_jobs_per_month'),

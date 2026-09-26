@@ -32,8 +32,10 @@ import {
   requireFeature,
   requireModule,
   requireAICredits,
+  requireChannel,
   clearEntitlementCache,
 } from "../../../server/middleware/featureGating";
+import { setTrustedGateWorkspaceId } from "../../../server/middleware/gateWorkspace";
 import { usageFnForLimit } from "../../../server/services/billing/usageResolvers";
 
 function makeReqRes(body: Record<string, unknown> = {}) {
@@ -321,5 +323,104 @@ describe("requireFeature / requireModule / requireAICredits — failure classifi
     const next = vi.fn();
     await requireAICredits(1)(req, res, next);
     expect(next).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("gate workspace resolution — spoofed workspace ids", () => {
+  beforeEach(() => {
+    rpcMock.mockReset();
+    counterRowMock.mockReset();
+    clearEntitlementCache();
+  });
+
+  it("requireModule: route param + disagreeing ?workspaceId → 400 workspace_id_mismatch, no RPC", async () => {
+    // Regression: GET /:workspaceId/overview?workspaceId=<entitled ws> used
+    // to pass the gate on the entitled workspace while the handler served
+    // the (unentitled) route-param workspace.
+    rpcMock.mockResolvedValue({ data: { allowed: true, plan: "pro" }, error: null });
+    const { req, res, getResult } = makeReqRes();
+    req.params = { workspaceId: "ws-victim" };
+    req.query = { workspaceId: "ws-entitled" };
+    const next = vi.fn();
+    await requireModule("brand_radar")(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(getResult().statusCode).toBe(400);
+    expect(getResult().jsonBody?.error).toBe("workspace_id_mismatch");
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("requireModule: route param + disagreeing body workspace_id → 400", async () => {
+    const { req, res, getResult } = makeReqRes({ workspace_id: "ws-entitled" });
+    req.params = { workspaceId: "ws-victim" };
+    const next = vi.fn();
+    await requireModule("brand_radar")(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(getResult().statusCode).toBe(400);
+    expect(getResult().jsonBody?.error).toBe("workspace_id_mismatch");
+  });
+
+  it("requireFeature: body workspaceId vs workspace_id disagreement → 400", async () => {
+    const { req, res, getResult } = makeReqRes({ workspaceId: "ws-a", workspace_id: "ws-b" });
+    const next = vi.fn();
+    await requireFeature("ai_assistant")(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(getResult().statusCode).toBe(400);
+    expect(getResult().jsonBody?.error).toBe("workspace_id_mismatch");
+  });
+
+  it("requireAICredits / requireChannel / requireLimit reject mismatched ids too", async () => {
+    for (const mw of [
+      requireAICredits(1),
+      requireChannel("email"),
+      requireLimit("max_conversations", usageFnForLimit("max_conversations")),
+    ]) {
+      const { req, res, getResult } = makeReqRes({ workspaceId: "ws-a" });
+      req.query = { workspace_id: "ws-b" };
+      const next = vi.fn();
+      await mw(req, res, next);
+      expect(next).not.toHaveBeenCalled();
+      expect(getResult().statusCode).toBe(400);
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects array-valued workspace ids (?workspaceId=a&workspaceId=b)", async () => {
+    const { req, res, getResult } = makeReqRes();
+    req.query = { workspaceId: ["ws-a", "ws-b"] };
+    await requireModule("brand_radar")(req, res, vi.fn());
+    expect(getResult().statusCode).toBe(400);
+    expect(getResult().jsonBody?.error).toBe("invalid_workspace_id");
+  });
+
+  it("the same id in route param, body and query is accepted and checked on that workspace", async () => {
+    rpcMock.mockResolvedValue({ data: { allowed: true, plan: "pro" }, error: null });
+    const { req, res } = makeReqRes({ workspaceId: "ws-1" });
+    req.params = { workspaceId: "ws-1" };
+    req.query = { workspace_id: "ws-1" };
+    const next = vi.fn();
+    await requireModule("brand_radar")(req, res, next);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(rpcMock.mock.calls[0][1]._workspace_id).toBe("ws-1");
+  });
+
+  it("route param alone is used (previously the lowest-priority source)", async () => {
+    rpcMock.mockResolvedValue({ data: { allowed: false, plan: "free" }, error: null });
+    const { req, res, getResult } = makeReqRes();
+    req.params = { workspaceId: "ws-param" };
+    await requireModule("brand_radar")(req, res, vi.fn());
+    expect(getResult().statusCode).toBe(403);
+    expect(rpcMock.mock.calls[0][1]._workspace_id).toBe("ws-param");
+  });
+
+  it("a server-pinned workspace wins over every request-supplied field", async () => {
+    rpcMock.mockResolvedValue({ data: { allowed: true, limit: 3, plan: "free" }, error: null });
+    counterRowMock.mockResolvedValue({ data: { conversations_count: 3 }, error: null });
+    const { req, res, getResult } = makeReqRes({ workspace_id: "ws-auth", workspaceId: "ws-unlimited" });
+    setTrustedGateWorkspaceId(req, "ws-auth");
+    const next = vi.fn();
+    await requireLimit("max_conversations", usageFnForLimit("max_conversations"))(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(getResult().statusCode).toBe(403);
+    expect(rpcMock.mock.calls[0][1]._workspace_id).toBe("ws-auth");
   });
 });

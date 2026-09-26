@@ -139,7 +139,7 @@ export async function assertFeatureEnabled(
   }
 }
 
-/** Path patterns → feature key. Matched against req.path. */
+/** Path patterns → feature key. Matched against normalizeAiAgentGuardPath(req.path). */
 const FEATURE_ROUTES: Array<{ rx: RegExp; feature: PlatformFeatureKey }> = [
   // Files
   { rx: /^\/files(\/|$)/, feature: 'files' },
@@ -227,6 +227,24 @@ async function resolveWorkspaceFromIdParam(
 }
 
 /**
+ * Canonical form of an AI Agent sub-path for guard matching.
+ *
+ * Express routers are case-insensitive and non-strict by default, so
+ * `/Platform/Settings` and `/platform/settings/` both reach the
+ * `/platform/settings` handler. Guards that pattern-match
+ * `req.path` must therefore match on the same equivalence class or they can
+ * be skipped by a trivially re-spelled URL. Lowercases, collapses repeated
+ * slashes (defensively) and strips trailing slashes (root stays `/`). Used for matching
+ * only — never for DB lookups.
+ */
+export function normalizeAiAgentGuardPath(rawPath: string): string {
+  let p = String(rawPath || '/').toLowerCase().replace(/\/{2,}/g, '/');
+  if (!p.startsWith('/')) p = `/${p}`;
+  while (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
+  return p;
+}
+
+/**
  * Combined kill-switch + per-feature path middleware.
  * Skips: /capabilities, /platform/*, /settings (avatar etc handled separately
  * by their own auth code paths but kill switch still applies via direct
@@ -235,7 +253,12 @@ async function resolveWorkspaceFromIdParam(
 export function aiAgentPlatformGuard() {
   return async (req: Request, res: Response, next: NextFunction) => {
     // Always allow capabilities + platform settings + admin debug.
-    if (req.path === '/capabilities' || req.path.startsWith('/platform/')) {
+    // Matched on the normalized path so re-spelled URLs (case, trailing or
+    // doubled slashes) classify exactly like the route Express will run.
+    // `/platform/*` is only safe to skip because the ADVANCED_PATH_PATTERNS
+    // guard (and the handlers themselves) require a platform admin there.
+    const guardPath = normalizeAiAgentGuardPath(req.path);
+    if (guardPath === '/capabilities' || guardPath.startsWith('/platform/')) {
       return next();
     }
 
@@ -244,7 +267,7 @@ export function aiAgentPlatformGuard() {
     const WORKSPACE_EXEMPT: RegExp[] = [
       /^\/workflows\/_meta$/,
     ];
-    const isWorkspaceExempt = WORKSPACE_EXEMPT.some((rx) => rx.test(req.path));
+    const isWorkspaceExempt = WORKSPACE_EXEMPT.some((rx) => rx.test(guardPath));
 
     const config = (req as any).serverConfig as ServerConfig;
 
@@ -321,7 +344,7 @@ export function aiAgentPlatformGuard() {
     }
 
     // Per-feature toggle.
-    const matched = FEATURE_ROUTES.find((r) => r.rx.test(req.path));
+    const matched = FEATURE_ROUTES.find((r) => r.rx.test(guardPath));
     if (matched) {
       const featCheck = await assertFeatureEnabled(config, matched.feature, { userId });
       if (!('ok' in featCheck) || featCheck.ok !== true) {

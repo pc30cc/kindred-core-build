@@ -28,6 +28,7 @@ import { getServiceClient } from '../supabase.js';
 import { uploadFile, downloadFileRange } from '../services/storage/index.js';
 import { chatAttachmentKey } from '../services/storage/keys.js';
 import { requireLimit } from '../middleware/featureGating.js';
+import { setTrustedGateWorkspaceId } from '../middleware/gateWorkspace.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import { verifyAttachmentAccess } from '../services/channels/mediaOutbound.js';
@@ -276,6 +277,8 @@ conversationAttachmentsRouter.post('/:id/upload', async (req, res) => {
     // docs/STORAGE_LIMIT_POLICY.md. No route-local storage math — the shared
     // resolver reads canonical workspace_usage_counters.storage_bytes. On a
     // 403, flip the reserved row to 'failed' so it doesn't strand 'uploading'.
+    // Evaluate the cap on the validated workspace, not raw body fields.
+    setTrustedGateWorkspaceId(req, parsed.data.workspace_id);
     const limitMw = requireLimit('storage_gb', usageFnForLimit('storage_gb'));
     let proceeded = false;
     await limitMw(req, res, () => { proceeded = true; });

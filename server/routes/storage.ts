@@ -14,6 +14,7 @@ import {
 } from '../services/storage/index.js';
 import { logSecurityEvent } from '../middleware/security.js';
 import { requireLimit } from '../middleware/featureGating.js';
+import { setTrustedGateWorkspaceId } from '../middleware/gateWorkspace.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 import { getServiceClient } from '../supabase.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
@@ -115,6 +116,8 @@ storageRouter.post('/upload', async (req, res) => {
     // producer trigger went live; existing workspaces may start undercounted
     // (accepted tradeoff — see docs/STORAGE_LIMIT_POLICY.md). Delegates
     // entirely to the shared resolver — no route-local storage math.
+    // Evaluate the cap on the workspace authorized above, not raw body fields.
+    setTrustedGateWorkspaceId(req, workspaceId);
     const limitMw = requireLimit('storage_gb', usageFnForLimit('storage_gb'));
     let proceeded = false;
     await limitMw(req, res, () => { proceeded = true; });

@@ -68,7 +68,7 @@ describe("enforceMaxConversationsLimit — runtime behavior", () => {
       error: null,
     });
     const { req, res, getStatus } = makeReqRes();
-    const ok = await enforceMaxConversationsLimit(req, res);
+    const ok = await enforceMaxConversationsLimit(req, res, "ws-c");
     expect(ok).toBe(true);
     expect(getStatus()).toBeUndefined();
   });
@@ -83,15 +83,42 @@ describe("enforceMaxConversationsLimit — runtime behavior", () => {
       error: null,
     });
     const { req, res, getStatus } = makeReqRes();
-    const ok = await enforceMaxConversationsLimit(req, res);
+    const ok = await enforceMaxConversationsLimit(req, res, "ws-c");
     expect(ok).toBe(false);
     expect(getStatus()).toBe(403);
   });
 
   it("returns false with 400 when workspace_id is missing", async () => {
     const { req, res, getStatus } = makeReqRes({});
-    const ok = await enforceMaxConversationsLimit(req, res);
+    const ok = await enforceMaxConversationsLimit(req, res, "");
     expect(ok).toBe(false);
     expect(getStatus()).toBe(400);
+  });
+
+  it("does not fall back to body fields when the authorized workspace id is empty", async () => {
+    const { req, res, getStatus } = makeReqRes({ workspace_id: "ws-c", workspaceId: "ws-c" });
+    const ok = await enforceMaxConversationsLimit(req, res, "");
+    expect(ok).toBe(false);
+    expect(getStatus()).toBe(400);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("evaluates the authorized workspace, ignoring a spoofed body workspaceId", async () => {
+    // Regression: a widget visitor added "workspaceId":"<unlimited ws>" next
+    // to the token-validated workspace_id and the cap was checked on the
+    // unlimited workspace instead.
+    rpcMock.mockImplementation(async (_fn: string, args: { _workspace_id: string }) => ({
+      data: args._workspace_id === "ws-unlimited"
+        ? { allowed: true, limit: -1, plan: "enterprise" }
+        : { allowed: true, limit: 3, plan: "free" },
+      error: null,
+    }));
+    counterRowMock.mockResolvedValue({ data: { conversations_count: 3 }, error: null });
+    const { req, res, getStatus } = makeReqRes({ workspace_id: "ws-c", workspaceId: "ws-unlimited" });
+    const ok = await enforceMaxConversationsLimit(req, res, "ws-c");
+    expect(ok).toBe(false);
+    expect(getStatus()).toBe(403);
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+    expect(rpcMock.mock.calls[0][1]._workspace_id).toBe("ws-c");
   });
 });

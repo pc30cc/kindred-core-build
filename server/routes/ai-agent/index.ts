@@ -17,7 +17,7 @@
 import express, { type Request, type Response, type Router } from 'express';
 import type { ServerConfig } from '../../config.js';
 import { canAccessAiAgentAdvancedToolsServer } from '../../services/ai-agent/customerSafe.js';
-import { aiAgentPlatformGuard } from '../../services/ai-agent/platformGuards.js';
+import { aiAgentPlatformGuard, normalizeAiAgentGuardPath } from '../../services/ai-agent/platformGuards.js';
 import { resolveCurrentUserId } from './shared.js';
 import { platformRouter } from './platform.js';
 import { assistantRouter } from './assistant.js';
@@ -36,20 +36,24 @@ export const aiAgentRouter: Router = express.Router();
 // Registered IMMEDIATELY after router creation so it runs before every
 // matching route handler.
 const ADVANCED_PATH_PATTERNS: RegExp[] = [
-  /^\/runs\/[^/]+\/inspect$/,
-  /^\/debug\/retrieval$/,
-  /^\/debug\/run-test$/,
-  /^\/source-health$/,
-  /^\/test-cases(\/|$)/,
-  /^\/test-runs(\/|$)/,
-  /^\/suggested-test-cases(\/|$)/,
-  /^\/regression(\/|$)/,
-  /^\/test-summary$/,
-  /^\/platform\/settings$/,
-  /^\/platform\/ai-proactive-stats$/,
+  /^\/runs\/[^/]+\/inspect$/i,
+  /^\/debug\/retrieval$/i,
+  /^\/debug\/run-test$/i,
+  /^\/source-health$/i,
+  /^\/test-cases(\/|$)/i,
+  /^\/test-runs(\/|$)/i,
+  /^\/suggested-test-cases(\/|$)/i,
+  /^\/regression(\/|$)/i,
+  /^\/test-summary$/i,
+  /^\/platform\/settings$/i,
+  /^\/platform\/ai-proactive-stats$/i,
 ];
 aiAgentRouter.use(async (req: Request, res: Response, next) => {
-  if (!ADVANCED_PATH_PATTERNS.some((rx) => rx.test(req.path))) return next();
+  // Match on the normalized path: Express routes are case-insensitive and
+  // non-strict, so `/Platform/settings` or `/platform/settings/` reach the
+  // same handlers and must not slip past these `$`-anchored patterns.
+  const guardPath = normalizeAiAgentGuardPath(req.path);
+  if (!ADVANCED_PATH_PATTERNS.some((rx) => rx.test(guardPath))) return next();
   const config = (req as any).serverConfig as ServerConfig;
   const { userId } = await resolveCurrentUserId(req, config);
   if (!userId) return res.status(401).json({ error: 'unauthenticated' });

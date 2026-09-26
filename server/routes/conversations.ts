@@ -568,7 +568,7 @@ conversationsRouter.post('/start-from-visitor', async (req, res) => {
     // branch. Reuse of an existing open/pending conversation above does
     // not count. workspace_id is already verified via authorizeWorkspaceMember.
     {
-      const ok = await enforceMaxConversationsLimit(req, res);
+      const ok = await enforceMaxConversationsLimit(req, res, parsed.data.workspace_id);
       if (!ok) return;
     }
 

@@ -282,8 +282,13 @@ private fun layout(messages: List<Message>): List<TranscriptRow> {
         TranscriptRow(
             message = message,
             dayHeader = if (sameDayAsPrevious) null else message.createdAt,
+            // A day header between two messages ends the run above it too:
+            // the face belongs at the foot of each day's run, not only the
+            // last one.
             endsRun = next == null || next.senderType != message.senderType ||
-                next.senderType == SenderType.SYSTEM,
+                next.senderType == SenderType.SYSTEM ||
+                (next.createdAt != null && message.createdAt != null &&
+                    next.createdAt!!.atZone(zone).toLocalDate() != message.createdAt!!.atZone(zone).toLocalDate()),
             startsRun = previous == null || previous.senderType != message.senderType || !sameDayAsPrevious,
         )
     }

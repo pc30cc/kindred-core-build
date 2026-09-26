@@ -92,3 +92,9 @@ jobs:
           if (-not $env:GH_TOKEN) { throw "DESKTOP_RELEASES_TOKEN is not set" }
           vpk upload github --repoUrl https://github.com/pc30cc/webyar-desktop-releases --token $env:GH_TOKEN --publish --releaseName "Webyar ${{ steps.version.outputs.version }}" --tag ${{ github.ref_name }} --outputDir releases
           gh release upload ${{ github.ref_name }} releases/Webyar-Setup.exe --repo pc30cc/webyar-desktop-releases --clobber
+          # Installed apps never see a draft. GitHub keeps one as a draft when it
+          # cannot create the tag, which is what happens in a repository with no commits.
+          $draft = gh release view ${{ github.ref_name }} --repo pc30cc/webyar-desktop-releases --json isDraft --jq .isDraft
+          if ($draft -eq 'true') { gh release edit ${{ github.ref_name }} --repo pc30cc/webyar-desktop-releases --draft=false }
+          $draft = gh release view ${{ github.ref_name }} --repo pc30cc/webyar-desktop-releases --json isDraft --jq .isDraft
+          if ($draft -ne 'false') { throw "The release is still a draft. webyar-desktop-releases needs at least one commit (e.g. a README) before a tag can be created; add one, then publish the draft on GitHub." }

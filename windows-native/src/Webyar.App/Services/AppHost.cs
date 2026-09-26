@@ -424,8 +424,20 @@ public sealed class AppHost : IAsyncDisposable
             Settings.Save();
         }
         if (await DesktopConfig.FetchAsync(Client).ConfigureAwait(false) is { } config) Config = config;
-        RunOnUi(() => Updates.Configure(Config.Update));
+        RunOnUi(() =>
+        {
+            Updates.Configure(Config.Update);
+            if (Settings.StorageSettingsVisible != Config.StorageSettingsVisible)
+            {
+                Settings.StorageSettingsVisible = Config.StorageSettingsVisible;
+                Settings.Save();
+                PlatformChanged?.Invoke();
+            }
+        });
     }
+
+    /// <summary>Super Admin changed something an open page shows (raised on the UI thread).</summary>
+    public event Action? PlatformChanged;
 
     /// <summary>
     /// How long a poller should wait. While the realtime channel is up every

@@ -36,6 +36,8 @@ export interface DesktopAppSettings {
   /// Safety-net polling while realtime is connected.
   poll_interval_realtime_seconds: number;
   calls_enabled: boolean;
+  /// Whether the app shows its Settings → Storage section. Hidden, the cache still works.
+  storage_settings_visible: boolean;
 
   updated_at?: string | null;
 }
@@ -57,6 +59,7 @@ export const DESKTOP_APP_DEFAULTS: DesktopAppSettings = {
   poll_interval_seconds: 15,
   poll_interval_realtime_seconds: 120,
   calls_enabled: true,
+  storage_settings_visible: true,
 
   updated_at: null,
 };
@@ -125,7 +128,7 @@ export function normalize(row: Record<string, unknown>): DesktopAppSettings {
   for (const key of Object.keys(DESKTOP_APP_BOUNDS) as (keyof typeof DESKTOP_APP_BOUNDS)[]) {
     out[key] = row[key] === undefined || row[key] === null ? DESKTOP_APP_DEFAULTS[key] : boundedInt(row[key], key);
   }
-  for (const key of ['auto_update_enabled', 'realtime_enabled', 'calls_enabled'] as const) {
+  for (const key of ['auto_update_enabled', 'realtime_enabled', 'calls_enabled', 'storage_settings_visible'] as const) {
     out[key] = typeof row[key] === 'boolean' ? row[key] : DESKTOP_APP_DEFAULTS[key];
   }
   out.updated_at = (row.updated_at as string | null) ?? null;
@@ -149,7 +152,7 @@ export interface DesktopAppPublicConfig {
   };
   realtime: { enabled: boolean };
   polling: { intervalSeconds: number; withRealtimeSeconds: number };
-  features: { calls: boolean };
+  features: { calls: boolean; storageSettings: boolean };
 }
 
 export function toPublicDesktopAppConfig(s: DesktopAppSettings): DesktopAppPublicConfig {
@@ -169,6 +172,6 @@ export function toPublicDesktopAppConfig(s: DesktopAppSettings): DesktopAppPubli
       intervalSeconds: s.poll_interval_seconds,
       withRealtimeSeconds: s.poll_interval_realtime_seconds,
     },
-    features: { calls: s.calls_enabled },
+    features: { calls: s.calls_enabled, storageSettings: s.storage_settings_visible },
   };
 }

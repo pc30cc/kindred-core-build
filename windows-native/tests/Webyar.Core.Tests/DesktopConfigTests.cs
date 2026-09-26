@@ -14,7 +14,7 @@ public class DesktopConfigTests
         var c = Parse("""
         { "update": { "feedUrl": "https://github.com/pc30cc/webyar-desktop-releases/releases/latest/download/", "channel": "beta",
                       "latestVersion": "2.1.0", "minimumSupportedVersion": "2.0.0", "autoUpdate": false, "checkIntervalMinutes": 60 },
-          "realtime": { "enabled": false }, "polling": { "intervalSeconds": 20, "withRealtimeSeconds": 300 }, "features": { "calls": false } }
+          "realtime": { "enabled": false }, "polling": { "intervalSeconds": 20, "withRealtimeSeconds": 300 }, "features": { "calls": false, "storageSettings": false } }
         """);
         Assert.Equal("https://github.com/pc30cc/webyar-desktop-releases/releases/latest/download", c.Update.FeedUrl);
         Assert.Equal("beta", c.Update.Channel);
@@ -24,6 +24,7 @@ public class DesktopConfigTests
         Assert.Equal(20, c.PollIntervalSeconds);
         Assert.Equal(300, c.PollWithRealtimeSeconds);
         Assert.False(c.CallsEnabled);
+        Assert.False(c.StorageSettingsVisible);
     }
 
     [Fact]
@@ -35,6 +36,7 @@ public class DesktopConfigTests
         Assert.Equal(15, c.Update.CheckIntervalMinutes);
         Assert.Equal(DesktopConfig.Defaults.PollIntervalSeconds, c.PollIntervalSeconds);
         Assert.True(c.RealtimeEnabled);
+        Assert.True(c.StorageSettingsVisible);
     }
 
     [Fact]

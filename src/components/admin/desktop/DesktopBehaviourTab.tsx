@@ -66,6 +66,12 @@ export function DesktopBehaviourTab({
           checked={draft.calls_enabled}
           onChange={(calls_enabled) => set({ calls_enabled })}
         />
+        <SwitchField
+          label={t('admin.desktopApp.behaviour.storageSettings')}
+          hint={t('admin.desktopApp.behaviour.storageSettingsHint')}
+          checked={draft.storage_settings_visible}
+          onChange={(storage_settings_visible) => set({ storage_settings_visible })}
+        />
       </SettingsSection>
     </div>
   );

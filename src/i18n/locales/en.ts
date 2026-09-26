@@ -4606,6 +4606,8 @@ const en = {
         featuresCaption: 'Turn desktop features on or off for every installed copy.',
         calls: 'Voice and video calls',
         callsHint: 'Allow operators to place and answer calls from the desktop app.',
+        storageSettings: 'Show storage in settings',
+        storageSettingsHint: 'Show the Storage section (cache size and Clear cache) in the Windows app settings. When off, operators do not see it; the cache keeps working.',
       },
     },
     macosApp: {

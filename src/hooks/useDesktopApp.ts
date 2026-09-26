@@ -24,6 +24,7 @@ export interface DesktopAppSettings {
   poll_interval_seconds: number;
   poll_interval_realtime_seconds: number;
   calls_enabled: boolean;
+  storage_settings_visible: boolean;
 
   updated_at?: string | null;
 }

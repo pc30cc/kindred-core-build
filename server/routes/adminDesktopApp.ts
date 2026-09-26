@@ -79,6 +79,7 @@ export const desktopAppSettingsSchema = z.object({
   poll_interval_seconds: boundedInt('poll_interval_seconds').optional(),
   poll_interval_realtime_seconds: boundedInt('poll_interval_realtime_seconds').optional(),
   calls_enabled: z.boolean().optional(),
+  storage_settings_visible: z.boolean().optional(),
 });
 
 async function readRow(config: ServerConfig) {

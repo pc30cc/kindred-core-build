@@ -8786,6 +8786,7 @@ export type Database = {
           poll_interval_seconds: number
           realtime_enabled: boolean
           release_notes: string | null
+          storage_settings_visible: boolean
           update_channel: string
           update_check_interval_minutes: number
           update_feed_url: string | null
@@ -8803,6 +8804,7 @@ export type Database = {
           poll_interval_seconds?: number
           realtime_enabled?: boolean
           release_notes?: string | null
+          storage_settings_visible?: boolean
           update_channel?: string
           update_check_interval_minutes?: number
           update_feed_url?: string | null
@@ -8820,6 +8822,7 @@ export type Database = {
           poll_interval_seconds?: number
           realtime_enabled?: boolean
           release_notes?: string | null
+          storage_settings_visible?: boolean
           update_channel?: string
           update_check_interval_minutes?: number
           update_feed_url?: string | null

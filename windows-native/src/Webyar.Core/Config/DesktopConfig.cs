@@ -5,7 +5,8 @@ namespace Webyar.Core.Config;
 
 /// <summary>
 /// Super Admin → Windows app, as served by `GET /api/platform/desktop-app`:
-/// where updates come from, how often to look, and how hard to poll. Read on
+/// where updates come from, how often to look, how hard to poll, and which
+/// features and sections operators get. Read on
 /// launch and hourly, so a change reaches every installed copy without a release.
 /// </summary>
 public sealed record DesktopConfig(
@@ -13,7 +14,8 @@ public sealed record DesktopConfig(
     bool RealtimeEnabled,
     int PollIntervalSeconds,
     int PollWithRealtimeSeconds,
-    bool CallsEnabled)
+    bool CallsEnabled,
+    bool StorageSettingsVisible)
 {
     public static readonly DesktopConfig Defaults = new(
         new UpdateSettings(
@@ -28,7 +30,8 @@ public sealed record DesktopConfig(
         RealtimeEnabled: true,
         PollIntervalSeconds: 15,
         PollWithRealtimeSeconds: 120,
-        CallsEnabled: true);
+        CallsEnabled: true,
+        StorageSettingsVisible: true);
 
     /// <summary>
     /// Reads whatever the server sent defensively: a missing or out-of-range
@@ -54,7 +57,8 @@ public sealed record DesktopConfig(
             RealtimeEnabled: Bool(realtime, "enabled") ?? d.RealtimeEnabled,
             PollIntervalSeconds: Clamp(Int(polling, "intervalSeconds"), 5, 300, d.PollIntervalSeconds),
             PollWithRealtimeSeconds: Clamp(Int(polling, "withRealtimeSeconds"), 15, 900, d.PollWithRealtimeSeconds),
-            CallsEnabled: Bool(features, "calls") ?? d.CallsEnabled);
+            CallsEnabled: Bool(features, "calls") ?? d.CallsEnabled,
+            StorageSettingsVisible: Bool(features, "storageSettings") ?? d.StorageSettingsVisible);
     }
 
     /// <summary>The platform's settings, or null when it could not be asked.</summary>

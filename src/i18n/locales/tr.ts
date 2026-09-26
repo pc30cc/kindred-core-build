@@ -4595,6 +4595,8 @@ const tr: TranslationKeys = {
         featuresCaption: 'Masaüstü özelliklerini tüm kurulu kopyalar için açın veya kapatın.',
         calls: 'Sesli ve görüntülü aramalar',
         callsHint: 'Operatörlerin masaüstü uygulamasından arama yapıp yanıtlamasına izin verin.',
+        storageSettings: 'Ayarlarda depolamayı göster',
+        storageSettingsHint: 'Windows uygulamasının ayarlarında Depolama bölümünü (önbellek boyutu ve önbelleği temizleme) göster. Kapalıyken operatörler bu bölümü görmez; önbellek çalışmaya devam eder.',
       },
     },
     macosApp: {

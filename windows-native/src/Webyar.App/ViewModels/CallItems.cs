@@ -23,6 +23,9 @@ public sealed partial class QueueItem : ObservableObject
     [ObservableProperty] private QueueEntry _entry;
     [ObservableProperty] private string _name = string.Empty;
     [ObservableProperty] private string? _email;
+    // The caller's device and country, from their visitor session, for the face.
+    [ObservableProperty] private string? _os;
+    [ObservableProperty] private string? _countryCode;
     [ObservableProperty] private string _detail = string.Empty;
     [ObservableProperty] private string _rankText = string.Empty;
     [ObservableProperty] private string _waitText = string.Empty;
@@ -41,6 +44,7 @@ public sealed partial class QueueItem : ObservableObject
         Entry = q;
         Name = CallNames.Caller(q, s);
         Email = q.CallSession?.VisitorEmail;
+        ShowDevice();
         Detail = q.CallSession?.Subject is { Length: > 0 } subject ? subject
             : q.CallSession?.PageTitle is { Length: > 0 } title ? title
             : Views.CallText.ShortUrl(q.CallSession?.PageUrl);
@@ -50,6 +54,14 @@ public sealed partial class QueueItem : ObservableObject
         PriorityVisibility = q.Priority is > 0 ? Visibility.Visible : Visibility.Collapsed;
         PriorityText = Digits.Localize($"P{q.Priority ?? 0}", s.Language);
         Tick(s, DateTimeOffset.Now);
+    }
+
+    /// <summary>The caller's OS and country once known (asked for once, in a batch with the other faces).</summary>
+    public void ShowDevice()
+    {
+        var profile = AppHost.Current.Callers.For(Entry.CallSession?.VisitorSessionId ?? Entry.VisitorSessionId);
+        Os = profile?.Device?.Os;
+        CountryCode = profile?.Geo?.CountryCode;
     }
 
     /// <summary>m:ss since the call came in, amber after a minute and red after three (the web desk's SLA).</summary>
@@ -93,6 +105,8 @@ public sealed class CallHistoryItem
         StateBack = Palette.Resource(back);
         DurationText = c.DurationSeconds is > 0 and var d ? Digits.Localize($"{d / 60}:{d % 60:00}", s.Language) : "—";
         WhenText = c.CreatedAt is { } at ? Webyar.Core.Inbox.Display.ListStamp(at, DateTimeOffset.Now, s) : string.Empty;
+        SpamText = c.IsSpam ? s["callSpam"] : string.Empty;
+        SpamVisibility = c.IsSpam ? Visibility.Visible : Visibility.Collapsed;
     }
 
     public CallSession Call { get; }
@@ -104,4 +118,7 @@ public sealed class CallHistoryItem
     // Not "Duration" / "When": x:Bind would read Duration as the XAML type.
     public string DurationText { get; }
     public string WhenText { get; }
+    /// <summary>Marked as spam on the desk.</summary>
+    public string SpamText { get; }
+    public Visibility SpamVisibility { get; }
 }

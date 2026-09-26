@@ -244,7 +244,11 @@ describe('widget ingest wiring', () => {
 
   it('continuity lookups exclude closed threads', () => {
     expect(src).not.toContain(".in('status', ['open', 'pending'])");
-    expect(src.match(/INBOUND_REUSABLE_STATUSES as unknown as string\[\]/g)?.length).toBeGreaterThanOrEqual(3);
+    // Two continuity lookups remain (by conversation and by visitor contact).
+    // The third — reusing the open thread of whichever contact owned a
+    // visitor-typed email/phone — was removed: it let anyone append to, and
+    // read the id of, another customer's conversation (unverified identity).
+    expect(src.match(/INBOUND_REUSABLE_STATUSES as unknown as string\[\]/g)?.length).toBeGreaterThanOrEqual(2);
   });
 
   it('applies the shared lifecycle after the visitor message insert', () => {

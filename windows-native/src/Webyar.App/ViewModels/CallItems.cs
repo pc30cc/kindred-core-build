@@ -27,7 +27,6 @@ public sealed partial class QueueItem : ObservableObject
     [ObservableProperty] private string? _os;
     [ObservableProperty] private string? _countryCode;
     [ObservableProperty] private string _detail = string.Empty;
-    [ObservableProperty] private Visibility _detailVisibility = Visibility.Collapsed;
     [ObservableProperty] private string _rankText = string.Empty;
     [ObservableProperty] private string _waitText = string.Empty;
     [ObservableProperty] private Brush? _waitBrush;
@@ -37,6 +36,15 @@ public sealed partial class QueueItem : ObservableObject
     [ObservableProperty] private Visibility _priorityVisibility = Visibility.Collapsed;
     [ObservableProperty] private string _priorityText = string.Empty;
     [ObservableProperty] private bool _busy;
+
+    private Visibility _detailVisibility = Visibility.Collapsed;
+
+    /// <summary>The line under the name shows only when there is something to say.</summary>
+    public Visibility DetailVisibility
+    {
+        get => _detailVisibility;
+        private set => SetProperty(ref _detailVisibility, value);
+    }
 
     public DateTimeOffset Since => Entry.CreatedAt ?? Entry.CallSession?.CreatedAt ?? DateTimeOffset.Now;
 
@@ -94,7 +102,7 @@ public sealed partial class QueueItem : ObservableObject
 }
 
 /// <summary>A finished or ongoing call in the history list: the caller's face, with the channel in the state's colour.</summary>
-public sealed partial class CallHistoryItem : ObservableObject
+public sealed class CallHistoryItem : ObservableObject
 {
     public CallHistoryItem(CallSession c, Strings s)
     {
@@ -130,9 +138,22 @@ public sealed partial class CallHistoryItem : ObservableObject
     public string SpamText { get; }
     public Visibility SpamVisibility { get; }
 
-    // The caller's device and country, from their visitor session, for the face.
-    [ObservableProperty] private string? _os;
-    [ObservableProperty] private string? _countryCode;
+    private string? _os;
+    private string? _countryCode;
+
+    /// <summary>The caller's device, from their visitor session, for the face.</summary>
+    public string? Os
+    {
+        get => _os;
+        private set => SetProperty(ref _os, value);
+    }
+
+    /// <summary>The caller's country, from their visitor session, for the face.</summary>
+    public string? CountryCode
+    {
+        get => _countryCode;
+        private set => SetProperty(ref _countryCode, value);
+    }
 
     /// <summary>The caller's OS and country once known (asked for once, in a batch with the other faces).</summary>
     public void ShowDevice()

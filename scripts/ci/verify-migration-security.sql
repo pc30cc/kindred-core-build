@@ -108,6 +108,167 @@ BEGIN
 END
 $roles$;
 
+-- 2b. Customer roles hold EXECUTE on NO SECURITY DEFINER function outside the
+--     audited allow-list (20260926090000 / 217). PUBLIC is only half of the
+--     question: hosted Supabase's default privileges grant anon and
+--     authenticated EXECUTE explicitly, which `REVOKE ... FROM PUBLIC` never
+--     removes. The allow-list below is the same VALUES list the migration
+--     carries, byte for byte (src/test/ci/definerExecuteAllowList.test.ts):
+--       get_widget_platform_settings()  anon + authenticated  browser getter
+--       has_role / is_workspace_member / get_workspace_role /
+--       is_account_member / get_account_role /
+--       workspace_owner_phone_verified  authenticated only    RLS predicates
+--     Every present entry must hold EXACTLY its declared grants (plus
+--     service_role), every required entry must exist, and the default
+--     privileges the migration role controls must not re-open the hole for
+--     functions created later. Ungated: it holds on both chain profiles.
+--     get_account_role exists on the hosted chain only, so its presence is
+--     required on that profile alone.
+DO $definer_allow_list$
+DECLARE
+  hosted    boolean := (current_setting('ci.require_hosted_service_acl', true) = '1');
+  e         record;
+  n         integer;
+  offenders text;
+  audited   integer := 0;
+BEGIN
+  DROP TABLE IF EXISTS ci_definer_allow;
+  CREATE TEMP TABLE ci_definer_allow (sig text PRIMARY KEY, anon_ok boolean NOT NULL, auth_ok boolean NOT NULL);
+  INSERT INTO ci_definer_allow (sig, anon_ok, auth_ok)
+  SELECT * FROM (VALUES
+        ('public.get_widget_platform_settings()',        true,  true),
+        ('public.has_role(uuid, public.app_role)',       false, true),
+        ('public.is_workspace_member(uuid, uuid)',       false, true),
+        ('public.get_workspace_role(uuid, uuid)',        false, true),
+        ('public.is_account_member(uuid, uuid)',         false, true),
+        ('public.get_account_role(uuid, uuid)',          false, true),
+        ('public.workspace_owner_phone_verified(uuid)',  false, true)
+      ) AS a(sig, anon_ok, auth_ok);
+
+  -- Exact grants on every allow-listed function that exists.
+  FOR e IN SELECT a.*, to_regprocedure(a.sig) AS fn FROM ci_definer_allow a ORDER BY a.sig LOOP
+    IF e.fn IS NULL THEN
+      IF e.sig = 'public.get_account_role(uuid, uuid)' AND NOT hosted THEN
+        RAISE NOTICE 'definer allow-list: % is hosted-only, absent on this profile', e.sig;
+        audited := audited + 1;
+        CONTINUE;
+      END IF;
+      RAISE EXCEPTION 'definer allow-list entry % is missing — chain incomplete or allow-list stale', e.sig;
+    END IF;
+    IF NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid = e.fn) THEN
+      RAISE EXCEPTION 'definer allow-list entry % is no longer SECURITY DEFINER — drop it from the allow-list', e.sig;
+    END IF;
+    IF has_function_privilege('public', e.fn, 'EXECUTE') THEN
+      RAISE EXCEPTION 'definer allow-list entry % is PUBLIC-executable', e.sig;
+    END IF;
+    IF has_function_privilege('anon', e.fn, 'EXECUTE') IS DISTINCT FROM e.anon_ok THEN
+      RAISE EXCEPTION 'definer allow-list entry %: anon EXECUTE is %, expected %',
+        e.sig, has_function_privilege('anon', e.fn, 'EXECUTE'), e.anon_ok;
+    END IF;
+    IF has_function_privilege('authenticated', e.fn, 'EXECUTE') IS DISTINCT FROM e.auth_ok THEN
+      RAISE EXCEPTION 'definer allow-list entry %: authenticated EXECUTE is %, expected %',
+        e.sig, has_function_privilege('authenticated', e.fn, 'EXECUTE'), e.auth_ok;
+    END IF;
+    IF NOT has_function_privilege('service_role', e.fn, 'EXECUTE') THEN
+      RAISE EXCEPTION 'definer allow-list entry % is not executable by service_role', e.sig;
+    END IF;
+    audited := audited + 1;
+  END LOOP;
+
+  IF audited <> 7 THEN
+    RAISE EXCEPTION 'definer allow-list audit incomplete: % of 7', audited;
+  END IF;
+
+  -- No anon/authenticated EXECUTE on any other SECURITY DEFINER function, in
+  -- any application schema (same platform exclusions as check 1).
+  SELECT count(*), string_agg(format('%s[%s]', p.oid::regprocedure, g.role_name), ', ')
+    INTO n, offenders
+    FROM pg_proc p
+    JOIN pg_namespace ns ON ns.oid = p.pronamespace
+   CROSS JOIN unnest(ARRAY['anon', 'authenticated']) AS g(role_name)
+   WHERE p.prosecdef
+     AND ns.nspname NOT IN ('pg_catalog', 'information_schema', 'extensions',
+                            'graphql', 'graphql_public', 'pgbouncer', 'vault',
+                            'pgsodium', 'pgsodium_masks', 'realtime', 'storage',
+                            'supabase_functions', 'supabase_migrations', 'auth', 'cron', 'net')
+     AND NOT EXISTS (
+       SELECT 1 FROM pg_depend x
+        WHERE x.classid = 'pg_proc'::regclass AND x.objid = p.oid AND x.deptype = 'e')
+     AND has_function_privilege(g.role_name, p.oid, 'EXECUTE')
+     AND NOT EXISTS (
+       SELECT 1 FROM ci_definer_allow a
+        WHERE to_regprocedure(a.sig) = p.oid
+          AND CASE g.role_name WHEN 'anon' THEN a.anon_ok ELSE a.auth_ok END);
+
+  IF n > 0 THEN
+    RAISE EXCEPTION 'SECURITY DEFINER functions executable by a customer role outside the allow-list: % — %', n, offenders;
+  END IF;
+
+  -- Functions created later must not inherit the grant either. Only grantors
+  -- the migration role can manage are held to it (supabase_admin's hosted
+  -- defaults are platform-owned and not alterable by postgres).
+  SELECT string_agg(DISTINCT pg_get_userbyid(d.defaclrole), ', ')
+    INTO offenders
+    FROM pg_default_acl d
+   CROSS JOIN LATERAL aclexplode(d.defaclacl) x
+   WHERE d.defaclnamespace = 'public'::regnamespace
+     AND d.defaclobjtype = 'f'
+     AND x.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('anon', 'authenticated'))
+     AND pg_has_role(current_user, d.defaclrole, 'MEMBER');
+
+  IF offenders IS NOT NULL THEN
+    RAISE EXCEPTION 'default privileges still grant anon/authenticated EXECUTE on new public functions (grantor: %)', offenders;
+  END IF;
+
+  RAISE NOTICE 'customer-role EXECUTE on SECURITY DEFINER functions confined to the % audited allow-list entries', audited;
+END
+$definer_allow_list$;
+
+-- 2c. Live denial for the caller-trusting admin purge and the wallet engine:
+--     an actual call as anon and as authenticated must be refused at the ACL
+--     layer, inside a transaction that is rolled back.
+BEGIN;
+
+DO $definer_live$
+DECLARE
+  stmt      text;
+  role_name text;
+  denied    integer := 0;
+BEGIN
+  FOREACH stmt IN ARRAY ARRAY[
+    'SELECT public.admin_delete_user(NULL::uuid, NULL::uuid)',
+    'SELECT public.billing_wallet_admin_adjust(NULL::uuid, NULL::bigint, NULL::text, NULL::text, NULL::uuid)',
+    'SELECT public.billing_settle_invoice(NULL::uuid, NULL::bigint, NULL::text, NULL::text, NULL::uuid, NULL::uuid)'
+  ] LOOP
+    FOREACH role_name IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+      BEGIN
+        EXECUTE format('SET LOCAL ROLE %I', role_name);
+        EXECUTE stmt;
+        RESET ROLE;
+        RAISE EXCEPTION '% executed: %', role_name, stmt;
+      EXCEPTION
+        WHEN insufficient_privilege THEN
+          RESET ROLE;
+          denied := denied + 1;
+        WHEN raise_exception THEN
+          RESET ROLE;
+          RAISE;
+        WHEN OTHERS THEN
+          RESET ROLE;
+          RAISE EXCEPTION '% reached the body of % (SQLSTATE %), so EXECUTE was granted', role_name, stmt, SQLSTATE;
+      END;
+    END LOOP;
+  END LOOP;
+
+  IF denied <> 6 THEN
+    RAISE EXCEPTION 'definer live denial proof incomplete: % of 6', denied;
+  END IF;
+  RAISE NOTICE 'anon/authenticated denied live on admin_delete_user and the wallet/settlement RPCs';
+END
+$definer_live$;
+
+ROLLBACK;
+
 -- 3. Internal fan-out and AI-KB RPCs: service_role only. Every signature in
 --    the inventory is audited; there is no CONTINUE/skip path.
 DO $rpc$

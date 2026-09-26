@@ -1,5 +1,4 @@
--- 20260925233100 (mirror of database/migrations/218): call_queue_entries —
--- a small index over the ACTIVE queue only.
+-- 219: call_queue_entries — a small index over the ACTIVE queue only.
 --
 -- ADDITIVE ONLY. One partial index. No column, table or row is touched.
 -- Idempotent.
@@ -36,9 +35,7 @@ begin
 end;
 $$;
 
--- Plain (not CONCURRENTLY) build: this chain is applied inside a transaction.
--- The index covers only active queue entries, so the build is quick.
-create index if not exists idx_call_queue_active
+create index concurrently if not exists idx_call_queue_active
   on public.call_queue_entries (expires_at)
   where state in ('queued', 'offered');
 

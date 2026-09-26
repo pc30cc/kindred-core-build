@@ -23,7 +23,13 @@
  *    contact created/touched after the 021 migration; kept as a read-only
  *    display fallback for older rows contact-display.ts may still meet.
  */
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { insertContactWithVisitorCode, backfillVisitorCode } from './visitorCode.js';
+import {
+  findContactByProvenIdentifiers,
+  isContactIdentityConflict,
+  placeUnverifiedIdentifiers,
+} from './claimedIdentity.js';
 
 /** Legacy-only: the literal name value earlier versions of this module wrote
  * for an anonymous contact. New rows use `name: null` instead — see the
@@ -37,7 +43,7 @@ export const ANON_CONTACT_NAME = 'Visitor';
  * contact exists but has no session, so IP/location never show up.
  */
 async function linkContactToSessions(
-  sb: any,
+  sb: SupabaseClient,
   workspaceId: string,
   contactId: string,
   visitorId: string | null,
@@ -76,7 +82,7 @@ export function anonCodeFrom(seed: string): string {
  * backfillVisitorCode for the race-safe retry behavior.
  */
 async function backfillVisitorCodeIfMissing(
-  sb: any,
+  sb: SupabaseClient,
   contactId: string,
   existingCode: string | null | undefined,
 ): Promise<void> {
@@ -86,35 +92,18 @@ async function backfillVisitorCodeIfMissing(
 
 /**
  * A concurrent widget request can win the workspace-scoped email/phone
- * unique-index race after our initial lookup but before our insert. In that
- * case the losing insert must adopt the winner instead of creating a
- * conversation with contact_id=null.
+ * unique-index race after our initial lookup but before our insert. For a
+ * PROVEN identity the losing insert adopts the winner instead of creating a
+ * conversation with contact_id=null. An unproven (visitor-typed) identity
+ * never adopts it — see ensureVisitorContact.
  */
-function isContactIdentityConflict(error: any): boolean {
-  if (error?.code !== '23505' || typeof error?.message !== 'string') return false;
-  return error.message.includes('contacts_workspace_email_unique_not_blank')
-    || error.message.includes('contacts_workspace_phone_unique_not_blank');
-}
-
 async function findContactAfterIdentityConflict(
-  sb: any,
+  sb: SupabaseClient,
   workspaceId: string,
   email: string | null,
   phone: string | null,
 ): Promise<{ id: string; visitor_code?: string | null } | null> {
-  if (email) {
-    const { data } = await sb.from('contacts').select('id, visitor_code')
-      .eq('workspace_id', workspaceId).eq('email', email)
-      .limit(1).maybeSingle();
-    if (data?.id) return data;
-  }
-  if (phone) {
-    const { data } = await sb.from('contacts').select('id, visitor_code')
-      .eq('workspace_id', workspaceId).eq('phone', phone)
-      .limit(1).maybeSingle();
-    if (data?.id) return data;
-  }
-  return null;
+  return findContactByProvenIdentifiers(sb, workspaceId, email, phone, null);
 }
 
 export interface EnsureVisitorContactInput {
@@ -124,21 +113,34 @@ export interface EnsureVisitorContactInput {
   name?: string | null;
   email?: string | null;
   phone?: string | null;
+  /**
+   * true ONLY when email/phone come from a server-verified source (a signed
+   * store identity assertion). Visitor-typed values (POST /message
+   * `visitor_email` / `visitor_phone`) must leave this unset: they are then
+   * stored on the visitor's own/new contact as an unverified claim and never
+   * used to find — or link the visitor to — an existing contact.
+   */
+  identityVerified?: boolean;
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 /**
- * Find (by visitor_id metadata / email / phone) or create the contact for a
- * visitor. Returns null only when there is no identifier at all to anchor on
- * or the insert failed.
+ * Find (by visitor_id metadata, or — for a proven identity only — by
+ * email / phone) or create the contact for a visitor. Returns null only when
+ * there is no identifier at all to anchor on or the insert failed.
  */
 export async function ensureVisitorContact(
-  sb: any,
+  sb: SupabaseClient,
   input: EnsureVisitorContactInput,
 ): Promise<string | null> {
   const { workspaceId } = input;
   const visitorId = input.visitorId || null;
   const email = (input.email || '').trim().toLowerCase() || null;
   const phone = (input.phone || '').trim().replace(/[^\d+]/g, '') || null;
+  const verified = input.identityVerified === true;
 
   try {
     if (visitorId) {
@@ -153,65 +155,71 @@ export async function ensureVisitorContact(
         return data.id as string;
       }
     }
-    if (email) {
-      const { data } = await sb
-        .from('contacts').select('id, visitor_code')
-        .eq('workspace_id', workspaceId).eq('email', email)
-        .limit(1).maybeSingle();
-      if (data?.id) {
-        await linkContactToSessions(sb, workspaceId, data.id, visitorId, input.sessionId || null);
-        await backfillVisitorCodeIfMissing(sb, data.id, data.visitor_code);
-        return data.id as string;
+    if (verified && (email || phone)) {
+      const existing = await findContactByProvenIdentifiers(sb, workspaceId, email, phone, null);
+      if (existing?.id) {
+        await linkContactToSessions(sb, workspaceId, existing.id, visitorId, input.sessionId || null);
+        await backfillVisitorCodeIfMissing(sb, existing.id, existing.visitor_code);
+        return existing.id;
       }
     }
-    if (phone) {
-      const { data } = await sb
-        .from('contacts').select('id, visitor_code')
-        .eq('workspace_id', workspaceId).eq('phone', phone)
-        .limit(1).maybeSingle();
-      if (data?.id) {
-        await linkContactToSessions(sb, workspaceId, data.id, visitorId, input.sessionId || null);
-        await backfillVisitorCodeIfMissing(sb, data.id, data.visitor_code);
-        return data.id as string;
-      }
-    }
+
+    // Unproven identifiers never select an existing contact: they are stored
+    // on the NEW contact only when nobody else holds them, and always as a
+    // claim in metadata so the operator still sees what the visitor typed.
+    const placement = verified
+      ? { email, phone, metadata: {} as Record<string, string> }
+      : await placeUnverifiedIdentifiers(sb, workspaceId, email, phone, null);
 
     const seed = visitorId || input.sessionId || `${Date.now()}`;
     const hasIdentity = !!(input.name || email || phone);
-    const buildPayload = (visitorCode: string | null) => ({
-      workspace_id: workspaceId,
-      name: input.name || null,
-      email,
-      phone,
-      visitor_code: visitorCode,
-      metadata: {
-        visitor_id: visitorId,
-        session_id: input.sessionId || null,
-        source: 'widget',
-        anonymous: !hasIdentity,
-        anon_code: anonCodeFrom(seed),
-      },
-    });
+    const buildPayloadWith = (cols: { email: string | null; phone: string | null }) =>
+      (visitorCode: string | null) => ({
+        workspace_id: workspaceId,
+        name: input.name || null,
+        email: cols.email,
+        phone: cols.phone,
+        visitor_code: visitorCode,
+        metadata: {
+          visitor_id: visitorId,
+          session_id: input.sessionId || null,
+          source: 'widget',
+          anonymous: !hasIdentity,
+          anon_code: anonCodeFrom(seed),
+          ...placement.metadata,
+        },
+      });
 
-    const { data: created, error } = await insertContactWithVisitorCode(sb, buildPayload, 'id');
-    if (error) {
-      if (isContactIdentityConflict(error)) {
+    let { data: created, error } = await insertContactWithVisitorCode(
+      sb, buildPayloadWith({ email: placement.email, phone: placement.phone }), 'id',
+    );
+    if (error && isContactIdentityConflict(error)) {
+      if (verified) {
         const existing = await findContactAfterIdentityConflict(sb, workspaceId, email, phone);
         if (existing?.id) {
           await linkContactToSessions(sb, workspaceId, existing.id, visitorId, input.sessionId || null);
           await backfillVisitorCodeIfMissing(sb, existing.id, existing.visitor_code);
           return existing.id;
         }
+      } else {
+        // Someone else took the address between our check and our insert.
+        // Keep the claim in metadata only — never adopt their contact.
+        ({ data: created, error } = await insertContactWithVisitorCode(
+          sb, buildPayloadWith({ email: null, phone: null }), 'id',
+        ));
       }
-      console.warn('[anonymousContact] insert failed:', error.message);
+    }
+    if (error) {
+      console.warn('[anonymousContact] insert failed:', (error as { message?: string }).message ?? error);
       return null;
     }
-    if (created?.id) {
-      await linkContactToSessions(sb, workspaceId, created.id, visitorId, input.sessionId || null);
+    const createdId = (created as { id?: string } | null)?.id ?? null;
+    if (createdId) {
+      await linkContactToSessions(sb, workspaceId, createdId, visitorId, input.sessionId || null);
     }
-    return created?.id ?? null;
-  } catch (err: any) {
-    console.warn('[anonymousContact] threw:', err?.message || err);
+    return createdId;
+  } catch (err) {
+    console.warn('[anonymousContact] threw:', errorMessage(err));
     return null;
   }
 }

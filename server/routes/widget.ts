@@ -100,6 +100,7 @@ import { getPlatformAiAgentSettings } from '../services/ai-agent/platformSetting
 import { clearAiManagementForPlatformOff, markNeedsHuman, type PlatformOffReason } from '../services/ai-agent/handoffState.js';
 import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import { ensureVisitorContact } from '../services/widget/anonymousContact.js';
+import { isContactIdentityConflict, placeUnverifiedIdentifiers } from '../services/widget/claimedIdentity.js';
 import { insertContactWithVisitorCode, backfillVisitorCode } from '../services/widget/visitorCode.js';
 import {
   pinContactOnVisitorSessions,
@@ -2036,44 +2037,13 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         }
       }
 
-      // Final fallback: if we still don't have a conv but the visitor sent
-      // identity fields (email/phone), look up the contact directly and
-      // attach to their most recent open thread. Covers cross-device returns
-      // where the visitor cookie is fresh but the contact already exists.
-      if (!convId && (body.visitor_email || body.visitor_phone)) {
-        const email = (body.visitor_email || '').trim().toLowerCase() || null;
-        const phone = (body.visitor_phone || '').trim().replace(/[^\d+]/g, '') || null;
-        let contactRow = null;
-        if (email) {
-          const r = await supabase
-            .from('contacts').select('id')
-            .eq('workspace_id', workspaceId).eq('email', email)
-            .limit(1).maybeSingle();
-          contactRow = r.data;
-        }
-        if (!contactRow && phone) {
-          const r = await supabase
-            .from('contacts').select('id')
-            .eq('workspace_id', workspaceId).eq('phone', phone)
-            .limit(1).maybeSingle();
-          contactRow = r.data;
-        }
-        if (contactRow) {
-          const { data: openConv } = await supabase
-            .from('conversations').select('id')
-            .eq('workspace_id', workspaceId).eq('contact_id', contactRow.id)
-            .in('status', INBOUND_REUSABLE_STATUSES as unknown as string[])
-            .order('updated_at', { ascending: false }).limit(1).maybeSingle();
-          if (openConv) {
-            convId = openConv.id;
-            // `pending` is left alone on purpose — see above.
-            await supabase.from('conversations')
-              .update({ updated_at: new Date().toISOString() })
-              .eq('id', convId);
-          }
-
-        }
-      }
+      // SECURITY: there is deliberately NO fallback that resolves a contact by
+      // the visitor-supplied `visitor_email` / `visitor_phone` and appends to
+      // that contact's open thread. Those fields are unverified claims — the
+      // old fallback let anyone who typed a customer's email post into (and
+      // receive the conversation_id of) that customer's conversation.
+      // Cross-device continuation goes through /identity/verify/confirm or
+      // the continuity cookie instead.
     }
 
     // Create new conversation
@@ -2090,6 +2060,10 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       // Find or create contact. Every conversation gets one — anonymous
       // visitors get a placeholder contact that the pre-chat / identity
       // form later fills in (see services/widget/anonymousContact.ts).
+      // visitor_email / visitor_phone are unverified here (identityVerified
+      // unset): they are recorded on this visitor's own/new contact only and
+      // never select an existing contact, so the continuity cookie issued
+      // below can never point at somebody else's contact.
       const contactId: string | null = await ensureVisitorContact(supabase, {
         workspaceId,
         visitorId: body.visitor_id || null,
@@ -3018,21 +2992,40 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
 
       if (visitor_id) {
         const { data: contact } = await supabase
-          .from('contacts').select('id, name, email, phone, visitor_code')
+          .from('contacts').select('id, name, email, phone, visitor_code, metadata')
           .eq('workspace_id', workspaceId)
           .contains('metadata', { visitor_id })
           .limit(1).maybeSingle();
+
+        // visitor_email / visitor_phone are unverified visitor input: they
+        // may only fill this visitor's OWN contact's empty columns, and only
+        // when no other contact holds them; the claim itself is always kept
+        // in metadata (unverified_email / unverified_phone) for the operator.
+        // They never overwrite an existing (possibly verified) value.
+        const placement = await placeUnverifiedIdentifiers(
+          supabase,
+          workspaceId,
+          typeof visitor_email === 'string' ? visitor_email.trim().toLowerCase() || null : null,
+          typeof visitor_phone === 'string' ? visitor_phone.trim().replace(/[^\d+]/g, '') || null : null,
+          contact?.id ?? null,
+        );
 
         if (contact) {
           contactId = contact.id;
           const updatePayload: Record<string, unknown> = {
             updated_at: new Date().toISOString(),
-            metadata: { visitor_id, source: 'widget', session_id: session_id || null },
+            metadata: {
+              ...((contact.metadata as Record<string, unknown> | null) || {}),
+              visitor_id,
+              source: 'widget',
+              session_id: session_id || null,
+              ...placement.metadata,
+            },
           };
           if (visitor_name && visitor_name !== contact.name) updatePayload.name = visitor_name;
-          if (visitor_email && visitor_email !== contact.email) updatePayload.email = visitor_email;
-          if (visitor_phone && visitor_phone !== contact.phone) updatePayload.phone = visitor_phone;
-          if (Object.keys(updatePayload).length > 2) {
+          if (placement.email && !contact.email) updatePayload.email = placement.email;
+          if (placement.phone && !contact.phone) updatePayload.phone = placement.phone;
+          if (Object.keys(updatePayload).length > 2 || Object.keys(placement.metadata).length > 0) {
             const { data: updatedContact } = await supabase
               .from('contacts')
               .update(updatePayload)
@@ -3054,10 +3047,10 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
             // doc comment. `visitor_name` here is only ever populated once
             // the visitor has actually submitted one.
             name: visitor_name || null,
-            email: visitor_email || null,
-            phone: visitor_phone || null,
+            email: placement.email,
+            phone: placement.phone,
             visitor_code: visitorCode,
-            metadata: { visitor_id, source: 'widget', session_id: session_id || null },
+            metadata: { visitor_id, source: 'widget', session_id: session_id || null, ...placement.metadata },
           });
           const { data: createdContact } = await insertContactWithVisitorCode(
             supabase, buildPayload, 'id, name, email, phone',
@@ -3722,38 +3715,62 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
     visitorSessionId = vs?.id || null;
   }
 
-  // Resolve / create contact when email provided. Email is the only stable
-  // long-lived key we can reuse for follow-up.
+  // Resolve / create contact when email provided.
+  //
+  // SECURITY (C6): the typed email/phone are UNVERIFIED. They must never
+  // attach this capture to an existing contact that holds them — that filed
+  // the visitor's thread (and the operator's replies) under somebody else's
+  // contact. Reuse only this visitor's OWN contact (cookie visitor id);
+  // otherwise create one, storing an address another contact already holds
+  // only as an unverified claim in metadata so the operator still sees it.
   let contactId: string | null = null;
   if (email) {
-    const { data: existing } = await supabase
-      .from('contacts')
-      .select('id, name, phone')
-      .eq('workspace_id', workspace_id)
-      .eq('email', email.toLowerCase())
-      .maybeSingle();
+    const typedEmail = email.trim().toLowerCase();
+    const typedPhone = phone ? phone.trim().replace(/[^\d+]/g, '') || null : null;
+    let own: { id: string; name: string | null; email: string | null; phone: string | null; metadata: Record<string, unknown> | null } | null = null;
+    if (visitorId) {
+      const { data } = await supabase
+        .from('contacts')
+        .select('id, name, email, phone, metadata')
+        .eq('workspace_id', workspace_id)
+        .contains('metadata', { visitor_id: visitorId })
+        .limit(1)
+        .maybeSingle();
+      own = data || null;
+    }
+    const placement = await placeUnverifiedIdentifiers(supabase, workspace_id, typedEmail, typedPhone, own?.id ?? null);
 
-    if (existing) {
-      contactId = existing.id;
+    if (own) {
+      contactId = own.id;
       const patch: Record<string, unknown> = {};
-      if (name && !existing.name) patch.name = name;
-      if (phone && !existing.phone) patch.phone = phone;
+      if (name && !own.name) patch.name = name;
+      if (placement.email && !own.email) patch.email = placement.email;
+      if (placement.phone && !own.phone) patch.phone = placement.phone;
+      if (Object.keys(placement.metadata).length) patch.metadata = { ...(own.metadata || {}), ...placement.metadata };
       if (Object.keys(patch).length) {
-        await supabase.from('contacts').update(patch).eq('id', contactId);
+        const { error: patchErr } = await supabase.from('contacts').update(patch).eq('id', contactId);
+        if (patchErr && isContactIdentityConflict(patchErr)) {
+          const { email: _droppedEmail, phone: _droppedPhone, ...rest } = patch;
+          if (Object.keys(rest).length) await supabase.from('contacts').update(rest).eq('id', contactId);
+        }
       }
     } else {
-      const { data: created } = await supabase
+      const insertContact = (cols: { email: string | null; phone: string | null }) => supabase
         .from('contacts')
         .insert({
           workspace_id,
-          email: email.toLowerCase(),
+          email: cols.email,
           name: name || null,
-          phone: phone || null,
-          metadata: { source: 'offline_capture', visitor_id: visitorId },
+          phone: cols.phone,
+          metadata: { source: 'offline_capture', visitor_id: visitorId, ...placement.metadata },
         })
         .select('id')
         .single();
-      contactId = created?.id || null;
+      let { data: created, error: createErr } = await insertContact({ email: placement.email, phone: placement.phone });
+      if (createErr && isContactIdentityConflict(createErr)) {
+        ({ data: created, error: createErr } = await insertContact({ email: null, phone: null }));
+      }
+      contactId = createErr ? null : created?.id || null;
     }
   }
 

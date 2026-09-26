@@ -1,4 +1,5 @@
--- 217: visitor liveness — a coalesced heartbeat no longer writes anything.
+-- 20260926100000 (mirror of database/migrations/218): visitor liveness —
+-- a coalesced heartbeat no longer writes anything.
 --
 -- ADDITIVE ONLY. One function body replaced (same signature, same result
 -- columns, same meaning), one index added. No column, table or row is
@@ -176,5 +177,10 @@ begin
 end;
 $$;
 
-create index concurrently if not exists idx_visitor_presence_session
+-- Plain (not CONCURRENTLY) build: this chain is applied inside a transaction,
+-- where CONCURRENTLY is not allowed. On a large hosted database, pre-build it
+-- by hand first so this statement finds it and skips:
+--   CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_visitor_presence_session
+--     ON public.visitor_presence (visitor_session_id);
+create index if not exists idx_visitor_presence_session
   on public.visitor_presence (visitor_session_id);

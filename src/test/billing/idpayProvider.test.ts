@@ -238,13 +238,13 @@ describe('idpay verifyPayment', () => {
     expect(r).toEqual({ verified: true, providerRef: 'trk-MOCK', amount: 150000, status: 'success' });
   });
 
-  it('keeps status 101 distinct from 100', async () => {
+  it('reports status 101 as already_verified, distinct from 100', async () => {
     mockJson({ status: 101, track_id: 'trk-MOCK', amount: 150000 });
     await expect(idpayProvider.verifyPayment!(config, verifyParams)).resolves.toEqual({
       verified: true,
       providerRef: 'trk-MOCK',
       amount: 150000,
-      status: 'failed',
+      status: 'already_verified',
     });
   });
 

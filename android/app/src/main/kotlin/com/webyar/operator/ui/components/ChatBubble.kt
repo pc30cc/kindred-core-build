@@ -15,11 +15,10 @@ import com.webyar.operator.ui.design.Radius
  * used to do, without a tail on every bubble turning the column into a
  * sawtooth.
  *
- * Start and end, not left and right: an outgoing bubble sits at the end of
- * the row, which is the left in Persian (the way Telegram and WhatsApp lay a
- * Persian thread out), and [RoundedCornerShape] resolves its start/end
- * corners against the same layout direction — so the tight corners follow
- * the bubble to whichever side it is on, with nothing here to mirror.
+ * Start and end, not left and right: [MessageBubble] lays its row out left
+ * to right in every language (the operator on the right, the visitor on the
+ * left), and [RoundedCornerShape] resolves start/end against that same
+ * direction — so the tight corners are on the side the bubble sits on.
  */
 fun bubbleShape(outgoing: Boolean, startsRun: Boolean): Shape {
     val big = BubbleCorner

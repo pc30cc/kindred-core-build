@@ -1,4 +1,4 @@
--- 220: workspace storage occupancy survives month rollover, whoever creates
+-- 221: workspace storage occupancy survives month rollover, whoever creates
 -- the month's counter row — and the occupancy already lost is restored.
 --
 -- storage_bytes is CUMULATIVE occupancy (docs/STORAGE_COUNTER_ARCHITECTURE.md):
@@ -118,7 +118,7 @@ BEGIN
   END IF;
 
   -- A new month's row is seeded with the prior period's occupancy by
-  -- trg_workspace_usage_counters_seed_storage (migration 220), whichever
+  -- trg_workspace_usage_counters_seed_storage (migration 221), whichever
   -- writer creates it, so only the delta is inserted here.
   INSERT INTO public.workspace_usage_counters (workspace_id, period, storage_bytes)
   VALUES (NEW.workspace_id, v_period, v_delta)

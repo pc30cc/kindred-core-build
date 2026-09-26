@@ -9,6 +9,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { z } from 'zod';
 import { issueRecoveryEmail } from '../services/auth-email.js';
+import { redactEmailLogRows } from '../services/email/redactLogMetadata.js';
 import { deleteFile, deleteForOwner } from '../services/storage/index.js';
 import { adminWidgetRouter } from './adminWidget.js';
 import { adminMetricsRouter } from './adminMetrics.js';
@@ -616,7 +617,9 @@ adminRouter.get('/users/:userId/messages', async (req, res) => {
     };
 
     res.json({
-      emails: emailsRes.data ?? [],
+      // metadata may hold template data with reset/verify links or codes
+      // (rows written before insert-side redaction) — never return it raw.
+      emails: redactEmailLogRows(emailsRes.data as Record<string, unknown>[] | null),
       sms: (smsRes.data ?? []).map((s: Record<string, unknown>) => ({
         id: s.id,
         purpose: s.purpose,

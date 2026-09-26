@@ -74,6 +74,13 @@ RUN test -f /app/public/call-widget/presentation-default.js  || (echo "❌ Call 
 RUN test -f /app/public/call-widget/presentation-default.css || (echo "❌ Call Widget default presentation CSS missing" && exit 1)
 RUN test -f /app/public/widget/vendor/livekit-client.umd.min.js || (echo "❌ livekit-client.umd.min.js missing" && exit 1)
 
+# Production runtime. Set AFTER `npm install` above (so the build-time install
+# is unchanged) but before the process starts: without it the session cookie
+# was issued without `Secure`, and every other NODE_ENV-gated production
+# guard was silently off. Same convention as Dockerfile.worker / .ai /
+# .channels.
+ENV NODE_ENV=production
+
 EXPOSE 3001
 
 # Run TypeScript directly with tsx

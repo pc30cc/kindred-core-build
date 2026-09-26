@@ -159,7 +159,7 @@ async function resolveMaxVisitors(
  * there is none yet — no counter has written this month — the newest earlier
  * month is used instead of 0, which let a workspace upload past its limit at
  * the start of every month. New month rows are seeded with the prior
- * occupancy when created (migration 220). If that fallback read fails the
+ * occupancy when created (migration 221). If that fallback read fails the
  * result is the old 0.
  */
 async function readStorageBytes(config: ServerConfig, workspaceId: string): Promise<number> {

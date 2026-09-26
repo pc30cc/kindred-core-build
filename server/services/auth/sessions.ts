@@ -56,8 +56,36 @@ export const SESSION_COOKIE_NAME = 'gs_session';
  */
 const SESSION_COOKIE_SAMESITE = (process.env.SESSION_COOKIE_SAMESITE || 'lax') as 'lax' | 'strict' | 'none';
 
-function isProduction(): boolean {
-  return process.env.NODE_ENV === 'production';
+/** True for an http(s) URL whose host is loopback (localhost / 127.0.0.1 / ::1). */
+function isLocalhostUrl(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    const { protocol, hostname } = new URL(value);
+    if (protocol !== 'http:') return false;
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname.endsWith('.localhost');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Secure BY DEFAULT. The session cookie is the account credential, so it is
+ * only ever sent without `Secure` when the process is explicitly local:
+ *   - NODE_ENV is `development` or `test`, or
+ *   - APP_BASE_URL is a plain-http loopback URL (http://localhost:5173).
+ *
+ * This used to be `NODE_ENV === 'production'`, and the production server
+ * image never set NODE_ENV — so every real deployment issued a non-Secure
+ * session cookie. A missing or unknown NODE_ENV now fails safe. (Modern
+ * browsers also accept `Secure` cookies from http://localhost itself.)
+ */
+function shouldUseSecureCookie(): boolean {
+  if (SESSION_COOKIE_SAMESITE === 'none') return true;
+  const env = process.env.NODE_ENV;
+  if (env === 'production') return true;
+  if (env === 'development' || env === 'test') return false;
+  if (isLocalhostUrl(process.env.APP_BASE_URL)) return false;
+  return true;
 }
 
 export interface CookieResponse {
@@ -68,7 +96,7 @@ export interface CookieResponse {
 function cookieOptions(maxAgeMs?: number) {
   return {
     httpOnly: true,
-    secure: isProduction() || SESSION_COOKIE_SAMESITE === 'none',
+    secure: shouldUseSecureCookie(),
     sameSite: SESSION_COOKIE_SAMESITE,
     path: '/',
     ...(maxAgeMs !== undefined ? { maxAge: maxAgeMs } : {}),

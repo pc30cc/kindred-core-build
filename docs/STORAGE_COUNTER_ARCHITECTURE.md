@@ -6,7 +6,7 @@ _Status: **canonical producer installed.** `requireLimit('storage_gb', ...)` rol
 
 - Unit of truth: `workspace_usage_counters.storage_bytes` (bigint, bytes).
 - Resolver: `resolveStorageGb` (`server/services/billing/usageResolvers.ts`) reads bytes for the workspace's current-month row — or, when no counter has written this month yet, the newest earlier month's row — and converts to GB.
-- Cap kind: **cumulative current occupancy.** A stored byte keeps consuming the cap until the file is deleted. Period rollover does **not** zero the counter — every new monthly row is seeded with the prior period's value when it is created, by whichever counter creates it (migration 220).
+- Cap kind: **cumulative current occupancy.** A stored byte keeps consuming the cap until the file is deleted. Period rollover does **not** zero the counter — every new monthly row is seeded with the prior period's value when it is created, by whichever counter creates it (migration 221).
 - What counts: every byte persisted via `uploadFile()` in `server/services/storage/index.ts`. That includes operator uploads, conversation attachments, and widget visitor attachments — all upload paths funnel through the same service.
 - What does **not** count: external URLs, third-party-managed buckets the platform did not write, database rows, log tables.
 
@@ -22,7 +22,7 @@ Behavior:
 | `delete`  | `true`  | `> 0`     | `-= file_size` (clamped at 0) |
 | anything else, or `success=false`, or null/zero `file_size` | — | — | **no-op** |
 
-New monthly rows are seeded by carrying forward the most recent prior period's `storage_bytes` value. Since migration 220 that seeding is done by the `BEFORE INSERT` trigger `trg_workspace_usage_counters_seed_storage` for **every** new row, and the producer inserts only its delta. Before, only the producer seeded — and only when its own insert created the month's row. The message, conversation, visitor, AI and call-minute counters write the same row and usually created it first with `storage_bytes = 0`, so an active workspace's occupancy fell back to one month's uploads every month.
+New monthly rows are seeded by carrying forward the most recent prior period's `storage_bytes` value. Since migration 221 that seeding is done by the `BEFORE INSERT` trigger `trg_workspace_usage_counters_seed_storage` for **every** new row, and the producer inserts only its delta. Before, only the producer seeded — and only when its own insert created the month's row. The message, conversation, visitor, AI and call-minute counters write the same row and usually created it first with `storage_bytes = 0`, so an active workspace's occupancy fell back to one month's uploads every month.
 
 ## Authoritative write/delete points
 
@@ -41,7 +41,7 @@ No route handler writes the counter directly. There is no inline counter math an
 
 ## Backfill
 
-**Carry-forward losses were restored by migration 220.** Nothing counted storage before the producer existed, so a workspace's first month with `storage_bytes > 0` is correct as stored; from the following month on the producer applied exactly the sized, successful upload/delete rows of `storage_usage_logs`. That first month plus the net of those rows is what the counter would hold had no seed been lost, and the migration adds the missing difference to the newest row (idempotently — rerunning it finds nothing to add). To check a database by hand, compare that sum with the newest row's `storage_bytes`.
+**Carry-forward losses were restored by migration 221.** Nothing counted storage before the producer existed, so a workspace's first month with `storage_bytes > 0` is correct as stored; from the following month on the producer applied exactly the sized, successful upload/delete rows of `storage_usage_logs`. That first month plus the net of those rows is what the counter would hold had no seed been lost, and the migration adds the missing difference to the newest row (idempotently — rerunning it finds nothing to add). To check a database by hand, compare that sum with the newest row's `storage_bytes`.
 
 A full backfill of storage from before the producer existed remains **intentionally skipped**:
 

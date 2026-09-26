@@ -116,7 +116,7 @@ teamChatRouter.get('/colleagues', async (req, res) => {
         ? sb.from('profiles').select('id, full_name, email, avatar_storage_key').in('id', ids)
         : Promise.resolve({ data: [] }),
       sb.from('team_messages')
-        .select('id, sender_id, recipient_id, body, attachment_id, read_at, created_at')
+        .select('id, sender_id, recipient_id, body, attachment_id, reply_to_id, read_at, created_at')
         .eq('workspace_id', workspaceId)
         .or(`sender_id.eq.${auth.userId},recipient_id.eq.${auth.userId}`)
         .order('created_at', { ascending: false })
@@ -204,7 +204,7 @@ teamChatRouter.get('/thread', async (req, res) => {
     const sb = getServiceClient(config);
     const { data, error } = await sb
       .from('team_messages')
-      .select('id, sender_id, recipient_id, body, attachment_id, read_at, created_at')
+      .select('id, sender_id, recipient_id, body, attachment_id, reply_to_id, read_at, created_at')
       .eq('workspace_id', workspaceId)
       .or(
         `and(sender_id.eq.${auth.userId},recipient_id.eq.${peerId}),` +
@@ -235,6 +235,8 @@ const sendSchema = z.object({
   recipient_id: z.string().uuid(),
   body: z.string().trim().max(5000).default(''),
   attachment_id: z.string().uuid().nullable().optional(),
+  /** An earlier message between the same two operators that this one answers. */
+  reply_to_id: z.string().uuid().nullable().optional(),
 }).refine((v) => v.body.length > 0 || !!v.attachment_id, {
   message: 'body or attachment_id required',
 });
@@ -288,10 +290,26 @@ teamChatRouter.post('/messages', async (req, res) => {
       };
     }
 
+    // A reply may only quote a message of this same conversation between the two.
+    let replyTo: string | null = null;
+    if (parsed.data.reply_to_id) {
+      const { data: quoted } = await sb
+        .from('team_messages')
+        .select('id, sender_id, recipient_id')
+        .eq('id', parsed.data.reply_to_id)
+        .eq('workspace_id', workspace_id)
+        .maybeSingle();
+      const pair = new Set([auth.userId, recipient_id]);
+      if (!quoted || !pair.has(quoted.sender_id) || !pair.has(quoted.recipient_id)) {
+        return res.status(400).json({ error: 'reply_to_not_in_thread' });
+      }
+      replyTo = quoted.id;
+    }
+
     const { data: inserted, error } = await sb
       .from('team_messages')
-      .insert({ workspace_id, sender_id: auth.userId, recipient_id, body, attachment_id: attachmentId })
-      .select('id, sender_id, recipient_id, body, attachment_id, read_at, created_at')
+      .insert({ workspace_id, sender_id: auth.userId, recipient_id, body, attachment_id: attachmentId, reply_to_id: replyTo })
+      .select('id, sender_id, recipient_id, body, attachment_id, reply_to_id, read_at, created_at')
       .single();
     if (error || !inserted) return res.status(500).json({ error: error?.message || 'Insert failed' });
 

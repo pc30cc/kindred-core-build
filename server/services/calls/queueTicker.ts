@@ -91,14 +91,14 @@ async function autoAssignAllWorkspaces(config: ServerConfig): Promise<number> {
  * Whether any entry is 'queued' or 'offered'. Every step of a pass acts only
  * on those two states, so when this is false the pass would change nothing.
  * One index-only read (call_queue_has_active_entries() over
- * idx_call_queue_active, migration 218) instead of an UPDATE and two SELECTs
+ * idx_call_queue_active, migration 219) instead of an UPDATE and two SELECTs
  * every 10s against a table that only grows — ~29k statements a day on an
  * install where nobody is calling.
  *
  * The RPC rather than a `.in('state', …)` filter: PostgREST binds filter
  * values as parameters, and once Postgres moves that statement to a generic
  * plan the partial index is unusable and the probe reads the whole table
- * (measured: 1,870 buffers vs 1). A database without migration 218 falls
+ * (measured: 1,870 buffers vs 1). A database without migration 219 falls
  * back to the filter; a read that fails outright says "true", so the pass
  * runs exactly as before.
  */

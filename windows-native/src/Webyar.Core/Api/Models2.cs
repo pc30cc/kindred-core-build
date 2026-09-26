@@ -101,7 +101,9 @@ public sealed record TeamMessage(
     string? Body = null,
     MessageAttachment? Attachment = null,
     DateTimeOffset? ReadAt = null,
-    DateTimeOffset? CreatedAt = null);
+    DateTimeOffset? CreatedAt = null,
+    /// <summary>The earlier message of this thread it answers.</summary>
+    string? ReplyToId = null);
 
 public sealed record TeamThread(IReadOnlyList<TeamMessage>? Messages = null, string? Me = null);
 

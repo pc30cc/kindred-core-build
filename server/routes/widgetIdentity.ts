@@ -309,6 +309,12 @@ widgetIdentityRouter.post('/prechat', widgetRateLimit('message'), async (req: Re
   await ensureVisitorSessionRow(supabase, workspaceId, visitorId, null, 'chat_widget', netCtx);
 
   try {
+    // Pre-chat email/phone are UNVERIFIED claims: mergeVisitorIdentity keeps
+    // them on this visitor's own (or a new) contact and never links the
+    // visitor to an existing contact that holds them — so the continuity
+    // cookie below and /identity/me + /identity/history only ever expose this
+    // visitor's own contact. Linking to an existing customer happens only
+    // after /identity/verify/confirm.
     const merge = await mergeVisitorIdentity(config, supabase, {
       workspaceId,
       visitorId,
@@ -424,6 +430,14 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
 // ═══════════════════════════════════════════════
 // POST /identity/verify/request — Request email/phone code
 // ═══════════════════════════════════════════════
+/**
+ * Echo the raw verification code back in the API response? Only for local
+ * testing, only when explicitly asked for, and never in production.
+ */
+export function isWidgetIdentityDevTokenEnabled(): boolean {
+  return process.env.WIDGET_IDENTITY_DEV_TOKEN === '1' && process.env.NODE_ENV !== 'production';
+}
+
 const verifyRequestSchema = z.object({
   workspace_id: z.string().uuid().optional(),
   channel: z.enum(['email', 'phone']),
@@ -458,12 +472,17 @@ widgetIdentityRouter.post('/verify/request', widgetRateLimit('message'), async (
   }
 
   // TODO: actually deliver result.rawToken via configured email/sms provider.
-  // For now we return the token only in non-production for testing.
-  const isDev = process.env.NODE_ENV !== 'production';
+  //
+  // The raw verification code is the proof of ownership of the identifier —
+  // returning it to the caller lets anyone "verify" any email/phone. It is
+  // only echoed as `dev_token` behind an explicit, never-default opt-in
+  // (WIDGET_IDENTITY_DEV_TOKEN=1), and never when NODE_ENV=production. This
+  // used to be `NODE_ENV !== 'production'`, which was true in every real
+  // deployment because the server image did not set NODE_ENV.
   return res.json({
     success: true,
     expires_at: result.expiresAt?.toISOString(),
-    ...(isDev ? { dev_token: result.rawToken } : {}),
+    ...(isWidgetIdentityDevTokenEnabled() ? { dev_token: result.rawToken } : {}),
   });
 });
 
@@ -502,8 +521,17 @@ widgetIdentityRouter.post('/verify/confirm', widgetRateLimit('message'), async (
   if (!result.success) {
     return res.status(400).json({ error: result.error || 'verify_failed' });
   }
+  // The code proves control of the identifier only for the visitor that
+  // requested it — a code issued to another browser must not attach THIS
+  // visitor to the identifier's contact.
+  if (result.visitorId && result.visitorId !== cookie.v) {
+    return res.status(400).json({ error: 'invalid_token' });
+  }
 
-  // Auto-merge identity now that channel is verified
+  // Auto-merge identity now that channel is verified. This is the ONLY
+  // widget path where a visitor-supplied email/phone may resolve an existing
+  // contact (verifiedIdentifiers) — pre-chat / message / call-widget input is
+  // an unverified claim and never links to someone else's contact.
   try {
     const merge = await mergeVisitorIdentity(config, supabase, {
       workspaceId,
@@ -511,6 +539,7 @@ widgetIdentityRouter.post('/verify/confirm', widgetRateLimit('message'), async (
       identity: parsed.data.channel === 'email'
         ? { email: parsed.data.identifier }
         : { phone: parsed.data.identifier },
+      verifiedIdentifiers: true,
       method: parsed.data.channel,
       ipAddress: getClientIp(req),
       cfCountry: getClientCountry(req),

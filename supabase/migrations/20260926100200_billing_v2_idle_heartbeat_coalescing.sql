@@ -1,4 +1,4 @@
--- 20260925233200 (mirror of database/migrations/219): billing_v2_note_worker_run —
+-- 20260926100200 (mirror of database/migrations/220): billing_v2_note_worker_run —
 -- an idle, healthy scheduler run no longer rewrites its heartbeat row every 5
 -- minutes.
 --

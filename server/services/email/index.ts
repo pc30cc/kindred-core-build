@@ -9,6 +9,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { sendViaResend } from './providers/resend.js';
 import { sendViaSendGrid } from './providers/sendgrid.js';
 import { sendViaSMTP } from './providers/smtp.js';
+import { buildEmailLogMetadata } from './redactLogMetadata.js';
 
 /**
  * What a caller may ask this service to send.
@@ -32,7 +33,16 @@ import { sendViaSMTP } from './providers/smtp.js';
  * `Reply-To` header.
  */
 export interface EmailRequest {
-  workspaceId: string;
+  /**
+   * The tenant this mail belongs to, or `null` for PLATFORM mail (password
+   * reset, email verification — anything sent to a person rather than on a
+   * workspace's behalf). Platform mail is never attributed to a workspace:
+   * `email_logs` is readable by that workspace's admins, so a platform send
+   * pinned to an arbitrary tenant leaked reset links to strangers. A `null`
+   * workspace writes no `email_logs` row (the table is workspace-scoped and
+   * `workspace_id` is NOT NULL).
+   */
+  workspaceId: string | null;
   to: string;
   subject?: string;
   html?: string;
@@ -174,7 +184,7 @@ async function resolveFromAddress(
  */
 async function resolveTemplate(
   supabase: SupabaseClient,
-  _workspaceId: string,
+  _workspaceId: string | null,
   slug: string,
   locale: string
 ): Promise<{ subject: string; html_body: string; text_body: string | null } | null> {
@@ -306,7 +316,9 @@ export async function sendEmail(
 
   const { workspaceId, to, templateSlug, templateData, locale } = request;
 
-  if (!workspaceId || !to) {
+  // `workspaceId === null` is an explicit platform send; an empty string or a
+  // missing field is still a caller bug.
+  if (workspaceId === undefined || workspaceId === '' || !to) {
     return { success: false, provider: 'none', error: 'workspaceId and to are required' };
   }
 
@@ -380,7 +392,12 @@ export async function sendEmail(
   // the only evidence that a transactional email was actually handed to a
   // provider; the send itself, and the SendResult every caller branches on,
   // are already decided above and are unaffected either way.
-  if (config.deliveryDiagnosticsLoggingEnabled !== false) {
+  //
+  // Platform mail (workspaceId null) is never logged against a tenant, and
+  // template data is redacted before it is persisted: it carries reset /
+  // verify links with raw tokens, OTP codes and invite links, and this table
+  // is readable by workspace admins.
+  if (config.deliveryDiagnosticsLoggingEnabled !== false && workspaceId) {
     await supabase.from('email_logs').insert({
       workspace_id: workspaceId,
       template_slug: templateSlug || null,
@@ -389,7 +406,7 @@ export async function sendEmail(
       status: result.success ? 'sent' : 'failed',
       provider_name: providerName,
       error_message: result.error || null,
-      metadata: { templateData, messageId: result.id },
+      metadata: buildEmailLogMetadata(templateData, result.id),
       sent_at: result.success ? new Date().toISOString() : null,
     });
   }

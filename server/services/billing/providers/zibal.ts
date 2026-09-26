@@ -108,11 +108,14 @@ export const zibalProvider: BillingProviderHandler = {
     });
     const data = await res.json();
     const result = readZibalVerifyResult(data);
+    // 201 = "already verified": surfaced as `already_verified` so only the
+    // intent that itself consumed this trackId can accept it (crash recovery /
+    // repeated callback), never a different intent.
     return {
-      verified: result === 100,
+      verified: result === 100 || result === 201,
       providerRef: readZibalRefNumber(data) ?? (params.trackId ?? ''),
       amount: readZibalVerifiedAmount(data),
-      status: result === 100 ? 'success' : 'failed',
+      status: result === 100 ? 'success' : result === 201 ? 'already_verified' : 'failed',
     };
   },
 
@@ -136,8 +139,8 @@ export const zibalProvider: BillingProviderHandler = {
       const result = readZibalResult(data);
       if (result === 102 || result === 103) return { success: false, latencyMs: Date.now() - start, error: 'Invalid merchant' };
       return { success: true, latencyMs: Date.now() - start };
-    } catch (e: any) {
-      return { success: false, latencyMs: Date.now() - start, error: e.message };
+    } catch (e: unknown) {
+      return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };
     }
   },
 };

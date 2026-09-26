@@ -1,4 +1,4 @@
--- Hosted mirror of database/migrations/221_brin_created_at_indexes.sql:
+-- Hosted mirror of database/migrations/222_brin_created_at_indexes.sql:
 -- BRIN indexes on conversation_messages.created_at and
 -- conversations.created_at for the business rollup's time-range scans.
 --

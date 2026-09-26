@@ -114,18 +114,27 @@ services:
   # ─────────────────────────────────────────────────────────────────
   centrifugo:
     image: centrifugo/centrifugo:v5
-    command: centrifugo --client_insecure=false --admin
+    # No `--admin`: the admin UI is off. It used to ship enabled with a
+    # published default password. Enable it (if ever) only behind a private
+    # network, with CENTRIFUGO_ADMIN_PASSWORD / CENTRIFUGO_ADMIN_SECRET set.
+    command: centrifugo --client_insecure=false
     ports:
-      - "${CENTRIFUGO_PORT:-8000}:8000"
+      # Loopback only. Browsers reach Centrifugo through the host's TLS reverse
+      # proxy (set CENTRIFUGO_WS_URL to that public wss:// URL); the backend
+      # talks to it on the compose network (http://centrifugo:8000). Never
+      # publish the raw port on 0.0.0.0 — /api is guarded only by the API key.
+      - "127.0.0.1:${CENTRIFUGO_PORT:-8000}:8000"
     environment:
+      # Secrets are REQUIRED — `docker compose up` refuses to start without
+      # them rather than falling back to a public default from this file.
+      # Generate each with: openssl rand -hex 32
       # Token signing — MUST match backend CENTRIFUGO_TOKEN_HMAC_SECRET.
-      - CENTRIFUGO_TOKEN_HMAC_SECRET_KEY=${CENTRIFUGO_TOKEN_HMAC_SECRET:-please-change-me-shared-with-backend}
-      # Server-to-server admin API key — MUST match backend CENTRIFUGO_API_KEY.
-      - CENTRIFUGO_API_KEY=${CENTRIFUGO_API_KEY:-please-change-me-admin-api-key}
-      - CENTRIFUGO_ADMIN=true
-      - CENTRIFUGO_ADMIN_PASSWORD=${CENTRIFUGO_ADMIN_PASSWORD:-changeme}
-      - CENTRIFUGO_ADMIN_SECRET=${CENTRIFUGO_ADMIN_SECRET:-changeme-admin-secret}
-      - CENTRIFUGO_ALLOWED_ORIGINS=${CENTRIFUGO_ALLOWED_ORIGINS:-*}
+      - CENTRIFUGO_TOKEN_HMAC_SECRET_KEY=${CENTRIFUGO_TOKEN_HMAC_SECRET:?Set CENTRIFUGO_TOKEN_HMAC_SECRET in .env (openssl rand -hex 32)}
+      # Server-to-server API key — MUST match backend CENTRIFUGO_API_KEY.
+      - CENTRIFUGO_API_KEY=${CENTRIFUGO_API_KEY:?Set CENTRIFUGO_API_KEY in .env (openssl rand -hex 32)}
+      # Explicit browser origins (space-separated), e.g. https://app.example.com
+      # — no `*` default.
+      - CENTRIFUGO_ALLOWED_ORIGINS=${CENTRIFUGO_ALLOWED_ORIGINS:?Set CENTRIFUGO_ALLOWED_ORIGINS in .env (your dashboard/widget origins, space-separated)}
       - CENTRIFUGO_PRESENCE=true
       - CENTRIFUGO_HISTORY_SIZE=50
       - CENTRIFUGO_HISTORY_TTL=300s

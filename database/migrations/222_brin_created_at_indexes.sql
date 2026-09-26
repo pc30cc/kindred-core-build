@@ -1,4 +1,4 @@
--- 221: BRIN indexes on conversation_messages.created_at and
+-- 222: BRIN indexes on conversation_messages.created_at and
 -- conversations.created_at, built without blocking writes.
 --
 -- business_metrics_rollup_and_prune() — the heaviest query the API issues —

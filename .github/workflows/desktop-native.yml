@@ -75,11 +75,8 @@ jobs:
       # (src/Webyar.Setup). It carries the setup inside it and the unpacked size
       # of the app, which drives its progress bar.
       - name: Build installer
-        run: |
-          $bytes = (Get-ChildItem publish -Recurse -File | Measure-Object -Property Length -Sum).Sum
-          $payload = (Resolve-Path releases/WebyarWindows-win-Setup.exe).Path
-          dotnet build src/Webyar.Setup/Webyar.Setup.csproj -c Release "-p:PayloadPath=$payload" "-p:PayloadBytes=$bytes" -o setup-out
-          Copy-Item setup-out/Webyar-Setup.exe releases/Webyar-Setup.exe
+        # Program Files installer with its own uninstaller; see build-installer.ps1.
+        run: ./build-installer.ps1
 
       - uses: actions/upload-artifact@v4
         with:

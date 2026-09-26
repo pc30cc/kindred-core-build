@@ -34,3 +34,10 @@ ios/WebyarNative/*.xcodeproj/
 ios/WebyarNative/Generated/
 public/downloads/webyar-whmcs.json
 public/downloads/webyar-whmcs.zip
+
+# Environment files hold real credentials: keep them out of git. The
+# *.example templates are the tracked documentation of every variable.
+.env
+.env.*
+!.env.example
+!.env.*.example

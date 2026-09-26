@@ -6,6 +6,13 @@
 agp = "9.4.1"
 kotlin = "2.4.20"
 composeBom = "2026.09.00"
+# Material 3 Expressive. The BOM's material3 (1.4.0, the stable line) keeps
+# every Expressive API internal — MaterialExpressiveTheme, the expressive
+# MotionScheme, LoadingIndicator, ButtonGroup, the floating toolbar — so the
+# two material3 artifacts are pinned to the release that ships them. Nothing
+# else in Compose moves: foundation, ui and animation stay on the BOM.
+# Resolved from Google Maven 2026-09-25.
+material3 = "1.5.0-alpha29"
 coreKtx = "1.19.0"
 activityCompose = "1.13.0"
 lifecycle = "2.11.0"
@@ -88,7 +95,7 @@ androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
 androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
 androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
-androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "material3" }
 # Named rather than left transitive: the icons used are from the CORE set,
 # and material-icons-extended is a very large artifact to acquire by accident.
 androidx-compose-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core" }
@@ -116,7 +123,7 @@ androidx-compose-material3-adaptive = { group = "androidx.compose.material3.adap
 androidx-compose-material3-adaptive-layout = { group = "androidx.compose.material3.adaptive", name = "adaptive-layout", version.ref = "adaptive" }
 androidx-compose-material3-adaptive-navigation3 = { group = "androidx.compose.material3.adaptive", name = "adaptive-navigation3", version.ref = "adaptive" }
 # Bar on a phone, rail on a tablet — the BOM versions it with material3.
-androidx-compose-material3-adaptive-navigation-suite = { group = "androidx.compose.material3", name = "material3-adaptive-navigation-suite" }
+androidx-compose-material3-adaptive-navigation-suite = { group = "androidx.compose.material3", name = "material3-adaptive-navigation-suite", version.ref = "material3" }
 
 # LiveKit, for the calls. The SDK only — NOT livekit-android-compose-components,
 # which pins its own Compose BOM and drags in Molecule for what amounts to one

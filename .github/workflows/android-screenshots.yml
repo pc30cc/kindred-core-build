@@ -121,6 +121,7 @@ jobs:
           }
           GRADLE
           ./gradlew --init-script "$RUNNER_TEMP/export.init.gradle" :app:exportCompileClasspath --stacktrace
+          ./gradlew -q :app:dependencies --configuration debugRuntimeClasspath > app/build/export/dependencies.txt
 
       - name: Assemble the bundle
         env:
@@ -130,6 +131,7 @@ jobs:
           bundle=$(mktemp -d)
           mkdir -p "$bundle/classpath" "$bundle/generated" "$bundle/sources" "$bundle/sdk"
           cp android/app/build/export/classpath/*.jar "$bundle/classpath/"
+          cp android/app/build/export/dependencies.txt "$bundle/"
           for d in android/app/build/generated/ksp/debug android/app/build/generated/source/buildConfig/debug; do
             [ -d "$d" ] && mkdir -p "$bundle/generated/$(basename "$(dirname "$d")")" && cp -r "$d" "$bundle/generated/$(basename "$(dirname "$d")")/"
           done
@@ -144,6 +146,11 @@ jobs:
           }
           fetch androidx/compose/material3 material3-android 1.4.0
           fetch androidx/compose/material3 material3-adaptive-navigation-suite-android 1.4.0
+          m3=$(sed -nE 's/^material3 = "([^"]+)"/\1/p' android/gradle/libs.versions.toml)
+          if [ -n "$m3" ]; then
+            fetch androidx/compose/material3 material3-android "$m3"
+            fetch androidx/compose/material3 material3-adaptive-navigation-suite-android "$m3"
+          fi
           fetch androidx/compose/material3/adaptive adaptive-android 1.3.0
           fetch androidx/compose/material3/adaptive adaptive-layout-android 1.3.0
           fetch androidx/compose/material3/adaptive adaptive-navigation-android 1.3.0

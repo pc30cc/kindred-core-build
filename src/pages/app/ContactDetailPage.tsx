@@ -1,5 +1,5 @@
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { formatDateTime, formatRelative } from '@/lib/date';
 import { useContact, useContactConversations, useUpdateContact, useDeleteContact } from '@/hooks/useContacts';
 import { useContactCalls, type ContactCall } from '@/hooks/useContactChannels';
@@ -36,7 +36,7 @@ import { useContactIp } from '@/hooks/useContactIp';
 import { useVisitorNetwork } from '@/hooks/useVisitorNetwork';
 import { Globe, Lock } from 'lucide-react';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
-import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
+import { usePlanAccess } from '@/hooks/useEntitlements';
 import { systemMessageText, type SystemMessageMeta } from '@/lib/systemMessageText';
 
 /**
@@ -51,7 +51,9 @@ const DEFAULT_SUBJECTS = new Set([
   'untitled',
 ]);
 
-function conversationTitle(conv: any, t: (k: any, v?: any) => string): string {
+type LabelT = (k: TranslationKey) => string;
+
+function conversationTitle(conv: { subject?: string | null } | null | undefined, t: LabelT): string {
   const subject = (conv?.subject ?? '').trim();
   if (!subject || DEFAULT_SUBJECTS.has(subject.toLowerCase())) {
     return t('contacts.conversationUntitled');
@@ -68,7 +70,7 @@ function formatDuration(seconds?: number | null): string {
   return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
 }
 
-function callTypeLabel(type: string, t: (k: any) => string): string {
+function callTypeLabel(type: string, t: LabelT): string {
   switch (type) {
     case 'video': return t('contacts.callTypeVideo');
     case 'screenshare': return t('contacts.callTypeScreenshare');
@@ -77,7 +79,7 @@ function callTypeLabel(type: string, t: (k: any) => string): string {
   }
 }
 
-function callStateLabel(state: string, t: (k: any) => string): string {
+function callStateLabel(state: string, t: LabelT): string {
   switch (state) {
     case 'ended': return t('contacts.callStateEnded');
     case 'active': case 'connecting': case 'ringing': case 'pending': return t('contacts.callStateActive');
@@ -106,8 +108,13 @@ export default function ContactDetailPage() {
   // anonymous contact wouldn't have it yet). Not gated by contact_ip_
   // visibility: geo isn't the paid IP feature useContactIp is.
   const { data: networkProfile } = useVisitorNetwork(workspace?.id, { contactId: id });
-  const { data: ents } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
-  const canEdit = ents?.features?.contact_edit?.value !== false;
+  // Editing, tags and notes are plan features (contact_edit / contact_tags /
+  // contact_notes), offered only when the plan says yes — the server refuses
+  // them otherwise.
+  const plan = usePlanAccess(workspace?.id);
+  const canEdit = plan.feature('contact_edit');
+  const canTags = plan.feature('contact_tags');
+  const canNotes = plan.feature('contact_notes');
 
   const [editing, setEditing] = useState(false);
 
@@ -116,20 +123,23 @@ export default function ContactDetailPage() {
     try {
       const meta = { ...((contact.metadata ?? {}) as Record<string, unknown>) };
       if (values.company.trim()) meta.company = values.company.trim();
-      else { delete meta.company; delete (meta as any).org; delete (meta as any).organization; }
-      await updateMutation.mutateAsync({
+      else { delete meta.company; delete meta.org; delete meta.organization; }
+      const patch: Parameters<typeof updateMutation.mutateAsync>[0] & { notes?: string | null } = {
         id: contact.id,
         name: values.name || null,
         email: values.email || null,
         phone: values.phone || null,
-        notes: values.notes || null,
-        tags: values.tags,
-        metadata: meta,
-      } as any);
+        // Tags and notes travel only when the plan includes them (the dialog
+        // leaves them out otherwise), so a save never trips a plan gate.
+        ...(values.notes !== undefined ? { notes: values.notes || null } : {}),
+        ...(values.tags !== undefined ? { tags: values.tags } : {}),
+        metadata: meta as Parameters<typeof updateMutation.mutateAsync>[0]['metadata'],
+      };
+      await updateMutation.mutateAsync(patch);
       toast({ title: t('contacts.toastUpdated') });
       setEditing(false);
-    } catch (e: any) {
-      toast({ title: t('contacts.toastError'), description: e?.message, variant: 'destructive' });
+    } catch (e) {
+      toast({ title: t('contacts.toastError'), description: e instanceof Error ? e.message : undefined, variant: 'destructive' });
     }
   };
 
@@ -140,8 +150,8 @@ export default function ContactDetailPage() {
       await deleteMutation.mutateAsync(contact.id);
       toast({ title: t('contacts.toastDeleted') });
       navigate(`/${wsSlug}/contacts`);
-    } catch (e: any) {
-      toast({ title: t('contacts.toastError'), description: e?.message, variant: 'destructive' });
+    } catch (e) {
+      toast({ title: t('contacts.toastError'), description: e instanceof Error ? e.message : undefined, variant: 'destructive' });
     }
   };
 
@@ -172,10 +182,11 @@ export default function ContactDetailPage() {
   const ipLocked = ipState?.status === 'locked';
   const ipValue = ipState?.status === 'ok' ? ipState.ip : null;
   const callList = (calls ?? []) as ContactCall[];
+  const contactNotes = (contact as { notes?: string | null } | null | undefined)?.notes;
   const totalTalk = callList.reduce((acc, c) => acc + (c.duration_seconds ?? 0), 0);
   const hasCalls = callList.length > 0;
   const hasChat = (conversations ?? []).some(
-    (c: any) => !callList.some((call) => call.conversation_id === c.id),
+    (c: { id: string }) => !callList.some((call) => call.conversation_id === c.id),
   );
   const sourceLabel = hasCalls && hasChat
     ? t('contacts.sourceBoth')
@@ -267,7 +278,7 @@ export default function ContactDetailPage() {
                 </p>
                 <div className="mb-3 flex flex-wrap items-center gap-1.5">
                   {resolveChannelKey(contact.metadata) !== 'widget' ? (
-                    <ChannelBadge channel={resolveChannelKey(contact.metadata)} t={t as any} />
+                    <ChannelBadge channel={resolveChannelKey(contact.metadata)} t={t as (k: string) => string} />
                   ) : (
                     <Badge variant="secondary" className="text-[10px] gap-1">
                       {hasCalls ? <PhoneCall className="w-3 h-3" /> : <MessageSquare className="w-3 h-3" />}
@@ -275,7 +286,7 @@ export default function ContactDetailPage() {
                     </Badge>
                   )}
                 </div>
-                <ChannelIdentityCard metadata={contact.metadata} t={t as any} dir={dir as any} className="mb-3" />
+                <ChannelIdentityCard metadata={contact.metadata} t={t as (k: string) => string} dir={dir === 'rtl' ? 'rtl' : 'ltr'} className="mb-3" />
                 <div className="space-y-3.5">
                   <Row icon={Mail} label={t('contacts.email')} value={contact.email} />
                   <Row icon={Phone} label={t('contacts.phone')} value={contact.phone} />
@@ -284,6 +295,7 @@ export default function ContactDetailPage() {
                   <Row icon={Calendar} label={t('contacts.createdAt')} value={contact.created_at ? formatDateTime(contact.created_at) : null} />
                   <Row icon={Clock} label={t('contacts.updatedAt')} value={contact.updated_at ? formatDateTime(contact.updated_at) : null} />
                 </div>
+                {canTags && (
                 <div className="mt-4 pt-4 border-t border-border">
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold mb-2">
                     {t('contacts.tags')}
@@ -298,6 +310,7 @@ export default function ContactDetailPage() {
                     )}
                   </div>
                 </div>
+                )}
               </CardContent>
             </Card>
 
@@ -308,8 +321,8 @@ export default function ContactDetailPage() {
                   <TabsTrigger value="overview" className="gap-1.5"><UserIcon className="w-3.5 h-3.5" />{t('contacts.tabOverview')}</TabsTrigger>
                   <TabsTrigger value="conversations" className="gap-1.5"><MessageSquare className="w-3.5 h-3.5" />{t('contacts.tabChats')}</TabsTrigger>
                   <TabsTrigger value="calls" className="gap-1.5"><PhoneCall className="w-3.5 h-3.5" />{t('contacts.tabCalls')}</TabsTrigger>
-                  <TabsTrigger value="notes" className="gap-1.5"><StickyNote className="w-3.5 h-3.5" />{t('contacts.tabNotes')}</TabsTrigger>
-                  <TabsTrigger value="tags" className="gap-1.5"><Tag className="w-3.5 h-3.5" />{t('contacts.tabTags')}</TabsTrigger>
+                  {canNotes && <TabsTrigger value="notes" className="gap-1.5"><StickyNote className="w-3.5 h-3.5" />{t('contacts.tabNotes')}</TabsTrigger>}
+                  {canTags && <TabsTrigger value="tags" className="gap-1.5"><Tag className="w-3.5 h-3.5" />{t('contacts.tabTags')}</TabsTrigger>}
                   <TabsTrigger value="activity" className="gap-1.5"><Activity className="w-3.5 h-3.5" />{t('contacts.tabActivity')}</TabsTrigger>
                 </TabsList>
 
@@ -370,7 +383,7 @@ export default function ContactDetailPage() {
                           </div>
                         ) : (
                           <div className="divide-y divide-border">
-                            {conversations.map((conv: any) => (
+                            {conversations.map((conv) => (
                               <div
                                 key={conv.id}
                                 className={cn('p-4 hover:bg-secondary/50 cursor-pointer transition-colors', rtl && 'text-right')}
@@ -523,9 +536,9 @@ export default function ContactDetailPage() {
                         <StickyNote className="w-3.5 h-3.5" />
                         <p className="text-[11px] uppercase tracking-wide font-semibold">{t('contacts.notesTitle')}</p>
                       </div>
-                      {(contact as any).notes ? (
+                      {contactNotes ? (
                         <p className="whitespace-pre-wrap text-foreground leading-7 rounded-lg bg-secondary/50 p-4">
-                          {(contact as any).notes}
+                          {contactNotes}
                         </p>
                       ) : (
                         <p className="text-muted-foreground text-sm rounded-lg border border-dashed border-border p-4">
@@ -581,13 +594,15 @@ export default function ContactDetailPage() {
         contact={contact}
         saving={updateMutation.isPending}
         onSave={handleSave}
+        allowTags={canTags}
+        allowNotes={canNotes}
       />
     </div>
 
   );
 }
 
-function Row({ icon: Icon, label, value }: { icon: any; label: string; value?: string | null }) {
+function Row({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value?: string | null }) {
   return (
     <div className="flex items-start gap-3">
       <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center shrink-0">

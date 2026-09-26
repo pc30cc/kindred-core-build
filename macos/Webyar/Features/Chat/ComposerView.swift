@@ -18,7 +18,6 @@ struct ComposerView: View {
     var body: some View {
         @Bindable var chat = chat
         let s = app.strings
-        let plan = app.plan
         let ai = chat.aiMode
         VStack(alignment: .leading, spacing: 0) {
             if let file = chat.pendingFile {
@@ -89,21 +88,19 @@ struct ComposerView: View {
                     .fixedSize()
                     .help(s["sayNowVoice"])
                 } else {
-                    if plan.attachments {
-                        tool("paperclip", s["attachFile"]) { picking = true }
-                            .disabled(chat.recorder.isRecording)
-                    }
-                    if plan.emoji {
-                        tool("face.smiling", s["emoji"]) { showEmoji.toggle() }
-                            .disabled(chat.recorder.isRecording)
-                            .popover(isPresented: $showEmoji, arrowEdge: .top) {
-                                EmojiGrid { e in
-                                    chat.draft += e
-                                    showEmoji = false
-                                    focused = true
-                                }
+                    // Files, emoji and voice notes are always the operator's: the plan's
+                    // widget_* keys govern the customer-facing website widget, not this box.
+                    tool("paperclip", s["attachFile"]) { picking = true }
+                        .disabled(chat.recorder.isRecording)
+                    tool("face.smiling", s["emoji"]) { showEmoji.toggle() }
+                        .disabled(chat.recorder.isRecording)
+                        .popover(isPresented: $showEmoji, arrowEdge: .top) {
+                            EmojiGrid { e in
+                                chat.draft += e
+                                showEmoji = false
+                                focused = true
                             }
-                    }
+                        }
                     tool("text.bubble", s["shortcuts"]) {
                         shortcutQuery = ""
                         showShortcuts.toggle()
@@ -126,7 +123,7 @@ struct ComposerView: View {
                 if chat.recorder.isRecording {
                     tool("trash", s["voiceDiscard"], tint: Palette.danger) { chat.stopRecording(keep: false) }
                 }
-                if !ai && plan.voiceNotes {
+                if !ai {
                     tool(chat.recorder.isRecording ? "stop.fill" : "mic", s[chat.recorder.isRecording ? "voiceStop" : "voiceRecord"],
                          tint: chat.recorder.isRecording ? Palette.danger : nil) { chat.toggleRecording() }
                 }
@@ -181,9 +178,9 @@ struct ComposerView: View {
         return "\(s / 60):" + String(format: "%02d", s % 60)
     }
 
-    /// A file or an image pasted into the box goes into the card, like a picked one (when files are allowed).
+    /// A file or an image pasted into the box goes into the card, like a picked one.
     private func paste(_ providers: [NSItemProvider]) {
-        guard !chat.aiMode, app.plan.attachments, let p = providers.first else { return }
+        guard !chat.aiMode, let p = providers.first else { return }
         if p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
             _ = p.loadObject(ofClass: URL.self) { url, _ in
                 if let url { Task { @MainActor in chat.attach(url: url) } }

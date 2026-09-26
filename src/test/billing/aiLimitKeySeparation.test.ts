@@ -26,7 +26,14 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-let planInfo: { plan: any; subscription: any; entitlements: Record<string, boolean>; limits: Record<string, number> };
+let planInfo: {
+  plan: { slug: string; name: string };
+  subscription: Record<string, unknown>;
+  entitlements: Record<string, boolean>;
+  limits: Record<string, number>;
+  planLimits: Record<string, number>;
+  limitOverrides: Record<string, { value: number; note: string | null }>;
+};
 
 vi.mock('../../../server/middleware/featureGating.js', () => ({
   getWorkspacePlanInfo: async () => planInfo,
@@ -35,19 +42,22 @@ vi.mock('../../../server/middleware/featureGating.js', () => ({
 
 const { resolveAiAgentDataLimits } = await import('../../../server/services/ai-agent/limits.js');
 const { resolveAiKbLimits } = await import('../../../server/services/ai-kb/limits.js');
+const { resolveEffectiveEntitlements } = await import('../../../server/services/billing/effectiveEntitlements.js');
 
 const CONFIG = {
   supabaseUrl: 'https://example.supabase.co',
   supabaseAnonKey: 'ANON_KEY',
   supabaseServiceRoleKey: 'SERVICE_KEY',
-} as any;
+} as unknown as Parameters<typeof resolveAiKbLimits>[0];
 
-function makePlanInfo(limits: Record<string, number>, slug = 'pro') {
+function makePlanInfo(limits: Record<string, number>, slug = 'pro', overrides: Record<string, number> = {}) {
   return {
     plan: { slug, name: 'Pro' },
     subscription: {},
     entitlements: {},
-    limits,
+    limits: { ...limits, ...overrides },
+    planLimits: limits,
+    limitOverrides: Object.fromEntries(Object.entries(overrides).map(([k, value]) => [k, { value, note: null }])),
   };
 }
 
@@ -131,30 +141,70 @@ describe('L3 — legacy plan compatibility (plan has ONLY the historical shared 
   });
 });
 
-describe('L5 — absent-key defaults are unchanged (per-plan-slug hardcoded fallbacks)', () => {
-  it('AI Agent pro-plan defaults are exactly the pre-existing hardcoded FALLBACKS when the DB has no limits at all', async () => {
+describe('L5 — absent keys take the registry default, exactly as GET /effective shows them', () => {
+  it('AI Agent: a Pro plan without the keys gets the registry defaults, not a per-plan table', async () => {
     planInfo = makePlanInfo({}, 'pro');
 
     const agent = await resolveAiAgentDataLimits(CONFIG, 'ws-1');
 
-    expect(agent.limits.ai_kb_max_pages).toBe(500);
-    expect(agent.limits.ai_kb_max_depth).toBe(3);
-    expect(agent.limits.ai_kb_jobs_per_month).toBe(20);
-    expect(agent.limits.ai_kb_file_count).toBe(50);
-    expect(agent.limits.ai_kb_file_size_mb).toBe(20);
+    expect(agent.limits.ai_kb_max_pages).toBe(50);
+    expect(agent.limits.ai_kb_max_depth).toBe(2);
+    expect(agent.limits.ai_kb_jobs_per_month).toBe(5);
+    expect(agent.limits.ai_kb_file_count).toBe(20);
+    expect(agent.limits.ai_kb_file_size_mb).toBe(10);
   });
 
-  it('AI KB Builder pro-plan defaults are exactly the pre-existing hardcoded FALLBACKS when the DB has no limits at all', async () => {
+  it('AI KB Builder: registry keys take the registry default; the unregistered legacy keys keep their per-plan fallback', async () => {
     planInfo = makePlanInfo({}, 'pro');
 
     const builder = await resolveAiKbLimits(CONFIG, 'ws-1');
 
-    expect(builder.limits.maxPages).toBe(25);
+    expect(builder.limits.maxPages).toBe(50);
     expect(builder.limits.maxDepth).toBe(2);
     expect(builder.limits.jobsPerMonth).toBe(5);
     expect(builder.limits.maxArticles).toBe(30);
     expect(builder.limits.maxChars).toBe(100_000);
     expect(builder.limits.monthlyCredits).toBe(200);
+  });
+
+  it('both resolvers agree with the /effective snapshot for every plan shape', async () => {
+    const shapes = [
+      makePlanInfo({}, 'pro'),
+      makePlanInfo({ ai_kb_max_pages: 500, ai_kb_max_depth: 3, ai_kb_jobs_per_month: 20 }, 'business'),
+      makePlanInfo({ ai_kb_max_pages: 100, ai_agent_web_source_max_pages: 250, ai_kb_file_count: 7 }, 'free'),
+      makePlanInfo({ ai_kb_max_pages: 100 }, 'pro', { ai_agent_web_source_max_pages: 9, ai_kb_max_depth: 4 }),
+    ];
+    for (const shape of shapes) {
+      planInfo = shape;
+      const effective = resolveEffectiveEntitlements(shape, [], []).limits;
+      const agent = await resolveAiAgentDataLimits(CONFIG, 'ws-1');
+      const builder = await resolveAiKbLimits(CONFIG, 'ws-1');
+
+      expect(agent.limits.ai_kb_max_pages).toBe(effective.ai_agent_web_source_max_pages.value);
+      expect(agent.limits.ai_kb_max_depth).toBe(effective.ai_agent_web_source_max_depth.value);
+      expect(agent.limits.ai_kb_jobs_per_month).toBe(effective.ai_agent_web_source_jobs_per_month.value);
+      expect(agent.limits.ai_kb_file_count).toBe(effective.ai_kb_file_count.value);
+      expect(agent.limits.ai_kb_file_size_mb).toBe(effective.ai_kb_file_size_mb.value);
+      expect(builder.limits.maxPages).toBe(effective.ai_kb_max_pages.value);
+      expect(builder.limits.maxDepth).toBe(effective.ai_kb_max_depth.value);
+      expect(builder.limits.jobsPerMonth).toBe(effective.ai_kb_jobs_per_month.value);
+    }
+  });
+
+  it('a workspace override wins over the plan for the key it names', async () => {
+    planInfo = makePlanInfo({ ai_agent_web_source_max_pages: 250, ai_kb_max_depth: 3 }, 'pro', {
+      ai_agent_web_source_max_pages: 9,
+      ai_kb_max_depth: 4,
+    });
+
+    const agent = await resolveAiAgentDataLimits(CONFIG, 'ws-1');
+    const builder = await resolveAiKbLimits(CONFIG, 'ws-1');
+
+    expect(agent.limits.ai_kb_max_pages).toBe(9);
+    expect(builder.limits.maxDepth).toBe(4);
+    // The AI KB Builder override is not the AI Agent's key: the agent reads
+    // the plan's shared key (its legacy alias), not the builder's override.
+    expect(agent.limits.ai_kb_max_depth).toBe(3);
   });
 });
 

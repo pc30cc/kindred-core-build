@@ -10,7 +10,7 @@ package com.webyar.operator.i18n
 // product never reads the device language — the operator picks one and it
 // sticks — so locale resolution is not wanted here either.
 //
-// 260 of 276 strings are generated.
+// 270 of 286 strings are generated.
 // These are hand-written in StringsManual.kt because they are logic rather
 // than copy:
 //   resetSentDetail — takes more than a language
@@ -327,7 +327,7 @@ object Str {
 
     fun pushPresenceFooter(l: Language): String = when (l) {
         Language.EN -> "Webyar knows you are at your desk while the web console is open. Turn the first off to keep the phone quiet while you are already answering there."
-        Language.FA -> "وب\\u{200C}یار وقتی کنسول وب باز است می\\u{200C}داند پشت میزتان هستید. اولی را خاموش کنید تا وقتی همان\\u{200C}جا پاسخ می\\u{200C}دهید، گوشی ساکت بماند."
+        Language.FA -> "وب‌یار وقتی کنسول وب باز است می‌داند پشت میزتان هستید. اولی را خاموش کنید تا وقتی همان‌جا پاسخ می‌دهید، گوشی ساکت بماند."
         Language.TR -> "Web konsolu açıkken masanızda olduğunuz bilinir. Orada zaten yanıtlarken telefonun sessiz kalması için ilkini kapatın."
     }
 
@@ -1069,6 +1069,71 @@ object Str {
         Language.EN -> "Check your connection and try again."
         Language.FA -> "اتصال خود را بررسی کنید و دوباره تلاش کنید."
         Language.TR -> "Bağlantınızı kontrol edip tekrar deneyin."
+    }
+
+    /**
+     * Above conversations the phone saved earlier, when the server cannot
+     * be reached right now.
+     */
+    fun offlineSavedCopy(l: Language): String = when (l) {
+        Language.EN -> "Offline — showing what was saved on this phone."
+        Language.FA -> "آفلاین — آنچه روی این گوشی ذخیره شده نمایش داده می‌شود."
+        Language.TR -> "Çevrimdışı — bu telefonda kayıtlı olanlar gösteriliyor."
+    }
+
+    /** Read aloud for a message that has not reached the server yet. */
+    fun messageSending(l: Language): String = when (l) {
+        Language.EN -> "Sending"
+        Language.FA -> "در حال ارسال"
+        Language.TR -> "Gönderiliyor"
+    }
+
+    fun storage(l: Language): String = when (l) {
+        Language.EN -> "Storage"
+        Language.FA -> "فضای ذخیره‌سازی"
+        Language.TR -> "Depolama"
+    }
+
+    fun storageConversations(l: Language): String = when (l) {
+        Language.EN -> "Saved conversations"
+        Language.FA -> "گفتگوهای ذخیره‌شده"
+        Language.TR -> "Kayıtlı konuşmalar"
+    }
+
+    fun storageFiles(l: Language): String = when (l) {
+        Language.EN -> "Files and media"
+        Language.FA -> "فایل‌ها و رسانه‌ها"
+        Language.TR -> "Dosyalar ve medya"
+    }
+
+    fun storagePictures(l: Language): String = when (l) {
+        Language.EN -> "Pictures"
+        Language.FA -> "تصاویر پروفایل"
+        Language.TR -> "Profil resimleri"
+    }
+
+    fun storageTotal(l: Language): String = when (l) {
+        Language.EN -> "Total"
+        Language.FA -> "مجموع"
+        Language.TR -> "Toplam"
+    }
+
+    fun storageFooter(l: Language): String = when (l) {
+        Language.EN -> "Copies kept on this phone so conversations open at once and files are not downloaded twice. Clearing them removes nothing from the server and does not sign you out."
+        Language.FA -> "نسخه‌هایی که روی این گوشی نگه داشته می‌شوند تا گفتگوها فوراً باز شوند و فایل‌ها دوباره دانلود نشوند. پاک کردن آن‌ها چیزی را از سرور حذف نمی‌کند و شما را از حساب خارج نمی‌کند."
+        Language.TR -> "Konuşmaların hemen açılması ve dosyaların iki kez indirilmemesi için bu telefonda tutulan kopyalar. Silmek sunucudan hiçbir şeyi kaldırmaz ve oturumunuzu kapatmaz."
+    }
+
+    fun clearCache(l: Language): String = when (l) {
+        Language.EN -> "Clear Cache"
+        Language.FA -> "پاک کردن حافظهٔ موقت"
+        Language.TR -> "Önbelleği Temizle"
+    }
+
+    fun clearCacheConfirm(l: Language): String = when (l) {
+        Language.EN -> "Remove the copies saved on this phone? They will be downloaded again as needed."
+        Language.FA -> "نسخه‌های ذخیره‌شده روی این گوشی حذف شوند؟ در صورت نیاز دوباره دانلود می‌شوند."
+        Language.TR -> "Bu telefonda kayıtlı kopyalar kaldırılsın mı? Gerektiğinde yeniden indirilecekler."
     }
 
     fun sessionExpired(l: Language): String = when (l) {

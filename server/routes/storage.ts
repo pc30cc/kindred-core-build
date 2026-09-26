@@ -11,13 +11,15 @@ import {
   getFileUrl,
   testStorageConnection,
   resolveStorageConfig,
+  type StorageConfig,
 } from '../services/storage/index.js';
 import { logSecurityEvent } from '../middleware/security.js';
 import { requireLimit } from '../middleware/featureGating.js';
+import { setTrustedGateWorkspaceId } from '../middleware/gateWorkspace.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 import { getServiceClient } from '../supabase.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
-import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
+import { authorizeWorkspaceAccess, requirePlatformAdmin, serverConfigOf } from '../lib/workspaceAuth.js';
 
 export const storageRouter = Router();
 
@@ -34,6 +36,10 @@ const MAX_UPLOAD_SIZE = 50 * 1024 * 1024; // 50MB
 // There is no internal server-to-server caller of these HTTP routes — in-process
 // callers (conversation attachments, recordings, AI file ingestion) import the
 // storage service directly.
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -92,7 +98,7 @@ function workspaceKeyError(workspaceId: string, fileKey: unknown): string | null
  */
 storageRouter.post('/upload', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const { workspaceId, fileKey, data, contentType } = req.body;
     if (!workspaceId || !fileKey || !data) {
       return res.status(400).json({ error: 'workspaceId, fileKey, and data (base64) are required' });
@@ -115,6 +121,8 @@ storageRouter.post('/upload', async (req, res) => {
     // producer trigger went live; existing workspaces may start undercounted
     // (accepted tradeoff — see docs/STORAGE_LIMIT_POLICY.md). Delegates
     // entirely to the shared resolver — no route-local storage math.
+    // Evaluate the cap on the workspace authorized above, not raw body fields.
+    setTrustedGateWorkspaceId(req, workspaceId);
     const limitMw = requireLimit('storage_gb', usageFnForLimit('storage_gb'));
     let proceeded = false;
     await limitMw(req, res, () => { proceeded = true; });
@@ -128,8 +136,8 @@ storageRouter.post('/upload', async (req, res) => {
     });
 
     return res.status(result.success ? 200 : 500).json(result);
-  } catch (err: any) {
-    console.error('[storage] Upload error:', err.message);
+  } catch (err: unknown) {
+    console.error('[storage] Upload error:', errMessage(err));
     return res.status(500).json({ success: false, error: 'Upload failed' });
   }
 });
@@ -140,7 +148,7 @@ storageRouter.post('/upload', async (req, res) => {
  */
 storageRouter.post('/delete', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const { workspaceId, fileKey } = req.body;
     if (!workspaceId || !fileKey) {
       return res.status(400).json({ error: 'workspaceId and fileKey are required' });
@@ -155,8 +163,8 @@ storageRouter.post('/delete', async (req, res) => {
 
     const result = await deleteFile(config, workspaceId, fileKey);
     return res.json(result);
-  } catch (err: any) {
-    console.error('[storage] Delete error:', err?.message);
+  } catch (err: unknown) {
+    console.error('[storage] Delete error:', errMessage(err));
     return res.status(500).json({ success: false, error: 'Delete failed' });
   }
 });
@@ -167,7 +175,7 @@ storageRouter.post('/delete', async (req, res) => {
  */
 storageRouter.get('/url', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const workspaceId = req.query.workspaceId as string;
     const fileKey = req.query.fileKey as string;
     if (!workspaceId || !fileKey) {
@@ -182,8 +190,8 @@ storageRouter.get('/url', async (req, res) => {
 
     const url = await getFileUrl(config, workspaceId, fileKey);
     return res.json({ url });
-  } catch (err: any) {
-    console.error('[storage] URL error:', err?.message);
+  } catch (err: unknown) {
+    console.error('[storage] URL error:', errMessage(err));
     return res.status(500).json({ error: 'Failed to resolve file URL' });
   }
 });
@@ -207,7 +215,7 @@ const testSchema = z.object({
  */
 storageRouter.post('/test', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     // Accepts raw provider credentials and performs outbound requests —
     // platform-admin only. No workspace context, so membership does not apply.
     const adminId = await requirePlatformAdmin(req, res);
@@ -218,10 +226,10 @@ storageRouter.post('/test', async (req, res) => {
       return res.status(400).json({ error: 'Invalid input' });
     }
 
-    const result = await testStorageConnection(parsed.data as any);
+    const result = await testStorageConnection(parsed.data as StorageConfig);
     return res.json(result);
-  } catch (err: any) {
-    console.error('[storage] Test error:', err?.message);
+  } catch (err: unknown) {
+    console.error('[storage] Test error:', errMessage(err));
     return res.status(500).json({ success: false, error: 'Storage test failed' });
   }
 });
@@ -232,7 +240,7 @@ storageRouter.post('/test', async (req, res) => {
  */
 storageRouter.get('/config/:workspaceId', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     // Exposes provider/bucket/CDN infrastructure metadata — owner/admin only.
     const auth = await authorizeStorageAccess(req, res, config, req.params.workspaceId, {
       ownerOrAdmin: true,
@@ -253,8 +261,8 @@ storageRouter.get('/config/:workspaceId', async (req, res) => {
       maxFileSizeMB: storageConfig.maxFileSizeMB || 50,
       // Never expose secrets
     });
-  } catch (err: any) {
-    console.error('[storage] Config error:', err?.message);
+  } catch (err: unknown) {
+    console.error('[storage] Config error:', errMessage(err));
     return res.status(500).json({ error: 'Failed to resolve storage config' });
   }
 });

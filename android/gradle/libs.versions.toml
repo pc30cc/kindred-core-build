@@ -6,6 +6,11 @@
 agp = "9.4.1"
 kotlin = "2.4.20"
 composeBom = "2026.09.00"
+# Shape morphing (RoundedPolygon, Morph) for the expressive shapes and the
+# loading indicator. material3 1.4.0 — the stable line the BOM brings — keeps
+# its own expressive shapes internal, so the app draws them from the library
+# they are built on. Resolved from Google Maven 2026-09-26.
+graphicsShapes = "1.0.1"
 coreKtx = "1.19.0"
 activityCompose = "1.13.0"
 lifecycle = "2.11.0"
@@ -18,12 +23,39 @@ androidxTestJunit = "1.3.0"
 junit = "4.13.2"
 desugar = "2.1.5"
 coil = "3.6.3"
-navigation = "2.10.1"
+# Navigation 3: the back stack is app state (a list of keys), which is what
+# lets one stack drive a phone's single pane and a tablet's list-detail.
+# Resolved from Google Maven 2026-09-25 (1.3.0 is alpha).
+navigation3 = "1.2.0"
+# Material Adaptive: window size classes, list-detail scenes for Navigation 3.
+# Resolved from Google Maven 2026-09-25 (1.4.0 is alpha).
+adaptive = "1.3.0"
 livekit = "2.29.0"
 benchmark = "1.5.0"
 uiautomator = "2.4.0"
 espresso = "3.7.0"
 profileinstaller = "1.4.1"
+# The local cache. Resolved 2026-09-25 from the Room release notes
+# (developer.android.com/jetpack/androidx/releases/room): 2.8.5 is the current
+# stable, released 2026-09-09. Room's own minSdk is 23, under this app's 24.
+room = "2.8.5"
+# KSP runs Room's annotation processor. Resolved from Maven Central's
+# metadata for com.google.devtools.ksp on 2026-09-25: 2.3.12 is the newest.
+# Since 2.3.0 its version is no longer tied to Kotlin's, and AGP 9's built-in
+# Kotlin is supported from 2.3.1.
+ksp = "2.3.12"
+# Deferred maintenance and push-registration retries, never polling. 2.11.2
+# rather than the 2.12.0 published two days before this was written: 2.11.x
+# is what the ecosystem has been running, and nothing here needs 2.12.
+work = "2.11.2"
+# FCM. The BoM decides firebase-messaging's version. 34.19.0 is the current
+# BoM as of 2026-09 (the 34.18.0 → 34.19.0 bumps across GitHub confirm it);
+# firebase.google.com itself is not reachable from the machine this was
+# written on.
+firebaseBom = "34.19.0"
+# Screenshot tests on the JVM (Robolectric's native graphics), the way
+# nowinandroid does them. Resolved from Maven Central 2026-09-25.
+roborazzi = "1.75.0"
 
 [libraries]
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugar" }
@@ -35,6 +67,23 @@ androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "l
 # when the screen stops, or a backgrounded app keeps polling.
 androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+# ProcessLifecycleOwner: realtime is on while the APP is in front, not while
+# one screen is — a websocket per screen reconnects on every navigation.
+androidx-lifecycle-process = { group = "androidx.lifecycle", name = "lifecycle-process", version.ref = "lifecycle" }
+
+# Room, for the inbox and transcripts. DataStore holds settings and the
+# encrypted session token and nothing else: thousands of messages in a
+# preferences file would be rewritten whole on every change.
+androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
+
+androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
+androidx-work-testing = { group = "androidx.work", name = "work-testing", version.ref = "work" }
+
+firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
+firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging" }
 
 # The BOM decides every androidx.compose version below it, so none of them
 # carry one of their own.
@@ -59,10 +108,16 @@ ktor-client-logging = { group = "io.ktor", name = "ktor-client-logging", version
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 
-# Navigation Compose, for one NavHost with a nested graph per tab — which
-# is what gives each tab its own back stack and its own saved state.
-# Resolved from Google Maven 2026-09-21.
-androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation" }
+androidx-navigation3-runtime = { group = "androidx.navigation3", name = "navigation3-runtime", version.ref = "navigation3" }
+androidx-navigation3-ui = { group = "androidx.navigation3", name = "navigation3-ui", version.ref = "navigation3" }
+# A ViewModel per Navigation 3 entry, cleared when the entry leaves the stack.
+androidx-lifecycle-viewmodel-navigation3 = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-navigation3", version.ref = "lifecycle" }
+androidx-compose-material3-adaptive = { group = "androidx.compose.material3.adaptive", name = "adaptive", version.ref = "adaptive" }
+androidx-compose-material3-adaptive-layout = { group = "androidx.compose.material3.adaptive", name = "adaptive-layout", version.ref = "adaptive" }
+androidx-compose-material3-adaptive-navigation3 = { group = "androidx.compose.material3.adaptive", name = "adaptive-navigation3", version.ref = "adaptive" }
+# Bar on a phone, rail on a tablet — the BOM versions it with material3.
+androidx-compose-material3-adaptive-navigation-suite = { group = "androidx.compose.material3", name = "material3-adaptive-navigation-suite" }
+androidx-graphics-shapes = { group = "androidx.graphics", name = "graphics-shapes", version.ref = "graphicsShapes" }
 
 # LiveKit, for the calls. The SDK only — NOT livekit-android-compose-components,
 # which pins its own Compose BOM and drags in Molecule for what amounts to one
@@ -92,6 +147,8 @@ androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version
 androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+roborazzi = { group = "io.github.takahirom.roborazzi", name = "roborazzi", version.ref = "roborazzi" }
+roborazzi-compose = { group = "io.github.takahirom.roborazzi", name = "roborazzi-compose", version.ref = "roborazzi" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
@@ -104,3 +161,9 @@ kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", versi
 # plugin that generates the profile from it.
 android-test = { id = "com.android.test", version.ref = "agp" }
 androidx-baselineprofile = { id = "androidx.baselineprofile", version.ref = "benchmark" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+# Exports the cache's schema, one JSON file per version, so a migration can
+# be written against what actually shipped rather than against memory.
+androidx-room = { id = "androidx.room", version.ref = "room" }
+# Adds record/compare/verify tasks around the unit tests.
+roborazzi = { id = "io.github.takahirom.roborazzi", version.ref = "roborazzi" }

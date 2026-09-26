@@ -9,9 +9,10 @@
 import { executeProviderCompletion, testAIConnection, isSupportedProvider } from './providers/executor.js';
 import { withDefaultBaseUrl, isOpenAICompatible } from './providers/catalog.js';
 import { embedTexts, type EmbedProviderConfig } from './providers/embeddings.js';
-import { createSafeTestFetch, providerHostPolicy } from './providers/safeTransport.js';
+import { createSafeTestFetch, createSafeProviderFetch, providerHostPolicy } from './providers/safeTransport.js';
 import { redactSecrets } from '../../shared/security/redactSecrets.js';
-import type { AIConfig, AIRequest, AIResponse, AIConnectionTestResult } from '../../shared/ai/types.js';
+import { isOperatorAllowedPrivateHost } from '../../shared/ai/endpointPolicy.js';
+import type { AIConfig, AIRequest, AIResponse, AIConnectionTestResult, HttpFetch } from '../../shared/ai/types.js';
 import type { AiRuntimeErrorCode } from '../../shared/ai/internalRoutes.js';
 
 export interface RuntimeFailure {
@@ -26,13 +27,51 @@ function fail(code: AiRuntimeErrorCode, message: string): RuntimeFailure {
   return { ok: false, code, message: redactSecrets(message) || code };
 }
 
-function validConfig(raw: any): raw is AIConfig {
-  return Boolean(raw && typeof raw.provider === 'string' && typeof raw.model === 'string');
+/** Untrusted JSON body posted to the runtime; every field is validated before use. */
+type RuntimeRequestBody = { config?: unknown; request?: unknown; texts?: unknown } | null | undefined;
+
+function errorMessage(err: unknown): string | undefined {
+  return (err as { message?: string } | null | undefined)?.message;
 }
 
-export async function handleComplete(body: any): Promise<RuntimeResult<{ response: AIResponse }>> {
-  const config = body?.config;
-  const request = body?.request as AIRequest | undefined;
+function validConfig(raw: unknown): raw is AIConfig {
+  const c = raw as { provider?: unknown; model?: unknown } | null | undefined;
+  return Boolean(c && typeof c.provider === 'string' && typeof c.model === 'string');
+}
+
+/**
+ * Picks the transport for a completion / embedding request.
+ *
+ *  - No base URL: the endpoint comes from the runtime's own catalog / the
+ *    executor's built-in default — a constant, not tenant input. Unchanged.
+ *  - `endpointScope: 'platform'`: the platform default provider, configured by
+ *    the operator (platform admin). Unchanged, so a self-hosted deployment can
+ *    keep pointing its default provider at a private LLM (e.g. Ollama).
+ *  - Anything else is a workspace-supplied base URL (missing scope is treated
+ *    as workspace — fail closed): SSRF-safe transport with the provider host
+ *    policy, public-address check, connect-time DNS pinning and same-origin-
+ *    only, per-hop re-validated redirects. Hosts the operator explicitly lists
+ *    in AI_PROVIDER_PRIVATE_HOSTS may be private and use plain http.
+ *
+ * Must be called with the config BEFORE withDefaultBaseUrl() fills defaults.
+ */
+export function providerFetchFor(config: {
+  provider: string;
+  baseUrl?: string;
+  endpointScope?: string;
+}): HttpFetch | undefined {
+  if (!config.baseUrl) return undefined;
+  if (config.endpointScope === 'platform') return undefined;
+  const policy = providerHostPolicy(config.provider);
+  return createSafeProviderFetch({
+    isHostAllowed: (hostname) => isOperatorAllowedPrivateHost(hostname) || !policy || policy(hostname),
+    isPrivateHostAllowed: (hostname) => isOperatorAllowedPrivateHost(hostname),
+  });
+}
+
+export async function handleComplete(body: unknown): Promise<RuntimeResult<{ response: AIResponse }>> {
+  const config = (body as RuntimeRequestBody)?.config;
+  const request = (body as RuntimeRequestBody)?.request as AIRequest | undefined;
   if (!validConfig(config)) return fail('invalid_request', 'config.provider and config.model are required');
   if (!request || typeof request.prompt !== 'string' || !request.prompt) {
     return fail('invalid_request', 'request.prompt is required');
@@ -41,31 +80,40 @@ export async function handleComplete(body: any): Promise<RuntimeResult<{ respons
     return fail('unsupported_provider', `Unsupported AI provider: ${config.provider}`);
   }
   try {
-    const response = await executeProviderCompletion(withDefaultBaseUrl(config), request);
+    const fetchImpl = providerFetchFor(config);
+    const response = await executeProviderCompletion(withDefaultBaseUrl(config), request, fetchImpl);
     // Echo the logical execution id so Core can correlate one request with one
     // usage/accounting row even across transport replays.
     return { ok: true, data: { response: { ...response, requestId: request.requestId } } };
-  } catch (err: any) {
-    return fail('provider_error', err?.message || 'provider call failed');
+  } catch (err: unknown) {
+    return fail('provider_error', errorMessage(err) || 'provider call failed');
   }
 }
 
-export async function handleTest(body: any): Promise<RuntimeResult<{ result: AIConnectionTestResult }>> {
-  const config = body?.config;
+export async function handleTest(body: unknown): Promise<RuntimeResult<{ result: AIConnectionTestResult }>> {
+  const config = (body as RuntimeRequestBody)?.config;
   if (!validConfig(config)) return fail('invalid_request', 'config.provider and config.model are required');
   if (!isSupportedProvider(config.provider)) {
     return fail('unsupported_provider', `Unsupported AI provider: ${config.provider}`);
   }
   // Validation, DNS pinning and redirect handling all inside one boundary —
   // the operator-supplied baseUrl can never be used to reach a private host.
-  const safeFetch = createSafeTestFetch({ isHostAllowed: providerHostPolicy(config.provider) });
+  // Operator allow-listed private hosts (AI_PROVIDER_PRIVATE_HOSTS) can be
+  // tested too, matching what completions will accept.
+  const policy = providerHostPolicy(config.provider);
+  const safeFetch = createSafeTestFetch({
+    isHostAllowed: policy
+      ? (hostname) => isOperatorAllowedPrivateHost(hostname) || policy(hostname)
+      : undefined,
+    isPrivateHostAllowed: (hostname) => isOperatorAllowedPrivateHost(hostname),
+  });
   const result = await testAIConnection({ ...config }, { fetchImpl: safeFetch });
   return { ok: true, data: { result } };
 }
 
-export async function handleEmbed(body: any): Promise<RuntimeResult<{ vectors: number[][] }>> {
-  const config = body?.config as EmbedProviderConfig | undefined;
-  const texts = body?.texts;
+export async function handleEmbed(body: unknown): Promise<RuntimeResult<{ vectors: number[][] }>> {
+  const config = (body as RuntimeRequestBody)?.config as EmbedProviderConfig | undefined;
+  const texts = (body as RuntimeRequestBody)?.texts;
   if (!config || typeof config.provider !== 'string' || typeof config.model !== 'string') {
     return fail('invalid_request', 'config.provider and config.model are required');
   }
@@ -76,10 +124,10 @@ export async function handleEmbed(body: any): Promise<RuntimeResult<{ vectors: n
     return fail('unsupported_provider', `Provider "${config.provider}" has no OpenAI-compatible embeddings API`);
   }
   try {
-    const vectors = await embedTexts(config, texts);
+    const vectors = await embedTexts(config, texts, providerFetchFor(config));
     return { ok: true, data: { vectors } };
-  } catch (err: any) {
-    return fail('provider_error', err?.message || 'embedding call failed');
+  } catch (err: unknown) {
+    return fail('provider_error', errorMessage(err) || 'embedding call failed');
   }
 }
 

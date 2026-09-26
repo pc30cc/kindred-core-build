@@ -76,6 +76,21 @@ object AttachmentRules {
     fun isAllowed(mimeType: String?): Boolean = canonicalMime(mimeType) != null
 
     /**
+     * The `kind` the server would give this type — for the pending copy of a
+     * message the operator is sending, which has no server row to read it
+     * from yet. The same four buckets as `conversationAttachments.ts`.
+     */
+    fun kindOf(mimeType: String?): String {
+        val mime = mimeType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
+        return when {
+            mime.startsWith("image/") -> "image"
+            mime.startsWith("audio/") -> "audio"
+            mime.startsWith("video/") -> "video"
+            else -> "file"
+        }
+    }
+
+    /**
      * The extension to give a file on disk, so the system can open it.
      *
      * Name first, then type — the name is the more specific of the two, but

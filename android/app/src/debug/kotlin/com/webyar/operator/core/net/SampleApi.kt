@@ -39,11 +39,13 @@ import com.webyar.operator.core.model.MessageAttachment
 import com.webyar.operator.core.model.Promotions
 import com.webyar.operator.core.model.SayNowVoice
 import com.webyar.operator.core.model.SenderType
+import com.webyar.operator.core.model.SentMessage
 import com.webyar.operator.core.model.TeamMessage
 import com.webyar.operator.core.model.TeamThreadResponse
 import com.webyar.operator.core.model.User
 import com.webyar.operator.core.model.VisitorProfile
 import com.webyar.operator.core.model.Workspace
+import com.webyar.operator.core.model.WorkspaceAccess
 import com.webyar.operator.core.model.WorkspaceMember
 import java.time.Instant
 import kotlinx.serialization.json.JsonElement
@@ -135,19 +137,42 @@ class SampleApi : WebyarApi {
         clientMessageId: String,
         attachmentId: String?,
     ) {
-        lock.withLock {
-            extraMessages.getOrPut(conversationId) { mutableListOf() }.add(
-                Message(
-                    id = clientMessageId,
-                    conversationId = conversationId,
-                    senderType = SenderType.AGENT,
-                    senderId = OPERATOR.id,
-                    body = body,
-                    createdAt = Instant.now(),
-                    senderName = OPERATOR.fullName,
-                )
-            )
-        }
+        sendMessage(body, conversationId, workspaceId, clientMessageId, attachmentId)
+    }
+
+    /**
+     * Like the server: the key is kept in `metadata.client_message_id`, and a
+     * replay of the same key answers with the original row instead of adding
+     * a second one — which is what the outbox's retry relies on.
+     */
+    override suspend fun sendMessage(
+        body: String,
+        conversationId: String,
+        workspaceId: String,
+        clientMessageId: String,
+        attachmentId: String?,
+    ): SentMessage = lock.withLock {
+        val thread = extraMessages.getOrPut(conversationId) { mutableListOf() }
+        val existing = thread.firstOrNull { it.clientMessageId == clientMessageId }
+        val row = existing ?: Message(
+            id = "m-${System.nanoTime()}",
+            conversationId = conversationId,
+            senderType = SenderType.AGENT,
+            senderId = OPERATOR.id,
+            body = body,
+            createdAt = Instant.now(),
+            senderName = OPERATOR.fullName,
+            metadata = buildJsonObject { put("client_message_id", JsonPrimitive(clientMessageId)) },
+        ).also { thread.add(it) }
+        SentMessage(
+            id = row.id,
+            conversationId = conversationId,
+            senderType = row.senderType,
+            senderId = row.senderId,
+            body = row.body,
+            createdAt = row.createdAt,
+            metadata = row.metadata,
+        )
     }
 
     override suspend fun markSeen(conversationId: String) {}
@@ -166,12 +191,11 @@ class SampleApi : WebyarApi {
      * laid out.
      *
      * And it has to be SAID rather than left empty, which is what this used to
-     * do. `moduleInPlan` returns false when `modules` is null and
-     * `featureEnabled` is fail-closed, so an empty snapshot turns everything
-     * OFF — the opposite of what the comment claimed. The symptom was quiet:
-     * the Contacts tab never appeared, and the composer had no paperclip, no
-     * microphone and no saved replies, in the one mode whose whole job is to
-     * show every screen without an account.
+     * do. Every gate is fail-closed — only a key that is exactly true is on —
+     * so an empty snapshot turns everything OFF, the opposite of what the
+     * comment claimed. The symptom was quiet: the Contacts tab never appeared,
+     * in the one mode whose whole job is to show every screen without an
+     * account.
      */
     override suspend fun entitlements(workspaceId: String): Entitlements =
         Entitlements(
@@ -180,6 +204,19 @@ class SampleApi : WebyarApi {
             features = FEATURES.associateWith { EffectiveBool(value = true) },
             channels = CHANNELS.associateWith { EffectiveBool(value = true) },
             plan = Entitlements.PlanSummary(slug = "pro", name = "Pro", tier = "pro"),
+        )
+
+    /**
+     * An owner, with the AI switched on, shown to customers and answering, and
+     * the call center on — so every section the plan carries is laid out.
+     */
+    override suspend fun workspaceAccess(workspaceId: String): WorkspaceAccess =
+        WorkspaceAccess(
+            role = "owner",
+            aiAgentEnabled = true,
+            aiCustomerVisible = true,
+            aiAutoAnswer = true,
+            callCenterVisible = true,
         )
 
     override suspend fun account(): Account = Account(
@@ -494,20 +531,31 @@ class SampleApi : WebyarApi {
         fun channel(key: String): JsonElement =
             buildJsonObject { put("channel", JsonPrimitive(key)) }
 
-        /** The keys `AppSidebar.tsx` gates a whole section on. */
-        val ON = listOf("contacts", "email", "team_chat", "voice_video", "canned_responses")
+        /**
+         * The keys `AppSidebar.tsx` gates a whole section on. Only a key that is
+         * exactly true is on, so each one the app reads is listed by its
+         * registry name (`email_inbox`, not `email`).
+         */
+        val ON = listOf(
+            "contacts", "email", "team_chat", "voice_video", "canned_responses",
+            "email_inbox", "visitor_tracking", "call_center", "ai_assistant",
+        )
 
         /** The keys a single control inside a screen asks about. */
         val FEATURES = listOf(
+            // The website widget's own keys, as a real plan carries them. They
+            // do not reach the operator's composer.
             "widget_attachments", "widget_voice_notes", "widget_emoji", "canned_responses",
             // The two extra inbox queues. Without these the chip strip is one
             // chip wide and the screen hides it, so the sample build showed
             // neither the strip nor four of the six queues — in the mode whose
             // whole job is to show every screen working.
             "inbox_needs_human", "inbox_ai_queue",
+            // The Colleagues row.
+            "inbox_team_chat",
         )
 
-        val CHANNELS = listOf("voice", "video", "telegram", "bale", "whatsapp")
+        val CHANNELS = listOf("chat_widget", "voice", "video", "telegram", "bale", "whatsapp")
 
         // MARK: - The awkward cases
         //

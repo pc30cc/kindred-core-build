@@ -2,7 +2,10 @@ package com.webyar.operator.ui
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.webyar.operator.core.model.Entitlements
+import com.webyar.operator.core.model.EntitlementsState
 import com.webyar.operator.core.model.Workspace
+import com.webyar.operator.core.net.ApiError
 import com.webyar.operator.core.net.SampleApi
 import com.webyar.operator.core.net.WebyarApi
 import com.webyar.operator.core.storage.Preferences
@@ -115,5 +118,57 @@ class SignInLoadTest {
 
         assertTrue(app.session.value is Session.SignedIn)
         assertTrue(app.workspaces.value.isNotEmpty())
+    }
+
+    /**
+     * Fails the first [failures] calls of both loads the rest of the app
+     * hangs off, the way a network that is not up yet does — the emulator's
+     * DNS for its first seconds answered `UnknownHostException` to exactly
+     * these two.
+     */
+    private class NotUpYetApi(
+        private val failures: Int,
+        private val real: SampleApi = SampleApi(),
+    ) : WebyarApi by real {
+        var workspaceCalls = 0
+        var entitlementCalls = 0
+
+        override suspend fun workspaces(): List<Workspace> {
+            if (workspaceCalls++ < failures) throw ApiError.Transport()
+            return real.workspaces()
+        }
+
+        override suspend fun entitlements(workspaceId: String): Entitlements {
+            if (entitlementCalls++ < failures) throw ApiError.Transport()
+            return real.entitlements(workspaceId)
+        }
+    }
+
+    /**
+     * One failed attempt used to be the end of it: no workspace, so no
+     * conversations, no plan, no Contacts tab and no AI queues — grey rows
+     * until the app was killed, while every later request went through.
+     */
+    @Test
+    fun `a workspace load that fails at first is tried again until it lands`() = runTest(dispatcher) {
+        val api = NotUpYetApi(failures = 2)
+        val app = state(api)
+        testScheduler.advanceUntilIdle()
+
+        app.logIn("operator@webyar.app", "whatever")
+        testScheduler.advanceUntilIdle()
+
+        assertTrue(
+            "the workspaces were never retried (${api.workspaceCalls} calls)",
+            app.workspaces.value.isNotEmpty(),
+        )
+        assertTrue("no workspace was selected", app.selectedWorkspace.value != null)
+        assertTrue(
+            "the plan was left ${app.entitlements.value} after a transient error " +
+                "(${api.entitlementCalls} calls)",
+            app.entitlements.value is EntitlementsState.Loaded,
+        )
+        // At least: the launch's own session restore may ask once more.
+        assertTrue("only ${api.workspaceCalls} workspace calls", api.workspaceCalls >= 3)
     }
 }

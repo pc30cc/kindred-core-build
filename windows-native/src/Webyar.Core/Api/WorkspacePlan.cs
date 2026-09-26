@@ -12,9 +12,11 @@ public enum PlanState
 /// <summary>
 /// What the workspace's plan lets this operator see — the same snapshot the
 /// web console reads (/api/plans/workspace/:id/effective), where the super
-/// admin switches features, modules and channels on and off per plan. The
-/// rules copy the web sidebar and the iOS app: while it loads nothing gated
-/// shows; if it cannot be fetched at all, nothing is hidden (as the web).
+/// admin switches features, modules and channels on and off per plan, and by
+/// the web's one rule (src/lib/planAccess.ts): a capability is available only
+/// when the snapshot is in and says exactly true. While it loads — or when it
+/// cannot be read and no copy is kept on the PC — nothing gated shows (the
+/// server would refuse it anyway) and the shell asks again soon.
 /// </summary>
 public sealed class WorkspacePlan
 {
@@ -42,6 +44,9 @@ public sealed class WorkspacePlan
     /// <summary>/api/ai-agent/capabilities: the AI agent is on for this workspace.</summary>
     public bool? AiAgentEnabled { get; init; }
 
+    /// <summary>/api/ai-agent/capabilities: Super Admin shows the AI agent to customers.</summary>
+    public bool? AiCustomerVisible { get; init; }
+
     /// <summary>/api/ai-agent/capabilities: the AI answers visitors by itself.</summary>
     public bool? AiAutoAnswer { get; init; }
 
@@ -59,65 +64,104 @@ public sealed class WorkspacePlan
         };
     }
 
-    public WorkspacePlan With(string? role, bool? aiAgent, bool? aiAuto, bool? callCenter) =>
+    public WorkspacePlan With(string? role, bool? aiAgent, bool? aiAuto, bool? callCenter, bool? aiVisible = null) =>
         new(State, _features, _modules, _channels)
         {
             PlanName = PlanName,
             Role = role ?? Role,
             AiAgentEnabled = aiAgent ?? AiAgentEnabled,
+            AiCustomerVisible = aiVisible ?? AiCustomerVisible,
             AiAutoAnswer = aiAuto ?? AiAutoAnswer,
             CallCenterVisible = callCenter ?? CallCenterVisible,
         };
 
-    /// <summary>The web's moduleInPlan: hidden while loading; shown when the key is absent or on.</summary>
-    public bool ModuleInPlan(string key) => State switch
-    {
-        PlanState.Failed => true,
-        PlanState.Loaded => !_modules.TryGetValue(key, out var v) || v == true,
-        _ => false,
-    };
+    // ── Kept on the PC: the last plan the server sent, for an offline or instant launch ──
 
-    /// <summary>A plan feature (widget_attachments, inbox_team_chat…): on only if the plan says so.</summary>
-    public bool Feature(string key) => State switch
-    {
-        PlanState.Failed => true,
-        PlanState.Loaded => !_features.TryGetValue(key, out var v) || v == true,
-        _ => false,
-    };
+    private sealed record Snapshot(
+        string? PlanName, string? Role, bool? AiAgentEnabled, bool? AiCustomerVisible, bool? AiAutoAnswer, bool? CallCenterVisible,
+        Dictionary<string, bool?> Features, Dictionary<string, bool?> Modules, Dictionary<string, bool?> Channels);
 
-    /// <summary>The inbox's inboxCapAllowed: features[key] ?? modules[key], allowed unless false.</summary>
-    public bool InboxCap(string key) => State switch
-    {
-        PlanState.Failed => true,
-        PlanState.Loaded => (_features.TryGetValue(key, out var f) ? f : _modules.TryGetValue(key, out var m) ? m : null) != false,
-        _ => false,
-    };
+    /// <summary>A loaded plan as JSON (flags and switches only: nothing personal, no limits or usage).</summary>
+    public string? Serialize() => State != PlanState.Loaded ? null : JsonSerializer.Serialize(
+        new Snapshot(PlanName, Role, AiAgentEnabled, AiCustomerVisible, AiAutoAnswer, CallCenterVisible, _features, _modules, _channels));
 
-    /// <summary>Calls, as the web's SidebarCallCard: voice_video not off, and the channel not off.</summary>
-    private bool Call(string channel) => State switch
+    /// <summary>The plan <see cref="Serialize"/> wrote, as Loaded; null for anything unreadable.</summary>
+    public static WorkspacePlan? Restore(string? json)
     {
-        PlanState.Failed => true,
-        PlanState.Loaded => (!_modules.TryGetValue("voice_video", out var vv) || vv != false)
-            && (!_channels.TryGetValue(channel, out var c) || c != false),
-        _ => false,
-    };
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            if (JsonSerializer.Deserialize<Snapshot>(json) is not { Features: not null, Modules: not null, Channels: not null } s) return null;
+            return new WorkspacePlan(PlanState.Loaded, s.Features, s.Modules, s.Channels)
+            {
+                PlanName = s.PlanName,
+                Role = s.Role,
+                AiAgentEnabled = s.AiAgentEnabled,
+                AiCustomerVisible = s.AiCustomerVisible,
+                AiAutoAnswer = s.AiAutoAnswer,
+                CallCenterVisible = s.CallCenterVisible,
+            };
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>A plan module (contacts, call_center…): on only if the loaded plan says exactly true.</summary>
+    public bool ModuleInPlan(string key) => State == PlanState.Loaded && _modules.TryGetValue(key, out var v) && v == true;
+
+    /// <summary>A plan feature (inbox_team_chat, call_recording…): on only if the loaded plan says exactly true.</summary>
+    public bool Feature(string key) => State == PlanState.Loaded && _features.TryGetValue(key, out var v) && v == true;
+
+    private bool Channel(string key) => State == PlanState.Loaded && _channels.TryGetValue(key, out var v) && v == true;
+
+    /// <summary>Calls, as the web's SidebarCallCard: the Voice &amp; Video module and the call's channel.</summary>
+    private bool Call(string channel) => ModuleInPlan("voice_video") && Channel(channel);
 
     public bool VoiceCalls => Call("voice");
     public bool VideoCalls => Call("video");
 
-    public bool Attachments => Feature("widget_attachments");
-    public bool VoiceNotes => Feature("widget_voice_notes");
-    public bool Emoji => Feature("widget_emoji");
-
     public bool Contacts => ModuleInPlan("contacts");
     public bool Visitors => ModuleInPlan("visitor_tracking");
-    public bool CallCenter => ModuleInPlan("call_center") && CallCenterVisible != false;
-    public bool TeamChat => InboxCap("inbox_team_chat");
-    public bool NeedsHumanQueue => InboxCap("inbox_needs_human");
+    public bool CallCenter => ModuleInPlan("call_center") && CallCenterVisible == true;
+    public bool TeamChat => Feature("inbox_team_chat");
+    public bool NeedsHumanQueue => Feature("inbox_needs_human");
 
-    /// <summary>The AI queue: the plan's AI surface, and the AI answering (or something already in it).</summary>
+    /// <summary>The mailbox, as the web sidebar shows it: owners and admins, when the plan has the Email Inbox module.</summary>
+    public bool EmailInbox => IsAdmin && ModuleInPlan("email_inbox");
+
+    /// <summary>Website analytics, as the web sidebar shows it: owners and admins, when the plan has the Web Analytics module.</summary>
+    public bool WebAnalytics => IsAdmin && ModuleInPlan("web_analytics");
+
+    /// <summary>Call recordings, where the plan keeps them (the web's Recordings tab).</summary>
+    public bool CallRecordings => Feature("call_recording");
+
+    /// <summary>Channel keys the plan itself governs; the others are decided by the plugin's own plan check.</summary>
+    private static readonly HashSet<string> PlanChannels = new(StringComparer.Ordinal)
+    {
+        "chat_widget", "email", "whatsapp", "sms", "instagram", "telegram", "bale", "gmail", "yahoomail", "voice", "video",
+    };
+
+    /// <summary>
+    /// A channel inbox (telegram, whatsapp, bale…), as the web's channelInboxVisible:
+    /// a channel the plan governs must be on in the loaded plan; any other one is
+    /// the plugin catalog's call (its planAllowed).
+    /// </summary>
+    public bool ChannelInPlan(string key)
+    {
+        var k = key.ToLowerInvariant();
+        return !PlanChannels.Contains(k) || Channel(k);
+    }
+
+    /// <summary>
+    /// The AI queue, as the web: the plan's AI queue (inboxCapAllowed), the AI
+    /// surface switched on and shown to customers by Super Admin (fail-closed:
+    /// capabilities that could not be read hide it), and the AI answering by
+    /// itself or something already waiting in the queue.
+    /// </summary>
     public bool AiQueue(int? automated) =>
-        InboxCap("inbox_ai_queue") && AiAgentEnabled != false && (AiAutoAnswer != false || automated > 0);
+        Feature("inbox_ai_queue") && AiAgentEnabled == true && AiCustomerVisible == true && (AiAutoAnswer == true || automated > 0);
 
     private static Dictionary<string, bool?> Flags(JsonElement root, string name)
     {

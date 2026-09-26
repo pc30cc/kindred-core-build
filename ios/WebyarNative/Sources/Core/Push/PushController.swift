@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import UIKit
 import UserNotifications
@@ -230,10 +231,28 @@ final class PushController {
     var viewing: String?
 
     /// Foreground arrival: what iOS should do with it.
+    ///
+    /// The app is open, so the conversation it names is read now — only
+    /// what changed in it, and a revalidation of the list — rather than
+    /// waiting for the next event or poll. Never a reload of everything: a
+    /// push may be late, grouped or duplicated, and it is only ever a nudge.
     func presentation(for content: UNNotificationContent) -> UNNotificationPresentationOptions {
         applyBadge(from: content)
+        noteArrival(content.userInfo)
         if let id = content.userInfo["conversationId"] as? String, id == viewing { return [] }
         return [.banner, .sound, .list]
+    }
+
+    /// Hands a notification's identifiers to the sync layer. The message id,
+    /// when the payload has one, lets an open thread that already has that
+    /// message (realtime was faster) skip the read altogether.
+    private func noteArrival(_ info: [AnyHashable: Any]) {
+        guard let conversationID = info["conversationId"] as? String, !conversationID.isEmpty else { return }
+        SyncCoordinator.shared.pushArrived(
+            workspaceID: info["workspaceId"] as? String,
+            conversationID: conversationID,
+            messageID: info["messageId"] as? String
+        )
     }
 
     /// A tap, or one of the buttons on the banner.
@@ -244,6 +263,7 @@ final class PushController {
             let workspaceID = info["workspaceId"] as? String
         else { return }
         let target = PendingConversation(workspaceID: workspaceID, conversationID: conversationID)
+        noteArrival(info)
 
         switch response.actionIdentifier {
         case "MARK_READ":
@@ -264,8 +284,12 @@ final class PushController {
                     conversationID: conversationID,
                     workspaceID: workspaceID,
                     // A resumed app can replay the same action, and the
-                    // server dedupes on this.
-                    clientMessageID: UUID().uuidString,
+                    // server dedupes on this — so it has to be the same key
+                    // on the replay: derived from the notification and the
+                    // words, not made up fresh each time.
+                    clientMessageID: Self.replyKey(
+                        notification: response.notification.request.identifier, body: typed
+                    ),
                     attachmentID: nil
                 )
             } catch {
@@ -280,6 +304,14 @@ final class PushController {
             // thread is the right answer to all of them.
             pendingOpen = target
         }
+    }
+
+    /// The idempotency key of a reply typed on a banner: the same reply to
+    /// the same notification is the same message, however often iOS hands
+    /// the action over. 8–64 characters, as the server requires.
+    nonisolated static func replyKey(notification: String, body: String) -> String {
+        let digest = SHA256.hash(data: Data((notification + "\u{1F}" + body).utf8))
+        return "push-" + digest.prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Handed to whichever screen can act on it, once.

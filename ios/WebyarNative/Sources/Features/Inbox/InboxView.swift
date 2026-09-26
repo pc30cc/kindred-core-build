@@ -27,6 +27,8 @@ struct InboxView: View {
 
     private var language: Language { appState.language }
     private var workspaceID: String? { appState.selectedWorkspace?.id }
+    /// The installed channel inboxes the plan lets this workspace work in.
+    private var channelInboxes: [ChannelInbox] { model.channels.filter { appState.channelInboxVisible($0) } }
 
     var body: some View {
         @Bindable var model = model
@@ -53,19 +55,32 @@ struct InboxView: View {
             .task(id: reloadKey) {
                 model.load(workspaceID: workspaceID, appState: appState)
             }
+            // Realtime events, pushes and the return to the foreground read
+            // the list again; without realtime it is polled while on screen.
+            // Ends by itself when the workspace changes or the view goes.
+            .task(id: workspaceID) {
+                await model.listen(workspaceID: workspaceID)
+            }
+            .onChange(of: isSelectedTab && path.isEmpty, initial: true) { _, onScreen in
+                model.isOnScreen = onScreen
+            }
             .task(id: workspaceID) {
                 await model.loadChannels(workspaceID: workspaceID)
             }
             // Only the inbox offers one, and only once the list is real —
             // a promotion over a skeleton is a promotion over nothing.
-            .task(id: "\(workspaceID ?? "-")|\(model.state.isLoaded)") {
-                guard model.state.isLoaded else { return }
+            .task(id: "\(workspaceID ?? "-")|\(content.isLoaded)") {
+                guard content.isLoaded else { return }
                 promotions.offerFullScreen(for: appState)
             }
             // A plan can drop the queue that is currently selected — switching
             // workspace is the ordinary way that happens.
-            .onChange(of: appState.inboxFilters) { _, available in
+            .onChange(of: appState.inboxFilters(automated: model.counts?.automated)) { _, available in
                 model.reconcileFilter(with: available)
+            }
+            // The same for a channel inbox the plan no longer carries.
+            .onChange(of: channelInboxes) { _, available in
+                if let channel = model.channel, !available.contains(channel) { model.channel = nil }
             }
             // Notifications, asked for here rather than at launch.
             //
@@ -74,8 +89,8 @@ struct InboxView: View {
             // they would be told about, and iOS has not been asked yet. The
             // one system prompt an app ever gets is not spent until somebody
             // says yes to this.
-            .task(id: "primer|\(model.state.isLoaded)|\(path.isEmpty)|\(isSelectedTab)") {
-                guard model.state.isLoaded,
+            .task(id: "primer|\(content.isLoaded)|\(path.isEmpty)|\(isSelectedTab)") {
+                guard content.isLoaded,
                       // Only while the inbox is what is actually on screen.
                       // It owns this sheet but stays alive under whatever is
                       // pushed on top of it AND under every other tab, so
@@ -123,17 +138,21 @@ struct InboxView: View {
     /// Changes when a notification asks for a conversation, and when the list
     /// it would have to be found in has finished loading.
     private var pendingOpenKey: String {
-        "\(push.pendingOpen?.conversationID ?? "-")|\(model.state.isLoaded)"
+        "\(push.pendingOpen?.conversationID ?? "-")|\(content.isLoaded)"
+    }
+
+    /// What the list can show for the workspace on screen — never another's.
+    private var content: LoadState<[Conversation]> {
+        model.content(for: workspaceID)
     }
 
     /// Takes the operator to the conversation a banner was about.
     ///
-    /// The notification carries identifiers and nothing else, so the
-    /// conversation has to be found in a loaded list. If it is not there —
-    /// a thread that has since been resolved while the operator is looking at
-    /// the open queue — the workspace is still switched and the inbox is
-    /// still the right place to be left, which beats a dead end or a blank
-    /// screen pushed onto the stack.
+    /// The notification carries identifiers and nothing else. The loaded list
+    /// is looked in first, then any list saved on this phone, and only then
+    /// is that one conversation asked for — never every queue in turn. If the
+    /// server no longer shows it to this operator, the inbox is still the
+    /// right place to be left, which beats a dead end or a blank screen.
     private func openPendingConversation() async {
         guard let target = push.pendingOpen else { return }
 
@@ -145,9 +164,15 @@ struct InboxView: View {
             return
         }
 
-        guard model.state.isLoaded else { return }
+        guard content.isLoaded, let workspaceID else { return }
         _ = push.takePendingOpen()
-        guard let conversation = model.conversation(id: target.conversationID) else { return }
+        let found: Conversation?
+        if let listed = model.conversation(id: target.conversationID) {
+            found = listed
+        } else {
+            found = await SyncCoordinator.shared.conversation(id: target.conversationID, workspaceID: workspaceID)
+        }
+        guard let conversation = found, conversation.workspaceId == appState.selectedWorkspace?.id else { return }
         path.append(conversation)
     }
 
@@ -186,14 +211,20 @@ struct InboxView: View {
 
             FilterPicker(
                 selection: $model.filter,
-                filters: appState.inboxChips,
+                filters: appState.inboxChips(automated: model.counts?.automated),
                 counts: model.counts,
                 language: language
             )
                 .listRowInsets(filterInsets)
                 .listRowSeparator(.hidden)
 
-            switch model.state {
+            if content.isLoaded, model.syncStatus.isOffline {
+                OfflineNotice(text: Str.offlineSavedCopy(language))
+                    .listRowInsets(filterInsets)
+                    .listRowSeparator(.hidden)
+            }
+
+            switch content {
             case .loading:
                 // A skeleton rather than a bare spinner: the row rhythm is
                 // already on screen, so the real content does not shift
@@ -214,7 +245,8 @@ struct InboxView: View {
                 .listRowSeparator(.hidden)
 
             case .loaded:
-                if model.visible.isEmpty {
+                let rows = model.visible(in: workspaceID)
+                if rows.isEmpty {
                     EmptyStateView(
                         systemImage: model.searchText.isEmpty ? "tray" : "magnifyingglass",
                         title: model.searchText.isEmpty
@@ -227,7 +259,7 @@ struct InboxView: View {
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
                 } else {
-                    ForEach(model.visible) { conversation in
+                    ForEach(rows) { conversation in
                         ZStack {
                             // A NavigationLink inside a List draws its own
                             // chevron and highlight; overlaying it with zero
@@ -280,7 +312,7 @@ struct InboxView: View {
             // these are three sets that behave as one list — so the mark is
             // put where it belongs by hand.
             Section {
-                ForEach(appState.inboxFilters) { filter in
+                ForEach(appState.inboxFilters(automated: model.counts?.automated)) { filter in
                     Button {
                         model.open(filter)
                     } label: {
@@ -292,9 +324,9 @@ struct InboxView: View {
                 }
             }
 
-            if !model.channels.isEmpty {
+            if !channelInboxes.isEmpty {
                 Section(Str.otherInboxes(language)) {
-                    ForEach(model.channels) { channel in
+                    ForEach(channelInboxes) { channel in
                         Button {
                             model.open(channel)
                         } label: {

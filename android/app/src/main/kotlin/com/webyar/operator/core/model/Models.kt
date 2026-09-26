@@ -2,6 +2,7 @@ package com.webyar.operator.core.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.json.JsonElement
 import java.time.Instant
 
@@ -264,6 +265,20 @@ data class Message(
      * WhatsApp album, a Telegram document with a caption.
      */
     val attachments: List<MessageAttachment>? = null,
+    /**
+     * When the row last changed server-side — a delivery status, a call
+     * card, `seen_at`. What the delta cursor is made of, and what decides
+     * which of two copies of one message is the newer.
+     */
+    @SerialName("updated_at") @Serializable(InstantSerializer::class) val updatedAt: Instant? = null,
+    /**
+     * The row's key in the local cache, which survives the moment a pending
+     * message gets its server id — so the transcript's list key does not
+     * change under a bubble the operator is looking at. Never on the wire.
+     */
+    @Transient val localId: String? = null,
+    /** Whether this is on the server yet. Never on the wire. */
+    @Transient val delivery: Delivery = Delivery.SENT,
 ) {
     /**
      * Whether this message is nothing but its files. The text bubble is
@@ -272,6 +287,28 @@ data class Message(
      */
     val isAttachmentOnly: Boolean
         get() = body.isBlank() && !attachments.isNullOrEmpty()
+
+    /**
+     * The idempotency key it was sent with. The server keeps it in
+     * `metadata.client_message_id` (unique per conversation, migration 070),
+     * which is how a pending copy and its confirmed row are known to be one
+     * message.
+     */
+    val clientMessageId: String?
+        get() = metadata.string("client_message_id")?.takeIf { it.isNotEmpty() }
+
+    /** What a list of these is keyed by on screen. */
+    val stableKey: String get() = localId ?: id
+
+    /** Where an outgoing message is between the composer and the server. */
+    enum class Delivery {
+        /** Confirmed: the server has the row. */
+        SENT,
+        /** In the outbox, or on its way. */
+        PENDING,
+        /** Tried and refused or unreachable; waits for the operator's retry. */
+        FAILED,
+    }
 }
 
 // MARK: - Response envelopes
@@ -286,7 +323,15 @@ data class SessionResponse(val user: User? = null)
 data class WorkspacesResponse(val workspaces: List<Workspace> = emptyList())
 
 @Serializable
-data class ConversationsResponse(val conversations: List<Conversation> = emptyList())
+data class ConversationsResponse(
+    val conversations: List<Conversation> = emptyList(),
+    /**
+     * The ids the server narrowed the list to, echoed back. Absent from a
+     * server that predates `?ids=` — which then answered with the whole
+     * queue, and the caller has to know that it did.
+     */
+    val ids: List<String>? = null,
+)
 
 @Serializable
 data class MessagesResponse(val messages: List<Message> = emptyList())

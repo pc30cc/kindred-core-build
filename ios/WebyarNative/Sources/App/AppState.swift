@@ -22,13 +22,25 @@ enum SessionState: Equatable {
 @Observable
 final class AppState {
 
-    private(set) var session: SessionState = .restoring
+    private(set) var session: SessionState = .restoring {
+        didSet { scopeChanged() }
+    }
     private(set) var workspaces: [Workspace] = []
-    private(set) var selectedWorkspace: Workspace?
+    private(set) var selectedWorkspace: Workspace? {
+        didSet { scopeChanged() }
+    }
+
+    /// The workspace list came from this phone's saved copy (a launch with
+    /// no connection), so it is asked for again when the app comes forward.
+    @ObservationIgnored private var workspacesFromSnapshot = false
 
     /// What the current workspace's plan grants. Every plan-gated tab and
     /// queue reads this rather than assuming.
     private(set) var entitlements: EntitlementsState = .loading
+
+    /// The operator's role and the AI / call-center switches, read with the
+    /// plan. Unknown (nil) hides whatever depends on it.
+    private(set) var access: WorkspaceAccess = .unknown
 
     /// The operator's own profile row, for the one thing every screen wants
     /// from it: their photograph.
@@ -143,6 +155,11 @@ final class AppState {
             let user = try await api.currentUser()
             session = .signedIn(user)
             SessionCache.save(user)
+            // The workspace this operator was last in, straight away, so the
+            // inbox draws its saved copy while the list of workspaces is
+            // still being asked for. `loadWorkspaces` then keeps it only if
+            // the server still lists it.
+            adoptSnapshot(for: user.id)
             await loadWorkspaces()
         } catch APIError.unauthorized {
             // The server said the session is void. That is the only thing
@@ -163,6 +180,9 @@ final class AppState {
             // login screen in front of somebody whose session was fine.
             if let cached = SessionCache.read() {
                 session = .signedIn(cached)
+                // Offline: the workspaces this phone saw last, so the inbox
+                // has something to show its saved conversations for.
+                adoptSnapshot(for: cached.id)
                 await loadWorkspaces()
             } else {
                 session = .signedOut
@@ -174,6 +194,7 @@ final class AppState {
         sessionEndedMessage = nil
         session = .signedIn(user)
         SessionCache.save(user)
+        adoptSnapshot(for: user.id)
         await loadWorkspaces()
     }
 
@@ -195,7 +216,9 @@ final class AppState {
         } catch {
             return false
         }
-        reset()
+        // Leaving on purpose: this account's saved conversations and files
+        // leave the phone with it.
+        await reset(purgeCache: true)
         return true
     }
 
@@ -208,7 +231,7 @@ final class AppState {
     func accountWasDeleted() async {
         await api.discardSession()
         sessionEndedMessage = Str.accountDeleted(language)
-        reset()
+        await reset(purgeCache: true)
     }
 
     /// Called when any screen's request comes back 401: the session is gone,
@@ -217,16 +240,58 @@ final class AppState {
         guard session != .signedOut else { return }
         await api.discardSession()
         sessionEndedMessage = Str.sessionExpired(language)
-        reset()
+        // Expired, not left: the saved copy stays for this same account's
+        // next sign-in. It sits in that account's own folder, and nothing of
+        // it is ever opened for anyone else.
+        await reset(purgeCache: false)
     }
 
-    private func reset() {
+    private func reset(purgeCache: Bool) async {
+        let leaving = session.user?.id
         session = .signedOut
         workspaces = []
         selectedWorkspace = nil
+        planRefresh?.cancel()
+        planRefresh = nil
+        access = .unknown
+        workspacesFromSnapshot = false
+        entitlements = .loading
+        profile = nil
         // Whoever signs in next must not be greeted by the last person's
         // name while the server is being asked who they are.
         SessionCache.clear()
+        // In-memory copies of this account go at once, whatever else happens.
+        await SyncCoordinator.shared.endSession(userID: leaving, purge: purgeCache)
+    }
+
+    /// Tells the sync layer who is signed in and where, the moment either
+    /// changes — before the next frame is drawn for the new one.
+    private func scopeChanged() {
+        SyncCoordinator.shared.sessionChanged(userID: session.user?.id, workspaceID: selectedWorkspace?.id)
+    }
+
+    /// The workspaces saved for this account, if nothing better is known yet.
+    private func adoptSnapshot(for userID: String) {
+        guard !Backend.isSample, workspaces.isEmpty,
+              let snapshot = AccountSnapshot.read(userID: userID), !snapshot.workspaces.isEmpty
+        else { return }
+        workspaces = snapshot.workspaces
+        selectedWorkspace = snapshot.workspaces.first { $0.id == snapshot.selectedWorkspaceID } ?? snapshot.workspaces.first
+        workspacesFromSnapshot = true
+    }
+
+    private func saveSnapshot() {
+        guard !Backend.isSample, let userID = session.user?.id, !workspaces.isEmpty else { return }
+        let snapshot = AccountSnapshot(workspaces: workspaces, selectedWorkspaceID: selectedWorkspace?.id)
+        Task.detached(priority: .utility) { AccountSnapshot.write(snapshot, userID: userID) }
+    }
+
+    /// The app came forward. A launch that could only offer the saved
+    /// workspaces asks the server again now that it may be reachable.
+    func refreshIfStale() async {
+        guard session.user != nil else { return }
+        if workspacesFromSnapshot || workspaces.isEmpty { await loadWorkspaces() }
+        if case .failed = entitlements, selectedWorkspace != nil { await loadPlan() }
     }
 
     func clearSessionEndedMessage() {
@@ -266,7 +331,14 @@ final class AppState {
             let keepsSelection = selectedWorkspace.map { current in
                 list.contains { $0.id == current.id }
             } ?? false
-            if !keepsSelection { selectedWorkspace = list.first }
+            if !keepsSelection {
+                selectedWorkspace = list.first
+            } else if let current = selectedWorkspace, let fresh = list.first(where: { $0.id == current.id }), fresh != current {
+                // Same workspace, newer name or logo.
+                selectedWorkspace = fresh
+            }
+            workspacesFromSnapshot = false
+            saveSnapshot()
             // Always re-resolve: signing back in keeps the same workspace, and
             // returning early there would leave every plan gate unresolved and
             // so every gated tab permanently hidden.
@@ -281,44 +353,92 @@ final class AppState {
     func select(_ workspace: Workspace) {
         guard workspace.id != selectedWorkspace?.id else { return }
         selectedWorkspace = workspace
+        saveSnapshot()
         // A different workspace can be on a different plan, so the gates have
         // to be re-resolved before any tab decides whether it exists.
         entitlements = .loading
+        access = .unknown
         Task { await loadPlan() }
     }
 
     // MARK: - Plan
 
-    /// Resolves what this workspace's plan allows.
+    /// Resolves what this workspace's plan allows, and asks again later.
+    ///
+    /// A plan that cannot be read shows nothing gated (the server would refuse
+    /// it anyway), so it is asked for again after 20 seconds; a plan in hand is
+    /// refreshed every three minutes, because Super Admin can change it at any
+    /// time and nothing announces it. A refresh that fails keeps the snapshot
+    /// already in hand for this workspace, as the web's query does.
+    ///
+    /// The operator's role and the AI and call-center switches are read
+    /// alongside it; one of those that cannot be read is simply off, and never
+    /// fails the plan.
     func loadPlan() async {
         guard let workspaceID = selectedWorkspace?.id else {
             entitlements = .failed
             return
         }
-        entitlements = (try? await api.entitlements(workspaceID: workspaceID))
-            .map(EntitlementsState.loaded) ?? .failed
+        async let sideAccess = api.workspaceAccess(workspaceID: workspaceID)
+        do {
+            let snapshot = try await api.entitlements(workspaceID: workspaceID)
+            let fresh = await sideAccess
+            guard selectedWorkspace?.id == workspaceID else { return }
+            entitlements = .loaded(snapshot)
+            access = fresh
+            planWorkspaceID = workspaceID
+        } catch {
+            let fresh = await sideAccess
+            guard selectedWorkspace?.id == workspaceID else { return }
+            // A kept snapshot keeps the role and switches read with it.
+            if planWorkspaceID != workspaceID || entitlements.value == nil {
+                entitlements = .failed
+                access = fresh
+            }
+        }
+        schedulePlanRefresh(workspaceID)
+    }
+
+    /// Which workspace the snapshot in `entitlements` belongs to.
+    @ObservationIgnored private var planWorkspaceID: String? = nil
+    @ObservationIgnored private var planRefresh: Task<Void, Never>? = nil
+
+    private func schedulePlanRefresh(_ workspaceID: String) {
+        planRefresh?.cancel()
+        let delay: Duration = entitlements.value == nil ? .seconds(20) : .seconds(180)
+        planRefresh = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self, self.selectedWorkspace?.id == workspaceID else { return }
+            await self.loadPlan()
+        }
     }
 
     // MARK: - Gates
     //
-    // These mirror the web console's sidebar rules exactly. Where they differ
-    // from each other it is deliberate, and the difference is what decides
-    // whether a whole tab exists.
+    // These follow the web console's one rule set (src/lib/planAccess.ts): a
+    // capability is available only when the snapshot is in and its value is
+    // exactly `true`. While it loads, or when it cannot be read, nothing gated
+    // is offered; a key the snapshot does not carry is not available.
 
     /// Nothing plan-gated renders until the snapshot resolves one way or the
     /// other. Showing a tab and taking it away a moment later is worse than
     /// waiting for the answer.
     var planResolved: Bool { entitlements.isResolved }
 
-    /// A top-level section belongs in this plan. An unknown key stays visible
-    /// so a module added server-side does not disappear from an older build;
-    /// only an explicit `false` hides it.
+    /// A top-level section belongs in this plan: only when the snapshot is in
+    /// and says exactly `true`.
     func moduleInPlan(_ key: String) -> Bool {
-        switch entitlements {
-        case .loading: false
-        case .failed: false
-        case .loaded(let value): value.moduleInPlan(key)
-        }
+        entitlements.value?.moduleInPlan(key) == true
+    }
+
+    /// A channel inbox from the plugin catalog (already installed, inbox-capable
+    /// and `planAllowed`), as the web's `channelInboxVisible`: a channel the plan
+    /// itself governs must be on in the snapshot; any other is the plugin's call.
+    /// "Other inboxes" are an owner/admin surface, as in the console's sidebar.
+    func channelInboxVisible(_ inbox: ChannelInbox) -> Bool {
+        guard access.isAdmin else { return false }
+        let key = inbox.key.lowercased()
+        return !Entitlements.planChannels.contains(key) || entitlements.value?.channelEnabled(key) == true
     }
 
     /// Fail-closed, for a single capability rather than a whole section.
@@ -328,14 +448,21 @@ final class AppState {
 
     var contactsVisible: Bool { moduleInPlan("contacts") }
 
+    /// The inbox's AI queue, as the web's `aiQueueVisible`: the plan's
+    /// `inbox_ai_queue`, the AI switched on and shown to customers, and either
+    /// answering by itself or already holding threads (`automated`).
+    func aiQueueVisible(automated: Int?) -> Bool {
+        access.aiQueueVisible(inPlan: featureEnabled("inbox_ai_queue"), automated: automated)
+    }
+
     /// The queues this plan includes, in the order they should appear.
-    var inboxFilters: [InboxFilter] {
-        InboxFilter.available(for: entitlements.value)
+    func inboxFilters(automated: Int?) -> [InboxFilter] {
+        InboxFilter.available(for: entitlements.value, aiQueue: aiQueueVisible(automated: automated))
     }
 
     /// The subset of those that stay on the strip above the list.
-    var inboxChips: [InboxFilter] {
-        InboxFilter.chips(for: entitlements.value)
+    func inboxChips(automated: Int?) -> [InboxFilter] {
+        InboxFilter.chips(aiQueue: aiQueueVisible(automated: automated))
     }
 
     /// Whether the internal operator-to-operator inbox belongs in this plan.
@@ -343,13 +470,8 @@ final class AppState {
     /// Same key the console gates its Colleagues tab on.
     var colleaguesVisible: Bool { featureEnabled("inbox_team_chat") }
 
-    /// Whether the mailbox belongs in this plan.
-    ///
-    /// `moduleEnabled` rather than `moduleInPlan`: the Email Inbox is off by
-    /// default in the capability registry, so an absent key means "not
-    /// granted" here rather than "a module this build has not heard of". An
-    /// entry that opens onto a 403 is worse than no entry.
-    var emailInboxVisible: Bool {
-        entitlements.value?.moduleEnabled("email_inbox") == true
-    }
+    /// Whether the mailbox belongs here: an owner/admin section (as in the
+    /// console's sidebar) whose Email Inbox module is exactly `true`. An entry
+    /// that opens onto a 403 is worse than no entry.
+    var emailInboxVisible: Bool { access.isAdmin && moduleInPlan("email_inbox") }
 }

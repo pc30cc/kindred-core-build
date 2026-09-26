@@ -17,10 +17,13 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
   });
   const text = await res.text();
-  let body: any = null;
+  let body: { details?: unknown; error?: unknown; reason?: unknown; raw?: string } | null = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
   if (!res.ok) {
-    const err: any = new Error(body?.details || body?.error || `HTTP ${res.status}`);
+    const err = new Error((body?.details || body?.error || `HTTP ${res.status}`) as string) as Error & {
+      code?: unknown;
+      status?: number;
+    };
     err.code = body?.reason || body?.error || null;
     err.status = res.status;
     throw err;
@@ -223,7 +226,7 @@ export const pluginsApi = {
    */
   whatsappConnect: (
     workspaceId: string,
-    input: { phoneNumberId: string; accessToken: string; businessAccountId?: string },
+    input: { phoneNumberId: string; accessToken: string; businessAccountId?: string; appSecret?: string },
   ) =>
     jsonFetch<{ ok: true; bot: { id: number; username: string | null; firstName: string | null }; webhookUrl: string }>(
       '/api/plugins/bot/whatsapp/connect',
@@ -234,6 +237,7 @@ export const pluginsApi = {
           phone_number_id: input.phoneNumberId,
           access_token: input.accessToken,
           business_account_id: input.businessAccountId || null,
+          ...(input.appSecret ? { app_secret: input.appSecret } : {}),
         }),
       },
     ),
@@ -244,7 +248,7 @@ export const pluginsApi = {
    */
   instagramConnect: (
     workspaceId: string,
-    input: { igAccountId: string; accessToken: string; pageId?: string },
+    input: { igAccountId: string; accessToken: string; pageId?: string; appSecret?: string },
   ) =>
     jsonFetch<{ ok: true; bot: { id: number; username: string | null; firstName: string | null }; webhookUrl: string }>(
       '/api/plugins/bot/instagram/connect',
@@ -255,6 +259,7 @@ export const pluginsApi = {
           ig_account_id: input.igAccountId,
           access_token: input.accessToken,
           page_id: input.pageId || null,
+          ...(input.appSecret ? { app_secret: input.appSecret } : {}),
         }),
       },
     ),

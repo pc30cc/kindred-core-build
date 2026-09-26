@@ -331,4 +331,7 @@ enum A11yID {
     static let deleteAccountSubmit = "deleteAccount.submit"
     static let deleteAccountConfirm = "deleteAccount.confirm"
     static let deleteAccountBlocked = "deleteAccount.blocked"
+    static let offlineNotice = "sync.offlineNotice"
+    static let storageRow = "settings.storage"
+    static let clearCache = "settings.storage.clear"
 }

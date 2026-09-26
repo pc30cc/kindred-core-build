@@ -1,3 +1,7 @@
+// MUST stay first: patches Express so a rejected promise from an async
+// handler reaches the error middleware instead of crashing the process.
+import { installProcessErrorHandlers } from './lib/asyncErrors.js';
+import { STATUS_CODES } from 'node:http';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -138,6 +142,8 @@ import {
   validateJsonBody,
 } from './middleware/security.js';
 
+installProcessErrorHandlers('server');
+
 const config = loadConfig();
 
 const app = express();
@@ -181,42 +187,64 @@ const CALL_WIDGET_VENDOR_SOURCES = [
   path.resolve(process.cwd(), 'public', 'widget', 'vendor'),
 ];
 
-function widgetAssetHeaders(res: express.Response, filePath: string) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  res.setHeader('X-Content-Type-Options', 'nosniff');
+function widgetAssetHeaderMap(filePath: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Access-Control-Allow-Origin': '*',
+    'Cross-Origin-Resource-Policy': 'cross-origin',
+    'X-Content-Type-Options': 'nosniff',
+  };
   if (/livekit-client\.umd\.min\.js$/i.test(filePath)) {
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    headers['Cache-Control'] = 'public, max-age=31536000, immutable';
   } else {
     // Loader + runtime are NOT content-hashed. If we let CDNs cache them
     // even briefly, customers see stale widget UI after every deploy and
     // a Cloudflare purge isn't always enough (heuristic / edge TTL).
     // Force no-store everywhere so each page load fetches fresh bytes.
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-    res.setHeader('Surrogate-Control', 'no-store');
-    res.setHeader('CDN-Cache-Control', 'no-store');
-    res.setHeader('Cloudflare-CDN-Cache-Control', 'no-store');
+    headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0';
+    headers['Pragma'] = 'no-cache';
+    headers['Expires'] = '0';
+    headers['Surrogate-Control'] = 'no-store';
+    headers['CDN-Cache-Control'] = 'no-store';
+    headers['Cloudflare-CDN-Cache-Control'] = 'no-store';
+  }
+  return headers;
+}
+
+function widgetAssetHeaders(res: express.Response, filePath: string) {
+  for (const [name, value] of Object.entries(widgetAssetHeaderMap(filePath))) {
+    res.setHeader(name, value);
   }
 }
 
 // Serve LiveKit UMD under /call-widget/vendor/* (preferred path) by
 // reading from public/widget/vendor — that's where the SDK already lives
 // so we don't duplicate the binary.
+//
+// Headers go through sendFile's `headers` option, which `send` applies only
+// once the file was found and right before streaming it. (They used to be
+// set in the completion callback — i.e. AFTER the response was sent — which
+// threw ERR_HTTP_HEADERS_SENT asynchronously and crashed the process.) A
+// missing file in one source dir falls through to the next one; next() is
+// only called when none of them has it.
 app.get('/call-widget/vendor/:file', (req, res, next) => {
   const file = req.params.file;
   if (!/^[a-zA-Z0-9._-]+$/.test(file)) return res.status(400).end();
-  for (const dir of CALL_WIDGET_VENDOR_SOURCES) {
-    const full = path.join(dir, file);
-    if (full.startsWith(dir)) {
-      return res.sendFile(full, { headers: {} }, (err) => {
-        if (err) return next();
-        widgetAssetHeaders(res, full);
-      });
-    }
-  }
-  return next();
+  // Path-traversal guard: the joined path must stay strictly INSIDE the
+  // source dir (rejects '.', '..').
+  const candidates = CALL_WIDGET_VENDOR_SOURCES
+    .map((dir) => path.join(dir, file))
+    .filter((full, i) => full.startsWith(CALL_WIDGET_VENDOR_SOURCES[i] + path.sep));
+  const tryCandidate = (i: number): void => {
+    if (i >= candidates.length) return next();
+    const full = candidates[i];
+    res.sendFile(full, { headers: widgetAssetHeaderMap(full) }, (err) => {
+      if (!err) return;
+      // Aborted / failed mid-stream: nothing more can be sent.
+      if (res.headersSent) return;
+      tryCandidate(i + 1);
+    });
+  };
+  tryCandidate(0);
 });
 
 for (const dir of CALL_WIDGET_DIRS) {
@@ -619,28 +647,24 @@ app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-// Error handler
-app.use((err: Error & { status?: number; statusCode?: number }, _req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if (res.headersSent) return next(err);
-  // Parser errors carry their own client status — 400 for malformed JSON,
-  // 413 for an oversized body. Answering those with 500 blamed the server for
-  // a client's mistake, logged every one as a server error, and told clients
-  // that retry on 5xx to send the same bad request again.
+// Error handler — final catch-all, including rejected async handlers
+// (forwarded by ./lib/asyncErrors.js). Never leaks err.message to the client.
+// If the response has already started, delegate to Express's default handler,
+// which aborts the connection (a JSON body can no longer be sent).
+//
+// Errors that carry their own client status — body-parser's 400 for
+// malformed JSON and 413 for an oversized body — keep it. Answering those
+// with 500 blamed the server for a client's mistake, logged each one as a
+// server error, and told clients that retry on 5xx to resend the same bad
+// request.
+app.use((err: Error & { status?: number; statusCode?: number }, req: express.Request, res: express.Response, next: express.NextFunction) => {
   const status = Number(err.status ?? err.statusCode);
-  if (status >= 400 && status < 500) {
-    return res.status(status).json({ error: status === 413 ? 'Payload too large' : 'Bad request' });
-  }
-  console.error('Server error:', err.message);
+  const clientError = status >= 400 && status < 500;
+  // req.path, not originalUrl: query strings can carry one-time tokens.
+  if (!clientError) console.error(`Server error: ${req.method} ${req.path}:`, err);
+  if (res.headersSent) return next(err);
+  if (clientError) return res.status(status).json({ error: STATUS_CODES[status] || 'Bad Request' });
   res.status(500).json({ error: 'Internal server error' });
-});
-
-// Node 20 ends the process on an unhandled promise rejection. For this API
-// that turned one missing .catch on a fire-and-forget write (an audit row, a
-// metric) into an outage for every in-flight request and socket until the
-// container restarted. Log it loudly and keep serving; an uncaught exception
-// still ends the process as before.
-process.on('unhandledRejection', (reason) => {
-  console.error('[server] unhandled promise rejection:', reason instanceof Error ? reason.stack || reason.message : reason);
 });
 
 // Invitation key material must exist before any invitation route or worker

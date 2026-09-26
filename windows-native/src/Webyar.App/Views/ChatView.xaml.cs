@@ -11,6 +11,7 @@ using Webyar.Core.Api;
 using Webyar.Core.Inbox;
 using Webyar.Core.Localization;
 using Webyar.Core.Realtime;
+using Webyar.Core.Sync;
 using Windows.System;
 using Windows.UI.Core;
 
@@ -28,7 +29,16 @@ public sealed partial class ChatView : UserControl
 
     private readonly ObservableCollection<MessageItem> _messages = [];
     private readonly List<MessageItem> _outbox = [];
+
+    /// <summary>The file each optimistic reply carries, so a retry resends its own file and no other.</summary>
+    private readonly Dictionary<MessageItem, (string Name, string Mime, byte[] Data)> _outboxFiles = [];
     private Poller? _poller;
+
+    /// <summary>Numbers each sync as it starts; a reply confirmed by the server is dropped from the outbox by the first sync after it.</summary>
+    private int _syncStarted;
+
+    /// <summary>The server's answer is on screen for this thread; the PC's copy (read in parallel) must not replace it.</summary>
+    private bool _serverShown;
     private string? _id;
     private Conversation? _conversation;
     private string? _lastSeenMessage;
@@ -169,6 +179,7 @@ public sealed partial class ChatView : UserControl
         _poller = null;
         Host.InboxChanged -= OnInboxChanged;
         Host.PlanChanged -= OnPlanChanged;
+        Host.RealtimeChanged -= OnRealtimeChanged;
         _id = null;
         Details.Close();
     }
@@ -178,8 +189,15 @@ public sealed partial class ChatView : UserControl
         Close();
         _id = id;
         _lastSeenMessage = null;
+        _serverShown = false;
         _messages.Clear();
+        // Replies that failed and are left behind: their picked files need not stay in memory.
+        foreach (var o in _outbox.Where(o => o.Failed))
+        {
+            foreach (var a in o.Attachments) AttachmentItem.Forget(a.Id);
+        }
         _outbox.Clear();
+        _outboxFiles.Clear();
         if (_recorder is not null) _ = StopRecordingAsync(keep: false);
         ClearPendingFile();
         SetComposerMode(false);
@@ -192,7 +210,10 @@ public sealed partial class ChatView : UserControl
         Loading.Visibility = Visibility.Visible;
         Host.InboxChanged += OnInboxChanged;
         Host.PlanChanged += OnPlanChanged;
+        Host.RealtimeChanged += OnRealtimeChanged;
         _poller = new Poller("thread", ct => LoadAsync(id, ct), () => Host.PollInterval(TimeSpan.FromSeconds(Math.Min(5, Host.Config.PollIntervalSeconds))));
+        // The thread as this PC last saw it, at once (offline too); the sync then brings only what changed.
+        _ = ShowLocalAsync(id);
         _poller.Start();
         Composer.Focus(FocusState.Programmatic);
     }
@@ -204,49 +225,51 @@ public sealed partial class ChatView : UserControl
 
     private void OnInboxChanged(InboxEvent e)
     {
+        // A message or a change in this thread: a delta sync, never the whole history again.
         if (e.ConversationId is null || e.ConversationId == _id) _poller?.Kick();
+    }
+
+    /// <summary>Realtime reconnected (events may have been missed) or dropped: sync now.</summary>
+    private void OnRealtimeChanged(bool up) => _poller?.Kick();
+
+    private async Task ShowLocalAsync(string id)
+    {
+        if (Host.Workspace is not { } ws) return;
+        var scope = Host.Scope;
+        var local = await Host.Threads.LoadLocalAsync(ws.Id, id);
+        if (local is null || id != _id || scope != Host.Scope || _serverShown) return;
+        Render(local.Messages, sync: 0);
+        Log.Write($"[chat] thread shown from the PC: {local.Messages.Count} messages");
+        Loading.IsActive = false;
+        Loading.Visibility = Visibility.Collapsed;
     }
 
     private async Task LoadAsync(string id, CancellationToken ct)
     {
+        if (Host.Workspace is not { } ws) return;
+        var scope = Host.Scope;
+        var sync = ++_syncStarted;
         try
         {
-            var list = await Host.Api.MessagesAsync(id, ct);
-            if (id != _id) return;
-            var s = Host.Strings;
-            var contact = _conversation?.Contacts;
-            var os = _conversation?.VisitorOs;
-
-            var wanted = new List<MessageItem>();
-            DateTime? day = null;
-            foreach (var m in list.OrderBy(m => m.CreatedAt ?? DateTimeOffset.MinValue))
-            {
-                var item = new MessageItem(m, s);
-                if (item.Side == MessageSide.Incoming)
-                {
-                    item.AvatarName = contact?.Name ?? string.Empty;
-                    item.AvatarEmail = contact?.Email;
-                    item.AvatarUrl = contact?.AvatarUrl;
-                    item.AvatarOs = os;
-                }
-                if (item.CreatedAt is { } at && at.ToLocalTime().Date != day)
-                {
-                    day = at.ToLocalTime().Date;
-                    wanted.Add(MessageItem.DaySeparator(at, s));
-                }
-                wanted.Add(item);
-            }
-            wanted.AddRange(_outbox);
-            Group(wanted);
-            Sync(wanted);
+            var snapshot = await Host.Threads.SyncAsync(ws.Id, id, ct);
+            if (id != _id || scope != Host.Scope) return; // another thread or workspace since
+            _serverShown = true;
+            Render(snapshot.Messages, sync);
 
             // Seen once per new message, and only while someone is actually looking.
-            var newest = list.LastOrDefault(m => m.SenderType == SenderTypes.Contact)?.Id;
+            var newest = snapshot.Messages.LastOrDefault(m => m.SenderType == SenderTypes.Contact)?.Id;
             if (newest is not null && newest != _lastSeenMessage && App.Current.Window?.IsForeground == true)
             {
                 _lastSeenMessage = newest;
                 _ = MarkSeenAsync(id);
             }
+        }
+        catch (ApiException e) when (e.Failure == ApiFailure.Server && e.Status is 403 or 404 && id == _id)
+        {
+            // Deleted, or no longer this operator's: nothing of it stays on screen (or on the PC).
+            _messages.Clear();
+            ShowError(ErrorText.For(e, Host.Strings));
+            throw;
         }
         finally
         {
@@ -256,6 +279,52 @@ public sealed partial class ChatView : UserControl
                 Loading.Visibility = Visibility.Collapsed;
             }
         }
+    }
+
+    /// <summary>
+    /// Draws <paramref name="list"/> plus the replies still on their way. A
+    /// reply leaves the outbox once its stored copy (same client_message_id) is
+    /// in the thread, or — for a copy that cannot be matched — once a sync
+    /// that started after the send has come back; never earlier, so it neither
+    /// shows twice nor blinks out.
+    /// </summary>
+    private void Render(IReadOnlyList<Message> list, int sync)
+    {
+        var s = Host.Strings;
+        var contact = _conversation?.Contacts;
+        var os = _conversation?.VisitorOs;
+
+        var pending = Outbox.StillPending(_outbox, o => o.ClientId, list)
+            .Where(o => !(o.ConfirmedBySync > 0 && sync >= o.ConfirmedBySync))
+            .ToHashSet();
+        foreach (var done in _outbox.Where(o => !pending.Contains(o)).ToList())
+        {
+            _outbox.Remove(done);
+            _outboxFiles.Remove(done);
+        }
+
+        var wanted = new List<MessageItem>();
+        DateTime? day = null;
+        foreach (var m in list)
+        {
+            var item = new MessageItem(m, s);
+            if (item.Side == MessageSide.Incoming)
+            {
+                item.AvatarName = contact?.Name ?? string.Empty;
+                item.AvatarEmail = contact?.Email;
+                item.AvatarUrl = contact?.AvatarUrl;
+                item.AvatarOs = os;
+            }
+            if (item.CreatedAt is { } at && at.ToLocalTime().Date != day)
+            {
+                day = at.ToLocalTime().Date;
+                wanted.Add(MessageItem.DaySeparator(at, s));
+            }
+            wanted.Add(item);
+        }
+        wanted.AddRange(_outbox);
+        Group(wanted);
+        Sync(wanted);
     }
 
     private static async Task MarkSeenAsync(string id)
@@ -303,7 +372,11 @@ public sealed partial class ChatView : UserControl
         for (; i < wanted.Count; i++)
         {
             _messages.Add(wanted[i]);
-            foreach (var a in wanted[i].Attachments) _ = a.LoadPreviewAsync();
+            // Photos only; voice notes wait for Play, documents and videos for Open.
+            foreach (var a in wanted[i].Attachments)
+            {
+                if (a.FetchOnRender) _ = a.LoadPreviewAsync();
+            }
         }
     }
 
@@ -395,10 +468,12 @@ public sealed partial class ChatView : UserControl
             ClearPendingFile();
         }
         _aiMode = ai;
-        var plan = Host.Plan;
-        AttachButton.Visibility = !ai && plan.Attachments ? Visibility.Visible : Visibility.Collapsed;
-        MicButton.Visibility = !ai && plan.VoiceNotes ? Visibility.Visible : Visibility.Collapsed;
-        EmojiButton.Visibility = !ai && plan.Emoji ? Visibility.Visible : Visibility.Collapsed;
+        // Who is answering decides, as the web: not the plan's widget_* keys,
+        // which govern what visitors may do in the chat widget (operator files
+        // also go to Telegram, WhatsApp and Instagram chats).
+        AttachButton.Visibility = ai ? Visibility.Collapsed : Visibility.Visible;
+        MicButton.Visibility = ai ? Visibility.Collapsed : Visibility.Visible;
+        EmojiButton.Visibility = ai ? Visibility.Collapsed : Visibility.Visible;
         ShortcutsButton.Visibility = ai ? Visibility.Collapsed : Visibility.Visible;
         VoicePicker.Visibility = ai ? Visibility.Visible : Visibility.Collapsed;
         Composer.PlaceholderText = s[ai ? "sayNowPlaceholder" : "messagePlaceholder"];
@@ -501,6 +576,7 @@ public sealed partial class ChatView : UserControl
         };
         if (local is not null) _ = local.LoadPreviewAsync();
         _outbox.Add(item);
+        if (file is { } picked) _outboxFiles[item] = picked;
         _messages.Add(item);
         Group(_messages);
         await SendAsync(id, ws.Id, item, file);
@@ -516,10 +592,14 @@ public sealed partial class ChatView : UserControl
             if (file is { } f)
             {
                 attachmentId = await Host.Api.UploadAttachmentAsync(workspaceId, conversationId, f.Name, f.Mime, f.Data);
-                if (attachmentId is not null && item.Attachments.FirstOrDefault() is { } local) AttachmentItem.Alias(local.Id, attachmentId);
+                if (attachmentId is not null && item.Attachments.FirstOrDefault() is { } local) AttachmentItem.Alias(local.Id, attachmentId, workspaceId);
             }
+            // The same client id on every attempt: the server keeps one copy however often this is retried.
             await Host.Api.SendMessageAsync(conversationId, workspaceId, item.Body, item.ClientId!, attachmentId);
-            _outbox.Remove(item);
+            // Stored. The bubble stays until the thread brings the stored copy (realtime, a delta or
+            // the next sync), which then takes its place — one message, never two, never none.
+            item.Pending = false;
+            item.ConfirmedBySync = _syncStarted + 1;
             _poller?.Kick();
             StatusChanged?.Invoke();
         }
@@ -535,7 +615,8 @@ public sealed partial class ChatView : UserControl
             Error.ActionButton = RetryButton(() =>
             {
                 Error.IsOpen = false;
-                foreach (var failed in _outbox.Where(o => o.Failed).ToList()) _ = SendAsync(conversationId, workspaceId, failed, file);
+                foreach (var failed in _outbox.Where(o => o.Failed).ToList())
+                    _ = SendAsync(conversationId, workspaceId, failed, _outboxFiles.TryGetValue(failed, out var own) ? own : null);
             });
             Error.IsOpen = true;
         }
@@ -717,21 +798,22 @@ public sealed partial class ChatView : UserControl
         return t;
     }
 
-    /// <summary>Opens a file with whatever Windows opens that kind of file with.</summary>
+    /// <summary>
+    /// Opens a viewable file (image, PDF, text, audio, video, Office without macros) with whatever
+    /// Windows opens it with; anything that could run code is offered through "Save as" instead.
+    /// </summary>
     private async void OnOpenAttachment(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is not AttachmentItem a) return;
         try
         {
-            var data = await a.BytesAsync();
-            var dir = Path.Combine(Path.GetTempPath(), "Webyar", a.Id.Replace(':', '_'));
-            Directory.CreateDirectory(dir);
-            var name = string.Join("_", a.FileName.Split(Path.GetInvalidFileNameChars()));
-            if (!Path.HasExtension(name)) name += Mime.Extension(a.MimeType);
-            var path = Path.Combine(dir, name);
-            await File.WriteAllBytesAsync(path, data);
-            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
-            await Launcher.LaunchFileAsync(file);
+            if (await OpenedFiles.OpenAsync(a) == OpenedFiles.Outcome.Saved)
+            {
+                Error.Severity = InfoBarSeverity.Informational;
+                Error.Message = OpenedFiles.SavedInsteadMessage(Host.Strings);
+                Error.ActionButton = null;
+                Error.IsOpen = true;
+            }
         }
         catch (Exception ex)
         {

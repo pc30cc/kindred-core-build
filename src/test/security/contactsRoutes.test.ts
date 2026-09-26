@@ -15,7 +15,17 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
 
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
+type Resolve = (value: unknown) => unknown;
+/** The JSON bodies these routes answer with. */
+interface ApiJson {
+  contacts?: Row[];
+  contact?: Row;
+  deleted?: number;
+  error?: string;
+  conversations?: Row[];
+  raw?: string;
+}
 const db: Record<string, Row[]> = {};
 
 function fakeClient() {
@@ -23,22 +33,22 @@ function fakeClient() {
     from(table: string) {
       const rows: Row[] = db[table] || (db[table] = []);
       const filters: Array<(r: Row) => boolean> = [];
-      let inFilter: { col: string; vals: any[] } | null = null;
-      const builder: any = {
+      let inFilter: { col: string; vals: unknown[] } | null = null;
+      const builder: Record<string, unknown> = {
         select: () => builder,
-        eq(col: string, val: any) { filters.push((r) => r[col] === val); return builder; },
-        in(col: string, vals: any[]) { inFilter = { col, vals }; return builder; },
+        eq(col: string, val: unknown) { filters.push((r) => r[col] === val); return builder; },
+        in(col: string, vals: unknown[]) { inFilter = { col, vals }; return builder; },
         order: () => builder,
-        insert(payload: any) {
+        insert(payload: Row | Row[]) {
           const items = Array.isArray(payload) ? payload : [payload];
           const inserted = items.map((it) => ({ id: it.id ?? crypto.randomUUID(), created_at: new Date().toISOString(), ...it }));
           rows.push(...inserted);
-          return { select: () => ({ single: async () => ({ data: inserted[0], error: null }) }), then: (resolve: any) => resolve({ data: inserted, error: null }) };
+          return { select: () => ({ single: async () => ({ data: inserted[0], error: null }) }), then: (resolve: Resolve) => resolve({ data: inserted, error: null }) };
         },
-        update(patch: any) {
+        update(patch: Row) {
           const scoped: Array<(r: Row) => boolean> = [...filters];
-          const updateBuilder: any = {
-            eq(col: string, val: any) { scoped.push((r: Row) => r[col] === val); return updateBuilder; },
+          const updateBuilder: Record<string, unknown> = {
+            eq(col: string, val: unknown) { scoped.push((r: Row) => r[col] === val); return updateBuilder; },
             select() {
               const matched = rows.filter((r) => scoped.every((f) => f(r)));
               for (const r of matched) Object.assign(r, patch);
@@ -49,10 +59,10 @@ function fakeClient() {
         },
         delete() {
           const scoped: Array<(r: Row) => boolean> = [...filters];
-          const deleteBuilder: any = {
-            eq(col: string, val: any) { scoped.push((r: Row) => r[col] === val); return deleteBuilder; },
-            in(col: string, vals: any[]) { scoped.push((r: Row) => vals.includes(r[col])); return deleteBuilder; },
-            then(resolve: any) {
+          const deleteBuilder: Record<string, unknown> = {
+            eq(col: string, val: unknown) { scoped.push((r: Row) => r[col] === val); return deleteBuilder; },
+            in(col: string, vals: unknown[]) { scoped.push((r: Row) => vals.includes(r[col])); return deleteBuilder; },
+            then(resolve: Resolve) {
               db[table] = rows.filter((r) => !scoped.every((f) => f(r)));
               return resolve({ data: null, error: null });
             },
@@ -63,7 +73,7 @@ function fakeClient() {
           const matched = rows.filter((r) => filters.every((f) => f(r)));
           return { data: matched[0] ?? null, error: null };
         },
-        then(resolve: any) {
+        then(resolve: Resolve) {
           let matched = rows.filter((r) => filters.every((f) => f(r)));
           if (inFilter) matched = matched.filter((r) => inFilter!.vals.includes(r[inFilter!.col]));
           return resolve({ data: matched, error: null });
@@ -71,7 +81,7 @@ function fakeClient() {
       };
       return builder;
     },
-    rpc: async (name: string, args: any) => {
+    rpc: async (name: string, args: Record<string, unknown>) => {
       if (name === 'is_workspace_member') {
         const member = (db.workspace_members || []).find((m) => m.workspace_id === args._workspace_id && m.user_id === args._user_id);
         return { data: !!member, error: null };
@@ -99,6 +109,7 @@ vi.mock('../../../server/services/billing/contactsLimit.js', () => ({
 vi.mock('../../../server/middleware/featureGating.js', () => ({
   clearEntitlementCache: () => {},
   checkEntitlementFromDB: async () => ({ allowed: true }),
+  enforceModule: async () => true,
 }));
 vi.mock('../../../server/services/visitors/networkProfile.js', () => ({
   resolveIpVisibilityPolicy: async () => ({ entitled: false }),
@@ -109,7 +120,7 @@ const { contactsRouter } = await import('../../../server/routes/contacts.js');
 
 const app = express();
 app.use((req, _res, next) => {
-  (req as any).serverConfig = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'] };
+  (req as express.Request & { serverConfig?: unknown }).serverConfig = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'] };
   next();
 });
 app.use(cookieParser());
@@ -117,9 +128,9 @@ app.use(express.json());
 app.use('/api/contacts', contactsRouter);
 
 const server = http.createServer(app).listen(0);
-const port = () => (server.address() as any).port;
+const port = () => (server.address() as import('node:net').AddressInfo).port;
 
-function call(method: string, path: string, opts: { token?: string; body?: unknown } = {}): Promise<{ status: number; json: any }> {
+function call(method: string, path: string, opts: { token?: string; body?: unknown } = {}): Promise<{ status: number; json: ApiJson }> {
   return new Promise((resolve, reject) => {
     const bodyStr = opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
     const req = http.request(
@@ -134,7 +145,7 @@ function call(method: string, path: string, opts: { token?: string; body?: unkno
         let d = '';
         res.on('data', (c) => (d += c));
         res.on('end', () => {
-          let json: any = {};
+          let json: ApiJson = {};
           try { json = JSON.parse(d || '{}'); } catch { json = { raw: d }; }
           resolve({ status: res.statusCode || 0, json });
         });
@@ -176,7 +187,7 @@ describe('GET /api/contacts — list', () => {
   it('lists only the caller\'s workspace contacts', async () => {
     const res = await call('GET', `/api/contacts?workspace_id=${WS}`, { token: 'member-token' });
     expect(res.status).toBe(200);
-    const ids = res.json.contacts.map((c: any) => c.id);
+    const ids = res.json.contacts.map((c) => c.id);
     expect(ids.sort()).toEqual([contactA, contactA2].sort());
     expect(ids).not.toContain(contactB);
   });

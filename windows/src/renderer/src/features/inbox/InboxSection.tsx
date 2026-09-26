@@ -27,7 +27,7 @@ import { useT } from '@/hooks/useT'
 import { usePoll } from '@/hooks/usePoll'
 import { INBOX_EVENT } from '@/features/notifications/realtime'
 import { pollInterval } from '@/features/notifications/pollBudget'
-import { inboxChips, inboxFilters } from '@/lib/entitlements'
+import { channelInboxVisible, inboxChips, inboxFilters } from '@/lib/entitlements'
 import { channelTitle, contactName, errorText, listTimestamp } from '@/lib/format'
 import { Avatar } from '@/components/Avatar'
 import { Button, CountBadge, EmptyState, ErrorState, IconButton, MenuList, Pill, Popover, Skeleton, TextField, type MenuItem } from '@/components/ui'
@@ -70,6 +70,11 @@ export function InboxSection() {
   useEffect(() => {
     if (!available.includes(filter)) setFilter(available[0])
   }, [available, filter, setFilter])
+
+  // Nor a channel inbox the plan no longer carries.
+  useEffect(() => {
+    if (channel && !channelInboxVisible(planState, channel)) useInbox.setState({ channel: null })
+  }, [channel, planState])
 
   useEffect(() => {
     if (workspaceId) void loadChannels(workspaceId)
@@ -130,6 +135,8 @@ function InboxList() {
   const [refreshing, setRefreshing] = useState(false)
 
   const filters = inboxFilters(plan)
+  // The installed channel inboxes the plan lets this workspace work in.
+  const channels = store.channels.filter((c) => channelInboxVisible(plan, c))
   const chips = inboxChips(plan)
   const fieldsActive = [store.fields.name, store.fields.email, store.fields.subject].filter((f) => f.trim()).length
 
@@ -156,11 +163,11 @@ function InboxList() {
       hint: countFor(f) ? String(countFor(f)) : undefined,
       onSelect: () => store.setFilter(f),
     })),
-    ...(store.channels.length
+    ...(channels.length
       ? [
           { kind: 'separator' as const, label: '' },
           { kind: 'header' as const, label: t('otherInboxes') },
-          ...store.channels.map((c) => ({ label: channelTitle(c, language), icon: Send, checked: store.channel === c, onSelect: () => store.setChannel(c) })),
+          ...channels.map((c) => ({ label: channelTitle(c, language), icon: Send, checked: store.channel === c, onSelect: () => store.setChannel(c) })),
         ]
       : []),
   ]

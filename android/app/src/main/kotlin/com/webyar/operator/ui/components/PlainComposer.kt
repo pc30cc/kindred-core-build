@@ -44,7 +44,7 @@ fun PlainComposer(
     val canSend = draft.isNotBlank() && !sending
 
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        color = MaterialTheme.colorScheme.surface,
         modifier = modifier.fillMaxWidth(),
     ) {
         Row(
@@ -52,7 +52,7 @@ fun PlainComposer(
             verticalAlignment = Alignment.Bottom,
         ) {
             Surface(
-                color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 shape = RoundedCornerShape(Radius.xl),
                 modifier = Modifier.weight(1f).padding(horizontal = Space.xs),
             ) {

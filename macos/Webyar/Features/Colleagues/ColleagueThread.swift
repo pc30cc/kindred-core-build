@@ -82,7 +82,7 @@ struct TeamThreadView: View {
     }
 
     @ViewBuilder private var dropOverlay: some View {
-        if dropping && app.plan.attachments {
+        if dropping {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(Palette.brand, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
                 .background(Palette.brand.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -92,9 +92,9 @@ struct TeamThreadView: View {
         }
     }
 
-    /// A file dropped on the thread goes into the card, like a picked one (when the plan allows files).
+    /// A file dropped on the thread goes into the card, like a picked one.
     private func drop(_ providers: [NSItemProvider]) -> Bool {
-        guard app.plan.attachments, !model.recorder.isRecording, let p = providers.first else { return false }
+        guard !model.recorder.isRecording, let p = providers.first else { return false }
         let target = model
         _ = p.loadObject(ofClass: URL.self) { url, _ in
             if let url { Task { @MainActor in target.attach(url: url) } }
@@ -368,24 +368,21 @@ struct TeamComposer: View {
 
     private var tools: some View {
         let s = app.strings
-        let plan = app.plan
         let recording = model.recorder.isRecording
+        // Files, emoji and voice notes are always the operator's: the plan's
+        // widget_* keys govern the customer-facing website widget, not this box.
         return HStack(spacing: 2) {
-            if plan.attachments {
-                tool("paperclip", s["attachFile"]) { picking = true }
-                    .disabled(recording)
-            }
-            if plan.emoji {
-                tool("face.smiling", s["emoji"]) { showEmoji.toggle() }
-                    .disabled(recording)
-                    .popover(isPresented: $showEmoji, arrowEdge: .top) {
-                        EmojiGrid { e in
-                            model.draft += e
-                            showEmoji = false
-                            focused = true
-                        }
+            tool("paperclip", s["attachFile"]) { picking = true }
+                .disabled(recording)
+            tool("face.smiling", s["emoji"]) { showEmoji.toggle() }
+                .disabled(recording)
+                .popover(isPresented: $showEmoji, arrowEdge: .top) {
+                    EmojiGrid { e in
+                        model.draft += e
+                        showEmoji = false
+                        focused = true
                     }
-            }
+                }
             Spacer(minLength: 8)
             if !recording {
                 Text(s["composerHint"]).appFont(11).foregroundStyle(Palette.text3).lineLimit(1)
@@ -394,10 +391,8 @@ struct TeamComposer: View {
             if recording {
                 tool("trash", s["voiceDiscard"], tint: Palette.danger) { model.stopRecording(keep: false) }
             }
-            if plan.voiceNotes {
-                tool(recording ? "stop.fill" : "mic", s[recording ? "voiceStop" : "voiceRecord"],
-                     tint: recording ? Palette.danger : nil) { model.toggleRecording() }
-            }
+            tool(recording ? "stop.fill" : "mic", s[recording ? "voiceStop" : "voiceRecord"],
+                 tint: recording ? Palette.danger : nil) { model.toggleRecording() }
             sendButton
         }
         .padding(.horizontal, 8)

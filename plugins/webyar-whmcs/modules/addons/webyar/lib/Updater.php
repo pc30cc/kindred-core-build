@@ -1,14 +1,51 @@
 <?php
 namespace WebYar\Whmcs;
 
-/** Hourly CLI cron updates. HTTPS publisher is the trust root; no remote URLs
- * from manifests, shell commands, customer requests, or database request logs. */
+/**
+ * Hourly CLI cron updates. No remote URLs from manifests, shell commands,
+ * customer requests, or database request logs.
+ *
+ * The trust root is the Web Yar RELEASE KEY, not the download host. Nothing is
+ * installed unless ALL of this holds:
+ *   - /downloads/webyar-whmcs.json carries a detached Ed25519 signature
+ *     (/downloads/webyar-whmcs.json.sig, base64) over its exact bytes that
+ *     verifies against UPDATE_PUBLIC_KEY, built into this addon. The private
+ *     key never leaves the release host, so a compromised app host or CDN
+ *     cannot publish an update;
+ *   - the signed manifest is for this addon, strictly newer and compatible;
+ *   - the downloaded archive matches the SIGNED sha256 and byte length;
+ *   - every archive entry passes install()'s path/type/syntax checks.
+ * Without PHP sodium the addon refuses to update (status "unsupported") and
+ * the operator updates by hand.
+ */
 final class Updater
 {
     const INTERVAL = 3600;
     const MAX_ZIP = 8388608;
     const MAX_EXPANDED = 33554432;
+    const MAX_MANIFEST = 16384;
+    /**
+     * Ed25519 public key release manifests are signed with: the SAME release
+     * key as the OpenCart extension (plugins/webyar-opencart/core/Protocol.php
+     * UPDATE_PUBLIC_KEY), so the release host keeps one signing key.
+     * A staging install can set WEBYAR_UPDATE_PUBLIC_KEY in the server
+     * environment (like WEBYAR_APP_URL), which already means full control.
+     */
+    const UPDATE_PUBLIC_KEY = 'vbNNY6jM7bZvxmvV39oRSZ4XSZ7EMks/eEyyVcrwPKQ=';
+    /** Status codes the admin page shows as-is; anything else reads "failed". */
+    const STATUS_CODES = array('integrity', 'incompatible', 'filesystem', 'archive', 'unsigned', 'signature', 'unsupported');
     public static $downloadOverride = null;
+
+    public static function supported()
+    {
+        return function_exists('sodium_crypto_sign_verify_detached') && class_exists('ZipArchive');
+    }
+
+    public static function publicKey()
+    {
+        $configured = getenv('WEBYAR_UPDATE_PUBLIC_KEY');
+        return $configured !== false && $configured !== '' ? $configured : self::UPDATE_PUBLIC_KEY;
+    }
 
     public static function run()
     {
@@ -31,7 +68,16 @@ final class Updater
             if (!is_array($policy) || !isset($policy['enabled']) || $policy['enabled'] !== true) {
                 self::status($work, 'paused'); return;
             }
-            $manifest = json_decode(self::download(Settings::appUrl() . '/downloads/webyar-whmcs.json', 16384), true);
+            if (!self::supported()) {
+                self::status($work, 'unsupported'); return;
+            }
+            $body = self::download(Settings::appUrl() . '/downloads/webyar-whmcs.json', self::MAX_MANIFEST);
+            try {
+                $signature = self::download(Settings::appUrl() . '/downloads/webyar-whmcs.json.sig', 1024);
+            } catch (\Throwable $e) {
+                throw new \RuntimeException('unsigned');
+            }
+            $manifest = self::verifyManifest($body, $signature, self::publicKey());
             self::validateManifest($manifest, Platform::whmcsVersion());
             if (!version_compare($manifest['version'], Version::ADDON, '>')) {
                 self::status($work, 'current'); return;
@@ -48,13 +94,36 @@ final class Updater
             // an update. A failed check must not mark a successful install failed.
             try { Pairing::test(); } catch (\Throwable $e) { }
         } catch (\Throwable $e) {
-            $code = in_array($e->getMessage(), array('integrity', 'incompatible', 'filesystem', 'archive'), true) ? $e->getMessage() : 'failed';
+            $code = in_array($e->getMessage(), self::STATUS_CODES, true) ? $e->getMessage() : 'failed';
             self::status($work, $code);
+            if (in_array($code, array('unsigned', 'signature', 'integrity'), true) && function_exists('logActivity')) {
+                // Utilities > Logs > Activity Log; the admin page shows the status too.
+                logActivity('Web Yar addon update refused: ' . $code . ' (release signature or checksum did not verify)');
+            }
         } finally {
             self::removeTree($work . '/stage');
             @unlink($work . '/package.zip');
             flock($lock, LOCK_UN); fclose($lock);
         }
+    }
+
+    /**
+     * The manifest, decoded, only when $signatureB64 is a valid Ed25519
+     * signature by the release key over these exact bytes.
+     */
+    public static function verifyManifest($body, $signatureB64, $publicKeyB64)
+    {
+        if (!function_exists('sodium_crypto_sign_verify_detached')) { throw new \RuntimeException('unsupported'); }
+        $signature = base64_decode(trim((string) $signatureB64), true);
+        $publicKey = base64_decode((string) $publicKeyB64, true);
+        if ($signature === false || strlen($signature) !== 64) { throw new \RuntimeException('unsigned'); }
+        if ($publicKey === false || strlen($publicKey) !== 32) { throw new \RuntimeException('signature'); }
+        if (!is_string($body) || !sodium_crypto_sign_verify_detached($signature, $body, $publicKey)) {
+            throw new \RuntimeException('signature');
+        }
+        $data = json_decode($body, true);
+        if (!is_array($data)) { throw new \RuntimeException('integrity'); }
+        return $data;
     }
 
     public static function validateManifest($data, $whmcsVersion)

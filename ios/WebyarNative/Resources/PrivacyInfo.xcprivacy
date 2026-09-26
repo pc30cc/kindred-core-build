@@ -164,15 +164,25 @@
 	</array>
 
 	<!--
-	  Required-reason APIs. One entry, because the app touches exactly one of
-	  the five categories. The Capacitor app declares four; a WKWebView and its
-	  plugins reach for file timestamps, free disk space and boot time on their
-	  own, and this app has none of that.
+	  Required-reason APIs: three of the five categories. Boot time and active
+	  keyboards are never touched.
 
 	  CA92.1 covers defaults that only this app reads and writes. That is all
 	  of them: the chosen language and appearance, the platform origin the app
 	  was last told to use, and the promotion pacing counters. No app group, so
 	  nothing here is readable by another process.
+
+	  C617.1 — file timestamps and sizes, only of files inside this app's own
+	  container: the attachment cache in Library/Caches reads each file's size
+	  and last-use date to stay within its limit (least recently used first),
+	  and Settings → Storage adds up the cache's sizes. Nothing is read outside
+	  the container and nothing read leaves the phone.
+
+	  E174.1 — free disk space, read once when the attachment cache opens, so
+	  a phone that is nearly full keeps fewer files (the cache's limit is a
+	  share of the free space, between a floor and a ceiling). It changes what
+	  the app keeps on disk and nothing else, and the number is never sent
+	  anywhere.
 	-->
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
@@ -182,6 +192,22 @@
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
 				<string>CA92.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>E174.1</string>
 			</array>
 		</dict>
 	</array>

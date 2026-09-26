@@ -38,6 +38,8 @@ export interface OpenAIEmbeddingResolved {
   baseUrl?: string;
   model: string;
   orgId?: string;
+  /** Who supplied baseUrl (see AIConfig.endpointScope); drives runtime SSRF policy. */
+  endpointScope?: 'workspace' | 'platform';
   dimensions: number;
 }
 
@@ -69,6 +71,7 @@ export function buildOpenAIEmbeddingProvider(
             model: cfg.model,
             baseUrl: cfg.baseUrl,
             orgId: cfg.orgId,
+            endpointScope: cfg.endpointScope,
           },
           batch,
         );
@@ -102,7 +105,7 @@ export function buildOpenAIEmbeddingProvider(
             // mid-run) — swallowing it would grant this embedding for free
             // with no audit trail, so it must propagate and fail the caller.
             if (opts.runCtx.mode === 'ENFORCED') throw err;
-            console.warn('[ai-billing] embedding usage not recorded:', (err as any)?.message);
+            console.warn('[ai-billing] embedding usage not recorded:', (err as { message?: unknown } | null | undefined)?.message);
           }
         }
       }

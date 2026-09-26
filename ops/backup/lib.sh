@@ -4,10 +4,21 @@
 set -Eeuo pipefail
 
 # Fail closed: these drafts have not passed an isolated production restore.
-printf "%s\n" "NOT READY: backup tooling is disabled pending infrastructure validation and restore testing." >&2
-exit 78
+# Nothing runs unless the operator explicitly opts in with
+# WEBYAR_BACKUP_ENABLED=1 (see README.md / backup.env.example). Any other
+# value — including unset — keeps the interlock closed (exit 78, EX_CONFIG).
+if [ "${WEBYAR_BACKUP_ENABLED:-0}" != "1" ]; then
+  printf "%s\n" "NOT READY: backup tooling is disabled pending infrastructure validation and restore testing." >&2
+  exit 78
+fi
 
 BACKUP_LOG_PREFIX="${BACKUP_LOG_PREFIX:-webyar-backup}"
+
+# Per-run scratch directory. Fixed /tmp/*.out names were shared by every
+# script and by both backup containers, so a concurrent run could overwrite
+# (and report) another run's output. Removed when the script exits.
+BACKUP_TMP="$(mktemp -d "${TMPDIR:-/tmp}/webyar-backup.XXXXXX")"
+trap 'rm -rf "$BACKUP_TMP"' EXIT
 
 # Logging that can never print a credential: every value that looks like a
 # secret is replaced before the line reaches stdout or the log file.
@@ -45,13 +56,13 @@ report() {
     return 0
   fi
   local code
-  code=$(curl -sS -o /tmp/backup-report.out -w '%{http_code}' \
+  code=$(curl -sS -o "$BACKUP_TMP/report.out" -w '%{http_code}' \
     -X POST "${WEBYAR_API_BASE%/}/api/backup-agent/report" \
     -H 'Content-Type: application/json' \
     -H "x-backup-agent-token: ${BACKUP_AGENT_TOKEN}" \
     --data "$payload" || echo 000)
   if [ "$code" != "200" ]; then
-    log "WARNING: report failed with HTTP $code: $(head -c 300 /tmp/backup-report.out || true)"
+    log "WARNING: report failed with HTTP $code: $(head -c 300 "$BACKUP_TMP/report.out" || true)"
     return 0
   fi
   log "reported to app (HTTP 200)"

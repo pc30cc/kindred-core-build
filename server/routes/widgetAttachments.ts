@@ -38,9 +38,15 @@ import {
 import { uploadFile, downloadFile } from '../services/storage/index.js';
 import { chatAttachmentKey } from '../services/storage/keys.js';
 import { requireLimit } from '../middleware/featureGating.js';
+import { setTrustedGateWorkspaceId } from '../middleware/gateWorkspace.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 
 export const widgetAttachmentsRouter = Router();
+
+/** ServerConfig attached to every request by the app bootstrap middleware. */
+function serverConfigOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
+}
 
 // Mounted BEFORE the parent widgetRouter's own enforceWidgetToken/
 // enforceOrigin (see server/routes/widget.ts), so — like /identity,
@@ -83,7 +89,7 @@ const EXT_BY_MIME: Record<string, string> = {
 
 function safeFileName(name: string, mime: string): string {
   const stripped = String(name || '')
-    .replace(/[^\w.\-]+/g, '_')
+    .replace(/[^\w.-]+/g, '_')
     .replace(/_+/g, '_')
     .replace(/^[._]+|[._]+$/g, '')
     .slice(0, 80);
@@ -140,7 +146,7 @@ const initSchema = z.object({
 });
 
 widgetAttachmentsRouter.post('/init', widgetRateLimit('upload'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = initSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid parameters', details: parsed.error.flatten().fieldErrors });
@@ -204,7 +210,7 @@ widgetAttachmentsRouter.post('/init', widgetRateLimit('upload'), async (req: Req
       .select('value')
       .eq('key', 'default_storage_provider')
       .maybeSingle();
-    providerName = (globalCfg?.value as any)?.provider || 'local';
+    providerName = (globalCfg?.value as { provider?: string } | null | undefined)?.provider || 'local';
   }
 
   const storagePath = buildStoragePath(workspaceId, data.file_name, data.mime_type);
@@ -251,7 +257,7 @@ const uploadSchema = z.object({
 });
 
 widgetAttachmentsRouter.post('/:id/upload', widgetRateLimit('upload'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -285,11 +291,11 @@ widgetAttachmentsRouter.post('/:id/upload', widgetRateLimit('upload'), async (re
   // ── storage_gb cap enforcement (visitor-facing) ──
   // Mirrors the operator upload routes; see docs/STORAGE_LIMIT_POLICY.md.
   // workspace_id is the server-resolved one from the validated widget token
-  // (X-Widget-Token + cookie). We inject it into req.body so the shared
-  // extractWorkspaceId() helper sees the trusted value — the body schema is
-  // {data: base64} and intentionally never carried workspace_id from the
-  // visitor. Forward-correct only; no route-local storage math.
-  (req.body as any).workspace_id = workspaceId;
+  // (X-Widget-Token + cookie). It is pinned on the request so the shared
+  // gate evaluates it and ignores any workspaceId/workspace_id the visitor
+  // put in the body (the schema is {data: base64} and never carries one).
+  // Forward-correct only; no route-local storage math.
+  setTrustedGateWorkspaceId(req, workspaceId);
   const limitMw = requireLimit('storage_gb', usageFnForLimit('storage_gb'));
   let proceeded = false;
   await limitMw(req, res, () => { proceeded = true; });
@@ -323,9 +329,10 @@ widgetAttachmentsRouter.post('/:id/upload', widgetRateLimit('upload'), async (re
       .eq('id', row.id);
 
     return res.json({ attachment_id: row.id, status: 'uploaded' });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errMsg = (err as { message?: string } | null | undefined)?.message;
     await sb.from('conversation_attachments')
-      .update({ status: 'failed', error_message: err.message?.slice(0, 200) || 'Upload exception' })
+      .update({ status: 'failed', error_message: errMsg?.slice(0, 200) || 'Upload exception' })
       .eq('id', row.id);
     return res.status(500).json({ error: 'Upload failed' });
   }
@@ -338,7 +345,7 @@ widgetAttachmentsRouter.post('/:id/upload', widgetRateLimit('upload'), async (re
 //   Provider URLs are NEVER returned to the client.
 // ═══════════════════════════════════════════════════════════════════
 widgetAttachmentsRouter.get('/:id', widgetRateLimit('default'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -410,17 +417,24 @@ function classifyAttachmentKind(mimeType: string): 'image' | 'audio' | 'file' {
   return 'file';
 }
 
-export async function enrichMessagesWithAttachments(
+/** Reads `metadata.attachment_id` off an untyped message metadata blob. */
+function metadataAttachmentId(metadata: unknown): unknown {
+  return metadata && typeof metadata === 'object'
+    ? (metadata as Record<string, unknown>).attachment_id
+    : undefined;
+}
+
+export async function enrichMessagesWithAttachments<T extends { id?: string; metadata?: unknown }>(
   config: ServerConfig,
   workspaceId: string,
-  messages: Array<{ id?: string; metadata?: any; [k: string]: any }>,
-): Promise<Array<any>> {
+  messages: T[],
+): Promise<Array<T | (T & { attachment: PublicAttachmentMeta })>> {
   if (!messages || messages.length === 0) return messages || [];
 
   const idsFromMeta = new Set<string>();
   const messageIds = new Set<string>();
   for (const m of messages) {
-    const aid = m?.metadata?.attachment_id;
+    const aid = metadataAttachmentId(m?.metadata);
     if (typeof aid === 'string' && aid) idsFromMeta.add(aid);
     if (typeof m.id === 'string' && m.id) messageIds.add(m.id);
   }
@@ -472,7 +486,7 @@ export async function enrichMessagesWithAttachments(
   }
 
   return messages.map((m) => {
-    const aid = m?.metadata?.attachment_id;
+    const aid = metadataAttachmentId(m?.metadata);
     let att: PublicAttachmentMeta | undefined;
     if (typeof aid === 'string' && byAttId[aid]) att = byAttId[aid];
     else if (typeof m.id === 'string' && byMsgId[m.id]) att = byMsgId[m.id];
@@ -492,7 +506,7 @@ export async function enrichMessagesWithAttachments(
  * one rule instead of maintaining independent copies that can drift.
  */
 export function isVisitorVisibleMessageMeta(metadata: unknown): boolean {
-  const meta = (metadata && typeof metadata === 'object') ? metadata as Record<string, any> : null;
+  const meta = (metadata && typeof metadata === 'object') ? metadata as Record<string, unknown> : null;
   return !(meta && meta.internal === true);
 }
 
@@ -549,11 +563,23 @@ export function filterVisitorVisibleMessages<T extends { metadata?: unknown }>(m
  */
 export type ReplyToPreview = { id: string; text: string; sender_type: string };
 
+/** Any widget message shape carrying an optional reply-to FK. */
+type ReplyEnrichableMessage = { reply_to_message_id?: string | null; [k: string]: unknown };
+
+/** Parent row as selected by enrichMessagesWithReplyTo. */
+interface ReplyParentRow {
+  id: string;
+  conversation_id: string;
+  body: string | null;
+  sender_type: string;
+  metadata: unknown;
+}
+
 export async function enrichMessagesWithReplyTo(
   config: ServerConfig,
   conversationId: string,
-  messages: Array<{ reply_to_message_id?: string | null; [k: string]: any }>,
-): Promise<Array<any>> {
+  messages: ReplyEnrichableMessage[],
+): Promise<Array<ReplyEnrichableMessage & { reply_to?: ReplyToPreview | null }>> {
   if (!messages || messages.length === 0) return messages || [];
   const replyIds = Array.from(new Set(
     messages
@@ -569,13 +595,13 @@ export async function enrichMessagesWithReplyTo(
       .from('conversation_messages')
       .select('id, conversation_id, body, sender_type, metadata')
       .in('id', replyIds);
-    for (const p of (data || []) as any[]) {
+    for (const p of (data || []) as ReplyParentRow[]) {
       if (p.conversation_id !== conversationId) continue; // defense in depth — see doc comment above
       if (!isVisitorVisibleMessageMeta(p.metadata)) continue; // internal notice — never preview its body
       parentMap[p.id] = { id: p.id, text: p.body ?? '', sender_type: p.sender_type };
     }
-  } catch (e: any) {
-    console.warn('[widget-reply-enrich] parent lookup failed:', e?.message || e);
+  } catch (e: unknown) {
+    console.warn('[widget-reply-enrich] parent lookup failed:', (e as { message?: string } | null | undefined)?.message || e);
   }
 
   return messages.map((m) => {

@@ -3,7 +3,9 @@ package com.webyar.operator.ui.components
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import com.webyar.operator.core.model.MessageAttachment
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
@@ -36,7 +38,15 @@ class AttachmentViewTest {
 
     @get:Rule val compose = createComposeRule()
 
-    @Before fun emptyTheCache() = runBlocking { AttachmentCache.clear() }
+    @Before fun emptyTheCache() {
+        runBlocking { AttachmentCache.clear() }
+        // Files an earlier test wrote would make a voice note look already
+        // fetched.
+        java.io.File(
+            androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>().cacheDir,
+            "media",
+        ).deleteRecursively()
+    }
 
     private fun attachment(
         id: String = "att-1",
@@ -94,9 +104,24 @@ class AttachmentViewTest {
         compose.onNodeWithTag(A11y.attachmentFile(voice.id)).assertIsDisplayed()
     }
 
+    /**
+     * A voice note is fetched when it is PLAYED, never when it is drawn: a
+     * thread of forty recordings costs nothing until one is tapped.
+     */
+    @Test
+    fun `a voice note is not fetched until it is played`() {
+        var calls = 0
+        show(attachment(id = "att-lazy", kind = "audio")) { calls++; byteArrayOf(1) }
+        compose.waitForIdle()
+
+        assertEquals(0, calls)
+        compose.onNodeWithTag(A11y.attachmentVoicePlay("att-lazy")).assertIsDisplayed()
+    }
+
     @Test
     fun `a transport with no bytes yet says it is receiving`() {
         show(attachment(kind = "audio"), load = { neverReturns() })
+        compose.onNodeWithTag(A11y.attachmentVoicePlay("att-1")).performClick()
 
         compose.onNodeWithText(Str.receivingFile(Language.FA)).assertIsDisplayed()
     }
@@ -107,15 +132,33 @@ class AttachmentViewTest {
             // Not audio in any format; nothing can open it.
             byteArrayOf(0, 1, 2, 3)
         }
+        compose.onNodeWithTag(A11y.attachmentVoicePlay("att-1")).performClick()
 
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText(Str.playbackUnsupported(Language.FA)).fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithText(Str.playbackUnsupported(Language.FA)).assertIsDisplayed()
     }
 
     @Test
     fun `a transport whose bytes never arrive says the file failed`() {
         show(attachment(kind = "audio")) { error("no route to host") }
+        compose.onNodeWithTag(A11y.attachmentVoicePlay("att-1")).performClick()
 
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText(Str.attachmentFailed(Language.FA)).fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithText(Str.attachmentFailed(Language.FA)).assertIsDisplayed()
+    }
+
+    @Test
+    fun `a photo is decoded for its bubble, not at camera size`() {
+        // 4000px on the long edge, drawn in a box at most 260dp tall.
+        assertEquals(4, sampleSize(longest = 4000, edge = 780, atLeast = true))
+        // The full-screen viewer never decodes past its ceiling.
+        assertEquals(2, sampleSize(longest = 4000, edge = 2048, atLeast = false))
+        // A small photo is never scaled up or thrown away.
+        assertEquals(1, sampleSize(longest = 300, edge = 780, atLeast = true))
     }
 
     /**

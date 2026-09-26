@@ -375,7 +375,8 @@ public sealed partial class ContactsPage : Page
         if (call.Direction is { Length: > 0 } dir)
             top.Children.Add(Chip(s[dir == "outbound" ? "callOutbound" : "callInbound"], "Text2Brush", "ElevatedBrush"));
         top.Children.Add(missed ? Chip(s["ccStateMissed"], "DangerBrush", "DangerSoftBrush") : Chip(s["callStateEnded"], "SuccessBrush", "SuccessSoftBrush"));
-        if (call.RecordingAvailable == true) top.Children.Add(Chip(s["callRecorded"], "AiBrush", "AiSoftBrush", ""));
+        // Recordings are a plan feature (the web's Recordings tab): only mentioned where the plan keeps them.
+        if (call.RecordingAvailable == true && Host.Plan.CallRecordings) top.Children.Add(Chip(s["callRecorded"], "AiBrush", "AiSoftBrush", ""));
         body.Children.Add(top);
         var details = new[]
         {

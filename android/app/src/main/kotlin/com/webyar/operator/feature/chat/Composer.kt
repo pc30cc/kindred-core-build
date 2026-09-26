@@ -63,6 +63,7 @@ import com.webyar.operator.ui.design.Radius
 import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
 import com.webyar.operator.ui.design.WebyarTheme
+import com.webyar.operator.ui.components.rememberLoop
 
 /**
  * The one place a message is written.
@@ -106,7 +107,7 @@ fun Composer(
     var emojiOpen by remember { mutableStateOf(false) }
 
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        color = MaterialTheme.colorScheme.surface,
         modifier = modifier.fillMaxWidth(),
     ) {
         if (recordingSeconds != null) {
@@ -150,12 +151,14 @@ fun Composer(
             // which is what keeps the row's height set by the pill rather than
             // by whichever control happens to be tallest today.
             Surface(
-                color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 shape = RoundedCornerShape(Radius.xl),
                 modifier = Modifier.weight(1f).padding(horizontal = Space.xs),
             ) {
                 Row(
-                    Modifier.padding(horizontal = Space.md, vertical = Space.sm),
+                    Modifier
+                        .heightIn(min = Size.minTouchTarget)
+                        .padding(horizontal = Space.lg, vertical = Space.sm),
                     verticalAlignment = Alignment.Bottom,
                 ) {
                     Box(Modifier.weight(1f).padding(vertical = Space.xs)) {
@@ -288,7 +291,11 @@ private fun AttachButton(
             tag = A11y.COMPOSER_ATTACH,
             onClick = { open = true },
         )
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            shape = RoundedCornerShape(Radius.lg),
+        ) {
             DropdownMenuItem(
                 text = { Text(Str.sendPhoto(language)) },
                 onClick = { open = false; onPhoto() },
@@ -343,7 +350,11 @@ private fun VoicePicker(
                 modifier = Modifier.size(20.dp),
             )
         }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            shape = RoundedCornerShape(Radius.lg),
+        ) {
             SayNowVoice.entries.forEach { option ->
                 DropdownMenuItem(
                     text = { Text(label(option)) },
@@ -392,12 +403,11 @@ private fun RecordingBar(
     onDiscard: () -> Unit,
     onFinish: () -> Unit,
 ) {
-    val pulse = rememberInfiniteTransition(label = "recording")
-    val dot by pulse.animateFloat(
-        initialValue = 1f,
-        targetValue = 0.3f,
-        animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
+    val dot by rememberLoop(
         label = "recording-dot",
+        from = 1f,
+        to = 0.3f,
+        spec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
     )
 
     Row(

@@ -1,5 +1,8 @@
 package com.webyar.operator.feature.team
 
+import com.webyar.operator.core.media.AttachmentDiskCache
+import com.webyar.operator.core.media.AttachmentSource
+import com.webyar.operator.core.media.LoaderAttachmentSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -24,12 +27,13 @@ import com.webyar.operator.ui.components.StickToNewest
 import com.webyar.operator.ui.components.DayHeader
 import com.webyar.operator.ui.components.ErrorState
 import com.webyar.operator.ui.components.MessageBubble
-import com.webyar.operator.ui.components.SkeletonList
 import com.webyar.operator.ui.components.bidiContent
 import androidx.compose.foundation.layout.fillMaxWidth
 import com.webyar.operator.ui.design.Space
 import java.time.Instant
 import java.time.ZoneId
+import androidx.compose.ui.Alignment
+import com.webyar.operator.ui.components.LoadingIndicator
 
 /**
  * A thread with one colleague.
@@ -48,16 +52,25 @@ fun TeamThreadScreen(
     contentPadding: PaddingValues = PaddingValues(),
     loadAttachment: (suspend (String) -> ByteArray?)? = null,
     onRetry: () -> Unit = {},
+    /** The scoped, on-demand source; wins over [loadAttachment]. */
+    attachments: AttachmentSource? = null,
     composer: @Composable () -> Unit = {},
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val source = attachments ?: remember(loadAttachment, context) {
+        loadAttachment?.let {
+            LoaderAttachmentSource(it, java.io.File(context.cacheDir, "${AttachmentDiskCache.DIRECTORY}/transient"))
+        }
+    }
     Column(modifier.fillMaxSize()) {
         Box(Modifier.weight(1f)) {
             when (state) {
-                is TeamThreadState.Loading -> SkeletonList(
-                    Modifier.fillMaxSize(),
-                    rows = 6,
-                    lines = 1,
-                )
+                // The expressive indicator, as the visitor chat has: a
+                // thread's shape is not known until it arrives, so there are
+                // no rows to sketch in ahead of it.
+                is TeamThreadState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
+                    LoadingIndicator()
+                }
 
                 is TeamThreadState.Failed -> ErrorState(
                     title = Str.offlineTitle(language),
@@ -71,7 +84,7 @@ fun TeamThreadScreen(
                     me = me,
                     language = language,
                     contentPadding = contentPadding,
-                    loadAttachment = loadAttachment,
+                    source = source,
                 )
             }
         }
@@ -87,7 +100,7 @@ private fun Transcript(
     me: String?,
     language: Language,
     contentPadding: PaddingValues,
-    loadAttachment: (suspend (String) -> ByteArray?)?,
+    source: AttachmentSource?,
 ) {
     val listState = rememberLazyListState()
     val rows = remember(messages, me) { layout(messages, me) }
@@ -97,7 +110,7 @@ private fun Transcript(
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize().testTag(A11y.TEAM_TRANSCRIPT),
-        contentPadding = PaddingValues(Space.lg),
+        contentPadding = PaddingValues(horizontal = Space.md, vertical = Space.lg),
     ) {
         items(rows.size, key = { rows[it].message.id }) { index ->
             val row = rows[index]
@@ -114,7 +127,7 @@ private fun Transcript(
                 // their own name in the title bar says nothing twice.
                 senderName = null,
             ) {
-                row.message.attachment?.let { AttachmentView(it, language, loadAttachment) }
+                row.message.attachment?.let { AttachmentView(attachment = it, language = language, source = source) }
                 row.message.body?.takeIf { it.isNotBlank() }?.let {
                     Text(
                         it,

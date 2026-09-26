@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { api, ApiError, setUnauthorizedHandler } from '@/api/client'
 import type { AccountProfile, Entitlements, User, Workspace, CallInvitation } from '@/api/types'
 import { translate, type Language } from '@/i18n'
-import { featureEnabled, moduleEnabled, moduleInPlan } from '@/lib/entitlements'
+import { featureEnabled, moduleInPlan } from '@/lib/entitlements'
 
 export type Appearance = 'system' | 'light' | 'dark'
 export type Section = 'inbox' | 'colleagues' | 'email' | 'contacts' | 'settings'
@@ -64,6 +64,13 @@ const LANGUAGE_KEY = 'app.language'
 const APPEARANCE_KEY = 'app.appearance'
 const SESSION_CACHE_KEY = 'session.user'
 const DETAILS_KEY = 'app.detailsOpen'
+
+/** How soon the plan is asked for again: after a failure, and otherwise. */
+const PLAN_RETRY_MS = 20_000
+const PLAN_REFRESH_MS = 3 * 60_000
+let planTimer: ReturnType<typeof setTimeout> | undefined
+/** The workspace the loaded plan belongs to. */
+let planWorkspaceId: string | null = null
 
 function stored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
@@ -223,18 +230,29 @@ export const useApp = create<AppStore>((set, get) => ({
     void get().loadPlan()
   },
 
+  // Nothing gated shows while the plan cannot be read (the web's rule, src/lib/planAccess.ts),
+  // so it is asked for again after 20 s; one in hand is refreshed every 3 minutes, because Super
+  // Admin can change it at any time. A refresh that fails keeps this workspace's snapshot.
   async loadPlan() {
     const id = get().workspace?.id
+    clearTimeout(planTimer)
     if (!id) {
       set({ plan: { kind: 'failed' } })
       return
     }
     try {
       const value = await api.entitlements(id)
-      if (get().workspace?.id === id) set({ plan: { kind: 'loaded', value } })
+      if (get().workspace?.id !== id) return
+      planWorkspaceId = id
+      set({ plan: { kind: 'loaded', value } })
     } catch {
-      if (get().workspace?.id === id) set({ plan: { kind: 'failed' } })
+      if (get().workspace?.id !== id) return
+      if (get().plan.kind !== 'loaded' || planWorkspaceId !== id) set({ plan: { kind: 'failed' } })
     }
+    clearTimeout(planTimer)
+    planTimer = setTimeout(() => {
+      if (get().workspace?.id === id) void get().loadPlan()
+    }, get().plan.kind === 'loaded' ? PLAN_REFRESH_MS : PLAN_RETRY_MS)
   },
 
   async loadProfile() {
@@ -283,6 +301,8 @@ export const useApp = create<AppStore>((set, get) => ({
 
 function reset(set: (partial: Partial<AppStore>) => void) {
   save(SESSION_CACHE_KEY, null)
+  clearTimeout(planTimer)
+  planWorkspaceId = null
   set({
     session: { kind: 'signedOut' },
     workspaces: [],
@@ -307,7 +327,7 @@ export const planValue = (s: AppStore): Entitlements | null => (s.plan.kind === 
 export const planResolved = (s: AppStore): boolean => s.plan.kind !== 'loading'
 export const contactsVisible = (s: AppStore): boolean => moduleInPlan(planValue(s), 'contacts')
 export const colleaguesVisible = (s: AppStore): boolean => featureEnabled(planValue(s), 'inbox_team_chat')
-export const emailVisible = (s: AppStore): boolean => moduleEnabled(planValue(s), 'email_inbox')
+export const emailVisible = (s: AppStore): boolean => moduleInPlan(planValue(s), 'email_inbox')
 export const currentUser = (s: AppStore): User | null => (s.session.kind === 'signedIn' ? s.session.user : null)
 
 export function displayNameOf(user: User | null, profile?: AccountProfile | null): string {

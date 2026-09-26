@@ -97,6 +97,13 @@ export interface SaveFileRequest {
   data: Uint8Array
 }
 
+/**
+ * What `openFileWith` did. `unsafe` means the main process refused to hand the
+ * file to Windows because its type can run code (or could not be marked as
+ * downloaded from the internet); the renderer offers "Save as" instead.
+ */
+export type OpenFileWithResult = 'opened' | 'unsafe' | 'failed'
+
 export interface OpenFileResult {
   name: string
   mimeType: string
@@ -132,7 +139,7 @@ export interface WebyarBridge {
     setBadge(count: number, overlayDataUrl: string | null): Promise<void>
     setTitleBarTheme(theme: TitleBarTheme): Promise<void>
     saveFile(req: SaveFileRequest): Promise<boolean>
-    openFileWith(req: SaveFileRequest): Promise<boolean>
+    openFileWith(req: SaveFileRequest): Promise<OpenFileWithResult>
     pickFiles(): Promise<OpenFileResult[]>
     isFocused(): Promise<boolean>
     focus(): Promise<void>

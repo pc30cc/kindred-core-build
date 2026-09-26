@@ -27,7 +27,8 @@ import {
   assertContactsBatchFits,
 } from '../services/billing/contactsLimit.js';
 import { clearEntitlementCache } from '../middleware/featureGating.js';
-import { checkEntitlementFromDB } from '../middleware/featureGating.js';
+import { checkEntitlementFromDB, enforceModule } from '../middleware/featureGating.js';
+import { isUnreadableEntitlementReason } from '../services/billing/entitlementParse.js';
 import {
   resolveIpVisibilityPolicy,
   resolveContactNetworkProfile,
@@ -36,6 +37,45 @@ import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.j
 import { hydrateContactAvatars, hydrateUserAvatars } from '../services/storage/urlResolver.js';
 
 export const contactsRouter = Router();
+
+/** The tag/note features a batch of new contacts needs. */
+function contactExtrasFeatures(rows: Array<{ tags?: string[] | null; notes?: string | null }>): string[] {
+  const features: string[] = [];
+  if (rows.some((r) => (r.tags?.length ?? 0) > 0)) features.push('contact_tags');
+  if (rows.some((r) => !!r.notes?.trim())) features.push('contact_notes');
+  return features;
+}
+
+/**
+ * The contacts directory is the `contacts` plan module, and its finer actions
+ * are plan features — import, edit, tags, notes, bulk — the same keys the app
+ * shows or hides its controls by. Writes the 403/503 and returns false when
+ * the caller must stop. Deleting a single contact is deliberately not
+ * plan-gated: an erasure request must always be possible.
+ */
+async function contactsPlanAllows(
+  req: Parameters<typeof enforceModule>[0],
+  res: Parameters<typeof enforceModule>[1],
+  config: ServerConfig,
+  workspaceId: string,
+  features: string[] = [],
+): Promise<boolean> {
+  if (!(await enforceModule(req, res, workspaceId, 'contacts'))) return false;
+  for (const feature of features) {
+    const gate = await checkEntitlementFromDB(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, feature, {
+      selfHostBillingUnlimited: config.selfHostBillingUnlimited === true,
+    });
+    if (isUnreadableEntitlementReason(gate.reason)) {
+      res.status(503).json({ error: 'entitlement_status_unavailable', feature, retryable: true });
+      return false;
+    }
+    if (!gate.allowed) {
+      res.status(403).json({ error: 'feature_not_entitled', feature, reason: gate.reason ?? 'not_entitled' });
+      return false;
+    }
+  }
+  return true;
+}
 
 /**
  * A contact row as this router handles it: the columns it reads by name,
@@ -126,24 +166,15 @@ contactsRouter.post('/', async (req, res) => {
     const auth = await authorizeWorkspaceMember(req, res, config, parsed.data.workspace_id);
     if (!auth) return;
 
-    // Plan gate: manual contact creation must be entitled.
-    const createGate = await checkEntitlementFromDB(
-      config.supabaseUrl,
-      config.supabaseServiceRoleKey,
-      parsed.data.workspace_id,
+    // Plan gate: manual contact creation must be entitled, and so must any
+    // tags or notes it carries.
+    if (!(await contactsPlanAllows(req, res, config, parsed.data.workspace_id, [
       'contact_create',
-    );
-    if (!createGate.allowed) {
-      return res.status(403).json({
-        error: 'feature_not_entitled',
-        feature: 'contact_create',
-        reason: createGate.reason ?? 'not_entitled',
-      });
-    }
+      ...contactExtrasFeatures([parsed.data]),
+    ]))) return;
 
-    // Canonical TS limit check. The middleware reads workspace_id off
-    // req.body — already validated above.
-    const ok = await enforceMaxContactsCreate(req, res);
+    // Canonical TS limit check, evaluated on the workspace authorized above.
+    const ok = await enforceMaxContactsCreate(req, res, parsed.data.workspace_id);
     if (!ok) return;
 
     const sb = getServiceClient(config);
@@ -183,6 +214,10 @@ contactsRouter.post('/bulk', async (req, res) => {
     }
     const auth = await authorizeWorkspaceMember(req, res, config, parsed.data.workspace_id);
     if (!auth) return;
+    if (!(await contactsPlanAllows(req, res, config, parsed.data.workspace_id, [
+      'contact_import',
+      ...contactExtrasFeatures(parsed.data.contacts),
+    ]))) return;
 
     // All-or-nothing pre-check.
     const fits = await assertContactsBatchFits(
@@ -234,6 +269,7 @@ contactsRouter.get('/', async (req, res) => {
     if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
     const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
     if (!auth) return;
+    if (!(await contactsPlanAllows(req, res, config, workspaceId))) return;
 
     const sb = getServiceClient(config);
     const { data, error } = await sb
@@ -279,6 +315,7 @@ contactsRouter.get('/:id', async (req, res) => {
     const sb = getServiceClient(config);
     const loaded = await loadAndAuthorizeContact(req, res, config, sb, req.params.id);
     if (!loaded) return;
+    if (!(await contactsPlanAllows(req, res, config, loaded.contact.workspace_id))) return;
     await hydrateContactAvatars(config, loaded.contact.workspace_id, [loaded.contact]);
     return res.json({ contact: loaded.contact });
   } catch (err) {
@@ -293,6 +330,7 @@ contactsRouter.get('/:id/conversations', async (req, res) => {
     const sb = getServiceClient(config);
     const loaded = await loadAndAuthorizeContact(req, res, config, sb, req.params.id);
     if (!loaded) return;
+    if (!(await contactsPlanAllows(req, res, config, loaded.contact.workspace_id))) return;
 
     const { data: convData, error: convErr } = await sb
       .from('conversations')
@@ -373,6 +411,11 @@ contactsRouter.patch('/:id', async (req, res) => {
     const sb = getServiceClient(config);
     const loaded = await loadAndAuthorizeContact(req, res, config, sb, req.params.id);
     if (!loaded) return;
+    // Editing is a plan feature; so are the tags and notes it may carry.
+    const features = ['contact_edit'];
+    if ('tags' in parsed.data) features.push('contact_tags');
+    if ('notes' in parsed.data) features.push('contact_notes');
+    if (!(await contactsPlanAllows(req, res, config, loaded.contact.workspace_id, features))) return;
 
     const { data, error } = await sb
       .from('contacts')
@@ -439,6 +482,7 @@ contactsRouter.post('/bulk-delete', async (req, res) => {
     const [workspaceId] = workspaceIds;
     const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
     if (!auth) return;
+    if (!(await contactsPlanAllows(req, res, config, workspaceId, ['bulk_contact_actions']))) return;
 
     const { error: delErr } = await sb.from('contacts').delete().in('id', parsed.data.ids);
     if (delErr) return res.status(500).json({ error: delErr.message });

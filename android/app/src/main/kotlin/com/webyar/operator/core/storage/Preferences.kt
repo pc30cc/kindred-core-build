@@ -14,6 +14,7 @@ import com.webyar.operator.i18n.Language
 class Preferences(private val store: SecureStore) {
     private val languageKey = stringPreferencesKey("prefs.language")
     private val appearanceKey = stringPreferencesKey("prefs.appearance")
+    private val dynamicColorKey = stringPreferencesKey("prefs.dynamicColor")
 
     /**
      * Null when the operator has never chosen.
@@ -35,6 +36,19 @@ class Preferences(private val store: SecureStore) {
 
     suspend fun setAppearance(appearance: Appearance) {
         store.write(appearanceKey, appearance.key)
+    }
+
+    /**
+     * Wallpaper colours (Material You) instead of the brand's.
+     *
+     * Off unless the operator turns it on: this is a white-label product and
+     * the default palette is the customer's brand. Only offered where the
+     * platform has it (Android 12 and later).
+     */
+    suspend fun dynamicColor(): Boolean = store.read(dynamicColorKey) == "on"
+
+    suspend fun setDynamicColor(on: Boolean) {
+        store.write(dynamicColorKey, if (on) "on" else "off")
     }
 }
 

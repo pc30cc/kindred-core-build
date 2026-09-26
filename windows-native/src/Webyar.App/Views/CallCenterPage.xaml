@@ -48,7 +48,7 @@
                     <StackPanel VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock x:Name="HeaderText" Style="{StaticResource PaneTitle}" />
-                            <Border x:Name="ServiceChip" Style="{StaticResource ChipBorder}" VerticalAlignment="Center">
+                            <Border x:Name="ServiceChip" Style="{StaticResource ChipBorder}" VerticalAlignment="Center" Visibility="Collapsed">
                                 <StackPanel Orientation="Horizontal" Spacing="5">
                                     <Ellipse x:Name="ServiceDot" Width="7" Height="7" VerticalAlignment="Center" />
                                     <TextBlock x:Name="ServiceText" Style="{StaticResource ChipText}" />
@@ -63,6 +63,13 @@
                     <ToggleButton x:Name="HistoryTab" Style="{StaticResource TabToggle}" Click="OnTab" />
                 </StackPanel>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <Button x:Name="RefreshButton" Style="{StaticResource IconButton}" Click="OnRefresh">
+                        <Button.KeyboardAccelerators>
+                            <KeyboardAccelerator Modifiers="Control" Key="R" />
+                            <KeyboardAccelerator Key="F5" />
+                        </Button.KeyboardAccelerators>
+                        <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                    </Button>
                     <TextBlock x:Name="AvailabilityLabel" VerticalAlignment="Center" Foreground="{ThemeResource Text2Brush}" />
                     <ComboBox x:Name="AvailabilityBox" MinWidth="140" CornerRadius="8" SelectionChanged="OnAvailability" />
                 </StackPanel>
@@ -110,7 +117,7 @@
                         </StackPanel>
                     </StackPanel>
                     <Grid Grid.Row="2" BorderBrush="{ThemeResource LineBrush}" BorderThickness="0,1,0,0">
-                        <ListView x:Name="QueueList" Padding="6" SelectionMode="Single" SelectionChanged="OnSelectQueue">
+                        <ListView x:Name="QueueList" Padding="6" SelectionMode="Single" SelectionChanged="OnSelectQueue" ContextRequested="OnQueueContext">
                             <ListView.ItemContainerStyle>
                                 <Style TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
                                     <Setter Property="CornerRadius" Value="10" />
@@ -127,7 +134,7 @@
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
                                         <Grid>
-                                            <controls:Avatar Size="42" DisplayName="{x:Bind Name, Mode=OneWay}" Email="{x:Bind Email, Mode=OneWay}" />
+                                            <controls:Avatar Size="42" DisplayName="{x:Bind Name, Mode=OneWay}" Email="{x:Bind Email, Mode=OneWay}" Os="{x:Bind Os, Mode=OneWay}" CountryCode="{x:Bind CountryCode, Mode=OneWay}" />
                                             <Border Width="20" Height="20" CornerRadius="6" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-4,-4" Background="{ThemeResource BrandBrush}" BorderBrush="{ThemeResource SurfaceBrush}" BorderThickness="2">
                                                 <FontIcon Glyph="{x:Bind ChannelGlyph, Mode=OneWay}" FontSize="9" Foreground="White" />
                                             </Border>
@@ -173,7 +180,10 @@
                                         </Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
                                             <TextBlock FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock FontSize="12" Foreground="{x:Bind StateBrush}" Text="{x:Bind StateText}" />
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock FontSize="12" Foreground="{x:Bind StateBrush}" Text="{x:Bind StateText}" />
+                                                <TextBlock FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{ThemeResource DangerBrush}" Text="{x:Bind SpamText}" Visibility="{x:Bind SpamVisibility}" />
+                                            </StackPanel>
                                         </StackPanel>
                                         <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" Spacing="1">
                                             <TextBlock FontSize="12" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind WhenText}" HorizontalAlignment="Right" />
@@ -228,10 +238,19 @@
                                                     <TextBlock x:Name="ChannelText" Style="{StaticResource ChipText}" />
                                                 </StackPanel>
                                             </Border>
+                                            <Border x:Name="SpamChip" Style="{StaticResource ChipBorder}" Background="{ThemeResource DangerSoftBrush}" Visibility="Collapsed">
+                                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                                    <FontIcon Glyph="&#xE74D;" FontSize="11" Foreground="{ThemeResource DangerBrush}" />
+                                                    <TextBlock x:Name="SpamChipText" Style="{StaticResource ChipText}" Foreground="{ThemeResource DangerBrush}" />
+                                                </StackPanel>
+                                            </Border>
                                         </StackPanel>
                                         <TextBlock x:Name="WaitLine" FontSize="12.5" Foreground="{ThemeResource Text2Brush}" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                        <Button x:Name="SpamButton" Width="44" Height="44" Padding="0" CornerRadius="22" BorderThickness="0" Background="{ThemeResource ElevatedBrush}" Click="OnSpam">
+                                            <FontIcon x:Name="SpamGlyph" Glyph="&#xE74D;" FontSize="15" Foreground="{ThemeResource DangerBrush}" />
+                                        </Button>
                                         <Button x:Name="RejectButton" MinHeight="44" Padding="16,0" CornerRadius="10" Background="{ThemeResource DangerSoftBrush}" Foreground="{ThemeResource DangerBrush}" BorderThickness="0" Click="OnReject">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
                                                 <FontIcon Glyph="&#xE778;" FontSize="15" />
@@ -304,7 +323,7 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBox x:Name="NoteBox" Style="{StaticResource RoundTextBox}" AcceptsReturn="True" TextWrapping="Wrap" MaxLength="2000" MinHeight="60" />
+                                            <TextBox x:Name="NoteBox" Style="{StaticResource RoundTextBox}" AcceptsReturn="True" TextWrapping="Wrap" MaxLength="2000" MinHeight="60" PreviewKeyDown="OnNoteKeyDown" />
                                             <Button x:Name="AddNoteButton" Grid.Column="1" Style="{StaticResource PillAccentButton}" VerticalAlignment="Bottom" Click="OnAddNote" />
                                         </Grid>
                                     </StackPanel>

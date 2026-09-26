@@ -148,15 +148,37 @@ targets:
         # cannot be signed at all.
         GENERATE_INFOPLIST_FILE: YES
 
+  # Where the local-first layer gets tested: the saved copy on the phone,
+  # the thread merge, the shared list reader, the attachment caches, the
+  # realtime protocol, and the inbox and chat view models against a scripted
+  # server — every ordering of reads, realtime rows, pushes and sends that
+  # could show a message twice, lose one, or show one account's data to
+  # another. None of it needs a screen, so it runs in seconds and needs no
+  # sample backend; nothing in `Tests/Core` touches UIKit at all.
+  WebyarNativeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: WebyarNative
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.native.tests
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   WebyarNative:
     build:
       targets:
         WebyarNative: all
+        WebyarNativeTests: [test]
         WebyarNativeUITests: [test]
     run:
       config: Debug
     test:
       config: Debug
       targets:
+        - WebyarNativeTests
         - WebyarNativeUITests

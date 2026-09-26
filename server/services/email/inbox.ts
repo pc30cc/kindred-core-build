@@ -378,8 +378,17 @@ export interface ComposeReplyInput {
   attachments?: StagedAttachment[];
 }
 
-function subjectWithReplyPrefix(subject: string): string {
-  return /^re:/i.test(subject.trim()) ? subject : `Re: ${subject}`;
+/**
+ * A subject is a single header line: CR/LF/NUL (from operator input or an
+ * inbound thread subject) would let it inject extra mail headers.
+ */
+export function sanitizeEmailSubject(subject: string): string {
+  return String(subject ?? '').replace(/[\r\n\0]+/g, ' ');
+}
+
+export function subjectWithReplyPrefix(subject: string): string {
+  const clean = sanitizeEmailSubject(subject);
+  return /^re:/i.test(clean.trim()) ? clean : `Re: ${clean}`;
 }
 
 /**
@@ -411,7 +420,7 @@ export async function composeReply(
   let externalThreadId: string | null = null;
   let inReplyTo: string | null = null;
   let references: string[] = [];
-  let subject = input.subject;
+  let subject = sanitizeEmailSubject(input.subject);
 
   if (threadId) {
     const { data: thread } = await sb

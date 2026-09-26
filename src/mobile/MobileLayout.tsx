@@ -19,6 +19,7 @@ import { MessageCircle, Users, Radar, Settings as SettingsIcon } from 'lucide-re
 import { useTranslation } from '@/i18n';
 import { useActiveWorkspace, useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useConversations } from '@/hooks/useConversations';
+import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
 import { WorkspaceNotFound } from '@/features/workspace/WorkspaceNotFound';
 import { initNativePush, setPushNavigationHandler, syncBadge } from '@/lib/push/nativePush';
 import { isNativePlatform } from '@/lib/native';
@@ -36,6 +37,9 @@ export function MobileLayout() {
   const { data: openConversations } = useConversations(workspace?.id, 'open', 'main');
   const navigate = useNavigate();
   const location = useLocation();
+  // Contacts and Visitors are plan sections: the tabs follow the same rule as
+  // the web sidebar (and their routes refuse without the plan).
+  const sections = useWorkspaceSections();
 
   // Native push: permission + token registration once a workspace is known,
   // and notification taps routed to the EXACT conversation inside the mobile
@@ -66,8 +70,8 @@ export function MobileLayout() {
 
   const tabs: TabItem[] = [
     { to: `/${slug}/inbox`, icon: MessageCircle, label: t('nav.inbox'), badge: unread },
-    { to: `/${slug}/contacts`, icon: Users, label: t('nav.contacts'), badge: 0 },
-    { to: `/${slug}/visitors`, icon: Radar, label: t('nav.visitors'), badge: 0 },
+    ...(sections.visible('contacts') ? [{ to: `/${slug}/contacts`, icon: Users, label: t('nav.contacts'), badge: 0 }] : []),
+    ...(sections.visible('visitors') ? [{ to: `/${slug}/visitors`, icon: Radar, label: t('nav.visitors'), badge: 0 }] : []),
     { to: `/${slug}/settings`, icon: SettingsIcon, label: t('nav.settings'), badge: 0 },
   ];
 

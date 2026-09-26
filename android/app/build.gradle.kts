@@ -5,6 +5,11 @@ plugins {
     // Consumes the profile the `:baselineprofile` module generates and packs
     // it into the APK's assets, where ProfileInstaller finds it.
     alias(libs.plugins.androidx.baselineprofile)
+    // Room's annotation processor, and the plugin that exports its schema.
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.androidx.room)
+    // Screenshot tests: `recordRoborazziDebug` writes the PNGs.
+    alias(libs.plugins.roborazzi)
 }
 
 /**
@@ -59,6 +64,18 @@ android {
         versionName = releaseString("webyar.versionName", "WEBYAR_VERSION_NAME") ?: "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Firebase's client configuration — for push — from the build, never
+        // from a committed google-services.json. A build without these is a
+        // build without push, which is what every fork, every CI run and
+        // every debug build on a laptop wants; a release pipeline that sets
+        // them gets FCM. See `core/push/PushConfig.kt`.
+        fun firebase(property: String, variable: String) =
+            "\"" + (releaseString(property, variable) ?: "") + "\""
+        buildConfigField("String", "FIREBASE_APP_ID", firebase("webyar.firebase.appId", "WEBYAR_FIREBASE_APP_ID"))
+        buildConfigField("String", "FIREBASE_API_KEY", firebase("webyar.firebase.apiKey", "WEBYAR_FIREBASE_API_KEY"))
+        buildConfigField("String", "FIREBASE_PROJECT_ID", firebase("webyar.firebase.projectId", "WEBYAR_FIREBASE_PROJECT_ID"))
+        buildConfigField("String", "FIREBASE_SENDER_ID", firebase("webyar.firebase.senderId", "WEBYAR_FIREBASE_SENDER_ID"))
 
         ndk {
             // The four ABIs that exist.
@@ -219,6 +236,16 @@ baselineProfile {
     mergeIntoMain = true
 }
 
+/**
+ * The cache's schema, one JSON file per version, committed.
+ *
+ * What a migration is written against — the schema that actually shipped,
+ * rather than somebody's memory of it — and what the migration tests read.
+ */
+room {
+    schemaDirectory("$projectDir/schemas")
+}
+
 dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 
@@ -235,8 +262,30 @@ dependencies {
 
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
-    implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.navigation3.runtime)
+    implementation(libs.androidx.navigation3.ui)
+    implementation(libs.androidx.lifecycle.viewmodel.navigation3)
+    implementation(libs.androidx.compose.material3.adaptive)
+    implementation(libs.androidx.compose.material3.adaptive.layout)
+    implementation(libs.androidx.compose.material3.adaptive.navigation3)
+    implementation(libs.androidx.compose.material3.adaptive.navigation.suite)
+    implementation(libs.androidx.graphics.shapes)
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.lifecycle.process)
+
+    // The local cache: the inbox and transcripts on screen before any
+    // request, and offline.
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
+
+    // Deferred work only: a push registration that needs a network, the
+    // daily cache trim. Never polling.
+    implementation(libs.androidx.work.runtime.ktx)
+
+    // FCM, and nothing else of Firebase — no analytics, no crash reporting.
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
 
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.okhttp)
@@ -271,6 +320,10 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.ext.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
+    testImplementation(libs.androidx.room.testing)
+    testImplementation(libs.androidx.work.testing)
     testImplementation(platform(libs.androidx.compose.bom))
     testImplementation(libs.androidx.compose.ui.test.junit4)
 

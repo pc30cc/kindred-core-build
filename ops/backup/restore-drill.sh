@@ -32,25 +32,26 @@ CONF
 touch "$RESTORE_DIR/recovery.signal"
 chmod 700 "$RESTORE_DIR"
 
-log "starting isolated PostgreSQL on port $RESTORE_PORT"
+log "starting isolated PostgreSQL (no network)"
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
-docker run -d --name "$CONTAINER" --network none-or-isolated \
+# `--network none`: the restored copy has no network at all, so nothing in it
+# can reach SMTP, payment callbacks, channel providers or production. With no
+# network a published port would be unreachable too, so every check below
+# runs inside the container through `docker exec` instead of over TCP.
+# (RESTORE_PORT is kept for configuration compatibility but no longer used.)
+docker run -d --name "$CONTAINER" --network none \
   -v "$RESTORE_DIR:/var/lib/postgresql/data" \
-  -p "127.0.0.1:${RESTORE_PORT}:5432" \
   -e POSTGRES_HOST_AUTH_METHOD=trust \
   postgres:17 >/dev/null || die "failed to start recovery container"
 
 for _ in $(seq 1 120); do
-  pg_isready -h 127.0.0.1 -p "$RESTORE_PORT" >/dev/null 2>&1 && break
+  docker exec "$CONTAINER" pg_isready -U postgres >/dev/null 2>&1 && break
   sleep 2
 done
-pg_isready -h 127.0.0.1 -p "$RESTORE_PORT" >/dev/null 2>&1 || die "recovery instance never became ready"
-
-export PGHOST=127.0.0.1 PGPORT="$RESTORE_PORT" PGUSER=postgres PGDATABASE=postgres
-unset PGPASSWORD
+docker exec "$CONTAINER" pg_isready -U postgres >/dev/null 2>&1 || die "recovery instance never became ready"
 
 log "running post-restore validation"
-FINDINGS=$(psql -Atq -f ./validate-restore.sql)
+FINDINGS=$(docker exec -i "$CONTAINER" psql -U postgres -d postgres -Atq < ./validate-restore.sql)
 log "$FINDINGS"
 
 FAILS=$(echo "$FINDINGS" | grep -c '^FAIL' || true)

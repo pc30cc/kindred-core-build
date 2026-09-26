@@ -68,11 +68,8 @@ final class UpdaterTest extends TestCase {
 		);
 	}
 
-	public function test_http_is_allowed_only_for_a_localhost_dev_install(): void {
-		$this->assertSame(
-			'http://localhost/downloads/webyar-woocommerce.zip',
-			$this->resolve( 'http://localhost/downloads/webyar-woocommerce.zip', 'http://localhost' )
-		);
+	public function test_http_is_refused_even_for_localhost(): void {
+		$this->assertNull( $this->resolve( 'http://localhost/downloads/webyar-woocommerce.zip', 'http://localhost' ) );
 	}
 
 	public function test_a_hostless_or_empty_value_is_refused(): void {
@@ -101,17 +98,127 @@ final class UpdaterTest extends TestCase {
 			'homepage'     => 'https://webyar.ai',
 			'description'  => 'd',
 			'changelog'    => 'c',
+			'sha256'       => hash( 'sha256', self::PACKAGE ),
+			'size'         => strlen( self::PACKAGE ),
 		), $over ) );
+	}
+
+	private const PACKAGE  = 'PK-signed-package-bytes';
+	private const MANIFEST = 'https://app.example.com/downloads/webyar-woocommerce.json';
+
+	/**
+	 * Serves $body as the manifest and $signature (default: a valid release
+	 * signature over $body; null: 404) as its .sig.
+	 */
+	private function serve( string $body, $signature = true ): void {
+		$GLOBALS['__webyar_test_options']['webyar_wc_settings'] = array( 'app_url' => 'https://app.example.com' );
+		$GLOBALS['__webyar_test_transients'] = array();
+		$GLOBALS['__webyar_test_fetched']    = array();
+		$GLOBALS['__webyar_test_http']       = null;
+		$GLOBALS['__webyar_test_http_by_url'] = array(
+			self::MANIFEST          => array( 'response' => array( 'code' => 200 ), 'body' => $body ),
+			self::MANIFEST . '.sig' => null === $signature
+				? array( 'response' => array( 'code' => 404 ), 'body' => '' )
+				: array( 'response' => array( 'code' => 200 ), 'body' => true === $signature ? webyar_test_sign( $body ) : $signature ),
+		);
 	}
 
 	/** @param array<string,mixed> $over @return object */
 	private function check( array $over = array(), $http = null ) {
-		$GLOBALS['__webyar_test_options']['webyar_wc_settings'] = array( 'app_url' => 'https://app.example.com' );
-		$GLOBALS['__webyar_test_transients'] = array();
-		$GLOBALS['__webyar_test_fetched']    = array();
-		$GLOBALS['__webyar_test_http']       = $http ?? array( 'response' => array( 'code' => 200 ), 'body' => $this->manifest_body( $over ) );
+		$this->serve( $this->manifest_body( $over ) );
+		if ( null !== $http ) {
+			$GLOBALS['__webyar_test_http_by_url'][ self::MANIFEST ] = $http;
+		}
 		$transient = (object) array( 'response' => array(), 'no_update' => array() );
 		return ( new Updater() )->inject_update( $transient );
+	}
+
+	private function offered( $signature ): bool {
+		$this->serve( $this->manifest_body(), $signature );
+		$out = ( new Updater() )->inject_update( (object) array( 'response' => array(), 'no_update' => array() ) );
+		return isset( $out->response[ $this->key() ] );
+	}
+
+	public function test_an_unsigned_manifest_offers_nothing(): void {
+		$this->assertFalse( $this->offered( null ) );
+		$this->assertSame( 'unsigned', Updater::status()['code'] );
+	}
+
+	public function test_a_manifest_signed_by_another_key_offers_nothing(): void {
+		$other = sodium_crypto_sign_secretkey( sodium_crypto_sign_keypair() );
+		$this->assertFalse( $this->offered( webyar_test_sign( $this->manifest_body(), $other ) ) );
+		$this->assertSame( 'signature_invalid', Updater::status()['code'] );
+	}
+
+	public function test_a_tampered_manifest_offers_nothing(): void {
+		// The host swaps in its own checksum; the signature covers every byte.
+		$this->serve( $this->manifest_body( array( 'sha256' => str_repeat( 'b', 64 ) ) ), webyar_test_sign( $this->manifest_body() ) );
+		$out = ( new Updater() )->inject_update( (object) array( 'response' => array(), 'no_update' => array() ) );
+		$this->assertArrayNotHasKey( $this->key(), $out->response );
+		$this->assertSame( 'signature_invalid', Updater::status()['code'] );
+	}
+
+	public function test_a_signed_manifest_without_a_checksum_offers_nothing(): void {
+		$body = (string) wp_json_encode( array( 'slug' => 'webyar-woocommerce', 'version' => '1.2.0', 'package' => '/downloads/webyar-woocommerce.zip' ) );
+		$this->serve( $body );
+		$out = ( new Updater() )->inject_update( (object) array( 'response' => array(), 'no_update' => array() ) );
+		$this->assertArrayNotHasKey( $this->key(), $out->response );
+		$this->assertSame( 'manifest_invalid', Updater::status()['code'] );
+	}
+
+	public function test_a_plain_http_web_yar_url_is_never_fetched(): void {
+		$GLOBALS['__webyar_test_options']['webyar_wc_settings'] = array( 'app_url' => 'http://app.example.com' );
+		$GLOBALS['__webyar_test_transients'] = array();
+		$GLOBALS['__webyar_test_fetched']    = array();
+		( new Updater() )->inject_update( (object) array( 'response' => array(), 'no_update' => array() ) );
+		$this->assertSame( array(), $GLOBALS['__webyar_test_fetched'] );
+		$this->assertSame( 'insecure_url', Updater::status()['code'] );
+	}
+
+	// ── What WordPress is allowed to install ────────────────────────────
+
+	private function download( string $package_bytes, array $over = array(), string $url = 'https://app.example.com/downloads/webyar-woocommerce.zip' ) {
+		$this->serve( $this->manifest_body( $over ) );
+		$GLOBALS['__webyar_test_package']    = $package_bytes;
+		$GLOBALS['__webyar_test_downloaded'] = array();
+		return ( new Updater() )->verify_download( false, $url, null, array( 'plugin' => $this->key() ) );
+	}
+
+	public function test_a_package_matching_the_signed_checksum_is_handed_to_wordpress(): void {
+		$file = $this->download( self::PACKAGE );
+		$this->assertIsString( $file );
+		$this->assertSame( self::PACKAGE, file_get_contents( $file ) );
+		unlink( $file );
+	}
+
+	public function test_a_swapped_package_is_refused_and_deleted(): void {
+		$result = $this->download( 'PK-attacker-bytes-of-same-len' );
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'checksum_mismatch', Updater::status()['code'] );
+	}
+
+	public function test_a_package_url_other_than_the_signed_one_is_refused_before_download(): void {
+		$result = $this->download( self::PACKAGE, array(), 'https://app.example.com/downloads/other.zip' );
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( array(), $GLOBALS['__webyar_test_downloaded'] );
+	}
+
+	public function test_an_unsigned_release_is_never_downloaded(): void {
+		$this->serve( $this->manifest_body(), null );
+		$GLOBALS['__webyar_test_downloaded'] = array();
+		$result = ( new Updater() )->verify_download( false, 'https://app.example.com/downloads/webyar-woocommerce.zip', null, array( 'plugin' => $this->key() ) );
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( array(), $GLOBALS['__webyar_test_downloaded'] );
+	}
+
+	public function test_other_plugins_downloads_are_left_alone(): void {
+		$GLOBALS['__webyar_test_fetched'] = array();
+		$this->assertFalse( ( new Updater() )->verify_download( false, 'https://downloads.wordpress.org/plugin/x.zip', null, array( 'plugin' => 'x/x.php' ) ) );
+		$this->assertSame( array(), $GLOBALS['__webyar_test_fetched'] );
+	}
+
+	public function test_the_built_in_release_key_is_an_ed25519_public_key(): void {
+		$this->assertSame( 32, strlen( (string) base64_decode( Updater::UPDATE_PUBLIC_KEY, true ) ) );
 	}
 
 	private function key(): string {
@@ -178,15 +285,12 @@ final class UpdaterTest extends TestCase {
 
 	public function test_repeated_checks_ask_the_server_once(): void {
 		// wp-admin fires this filter on many page loads.
-		$GLOBALS['__webyar_test_options']['webyar_wc_settings'] = array( 'app_url' => 'https://app.example.com' );
-		$GLOBALS['__webyar_test_transients'] = array();
-		$GLOBALS['__webyar_test_fetched']    = array();
-		$GLOBALS['__webyar_test_http']       = array( 'response' => array( 'code' => 200 ), 'body' => $this->manifest_body() );
+		$this->serve( $this->manifest_body() );
 		$updater = new Updater();
 		for ( $i = 0; $i < 3; $i++ ) {
 			$updater->inject_update( (object) array( 'response' => array(), 'no_update' => array() ) );
 		}
-		$this->assertCount( 1, $GLOBALS['__webyar_test_fetched'] );
-		$this->assertSame( 'https://app.example.com/downloads/webyar-woocommerce.json', $GLOBALS['__webyar_test_fetched'][0] );
+		// One manifest + one signature fetch, however often WordPress asks.
+		$this->assertSame( array( self::MANIFEST, self::MANIFEST . '.sig' ), $GLOBALS['__webyar_test_fetched'] );
 	}
 }

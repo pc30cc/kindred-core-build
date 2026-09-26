@@ -131,7 +131,7 @@ struct ThreadView: View {
                     .padding(.top, 6)
             }
             .overlay {
-                if dropping && app.plan.attachments && !chat.aiMode {
+                if dropping && !chat.aiMode {
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .strokeBorder(Palette.brand, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
                         .background(Palette.brand.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -141,7 +141,7 @@ struct ThreadView: View {
                 }
             }
             .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in
-                guard !chat.aiMode, app.plan.attachments, let p = providers.first else { return false }
+                guard !chat.aiMode, let p = providers.first else { return false }
                 _ = p.loadObject(ofClass: URL.self) { url, _ in
                     if let url { Task { @MainActor in chat.attach(url: url) } }
                 }

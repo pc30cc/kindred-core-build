@@ -3,8 +3,8 @@
  * Full plan info, usage data, module/channel status, upgrade/downgrade.
  */
 
-import { Router } from 'express';
-import { createClient } from '@supabase/supabase-js';
+import { Router, type Request } from 'express';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { ServerConfig } from '../config.js';
 import {
   getWorkspacePlanInfoDetailed,
@@ -12,9 +12,12 @@ import {
   checkEntitlementFromDB,
   checkModuleAccess,
   checkChannelAccess,
+  SELF_HOST_UNLIMITED,
 } from '../middleware/featureGating.js';
+import { isRelationMissing } from '../services/billing/entitlementParse.js';
 import {
   CAPABILITY_REGISTRY,
+  type CapabilityType,
   listCapabilities,
   validatePlanPayload,
   diagnoseAgainstPlans,
@@ -27,13 +30,25 @@ import {
   handlePlanDefinitionChanged,
 } from '../services/billing/entitlementChange.js';
 import { isV2Active } from '../services/billing/rollout.js';
+import {
+  resolveEffectiveEntitlements,
+  publicPlan,
+  publicSubscription,
+  unlimitedEntitlements,
+} from '../services/billing/effectiveEntitlements.js';
+import { isUsageSupported, resolveUsage } from '../services/billing/usageResolvers.js';
 import { adminGrantPlanV2 } from '../services/billing/adminGrant.js';
+import type { PlanDefinitionLike } from '../services/billing/entitlementFanout.js';
 
 
 export const plansRouter = Router();
 
-function getConfig(req: any) {
-  const c = req.serverConfig;
+function serverConfigOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig: ServerConfig }).serverConfig;
+}
+
+function getConfig(req: Request) {
+  const c = serverConfigOf(req);
   return { url: c.supabaseUrl, key: c.supabaseServiceRoleKey };
 }
 
@@ -51,11 +66,11 @@ function getConfig(req: any) {
  * the flag is read off `req.serverConfig` the same way getConfig() does.
  */
 async function insertPlanChangeLog(
-  req: any,
-  supabase: any,
+  req: Request,
+  supabase: SupabaseClient,
   row: Record<string, unknown>,
 ): Promise<void> {
-  const config = req.serverConfig as ServerConfig | undefined;
+  const config = (req as Request & { serverConfig?: ServerConfig }).serverConfig;
   if (config?.complianceAuditLoggingEnabled === false) return;
   await supabase.from('plan_change_log').insert(row);
 }
@@ -98,7 +113,7 @@ plansRouter.get('/', async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 plansRouter.get('/capabilities', (req, res) => {
   const { type, group } = req.query as { type?: string; group?: string };
-  const filter: { type?: any; group?: string } = {};
+  const filter: { type?: CapabilityType; group?: string } = {};
   if (type === 'feature' || type === 'module' || type === 'channel' || type === 'limit') filter.type = type;
   if (typeof group === 'string' && group) filter.group = group;
   res.json({
@@ -123,10 +138,11 @@ plansRouter.get('/check', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
-// EFFECTIVE WORKSPACE ENTITLEMENTS (registry-aware aggregation)
-// Aggregates plan + overrides + usage into a single payload that
-// the app/admin UI can render without re-implementing the rules.
-// Backend stays the authority — this is a read-only convenience.
+// EFFECTIVE WORKSPACE ENTITLEMENTS
+// The one snapshot every client renders its sections from. It resolves each
+// capability exactly as server-side enforcement does (see
+// services/billing/effectiveEntitlements.ts), so what a workspace is shown is
+// what it may use.
 // ─────────────────────────────────────────────────────────────
 plansRouter.get('/workspace/:workspaceId/effective', async (req, res) => {
   const { url, key } = getConfig(req);
@@ -134,75 +150,65 @@ plansRouter.get('/workspace/:workspaceId/effective', async (req, res) => {
   if (!(await authorizeWorkspaceAccess(req, res, workspaceId))) return;
   const supabase = createClient(url, key);
   try {
+    // A self-host install without the billing subsystem enforces nothing
+    // (featureGating's documented unlimited mode), so it is shown everything.
+    if (serverConfigOf(req).selfHostBillingUnlimited === true) {
+      const probe = await checkEntitlementFromDB(url, key, workspaceId, 'chat', { selfHostBillingUnlimited: true });
+      if (probe.reason === SELF_HOST_UNLIMITED) return res.json({ workspaceId, ...unlimitedEntitlements() });
+    }
+
     const resolved = await getWorkspacePlanInfoDetailed(url, key, workspaceId);
     if (!resolved.ok) return res.status(503).json(resolved);
     const info = resolved.value;
 
-    // Pull overrides + current-period usage in parallel.
     const currentPeriod = new Date().toISOString().slice(0, 7);
-    const [{ data: moduleOverrides }, { data: channelOverrides }, { data: limitOverrides }, { data: usage }] = await Promise.all([
-      supabase.from('workspace_module_overrides').select('*').eq('workspace_id', workspaceId),
-      supabase.from('workspace_channel_overrides').select('*').eq('workspace_id', workspaceId),
-      supabase.from('workspace_limit_overrides').select('*').eq('workspace_id', workspaceId),
+    const [modulesRead, channelsRead, usageRead] = await Promise.all([
+      supabase.from('workspace_module_overrides').select('module_key, enabled, admin_notes').eq('workspace_id', workspaceId),
+      supabase.from('workspace_channel_overrides').select('channel_key, enabled, admin_notes').eq('workspace_id', workspaceId),
       supabase.from('workspace_usage_counters').select('*').eq('workspace_id', workspaceId).eq('period', currentPeriod).maybeSingle(),
     ]);
-
-    const moduleOverrideMap = new Map<string, { enabled: boolean; admin_notes?: string | null }>(
-      (moduleOverrides || []).map((o: any) => [o.module_key, { enabled: o.enabled, admin_notes: o.admin_notes }]),
-    );
-    const channelOverrideMap = new Map<string, { enabled: boolean; admin_notes?: string | null }>(
-      (channelOverrides || []).map((o: any) => [o.channel_key, { enabled: o.enabled, admin_notes: o.admin_notes }]),
-    );
-    const limitOverrideMap = new Map<string, { value: number; admin_notes?: string | null }>(
-      (limitOverrides || []).map((o: any) => [o.limit_key, { value: o.limit_value, admin_notes: o.admin_notes }]),
-    );
-
-    const planEntitlements = info.entitlements || {};
-    const planLimits = info.limits || {};
-
-    type State = { value: boolean | number | null; source: 'override' | 'plan' | 'default'; note?: string | null };
-    const features: Record<string, State> = {};
-    const modules: Record<string, State> = {};
-    const channels: Record<string, State> = {};
-    const limits: Record<string, State & { unit?: string }> = {};
-
-    for (const cap of CAPABILITY_REGISTRY) {
-      if (cap.type === 'feature') {
-        if (cap.key in planEntitlements) features[cap.key] = { value: !!planEntitlements[cap.key], source: 'plan' };
-        else features[cap.key] = { value: !!cap.defaultValue, source: 'default' };
-      } else if (cap.type === 'module') {
-        const ov = moduleOverrideMap.get(cap.key);
-        if (ov) modules[cap.key] = { value: !!ov.enabled, source: 'override', note: ov.admin_notes ?? null };
-        else if (cap.key in planEntitlements) modules[cap.key] = { value: !!planEntitlements[cap.key], source: 'plan' };
-        else modules[cap.key] = { value: !!cap.defaultValue, source: 'default' };
-      } else if (cap.type === 'channel') {
-        const ov = channelOverrideMap.get(cap.key);
-        if (ov) channels[cap.key] = { value: !!ov.enabled, source: 'override', note: ov.admin_notes ?? null };
-        else if (cap.key in planEntitlements) channels[cap.key] = { value: !!planEntitlements[cap.key], source: 'plan' };
-        else channels[cap.key] = { value: !!cap.defaultValue, source: 'default' };
-      } else if (cap.type === 'limit') {
-        const ov = limitOverrideMap.get(cap.key);
-        if (ov) limits[cap.key] = { value: ov.value, source: 'override', unit: cap.unit, note: ov.admin_notes ?? null };
-        else if (cap.key in planLimits) limits[cap.key] = { value: planLimits[cap.key] as number, source: 'plan', unit: cap.unit };
-        else limits[cap.key] = { value: cap.defaultValue as number | null, source: 'default', unit: cap.unit };
-      }
+    // Enforcement honours these overrides; a snapshot without them would show
+    // a section the server refuses (or hide one it allows). A table that does
+    // not exist (self-host) holds no overrides.
+    if (
+      (modulesRead.error && !isRelationMissing(modulesRead.error, 'workspace_module_overrides')) ||
+      (channelsRead.error && !isRelationMissing(channelsRead.error, 'workspace_channel_overrides'))
+    ) {
+      return res.status(503).json({ ok: false, errorCode: 'plan_status_unavailable', retryable: true });
     }
 
     res.json({
       workspaceId,
-      plan: info.plan,
-      subscription: info.subscription,
-      features,
-      modules,
-      channels,
-      limits,
-      usage: usage || null,
-      // Raw plan JSON for debugging / forward-compat consumers.
-      raw: { entitlements: planEntitlements, limits: planLimits },
+      plan: publicPlan(info.plan),
+      subscription: publicSubscription(info.subscription),
+      ...resolveEffectiveEntitlements(info, modulesRead.error ? [] : modulesRead.data, channelsRead.error ? [] : channelsRead.data),
+      usage: usageRead.data || null,
+      // The plan's own JSON, for forward-compatible consumers.
+      raw: { entitlements: info.entitlements, limits: info.planLimits },
     });
   } catch {
     res.status(500).json({ error: 'Failed to resolve entitlements' });
   }
+});
+
+// GET /api/plans/workspace/:workspaceId/limit-usage?keys=a,b — current usage
+// per limit key, read by the same resolvers requireLimit enforces with, so a
+// client can tell "at the cap" exactly as the server will.
+plansRouter.get('/workspace/:workspaceId/limit-usage', async (req, res) => {
+  const { workspaceId } = req.params;
+  if (!(await authorizeWorkspaceAccess(req, res, workspaceId))) return;
+  const requested = String(req.query.keys || '')
+    .split(',')
+    .map((k) => k.trim())
+    .filter((k) => k && isUsageSupported(k));
+  const keys = [...new Set(requested)].slice(0, 20);
+  const config = serverConfigOf(req);
+  const usage: Record<string, { value: number; supported: boolean; period: string }> = {};
+  await Promise.all(keys.map(async (limitKey) => {
+    const r = await resolveUsage(config, workspaceId, limitKey);
+    usage[limitKey] = { value: r.value, supported: r.supported, period: r.period };
+  }));
+  res.json({ workspaceId, usage });
 });
 
 // ═══════════════════════════════════════════════════════════
@@ -227,7 +233,13 @@ plansRouter.get('/workspace/:workspaceId', async (req, res) => {
       .eq('period', currentPeriod)
       .maybeSingle();
 
-    res.json({ ...info, usage: usage || null });
+    res.json({
+      plan: publicPlan(info.plan),
+      subscription: publicSubscription(info.subscription),
+      entitlements: info.entitlements,
+      limits: info.limits,
+      usage: usage || null,
+    });
   } catch {
     res.status(500).json({ error: 'Failed to load workspace plan' });
   }
@@ -244,8 +256,9 @@ plansRouter.get('/workspace/:workspaceId/modules', async (req, res) => {
     'custom_branding', 'api_access', 'voice_video', 'help_center',
   ];
   const results: Record<string, { allowed: boolean; source?: string }> = {};
+  const selfHostBillingUnlimited = serverConfigOf(req).selfHostBillingUnlimited === true;
   await Promise.all(modules.map(async (m) => {
-    const r = await checkModuleAccess(url, key, workspaceId, m);
+    const r = await checkModuleAccess(url, key, workspaceId, m, { selfHostBillingUnlimited });
     results[m] = { allowed: r.allowed, source: r.reason };
   }));
   res.json({ modules: results });
@@ -258,8 +271,9 @@ plansRouter.get('/workspace/:workspaceId/channels', async (req, res) => {
   if (!(await authorizeWorkspaceAccess(req, res, workspaceId))) return;
   const channels = ['chat_widget', 'email', 'whatsapp', 'sms', 'instagram', 'telegram', 'voice', 'video'];
   const results: Record<string, { allowed: boolean; source?: string }> = {};
+  const selfHostBillingUnlimited = serverConfigOf(req).selfHostBillingUnlimited === true;
   await Promise.all(channels.map(async (c) => {
-    const r = await checkChannelAccess(url, key, workspaceId, c);
+    const r = await checkChannelAccess(url, key, workspaceId, c, { selfHostBillingUnlimited });
     results[c] = { allowed: r.allowed, source: r.reason };
   }));
   res.json({ channels: results });
@@ -353,9 +367,9 @@ plansRouter.put('/admin/:planId', async (req, res) => {
   // workspace on that plan. Queue a DURABLE fan-out job. A queueing failure
   // must NOT roll back the billing change, but it must be reported (sanitized).
   const refresh = await handlePlanDefinitionChanged(
-    (req as any).serverConfig,
+    serverConfigOf(req),
     req.params.planId,
-    { previous: previousPlan as any, next: data as any },
+    { previous: previousPlan as PlanDefinitionLike | null, next: data as PlanDefinitionLike | null },
   );
   res.json({
     plan: data,
@@ -380,11 +394,11 @@ plansRouter.delete('/admin/:planId', async (req, res) => {
   // access, so it clears entitlement caches but must never queue an index
   // fan-out: there is nothing new to index for anyone.
   const refresh = await handlePlanDefinitionChanged(
-    (req as any).serverConfig,
+    serverConfigOf(req),
     req.params.planId,
     {
-      previous: (previousPlan as any) ?? { is_active: true },
-      next: { ...((previousPlan as any) ?? {}), is_active: false },
+      previous: (previousPlan as PlanDefinitionLike | null) ?? { is_active: true },
+      next: { ...((previousPlan as PlanDefinitionLike | null) ?? {}), is_active: false },
     },
   );
   res.json({
@@ -413,20 +427,20 @@ plansRouter.post('/admin/assign', async (req, res) => {
     .eq('workspace_id', workspaceId)
     .maybeSingle();
 
-  let data: any = null;
+  let data: unknown = null;
 
   // Under Billing V2 the subscription row is a projection of the active
   // service period; writing it directly is rejected by the database. Grant a
   // comped period through the canonical activation path instead.
-  if (await isV2Active((req as any).serverConfig, workspaceId)) {
+  if (await isV2Active(serverConfigOf(req), workspaceId)) {
     try {
-      data = await adminGrantPlanV2((req as any).serverConfig, {
+      data = await adminGrantPlanV2(serverConfigOf(req), {
         workspaceId,
         planId,
         expiresAt: expiresAt || null,
       });
-    } catch (e: any) {
-      return res.status(500).json({ error: String(e?.message || 'Request failed') });
+    } catch (e) {
+      return res.status(500).json({ error: e instanceof Error && e.message ? e.message : 'Request failed' });
     }
   } else {
     const { data: legacy, error } = await supabase.from('workspace_subscriptions').upsert({
@@ -452,7 +466,7 @@ plansRouter.post('/admin/assign', async (req, res) => {
 
   // Central entitlement-change funnel: clears the cache AND enqueues the
   // deterministic KB catch-up (a plan change may newly grant `ai_assistant`).
-  await handleWorkspaceEntitlementChanged((req as any).serverConfig, {
+  await handleWorkspaceEntitlementChanged(serverConfigOf(req), {
     workspaceId,
     source: 'admin_assign',
   });
@@ -485,7 +499,7 @@ plansRouter.post('/admin/revoke', async (req, res) => {
 
   const { error } = await supabase.from('workspace_subscriptions').delete().eq('workspace_id', workspaceId);
   if (error) return res.status(500).json({ error: 'Request failed' });
-  await handleWorkspaceEntitlementChanged((req as any).serverConfig, {
+  await handleWorkspaceEntitlementChanged(serverConfigOf(req), {
     workspaceId,
     source: 'admin_revoke',
   });
@@ -501,17 +515,19 @@ plansRouter.get('/admin/subscriptions', async (req, res) => {
     .order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: 'Request failed' });
 
-  const planIds = [...new Set((data || []).map((sub: any) => sub.plan_id).filter(Boolean))];
+  type SubscriptionListRow = { plan_id?: string | null } & Record<string, unknown>;
+  const rows = (data || []) as SubscriptionListRow[];
+  const planIds = [...new Set(rows.map((sub) => sub.plan_id).filter((id): id is string => !!id))];
   const { data: plans, error: plansError } = planIds.length
     ? await supabase.from('billing_plans').select('id, name, slug').in('id', planIds)
     : { data: [], error: null };
   if (plansError) return res.status(500).json({ error: 'Request failed' });
 
-  const plansById = new Map((plans || []).map((plan: any) => [plan.id, plan]));
+  const plansById = new Map(((plans || []) as Array<{ id: string; name: string; slug: string }>).map((plan) => [plan.id, plan]));
   res.json({
-    subscriptions: (data || []).map((sub: any) => ({
+    subscriptions: rows.map((sub) => ({
       ...sub,
-      billing_plans: plansById.get(sub.plan_id) || null,
+      billing_plans: (sub.plan_id && plansById.get(sub.plan_id)) || null,
     })),
   });
 });
@@ -552,7 +568,7 @@ plansRouter.post('/admin/overrides/module', async (req, res) => {
     .single();
 
   if (error) return res.status(500).json({ error: 'Request failed' });
-  await handleWorkspaceEntitlementChanged((req as any).serverConfig, {
+  await handleWorkspaceEntitlementChanged(serverConfigOf(req), {
     workspaceId,
     source: 'workspace_module_override',
   });
@@ -577,7 +593,7 @@ plansRouter.post('/admin/overrides/channel', async (req, res) => {
     .single();
 
   if (error) return res.status(500).json({ error: 'Request failed' });
-  await handleWorkspaceEntitlementChanged((req as any).serverConfig, {
+  await handleWorkspaceEntitlementChanged(serverConfigOf(req), {
     workspaceId,
     source: 'workspace_channel_override',
   });
@@ -601,7 +617,7 @@ plansRouter.delete('/admin/overrides/module/:id', async (req, res) => {
     clearEntitlementCache();
     return res.json({ success: true });
   }
-  await handleWorkspaceEntitlementChanged((req as any).serverConfig, {
+  await handleWorkspaceEntitlementChanged(serverConfigOf(req), {
     workspaceId: (existing as { workspace_id: string }).workspace_id,
     source: 'workspace_module_override',
   });
@@ -621,7 +637,7 @@ plansRouter.delete('/admin/overrides/channel/:id', async (req, res) => {
   if (existing) {
     // Channel changes never affect AI indexing eligibility: the funnel clears
     // the cache and the transition rule suppresses the catch-up.
-    await handleWorkspaceEntitlementChanged((req as any).serverConfig, {
+    await handleWorkspaceEntitlementChanged(serverConfigOf(req), {
       workspaceId: (existing as { workspace_id: string }).workspace_id,
       source: 'workspace_channel_override',
     });
@@ -663,7 +679,7 @@ plansRouter.post('/admin/overrides/limit', async (req, res) => {
     .single();
 
   if (error) return res.status(500).json({ error: 'Request failed' });
-  await handleWorkspaceEntitlementChanged((req as any).serverConfig, {
+  await handleWorkspaceEntitlementChanged(serverConfigOf(req), {
     workspaceId,
     source: 'workspace_limit_override',
     limitKey,
@@ -683,7 +699,7 @@ plansRouter.delete('/admin/overrides/limit/:id', async (req, res) => {
   if (error) return res.status(500).json({ error: 'Request failed' });
   if (existing) {
     const row = existing as { workspace_id: string; limit_key: string };
-    await handleWorkspaceEntitlementChanged((req as any).serverConfig, {
+    await handleWorkspaceEntitlementChanged(serverConfigOf(req), {
       workspaceId: row.workspace_id,
       source: 'workspace_limit_override',
       limitKey: row.limit_key,
@@ -768,17 +784,18 @@ plansRouter.get('/admin/diagnostics', async (req, res) => {
     .select('id, slug, entitlements, limits')
     .eq('is_active', true);
   if (error) return res.status(500).json({ error: 'Request failed' });
-  const report = diagnoseAgainstPlans((data || []) as any);
+  const activePlans = (data || []) as Parameters<typeof diagnoseAgainstPlans>[0];
+  const report = diagnoseAgainstPlans(activePlans);
 
   // Phase: Limits Backfill — surface plans that are missing resolver-ready
   // limit keys, so operators can see drift before it blocks Phase 3.
-  const usageBackedKeysMissingByPlan = (data || []).map((p: any) => {
+  const usageBackedKeysMissingByPlan = activePlans.map((p) => {
     const lim = (p.limits || {}) as Record<string, unknown>;
     const missing = USAGE_BACKED_LIMIT_KEYS.filter(
       (k) => !Object.prototype.hasOwnProperty.call(lim, k),
     );
     return { planSlug: p.slug, missing };
-  }).filter((r: any) => r.missing.length > 0);
+  }).filter((r) => r.missing.length > 0);
 
   res.json({
     registrySize: CAPABILITY_REGISTRY.length,

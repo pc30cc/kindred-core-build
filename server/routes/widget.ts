@@ -2083,7 +2083,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       // above) intentionally bypass the cap. workspace_id has already
       // been resolved via resolveWorkspaceId() + widget token checks.
       {
-        const ok = await enforceMaxConversationsLimit(req, res);
+        const ok = await enforceMaxConversationsLimit(req, res, workspaceId);
         if (!ok) return;
       }
 
@@ -3762,7 +3762,7 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
   // enforce max_conversations here. workspace_id is verified above
   // against the widget token (`tokenWs === workspace_id`).
   {
-    const ok = await enforceMaxConversationsLimit(req, res);
+    const ok = await enforceMaxConversationsLimit(req, res, workspace_id);
     if (!ok) return;
   }
   const { data: conv, error: convErr } = await supabase

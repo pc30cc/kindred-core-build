@@ -108,7 +108,11 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'video',       type: 'channel', label: 'Video Calls', group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 80 },
 
   // ─── Boolean feature flags ───
-  { key: 'advanced_ai_agent',     type: 'feature', label: 'Advanced AI Agent',      group: 'ai',       defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 10 },
+  // RESERVED: no server route or app surface reads this flag. The AI Agent
+  // is gated by the `ai_assistant` module; its advanced QA/debug tools are
+  // platform-admin only (customerSafe.ts), never plan-gated. Kept because
+  // production plans may carry the key (design rule 1: never remove).
+  { key: 'advanced_ai_agent',     type: 'feature', label: 'Advanced AI Agent',      group: 'ai',       description: 'Reserved: no feature reads this flag yet, so enabling it grants nothing today. Kept because existing plans may set it.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 10 },
   { key: 'ai_operator_assist',    type: 'feature', label: 'AI Operator Assist',     group: 'ai',       defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 20 },
   { key: 'ai_kb_builder',         type: 'feature', label: 'AI KB Builder',          group: 'ai',       defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 30 },
   { key: 'priority_support',      type: 'feature', label: 'Priority Support',       group: 'support',  defaultValue: false, planConfigurable: true, workspaceOverridable: false, userVisible: true, sortOrder: 10 },
@@ -401,6 +405,14 @@ export function normalizePlanLimitsForCreate(
 export interface PlanValidationIssue {
   level: 'error' | 'warning';
   key: string;
+  /** Stable reason, for clients that show the issue in the admin's language. */
+  code:
+    | 'unknown_entitlement'
+    | 'entitlement_not_boolean'
+    | 'limit_in_entitlements'
+    | 'unknown_limit'
+    | 'limit_not_number'
+    | 'not_a_limit';
   message: string;
 }
 
@@ -444,18 +456,18 @@ export function validatePlanPayload(payload: {
     const legacy = LEGACY_PLAN_KEYS.has(key);
     if (!def) {
       if (!legacy) {
-        issues.push({ level: 'warning', key, message: `Unknown entitlement key '${key}' (not in registry)` });
+        issues.push({ level: 'warning', key, code: 'unknown_entitlement', message: `Unknown entitlement key '${key}' (not in registry)` });
       }
       if (typeof value !== 'boolean') {
-        issues.push({ level: 'error', key, message: `Entitlement '${key}' must be boolean` });
+        issues.push({ level: 'error', key, code: 'entitlement_not_boolean', message: `Entitlement '${key}' must be boolean` });
       }
       continue;
     }
     if (def.type === 'limit' && !legacy) {
-      issues.push({ level: 'warning', key, message: `Key '${key}' is a limit; expected in 'limits' not 'entitlements'` });
+      issues.push({ level: 'warning', key, code: 'limit_in_entitlements', message: `Key '${key}' is a limit; expected in 'limits' not 'entitlements'` });
     }
     if (typeof value !== 'boolean') {
-      issues.push({ level: 'error', key, message: `Entitlement '${key}' must be boolean` });
+      issues.push({ level: 'error', key, code: 'entitlement_not_boolean', message: `Entitlement '${key}' must be boolean` });
     }
   }
 
@@ -464,19 +476,19 @@ export function validatePlanPayload(payload: {
     const legacy = LEGACY_PLAN_KEYS.has(key);
     if (!def) {
       if (!legacy) {
-        issues.push({ level: 'warning', key, message: `Unknown limit key '${key}' (not in registry)` });
+        issues.push({ level: 'warning', key, code: 'unknown_limit', message: `Unknown limit key '${key}' (not in registry)` });
       }
       if (typeof value !== 'number' || !Number.isFinite(value)) {
-        issues.push({ level: 'error', key, message: `Limit '${key}' must be a finite number (use -1 for unlimited)` });
+        issues.push({ level: 'error', key, code: 'limit_not_number', message: `Limit '${key}' must be a finite number (use -1 for unlimited)` });
       }
       continue;
     }
     if (def.type !== 'limit' && !legacy) {
-      issues.push({ level: 'warning', key, message: `Key '${key}' is not a 'limit' in registry (type=${def.type})` });
+      issues.push({ level: 'warning', key, code: 'not_a_limit', message: `Key '${key}' is not a 'limit' in registry (type=${def.type})` });
     }
 
     if (typeof value !== 'number' || !Number.isFinite(value)) {
-      issues.push({ level: 'error', key, message: `Limit '${key}' must be a finite number (use -1 for unlimited)` });
+      issues.push({ level: 'error', key, code: 'limit_not_number', message: `Limit '${key}' must be a finite number (use -1 for unlimited)` });
     }
   }
 

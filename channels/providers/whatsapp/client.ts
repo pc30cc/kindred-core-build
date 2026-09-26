@@ -11,7 +11,8 @@
  *   classification stays identical across providers.
  */
 
-import { TelegramApiError, type BotCredential } from '../telegram/client.js';
+import { TelegramApiError, mediaDownloadError, type BotCredential } from '../telegram/client.js';
+import { assertPublicHttpUrl, fetchBytesBounded } from '../../../shared/net/boundedFetch.js';
 
 const GRAPH_ROOT = 'https://graph.facebook.com';
 const GRAPH_VERSION = 'v21.0';
@@ -35,7 +36,7 @@ export function parseWhatsAppCredential(credential: BotCredential): WhatsAppCred
     /\/+$/,
     '',
   );
-  let parsed: any;
+  let parsed: { phone_number_id?: unknown; access_token?: unknown; business_account_id?: unknown } | null;
   try {
     parsed = JSON.parse(raw);
   } catch {
@@ -54,7 +55,7 @@ export function parseWhatsAppCredential(credential: BotCredential): WhatsAppCred
   };
 }
 
-async function graph<T = any>(
+async function graph<T = unknown>(
   cred: WhatsAppCredential,
   method: 'GET' | 'POST',
   path: string,
@@ -89,7 +90,7 @@ async function graph<T = any>(
   }
 
   const raw = await response.text();
-  let parsed: any = null;
+  let parsed: { error?: { code?: unknown; message?: unknown } } | null = null;
   try {
     parsed = raw ? JSON.parse(raw) : null;
   } catch {
@@ -119,7 +120,7 @@ async function graph<T = any>(
 
 export async function getMe(credential: BotCredential) {
   const cred = parseWhatsAppCredential(credential);
-  const profile = await graph<any>(
+  const profile = await graph<{ display_phone_number?: string; verified_name?: string } | null>(
     cred,
     'GET',
     `${cred.phoneNumberId}?fields=display_phone_number,verified_name,quality_rating`,
@@ -152,6 +153,12 @@ export async function getWebhookInfo() {
 
 // ── messaging ─────────────────────────────────────────────────────────
 
+/** One button of a Bot-API inline or reply keyboard, as far as it is read here. */
+type KeyboardButtonLike = { text?: unknown; callback_data?: unknown };
+
+/** The part of a Cloud API `/messages` response read here. */
+type SendResult = { messages?: Array<{ id?: number }> } | null;
+
 /**
  * Translates a Bot-API keyboard into a WhatsApp interactive payload.
  *
@@ -160,10 +167,10 @@ export async function getWebhookInfo() {
  */
 export function interactiveFromReplyMarkup(
   text: string,
-  replyMarkup: Record<string, any> | undefined,
+  replyMarkup: Record<string, unknown> | undefined,
 ): Record<string, unknown> | null {
   if (!replyMarkup) return null;
-  const rows: any[] = Array.isArray(replyMarkup.inline_keyboard)
+  const rows: unknown[] = Array.isArray(replyMarkup.inline_keyboard)
     ? replyMarkup.inline_keyboard
     : Array.isArray(replyMarkup.keyboard)
       ? replyMarkup.keyboard
@@ -171,7 +178,8 @@ export function interactiveFromReplyMarkup(
 
   const buttons = rows
     .flat()
-    .map((button: any) => {
+    .map((entry) => {
+      const button = entry as KeyboardButtonLike | null | undefined;
       const label = String(button?.text ?? '').trim();
       if (!label) return null;
       const id = String(button?.callback_data ?? label).slice(0, 200);
@@ -223,7 +231,7 @@ export async function sendMessage(
   },
 ): Promise<{ message_id: number }> {
   const cred = parseWhatsAppCredential(credential);
-  const interactive = interactiveFromReplyMarkup(input.text, input.replyMarkup as any);
+  const interactive = interactiveFromReplyMarkup(input.text, input.replyMarkup);
 
   const payload: Record<string, unknown> = interactive
     ? { messaging_product: 'whatsapp', to: String(input.chatId), type: 'interactive', interactive }
@@ -234,7 +242,7 @@ export async function sendMessage(
         text: { body: input.text.slice(0, 4096), preview_url: false },
       };
 
-  const result = await graph<any>(cred, 'POST', `${cred.phoneNumberId}/messages`, payload);
+  const result = await graph<SendResult>(cred, 'POST', `${cred.phoneNumberId}/messages`, payload);
   return { message_id: result?.messages?.[0]?.id ?? 0 };
 }
 
@@ -260,7 +268,13 @@ export async function getFile(
   mediaId: string,
 ): Promise<{ file_path: string; file_size?: number }> {
   const cred = parseWhatsAppCredential(credential);
-  const meta = await graph<any>(cred, 'GET', mediaId);
+  // The media id comes from the (unsigned) webhook body and is interpolated
+  // into a Graph path that is called WITH our access token — anything but a
+  // plain numeric id could steer that call to another Graph edge.
+  if (!/^\d{1,32}$/.test(String(mediaId ?? ''))) {
+    throw new TelegramApiError('WhatsApp media id is invalid', 400, null, null, false);
+  }
+  const meta = await graph<{ url?: unknown; file_size?: unknown } | null>(cred, 'GET', mediaId);
   if (!meta?.url) {
     throw new TelegramApiError('WhatsApp media has no download URL', 404, null, null, false);
   }
@@ -277,21 +291,25 @@ export async function downloadFile(
   if (!/^https:\/\//i.test(filePath)) {
     throw new TelegramApiError('WhatsApp media URL is not https', 400, null, null, false);
   }
-  const response = await fetch(filePath, { headers: { Authorization: `Bearer ${cred.accessToken}` } });
-  if (!response.ok) {
-    throw new TelegramApiError(
-      `WhatsApp media download failed [${response.status}]`,
-      response.status,
-      null,
-      null,
-      response.status >= 500 || response.status === 429,
-    );
+  let origin: string;
+  try {
+    origin = new URL(filePath).origin;
+  } catch {
+    throw new TelegramApiError('WhatsApp media URL is invalid', 400, null, null, false);
   }
-  const buffer = new Uint8Array(await response.arrayBuffer());
-  if (buffer.byteLength > maxBytes) {
-    throw new TelegramApiError('WhatsApp media exceeds allowed size', 413, null, null, false);
+  try {
+    const { bytes } = await fetchBytesBounded(filePath, {
+      maxBytes,
+      maxRedirects: 3,
+      validate: (url) => assertPublicHttpUrl(url),
+      // The token authenticates the Graph-issued media URL only; it is never
+      // replayed to a redirect target on another origin.
+      headers: (url) => (url.origin === origin ? { Authorization: `Bearer ${cred.accessToken}` } : undefined),
+    });
+    return bytes;
+  } catch (err) {
+    throw mediaDownloadError(err, 'WhatsApp');
   }
-  return buffer;
 }
 
 const MEDIA_TYPES: Record<string, string> = {
@@ -312,7 +330,7 @@ export async function sendMedia(
   const media: Record<string, unknown> = { link: input.url };
   if (input.caption && type !== 'audio') media.caption = input.caption.slice(0, 1024);
 
-  const result = await graph<any>(cred, 'POST', `${cred.phoneNumberId}/messages`, {
+  const result = await graph<SendResult>(cred, 'POST', `${cred.phoneNumberId}/messages`, {
     messaging_product: 'whatsapp',
     to: String(input.chatId),
     type,

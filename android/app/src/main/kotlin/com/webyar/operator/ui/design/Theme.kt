@@ -2,9 +2,7 @@ package com.webyar.operator.ui.design
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Shapes
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
@@ -12,15 +10,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import com.webyar.operator.i18n.Language
-
-/** Material's shape scale, from the app's own radius tokens. */
-private val WebyarShapes = Shapes(
-    extraSmall = RoundedCornerShape(Radius.sm),
-    small = RoundedCornerShape(Radius.sm),
-    medium = RoundedCornerShape(Radius.md),
-    large = RoundedCornerShape(Radius.lg),
-    extraLarge = RoundedCornerShape(Radius.xl),
-)
+import android.provider.Settings
+import androidx.compose.runtime.remember
 
 /**
  * The app's theme.
@@ -42,12 +33,12 @@ fun WebyarTheme(
     language: Language = Language.DEFAULT,
     dark: Boolean = isSystemInDarkTheme(),
     /**
-     * Material You, where the platform has it.
+     * Material You, where the platform has it (Android 12 and later).
      *
-     * Off by default and expected to stay off. This is a white-label product:
-     * the blue belongs to the customer whose logo is on the login screen, and
-     * recolouring it from the operator's wallpaper would be recolouring
-     * somebody else's brand.
+     * Off unless the operator turns it on in Settings. This is a white-label
+     * product: the blue belongs to the customer whose logo is on the login
+     * screen, and recolouring it from the wallpaper is the operator's choice
+     * to make, not the default.
      */
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
@@ -60,11 +51,24 @@ fun WebyarTheme(
         dark -> WebyarDarkColors
         else -> WebyarLightColors
     }
-    val extras = if (dark) WebyarDarkExtras else WebyarLightExtras
+    // The brand extras are hand-tuned against the brand scheme. Under
+    // wallpaper colours the bubbles and badge follow the scheme instead, or
+    // a blue outgoing bubble would sit in an otherwise green app.
+    val extras = when {
+        colors !== WebyarLightColors && colors !== WebyarDarkColors -> extrasFrom(colors, dark)
+        dark -> WebyarDarkExtras
+        else -> WebyarLightExtras
+    }
+
+    val context = LocalContext.current
+    val reducedMotion = remember(context) {
+        Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+    }
 
     CompositionLocalProvider(
         LocalWebyarColors provides extras,
         LocalLayoutDirection provides language.layoutDirection,
+        LocalReducedMotion provides reducedMotion,
     ) {
         MaterialTheme(
             colorScheme = colors,

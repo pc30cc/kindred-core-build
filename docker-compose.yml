@@ -75,6 +75,8 @@ services:
       # points at the external server (https://ai-runtime.example.com).
       - AI_RUNTIME_URL=${AI_RUNTIME_URL:-http://ai-runtime:3021}
       - AI_RUNTIME_INTERNAL_SECRET=${AI_RUNTIME_INTERNAL_SECRET:-}
+      # Operator allow-list of private LLM hosts workspaces may use (see .env.example).
+      - AI_PROVIDER_PRIVATE_HOSTS=${AI_PROVIDER_PRIVATE_HOSTS:-}
       - INVITATION_LINK_SECRET=${INVITATION_LINK_SECRET}
       - INVITATION_LINK_SECRET_RING=${INVITATION_LINK_SECRET_RING:-}
       - INVITATION_LINK_KEY_VERSION=${INVITATION_LINK_KEY_VERSION:-1}
@@ -233,6 +235,7 @@ services:
       - AI_HTTP_TIMEOUT_MS=${AI_HTTP_TIMEOUT_MS:-}
       - AI_RETRY_ATTEMPTS=${AI_RETRY_ATTEMPTS:-}
       - AI_TOTAL_BUDGET_MS=${AI_TOTAL_BUDGET_MS:-}
+      - AI_PROVIDER_PRIVATE_HOSTS=${AI_PROVIDER_PRIVATE_HOSTS:-}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:3021/health"]

@@ -2,8 +2,8 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 
-/// The message field, its send button, and whichever extra controls the plan
-/// and the conversation's state allow.
+/// The message field, its send button, and whichever extra controls the
+/// conversation's state allows.
 ///
 /// When the AI owns the thread the controls are not merely disabled but
 /// replaced by a line saying so. A greyed-out paperclip invites tapping and

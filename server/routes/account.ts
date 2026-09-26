@@ -71,28 +71,37 @@ function errorMessage(err: unknown, fallback: string): string {
 async function requireUser(req: Request, res: Response, next: NextFunction) {
   const authedReq = req as AuthedRequest;
   const config = authedReq.serverConfig;
-  const userId = await requireSessionUser(req, res);
-  if (!userId) return;
-  const identity = await findIdentityById(config, userId);
-  if (!identity) {
-    res.status(401).json({ error: 'Account not found' });
+  // DB lookups below can throw (e.g. findIdentityById on a DB error). Keep
+  // them inside try/catch — but NOT next(), which runs the downstream
+  // handlers synchronously and must not have their errors caught here.
+  try {
+    const userId = await requireSessionUser(req, res);
+    if (!userId) return;
+    const identity = await findIdentityById(config, userId);
+    if (!identity) {
+      res.status(401).json({ error: 'Account not found' });
+      return;
+    }
+    authedReq.authUser = {
+      id: identity.id,
+      email: identity.email,
+      phone: identity.phone,
+      email_confirmed_at: identity.emailVerifiedAt,
+      created_at: identity.createdAt,
+      user_metadata: { full_name: identity.fullName },
+    };
+    // Cheap second read of the already-validated cookie to expose the
+    // first-party sessionId to route handlers (Active Sessions UI) without
+    // widening requireSessionUser's return type for its ~15 other callers.
+    // Never re-derived from a JWT payload — this is the same server-side
+    // validateSessionToken() every other authenticated route already trusts.
+    const session = await validateSessionToken(config, readSessionToken(req).token);
+    authedReq.currentSessionId = session?.sessionId ?? null;
+  } catch (err) {
+    console.error('[account] auth lookup failed:', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Internal server error' });
     return;
   }
-  authedReq.authUser = {
-    id: identity.id,
-    email: identity.email,
-    phone: identity.phone,
-    email_confirmed_at: identity.emailVerifiedAt,
-    created_at: identity.createdAt,
-    user_metadata: { full_name: identity.fullName },
-  };
-  // Cheap second read of the already-validated cookie to expose the
-  // first-party sessionId to route handlers (Active Sessions UI) without
-  // widening requireSessionUser's return type for its ~15 other callers.
-  // Never re-derived from a JWT payload — this is the same server-side
-  // validateSessionToken() every other authenticated route already trusts.
-  const session = await validateSessionToken(config, readSessionToken(req).token);
-  authedReq.currentSessionId = session?.sessionId ?? null;
   next();
 }
 

@@ -29,6 +29,12 @@ export interface SyncJobRow {
   status: string;
   attempts: number;
   max_attempts: number;
+  /** Returned by the claim RPC (`RETURNING *`); fallback walk-start marker. */
+  created_at?: string | null;
+}
+
+function isIsoTimestamp(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && Number.isFinite(new Date(value).getTime());
 }
 
 export async function enqueueSyncJob(
@@ -114,11 +120,16 @@ export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Pro
   // yet. Asking for it and falling back keeps that case working exactly as it
   // did before, instead of failing every sync on an unknown column.
   let sweepSupported = true;
-  let cursorRow: { page?: number; modified_after?: string | null; sweep_epoch?: string | null } | null = null;
+  let cursorRow: {
+    page?: number;
+    modified_after?: string | null;
+    sweep_epoch?: string | null;
+    after_cursor?: string | null;
+  } | null = null;
   {
     const withSweep = await sb
       .from('commerce_sync_cursors')
-      .select('page, modified_after, sweep_epoch')
+      .select('page, modified_after, after_cursor, sweep_epoch')
       .eq('connection_id', job.connection_id)
       .eq('cursor_type', cursorType)
       .maybeSingle();
@@ -126,7 +137,7 @@ export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Pro
       sweepSupported = false;
       const legacy = await sb
         .from('commerce_sync_cursors')
-        .select('page, modified_after')
+        .select('page, modified_after, after_cursor')
         .eq('connection_id', job.connection_id)
         .eq('cursor_type', cursorType)
         .maybeSingle();
@@ -136,16 +147,38 @@ export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Pro
     }
   }
 
-  const modifiedAfter = job.job_type === 'incremental_sync' || job.job_type === 'reconciliation' ? (cursorRow?.modified_after ?? null) : null;
-  // Resume where the cursor stopped, but only a walk over the same window:
-  // the stored page counts through the catalogue AS FILTERED by the cursor's
-  // modified_after. An incremental job reads exactly that window, so it
-  // always resumes. It used to restart at page 1 on every run instead, so a
-  // change set bigger than one run's page budget (a bulk price edit, or the
-  // first reconciliation of a large store, which walks everything) re-queued
-  // itself forever, re-reading the same MAX_PAGES_PER_RUN pages each time. A
-  // full sync resumes only a full walk, never an incremental one's page.
-  let page = (cursorRow?.modified_after ?? null) === modifiedAfter ? (cursorRow?.page ?? 1) : 1;
+  // Captured before the first page is fetched: anything the store changes
+  // from here on must be picked up by the NEXT sync, so this — never the
+  // finish time — becomes the next `modified_after` watermark.
+  const tickStartedAt = new Date().toISOString();
+
+  // Resumable cursor, for every job type. A walk larger than
+  // MAX_PAGES_PER_RUN is re-queued and must continue where it stopped;
+  // restarting an incremental walk at page 1 on every run meant a change set
+  // of more than MAX_PAGES_PER_RUN pages never completed.
+  //
+  //   * `modified_after` NULL on the cursor = a full walk is in progress (or
+  //     nothing was ever synced); non-NULL = an incremental walk from that
+  //     watermark.
+  //   * `after_cursor` holds the in-progress walk's start time, i.e. the
+  //     watermark the walk will hand over once it completes.
+  //
+  // A full-sync job only resumes a full walk: resuming an interrupted
+  // incremental walk mid-way would skip the start of the catalogue. An
+  // incremental job resumes whatever walk is in progress — an incremental
+  // one only when its start time is recorded (a cursor left by an older
+  // build without it is restarted from page 1, exactly as before).
+  const isIncrementalJob = job.job_type === 'incremental_sync' || job.job_type === 'reconciliation';
+  const storedPage = typeof cursorRow?.page === 'number' && cursorRow.page > 1 ? cursorRow.page : 1;
+  const storedWatermark = cursorRow?.modified_after ?? null;
+  const storedWalkStart = isIsoTimestamp(cursorRow?.after_cursor) ? cursorRow!.after_cursor! : null;
+
+  const modifiedAfter = isIncrementalJob ? storedWatermark : null;
+  let page = 1;
+  if (storedPage > 1) {
+    if (!isIncrementalJob) page = storedWatermark === null ? storedPage : 1;
+    else page = storedWatermark === null || storedWalkStart ? storedPage : 1;
+  }
 
   // A full sync walks the WHOLE catalogue, so anything it does not meet is
   // gone from the store. An incremental one fetches only what changed, where
@@ -154,7 +187,20 @@ export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Pro
   // The epoch belongs to the whole sync, not to one worker tick: a large
   // catalogue is re-queued across several runs (MAX_PAGES_PER_RUN), and the
   // sweep may only fire once the last page is in. Page 1 starts a new one.
-  const sweepEpoch = isFullSync && sweepSupported ? (page === 1 ? new Date().toISOString() : (cursorRow?.sweep_epoch ?? null)) : null;
+  const sweepEpoch = isFullSync && sweepSupported ? (page === 1 ? tickStartedAt : (cursorRow?.sweep_epoch ?? null)) : null;
+
+  // When the walk this run belongs to began. A fresh walk begins now; a
+  // resumed one carries its recorded start (falling back, for cursors written
+  // before it was recorded, to the full walk's sweep epoch or the job's own
+  // creation — both at or before the real start, so the next incremental
+  // sync re-reads a little rather than skipping anything).
+  const walkStartedAt =
+    page === 1
+      ? tickStartedAt
+      : (storedWalkStart
+        ?? (isFullSync && isIsoTimestamp(cursorRow?.sweep_epoch) ? cursorRow!.sweep_epoch! : null)
+        ?? (isIsoTimestamp(job.created_at) ? job.created_at : null)
+        ?? tickStartedAt);
 
   let pagesThisRun = 0;
   let hasMore = true;
@@ -189,7 +235,7 @@ export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Pro
       // reconciliations — saves a write this way.
       if (more) {
         await sb.from('commerce_sync_cursors').upsert(
-          { connection_id: job.connection_id, cursor_type: cursorType, page: page + 1, modified_after: modifiedAfter, ...(sweepSupported ? { sweep_epoch: sweepEpoch } : {}), updated_at: new Date().toISOString() },
+          { connection_id: job.connection_id, cursor_type: cursorType, page: page + 1, modified_after: modifiedAfter, after_cursor: walkStartedAt, ...(sweepSupported ? { sweep_epoch: sweepEpoch } : {}), updated_at: new Date().toISOString() },
           { onConflict: 'connection_id,cursor_type' },
         );
       }
@@ -223,10 +269,12 @@ export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Pro
     }
 
     await sb.from('commerce_sync_jobs').update({ status: 'succeeded' }).eq('id', job.id);
+    // The walk is complete: reset the page and hand over its START time as
+    // the next watermark (changes made while it ran are re-read next time).
     await sb
       .from('commerce_sync_cursors')
       .upsert(
-        { connection_id: job.connection_id, cursor_type: cursorType, page: 1, modified_after: now, ...(sweepSupported ? { sweep_epoch: null } : {}), updated_at: now },
+        { connection_id: job.connection_id, cursor_type: cursorType, page: 1, modified_after: walkStartedAt, after_cursor: null, ...(sweepSupported ? { sweep_epoch: null } : {}), updated_at: now },
         { onConflict: 'connection_id,cursor_type' },
       );
     await sb.from('commerce_connections').update({ catalog_ready: true, last_sync_at: now }).eq('id', job.connection_id);

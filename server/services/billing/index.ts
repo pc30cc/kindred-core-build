@@ -30,6 +30,8 @@ import {
   type EntitlementChangeSource,
 } from './entitlementChange.js';
 import { addBillingInterval } from './periods.js';
+import { buildCancelAtPeriodEndPatch } from './cancellation.js';
+import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 
 
 // Provider registry
@@ -529,8 +531,17 @@ export async function processWebhookEvent(
 
 
     case 'subscription_canceled': {
+      // Cancel at period end: a still-running paid period stays usable (the
+      // status is kept); the billing tick marks the row 'canceled' once
+      // current_period_end has passed. A period that already ended is
+      // canceled right away. See ./cancellation.ts.
+      const { data: current } = await supabase
+        .from('workspace_subscriptions')
+        .select('status, current_period_end, cancel_at_period_end')
+        .eq('workspace_id', event.workspaceId)
+        .maybeSingle();
       await supabase.from('workspace_subscriptions')
-        .update({ status: 'canceled', cancel_at_period_end: true, updated_at: new Date().toISOString() })
+        .update(buildCancelAtPeriodEndPatch(current))
         .eq('workspace_id', event.workspaceId);
       break;
     }
@@ -575,7 +586,13 @@ export async function processWebhookEvent(
 }
 
 /**
- * Check if a workspace has access to a feature based on plan entitlements
+ * Whether a workspace's plan grants a feature — the GET /api/billing/entitlement
+ * answer. Delegates to the enforcement check (featureGating.ts over
+ * check_workspace_entitlement), so it applies the same plan selection and the
+ * same `override ?? plan ?? registry default` rule as every gate and as
+ * GET /api/plans/workspace/:id/effective. It used to read billing_plans
+ * itself, deny every key the plan JSON did not mention, and keep a
+ * past-due or canceled-at-period-end workspace on Free.
  */
 export async function checkEntitlement(
   supabaseUrl: string,
@@ -583,46 +600,8 @@ export async function checkEntitlement(
   workspaceId: string,
   feature: string
 ): Promise<{ allowed: boolean; limit?: number; used?: number }> {
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
-
-  // Get workspace subscription
-  const { data: sub } = await supabase
-    .from('workspace_subscriptions')
-    .select('plan_id, status')
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
-
-  if (!sub || !['active', 'trialing'].includes(sub.status || '')) {
-    // Check free plan entitlements
-    const { data: freePlan } = await supabase
-      .from('billing_plans')
-      .select('entitlements, limits')
-      .eq('slug', 'free')
-      .maybeSingle();
-
-    if (!freePlan) return { allowed: false }; // FAIL-CLOSED: no plans = deny
-
-    const entitlements = freePlan.entitlements as Record<string, boolean> || {};
-    const limits = freePlan.limits as Record<string, number> || {};
-
-    if (feature in entitlements) return { allowed: entitlements[feature] };
-    if (feature in limits) return { allowed: true, limit: limits[feature] };
-    return { allowed: false }; // FAIL-CLOSED: feature not in plan = deny
-  }
-
-  // Get plan entitlements
-  const { data: plan } = await supabase
-    .from('billing_plans')
-    .select('entitlements, limits')
-    .eq('id', sub.plan_id)
-    .maybeSingle();
-
-  if (!plan) return { allowed: false }; // FAIL-CLOSED: missing plan = deny
-
-  const entitlements = plan.entitlements as Record<string, boolean> || {};
-  const limits = plan.limits as Record<string, number> || {};
-
-  if (feature in entitlements) return { allowed: entitlements[feature] };
-  if (feature in limits) return { allowed: true, limit: limits[feature] };
-  return { allowed: false }; // FAIL-CLOSED: feature not in plan = deny
+  const result = await checkEntitlementFromDB(supabaseUrl, serviceRoleKey, workspaceId, feature);
+  return result.limitValid && typeof result.limit === 'number'
+    ? { allowed: result.allowed, limit: result.limit }
+    : { allowed: result.allowed };
 }

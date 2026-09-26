@@ -3,10 +3,12 @@
   What the FileProvider is allowed to hand out.
 
   Exactly one directory, and one inside the app's own cache: an attachment
-  the operator opens in another app is a temporary copy, and a provider
-  pointed at `.` would let any malformed request read the token store that
-  sits in the same sandbox.
+  the operator opens in another app is a cached copy (AttachmentDiskCache,
+  `cacheDir/media/v1/<account>/<workspace>/`), and a provider pointed at `.`
+  would let any malformed request read the token store that sits in the same
+  sandbox. The grant is per URI and per launch, so another operator's files
+  under the same root are never reachable through it.
 -->
 <paths>
-    <cache-path name="attachments" path="attachments/" />
+    <cache-path name="media" path="media/" />
 </paths>

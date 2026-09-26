@@ -25,7 +25,7 @@ import { SkeletonStats, SkeletonCard } from '@/components/common/Skeletons';
 import { Badge } from '@/components/ui/badge';
 import { LayoutGrid, Receipt, Gauge, Wallet, Sparkles, ArrowLeftRight } from 'lucide-react';
 
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { toast } from '@/lib/toast';
 import { billingOverview, billingCancelPlanChange, type BillingOverview } from '@/lib/billingApi';
 import { ErrorState, errorMessage } from './shared';
@@ -36,6 +36,7 @@ import PlansTab from './PlansTab';
 import WalletTab from './WalletTab';
 import AiCreditTab from './AiCreditTab';
 import TransactionsTab from './TransactionsTab';
+import { PlanUsagePanel } from '@/components/billing/PlanUsagePanel';
 
 const TABS = [
   { value: 'overview', labelKey: 'overview', icon: LayoutGrid },
@@ -151,7 +152,7 @@ export default function WorkspaceBillingPage({ workspaceId }: { workspaceId: str
                 <SelectItem key={item.value} value={item.value}>
                   <span className="flex items-center gap-2">
                     <item.icon className="h-4 w-4" />
-                    {t(`billing.tabs.${item.labelKey}` as any)}
+                    {t(`billing.tabs.${item.labelKey}` as TranslationKey)}
                   </span>
                 </SelectItem>
               ))}
@@ -167,7 +168,7 @@ export default function WorkspaceBillingPage({ workspaceId }: { workspaceId: str
               className="group flex-1 gap-2 rounded-xl border border-transparent px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-all hover:bg-muted hover:text-foreground data-[state=active]:border-primary/30 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md"
             >
               <item.icon className="h-4 w-4 shrink-0 transition-transform group-data-[state=active]:scale-110" />
-              <span className="whitespace-nowrap">{t(`billing.tabs.${item.labelKey}` as any)}</span>
+              <span className="whitespace-nowrap">{t(`billing.tabs.${item.labelKey}` as TranslationKey)}</span>
             </TabsTrigger>
           ))}
         </TabsList>
@@ -184,7 +185,10 @@ export default function WorkspaceBillingPage({ workspaceId }: { workspaceId: str
             canceling={canceling}
             onGoTo={setTab}
           />
-
+          {/* What the plan allows and how much of it is used (docs/CUSTOMER_USAGE_VISIBILITY.md). */}
+          <div className="mt-6">
+            <PlanUsagePanel workspaceId={workspaceId} showAiCredit={false} />
+          </div>
         </TabsContent>
 
         <TabsContent value="invoices" className="mt-5">

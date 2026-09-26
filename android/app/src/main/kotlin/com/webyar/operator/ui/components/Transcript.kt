@@ -32,12 +32,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import coil3.compose.AsyncImage
 import com.webyar.operator.core.model.MessageAttachment
 import com.webyar.operator.i18n.Format
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
 import com.webyar.operator.ui.A11y
+import com.webyar.operator.ui.design.Radius
 import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
 import com.webyar.operator.ui.design.WebyarTheme
@@ -76,10 +80,19 @@ fun MessageBubble(
      */
     senderName: String? = null,
     senderAvatarUrl: String? = null,
+    /**
+     * Where an unsent message stands — "Sending…", "Not sent" — shown under
+     * the bubble in place of the time, which it does not have yet.
+     */
+    status: String? = null,
+    /** Marks [status] as a problem, in the error colour. */
+    statusIsError: Boolean = false,
+    /** What a tap on [status] offers: Retry, Delete. Empty makes it plain text. */
+    statusActions: List<Pair<String, () -> Unit>> = emptyList(),
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = WebyarTheme.colors
-    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    var actionsOpen by remember(id) { mutableStateOf(false) }
 
     Row(
         modifier = modifier
@@ -115,25 +128,47 @@ fun MessageBubble(
             Surface(
                 color = if (outgoing) colors.bubbleOutgoing else colors.bubbleIncoming,
                 contentColor = if (outgoing) colors.onBubbleOutgoing else colors.onBubbleIncoming,
-                shape = ChatBubbleShape(
-                    hasBeak = endsRun,
-                    // The beak sits on the bubble's OUTER edge — the side the
-                    // bubble itself is on — and which physical side that is
-                    // depends on the language. `Arrangement.End` puts an
-                    // outgoing bubble on the left in Persian, the same way
-                    // Telegram and WhatsApp do, so its beak belongs on the
-                    // left too. `pointsRight = outgoing` was right-handed in
-                    // both senses: it drew a tail pointing back into the
-                    // middle of the screen.
-                    pointsRight = if (rtl) !outgoing else outgoing,
-                ),
+                shape = bubbleShape(outgoing = outgoing, startsRun = startsRun),
             ) {
                 Column(
-                    Modifier.padding(horizontal = Space.md, vertical = Space.sm),
+                    Modifier.padding(horizontal = Space.lg - 2.dp, vertical = Space.sm + 2.dp),
                     content = content,
                 )
             }
-            if (endsRun) {
+            if (status != null) {
+                Box {
+                    Text(
+                        status,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (statusIsError) MaterialTheme.colorScheme.error else colors.labelTertiary,
+                        modifier = Modifier
+                            .then(
+                                if (statusActions.isNotEmpty()) {
+                                    Modifier.clickable { actionsOpen = true }
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .padding(top = Space.xxs, start = Space.xs, end = Space.xs)
+                            .testTag(A11y.messageStatus(id)),
+                    )
+                    DropdownMenu(
+                        expanded = actionsOpen,
+                        onDismissRequest = { actionsOpen = false },
+                        shape = RoundedCornerShape(Radius.lg),
+                    ) {
+                        statusActions.forEach { (label, action) ->
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                onClick = {
+                                    actionsOpen = false
+                                    action()
+                                },
+                            )
+                        }
+                    }
+                }
+            } else if (endsRun) {
                 Text(
                     Format.bubbleTime(time, language),
                     style = MaterialTheme.typography.labelSmall,
@@ -221,14 +256,14 @@ fun DayHeader(instant: Instant, language: Language) {
         contentAlignment = Alignment.Center,
     ) {
         Surface(
-            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-            shape = RoundedCornerShape(Space.md),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = RoundedCornerShape(Radius.pill),
         ) {
             Text(
                 Format.dayHeader(instant, language),
-                style = MaterialTheme.typography.labelMedium,
-                color = WebyarTheme.colors.labelTertiary,
-                modifier = Modifier.padding(horizontal = Space.md, vertical = Space.xs),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = Space.lg, vertical = Space.xs + 2.dp),
             )
         }
     }

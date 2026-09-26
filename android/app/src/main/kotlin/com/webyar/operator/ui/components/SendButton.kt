@@ -1,13 +1,13 @@
 package com.webyar.operator.ui.components
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material3.ripple
+import androidx.compose.ui.semantics.Role
+import com.webyar.operator.ui.design.Size
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.geometry.Offset
@@ -17,7 +17,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.background
@@ -54,48 +53,42 @@ fun SendButton(
     sending: Boolean = false,
 ) {
     val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    // Press feedback, and nothing else. A send button that is completely inert
-    // under the thumb reads as a tap that did not land — which is why people
-    // tap twice and send twice.
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.88f else 1f,
-        animationSpec = Motion.standard(),
-        label = "send-press",
-    )
     val live = enabled && !sending
+    val container by animateColorAsState(
+        if (live) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+        Motion.effects(),
+        label = "send-container",
+    )
+    val glyph by animateColorAsState(
+        if (live) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+        Motion.effects(),
+        label = "send-glyph",
+    )
 
-    IconButton(
-        onClick = onClick,
-        enabled = live,
-        interactionSource = interaction,
-        // IconButton is already 48dp, which is Android's minimum touch target.
-        // The circle inside it is 34dp, so the glyph lines up with the other
-        // controls in a composer pill while the tap area stays full size —
-        // the thing iOS has to do by hand with a pair of opposite paddings.
-        modifier = modifier
+    // A 48dp control — the touch target and the drawn circle are the same
+    // size, Material 3 Expressive's medium icon button — whose circle
+    // squares up under the thumb and springs back: the press is felt, so it
+    // is not tapped twice, and sent twice.
+    Box(
+        modifier
+            .size(Size.minTouchTarget)
+            .clip(rememberPressShape(interaction, restPercent = 50f, pressedPercent = 28f))
+            .background(container)
+            .clickable(
+                enabled = live,
+                interactionSource = interaction,
+                indication = ripple(color = MaterialTheme.colorScheme.onPrimary),
+                role = Role.Button,
+                onClick = onClick,
+            )
             .testTag(A11y.COMPOSER_SEND)
             .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
     ) {
-        Box(
-            Modifier
-                .scale(scale)
-                .size(34.dp)
-                .clip(CircleShape)
-                .background(
-                    MaterialTheme.colorScheme.primary.copy(alpha = if (live) 1f else 0.35f)
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (sending) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    strokeWidth = 2.dp,
-                )
-            } else {
-                UpArrow()
-            }
+        if (sending) {
+            LoadingIndicator(color = MaterialTheme.colorScheme.primary, size = 30.dp)
+        } else {
+            UpArrow(color = glyph)
         }
     }
 }
@@ -113,8 +106,8 @@ fun SendButton(
  * glyph.
  */
 @Composable
-private fun UpArrow(modifier: Modifier = Modifier) {
-    Canvas(modifier.size(18.dp)) {
+private fun UpArrow(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier.size(20.dp)) {
         val w = size.width
         val h = size.height
         val stroke = w * 0.145f
@@ -123,21 +116,21 @@ private fun UpArrow(modifier: Modifier = Modifier) {
         val midX = w / 2f
 
         drawLine(
-            color = Color.White,
+            color = color,
             start = Offset(midX, h * 0.82f),
             end = Offset(midX, topY),
             strokeWidth = stroke,
             cap = StrokeCap.Round,
         )
         drawLine(
-            color = Color.White,
+            color = color,
             start = Offset(midX - head, topY + head),
             end = Offset(midX, topY),
             strokeWidth = stroke,
             cap = StrokeCap.Round,
         )
         drawLine(
-            color = Color.White,
+            color = color,
             start = Offset(midX + head, topY + head),
             end = Offset(midX, topY),
             strokeWidth = stroke,

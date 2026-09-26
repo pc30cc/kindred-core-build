@@ -2,21 +2,21 @@ package com.webyar.operator.feature.chat
 
 import com.webyar.operator.core.model.AiState
 import com.webyar.operator.core.model.Conversation
-import com.webyar.operator.core.model.Entitlements
 
 /**
  * Which composer controls a conversation should offer right now.
  *
- * Two independent questions decide this, and both have to say yes:
+ * One question decides this: is a person actually the one replying? **While
+ * the AI owns a thread the operator is steering it, not talking to the
+ * visitor** — the web replaces the whole composer with its guidance composer
+ * for exactly this reason. Sending a file or a voice note into a conversation
+ * the AI is answering would put content in front of the visitor that the AI
+ * has no idea about.
  *
- * 1. Does the workspace's plan include the capability at all?
- * 2. Is a person actually the one replying?
- *
- * The second is the important one. **While the AI owns a thread the operator
- * is steering it, not talking to the visitor** — the web replaces the whole
- * composer with its guidance composer for exactly this reason. Sending a file
- * or a voice note into a conversation the AI is answering would put content in
- * front of the visitor that the AI has no idea about.
+ * The plan is not asked. Its `widget_attachments`, `widget_voice_notes` and
+ * `widget_emoji` keys (and every other `widget_*` key) govern the
+ * customer-facing website widget, not the operator's composer — the web and
+ * the desktop apps offer these tools whatever the plan says about the widget.
  */
 data class ComposerCapabilities(
     val canAttach: Boolean,
@@ -24,10 +24,7 @@ data class ComposerCapabilities(
     val canUseEmoji: Boolean,
     /**
      * True while the AI still owns the thread, so the UI can explain why the
-     * controls are absent rather than just hiding them. A control that is
-     * missing for a reason and a control that is missing because the plan
-     * never had it look identical, and only one of them is worth saying
-     * anything about.
+     * controls are absent rather than just hiding them.
      */
     val isAiManaged: Boolean,
 ) {
@@ -42,36 +39,23 @@ data class ComposerCapabilities(
         )
 
         /**
-         * What an internal thread offers.
-         *
-         * There is no AI and no visitor here, so the second question — is a
-         * person the one replying — answers itself. The plan still gates the
-         * controls, because a workspace that cannot attach files to a visitor
-         * conversation cannot attach them to a colleague's thread either:
-         * `conversation_attachments` is one table and one quota.
+         * What an internal thread offers: everything. There is no AI and no
+         * visitor here, so the one question answers itself.
          */
-        fun team(entitlements: Entitlements?): ComposerCapabilities {
-            fun plan(key: String) = entitlements?.featureEnabled(key) == true
-            return ComposerCapabilities(
-                canAttach = plan("widget_attachments"),
-                canRecordVoice = plan("widget_voice_notes"),
-                canUseEmoji = plan("widget_emoji"),
-                isAiManaged = false,
-            )
-        }
+        val TEAM = ComposerCapabilities(
+            canAttach = true,
+            canRecordVoice = true,
+            canUseEmoji = true,
+            isAiManaged = false,
+        )
 
-        fun resolve(conversation: Conversation?, entitlements: Entitlements?): ComposerCapabilities {
+        fun resolve(conversation: Conversation?): ComposerCapabilities {
             if (conversation == null) return NONE
             val aiManaged = AiState.resolve(conversation) == AiState.AI_MANAGED
-
-            // Fail-closed on the plan: an unresolved snapshot shows nothing
-            // rather than offering a control that would fail on use.
-            fun plan(key: String) = entitlements?.featureEnabled(key) == true
-
             return ComposerCapabilities(
-                canAttach = !aiManaged && plan("widget_attachments"),
-                canRecordVoice = !aiManaged && plan("widget_voice_notes"),
-                canUseEmoji = !aiManaged && plan("widget_emoji"),
+                canAttach = !aiManaged,
+                canRecordVoice = !aiManaged,
+                canUseEmoji = !aiManaged,
                 isAiManaged = aiManaged,
             )
         }

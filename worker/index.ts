@@ -61,6 +61,14 @@ const runs = (kind: string) => runsAll || KINDS.has(kind);
 
 console.log('[worker] starting', { kinds: [...KINDS] });
 
+// Node's default for an unhandled rejection is to kill the process — and
+// with it every loop this container runs. Log it instead, never silently.
+// (The intelligence loop registers its own handlers too; this covers all
+// other kinds.)
+process.on('unhandledRejection', (reason) => {
+  console.error('[worker] unhandledRejection:', reason);
+});
+
 async function main() {
   if (runs('intelligence')) {
     const mod = await import('./intelligence/index.js');

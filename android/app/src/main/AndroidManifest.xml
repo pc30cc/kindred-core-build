@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!--
       The app talks to a server, which on Android has to be said out loud.
@@ -43,7 +44,14 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.front" android:required="false" />
 
+    <!--
+      `WebyarApp` builds the app's graph lazily and configures Coil and
+      WorkManager; see its class note. Backup stays off exactly as before:
+      the cache database and the attachment files are covered by the same
+      `data_extraction_rules.xml` as the session token.
+    -->
     <application
+        android:name=".WebyarApp"
         android:allowBackup="false"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -51,7 +59,8 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:theme="@style/Theme.Webyar"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true">
 
         <!--
           `configChanges` handles the whole set rather than letting Android
@@ -66,9 +75,16 @@
           out loud because a tablet in split screen and a foldable opening are
           the two cases most likely to be forgotten.
         -->
+        <!--
+          `singleTop`: a notification tapped while the app is open reaches
+          this same activity through `onNewIntent` and opens the conversation
+          on top of where the operator was, rather than stacking a second
+          copy of the whole app underneath the first.
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.Webyar"
             android:windowSoftInputMode="adjustResize"
             android:resizeableActivity="true"
@@ -97,6 +113,55 @@
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/attachment_paths" />
+        </provider>
+
+        <!--
+          FCM delivers here with the app in front; with it in the background
+          the system draws the notification itself and this is not called.
+          Not exported: only Google Play services' own intent reaches it.
+        -->
+        <service
+            android:name=".core.push.WebyarMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!--
+          How the system draws a push that arrives in the background: in the
+          app's own channel (the id the server names in every message) and
+          with a silhouette icon rather than a white square.
+        -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="webyar_messages" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_message" />
+        <!--
+          No token until somebody signs in: the registrar turns this on when
+          it first asks for one, and off again at sign-out.
+        -->
+        <meta-data
+            android:name="firebase_messaging_auto_init_enabled"
+            android:value="false" />
+
+        <!--
+          WorkManager starts when first asked (`WebyarApp` is its
+          Configuration.Provider), not from a content provider at every
+          launch: it has nothing to do at cold start, and a cold start is
+          what this app is measured on.
+        -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
         </provider>
     </application>
 </manifest>

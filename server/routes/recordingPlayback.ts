@@ -129,7 +129,10 @@ recordingPlaybackRouter.get('/:id', async (req, res) => {
     recordingStorageConfig = await resolveRecordingStorageConfig(config);
   } catch (err) {
     if (err instanceof RecordingStorageNotConfigured) return res.status(502).json({ error: 'recording_storage_not_configured' });
-    throw err;
+    // Re-throwing here used to escape as an unhandled rejection (process
+    // crash). Answer a generic error; details stay in the server log.
+    console.error('[recording-playback] storage config resolution failed:', err);
+    return res.status(500).json({ error: 'Internal server error' });
   }
   const dl = await downloadRangeWithConfig(recordingStorageConfig, storagePath, rangeHeader);
   if (!dl.success || !dl.data) {

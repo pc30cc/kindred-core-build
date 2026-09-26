@@ -1,107 +1,45 @@
+using Webyar.Core.Caching;
+
 namespace Webyar.App.Services;
 
 /// <summary>
-/// Message files on disk, keyed by attachment id, so a photo, voice note or
-/// document is downloaded once and opened from the PC after that — across
-/// conversations and restarts. The oldest files go first once the cache
-/// outgrows <see cref="MaxBytes"/>.
+/// Message files on disk, keyed by attachment id inside a folder per
+/// workspace, so a photo, voice note or document is downloaded once and
+/// opened from the PC after that — across conversations and restarts. The
+/// least recently used files go first once the cache outgrows 1 GB (down to
+/// 800 MB). The rules — atomic writes, leftovers swept, full disk, locked
+/// files, zero-byte files — live in <see cref="DiskFileCache"/>.
 /// </summary>
 public static class FileCache
 {
     private const long MaxBytes = 1024L * 1024 * 1024;
     private const long TrimTo = 800L * 1024 * 1024;
 
+    private static readonly DiskFileCache Disk = new(AppPaths.Files, new DiskCacheOptions(MaxBytes, TrimTo), Log.Write);
+
     public static string Folder => AppPaths.Files;
 
-    public static event EventHandler? Changed;
-
-    public static byte[]? Read(string id)
+    public static event EventHandler? Changed
     {
-        if (!Valid(id)) return null;
-        var path = PathFor(id);
-        try
-        {
-            if (!File.Exists(path)) return null;
-            File.SetLastAccessTimeUtc(path, DateTime.UtcNow);
-            return File.ReadAllBytes(path);
-        }
-        catch (Exception e)
-        {
-            Log.Error("file cache read", e);
-            return null;
-        }
+        add => Disk.Changed += value;
+        remove => Disk.Changed -= value;
     }
 
-    public static void Write(string id, byte[] data)
+    /// <param name="workspaceId">The workspace the file was seen in; null only for files with no workspace.</param>
+    public static byte[]? Read(string id, string? workspaceId) => Disk.Read(id, Scope(workspaceId));
+
+    public static void Write(string id, string? workspaceId, byte[] data)
     {
-        if (!Valid(id) || data.Length == 0) return;
-        try
-        {
-            var path = PathFor(id);
-            var temp = path + ".part";
-            File.WriteAllBytes(temp, data);
-            File.Move(temp, path, overwrite: true);
-            Changed?.Invoke(null, EventArgs.Empty);
-        }
-        catch (Exception e)
-        {
-            Log.Error("file cache write", e);
-        }
+        if (Disk.Write(id, Scope(workspaceId), data)) Log.Write($"[files] stored {data.Length / 1024} KB");
     }
 
     /// <summary>Total size and file count, for the settings page.</summary>
-    public static (long Bytes, int Count) Measure()
-    {
-        try
-        {
-            var files = new DirectoryInfo(Folder).GetFiles();
-            return (files.Sum(f => f.Length), files.Length);
-        }
-        catch
-        {
-            return (0, 0);
-        }
-    }
+    public static (long Bytes, int Count) Measure() => Disk.Measure();
 
-    public static void Clear()
-    {
-        foreach (var file in SafeFiles())
-        {
-            try { file.Delete(); }
-            catch (IOException) { /* in use by an open viewer; it goes next time */ }
-            catch (UnauthorizedAccessException) { }
-        }
-        Changed?.Invoke(null, EventArgs.Empty);
-    }
+    public static void Clear() => Disk.Clear();
 
-    /// <summary>Drops the least recently used files once the cache is over its limit.</summary>
-    public static void Trim()
-    {
-        var files = SafeFiles();
-        var total = files.Sum(f => f.Length);
-        if (total <= MaxBytes) return;
-        foreach (var file in files.OrderBy(f => f.LastAccessTimeUtc))
-        {
-            if (total <= TrimTo) break;
-            try
-            {
-                var length = file.Length;
-                file.Delete();
-                total -= length;
-            }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-        }
-    }
+    /// <summary>Sweeps leftovers and drops the least recently used files once the cache is over its limit.</summary>
+    public static void Trim() => Disk.Trim();
 
-    private static FileInfo[] SafeFiles()
-    {
-        try { return new DirectoryInfo(Folder).GetFiles(); }
-        catch { return []; }
-    }
-
-    // Ids are server UUIDs; anything else (a local "local:…" id) stays in memory only.
-    private static bool Valid(string id) => Guid.TryParse(id, out _);
-
-    private static string PathFor(string id) => Path.Combine(Folder, id.ToLowerInvariant() + ".bin");
+    private static string? Scope(string? workspaceId) => DiskFileCache.IsValidKey(workspaceId) ? workspaceId : null;
 }

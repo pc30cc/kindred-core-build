@@ -25,6 +25,9 @@ public sealed partial class InboxPage : Page
     private bool _syncing;
     private int _generation;
 
+    /// <summary>The generation the server's answer was last applied for: a slower read of the PC's copy must not replace it.</summary>
+    private int _serverGeneration = -1;
+
     public InboxPage()
     {
         InitializeComponent();
@@ -41,8 +44,11 @@ public sealed partial class InboxPage : Page
         base.OnNavigatedTo(e);
         ApplyLanguage();
         Host.InboxChanged += OnInboxChanged;
+        Host.RealtimeChanged += OnRealtimeChanged;
         Palette.ThemeChanged += OnThemeChanged;
         _poller = new Poller("inbox", LoadAsync, () => Host.PollInterval(TimeSpan.FromSeconds(Host.Config.PollIntervalSeconds)));
+        // The PC's copy is drawn while the server is asked; whichever is newer wins.
+        _ = ShowLocalAsync();
         _poller.Start();
         if (e.Parameter is string id) Open(id);
     }
@@ -56,6 +62,7 @@ public sealed partial class InboxPage : Page
     public void Teardown()
     {
         Host.InboxChanged -= OnInboxChanged;
+        Host.RealtimeChanged -= OnRealtimeChanged;
         Palette.ThemeChanged -= OnThemeChanged;
         _poller?.Dispose();
         _poller = null;
@@ -84,8 +91,18 @@ public sealed partial class InboxPage : Page
         else
         {
             Chat.ShowById(id);
+            _ = ShowKnownAsync(id);
             _ = FindAsync(id);
         }
+    }
+
+    /// <summary>A conversation this PC has seen in any queue: its header shows at once, before the search below.</summary>
+    private async Task ShowKnownAsync(string id)
+    {
+        if (Host.Workspace is not { } ws) return;
+        var scope = Host.Scope;
+        var known = await Host.Lists.FindLocalAsync(ws.Id, id);
+        if (known is not null && _openId == id && scope == Host.Scope && !_all.ContainsKey(id)) Chat.Show(known);
     }
 
     /// <summary>
@@ -100,7 +117,8 @@ public sealed partial class InboxPage : Page
         {
             try
             {
-                var list = await Host.Api.ConversationsAsync(ws.Id, filter);
+                // Revalidated and shared like every queue read: a queue already held costs a 304.
+                var list = (await Host.Lists.FetchAsync(ws.Id, filter)).Conversations;
                 if (list.FirstOrDefault(c => c.Id == id) is not { } hit) continue;
                 if (_openId != id) return;
                 var enriched = await Host.WithVisitorProfilesAsync([hit]);
@@ -131,6 +149,33 @@ public sealed partial class InboxPage : Page
 
     private void OnInboxChanged(InboxEvent e) => _poller?.Kick();
 
+    /// <summary>Back online, or realtime dropped: check at once rather than at the next (slow) tick.</summary>
+    private void OnRealtimeChanged(bool up) => _poller?.Kick();
+
+    /// <summary>
+    /// Draws the queue from the PC's copy — instantly, and offline too — unless
+    /// the server's answer for this queue is already on screen.
+    /// </summary>
+    private async Task ShowLocalAsync()
+    {
+        if (Host.Workspace is not { } ws) return;
+        var generation = _generation;
+        var scope = Host.Scope;
+        var filter = _filter;
+        var local = await Host.Lists.LoadLocalAsync(ws.Id, filter);
+        if (local is null || generation != _generation || scope != Host.Scope || _serverGeneration == generation) return;
+        Apply(local);
+        Log.Write($"[inbox] shown from the PC: {local.Count} conversations");
+        if (_items.Count > 0 || local.Count == 0)
+        {
+            Loading.IsActive = false;
+            Loading.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private bool Current(int generation, int scope, Workspace ws) =>
+        generation == _generation && scope == Host.Scope && Host.Workspace?.Id == ws.Id;
+
     private void ShowCounts(InboxCounts c)
     {
         var s = Host.Strings;
@@ -145,14 +190,19 @@ public sealed partial class InboxPage : Page
     {
         if (Host.Workspace is not { } ws) return;
         var generation = _generation;
+        var scope = Host.Scope;
+        var filter = _filter;
         try
         {
             var counts = Host.Api.InboxCountsAsync(ws.Id, "mine", ct);
-            var list = await Host.Api.ConversationsAsync(ws.Id, _filter, ct);
-            if (generation != _generation) return; // the filter changed while this was loading
-            list = await Host.WithVisitorProfilesAsync(list, ct);
-            if (generation != _generation) return;
+            // Revalidated: an unchanged queue is a 304 and the copy already held.
+            var result = await Host.Lists.FetchAsync(ws.Id, filter, ct);
+            if (!Current(generation, scope, ws)) return; // the filter or the workspace changed while this was loading
+            var list = await Host.WithVisitorProfilesAsync(result.Conversations, ct);
+            if (!Current(generation, scope, ws)) return;
             Apply(list);
+            _serverGeneration = generation;
+            if (!result.NotModified) _ = Host.Lists.SaveShownAsync(ws.Id, filter, list, result.ETag);
             Error.IsOpen = false;
             try
             {
@@ -165,14 +215,23 @@ public sealed partial class InboxPage : Page
         }
         catch (ApiException e) when (e.Failure != ApiFailure.Unauthorized)
         {
-            Error.Message = ErrorText.For(e, Host.Strings);
-            Error.IsOpen = true;
+            if (Current(generation, scope, ws))
+            {
+                // Offline with a copy on screen: say so quietly and keep showing it.
+                var cached = e.Failure == ApiFailure.Transport && _all.Count > 0;
+                Error.Severity = cached ? InfoBarSeverity.Informational : InfoBarSeverity.Warning;
+                Error.Message = cached ? Host.Strings["offlineShowingSaved"] : ErrorText.For(e, Host.Strings);
+                Error.IsOpen = true;
+            }
             throw;
         }
         finally
         {
-            Loading.IsActive = false;
-            Loading.Visibility = Visibility.Collapsed;
+            if (generation == _generation)
+            {
+                Loading.IsActive = false;
+                Loading.Visibility = Visibility.Collapsed;
+            }
         }
     }
 
@@ -242,6 +301,7 @@ public sealed partial class InboxPage : Page
         Loading.Visibility = Visibility.Visible;
         Loading.IsActive = true;
         Empty.Visibility = Visibility.Collapsed;
+        _ = ShowLocalAsync();
         _poller?.Kick();
     }
 
@@ -262,6 +322,7 @@ public sealed partial class InboxPage : Page
         Loading.Visibility = Visibility.Visible;
         Loading.IsActive = true;
         Empty.Visibility = Visibility.Collapsed;
+        _ = ShowLocalAsync();
         _poller?.Kick();
     }
 

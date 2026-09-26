@@ -60,6 +60,10 @@ actor SampleAPI: WebyarAPI {
             guard let overridden = statuses[conversation.id] else { return conversation }
             return conversation.with(status: overridden)
         }
+        // Every sample workspace shows the same threads, filed under the
+        // workspace that asked — the app never shows a row of one workspace
+        // in another, and the sample must not look like it does.
+        .map { $0.with(workspaceID: workspaceID) }
 
         return switch filter {
         case .open: all.filter { $0.status == .open || $0.status == .pending }
@@ -77,6 +81,40 @@ actor SampleAPI: WebyarAPI {
         (Self.messages[conversationID] ?? []) + (extraMessages[conversationID] ?? [])
     }
 
+    func conversations(workspaceID: String, filter: InboxFilter, etag: String?) async throws -> ListPage {
+        ListPage(conversations: try await conversations(workspaceID: workspaceID, filter: filter), etag: nil)
+    }
+
+    func conversation(id: String, workspaceID: String) async throws -> Conversation? {
+        // Filed under the workspace that asked, as the list files them.
+        Self.conversations.first { $0.id == id }.map { conversation in
+            (statuses[id].map { conversation.with(status: $0) } ?? conversation).with(workspaceID: workspaceID)
+        }
+    }
+
+    /// Always the whole thread, with no cursor: what a server without
+    /// incremental sync answers, which the app has to handle anyway.
+    func messagePage(conversationID: String, since: String?) async throws -> ThreadPage {
+        ThreadPage(messages: try await messages(conversationID: conversationID), delta: false, cursor: nil)
+    }
+
+    /// The sample has no realtime, like a platform that runs without it:
+    /// the app keeps to its polling and never opens a socket.
+    func realtimeConnect(workspaceID: String, intent: String) async throws -> RealtimeConnect {
+        RealtimeConnect(vendor: "disabled", wsURL: nil, token: nil, expiresAt: nil)
+    }
+
+    func realtimeInboxSubscribe(workspaceID: String) async throws -> RealtimeSubscribe {
+        RealtimeSubscribe(vendor: "disabled", channel: nil, token: nil, expiresAt: nil)
+    }
+
+    func attachmentFile(id: String) async throws -> URL {
+        let data = try await attachmentData(id: id)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("webyar-sample-\(UUID().uuidString)")
+        try data.write(to: url)
+        return url
+    }
+
     func send(
         body: String,
         conversationID: String,
@@ -84,16 +122,19 @@ actor SampleAPI: WebyarAPI {
         clientMessageID: String,
         attachmentID: String?
     ) async throws {
+        // The server collapses a replay of the same key; so does the sample.
+        guard !(extraMessages[conversationID] ?? []).contains(where: { $0.clientMessageID == clientMessageID }) else { return }
         extraMessages[conversationID, default: []].append(
             Message(
-                id: clientMessageID,
+                id: "sent-\(clientMessageID)",
                 conversationId: conversationID,
                 senderType: .agent,
                 senderId: Self.user.id,
                 body: body,
                 createdAt: Date(),
                 senderName: Self.user.fullName,
-                senderAvatar: nil
+                senderAvatar: nil,
+                metadata: ["client_message_id": .string(clientMessageID)]
             )
         )
     }
@@ -487,9 +528,8 @@ actor SampleAPI: WebyarAPI {
                 "inbox_needs_human": on,
                 "contact_notes": on,
                 "contact_tags": on,
-                // The three composer capabilities, so both states of the
-                // composer can be laid out: granted-and-human-active shows the
-                // controls, granted-but-AI-managed shows the notice instead.
+                // The website widget's own keys, as a real plan carries them.
+                // They do not reach the operator's composer.
                 "widget_attachments": on,
                 "widget_voice_notes": on,
                 "widget_emoji": on,
@@ -505,11 +545,21 @@ actor SampleAPI: WebyarAPI {
                 "call_center": on,
                 "visitor_tracking": on,
                 "email_inbox": on,
+                "voice_video": on,
             ],
-            channels: ["chat_widget": on],
+            // Only a key that is exactly true is on, so every channel the
+            // sample lays out is listed: the calls and the channel inboxes.
+            channels: ["chat_widget": on, "voice": on, "video": on, "telegram": on, "bale": on],
             limits: [:],
             plan: Entitlements.PlanSummary(slug: "pro", name: "Pro", tier: "pro")
         )
+    }
+
+    /// An owner, with the AI switched on, shown to customers and answering, and
+    /// the call center on — so every section the plan carries is laid out.
+    func workspaceAccess(workspaceID: String) async -> WorkspaceAccess {
+        WorkspaceAccess(role: "owner", aiAgentEnabled: true, aiCustomerVisible: true,
+                        aiAutoAnswer: true, callCenterVisible: true)
     }
 
     // MARK: - Account
@@ -821,6 +871,26 @@ actor SampleAPI: WebyarAPI {
 }
 
 private extension Conversation {
+    func with(workspaceID newWorkspace: String) -> Conversation {
+        Conversation(
+            id: id,
+            workspaceId: newWorkspace,
+            contactId: contactId,
+            subject: subject,
+            status: status,
+            assignedTo: assignedTo,
+            priority: priority,
+            tags: tags,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            contact: contact,
+            lastMessage: lastMessage,
+            unreadCount: unreadCount,
+            aiState: aiState,
+            metadata: metadata
+        )
+    }
+
     /// The sample backend's status changes have to produce a new value,
     /// because every field is `let`.
     func with(status newStatus: ConversationStatus) -> Conversation {

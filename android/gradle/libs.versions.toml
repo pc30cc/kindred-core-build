@@ -19,6 +19,13 @@ junit = "4.13.2"
 desugar = "2.1.5"
 coil = "3.6.3"
 navigation = "2.10.1"
+# Navigation 3: the back stack is app state (a list of keys), which is what
+# lets one stack drive a phone's single pane and a tablet's list-detail.
+# Resolved from Google Maven 2026-09-25 (1.3.0 is alpha).
+navigation3 = "1.2.0"
+# Material Adaptive: window size classes, list-detail scenes for Navigation 3.
+# Resolved from Google Maven 2026-09-25 (1.4.0 is alpha).
+adaptive = "1.3.0"
 livekit = "2.29.0"
 benchmark = "1.5.0"
 uiautomator = "2.4.0"
@@ -101,6 +108,15 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 # is what gives each tab its own back stack and its own saved state.
 # Resolved from Google Maven 2026-09-21.
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation" }
+androidx-navigation3-runtime = { group = "androidx.navigation3", name = "navigation3-runtime", version.ref = "navigation3" }
+androidx-navigation3-ui = { group = "androidx.navigation3", name = "navigation3-ui", version.ref = "navigation3" }
+# A ViewModel per Navigation 3 entry, cleared when the entry leaves the stack.
+androidx-lifecycle-viewmodel-navigation3 = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-navigation3", version.ref = "lifecycle" }
+androidx-compose-material3-adaptive = { group = "androidx.compose.material3.adaptive", name = "adaptive", version.ref = "adaptive" }
+androidx-compose-material3-adaptive-layout = { group = "androidx.compose.material3.adaptive", name = "adaptive-layout", version.ref = "adaptive" }
+androidx-compose-material3-adaptive-navigation3 = { group = "androidx.compose.material3.adaptive", name = "adaptive-navigation3", version.ref = "adaptive" }
+# Bar on a phone, rail on a tablet — the BOM versions it with material3.
+androidx-compose-material3-adaptive-navigation-suite = { group = "androidx.compose.material3", name = "material3-adaptive-navigation-suite" }
 
 # LiveKit, for the calls. The SDK only — NOT livekit-android-compose-components,
 # which pins its own Compose BOM and drags in Molecule for what amounts to one

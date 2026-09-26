@@ -23,6 +23,12 @@
   #avatar .gloss { position:absolute; inset:0; border-radius:50%; background:linear-gradient(to bottom, rgba(255,255,255,.28), rgba(255,255,255,0) 55%); pointer-events:none; }
   #avatar svg { width:50%; height:50%; position:relative; }
   #avatar img { position:absolute; inset:0; width:100%; height:100%; border-radius:50%; object-fit:cover; }
+  /* Loading who this is, or their photo: a pulsing skeleton over everything, never a stand-in face. */
+  #avatar.skel::after { content:''; position:absolute; inset:0; border-radius:50%; background:#1d222d; z-index:2; animation: skel 1.8s ease-in-out infinite; }
+  @keyframes skel { 0%,100% { opacity:1; } 50% { opacity:.45; } }
+  #avatar .tint { position:absolute; inset:0; border-radius:50%; opacity:.24; }
+  #avatar img { z-index:1; }
+  #flag { z-index:3; }
   #flag { position:absolute; left:-4px; bottom:-4px; min-width:28px; height:22px; padding:0 3px; box-sizing:border-box; border-radius:999px; background:var(--surface); border:1px solid #313848; color:var(--text2); font-size:10.5px; font-weight:700; display:flex; align-items:center; justify-content:center; }
   body.waiting #avatar { animation: pulse 1.8s ease-in-out infinite; }
   @keyframes pulse { 0%,100% { box-shadow:0 0 0 10px rgba(90,148,255,.10), 0 0 0 22px rgba(90,148,255,.05);} 50% { box-shadow:0 0 0 16px rgba(90,148,255,.16), 0 0 0 34px rgba(90,148,255,.06);} }
@@ -242,26 +248,49 @@
   }
   const isColor = (c) => typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c);
 
-  // The caller's face: the photo, else their device's logo, else their initials, on the web console's gradient.
+  // A person on a 24×24 grid, for a caller with no photo and no known device.
+  const PERSON = '<path fill="currentColor" d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zm0 2c-4.4 0-8 2.5-8 5.5V21h16v-1.5c0-3-3.6-5.5-8-5.5z"/>';
+
+  function glyph(markup) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.innerHTML = markup;
+    return svg;
+  }
+
+  // The caller's face, as the app's avatars draw it: the photo, else their device's logo on its
+  // gradient, else a grey disc with a person tinted by their name. Never initials; a skeleton while loading.
   function renderFace(f) {
     const a = $('avatar');
     a.textContent = '';
+    a.classList.remove('skel');
+    a.style.background = '';
+    a.style.color = '';
     if (!f) return;
+    if (f.pending) {
+      a.classList.add('skel');
+      return;
+    }
     const angle = Number(f.angle) || 135;
-    if (isColor(f.from) && isColor(f.to)) a.style.background = `linear-gradient(${angle}deg, ${f.from}, ${f.to})`;
     if (f.os && OS[f.os]) {
+      if (isColor(f.from) && isColor(f.to)) a.style.background = `linear-gradient(${angle}deg, ${f.from}, ${f.to})`;
       a.appendChild(el('div', 'gloss'));
-      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.setAttribute('viewBox', '0 0 24 24');
-      svg.innerHTML = OS[f.os];
-      a.appendChild(svg);
+      a.appendChild(glyph(OS[f.os]));
     } else {
-      a.appendChild(el('span', null, f.initials || '?'));
+      a.style.background = '#1d222d';
+      const tint = isColor(f.tint) ? f.tint : null;
+      if (tint) a.appendChild(el('div', 'tint')).style.background = tint;
+      a.style.color = tint ? tint : 'var(--text2)';
+      const person = a.appendChild(glyph(PERSON));
+      person.style.opacity = '.85';
+      person.style.width = person.style.height = '46%';
     }
     if (f.image) {
       const img = el('img');
       img.alt = '';
-      img.onerror = () => img.remove();
+      a.classList.add('skel');
+      img.onload = () => a.classList.remove('skel');
+      img.onerror = () => { img.remove(); a.classList.remove('skel'); };
       img.src = f.image;
       a.appendChild(img);
     }

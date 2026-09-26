@@ -38,6 +38,7 @@ public sealed partial class SettingsPage : Page
         TrayToggle.IsOn = settings.CloseToTray;
         ShowStorage();
         Host.PlatformChanged += ShowStorage;
+        Host.MeChanged += OnMeChanged;
         Host.Updates.PropertyChanged += OnUpdateChanged;
         ShowUpdate();
         _ready = true;
@@ -48,7 +49,15 @@ public sealed partial class SettingsPage : Page
         base.OnNavigatedFrom(e);
         Host.Updates.PropertyChanged -= OnUpdateChanged;
         Host.PlatformChanged -= ShowStorage;
+        Host.MeChanged -= OnMeChanged;
     }
+
+    /// <summary>The account arrived (or could not be read): its photo replaces the skeleton.</summary>
+    private void OnMeChanged() => Host.RunOnUi(() =>
+    {
+        AccountAvatar.ImageUrl = Host.Account?.AvatarUrl;
+        AccountAvatar.IsPending = Host.AccountPending;
+    });
 
     /// <summary>
     /// The Storage section, when Super Admin shows it to operators. Hidden, the
@@ -94,6 +103,8 @@ public sealed partial class SettingsPage : Page
         AccountWorkspace.Text = Host.Workspace?.Name ?? string.Empty;
         AccountAvatar.DisplayName = AccountName.Text.Length > 0 ? AccountName.Text : AccountEmail.Text;
         AccountAvatar.ImageUrl = Host.Account?.AvatarUrl;
+        // The account (and its photo) not loaded yet: a skeleton, not a face that changes a moment later.
+        AccountAvatar.IsPending = Host.AccountPending;
         SignOutButton.Content = s["signOut"];
 
         StorageHeader.Text = s["storage"];

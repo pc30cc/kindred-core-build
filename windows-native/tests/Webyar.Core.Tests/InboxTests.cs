@@ -63,9 +63,6 @@ public class InboxTests
         Assert.Equal("بازدیدکننده از استان \u2068Tehran\u2069 · \u20684ZTK\u2069", Display.VisitorName("Visitor", "4ZTK", null, "Karaj", "Tehran", "IR", Fa));
         // The server's anonCodeFrom, checked against the web's JS.
         Assert.Equal("WE0A", Display.LegacyCode("3f483f7d-91e2-425e-ba80-b11a814f2f36"));
-        Assert.Equal("مد", Display.Initials("مجتبی داودی"));
-        Assert.Equal("V4", Display.Initials("Visitor 4ZTK"));
-        Assert.Equal("ب", Display.Initials("بازدیدکننده 4ZTK"));
 
         Assert.Equal("You sent a photo", Display.Preview(new MessagePreview("", SenderType: SenderTypes.Agent, AttachmentKind: "image"), En));
         Assert.Equal("Sara sent a photo", Display.Preview(new MessagePreview(null, SenderType: SenderTypes.Contact, SenderName: "Sara", AttachmentKind: "image"), En));

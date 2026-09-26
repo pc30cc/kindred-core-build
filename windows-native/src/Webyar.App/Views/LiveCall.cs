@@ -33,8 +33,9 @@ public sealed class LiveCall
     /// <summary>A call answered on the desk (or joined after a hand-over): the room already exists.</summary>
     private sealed record DeskCall(string CallId, CallAccept Accept, CallSession? Session);
 
-    /// <summary>The caller's face, drawn as everywhere else: photo, else their device's logo, else initials; their country.</summary>
-    public sealed record CallFace(string? Name, string? Email, string? Os, string? CountryCode, string? ImageUrl);
+    /// <summary>The caller's face, drawn as everywhere else: photo, else their device's logo, else the person disc; their country.</summary>
+    /// <param name="Pending">The caller's profile is still on its way: the face is a skeleton until it lands.</param>
+    public sealed record CallFace(string? Name, string? Email, string? Os, string? CountryCode, string? ImageUrl, bool Pending = false);
 
     private static LiveCall? _current;
 
@@ -211,7 +212,8 @@ public sealed class LiveCall
                 return new CallFace(c.Contacts?.Name ?? _name, c.Contacts?.Email, c.VisitorOs, c.VisitorCountryCode, c.Contacts?.AvatarUrl);
             var session = _desk?.Session;
             var profile = Host.Callers.For(session?.VisitorSessionId);
-            return new CallFace(session?.VisitorName ?? _name, session?.VisitorEmail, profile?.Device?.Os, profile?.Geo?.CountryCode, null);
+            return new CallFace(session?.VisitorName ?? _name, session?.VisitorEmail, profile?.Device?.Os, profile?.Geo?.CountryCode, null,
+                Host.Callers.IsPending(session?.VisitorSessionId));
         }
     }
 
@@ -638,7 +640,7 @@ public sealed class LiveCall
         PostWindowState();
     }
 
-    /// <summary>The face as the page draws it: the web console's gradient and OS logo, or the photo, and the country letters.</summary>
+    /// <summary>The face as the page draws it: the photo, else the OS logo on its gradient, else the person on their tint; the country letters.</summary>
     private object FacePayload()
     {
         var f = Face;
@@ -650,7 +652,8 @@ public sealed class LiveCall
         }
         return new
         {
-            initials = art.Initials,
+            tint = Hex(AvatarArt.Tint(f.Name, f.Email)),
+            pending = f.Pending,
             from = Hex(art.From),
             to = Hex(art.To),
             angle = art.AngleDegrees,

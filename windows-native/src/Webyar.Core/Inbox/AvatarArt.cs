@@ -27,12 +27,12 @@ public readonly record struct Hsl(double H, double S, double L)
 }
 
 /// <summary>
-/// What a visitor's avatar shows, computed exactly like the web console's
-/// ContactAvatar (src/components/inbox/ContactAvatar.tsx): their photo; else,
+/// What a visitor's avatar shows, as the Mac app draws it: their photo; else,
 /// when the operating system is known, its logo on that OS's gradient; else
-/// their initials on a gradient picked by a djb2 hash of the name.
+/// a disc with a person in it, softly tinted by a djb2 hash of the name.
+/// Never initials.
 /// </summary>
-public sealed record AvatarArt(AvatarOs Os, string Initials, Hsl From, Hsl To, double AngleDegrees)
+public sealed record AvatarArt(AvatarOs Os, Hsl From, Hsl To, double AngleDegrees)
 {
     private static readonly (int Hue, int Sat)[] Palette =
     [
@@ -43,17 +43,32 @@ public sealed record AvatarArt(AvatarOs Os, string Initials, Hsl From, Hsl To, d
     public static AvatarArt For(string? name, string? email, string? os)
     {
         var kind = OsOf(os);
-        var initials = InitialsOf(name, email);
         switch (kind)
         {
-            case AvatarOs.Apple: return new(kind, initials, new(220, 8, 42), new(220, 12, 16), 140);
-            case AvatarOs.Windows: return new(kind, initials, new(201, 92, 56), new(217, 90, 44), 140);
-            case AvatarOs.Linux: return new(kind, initials, new(38, 96, 58), new(22, 90, 48), 140);
-            case AvatarOs.Android: return new(kind, initials, new(150, 68, 50), new(142, 72, 34), 140);
+            case AvatarOs.Apple: return new(kind, new(220, 8, 42), new(220, 12, 16), 140);
+            case AvatarOs.Windows: return new(kind, new(201, 92, 56), new(217, 90, 44), 140);
+            case AvatarOs.Linux: return new(kind, new(38, 96, 58), new(22, 90, 48), 140);
+            case AvatarOs.Android: return new(kind, new(150, 68, 50), new(142, 72, 34), 140);
         }
+        var (h, s) = Palette[Djb2(Seed(name, email)) % 12];
+        return new(AvatarOs.None, new(h, s, 56), new((h + 28) % 360, s, 44), 135);
+    }
+
+    /// <summary>
+    /// A person's own tint for the disc they get without a photo or a known
+    /// device, from the same hash and palette, so two such visitors side by
+    /// side are told apart (the Mac's AvatarArt.tint).
+    /// </summary>
+    public static Hsl Tint(string? name, string? email)
+    {
+        var (h, s) = Palette[Djb2(Seed(name, email)) % 12];
+        return new(h, s, 54);
+    }
+
+    private static string Seed(string? name, string? email)
+    {
         var seed = (string.IsNullOrEmpty(name) ? email ?? string.Empty : name).ToLowerInvariant();
-        var (h, s) = Palette[Djb2(seed.Length == 0 ? "?" : seed) % 12];
-        return new(AvatarOs.None, initials, new(h, s, 56), new((h + 28) % 360, s, 44), 135);
+        return seed.Length == 0 ? "?" : seed;
     }
 
     public static AvatarOs OsOf(string? os)
@@ -75,14 +90,6 @@ public sealed record AvatarArt(AvatarOs Os, string Initials, Hsl From, Hsl To, d
         return unchecked((uint)h);
     }
 
-    public static string InitialsOf(string? name, string? email)
-    {
-        var src = (string.IsNullOrEmpty(name) ? email ?? string.Empty : name).Trim();
-        if (src.Length == 0) return "?";
-        var parts = src.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length >= 2) return (parts[0][..1] + parts[1][..1]).ToUpperInvariant();
-        return (parts[0].Length >= 2 ? parts[0][..2] : parts[0][..1]).ToUpperInvariant();
-    }
 
     /// <summary>The emoji-free flag stand-in: Windows has no flag emoji, so the two letters.</summary>
     public static string? CountryBadge(string? countryCode) =>

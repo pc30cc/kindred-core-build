@@ -31,6 +31,13 @@ public sealed class CallerProfiles
         return null;
     }
 
+    /// <summary>
+    /// The session's profile is still on its way: its face is a skeleton until
+    /// then, so a caller's device logo does not replace a stand-in after paint.
+    /// </summary>
+    public bool IsPending(string? sessionId) =>
+        !string.IsNullOrEmpty(sessionId) && !_known.ContainsKey(sessionId) && !_asked.Contains(sessionId);
+
     private void Want(string sessionId)
     {
         if (_asked.Contains(sessionId) || !_wanted.Add(sessionId) || _loading) return;
@@ -40,6 +47,7 @@ public sealed class CallerProfiles
 
     private async Task LoadAsync()
     {
+        List<string> ids = [];
         try
         {
             // A moment for the other faces drawn in the same pass to ask too.
@@ -47,19 +55,26 @@ public sealed class CallerProfiles
             while (_wanted.Count > 0 && _host.Workspace is { } ws)
             {
                 var scope = _host.Scope;
-                var ids = _wanted.ToList();
+                ids = _wanted.ToList();
                 _wanted.Clear();
                 var got = await _host.Api.SessionProfilesAsync(ws.Id, ids);
                 // Switched workspace meanwhile: these callers belong to the old one.
                 if (scope != _host.Scope) continue;
                 foreach (var (id, p) in got) _known[id] = p;
                 _asked.UnionWith(ids);
-                if (got.Count > 0) Changed?.Invoke();
+                ids = [];
+                // Also when nothing came back: those faces stop waiting.
+                Changed?.Invoke();
             }
         }
         catch (Exception e)
         {
             Log.Error("caller devices", e);
+            // Not asked again, and their faces stop waiting: the device logo is a nicety.
+            _asked.UnionWith(ids);
+            _asked.UnionWith(_wanted);
+            _wanted.Clear();
+            Changed?.Invoke();
         }
         finally
         {

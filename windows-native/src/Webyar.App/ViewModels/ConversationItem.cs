@@ -26,9 +26,6 @@ public sealed partial class ConversationItem : ObservableObject
     private string _name = string.Empty;
 
     [ObservableProperty]
-    private string _initials = string.Empty;
-
-    [ObservableProperty]
     private string _preview = string.Empty;
 
     [ObservableProperty]
@@ -108,7 +105,6 @@ public sealed partial class ConversationItem : ObservableObject
         Os = c.VisitorOs;
         CountryCode = c.VisitorCountryCode;
         StatusDot = c.Status;
-        Initials = Display.Initials(Name);
         Preview = Display.Preview(c.LastMessage, s);
         Stamp = c.LastActivity is { } when ? Display.ListStamp(when, now, s) : string.Empty;
         var unread = Math.Max(0, c.UnreadCount ?? 0);

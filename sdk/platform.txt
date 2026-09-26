@@ -1,0 +1,1 @@
+/usr/local/lib/android/sdk/platforms/android-37.2-beta3

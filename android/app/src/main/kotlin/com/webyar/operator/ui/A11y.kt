@@ -27,7 +27,6 @@ object A11y {
     /** Absent from the tree when the search is closed, which several tests
      *  are about — see `SearchState`. */
     const val SEARCH_FIELD = "search.field"
-    const val TAB_BAR = "tab.bar"
 
     const val COMPOSER_FIELD = "composer.field"
     const val COMPOSER_SEND = "composer.send"

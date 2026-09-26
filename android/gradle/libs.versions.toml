@@ -23,7 +23,6 @@ androidxTestJunit = "1.3.0"
 junit = "4.13.2"
 desugar = "2.1.5"
 coil = "3.6.3"
-navigation = "2.10.1"
 # Navigation 3: the back stack is app state (a list of keys), which is what
 # lets one stack drive a phone's single pane and a tablet's list-detail.
 # Resolved from Google Maven 2026-09-25 (1.3.0 is alpha).
@@ -109,10 +108,6 @@ ktor-client-logging = { group = "io.ktor", name = "ktor-client-logging", version
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 
-# Navigation Compose, for one NavHost with a nested graph per tab — which
-# is what gives each tab its own back stack and its own saved state.
-# Resolved from Google Maven 2026-09-21.
-androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation" }
 androidx-navigation3-runtime = { group = "androidx.navigation3", name = "navigation3-runtime", version.ref = "navigation3" }
 androidx-navigation3-ui = { group = "androidx.navigation3", name = "navigation3-ui", version.ref = "navigation3" }
 # A ViewModel per Navigation 3 entry, cleared when the entry leaves the stack.

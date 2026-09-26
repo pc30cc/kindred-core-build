@@ -188,8 +188,8 @@ export const zarinpalProvider: BillingProviderHandler = {
         return { success: false, latencyMs: Date.now() - start, error: 'Invalid merchant ID' };
       }
       return { success: true, latencyMs: Date.now() - start };
-    } catch (e: any) {
-      return { success: false, latencyMs: Date.now() - start, error: e.message };
+    } catch (e: unknown) {
+      return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };
     }
   },
 };

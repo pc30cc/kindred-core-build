@@ -199,9 +199,10 @@ describe('sep verifyPayment', () => {
   const VERIFY_URL = 'https://sep.shaparak.ir/verifyTxnRandomSessionkey/ipg/VerifyTransaction';
   const verifyParams = { RefNum: 'REFNUM_MOCK_0001' };
 
-  it('posts the verify payload and maps a positive ResultCode to success', async () => {
+  it('posts the verify payload and maps ResultCode 0 to success', async () => {
     const fetchMock = mockJson({
-      ResultCode: 1,
+      ResultCode: 0,
+      Success: true,
       TransactionDetail: { RefNum: 'REFNUM_MOCK_0001', OrginalAmount: 250000, AffectiveAmount: 250000 },
     });
     const out = await sepProvider.verifyPayment!(config, verifyParams);
@@ -219,28 +220,37 @@ describe('sep verifyPayment', () => {
     });
   });
 
-  it('keeps the existing ResultCode comparison for every value shape', async () => {
-    const cases: Array<[unknown, boolean]> = [
-      [1, true],
-      [2, true],
-      [0, false],
-      [-1, false],
-      ['1', true],
-      ['0', false],
-      ['oops', false],
-      [true, true],
-      [false, false],
-      [{ code: 1 }, false],
-      [[], false],
-      [null, false],
-      [undefined, false],
+  it('maps SEP ResultCodes strictly: 0 success, 2 already verified, anything else failed', async () => {
+    const cases: Array<[unknown, boolean, string]> = [
+      [0, true, 'success'],
+      [2, true, 'already_verified'],
+      [1, false, 'failed'],
+      [-2, false, 'failed'],
+      [-6, false, 'failed'],
+      [-104, false, 'failed'],
+      ['0', false, 'failed'],
+      ['2', false, 'failed'],
+      ['oops', false, 'failed'],
+      [true, false, 'failed'],
+      [false, false, 'failed'],
+      [{ code: 0 }, false, 'failed'],
+      [[], false, 'failed'],
+      [null, false, 'failed'],
+      [undefined, false, 'failed'],
     ];
-    for (const [ResultCode, verified] of cases) {
+    for (const [ResultCode, verified, status] of cases) {
       mockJson({ ResultCode, TransactionDetail: { OrginalAmount: 250000 } });
       const out = await sepProvider.verifyPayment!(config, verifyParams);
       expect(out.verified).toBe(verified);
-      expect(out.status).toBe(verified ? 'success' : 'failed');
+      expect(out.status).toBe(status);
     }
+  });
+
+  it('an explicit Success=false vetoes ResultCode 0', async () => {
+    mockJson({ ResultCode: 0, Success: false, TransactionDetail: { OrginalAmount: 250000 } });
+    const out = await sepProvider.verifyPayment!(config, verifyParams);
+    expect(out.verified).toBe(false);
+    expect(out.status).toBe('failed');
   });
 
   it('returns OrginalAmount only when it is a finite number', async () => {

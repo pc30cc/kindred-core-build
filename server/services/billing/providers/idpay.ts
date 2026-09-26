@@ -127,11 +127,14 @@ export const idpayProvider: BillingProviderHandler = {
     });
     const data = readIdPayRecord(await readIdPayJson(res, 'verify payment'));
     const status = readIdPayVerifyStatus(data);
+    // 101 = "already verified". It is reported as `already_verified` so the
+    // caller can accept it ONLY for the intent that itself already verified
+    // this payment (idempotent re-callback), never as a fresh success.
     return {
       verified: status === 100 || status === 101,
       providerRef: readIdPayTrackId(data),
       amount: readIdPayVerifiedAmount(data),
-      status: status === 100 ? 'success' : 'failed',
+      status: status === 100 ? 'success' : status === 101 ? 'already_verified' : 'failed',
     };
   },
 
@@ -171,8 +174,8 @@ export const idpayProvider: BillingProviderHandler = {
         return { success: false, latencyMs: Date.now() - start, error: 'Invalid API key' };
       }
       return { success: true, latencyMs: Date.now() - start };
-    } catch (e: any) {
-      return { success: false, latencyMs: Date.now() - start, error: e.message };
+    } catch (e: unknown) {
+      return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };
     }
   },
 };

@@ -15,7 +15,12 @@
 export interface ProviderReferenceContract {
   /** When true, checkout MUST produce a reference and callbacks MUST match it. */
   requiresPaymentReferenceBinding: boolean;
-  /** Callback query keys that may carry this provider's checkout reference. */
+  /**
+   * Callback query keys that carry this provider's checkout reference: the
+   * canonical key plus its spelling variants. For a binding provider EVERY
+   * present key must equal the stored reference, and verify is always called
+   * with all of them overwritten by the stored reference.
+   */
   callbackKeys: string[];
   /** Why binding is not required (only for providers that opt out). */
   reason?: string;
@@ -28,8 +33,10 @@ const CONTRACTS: Record<string, ProviderReferenceContract> = {
   // Internal test gateway echoes the signed `authority` it was created with.
   internal_test:       { requiresPaymentReferenceBinding: true, callbackKeys: ['authority', 'Authority'] },
   // IDPay create returns the payment `id`; callback echoes `id` (+ order_id).
-  idpay:               { requiresPaymentReferenceBinding: true, callbackKeys: ['id', 'track_id', 'trackId'] },
-  idpay_test:          { requiresPaymentReferenceBinding: true, callbackKeys: ['id', 'track_id', 'trackId'] },
+  // `track_id` is IDPay's separate tracking number (a DIFFERENT value), and
+  // verify is keyed by `id`, so only `id` binds.
+  idpay:               { requiresPaymentReferenceBinding: true, callbackKeys: ['id'] },
+  idpay_test:          { requiresPaymentReferenceBinding: true, callbackKeys: ['id'] },
   // Zibal create returns `trackId`; callback echoes `trackId`.
   zibal:               { requiresPaymentReferenceBinding: true, callbackKeys: ['trackId', 'trackid', 'track_id'] },
   // NextPay create returns `trans_id`; callback echoes `trans_id`.

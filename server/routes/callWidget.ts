@@ -299,6 +299,11 @@ async function identifyVisitorForCall(
   // idempotent and re-pins on every call).
   const sb = getServiceClient(config);
   try {
+    // The pre-call form's email/phone are unverified claims. mergeVisitorIdentity
+    // (no verifiedIdentifiers / verifiedStoreIdentity) keeps them on this
+    // visitor's own or a new contact and never resolves an existing contact
+    // by them, so the continuity cookie issued below is always for the
+    // visitor's own contact — never for a customer whose address was typed.
     const merge = await mergeVisitorIdentity(config, sb, {
       workspaceId,
       visitorId,

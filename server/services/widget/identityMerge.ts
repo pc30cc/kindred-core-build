@@ -10,6 +10,13 @@ import type { ServerConfig } from '../../config.js';
 import { resolveVisitorGeo } from '../geo/index.js';
 import { countryNameFromCode, flagEmojiFromCountryCode, precisionRank } from '../geo/countryNames.js';
 import { insertContactWithVisitorCode, backfillVisitorCode } from './visitorCode.js';
+import {
+  findContactByProvenIdentifiers,
+  isContactIdentityConflict,
+  placeUnverifiedIdentifiers,
+  unverifiedKey,
+  type IdentifierColumn,
+} from './claimedIdentity.js';
 
 export interface PreChatIdentityInput {
   name?: string | null;
@@ -23,6 +30,13 @@ export interface MergeOptions {
   identity: PreChatIdentityInput;
   /** Only for server-verified store assertions; reuse an existing customer across devices. */
   verifiedStoreIdentity?: boolean;
+  /**
+   * Only after the visitor PROVED control of `identity.email` / `identity.phone`
+   * (POST /identity/verify/confirm with the delivered code). Without this (or
+   * `verifiedStoreIdentity`) the identifiers are treated as unverified claims:
+   * they never select or link an existing contact — see claimedIdentity.ts.
+   */
+  verifiedIdentifiers?: boolean;
   method: 'cookie' | 'email' | 'phone' | 'token' | 'prechat' | 'manual';
   ipAddress?: string | null;
   /** Country code from Cloudflare's CF-IPCountry header on THIS request
@@ -50,39 +64,6 @@ function normalizePhone(v?: string | null): string | null {
   // Keep + and digits only
   const s = v.trim().replace(/[^\d+]/g, '');
   return s.length >= 4 ? s : null;
-}
-
-/**
- * Find an existing contact by email or phone (deduplication).
- * Email takes precedence over phone.
- */
-async function findExistingContact(
-  supabase: SupabaseClient,
-  workspaceId: string,
-  email: string | null,
-  phone: string | null
-): Promise<{ id: string } | null> {
-  if (email) {
-    const { data } = await supabase
-      .from('contacts')
-      .select('id')
-      .eq('workspace_id', workspaceId)
-      .eq('email', email)
-      .limit(1)
-      .maybeSingle();
-    if (data) return data;
-  }
-  if (phone) {
-    const { data } = await supabase
-      .from('contacts')
-      .select('id')
-      .eq('workspace_id', workspaceId)
-      .eq('phone', phone)
-      .limit(1)
-      .maybeSingle();
-    if (data) return data;
-  }
-  return null;
 }
 
 /**
@@ -224,39 +205,63 @@ export async function mergeVisitorIdentity(
     config, supabase, opts.workspaceId, opts.visitorId, opts.cfCountry ?? null,
   );
 
-  // 1. Try to find existing contact by visitor history first (most accurate continuation)
-  let contact = opts.verifiedStoreIdentity
-    ? await findExistingContact(supabase, opts.workspaceId, email, phone)
+  // SECURITY: an email/phone is only allowed to resolve an EXISTING contact
+  // when it is proven (verify/confirm code, or a signed store assertion).
+  // Visitor-typed values (pre-chat, call-widget pre-call form) are claims:
+  // matching them to an existing contact linked the attacker's visitor to the
+  // victim's contact, which then exposed the victim's PII (/identity/me),
+  // conversation history (/identity/history) and continuity cookie.
+  const proven = opts.verifiedStoreIdentity === true || opts.verifiedIdentifiers === true;
+
+  // 1. The visitor's own contact (visitor history — most accurate continuation).
+  const ownContact = await findContactByVisitorId(supabase, opts.workspaceId, opts.visitorId);
+
+  // 2. Proven identity: the contact that owns the identifier wins (the same
+  //    person on another device). A contact that only CLAIMED it is released.
+  let contact: { id: string } | null = proven
+    ? await findContactByProvenIdentifiers(supabase, opts.workspaceId, email, phone, ownContact?.id ?? null)
     : null;
-  if (!contact) contact = await findContactByVisitorId(supabase, opts.workspaceId, opts.visitorId);
+  if (!contact) contact = ownContact;
   let isNewContact = false;
 
-  // 2. If not found by visitor, try by email/phone (deduplication)
-  if (!contact) {
-    contact = await findExistingContact(supabase, opts.workspaceId, email, phone);
-  }
+  // Where unproven identifiers may be written (own/new contact only; a value
+  // another contact holds is kept as a metadata claim, never linked).
+  const placement = proven
+    ? { email, phone, metadata: {} as Record<string, string> }
+    : await placeUnverifiedIdentifiers(supabase, opts.workspaceId, email, phone, contact?.id ?? null);
 
   // 3. Create new contact if none exists
   if (!contact) {
-    const buildPayload = (visitorCode: string | null) => ({
-      workspace_id: opts.workspaceId,
-      name: name || null,
-      email,
-      phone,
-      visitor_code: visitorCode,
-      metadata: {
-        visitor_id: opts.visitorId,
-        source: 'widget',
-        first_method: opts.method,
-        first_ip: persistableIp,
-        ...geoPatch,
-      },
-    });
-    const { data: created, error } = await insertContactWithVisitorCode(supabase, buildPayload, 'id');
-    if (error || !created) {
-      throw new Error(`contact_insert_failed: ${error?.message || 'unknown'}`);
+    const buildPayloadWith = (cols: { email: string | null; phone: string | null }) =>
+      (visitorCode: string | null) => ({
+        workspace_id: opts.workspaceId,
+        name: name || null,
+        email: cols.email,
+        phone: cols.phone,
+        visitor_code: visitorCode,
+        metadata: {
+          visitor_id: opts.visitorId,
+          source: 'widget',
+          first_method: opts.method,
+          first_ip: persistableIp,
+          ...placement.metadata,
+          ...geoPatch,
+        },
+      });
+    let { data: created, error } = await insertContactWithVisitorCode(
+      supabase, buildPayloadWith({ email: placement.email, phone: placement.phone }), 'id',
+    );
+    if (error && !proven && isContactIdentityConflict(error)) {
+      // Another request took the address after our check — keep the claim in
+      // metadata only; never fall back to that contact.
+      ({ data: created, error } = await insertContactWithVisitorCode(
+        supabase, buildPayloadWith({ email: null, phone: null }), 'id',
+      ));
     }
-    contact = created;
+    if (error || !created) {
+      throw new Error(`contact_insert_failed: ${(error as { message?: string } | null)?.message || 'unknown'}`);
+    }
+    contact = created as { id: string };
     isNewContact = true;
   } else {
     // Update only fields that are currently empty (never overwrite verified data)
@@ -275,10 +280,21 @@ export async function mergeVisitorIdentity(
     const hasRealName = !!existing?.name && existing.name !== 'Visitor';
     const updates: Record<string, unknown> = {};
     if (existing && !hasRealName && name) updates.name = name;
-    if (existing && !existing.email && email) updates.email = email;
-    if (existing && !existing.phone && phone) updates.phone = phone;
+    if (existing && !existing.email && placement.email) updates.email = placement.email;
+    if (existing && !existing.phone && placement.phone) updates.phone = placement.phone;
 
     const meta = (existing?.metadata as Record<string, unknown>) || {};
+    // Claim bookkeeping: record what an unverified visitor typed, and clear
+    // the claim marker once the same value is proven.
+    const claimPatch: Record<string, unknown> = { ...placement.metadata };
+    if (proven) {
+      const provenPairs: Array<[IdentifierColumn, string | null]> = [['email', email], ['phone', phone]];
+      for (const [column, value] of provenPairs) {
+        const key = unverifiedKey(column);
+        if (value && meta[key] === value) claimPatch[key] = null;
+      }
+    }
+    const claimChanged = Object.entries(claimPatch).some(([k, v]) => (meta[k] ?? null) !== v);
     // Never overwrite a location the contact already has (could be
     // manually edited, or simply more precise than this pass's guess) —
     // only fill in whatever's still blank.
@@ -301,18 +317,25 @@ export async function mergeVisitorIdentity(
     // The visitor just identified themselves — the placeholder contact
     // created at conversation start is no longer anonymous.
     const identified = !!(name || email || phone);
-    if (!meta.visitor_id || Object.keys(metaGeoFill).length || (identified && meta.anonymous)) {
+    if (!meta.visitor_id || Object.keys(metaGeoFill).length || (identified && meta.anonymous) || claimChanged) {
       updates.metadata = {
         ...meta,
         visitor_id: opts.visitorId,
         ...metaGeoFill,
+        ...claimPatch,
         ...(identified ? { anonymous: false } : {}),
       };
     }
 
     if (Object.keys(updates).length > 0) {
       updates.updated_at = new Date().toISOString();
-      const { error: updateError } = await supabase.from('contacts').update(updates).eq('id', contact.id);
+      let { error: updateError } = await supabase.from('contacts').update(updates).eq('id', contact.id);
+      if (updateError && !proven && isContactIdentityConflict(updateError)) {
+        // Another contact took the address after our check: keep the claim
+        // in metadata (already in `updates.metadata`) and drop the column.
+        const { email: _droppedEmail, phone: _droppedPhone, ...rest } = updates;
+        ({ error: updateError } = await supabase.from('contacts').update(rest).eq('id', contact.id));
+      }
       if (updateError) throw new Error(`contact_update_failed: ${updateError.message}`);
     }
 
@@ -325,6 +348,15 @@ export async function mergeVisitorIdentity(
     if (!existing?.visitor_code) {
       await backfillVisitorCode(supabase, contact.id);
     }
+  }
+
+  // Proven identity landed on a different contact than the visitor's own
+  // placeholder: move THIS visitor's sessions and their conversations over.
+  // (merge_visitor_into_contact only claims sessions/conversations whose
+  // contact_id is null or already the target, so without this the visitor
+  // would stay pinned to the placeholder.) Unproven input never reaches here.
+  if (proven && ownContact && ownContact.id !== contact.id) {
+    await repointVisitorToContact(supabase, opts.workspaceId, opts.visitorId, ownContact.id, contact.id);
   }
 
   // 4. Atomic merge via SQL function (links sessions + re-links conversations + audit)
@@ -344,6 +376,43 @@ export async function mergeVisitorIdentity(
     conversationsMerged: (mergeResult as { conversations_merged?: number } | null)?.conversations_merged || 0,
     isNewContact,
   };
+}
+
+/**
+ * Move a visitor from `fromContactId` (their placeholder) to `toContactId`
+ * (the contact a PROVEN identity resolved to): their own sessions, and the
+ * conversations started from those sessions that still point at the
+ * placeholder. Scoped to this visitor's sessions so no other visitor's data
+ * moves.
+ */
+async function repointVisitorToContact(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  visitorId: string,
+  fromContactId: string,
+  toContactId: string,
+): Promise<void> {
+  const { data: sessions } = await supabase
+    .from('visitor_sessions')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('visitor_id', visitorId);
+  const sessionIds = ((sessions || []) as Array<{ id: string }>).map((s) => s.id);
+  const { error: sessErr } = await supabase
+    .from('visitor_sessions')
+    .update({ contact_id: toContactId })
+    .eq('workspace_id', workspaceId)
+    .eq('visitor_id', visitorId)
+    .eq('contact_id', fromContactId);
+  if (sessErr) throw new Error(`session_repoint_failed: ${sessErr.message}`);
+  if (sessionIds.length === 0) return;
+  const { error: convErr } = await supabase
+    .from('conversations')
+    .update({ contact_id: toContactId, updated_at: new Date().toISOString() })
+    .eq('workspace_id', workspaceId)
+    .eq('contact_id', fromContactId)
+    .in('visitor_session_id', sessionIds);
+  if (convErr) throw new Error(`conversation_repoint_failed: ${convErr.message}`);
 }
 
 /**

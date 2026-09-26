@@ -22,6 +22,7 @@ import { getServiceClient } from '../supabase.js';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import { checkWorkspaceProviderBaseUrl } from '../../shared/ai/endpointPolicy.js';
 import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
+import { redactEmailLogRows } from '../services/email/redactLogMetadata.js';
 
 export const workspaceIntegrationsRouter = Router();
 
@@ -36,6 +37,12 @@ function chunk<T>(arr: T[], size: number): T[][] {
 }
 
 // ── Email logs ──────────────────────────────────────────────────────────
+// Explicit columns, and `metadata` is redacted on the way out: older rows (and
+// anything written before the insert-side redaction) may hold template data
+// with raw reset/verify links, OTP codes or invite links.
+const EMAIL_LOG_COLUMNS =
+  'id, workspace_id, recipient_email, subject, status, provider_name, error_message, metadata, created_at, sent_at';
+
 const emailLogsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
   status: z.string().max(50).optional(),
@@ -49,14 +56,14 @@ workspaceIntegrationsRouter.get('/:workspaceId/email-logs', async (req, res) => 
   const sb = getServiceClient(config);
   let query = sb
     .from('email_logs')
-    .select('*')
+    .select(EMAIL_LOG_COLUMNS)
     .eq('workspace_id', req.params.workspaceId)
     .order('created_at', { ascending: false })
     .limit(parsed.data.limit);
   if (parsed.data.status) query = query.eq('status', parsed.data.status);
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ logs: data });
+  return res.json({ logs: redactEmailLogRows(data) });
 });
 
 // ── Contact channel badges + call history ──────────────────────────────

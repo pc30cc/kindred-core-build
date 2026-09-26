@@ -1,10 +1,18 @@
 /**
  * Widget Module: Realtime — Supabase Realtime driver.
  *
- * Subscribes to Supabase Broadcast channels using the SAME channel name
- * (`ws:<workspace_id>:conv:<cid>`) and SAME envelope shape
+ * Consumes the SAME envelope shape
  * (`{ type: 'message' | 'typing' | 'seen', payload: {...} }`) used by
  * Centrifugo end-to-end, so the widget UI consumes one stable contract.
+ *
+ * SECURITY — Supabase Broadcast channels are public (anon key, no Supabase
+ * Auth), so the canonical channel name (`ws:<workspace_id>:conv:<cid>`) is
+ * NEVER joined directly: it is guessable. The server publishes on an
+ * unguessable HMAC-derived topic and hands it out only via
+ * POST /api/realtime/subscribe (`transport: 'supabase'`), after checking the
+ * widget session AND that this visitor (signed HttpOnly cookie) owns the
+ * conversation. No topic → no realtime for that conversation; polling
+ * remains the safety net.
  *
  * Loads `@supabase/supabase-js` from a public CDN (esm.sh) on demand.
  * The anon key is already a public/publishable key — exposing it to the
@@ -105,6 +113,7 @@
     var manuallyClosed = false;
     var subscribedConversation = null;
     var channels = {}; // channel name → realtime channel handle
+    var pendingBinds = {}; // channel name → true while its topic is being fetched
     var connected = false;
 
     var capabilities = Object.assign({
@@ -129,6 +138,41 @@
 
     function setState(s) {
       if (hooks.onConnectionState) hooks.onConnectionState(s);
+    }
+
+    // Widget session token — always read the CANONICAL latest value from the
+    // shared token bus (same rule as the centrifugo driver).
+    function currentToken() {
+      try {
+        var bus = (typeof window !== 'undefined') ? window.__gs_token : null;
+        var t = bus && bus.get && bus.get();
+        if (t) return t;
+      } catch (_) {}
+      return ctx.sessionToken || '';
+    }
+
+    /**
+     * Ask the backend for the concrete (unguessable) topic of this
+     * conversation. Resolves with the topic string, or null when the server
+     * refuses (not this visitor's conversation, no secret configured, …).
+     */
+    function fetchTopic(cid) {
+      if (typeof fetch !== 'function' || !ctx.apiBase) return Promise.resolve(null);
+      var expectedPrefix = buildChannel(cid) + ':';
+      return fetch(ctx.apiBase + '/api/realtime/subscribe', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': currentToken() },
+        body: JSON.stringify({ workspace_id: ctx.workspaceId, conversation_id: cid, transport: 'supabase' }),
+      })
+        .then(function (r) { return r && r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (!data || data.vendor !== 'supabase' || typeof data.topic !== 'string') return null;
+          // Only ever join a topic the server derived for THIS conversation.
+          if (data.topic.indexOf(expectedPrefix) !== 0) return null;
+          return data.topic;
+        })
+        .catch(function () { return null; });
     }
 
     function ensureClient() {
@@ -172,8 +216,25 @@
 
     function bindChannel(cid) {
       var name = buildChannel(cid);
-      if (channels[name]) return;
-      var ch = client.channel(name, { config: { broadcast: { self: false, ack: false } } });
+      if (channels[name] || pendingBinds[name]) return;
+      pendingBinds[name] = true;
+      fetchTopic(cid).then(function (topic) {
+        delete pendingBinds[name];
+        // Unsubscribed / disconnected while the topic was in flight.
+        if (manuallyClosed || !client || subscribedConversation !== cid || channels[name]) return;
+        if (!topic) {
+          log('[rt:supabase] no topic for conversation — staying on polling');
+          if (hooks.fallbackToPolling) hooks.fallbackToPolling('supabase_topic_unavailable');
+          return;
+        }
+        joinTopic(name, topic);
+      });
+    }
+
+    function joinTopic(name, topic) {
+      var ch = client.channel(topic, { config: { broadcast: { self: false, ack: false } } });
+      // Track the handle immediately so unbind/disconnect can always remove it.
+      channels[name] = ch;
 
       ch.on('broadcast', { event: 'message' }, function (msg) {
         var payload = unwrapPayload(msg);
@@ -215,6 +276,7 @@
 
       ch.subscribe(function (status) {
         if (status === 'SUBSCRIBED') {
+          if (ch.__gsRemoved) return; // unbound / disconnected meanwhile
           channels[name] = ch;
           if (!connected) {
             connected = true;
@@ -228,7 +290,7 @@
           }
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
           log('[rt:supabase] channel ' + name + ' status=' + status);
-          delete channels[name];
+          if (channels[name] === ch) delete channels[name];
           if (!manuallyClosed && status !== 'CLOSED') {
             // Soft-degrade — let the runtime escalate to polling fallback if
             // nothing recovers. supabase-js auto-reconnects internally for
@@ -243,6 +305,7 @@
       var name = buildChannel(cid);
       var ch = channels[name];
       if (!ch) return;
+      ch.__gsRemoved = true;
       try { client && client.removeChannel(ch); } catch (_) {}
       delete channels[name];
     }
@@ -273,9 +336,11 @@
         manuallyClosed = true;
         var names = Object.keys(channels);
         for (var i = 0; i < names.length; i++) {
+          channels[names[i]].__gsRemoved = true;
           try { client && client.removeChannel(channels[names[i]]); } catch (_) {}
         }
         channels = {};
+        pendingBinds = {};
         connected = false;
         if (client && client.realtime && client.realtime.disconnect) {
           try { client.realtime.disconnect(); } catch (_) {}

@@ -139,7 +139,11 @@ describe('ensureVisitorContact — visitor_code stability', () => {
     expect(state.contacts[0].visitor_code).toBeTruthy();
   });
 
-  it('adopts the contact created by a concurrent email insert instead of returning null', async () => {
+  // Updated for C6 (visitor identity takeover): adopting the race winner is
+  // only correct for a PROVEN identity (signed store assertion). A visitor-
+  // typed email must never adopt another contact — see the next test and
+  // src/test/security/widgetClaimedIdentityTakeover.test.ts.
+  it('adopts the contact created by a concurrent email insert instead of returning null (proven identity only)', async () => {
     let lookups = 0;
     const winner = {
       id: 'contact-race-winner', workspace_id: WS,
@@ -186,9 +190,56 @@ describe('ensureVisitorContact — visitor_code stability', () => {
       visitorId: 'visitor-race',
       sessionId: 'session-race',
       email: winner.email,
+      identityVerified: true,
     });
 
     expect(id).toBe(winner.id);
+  });
+
+  it('an UNVERIFIED email that loses the unique-index race keeps its own new contact (claim in metadata), never the winner', async () => {
+    const inserted: any[] = [];
+    const winner = { id: 'contact-race-winner', workspace_id: WS, email: 'victim@example.com', metadata: {} };
+    const sb: any = {
+      from(table: string) {
+        if (table === 'visitor_sessions') {
+          const c: any = { update() { return c; }, eq() { return c; }, is() { return c; }, then: (r: any) => r({ data: [], error: null }) };
+          return c;
+        }
+        const filters: Record<string, any> = {};
+        const chain: any = {
+          select() { return chain; },
+          eq(col: string, val: any) { filters[col] = val; return chain; },
+          contains() { return chain; },
+          limit() { return chain; },
+          // The pre-insert holder check misses (the winner lands afterwards).
+          maybeSingle: async () => ({ data: null }),
+          insert(payload: any) {
+            const insertChain: any = {
+              select() { return insertChain; },
+              single: async () => {
+                if (payload.email === winner.email) {
+                  return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "contacts_workspace_email_unique_not_blank"' } };
+                }
+                inserted.push(payload);
+                return { data: { id: 'own-new-contact' }, error: null };
+              },
+            };
+            return insertChain;
+          },
+        };
+        return chain;
+      },
+    };
+
+    const id = await ensureVisitorContact(sb, {
+      workspaceId: WS, visitorId: 'attacker-visitor', sessionId: 'attacker-session', email: winner.email,
+    });
+
+    expect(id).toBe('own-new-contact');
+    expect(id).not.toBe(winner.id);
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0].email).toBeNull();
+    expect(inserted[0].metadata.unverified_email).toBe(winner.email);
   });
 
   it('does not create a new contact for the backfill — same row, same id', async () => {

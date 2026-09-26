@@ -47,6 +47,13 @@ import { buildCancelAtPeriodEndPatch, decideResume } from '../services/billing/c
 import { resolveWorkspaceAppUrl } from '../services/auth-email.js';
 import { requiresReferenceBinding } from '../services/billing/providerBinding.js';
 import {
+  buildBoundVerifyParams,
+  buildGatewayVerificationMarker,
+  evaluateGatewayVerification,
+  expectedIntentAmountIrr,
+  resolveIrrPlanPrice,
+} from '../services/billing/gatewayVerification.js';
+import {
   applySubscriptionPayment,
   recordCustomerPayment,
 } from '../services/billing/applyPayment.js';
@@ -341,7 +348,8 @@ const invoicePreviewSchema = z.object({
   workspaceId: z.string().uuid(),
   planId: z.string(),
   interval: z.enum(['monthly', 'yearly']).default('monthly'),
-  currency: z.string().default('IRR'),
+  /** Iranian gateways always price in IRR; any other value is rejected. */
+  currency: z.string().optional(),
 });
 
 billingRouter.post('/invoice-preview', async (req, res) => {
@@ -358,8 +366,13 @@ billingRouter.post('/invoice-preview', async (req, res) => {
       return res.status(400).json({ error: 'INVOICE_PREVIEW_UNSUPPORTED_PROVIDER' });
     }
 
+    // Iranian gateways charge Rial: a client-chosen currency must never pick
+    // the price whose number is then charged as `amount_irr`.
+    if (input.currency && input.currency.trim().toUpperCase() !== 'IRR') {
+      return res.status(400).json({ error: 'CURRENCY_NOT_SUPPORTED' });
+    }
+
     const supabase = createClient(url, key);
-    const currency = input.currency.toUpperCase();
     const { data: plan } = await supabase
       .from('billing_plans')
       .select('id, name, prices, sort_order')
@@ -368,7 +381,8 @@ billingRouter.post('/invoice-preview', async (req, res) => {
       .maybeSingle();
     if (!plan) return res.status(400).json({ error: 'Unknown plan' });
 
-    const amount = Number((plan.prices as PlanPrices | null)?.[currency]?.[input.interval]);
+    const price = resolveIrrPlanPrice(plan.prices, input.interval, input.currency);
+    const amount = 'amountIrr' in price ? price.amountIrr : Number.NaN;
     if (!Number.isFinite(amount) || amount <= 0) {
       return res.status(400).json({ error: 'FREE_PLAN_NO_CHECKOUT' });
     }
@@ -491,7 +505,12 @@ const checkoutSchema = z.object({
   workspaceId: z.string().uuid(),
   planId: z.string(),
   interval: z.enum(['monthly', 'yearly']).default('monthly'),
-  currency: z.string().default('USD'),
+  /**
+   * Price currency for non-Iranian providers (default USD). Iranian gateways
+   * always charge IRR: the client value is ignored when absent/IRR and
+   * rejected otherwise.
+   */
+  currency: z.string().optional(),
   callbackUrl: z.string().url(),
   customerEmail: z.string().email().optional(),
   customerName: z.string().optional(),
@@ -527,8 +546,15 @@ billingRouter.post('/checkout', async (req, res) => {
     const resolved = await resolveBillingConfig(url, key, input.workspaceId);
     if (!resolved) return res.status(400).json({ error: 'No billing provider configured' });
 
+    const iranProvider = IRAN_PROVIDERS.has(resolved.provider.name);
+    // Iranian gateways charge the number as Rial (`amount_irr`), so the price
+    // key is ALWAYS IRR — never the client's choice.
+    if (iranProvider && input.currency && input.currency.trim().toUpperCase() !== 'IRR') {
+      return res.status(400).json({ error: 'CURRENCY_NOT_SUPPORTED' });
+    }
+    const currency = iranProvider ? 'IRR' : (input.currency || 'USD').trim().toUpperCase();
+
     const supabase = createClient(url, key);
-    const currency = input.currency.toUpperCase();
     const { data: plan } = await supabase
       .from('billing_plans')
       .select('id, prices')
@@ -536,7 +562,13 @@ billingRouter.post('/checkout', async (req, res) => {
       .eq('is_active', true)
       .maybeSingle();
     if (!plan) return res.status(400).json({ error: 'Unknown plan' });
-    const amount = Number((plan.prices as PlanPrices | null)?.[currency]?.[input.interval]);
+    let amount: number;
+    if (iranProvider) {
+      const price = resolveIrrPlanPrice(plan.prices, input.interval, currency);
+      amount = 'amountIrr' in price ? price.amountIrr : Number.NaN;
+    } else {
+      amount = Number((plan.prices as PlanPrices | null)?.[currency]?.[input.interval]);
+    }
     if (!Number.isFinite(amount) || amount < 0) {
       return res.status(400).json({ error: `Plan has no ${currency} price for interval ${input.interval}` });
     }
@@ -555,7 +587,7 @@ billingRouter.post('/checkout', async (req, res) => {
     let callbackUrl = input.callbackUrl;
     let intentId: string | undefined;
     let invoiceNumber: string | null = null;
-    if (IRAN_PROVIDERS.has(resolved.provider.name)) {
+    if (iranProvider) {
       let intent: PaymentIntentRow | null = null;
       if (input.intentId) {
         // Reuse the invoice the customer already saw — but only when it still
@@ -764,10 +796,16 @@ billingRouter.post('/verify-callback', async (req, res) => {
         return res.status(400).json({ error: 'REFERENCE_MISMATCH' });
       }
 
-      const result = await provider.verifyPayment(resolved.config, {
-        ...params,
-        amount: String(intent.amount_irr),
-      });
+      const intentV2 = intent as PaymentIntentRow & IntentV2Fields;
+      const expectedAmountIrr = expectedIntentAmountIrr(intentV2);
+
+      // Ask the gateway about EXACTLY the transaction bound to this intent:
+      // every reference key is the stored `provider_ref` (never a value taken
+      // from the callback query) and the amount is the server amount.
+      const result = await provider.verifyPayment(
+        resolved.config,
+        buildBoundVerifyParams(intent, params, expectedAmountIrr),
+      );
       if (!result.verified) {
         await markPaymentIntentFailed(cfg, intent.id, 'gateway_not_verified');
         await releaseIntentCollections(cfg, intent.id, 'gateway_not_verified');
@@ -779,8 +817,41 @@ billingRouter.post('/verify-callback', async (req, res) => {
         return res.json({ success: true, ...result });
       }
 
-      // pending → processing (or resume a crashed finalization).
-      const claim = await claimIntentForProcessing(cfg, intent.id);
+      // The gateway said "verified" — now prove it is THIS intent's money:
+      // the gateway-confirmed amount must equal the expected amount, and an
+      // "already verified" answer is only accepted for an intent that itself
+      // already passed verification (idempotent re-callback).
+      const decision = evaluateGatewayVerification(intentV2, result);
+      if ('reason' in decision) {
+        if (decision.reason === 'gateway_already_verified_unbound' ||
+            decision.reason === 'gateway_already_verified_reference_mismatch') {
+          // Never finalize; leave the intent untouched for reconciliation.
+          logBillingSafeError({
+            intentId: intent.id, workspaceId, providerName,
+            stage: 'gateway_verify', safeErrorCode: 'GATEWAY_ALREADY_VERIFIED_UNBOUND',
+          });
+          return res.status(409).json({ error: 'PAYMENT_ALREADY_VERIFIED' });
+        }
+        await markPaymentIntentFailed(cfg, intent.id, decision.reason);
+        await releaseIntentCollections(cfg, intent.id, decision.reason);
+        logBillingSafeError({
+          intentId: intent.id, workspaceId, providerName,
+          stage: 'gateway_verify', safeErrorCode: 'GATEWAY_AMOUNT_MISMATCH',
+        });
+        return res.status(400).json({ error: 'PAYMENT_AMOUNT_MISMATCH' });
+      }
+      const confirmedAmountIrr = decision.confirmedAmountIrr;
+
+      // pending → processing (or resume a crashed finalization). The claim
+      // records the verification so a later "already verified" answer can be
+      // tied back to this intent.
+      const claim = await claimIntentForProcessing(cfg, intent.id, {
+        verification: buildGatewayVerificationMarker(
+          result.providerRef || null,
+          confirmedAmountIrr,
+        ),
+        baseMetadata: intent.metadata,
+      });
       if (claim.claimed === false) {
         if (claim.reason === 'in_flight') {
           // Another request is finalizing right now — genuinely pending.
@@ -805,7 +876,6 @@ billingRouter.post('/verify-callback', async (req, res) => {
       // cutover policy guarantees no BOUND legacy intent survives activation,
       // so reaching this branch means something is wrong. The money is parked
       // for reconciliation instead of being applied or discarded.
-      const intentV2 = intent as PaymentIntentRow & IntentV2Fields;
       const intentEngine = intentV2.billing_engine_version === 'v2' ? 'v2' : 'v1';
       const invoiceId = intentV2.invoice_id;
       const walletDepositId = intentV2.wallet_deposit_id;
@@ -824,7 +894,7 @@ billingRouter.post('/verify-callback', async (req, res) => {
             providerPaymentId: providerRef,
             paymentIntentId: intent.id,
             invoiceNumber: intent.invoice_number,
-            amount: intent.amount_irr,
+            amount: confirmedAmountIrr,
             currency: 'IRR',
             purchaseType: 'wallet_deposit',
             actionType: 'wallet_deposit',
@@ -833,7 +903,7 @@ billingRouter.post('/verify-callback', async (req, res) => {
           // Idempotent per deposit: a replayed callback credits nothing twice.
           await applyWalletDeposit(cfg, {
             depositId: walletDepositId,
-            amountIrr: Number(intentV2.expected_amount_irr ?? intent.amount_irr),
+            amountIrr: confirmedAmountIrr,
             paymentId: payment.id,
           });
         } catch (depositError: unknown) {
@@ -862,7 +932,7 @@ billingRouter.post('/verify-callback', async (req, res) => {
           providerPaymentId: providerRef,
           paymentIntentId: intent.id,
           invoiceNumber: intent.invoice_number,
-          amount: intent.amount_irr,
+          amount: confirmedAmountIrr,
           currency: 'IRR',
           purchaseType: intent.purchase_type === 'ai_credit_topup' ? 'ai_credit_topup' : 'subscription',
           actionType: intent.action_type || 'plan_new',
@@ -898,7 +968,7 @@ billingRouter.post('/verify-callback', async (req, res) => {
             providerPaymentId: providerRef,
             paymentIntentId: intent.id,
             invoiceNumber: intent.invoice_number,
-            amount: intent.amount_irr,
+            amount: confirmedAmountIrr,
             currency: 'IRR',
             purchaseType: intent.purchase_type === 'ai_credit_topup' ? 'ai_credit_topup' : 'subscription',
             actionType: intent.action_type || 'plan_new',
@@ -907,13 +977,13 @@ billingRouter.post('/verify-callback', async (req, res) => {
           await settleAndApply(cfg, {
             invoiceId,
             paymentId: payment.id as string,
-            amountIrr: Number(intentV2.expected_amount_irr ?? intent.amount_irr),
+            amountIrr: confirmedAmountIrr,
             commandKey: `intent:${intent.id}`,
           });
         } else if (intent.purchase_type === 'ai_credit_topup') {
           await aiLedger.purchaseCredit(cfg, {
             workspaceId,
-            amount: String(intent.amount_irr),
+            amount: String(confirmedAmountIrr),
             commandKey: `intent:${intent.id}`,
             reason: 'ai_credit_topup',
           });
@@ -923,7 +993,7 @@ billingRouter.post('/verify-callback', async (req, res) => {
             providerPaymentId: providerRef,
             paymentIntentId: intent.id,
             invoiceNumber: intent.invoice_number,
-            amount: intent.amount_irr,
+            amount: confirmedAmountIrr,
             currency: 'IRR',
             purchaseType: 'ai_credit_topup',
             actionType: 'ai_credit_topup',
@@ -934,7 +1004,7 @@ billingRouter.post('/verify-callback', async (req, res) => {
             event_type: 'ai_credit_topup',
             provider_name: providerName,
             provider_event_id: providerRef || undefined,
-            amount: intent.amount_irr,
+            amount: confirmedAmountIrr,
             currency: 'IRR',
             status: 'success',
             metadata: { intentId: intent.id },
@@ -953,7 +1023,7 @@ billingRouter.post('/verify-callback', async (req, res) => {
             providerPaymentId: providerRef,
             paymentIntentId: intent.id,
             invoiceNumber: intent.invoice_number,
-            amount: intent.amount_irr,
+            amount: confirmedAmountIrr,
             currency: 'IRR',
             purchaseType: 'subscription',
             actionType: applied.actionType,
@@ -973,7 +1043,7 @@ billingRouter.post('/verify-callback', async (req, res) => {
             event_type: 'payment_succeeded',
             provider_name: providerName,
             provider_event_id: providerRef || intent.id,
-            amount: intent.amount_irr,
+            amount: confirmedAmountIrr,
             currency: 'IRR',
             status: 'success',
             metadata: { intentId: intent.id, actionType: applied.actionType },

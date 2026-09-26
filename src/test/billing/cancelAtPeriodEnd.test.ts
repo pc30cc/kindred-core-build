@@ -96,7 +96,8 @@ describe('resume', () => {
   it('refuses once the period has ended', () => {
     const d = decideResume({ status: 'canceled', cancel_at_period_end: true, current_period_end: PAST }, NOW);
     expect(d.ok).toBe(false);
-    if (d.ok) return;
+    // `in` narrowing: the app tsconfig is not strict, so `if (d.ok)` does not narrow the union.
+    if (!('code' in d)) return;
     expect(d.code).toBe('SUBSCRIPTION_PERIOD_ENDED');
     const a = decideResume({ status: 'active', cancel_at_period_end: true, current_period_end: PAST }, NOW);
     expect(a.ok).toBe(false);
@@ -105,7 +106,8 @@ describe('resume', () => {
   it('refuses a subscription that was canceled outright (not at period end)', () => {
     const d = decideResume({ status: 'expired', cancel_at_period_end: false, current_period_end: FUTURE }, NOW);
     expect(d.ok).toBe(false);
-    if (d.ok) return;
+    // `in` narrowing: the app tsconfig is not strict, so `if (d.ok)` does not narrow the union.
+    if (!('code' in d)) return;
     expect(d.code).toBe('SUBSCRIPTION_NOT_RESUMABLE');
   });
 });

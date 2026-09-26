@@ -329,6 +329,14 @@ app.use((req, res, next) => {
 });
 app.use(cookieParser()); // Parse signed visitor cookies (HttpOnly dvsid)
 
+// Health (no rate limit), ahead of the IP block on purpose: it is the
+// container's liveness probe, and the IP block does a database lookup that
+// fails closed. Behind it, a database blip turned every probe into a 503, so
+// an orchestrator marked a perfectly live API unhealthy and stopped routing
+// to it — an outage of everything instead of only the database-backed parts.
+// Nothing under /api/health reads data or discloses configuration.
+app.use('/api/health', healthRouter);
+
 // Global: IP blocking check
 app.use('/api/', ipBlockMiddleware());
 
@@ -336,9 +344,6 @@ app.use('/api/', ipBlockMiddleware());
 app.use('/api/', abuseDetectionMiddleware());
 
 // ─── Routes with per-endpoint rate limiting ──────────────────────
-
-// Health (no rate limit)
-app.use('/api/health', healthRouter);
 
 // Host-side backup agent reporting. Token-authenticated inside the router and
 // disabled entirely unless BACKUP_AGENT_TOKEN is configured. Read/write of

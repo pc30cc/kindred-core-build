@@ -59,10 +59,22 @@
   // Util
   // ════════════════════════════════════════════════════════════════════
   var Util = {
+    /**
+     * Safe for element content AND for quoted attribute values.
+     *
+     * The output is placed inside `"…"` attributes throughout the templates
+     * (title, alt, src, data-*), so quotes must be escaped too — the old
+     * textContent→innerHTML trick left `"` and `'` intact, which let a
+     * visitor/operator-supplied value break out of the attribute.
+     */
     escapeHtml: function (text) {
-      var div = document.createElement('div');
-      div.textContent = text == null ? '' : String(text);
-      return div.innerHTML;
+      return (text == null ? '' : String(text)).replace(/[&<>"']/g, function (c) {
+        return c === '&' ? '&amp;'
+          : c === '<' ? '&lt;'
+          : c === '>' ? '&gt;'
+          : c === '"' ? '&quot;'
+          : '&#39;';
+      });
     },
     /**
      * `null` for anything that is not an ordinary web link.

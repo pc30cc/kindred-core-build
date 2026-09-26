@@ -44,6 +44,27 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 /**
+ * Own-key lookup in a constant map. `status` arrives over the wire, so a
+ * value like `constructor` or `__proto__` must not resolve to an inherited
+ * property and end up interpolated into markup.
+ */
+function lookup(map: Record<string, string>, key: string | null | undefined, fallback: string): string {
+  return key != null && Object.prototype.hasOwnProperty.call(map, key) ? map[key] : fallback;
+}
+
+/**
+ * Escape a value for HTML text content or a quoted attribute. Tooltip
+ * content is handed to Leaflet as an HTML string (innerHTML), and every
+ * dynamic field in it — page URL, city/country, country code — is
+ * visitor-controlled.
+ */
+function escapeHtml(v: unknown): string {
+  return String(v ?? '').replace(/[&<>"']/g, (c) =>
+    c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '"' ? '&quot;' : '&#39;',
+  );
+}
+
+/**
  * Build a Leaflet divIcon for a visitor marker.
  *
  * Shape (not just color) carries the signal: a teardrop pin with a white
@@ -52,7 +73,7 @@ const STATUS_LABEL: Record<string, string> = {
  * Online pins keep a pulsing ground ring at the tip.
  */
 function buildVisitorIcon(status: MapMarker['status'], selected: boolean): L.DivIcon {
-  const color = STATUS_COLORS[status] ?? STATUS_COLORS.unknown;
+  const color = lookup(STATUS_COLORS, status, STATUS_COLORS.unknown);
   const w = selected ? 32 : 26;
   const h = Math.round(w * 1.32);
   const pin = `
@@ -107,24 +128,30 @@ function relTime(iso: string | undefined | null): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-/** Compact, label-driven HTML tooltip with location + status + page. */
-function buildTooltipHtml(m: MapMarker, locale: string): string {
+/**
+ * Compact, label-driven HTML tooltip with location + status + page.
+ * Every dynamic value is HTML-escaped: the result is rendered as markup.
+ */
+export function buildTooltipHtml(m: MapMarker, locale: string): string {
   // Raw HTML string, not a React text node — bidi-isolate the localized
   // place name so it can't be visually reordered by whatever direction the
   // page/tooltip container happens to inherit (see src/lib/bidi.ts).
-  const loc = isolateBidi(
+  // The isolate marks are plain Unicode control characters, so escaping the
+  // wrapped string leaves them intact.
+  const loc = escapeHtml(isolateBidi(
     localizedLocationLabel(
       { city: m.city, country: m.country, country_code: m.country_code },
       locale,
     ) || 'Unknown location',
-  );
-  const statusColor = STATUS_COLORS[m.status] ?? STATUS_COLORS.unknown;
-  const statusLabel = STATUS_LABEL[m.status] ?? 'Unknown';
-  const page = shortPage(m.current_page);
+  ));
+  // Both come from the constant maps above, never from the payload.
+  const statusColor = lookup(STATUS_COLORS, m.status, STATUS_COLORS.unknown);
+  const statusLabel = escapeHtml(lookup(STATUS_LABEL, m.status, 'Unknown'));
+  const page = escapeHtml(shortPage(m.current_page));
   const flag = m.country_code
-    ? `<span class="vm-flag">${m.country_code.toUpperCase()}</span>`
+    ? `<span class="vm-flag">${escapeHtml(String(m.country_code).toUpperCase())}</span>`
     : '';
-  const when = relTime(m.last_activity_at);
+  const when = escapeHtml(relTime(m.last_activity_at));
   return `
     <div class="vm-tip">
       <div class="vm-tip-row vm-tip-head">

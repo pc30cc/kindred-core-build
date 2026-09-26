@@ -26,7 +26,14 @@
     var config = env.config || {};
     var workspaceName = String(config.workspaceName || config.brandName || '');
     var Util = {
-      escapeHtml: env.escapeHtml || function (v) { return String(v == null ? '' : v); },
+      // Core always supplies this; the fallback still escapes (including
+      // quotes, since output lands inside "…" attributes) so a template
+      // mounted without it can never emit raw markup.
+      escapeHtml: env.escapeHtml || function (v) {
+        return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+      },
       // Core supplies this. The fallback escapes and links nothing, which is
       // the behaviour this template had before links were rendered at all —
       // never a hand-rolled linkifier, because the scheme allow-list that
@@ -620,7 +627,7 @@
           html += renderRoutingOutcomeRow(m); return;
         }
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
-        var bg = m.sender === 'visitor' ? 'style="background:' + ctx.primaryColor + '"' : '';
+        var bg = m.sender === 'visitor' ? 'style="background:' + esc(ctx.primaryColor) + '"' : '';
         var isAi = m.senderType === 'ai';
         var hasText = m.body && String(m.body).trim().length > 0;
         var attHtml = renderMessageAttachment(m.attachment);
@@ -857,7 +864,7 @@
         (s.title ? '<div class="smart-title">' + esc(s.title) + '</div>' : '') +
         '<div class="smart-body">' + esc(s.body || '') + '</div>' +
         (s.ctaLabel
-          ? '<button type="button" class="smart-cta" data-smart-cta style="background:' + env.primaryColor + '">' +
+          ? '<button type="button" class="smart-cta" data-smart-cta style="background:' + esc(env.primaryColor) + '">' +
               esc(s.ctaLabel) + '</button>'
           : '');
     }
@@ -1006,7 +1013,7 @@
                     (attachCfg.enabled
                       ? '<button type="button" class="attach-btn" data-attach-btn title="' + esc(t('attachFile') || 'Attach file') +
                           '" aria-label="' + esc(t('attachFile') || 'Attach file') + '">' + ICON.attach + '</button>' +
-                        '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
+                        '<input type="file" data-attach-input hidden accept="' + esc((attachCfg.allowedMimes || []).join(',')) + '" />'
                       : '') +
                     (emojiEnabled
                       ? '<button type="button" class="emoji-btn" data-emoji-btn aria-expanded="false" title="' + esc(t('emojiPicker')) +

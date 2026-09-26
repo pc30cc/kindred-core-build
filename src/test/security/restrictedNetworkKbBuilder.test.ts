@@ -117,7 +117,7 @@ describe('restricted network — KB Builder AI generation', () => {
       locale: 'en',
       pages_failed: 0,
       plan_snapshot: { maxPages: 1, maxDepth: 0, maxArticles: 1 },
-    };
+    } as unknown as Parameters<typeof processJob>[2];
 
     await processJob(fakeSb as unknown as Parameters<typeof processJob>[0], env, job);
 

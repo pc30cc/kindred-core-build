@@ -92,6 +92,9 @@ protocol WebyarAPI: Sendable {
     func hangUp(callSessionID: String) async throws
 
     func entitlements(workspaceID: String) async throws -> Entitlements
+    /// The operator's role and the AI and call-center switches, read side by
+    /// side. Never fails: whatever cannot be read stays nil (and so off).
+    func workspaceAccess(workspaceID: String) async -> WorkspaceAccess
 
     func account() async throws -> Account
     func updateProfile(fullName: String?, preferredLocale: String?) async throws -> Account

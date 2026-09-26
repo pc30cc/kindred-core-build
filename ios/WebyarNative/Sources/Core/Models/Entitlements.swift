@@ -91,3 +91,80 @@ enum EntitlementsState: Sendable {
         }
     }
 }
+
+/// What the operator's role and the platform's switches add to the plan — the
+/// web's `SectionContext` (src/hooks/useWorkspaceSections.ts), read alongside
+/// the snapshot the way the desktop apps read it.
+///
+/// Each value is nil until it is read, and stays nil when it cannot be read:
+/// both hide what depends on it (fail closed), because every gate asks for
+/// exactly `true`.
+struct WorkspaceAccess: Sendable, Equatable {
+    /// owner, admin, agent… from `GET /api/workspaces/:id/role`.
+    var role: String?
+    /// `GET /api/ai-agent/capabilities`: the AI agent is on for this workspace.
+    var aiAgentEnabled: Bool?
+    /// The same: Super Admin shows the AI agent to this workspace's customers.
+    var aiCustomerVisible: Bool?
+    /// The same: the AI answers visitors by itself.
+    var aiAutoAnswer: Bool?
+    /// `GET /api/call-center/capabilities`: `workspace_call_center_visible`.
+    var callCenterVisible: Bool?
+
+    static let unknown = WorkspaceAccess()
+
+    /// Owners and admins: the web's admin-only sections (the mailbox, the
+    /// other inboxes…) are theirs alone.
+    var isAdmin: Bool { role == "owner" || role == "admin" }
+
+    /// The web's `aiQueueVisible`, given the plan's `inbox_ai_queue`: the AI
+    /// switched on and shown to customers, and either answering by itself or
+    /// already holding threads.
+    func aiQueueVisible(inPlan: Bool, automated: Int?) -> Bool {
+        inPlan && aiAgentEnabled == true && aiCustomerVisible == true
+            && (aiAutoAnswer == true || (automated ?? 0) > 0)
+    }
+}
+
+/// `GET /api/workspaces/:id/role`.
+struct WorkspaceRoleResponse: Decodable, Sendable {
+    let role: String?
+}
+
+/// `GET /api/ai-agent/capabilities` — the flags under `capabilities`, or at the
+/// top level on a server that sends them flat. A value of the wrong kind reads
+/// as unknown rather than failing the whole answer.
+struct AICapabilitiesResponse: Decodable, Sendable {
+    let aiAgentEnabled: Bool?
+    let customerAIAgentVisible: Bool?
+    let autoAnswerEnabled: Bool?
+
+    private enum Keys: String, CodingKey {
+        case capabilities
+        case aiAgentEnabled = "ai_agent_enabled"
+        case customerAIAgentVisible = "customer_ai_agent_visible"
+        case autoAnswerEnabled = "auto_answer_enabled"
+    }
+
+    init(from decoder: Decoder) throws {
+        let root = try decoder.container(keyedBy: Keys.self)
+        let flags = (try? root.nestedContainer(keyedBy: Keys.self, forKey: .capabilities)) ?? root
+        aiAgentEnabled = try? flags.decodeIfPresent(Bool.self, forKey: .aiAgentEnabled)
+        customerAIAgentVisible = try? flags.decodeIfPresent(Bool.self, forKey: .customerAIAgentVisible)
+        autoAnswerEnabled = try? flags.decodeIfPresent(Bool.self, forKey: .autoAnswerEnabled)
+    }
+}
+
+/// `GET /api/call-center/capabilities`.
+struct CallCenterCapabilitiesResponse: Decodable, Sendable {
+    let workspaceCallCenterVisible: Bool?
+
+    private enum Keys: String, CodingKey {
+        case workspaceCallCenterVisible = "workspace_call_center_visible"
+    }
+
+    init(from decoder: Decoder) throws {
+        let root = try decoder.container(keyedBy: Keys.self)
+        workspaceCallCenterVisible = try? root.decodeIfPresent(Bool.self, forKey: .workspaceCallCenterVisible)
+    }
+}

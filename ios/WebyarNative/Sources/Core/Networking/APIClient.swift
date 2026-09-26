@@ -623,6 +623,30 @@ actor APIClient {
         return try await perform(request, as: Entitlements.self)
     }
 
+    /// What the operator's role and the platform add to the plan, the three
+    /// read at once as the desktop apps do. A side request that fails leaves
+    /// its value nil — off — and never fails the plan itself.
+    func workspaceAccess(workspaceID: String) async -> WorkspaceAccess {
+        let query = [URLQueryItem(name: "workspaceId", value: workspaceID)]
+        guard let roleRequest = try? makeRequest("GET", "/api/workspaces/\(workspaceID)/role"),
+              let aiRequest = try? makeRequest("GET", "/api/ai-agent/capabilities", query: query),
+              let callsRequest = try? makeRequest("GET", "/api/call-center/capabilities", query: query)
+        else { return .unknown }
+        async let role = try? await perform(roleRequest, as: WorkspaceRoleResponse.self)
+        async let ai = try? await perform(aiRequest, as: AICapabilitiesResponse.self)
+        async let calls = try? await perform(callsRequest, as: CallCenterCapabilitiesResponse.self)
+        let r = await role
+        let a = await ai
+        let c = await calls
+        return WorkspaceAccess(
+            role: r?.role,
+            aiAgentEnabled: a?.aiAgentEnabled,
+            aiCustomerVisible: a?.customerAIAgentVisible,
+            aiAutoAnswer: a?.autoAnswerEnabled,
+            callCenterVisible: c?.workspaceCallCenterVisible
+        )
+    }
+
     func inboxCounts(workspaceID: String, scope: String = "mine") async throws -> InboxCounts {
         let request = try makeRequest(
             "GET",
@@ -1250,13 +1274,17 @@ enum InboxFilter: String, CaseIterable, Identifiable, Sendable {
     /// needs-human queue are features an operator either has or does not, and
     /// showing a tab that returns nothing because the plan excludes it reads
     /// as a broken app rather than as an upsell.
-    static func available(for entitlements: Entitlements?) -> [InboxFilter] {
+    ///
+    /// `aiQueue` is the web's `aiQueueVisible` (`AppState.aiQueueVisible`): the
+    /// plan's AI queue alone is not enough, the AI has to be on, shown to
+    /// customers, and answering or already holding threads.
+    static func available(for entitlements: Entitlements?, aiQueue: Bool) -> [InboxFilter] {
         var filters: [InboxFilter] = [.open]
         if entitlements?.featureEnabled("inbox_needs_human") == true { filters.append(.needsHuman) }
         // Every plan can put a thread on hold for the customer, so this one
         // is core like Open and Resolved rather than an entitlement.
         filters.append(.pending)
-        if entitlements?.featureEnabled("inbox_ai_queue") == true { filters.append(.ai) }
+        if aiQueue { filters.append(.ai) }
         filters.append(.resolved)
         filters.append(.spam)
         return filters
@@ -1270,10 +1298,8 @@ enum InboxFilter: String, CaseIterable, Identifiable, Sendable {
     /// no room for the counts, and two of them — Resolved and the AI handover
     /// queue — are places you go now and then rather than switch between all
     /// day.
-    static func chips(for entitlements: Entitlements?) -> [InboxFilter] {
-        var filters: [InboxFilter] = [.open]
-        if entitlements?.featureEnabled("inbox_ai_queue") == true { filters.append(.ai) }
-        return filters
+    static func chips(aiQueue: Bool) -> [InboxFilter] {
+        aiQueue ? [.open, .ai] : [.open]
     }
 }
 

@@ -66,7 +66,7 @@ struct InboxView: View {
             }
             // A plan can drop the queue that is currently selected — switching
             // workspace is the ordinary way that happens.
-            .onChange(of: appState.inboxFilters) { _, available in
+            .onChange(of: appState.inboxFilters(automated: model.counts?.automated)) { _, available in
                 model.reconcileFilter(with: available)
             }
             // The same for a channel inbox the plan no longer carries.
@@ -192,7 +192,7 @@ struct InboxView: View {
 
             FilterPicker(
                 selection: $model.filter,
-                filters: appState.inboxChips,
+                filters: appState.inboxChips(automated: model.counts?.automated),
                 counts: model.counts,
                 language: language
             )
@@ -286,7 +286,7 @@ struct InboxView: View {
             // these are three sets that behave as one list — so the mark is
             // put where it belongs by hand.
             Section {
-                ForEach(appState.inboxFilters) { filter in
+                ForEach(appState.inboxFilters(automated: model.counts?.automated)) { filter in
                     Button {
                         model.open(filter)
                     } label: {

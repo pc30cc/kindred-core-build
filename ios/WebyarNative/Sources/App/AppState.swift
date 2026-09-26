@@ -30,6 +30,10 @@ final class AppState {
     /// queue reads this rather than assuming.
     private(set) var entitlements: EntitlementsState = .loading
 
+    /// The operator's role and the AI / call-center switches, read with the
+    /// plan. Unknown (nil) hides whatever depends on it.
+    private(set) var access: WorkspaceAccess = .unknown
+
     /// The operator's own profile row, for the one thing every screen wants
     /// from it: their photograph.
     ///
@@ -226,6 +230,7 @@ final class AppState {
         selectedWorkspace = nil
         planRefresh?.cancel()
         planRefresh = nil
+        access = .unknown
         // Whoever signs in next must not be greeted by the last person's
         // name while the server is being asked who they are.
         SessionCache.clear()
@@ -286,6 +291,7 @@ final class AppState {
         // A different workspace can be on a different plan, so the gates have
         // to be re-resolved before any tab decides whether it exists.
         entitlements = .loading
+        access = .unknown
         Task { await loadPlan() }
     }
 
@@ -298,20 +304,30 @@ final class AppState {
     /// refreshed every three minutes, because Super Admin can change it at any
     /// time and nothing announces it. A refresh that fails keeps the snapshot
     /// already in hand for this workspace, as the web's query does.
+    ///
+    /// The operator's role and the AI and call-center switches are read
+    /// alongside it; one of those that cannot be read is simply off, and never
+    /// fails the plan.
     func loadPlan() async {
         guard let workspaceID = selectedWorkspace?.id else {
             entitlements = .failed
             return
         }
+        async let sideAccess = api.workspaceAccess(workspaceID: workspaceID)
         do {
             let snapshot = try await api.entitlements(workspaceID: workspaceID)
+            let fresh = await sideAccess
             guard selectedWorkspace?.id == workspaceID else { return }
             entitlements = .loaded(snapshot)
+            access = fresh
             planWorkspaceID = workspaceID
         } catch {
+            let fresh = await sideAccess
             guard selectedWorkspace?.id == workspaceID else { return }
+            // A kept snapshot keeps the role and switches read with it.
             if planWorkspaceID != workspaceID || entitlements.value == nil {
                 entitlements = .failed
+                access = fresh
             }
         }
         schedulePlanRefresh(workspaceID)
@@ -352,7 +368,9 @@ final class AppState {
     /// A channel inbox from the plugin catalog (already installed, inbox-capable
     /// and `planAllowed`), as the web's `channelInboxVisible`: a channel the plan
     /// itself governs must be on in the snapshot; any other is the plugin's call.
+    /// "Other inboxes" are an owner/admin surface, as in the console's sidebar.
     func channelInboxVisible(_ inbox: ChannelInbox) -> Bool {
+        guard access.isAdmin else { return false }
         let key = inbox.key.lowercased()
         return !Entitlements.planChannels.contains(key) || entitlements.value?.channelEnabled(key) == true
     }
@@ -364,14 +382,21 @@ final class AppState {
 
     var contactsVisible: Bool { moduleInPlan("contacts") }
 
+    /// The inbox's AI queue, as the web's `aiQueueVisible`: the plan's
+    /// `inbox_ai_queue`, the AI switched on and shown to customers, and either
+    /// answering by itself or already holding threads (`automated`).
+    func aiQueueVisible(automated: Int?) -> Bool {
+        access.aiQueueVisible(inPlan: featureEnabled("inbox_ai_queue"), automated: automated)
+    }
+
     /// The queues this plan includes, in the order they should appear.
-    var inboxFilters: [InboxFilter] {
-        InboxFilter.available(for: entitlements.value)
+    func inboxFilters(automated: Int?) -> [InboxFilter] {
+        InboxFilter.available(for: entitlements.value, aiQueue: aiQueueVisible(automated: automated))
     }
 
     /// The subset of those that stay on the strip above the list.
-    var inboxChips: [InboxFilter] {
-        InboxFilter.chips(for: entitlements.value)
+    func inboxChips(automated: Int?) -> [InboxFilter] {
+        InboxFilter.chips(aiQueue: aiQueueVisible(automated: automated))
     }
 
     /// Whether the internal operator-to-operator inbox belongs in this plan.
@@ -379,7 +404,8 @@ final class AppState {
     /// Same key the console gates its Colleagues tab on.
     var colleaguesVisible: Bool { featureEnabled("inbox_team_chat") }
 
-    /// Whether the mailbox belongs in this plan: the Email Inbox module, exactly
-    /// `true`. An entry that opens onto a 403 is worse than no entry.
-    var emailInboxVisible: Bool { moduleInPlan("email_inbox") }
+    /// Whether the mailbox belongs here: an owner/admin section (as in the
+    /// console's sidebar) whose Email Inbox module is exactly `true`. An entry
+    /// that opens onto a 403 is worse than no entry.
+    var emailInboxVisible: Bool { access.isAdmin && moduleInPlan("email_inbox") }
 }

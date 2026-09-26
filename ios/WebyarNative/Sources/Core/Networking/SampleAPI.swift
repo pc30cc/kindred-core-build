@@ -514,6 +514,13 @@ actor SampleAPI: WebyarAPI {
         )
     }
 
+    /// An owner, with the AI switched on, shown to customers and answering, and
+    /// the call center on — so every section the plan carries is laid out.
+    func workspaceAccess(workspaceID: String) async -> WorkspaceAccess {
+        WorkspaceAccess(role: "owner", aiAgentEnabled: true, aiCustomerVisible: true,
+                        aiAutoAnswer: true, callCenterVisible: true)
+    }
+
     // MARK: - Account
 
     private var profile: AccountProfile {

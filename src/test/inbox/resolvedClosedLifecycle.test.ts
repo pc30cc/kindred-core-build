@@ -14,8 +14,9 @@ import { resolve } from 'node:path';
  * WhatsApp and Instagram cannot drift apart again.
  */
 
-const events: any[] = [];
-const published: any[] = [];
+type Captured = Record<string, unknown> & { payload?: unknown; changes?: unknown };
+const events: Captured[] = [];
+const published: Captured[] = [];
 let rows: Record<string, { status: string }> = {};
 /** Serializes CAS updates the way a Postgres row lock does. */
 let lock: Promise<unknown> = Promise.resolve();
@@ -23,9 +24,17 @@ let lock: Promise<unknown> = Promise.resolve();
 vi.mock('../../../server/supabase.js', () => ({
   getServiceClient: () => ({
     from: (_t: string) => {
-      const state: any = { id: null, ws: null, from: null, patch: null };
-      const api: any = {
-        update(patch: any) { state.patch = patch; return api; },
+      const state: { id: string | null; ws: string | null; from: string | null; patch: { status: string } | null } = {
+        id: null, ws: null, from: null, patch: null,
+      };
+      interface FakeQuery {
+        update(patch: { status: string }): FakeQuery;
+        eq(col: string, val: string): FakeQuery;
+        select(): FakeQuery;
+        maybeSingle(): Promise<unknown>;
+      }
+      const api: FakeQuery = {
+        update(patch: { status: string }) { state.patch = patch; return api; },
         eq(col: string, val: string) {
           if (col === 'id') state.id = val;
           if (col === 'workspace_id') state.ws = val;
@@ -35,9 +44,9 @@ vi.mock('../../../server/supabase.js', () => ({
         select() { return api; },
         maybeSingle() {
           const run = lock.then(() => {
-            const row = rows[state.id];
+            const row = state.id ? rows[state.id] : undefined;
             if (!row || row.status !== state.from) return { data: null, error: null };
-            row.status = state.patch.status;
+            row.status = state.patch?.status ?? row.status;
             return { data: { id: state.id, status: row.status, updated_at: 'now' }, error: null };
           });
           lock = run;
@@ -50,11 +59,11 @@ vi.mock('../../../server/supabase.js', () => ({
 }));
 
 vi.mock('../../../server/services/conversationEvents.js', () => ({
-  recordConversationEvent: async (_c: any, input: any) => { events.push(input); return { ok: true }; },
+  recordConversationEvent: async (_c: unknown, input: Captured) => { events.push(input); return { ok: true }; },
 }));
 
 vi.mock('../../../server/services/realtime/publish.js', () => ({
-  publishOperatorEvent: async (_c: any, p: any) => { published.push(p); },
+  publishOperatorEvent: async (_c: unknown, p: Captured) => { published.push(p); },
 }));
 
 const {
@@ -97,7 +106,7 @@ describe('decision table', () => {
 describe('resolved → open on a real customer message', () => {
   for (const source of ['widget', 'telegram', 'whatsapp', 'bale', 'instagram']) {
     it(`${source}: same conversation, reopened`, async () => {
-      const r = await applyInboundConversationLifecycle({} as any, {
+      const r = await applyInboundConversationLifecycle({} as never, {
         ...base, source, message: customerText(), messageId: 'm1',
       });
       expect(r.transition).toBe('reopened_resolved');
@@ -113,7 +122,7 @@ describe('resolved → open on a real customer message', () => {
   }
 
   it('widget attachment with empty body also reopens', async () => {
-    const r = await reopenConversationIfResolved({} as any, {
+    const r = await reopenConversationIfResolved({} as never, {
       ...base, source: 'widget', message: customerAttachment(),
     });
     expect(r).toEqual({ reopened: true, reason: 'customer_replied_after_resolution' });
@@ -121,7 +130,7 @@ describe('resolved → open on a real customer message', () => {
   });
 
   it('publishes exactly one conversation_updated realtime envelope', async () => {
-    await reopenConversationIfResolved({} as any, { ...base, source: 'widget', message: customerText() });
+    await reopenConversationIfResolved({} as never, { ...base, source: 'widget', message: customerText() });
     expect(published).toHaveLength(1);
     expect(published[0]).toMatchObject({
       kind: 'conversation_updated',
@@ -134,8 +143,8 @@ describe('resolved → open on a real customer message', () => {
 
   it('concurrent customer replies produce ONE transition', async () => {
     const [a, b] = await Promise.all([
-      reopenConversationIfResolved({} as any, { ...base, source: 'telegram', message: customerText('A') }),
-      reopenConversationIfResolved({} as any, { ...base, source: 'telegram', message: customerText('B') }),
+      reopenConversationIfResolved({} as never, { ...base, source: 'telegram', message: customerText('A') }),
+      reopenConversationIfResolved({} as never, { ...base, source: 'telegram', message: customerText('B') }),
     ]);
     expect([a.reopened, b.reopened].filter(Boolean)).toHaveLength(1);
     expect(events).toHaveLength(1);
@@ -144,8 +153,8 @@ describe('resolved → open on a real customer message', () => {
   });
 
   it('duplicate webhook redelivery does not reopen twice', async () => {
-    await reopenConversationIfResolved({} as any, { ...base, source: 'telegram', message: customerText() });
-    const again = await reopenConversationIfResolved({} as any, { ...base, source: 'telegram', message: customerText() });
+    await reopenConversationIfResolved({} as never, { ...base, source: 'telegram', message: customerText() });
+    const again = await reopenConversationIfResolved({} as never, { ...base, source: 'telegram', message: customerText() });
     expect(again).toEqual({ reopened: false, reason: 'not_resolved' });
     expect(events).toHaveLength(1);
   });
@@ -160,7 +169,7 @@ describe('resolved → open on a real customer message', () => {
       { senderType: 'contact', direction: 'inbound' as const, text: '   ' },
     ];
     for (const message of nope) {
-      const r = await reopenConversationIfResolved({} as any, { ...base, message });
+      const r = await reopenConversationIfResolved({} as never, { ...base, message });
       expect(r.reopened).toBe(false);
     }
     expect(rows.c1.status).toBe('resolved');
@@ -172,7 +181,7 @@ describe('resolved → open on a real customer message', () => {
 describe('other statuses are untouched by the resolved path', () => {
   it('open stays open and emits nothing', async () => {
     rows = { c1: { status: 'open' } };
-    const r = await applyInboundConversationLifecycle({} as any, { ...base, message: customerText() });
+    const r = await applyInboundConversationLifecycle({} as never, { ...base, message: customerText() });
     expect(r.transition).toBe('none');
     expect(rows.c1.status).toBe('open');
     expect(events).toHaveLength(0);
@@ -180,7 +189,7 @@ describe('other statuses are untouched by the resolved path', () => {
 
   it('pending still resumes with the unchanged customer_replied reason', async () => {
     rows = { c1: { status: 'pending' } };
-    const r = await applyInboundConversationLifecycle({} as any, {
+    const r = await applyInboundConversationLifecycle({} as never, {
       ...base, source: 'widget', message: customerText(),
     });
     expect(r.transition).toBe('resumed_pending');
@@ -191,7 +200,7 @@ describe('other statuses are untouched by the resolved path', () => {
 
   it('closed is never reopened by the lifecycle helpers', async () => {
     rows = { c1: { status: 'closed' } };
-    const r = await applyInboundConversationLifecycle({} as any, {
+    const r = await applyInboundConversationLifecycle({} as never, {
       ...base, source: 'telegram', message: customerText(),
     });
     expect(r.transition).toBe('none');

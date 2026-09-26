@@ -42,10 +42,7 @@ struct ChatView: View {
     }
 
     private var capabilities: ComposerCapabilities {
-        ComposerCapabilities.resolve(
-            conversation: conversation,
-            entitlements: appState.entitlements.value
-        )
+        ComposerCapabilities.resolve(conversation: conversation)
     }
 
     /// The saved replies, and what their placeholders resolve against.

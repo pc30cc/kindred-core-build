@@ -47,6 +47,7 @@ import com.webyar.operator.core.model.User
 import com.webyar.operator.core.model.VisitorIntelResponse
 import com.webyar.operator.core.model.VisitorProfile
 import com.webyar.operator.core.model.Workspace
+import com.webyar.operator.core.model.WorkspaceAccess
 import com.webyar.operator.core.model.WorkspaceMember
 import com.webyar.operator.core.model.WorkspaceMembersResponse
 import com.webyar.operator.core.model.WorkspacesResponse
@@ -87,11 +88,14 @@ import io.ktor.http.HttpMethod
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import java.io.File
 import java.io.IOException
 
@@ -577,6 +581,23 @@ class ApiClient(
 
     override suspend fun entitlements(workspaceId: String): Entitlements =
         build(HttpMethod.Get, "/api/plans/workspace/${workspaceId.urlPath()}/effective").decode()
+
+    override suspend fun workspaceAccess(workspaceId: String): WorkspaceAccess = coroutineScope {
+        val query = listOf("workspaceId" to workspaceId)
+        val role = async { side { build(HttpMethod.Get, "/api/workspaces/${workspaceId.urlPath()}/role").decode<JsonElement>() } }
+        val ai = async { side { build(HttpMethod.Get, "/api/ai-agent/capabilities", query).decode<JsonElement>() } }
+        val calls = async { side { build(HttpMethod.Get, "/api/call-center/capabilities", query).decode<JsonElement>() } }
+        WorkspaceAccess.from(role.await(), ai.await(), calls.await())
+    }
+
+    /** A side request: its failure is an unknown value, except a lost session. */
+    private suspend fun side(call: suspend () -> JsonElement): JsonElement? =
+        try {
+            call()
+        } catch (e: ApiError) {
+            if (e.isAuthFailure) throw e
+            null
+        }
 
     override suspend fun account(): Account =
         build(HttpMethod.Get, "/api/account/me").decode()

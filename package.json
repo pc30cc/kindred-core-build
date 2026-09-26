@@ -14,7 +14,7 @@
     "lint:changed": "node scripts/lint-changed.mjs",
     "preview": "vite preview",
     "build:smart-engine": "node scripts/build-smart-engine.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "typecheck:server": "tsc -p tsconfig.server.json --noEmit",
     "typecheck:all": "npm run typecheck && npm run typecheck:server",
     "test": "vitest run",

@@ -108,7 +108,11 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'video',       type: 'channel', label: 'Video Calls', group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 80 },
 
   // ─── Boolean feature flags ───
-  { key: 'advanced_ai_agent',     type: 'feature', label: 'Advanced AI Agent',      group: 'ai',       defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 10 },
+  // RESERVED: no server route or app surface reads this flag. The AI Agent
+  // is gated by the `ai_assistant` module; its advanced QA/debug tools are
+  // platform-admin only (customerSafe.ts), never plan-gated. Kept because
+  // production plans may carry the key (design rule 1: never remove).
+  { key: 'advanced_ai_agent',     type: 'feature', label: 'Advanced AI Agent',      group: 'ai',       description: 'Reserved: no feature reads this flag yet, so enabling it grants nothing today. Kept because existing plans may set it.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 10 },
   { key: 'ai_operator_assist',    type: 'feature', label: 'AI Operator Assist',     group: 'ai',       defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 20 },
   { key: 'ai_kb_builder',         type: 'feature', label: 'AI KB Builder',          group: 'ai',       defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 30 },
   { key: 'priority_support',      type: 'feature', label: 'Priority Support',       group: 'support',  defaultValue: false, planConfigurable: true, workspaceOverridable: false, userVisible: true, sortOrder: 10 },

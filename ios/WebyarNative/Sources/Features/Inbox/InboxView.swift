@@ -27,6 +27,8 @@ struct InboxView: View {
 
     private var language: Language { appState.language }
     private var workspaceID: String? { appState.selectedWorkspace?.id }
+    /// The installed channel inboxes the plan lets this workspace work in.
+    private var channelInboxes: [ChannelInbox] { model.channels.filter { appState.channelInboxVisible($0) } }
 
     var body: some View {
         @Bindable var model = model
@@ -73,8 +75,12 @@ struct InboxView: View {
             }
             // A plan can drop the queue that is currently selected — switching
             // workspace is the ordinary way that happens.
-            .onChange(of: appState.inboxFilters) { _, available in
+            .onChange(of: appState.inboxFilters(automated: model.counts?.automated)) { _, available in
                 model.reconcileFilter(with: available)
+            }
+            // The same for a channel inbox the plan no longer carries.
+            .onChange(of: channelInboxes) { _, available in
+                if let channel = model.channel, !available.contains(channel) { model.channel = nil }
             }
             // Notifications, asked for here rather than at launch.
             //
@@ -205,7 +211,7 @@ struct InboxView: View {
 
             FilterPicker(
                 selection: $model.filter,
-                filters: appState.inboxChips,
+                filters: appState.inboxChips(automated: model.counts?.automated),
                 counts: model.counts,
                 language: language
             )
@@ -306,7 +312,7 @@ struct InboxView: View {
             // these are three sets that behave as one list — so the mark is
             // put where it belongs by hand.
             Section {
-                ForEach(appState.inboxFilters) { filter in
+                ForEach(appState.inboxFilters(automated: model.counts?.automated)) { filter in
                     Button {
                         model.open(filter)
                     } label: {
@@ -318,9 +324,9 @@ struct InboxView: View {
                 }
             }
 
-            if !model.channels.isEmpty {
+            if !channelInboxes.isEmpty {
                 Section(Str.otherInboxes(language)) {
-                    ForEach(model.channels) { channel in
+                    ForEach(channelInboxes) { channel in
                         Button {
                             model.open(channel)
                         } label: {

@@ -53,6 +53,8 @@ import com.webyar.operator.core.media.AttachmentRules
 import com.webyar.operator.core.model.CallChannel
 import com.webyar.operator.core.model.CallChannels
 import com.webyar.operator.core.model.CannedText
+import com.webyar.operator.core.model.Entitlements
+import com.webyar.operator.core.model.InboxFilter
 import com.webyar.operator.feature.chat.CannedResponsePicker
 import com.webyar.operator.feature.chat.ChatSheet
 import com.webyar.operator.feature.chat.ChatViewModel
@@ -145,6 +147,7 @@ fun InboxRoute(
 ) {
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
     val plan by appState.entitlements.collectAsStateWithLifecycle()
+    val access by appState.access.collectAsStateWithLifecycle()
     val inbox by conversations.state.collectAsStateWithLifecycle()
     val filter by conversations.filter.collectAsStateWithLifecycle()
     val counts by conversations.counts.collectAsStateWithLifecycle()
@@ -166,6 +169,29 @@ fun InboxRoute(
 
     LaunchedEffect(workspace?.id) {
         workspace?.let { conversations.bind(it.id) }
+    }
+
+    // A screen that lives by the plan: one over three minutes old is asked for again.
+    LaunchedEffect(Unit) { appState.refreshPlanIfStale() }
+
+    // The installed channel inboxes the plan lets this workspace work in (the
+    // web's channelInboxVisible) — an owner/admin surface, as in the console's
+    // sidebar. One that goes away must not stay selected.
+    val visibleChannels = remember(channels, plan, access) {
+        if (!access.isAdmin) emptyList()
+        else channels.filter { Entitlements.channelInboxVisible(plan.value, it.key) }
+    }
+    LaunchedEffect(visibleChannels, channel) {
+        if (channel != null && visibleChannels.none { it.key == channel }) conversations.selectChannel(null)
+    }
+
+    // The queues: the AI queue is the web's aiQueueVisible, which also depends
+    // on the AI switches and on whether it already holds threads.
+    val allFilters = conversations.filters(plan.value, access, counts.automated)
+    val chipFilters = conversations.chips(plan.value, access, counts.automated)
+    // A queue that has just gone away must not stay selected with nothing behind it.
+    LaunchedEffect(allFilters, filter) {
+        if (filter !in allFilters) conversations.select(InboxFilter.OPEN)
     }
 
     // Loaded here and offered here, and nowhere else in the app: the inbox is
@@ -190,10 +216,10 @@ fun InboxRoute(
         modifier = Modifier.statusBarsPadding(),
         contentPadding = PaddingValues(bottom = bottomInset),
         filter = filter,
-        allFilters = conversations.filters(plan.value),
-        chipFilters = conversations.chips(plan.value),
+        allFilters = allFilters,
+        chipFilters = chipFilters,
         counts = counts,
-        channels = channels,
+        channels = visibleChannels,
         selectedChannel = channel,
         intel = intel,
         refreshing = refreshing,
@@ -206,15 +232,14 @@ fun InboxRoute(
         //
         // The keys are the registry's own, checked against
         // `server/services/billing/capabilityRegistry.ts`. They used to be
-        // `team_chat` and `email`, which are not keys at all — and
-        // `moduleInPlan` answers true for a key it has never heard of, so
-        // that a module added server-side does not vanish from an older
-        // build. The effect was both rows showing on every plan, including
-        // the one in front of me whose `email_inbox` is false.
+        // `team_chat` and `email`, which are not keys at all, and so both
+        // rows showed on every plan, including one whose `email_inbox` is
+        // false. Only a key that is exactly true opens a row.
         onOpenColleagues = onOpenColleagues
             .takeIf { plan.value?.featureEnabled("inbox_team_chat") == true },
+        // The mailbox is also an owner/admin section, as in the console's sidebar.
         onOpenEmail = onOpenEmail
-            .takeIf { plan.value?.moduleEnabled("email_inbox") == true },
+            .takeIf { access.isAdmin && plan.value?.moduleEnabled("email_inbox") == true },
         banner = banner?.let { creative ->
             {
                 PromoBanner(
@@ -290,9 +315,7 @@ fun ChatRoute(
         if (graph != null && user != null && ws != null) graph.attachmentSource(CacheScope(user.id, ws)) else null
     }
 
-    val capabilities = remember(conversation, plan) {
-        ComposerCapabilities.resolve(conversation, plan.value)
-    }
+    val capabilities = remember(conversation) { ComposerCapabilities.resolve(conversation) }
     val callChannels = remember(plan) { CallChannels.resolve(plan.value) }
     val aiManaged = capabilities.isAiManaged
 
@@ -633,7 +656,6 @@ fun TeamThreadRoute(
     val thread: TeamThreadViewModel =
         viewModel(factory = viewModelFactory { TeamThreadViewModel(api) { language } })
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
-    val plan by appState.entitlements.collectAsStateWithLifecycle()
     val state by thread.state.collectAsStateWithLifecycle()
     val me by thread.me.collectAsStateWithLifecycle()
     val draft by thread.draft.collectAsStateWithLifecycle()
@@ -702,7 +724,7 @@ fun TeamThreadRoute(
                     language = language,
                     draft = draft,
                     onDraftChange = thread::setDraft,
-                    capabilities = ComposerCapabilities.team(plan.value),
+                    capabilities = ComposerCapabilities.TEAM,
                     sending = sending,
                     onSend = thread::send,
                     onAttachPhoto = {

@@ -22,16 +22,17 @@ enum AIState: String, Sendable {
 
 /// Which composer controls a conversation should offer right now.
 ///
-/// Two independent questions decide this, and both have to say yes:
+/// One question decides this: is a person actually the one replying? While
+/// the AI owns a thread the operator is steering it, not talking to the
+/// visitor — the web replaces the whole composer with its guidance composer
+/// for exactly this reason. Sending a file or a voice note into a conversation
+/// the AI is answering would put content in front of the visitor that the AI
+/// has no idea about.
 ///
-/// 1. Does the workspace's plan include the capability at all?
-/// 2. Is a person actually the one replying?
-///
-/// The second is the important one. While the AI owns a thread the operator is
-/// steering it, not talking to the visitor — the web replaces the whole
-/// composer with its guidance composer for exactly this reason. Sending a file
-/// or a voice note into a conversation the AI is answering would put content
-/// in front of the visitor that the AI has no idea about.
+/// The plan is not asked. Its `widget_attachments`, `widget_voice_notes` and
+/// `widget_emoji` keys (and every other `widget_*` key) govern the
+/// customer-facing website widget, not the operator's composer — the web and
+/// the desktop apps offer these tools whatever the plan says about the widget.
 struct ComposerCapabilities: Sendable, Equatable {
     let canAttach: Bool
     let canRecordVoice: Bool
@@ -42,17 +43,15 @@ struct ComposerCapabilities: Sendable, Equatable {
 
     var hasAnyControl: Bool { canAttach || canRecordVoice || canUseEmoji }
 
-    static func resolve(conversation: Conversation, entitlements: Entitlements?) -> ComposerCapabilities {
+    /// An internal thread between operators: no AI and no visitor, so every tool.
+    static let team = ComposerCapabilities(canAttach: true, canRecordVoice: true, canUseEmoji: true, isAIManaged: false)
+
+    static func resolve(conversation: Conversation) -> ComposerCapabilities {
         let aiManaged = AIState.resolve(conversation) == .aiManaged
-
-        // Fail-closed on the plan: an unresolved snapshot shows nothing rather
-        // than offering a control that would fail on use.
-        let plan = { (key: String) in entitlements?.featureEnabled(key) == true }
-
         return ComposerCapabilities(
-            canAttach: !aiManaged && plan("widget_attachments"),
-            canRecordVoice: !aiManaged && plan("widget_voice_notes"),
-            canUseEmoji: !aiManaged && plan("widget_emoji"),
+            canAttach: !aiManaged,
+            canRecordVoice: !aiManaged,
+            canUseEmoji: !aiManaged,
             isAIManaged: aiManaged
         )
     }

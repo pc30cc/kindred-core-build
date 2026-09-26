@@ -218,7 +218,10 @@ const FA: Record<string, CapabilityText> = {
   yahoomail: { label: 'یاهو میل' },
   voice: { label: 'تماس صوتی' },
   video: { label: 'تماس تصویری' },
-  advanced_ai_agent: { label: 'دستیار هوش مصنوعی پیشرفته' },
+  advanced_ai_agent: {
+    label: 'دستیار هوش مصنوعی پیشرفته',
+    description: 'رزرو شده: هنوز هیچ قابلیتی این گزینه را نمی‌خواند، پس فعال کردن آن فعلاً چیزی اضافه نمی‌کند. به این دلیل نگه داشته شده که ممکن است در پلن‌های موجود تنظیم شده باشد.',
+  },
   ai_operator_assist: { label: 'کمک‌کار هوشمند اپراتور' },
   ai_kb_builder: { label: 'سازنده‌ی پایگاه دانش با هوش مصنوعی' },
   priority_support: { label: 'پشتیبانی با اولویت' },
@@ -649,7 +652,10 @@ const TR: Record<string, CapabilityText> = {
   yahoomail: { label: 'Yahoo Mail' },
   voice: { label: 'Sesli Aramalar' },
   video: { label: 'Görüntülü Aramalar' },
-  advanced_ai_agent: { label: 'Gelişmiş Yapay Zekâ Asistanı' },
+  advanced_ai_agent: {
+    label: 'Gelişmiş Yapay Zekâ Asistanı',
+    description: 'Ayrılmış: henüz hiçbir özellik bu ayarı okumuyor, bu yüzden açmak şu an hiçbir şey sağlamaz. Mevcut planlarda tanımlı olabileceği için korunuyor.',
+  },
   ai_operator_assist: { label: 'Yapay Zekâ Operatör Yardımı' },
   ai_kb_builder: { label: 'Yapay Zekâ Bilgi Bankası Oluşturucu' },
   priority_support: { label: 'Öncelikli Destek' },

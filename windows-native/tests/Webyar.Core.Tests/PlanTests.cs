@@ -49,7 +49,7 @@ public class PlanTests
     public async Task Sections_follow_the_plan_modules_exactly()
     {
         var api = Api(
-            Effective(modules: new() { ["contacts"] = false, ["visitor_tracking"] = true, ["call_center"] = true, ["email_inbox"] = true, ["voice_video"] = true },
+            Effective(modules: new() { ["contacts"] = false, ["visitor_tracking"] = true, ["call_center"] = true, ["email_inbox"] = true, ["voice_video"] = true, ["web_analytics"] = true },
                       features: new() { ["inbox_ai_queue"] = true },
                       channels: new() { ["voice"] = true, ["video"] = false }),
             "owner",
@@ -61,6 +61,7 @@ public class PlanTests
         Assert.True(plan.Visitors);
         Assert.True(plan.CallCenter);
         Assert.True(plan.EmailInbox);
+        Assert.True(plan.WebAnalytics);
         Assert.True(plan.VoiceCalls);
         Assert.False(plan.VideoCalls); // channel off
         Assert.True(plan.AiQueue(0));
@@ -69,11 +70,12 @@ public class PlanTests
     [Fact]
     public async Task Owner_only_sections_stay_hidden_from_agents_whatever_the_plan()
     {
-        var api = Api(Effective(modules: new() { ["email_inbox"] = true }), "agent",
+        var api = Api(Effective(modules: new() { ["email_inbox"] = true, ["web_analytics"] = true }), "agent",
             """{"capabilities":{"ai_agent_enabled":true,"customer_ai_agent_visible":true}}""", """{"workspace_call_center_visible":false}""");
         var plan = await api.PlanAsync("w1");
         Assert.False(plan.IsAdmin);
         Assert.False(plan.EmailInbox);
+        Assert.False(plan.WebAnalytics);
         Assert.False(plan.CallCenter); // the workspace switched it off for operators
     }
 
@@ -138,7 +140,7 @@ public class PlanTests
     {
         foreach (var plan in new[] { WorkspacePlan.Loading, WorkspacePlan.Failed.With("owner", true, true, true, true) })
         {
-            Assert.False(plan.Contacts || plan.Visitors || plan.EmailInbox || plan.CallCenter || plan.TeamChat || plan.NeedsHumanQueue);
+            Assert.False(plan.Contacts || plan.Visitors || plan.EmailInbox || plan.WebAnalytics || plan.CallCenter || plan.TeamChat || plan.NeedsHumanQueue);
             Assert.False(plan.VoiceCalls || plan.CallRecordings || plan.AiQueue(5) || plan.ChannelInPlan("telegram"));
             Assert.True(plan.ChannelInPlan("x"));
         }

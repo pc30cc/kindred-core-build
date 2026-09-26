@@ -1,15 +1,19 @@
 /**
- * SEO Performance Auditing — plan-limit resolver, mirroring
- * server/services/seo/backlinksLimits.ts exactly: source of truth is
- * `billing_plans.limits` jsonb, with tight hardcoded fallbacks that never
- * default to "unlimited". Free-plan fallback is 0 (opt-in per plan) since
- * each audited page costs the platform a real PageSpeed Insights API call.
+ * SEO Performance Auditing — plan-limit resolver.
+ *
+ * Every limit here is a registry capability and resolves exactly as
+ * GET /api/plans/workspace/:id/effective shows it: workspace override ??
+ * plan ?? registry default (billing/servicePlanLimits.ts). A platform admin
+ * changes them per plan in the existing plan editor.
+ *
+ * The registry default is 0 pages (opt-in per plan) since each audited page
+ * costs the platform a real PageSpeed Insights API call.
  *
  * The UI NEVER hardcodes a limit number; every limit shown to the user comes
  * from the API response, which comes from here.
  */
 import type { ServerConfig } from '../../config.js';
-import { getWorkspacePlanInfo } from '../../middleware/featureGating.js';
+import { readServicePlanInfo, registryLimits, servicePlanIdentity } from '../billing/servicePlanLimits.js';
 import { getServiceClient } from '../../supabase.js';
 
 export interface SeoPerformanceLimits {
@@ -17,36 +21,11 @@ export interface SeoPerformanceLimits {
   seo_performance_audit_frequency_hours: number;
 }
 
-const FALLBACKS: Record<string, SeoPerformanceLimits> = {
-  free: {
-    seo_performance_max_pages_per_audit: 0,
-    seo_performance_audit_frequency_hours: 168,
-  },
-  pro: {
-    seo_performance_max_pages_per_audit: 5,
-    seo_performance_audit_frequency_hours: 168,
-  },
-  business: {
-    seo_performance_max_pages_per_audit: 20,
-    seo_performance_audit_frequency_hours: 24,
-  },
-  enterprise: {
-    // Treated as Business unless billing_plans.limits overrides — never unlimited.
-    seo_performance_max_pages_per_audit: 20,
-    seo_performance_audit_frequency_hours: 24,
-  },
-};
-const STRICT = FALLBACKS.free;
-
-function num(v: unknown, fallback: number): number {
-  if (v === null || v === undefined) return fallback;
-  if (typeof v === 'number' && Number.isFinite(v)) return v;
-  if (typeof v === 'string' && v.trim()) {
-    const n = Number(v);
-    if (Number.isFinite(n)) return n;
-  }
-  return fallback;
-}
+/** Registry limits: override ?? plan ?? registry default. */
+export const SEO_PERFORMANCE_PLAN_KEYS = [
+  'seo_performance_max_pages_per_audit',
+  'seo_performance_audit_frequency_hours',
+] as const satisfies readonly (keyof SeoPerformanceLimits)[];
 
 export interface ResolvedSeoPerformanceLimits {
   limits: SeoPerformanceLimits;
@@ -55,19 +34,8 @@ export interface ResolvedSeoPerformanceLimits {
 }
 
 export async function resolvePerformanceLimits(config: ServerConfig, workspaceId: string): Promise<ResolvedSeoPerformanceLimits> {
-  let info: { plan: any; limits: Record<string, number> } | null = null;
-  try {
-    info = await getWorkspacePlanInfo(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId);
-  } catch {
-    info = null;
-  }
-  const slug = (info?.plan?.slug || 'free') as string;
-  const fallback = FALLBACKS[slug] || STRICT;
-  const db = (info?.limits || {}) as Record<string, unknown>;
-  const keys = Object.keys(fallback) as (keyof SeoPerformanceLimits)[];
-  const limits = {} as SeoPerformanceLimits;
-  for (const key of keys) limits[key] = num(db[key], fallback[key]);
-  return { planSlug: slug, planName: info?.plan?.name || null, limits };
+  const info = await readServicePlanInfo(config, workspaceId);
+  return { ...servicePlanIdentity(info), limits: registryLimits(info, SEO_PERFORMANCE_PLAN_KEYS) };
 }
 
 /** Most recent performance audit (any status) started for this crawl, for the frequency-limit check. */

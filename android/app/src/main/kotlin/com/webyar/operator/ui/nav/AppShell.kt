@@ -22,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -76,6 +77,14 @@ fun AppShell(
     val selectedTab by appState.selectedTab.collectAsStateWithLifecycle()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+
+    // Back in the foreground: Super Admin may have changed the plan meanwhile,
+    // so a plan over three minutes old is asked for again. No timer runs while
+    // the app is away.
+    LifecycleStartEffect(appState) {
+        appState.refreshPlanIfStale()
+        onStopOrDispose { }
+    }
 
     // A plan change can take away the tab that is open — switching workspace
     // is the ordinary way that happens. Without this the shell would be left

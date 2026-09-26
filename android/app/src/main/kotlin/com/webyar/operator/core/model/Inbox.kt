@@ -45,14 +45,24 @@ enum class InboxFilter(val wire: String) {
          * A queue that leads to a permanently empty list because the plan
          * excludes it reads as a broken app, not as an upsell — so it is left
          * out entirely rather than shown and refused.
+         *
+         * The AI queue is the web's `aiQueueVisible`: the plan's
+         * `inbox_ai_queue` alone is not enough — the AI has to be switched on
+         * and shown to customers ([access]), and either answering by itself or
+         * already holding threads ([automated]). Unknown switches hide it.
          */
-        fun available(entitlements: Entitlements?): List<InboxFilter> = buildList {
+        fun available(
+            entitlements: Entitlements?,
+            access: WorkspaceAccess = WorkspaceAccess.UNKNOWN,
+            automated: Int? = null,
+        ): List<InboxFilter> = buildList {
             add(OPEN)
             if (entitlements?.featureEnabled("inbox_needs_human") == true) add(NEEDS_HUMAN)
             // Every plan can put a thread on hold for the customer, so this
             // one is core like Open and Resolved rather than an entitlement.
             add(PENDING)
-            if (entitlements?.featureEnabled("inbox_ai_queue") == true) add(AI)
+            val aiInPlan = entitlements?.featureEnabled("inbox_ai_queue") == true
+            if (access.aiQueueVisible(aiInPlan, automated)) add(AI)
             add(RESOLVED)
             add(SPAM)
         }
@@ -70,7 +80,11 @@ enum class InboxFilter(val wire: String) {
          * plan includes is a queue you can reach without knowing that a
          * title is a menu.
          */
-        fun chips(entitlements: Entitlements?): List<InboxFilter> = available(entitlements)
+        fun chips(
+            entitlements: Entitlements?,
+            access: WorkspaceAccess = WorkspaceAccess.UNKNOWN,
+            automated: Int? = null,
+        ): List<InboxFilter> = available(entitlements, access, automated)
     }
 }
 

@@ -75,9 +75,33 @@ public sealed partial class ConversationItem : ObservableObject
     [ObservableProperty]
     private Microsoft.UI.Xaml.Media.Brush? _previewBrush;
 
+    /// <summary>Where the conversation came from (Telegram, Bale, the site widget…), as a chip.</summary>
+    [ObservableProperty]
+    private string _channelText = string.Empty;
+
+    [ObservableProperty]
+    private string _channelGlyph = string.Empty;
+
+    [ObservableProperty]
+    private Microsoft.UI.Xaml.Media.Brush? _channelBrush;
+
+    [ObservableProperty]
+    private Microsoft.UI.Xaml.Media.Brush? _channelSoftBrush;
+
+    private string? _channelKey;
+
     public void Update(Conversation c, Strings s, DateTimeOffset now)
     {
         Conversation = c;
+        var channel = c.ChannelKey;
+        ChannelText = Services.ChannelInfo.Label(channel, s);
+        if (channel != _channelKey)
+        {
+            _channelKey = channel;
+            ChannelGlyph = Services.ChannelInfo.Glyph(channel);
+            ChannelBrush = Services.ChannelInfo.Brush(channel);
+            ChannelSoftBrush = Services.ChannelInfo.SoftBrush(channel);
+        }
         Name = Display.ConversationName(c, s);
         RawName = c.Contacts?.Name;
         Email = c.Contacts?.Email;

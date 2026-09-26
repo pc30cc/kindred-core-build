@@ -149,12 +149,21 @@ public sealed partial class TeamMessageItem : ObservableObject
         if (m.Attachment is { } a) Attachments.Add(new AttachmentItem(a, s));
         BodyVisibility = Body.Trim().Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         AttachmentsVisibility = Attachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        ReplyToId = m.ReplyToId;
+        SetActionText(s);
     }
 
     /// <summary>A message the operator is sending now, shown at once.</summary>
-    public TeamMessageItem(string body, AttachmentItem? file, Strings s)
+    public TeamMessageItem(string body, AttachmentItem? file, Strings s, TeamMessageItem? replyTo = null)
     {
         Id = "local:" + Guid.NewGuid();
+        if (replyTo is not null)
+        {
+            ReplyToId = replyTo.Id;
+            SetQuote(replyTo, s);
+        }
+        _actionsVisibility = Visibility.Collapsed;
+        SetActionText(s);
         Side = MessageSide.Outgoing;
         Body = body;
         CreatedAt = DateTimeOffset.Now;
@@ -199,4 +208,52 @@ public sealed partial class TeamMessageItem : ObservableObject
 
     [ObservableProperty]
     private double _opacity = 1;
+
+    public string ReplyLabel { get; private set; } = string.Empty;
+    public string ReplyTip { get; private set; } = string.Empty;
+    public string CopyLabel { get; private set; } = string.Empty;
+    public string CopyTip { get; private set; } = string.Empty;
+
+    private void SetActionText(Strings s)
+    {
+        ReplyLabel = s["reply"];
+        ReplyTip = s["replyToMessage"];
+        CopyLabel = s["copy"];
+        CopyTip = s["copyMessage"];
+    }
+
+    /// <summary>Reply is offered once the message exists on the server.</summary>
+    [ObservableProperty]
+    private Visibility _actionsVisibility = Visibility.Visible;
+
+    /// <summary>The message this one answers, when it does.</summary>
+    public string? ReplyToId { get; set; }
+
+    [ObservableProperty]
+    private string _quoteSender = string.Empty;
+
+    [ObservableProperty]
+    private string _quoteText = string.Empty;
+
+    [ObservableProperty]
+    private Visibility _quoteVisibility = Visibility.Collapsed;
+
+    /// <summary>Who wrote it, as a reply quote names them.</summary>
+    public string AuthorLabel(Strings s) => Side == MessageSide.Outgoing || AvatarName.Length == 0 ? s["you"] : AvatarName;
+
+    /// <summary>One line standing for the message: its text, or what it carries.</summary>
+    public string Snippet(Strings s)
+    {
+        var text = Body.Trim().Replace('\n', ' ');
+        if (text.Length > 0) return text.Length > 120 ? text[..120] + "…" : text;
+        return Attachments.Count > 0 ? "📎 " + Attachments[0].FileName : string.Empty;
+    }
+
+    /// <summary>Shows <paramref name="target"/> as the quote above this bubble.</summary>
+    public void SetQuote(TeamMessageItem target, Strings s)
+    {
+        QuoteSender = target.AuthorLabel(s);
+        QuoteText = target.Snippet(s);
+        QuoteVisibility = Visibility.Visible;
+    }
 }

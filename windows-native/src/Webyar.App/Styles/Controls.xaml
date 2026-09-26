@@ -127,4 +127,55 @@
             </Setter.Value>
         </Setter>
     </Style>
+    <!-- Reply / Copy under a message bubble: small, quiet, a faint tint on hover. -->
+    <Style x:Key="MessageActionButtonStyle" TargetType="Button">
+        <Setter Property="Padding" Value="7,3" />
+        <Setter Property="MinHeight" Value="22" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{ThemeResource Text3Brush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid x:Name="Root" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}">
+                        <Border x:Name="Tint" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="{TemplateBinding CornerRadius}" Opacity="0" IsHitTestVisible="False" />
+                        <ContentPresenter x:Name="Presenter" Padding="{TemplateBinding Padding}" Foreground="{TemplateBinding Foreground}" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="Tint.Opacity" Value="1" />
+                                        <Setter Target="Presenter.Foreground" Value="{ThemeResource BrandBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="Tint.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                                        <Setter Target="Tint.Opacity" Value="1" />
+                                        <Setter Target="Presenter.Foreground" Value="{ThemeResource BrandBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Disabled" />
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- The quoted message at the top of a reply bubble; tapping it jumps to the original. -->
+    <Style x:Key="QuoteButtonStyle" TargetType="Button" BasedOn="{StaticResource BubbleButtonStyle}">
+        <Setter Property="Padding" Value="10,6" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Background" Value="{ThemeResource BrandSoftBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource BrandBrush}" />
+        <Setter Property="BorderThickness" Value="3,0,0,0" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="MinWidth" Value="160" />
+    </Style>
 </ResourceDictionary>

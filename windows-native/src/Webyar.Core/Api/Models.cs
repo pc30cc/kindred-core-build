@@ -110,7 +110,9 @@ public sealed record Message(
     string? SenderAvatar = null,
     IReadOnlyList<MessageAttachment>? Attachments = null,
     JsonElement? Metadata = null,
-    DateTimeOffset? UpdatedAt = null)
+    DateTimeOffset? UpdatedAt = null,
+    /// <summary>The message of the same conversation this one answers.</summary>
+    string? ReplyToMessageId = null)
 {
     /// <summary>Operator-side messages sit on the trailing edge of the thread.</summary>
     [JsonIgnore]

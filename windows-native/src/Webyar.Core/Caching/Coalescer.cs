@@ -42,21 +42,27 @@ public sealed class Coalescer<TKey, TValue> where TKey : notnull
 
     private async Task RunAndReleaseAsync(TKey key, Func<Task<TValue>> work, TaskCompletionSource<TValue> source)
     {
+        // The entry leaves before the waiters are released: a caller that
+        // retries the moment a download failed must start a new one, never
+        // join the one that just failed.
         try
         {
-            source.TrySetResult(await work().ConfigureAwait(false));
+            var value = await work().ConfigureAwait(false);
+            Release(key, source);
+            source.TrySetResult(value);
         }
         catch (OperationCanceledException e)
         {
+            Release(key, source);
             source.TrySetCanceled(e.CancellationToken);
         }
         catch (Exception e)
         {
+            Release(key, source);
             source.TrySetException(e);
         }
-        finally
-        {
-            _running.TryRemove(new KeyValuePair<TKey, Task<TValue>>(key, source.Task));
-        }
     }
+
+    private void Release(TKey key, TaskCompletionSource<TValue> source) =>
+        _running.TryRemove(new KeyValuePair<TKey, Task<TValue>>(key, source.Task));
 }

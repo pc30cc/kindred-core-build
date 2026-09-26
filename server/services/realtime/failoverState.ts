@@ -150,6 +150,35 @@ function materialSignature(s: FailoverState): string {
   ].join('|');
 }
 
+/**
+ * Whether `next` is worth a write against the row as it is STORED — a
+ * material change, or the stored heartbeat (`last_evaluated_at`) is due.
+ *
+ * Judged from the stored row rather than from this process's memory, so it
+ * holds across replicas: whichever replica evaluates, the row is written once
+ * per HEARTBEAT_PERSIST_MS cluster-wide, and a replica that takes over the
+ * lease compares against what is actually in the database, not against the
+ * last value it happened to write itself.
+ */
+export function needsFailoverPersist(
+  stored: FailoverState,
+  next: FailoverState,
+  nowMs: number = Date.now(),
+): boolean {
+  if (materialSignature(next) !== materialSignature(stored)) return true;
+  const lastMs = stored.last_evaluated_at ? Date.parse(stored.last_evaluated_at) : NaN;
+  return !Number.isFinite(lastMs) || nowMs - lastMs >= HEARTBEAT_PERSIST_MS;
+}
+
+/**
+ * Keep the freshest evaluation in memory without writing — what
+ * saveFailoverState() does for a no-op, for callers that already know no
+ * write is due.
+ */
+export function rememberFailoverState(state: FailoverState): void {
+  cache = { value: state, loadedAt: Date.now() };
+}
+
 export async function saveFailoverState(
   config: ServerConfig,
   patch: Partial<FailoverState>,

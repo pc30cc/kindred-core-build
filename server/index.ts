@@ -849,7 +849,8 @@ app.listen(config.port, () => {
     startEnforcementTicker(config);
   }
 
-  // Phase 8C — Call queue expiry sweeper (every 30s). Best-effort.
+  // Phase 8C — Call queue expiry sweeper (every 10s). Best-effort. An empty
+  // queue costs one index-only read per tick (see queueTicker.ts).
   startCallQueueTicker(config);
 
   // MaxMind GeoLite2 auto-update ticker. No-ops unless Map & Geo has

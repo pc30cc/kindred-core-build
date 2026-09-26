@@ -52,7 +52,35 @@ export interface DueKeywordRow {
   location_code: number | null;
 }
 
+/**
+ * Read-only gates, checked BEFORE the lease. The lease is a database write
+ * (acquire + release, every tick) and it exists only so that N replicas
+ * never pay the vendor twice for one keyword. With no provider configured, or
+ * no keyword due, there is nothing for it to guard — yet taking it first cost
+ * every install ~192 lease writes a day, including installs that never set up
+ * rank tracking at all.
+ */
+async function hasWorkToDo(config: ServerConfig): Promise<boolean> {
+  const providerInfo = await getRankTrackingProviderInfo(config);
+  if (!providerInfo.enabled) return false;
+  const { data, error } = await getServiceClient(config)
+    .from('seo_tracked_keywords')
+    .select('id')
+    .eq('is_active', true)
+    .lte('next_check_at', new Date().toISOString())
+    .limit(1);
+  if (error) throw new Error(error.message);
+  return (data || []).length > 0;
+}
+
 async function runOnce(config: ServerConfig): Promise<void> {
+  try {
+    if (!(await hasWorkToDo(config))) return;
+  } catch (err: any) {
+    emitLog(config, 'warn', 'seo_rank_ticker_cycle_threw', { error: err?.message || 'unknown' });
+    return;
+  }
+
   let leased = false;
   try {
     leased = await acquireTickerLease(config, LEASE_NAME);

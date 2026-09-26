@@ -4,7 +4,7 @@
  * Same pattern as rollupTicker so we never depend on pg_cron in self-host.
  */
 import type { ServerConfig } from '../../config.js';
-import { runAlertCycle } from './alerting.js';
+import { loadAlertFlags, runAlertCycle } from './alerting.js';
 import { emitLog } from './metrics.js';
 import { acquireTickerLease, releaseTickerLease } from './tickerLease.js';
 
@@ -22,6 +22,14 @@ export function startAlertingTicker(config: ServerConfig): void {
 }
 
 async function runOnce(config: ServerConfig): Promise<void> {
+  // The admin alerting toggle is checked BEFORE the lease: runAlertCycle()
+  // returns immediately when it is off, so taking (and releasing) the lease
+  // first was two database writes a minute to do nothing. loadAlertFlags()
+  // is cached for 60s and falls back to "enabled" on error, so this adds no
+  // query to a normal cycle and never skips one by accident.
+  const flags = await loadAlertFlags(config);
+  if (!flags.alertingEnabled) return;
+
   let leased = false;
   try {
     leased = await acquireTickerLease(config, LEASE_NAME);

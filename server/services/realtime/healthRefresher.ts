@@ -9,14 +9,19 @@
  * Properties:
  *   • jittered interval — app instances never probe in lockstep
  *   • bounded concurrency + per-request timeout (inside the driver)
- *   • no PostgreSQL write per cycle (config read is served from its own cache)
+ *   • no PostgreSQL write per cycle, and no PostgreSQL READ per cycle either
+ *     unless the deployment actually has registered nodes (see below)
  *   • no-op unless the deployment mode actually has registered nodes
  */
 
 import type { ServerConfig } from '../../config.js';
 import { loadRealtimeConfig } from './store.js';
 import { getClusterHealth } from './nodeHealth.js';
-import { normalizeNodes, resolveDeploymentMode } from './types.js';
+import { normalizeNodes, resolveDeploymentMode, type RealtimeProviderConfig } from './types.js';
+
+function isMultiNodeCentrifugo(cfg: RealtimeProviderConfig): boolean {
+  return cfg.vendor === 'centrifugo' && !!cfg.enabled && resolveDeploymentMode(cfg.centrifugo) !== 'single_memory';
+}
 
 /** Base cadence; the effective delay is BASE ± JITTER_PCT. */
 export const HEALTH_REFRESH_BASE_MS = 8_000;
@@ -43,12 +48,18 @@ export function nextRefreshDelay(
  * instance within one cycle (~8s) without the hot /connect path ever touching
  * PostgreSQL. On the instance that performed the admin action the change is
  * already immediate, because saveRealtimeConfig() invalidates the cache inline.
+ *
+ * That forced read only buys anything on a multi-node Centrifugo deployment,
+ * so it is gated on the normal (30s) cache first. Every other install —
+ * single-node Centrifugo, Supabase realtime, polling — used to pay a
+ * PostgreSQL read every ~8s (~10,800 a day per instance) just to return 0.
+ * Switching an install to multi-node still converges: the cache shows the new
+ * mode within its 30s TTL, and the forced ~8s cadence applies from then on.
  */
 export async function refreshNodeHealthOnce(config: ServerConfig): Promise<number> {
+  if (!isMultiNodeCentrifugo(await loadRealtimeConfig(config))) return 0;
   const cfg = await loadRealtimeConfig(config, true);
-  if (cfg.vendor !== 'centrifugo' || !cfg.enabled) return 0;
-  const mode = resolveDeploymentMode(cfg.centrifugo);
-  if (mode === 'single_memory') return 0;
+  if (!isMultiNodeCentrifugo(cfg)) return 0;
   const nodes = normalizeNodes(cfg.centrifugo?.nodes).filter((n) => n.enabled);
   const apiKey = cfg.centrifugo?.api_key || '';
   if (!nodes.length || !apiKey) return 0;

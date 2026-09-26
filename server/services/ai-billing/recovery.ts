@@ -71,14 +71,64 @@ export async function releaseRecoveryLease(
   }
 }
 
+function emptyReport(): RecoveryReport {
+  return { releasedReservations: 0, closedRuns: 0, settledRuns: 0, expiredLots: 0, reconciled: 0 };
+}
+
+/**
+ * Whether any recovery step has a candidate row. One `limit 1` read per step,
+ * each mirroring that step's own predicate below (and ai_expire_lots' for
+ * step 4), so "false" means the full pass would have found nothing and
+ * returned an all-zero report.
+ *
+ * It exists because the lease is a write: acquire + release on every tick,
+ * on every replica, whether or not there was anything to recover. An install
+ * with no AI traffic paid ~576 lease writes a day per replica for passes that
+ * could only ever do nothing. A probe that cannot answer (an error, a table
+ * missing on an older chain) says "true", so the pass runs exactly as before.
+ */
+export async function hasRecoveryWork(config: ServerConfig): Promise<boolean> {
+  const sb = getServiceClient(config);
+  const nowIso = new Date().toISOString();
+  const cutoff = new Date(Date.now() - STALE_RUN_MINUTES * 60_000).toISOString();
+  const probes = await Promise.all([
+    // 1. stale reservations
+    sb.from('workspace_ai_reservations').select('id').eq('state', 'ACTIVE').lt('expires_at', nowIso).limit(1),
+    // 2. runs that recorded usage but never settled
+    sb
+      .from('ai_runs')
+      .select('id')
+      .in('status', ['USAGE_RECORDED', 'SETTLEMENT_PENDING'])
+      .lt('updated_at', cutoff)
+      .limit(1),
+    // 3. orphaned RUNNING runs
+    sb.from('ai_runs').select('id').eq('status', 'RUNNING').lt('started_at', cutoff).limit(1),
+    // 4. lots ai_expire_lots() would pick up
+    sb
+      .from('workspace_ai_balance_lots')
+      .select('id')
+      .in('state', ['ACTIVE', 'EXPIRING'])
+      .not('expires_at', 'is', null)
+      .lte('expires_at', nowIso)
+      .gt('remaining_amount', 0)
+      .limit(1),
+    // 5. runs awaiting deterministic reconciliation
+    sb.from('ai_runs').select('id').in('billing_quality', ['ESTIMATED', 'UNRESOLVED']).eq('status', 'SETTLED').limit(1),
+  ]);
+  return probes.some((p) => !!p.error || (p.data || []).length > 0);
+}
+
 /**
  * Runs one recovery pass ONLY if this instance wins the cluster-wide lease.
- * Returns null when another instance already owns the current pass.
+ * Returns null when another instance already owns the current pass, and an
+ * all-zero report — what the pass itself would have returned — when there is
+ * nothing to recover, without touching the lease.
  */
 export async function runAiBillingRecoveryLeased(
   config: ServerConfig,
   owner: string = RECOVERY_INSTANCE_ID,
 ): Promise<RecoveryReport | null> {
+  if (!(await hasRecoveryWork(config))) return emptyReport();
   if (!(await acquireRecoveryLease(config, owner))) return null;
   try {
     return await runAiBillingRecovery(config);

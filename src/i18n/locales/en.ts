@@ -166,6 +166,7 @@ const en = {
     errors: {
       generic: 'Something went wrong. Please try again.',
       STALE_PREVIEW: 'The amount has changed. Please review the summary again.',
+      INTERVAL_CHANGE_NOT_IMMEDIATE: 'You can\'t switch the billing interval during an immediate upgrade. Choose your current interval for this upgrade.',
       INVOICE_NOT_PAYABLE: 'This invoice cannot be paid right now.',
       AMOUNT_OUT_OF_RANGE: 'The amount is outside the allowed range.',
       AMOUNT_NOT_ALLOWED: 'Please choose one of the suggested amounts.',

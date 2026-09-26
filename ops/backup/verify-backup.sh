@@ -13,10 +13,10 @@ STATUS=verified
 NOTES=""
 
 log "verifying newest base backup"
-if wal-g backup-list --detail --json > /tmp/walg-list.json 2>/tmp/walg-list.err; then
-  LATEST=$(python3 - <<'PY'
-import json
-rows = json.load(open('/tmp/walg-list.json'))
+if wal-g backup-list --detail --json > "$BACKUP_TMP/walg-list.json" 2>"$BACKUP_TMP/walg-list.err"; then
+  LATEST=$(python3 - "$BACKUP_TMP/walg-list.json" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))
 rows.sort(key=lambda r: r.get("time") or r.get("start_time") or "")
 print((rows[-1].get("backup_name") or rows[-1].get("name")) if rows else "")
 PY
@@ -26,15 +26,15 @@ PY
   else
     # Re-reads every segment of the backup from object storage and checks its
     # internal checksums — the closest thing to a restore that is not one.
-    if wal-g backup-verify "$LATEST" >/tmp/walg-verify.out 2>&1 \
-       || wal-g wal-verify integrity timeline >/tmp/walg-verify.out 2>&1; then
+    if wal-g backup-verify "$LATEST" >"$BACKUP_TMP/walg-verify.out" 2>&1 \
+       || wal-g wal-verify integrity timeline >"$BACKUP_TMP/walg-verify.out" 2>&1; then
       log "base backup $LATEST verified"
     else
-      STATUS=failed; NOTES="verification failed for $LATEST: $(tail -c 300 /tmp/walg-verify.out)"
+      STATUS=failed; NOTES="verification failed for $LATEST: $(tail -c 300 "$BACKUP_TMP/walg-verify.out")"
     fi
   fi
 else
-  STATUS=failed; NOTES="backup destination unreachable: $(tail -c 200 /tmp/walg-list.err)"
+  STATUS=failed; NOTES="backup destination unreachable: $(tail -c 200 "$BACKUP_TMP/walg-list.err")"
 fi
 
 report "$(cat <<JSON

@@ -14,7 +14,7 @@
 
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
-import { computeUpgradeProration } from '../proration.js';
+import { computeUpgradeProration, resolvePaidInterval } from '../proration.js';
 import { issueSubscriptionInvoice } from '../invoice/issue.js';
 import { isV2Active } from '../rollout.js';
 import type { InvoiceRow } from '../invoice/types.js';
@@ -66,6 +66,12 @@ export interface PlanChangePreview {
   effectiveAt: string;
   periodEnd: string | null;
   annualMonthlyAllowance: boolean;
+  /**
+   * True when an "upgrade" is really a new purchase: there is no paid time to
+   * credit (a zero-priced current plan) and the interval changes, so the new
+   * plan starts a fresh full period now at its full price.
+   */
+  freshPurchase: boolean;
 }
 
 async function loadContext(config: ServerConfig, workspaceId: string) {
@@ -112,6 +118,7 @@ export async function previewPlanChange(
 
   const interval = input.interval;
   const targetPrice = planPriceIrr(target, interval);
+  // Tier comparison: both plans priced at the SAME (requested) interval.
   const currentPrice = current ? planPriceIrr(current, interval) : 0;
   const direction: PlanChangePreview['direction'] =
     targetPrice > currentPrice ? 'upgrade' : targetPrice < currentPrice ? 'downgrade' : 'same';
@@ -119,6 +126,20 @@ export async function previewPlanChange(
   const periodStart = period?.period_start ?? sub?.current_period_start ?? null;
   const periodEnd = period?.period_end ?? sub?.current_period_end ?? null;
   const now = new Date();
+
+  // The interval the running period was actually paid at. Proration credits
+  // the unused part of THAT period at THAT price; pricing it at the requested
+  // interval would credit a monthly window at the yearly price (or vice versa).
+  const currentInterval = currentPlanId
+    ? resolvePaidInterval({
+        storedIntervals: [period?.billing_interval, sub?.billing_interval],
+        periodStart,
+        periodEnd,
+      })
+    : null;
+  const paidInterval = currentInterval ?? interval;
+  const currentPaidPrice = current ? planPriceIrr(current, paidInterval) : 0;
+  const intervalChange = !!currentPlanId && paidInterval !== interval;
 
   // A downgrade is next-cycle only (V1 policy, no refunds). An upgrade may be
   // taken immediately only when there is a paid window left to prorate into.
@@ -135,15 +156,37 @@ export async function previewPlanChange(
   let remainingMs = 0;
   let aiCycleDeltaIrr = 0;
   let effectiveAt = periodEnd ?? now.toISOString();
+  let freshPurchase = false;
 
-  if (mode === 'immediate' && periodEnd && currentPlanId) {
+  if (mode === 'immediate' && periodEnd && currentPlanId && intervalChange) {
+    // An immediate upgrade keeps the current window, so it cannot also change
+    // the interval: the window would be one interval long and billed as the
+    // other. With nothing paid to credit (free plan) the change is simply a
+    // new purchase: full price, fresh period from now. With paid time left,
+    // it is refused rather than mispriced.
+    if (currentPaidPrice === 0 && targetPrice > 0) {
+      freshPurchase = true;
+      amountIrr = targetPrice;
+      effectiveAt = now.toISOString();
+    } else {
+      throw new BillingActionError(
+        'the billing interval cannot change in an immediate upgrade; keep the current interval',
+        409,
+        'INTERVAL_CHANGE_NOT_IMMEDIATE',
+        { currentInterval: paidInterval, requestedInterval: interval },
+      );
+    }
+  } else if (mode === 'immediate' && periodEnd && currentPlanId) {
+    // Same interval on both sides: credit the unused part of the current
+    // period at the price actually paid for it, charge the target plan's
+    // price for that same interval over the same remaining window.
     const proration = computeUpgradeProration({
       now,
       currentPeriodStart: new Date(periodStart ?? now.toISOString()),
       currentPeriodEnd: new Date(periodEnd),
-      currentPlanPriceIrr: currentPrice,
+      currentPlanPriceIrr: currentPaidPrice,
       targetPlanPriceIrr: targetPrice,
-      interval,
+      interval: paidInterval,
     });
     if (proration.isDowngrade) {
       throw new BillingActionError('not an upgrade', 409, 'NOT_AN_UPGRADE');
@@ -179,7 +222,7 @@ export async function previewPlanChange(
     currentPlan: {
       id: currentPlanId,
       name: (current as any)?.name ?? null,
-      interval: (sub?.billing_interval as any) ?? null,
+      interval: currentInterval ?? ((sub?.billing_interval as any) ?? null),
     },
     targetPlan: {
       id: (target as any).id,
@@ -195,6 +238,7 @@ export async function previewPlanChange(
     effectiveAt,
     periodEnd,
     annualMonthlyAllowance: interval === 'yearly',
+    freshPurchase,
   };
 }
 
@@ -244,7 +288,7 @@ export async function applyPlanChange(
   const { sub, period } = await loadContext(config, workspaceId);
 
   if (input.mode === 'immediate') {
-    const action = sub?.plan_id ? 'plan_upgrade' : 'plan_new';
+    const action = sub?.plan_id && !preview.freshPurchase ? 'plan_upgrade' : 'plan_new';
     const invoice = await issueSubscriptionInvoice(config, {
       workspaceId,
       subscriptionId: sub?.id ?? null,
@@ -252,6 +296,10 @@ export async function applyPlanChange(
       interval: input.interval,
       action,
       currentPlanId: sub?.plan_id ?? null,
+      currentInterval:
+        preview.currentPlan.interval === 'monthly' || preview.currentPlan.interval === 'yearly'
+          ? preview.currentPlan.interval
+          : null,
       currentPeriodStart: period?.period_start ?? sub?.current_period_start ?? null,
       currentPeriodEnd: period?.period_end ?? sub?.current_period_end ?? null,
       metadata: { origin: 'customer_immediate_upgrade' },

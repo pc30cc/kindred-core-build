@@ -98,6 +98,35 @@ export function computeUpgradeProration(input: ProrationInput): ProrationResult 
 }
 
 /**
+ * The billing interval the CURRENT period was actually bought at.
+ *
+ * Upgrade proration credits the unused part of the running period at the
+ * price the customer paid for it, so it must use that period's interval —
+ * never the interval the customer is now asking for (a monthly window valued
+ * at the yearly price, or vice versa, is off by an order of magnitude).
+ *
+ * The stored interval wins (the service period's own, then the
+ * subscription's). Only when neither is recorded is it inferred from the
+ * window length: anything longer than ~two months is a yearly period.
+ * Returns null when nothing is known.
+ */
+export function resolvePaidInterval(input: {
+  storedIntervals: Array<string | null | undefined>;
+  periodStart?: string | Date | null;
+  periodEnd?: string | Date | null;
+}): BillingInterval | null {
+  for (const raw of input.storedIntervals) {
+    if (raw === 'monthly' || raw === 'yearly') return raw;
+  }
+  if (!input.periodStart || !input.periodEnd) return null;
+  const start = new Date(input.periodStart).getTime();
+  const end = new Date(input.periodEnd).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+  const days = (end - start) / 86_400_000;
+  return days > 62 ? 'yearly' : 'monthly';
+}
+
+/**
  * A downgrade never produces money movement in V1. This helper exists so the
  * intent is explicit at the call site (and so nobody "temporarily" adds a
  * refund path here).

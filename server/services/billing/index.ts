@@ -30,6 +30,7 @@ import {
   type EntitlementChangeSource,
 } from './entitlementChange.js';
 import { addBillingInterval } from './periods.js';
+import { buildCancelAtPeriodEndPatch } from './cancellation.js';
 
 
 // Provider registry
@@ -529,8 +530,17 @@ export async function processWebhookEvent(
 
 
     case 'subscription_canceled': {
+      // Cancel at period end: a still-running paid period stays usable (the
+      // status is kept); the billing tick marks the row 'canceled' once
+      // current_period_end has passed. A period that already ended is
+      // canceled right away. See ./cancellation.ts.
+      const { data: current } = await supabase
+        .from('workspace_subscriptions')
+        .select('status, current_period_end, cancel_at_period_end')
+        .eq('workspace_id', event.workspaceId)
+        .maybeSingle();
       await supabase.from('workspace_subscriptions')
-        .update({ status: 'canceled', cancel_at_period_end: true, updated_at: new Date().toISOString() })
+        .update(buildCancelAtPeriodEndPatch(current))
         .eq('workspace_id', event.workspaceId);
       break;
     }

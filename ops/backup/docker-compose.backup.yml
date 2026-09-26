@@ -16,8 +16,11 @@ services:
       - backup_work:/var/tmp/webyar-logical
     working_dir: /opt/backup
     command: ["./agent-loop.sh"]
-    depends_on:
-      - db
+    # No `depends_on`: this file defines no database service (the old
+    # `depends_on: [db]` made `docker compose up` fail outright). The database
+    # is reached through PGHOST in backup.env. If you merge this file into a
+    # stack that does define the PostgreSQL service, add
+    # `depends_on: [<that service name>]` there.
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }

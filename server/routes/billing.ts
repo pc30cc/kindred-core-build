@@ -43,6 +43,7 @@ import {
   type PaymentIntentRow,
 } from '../services/billing/paymentIntent.js';
 import { classifyPlanAction, computeSubscriptionWindow } from '../services/billing/periods.js';
+import { buildCancelAtPeriodEndPatch, decideResume } from '../services/billing/cancellation.js';
 import { resolveWorkspaceAppUrl } from '../services/auth-email.js';
 import { requiresReferenceBinding } from '../services/billing/providerBinding.js';
 import {
@@ -1218,8 +1219,11 @@ billingRouter.post('/subscription/cancel', async (req, res) => {
   try {
     const result = await provider.cancelSubscription(resolved.config, sub.provider_subscription_id);
     if (result.success) {
+      // Cancel at period end: the paid remainder stays usable (status is kept
+      // active/trialing); the billing tick flips it to 'canceled' once
+      // current_period_end has passed. See services/billing/cancellation.ts.
       await supabase.from('workspace_subscriptions')
-        .update({ status: 'canceled', cancel_at_period_end: true, updated_at: new Date().toISOString() })
+        .update(buildCancelAtPeriodEndPatch(sub))
         .eq('workspace_id', workspaceId);
     }
     res.json(result);
@@ -1244,6 +1248,15 @@ billingRouter.post('/subscription/resume', async (req, res) => {
 
   if (!sub?.provider_subscription_id) return res.status(400).json({ error: 'No subscription found' });
 
+  // Only a still-running paid period can be resumed. Once it has ended the
+  // subscription is over and a new (paid) one must be started instead.
+  const decision = decideResume(sub);
+  if (decision.ok === false) {
+    // (explicit narrowing: this project compiles without strictNullChecks)
+    const refused = decision as Extract<typeof decision, { ok: false }>;
+    return res.status(409).json({ error: refused.message, code: refused.code });
+  }
+
   const provider = getProvider(sub.provider_name);
   if (!provider?.resumeSubscription) return res.status(400).json({ error: 'Provider does not support resume' });
 
@@ -1254,8 +1267,14 @@ billingRouter.post('/subscription/resume', async (req, res) => {
     const result = await provider.resumeSubscription(resolved.config, sub.provider_subscription_id);
     if (result.success) {
       await supabase.from('workspace_subscriptions')
-        .update({ status: 'active', cancel_at_period_end: false, updated_at: new Date().toISOString() })
+        .update(decision.patch)
         .eq('workspace_id', workspaceId);
+      if (decision.statusChanged) {
+        await handleWorkspaceEntitlementChanged(serverConfigOf(req), {
+          workspaceId,
+          source: 'subscription_renewed',
+        });
+      }
     }
     res.json(result);
   } catch (e: any) {

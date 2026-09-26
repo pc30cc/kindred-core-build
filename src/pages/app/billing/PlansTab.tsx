@@ -87,11 +87,18 @@ export default function PlansTab({
       let preview: PlanChangePreview;
       try {
         preview = await billingPreviewPlanChange(workspaceId, { planId: plan.id, interval, mode });
-      } catch {
+      } catch (e) {
+        // An interval switch cannot ride on an immediate upgrade, and a
+        // scheduled change would not carry the new interval either — show the
+        // server's reason instead of silently scheduling something else.
+        if ((e as { code?: string })?.code === 'INTERVAL_CHANGE_NOT_IMMEDIATE') throw e;
         // Server refuses an immediate change (typically a downgrade): schedule it.
         mode = 'next_cycle';
         preview = await billingPreviewPlanChange(workspaceId, { planId: plan.id, interval, mode });
       }
+      // The server may resolve the requested mode to another allowed one (a
+      // downgrade is always next-cycle); apply exactly what was previewed.
+      mode = preview.mode;
 
       const res = await billingApplyPlanChange(workspaceId, {
         planId: plan.id,

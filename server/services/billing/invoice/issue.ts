@@ -70,6 +70,12 @@ export interface IssueSubscriptionInvoiceInput {
   action: PlanActionType;
   /** Current contract, used for renewal stacking and upgrade proration. */
   currentPlanId?: string | null;
+  /**
+   * Interval the CURRENT period was paid at. Upgrade proration credits the
+   * unused part of the current period at this interval's price. Defaults to
+   * `interval` when unknown.
+   */
+  currentInterval?: BillingInterval | null;
   currentPeriodStart?: string | null;
   currentPeriodEnd?: string | null;
   now?: Date;
@@ -116,13 +122,23 @@ export async function issueSubscriptionInvoice(
     const currentStart = new Date(input.currentPeriodStart ?? now.toISOString());
     const currentEnd = new Date(input.currentPeriodEnd);
 
+    // The window below stays the CURRENT period, so both sides must be priced
+    // at the interval that period was paid at: the credit at the current
+    // plan's price for it, the charge at the target plan's price for the same
+    // interval. An interval change cannot be expressed on this window at all
+    // (the customer-facing preview refuses it before we get here).
+    const paidInterval: BillingInterval = input.currentInterval ?? input.interval;
+    if (paidInterval !== input.interval) {
+      throw new Error('upgrade_interval_change_not_supported');
+    }
+
     const result = computeUpgradeProration({
       now,
       currentPeriodStart: currentStart,
       currentPeriodEnd: currentEnd,
-      currentPlanPriceIrr: current ? planPriceIrr(current as PlanRecord, input.interval) : 0,
+      currentPlanPriceIrr: current ? planPriceIrr(current as PlanRecord, paidInterval) : 0,
       targetPlanPriceIrr: fullPrice,
-      interval: input.interval,
+      interval: paidInterval,
     });
 
     // An immediate upgrade keeps the SAME period window: the customer already

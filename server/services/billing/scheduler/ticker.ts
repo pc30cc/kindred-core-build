@@ -8,7 +8,7 @@
  * construction).
  *
  * Order matters within a tick:
- *   issue → collect → activate → dunning → grace → notify
+ *   issue → collect → activate → dunning → grace → trials / cancel-at-period-end → notify
  *
  * An invoice paid by the wallet can start its period in the same pass when it
  * is already due; dunning runs before grace so a deadline the wallet just
@@ -21,6 +21,7 @@ import { runDunning, runGraceExpiry } from '../dunning/index.js';
 import { dispatchBillingNotifications } from '../notifications/dispatcher.js';
 import { expireStaleCollections, recoverUnappliedInvoices } from '../worker/recovery.js';
 import { getServiceClient } from '../../../supabase.js';
+import { expireCanceledSubscriptions } from '../cancellation.js';
 
 /**
  * Trial lifecycle: expire trials whose end date has passed (the subscription
@@ -52,6 +53,7 @@ let lastRun: {
   dunning: unknown;
   grace: unknown;
   trials?: unknown;
+  canceledAtPeriodEnd?: unknown;
   notifications: unknown;
 } | null = null;
 let lastError: { at: string; message: string } | null = null;
@@ -90,6 +92,12 @@ export async function tick(config: ServerConfig): Promise<void> {
     const trials = await runTrialLifecycle(config).catch((err: any) => ({
       error: String(err?.message || err),
     }));
+    // Cancel-at-period-end: the paid window is over, so access ends now.
+    // Runs after activation so a renewal period that was paid for (and just
+    // started) has already moved current_period_end forward.
+    const canceledAtPeriodEnd = await expireCanceledSubscriptions(config).catch((err: any) => ({
+      error: String(err?.message || err),
+    }));
     // Delivery last, and isolated: a dead SMS provider must not make the tick
     // look like the financial workers failed.
     let notifications: unknown;
@@ -109,6 +117,7 @@ export async function tick(config: ServerConfig): Promise<void> {
       dunning,
       grace,
       trials,
+      canceledAtPeriodEnd,
       notifications,
     };
     lastError = null;

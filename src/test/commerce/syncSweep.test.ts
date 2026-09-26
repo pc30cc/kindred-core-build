@@ -17,7 +17,7 @@
  * catalogue. A sweep that fired there would empty the index — which is why
  * that case is tested here as carefully as the sweep itself.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const CONN = 'conn-1';
 const WS = 'ws-1';
@@ -257,6 +257,83 @@ describe('a database without migration 198', () => {
     await runSyncJobOnce(CONFIG, job());
 
     expect(seen.upserted).toEqual(['7']);
+  });
+});
+
+describe('incremental and reconciliation syncs resume their cursor', () => {
+  // A change set larger than MAX_PAGES_PER_RUN (20 pages) spans several
+  // worker ticks. These job types used to restart at page 1 on every tick,
+  // so such a change set was re-queued forever and never completed.
+  const WATERMARK = '2026-09-20T18:00:00.000Z';
+  const pageOf = (url: string) => Number(new URL(url).searchParams.get('page'));
+  const manyPages = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ products: [product(String(i + 1))], has_more: i + 1 < n }));
+
+  afterEach(() => { vi.useRealTimers(); });
+
+  for (const job_type of ['incremental_sync', 'reconciliation'] as const) {
+    it(`${job_type} continues where the previous run stopped and then completes`, async () => {
+      storePages = manyPages(25);
+      cursorRow = { page: 1, modified_after: WATERMARK, sweep_epoch: null, after_cursor: null };
+
+      await runSyncJobOnce(CONFIG, job({ job_type }));
+      expect(seen.requestedPaths.map(pageOf)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+      expect(seen.jobUpdates).toContainEqual({ status: 'queued' });
+      const checkpoint = seen.cursorWrites[seen.cursorWrites.length - 1];
+      expect(checkpoint.page).toBe(21);
+      expect(checkpoint.modified_after).toBe(WATERMARK); // same watermark for the whole walk
+      expect(checkpoint.after_cursor).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+      // Next tick: the worker reads back what the previous one stored.
+      cursorRow = { ...checkpoint };
+      for (const k of Object.keys(seen)) (seen as any)[k].length = 0;
+      await runSyncJobOnce(CONFIG, job({ job_type }));
+
+      expect(seen.requestedPaths.map(pageOf)).toEqual([21, 22, 23, 24, 25]);
+      expect(seen.requestedPaths.every((u) => u.includes('modified_after='))).toBe(true);
+      expect(seen.jobUpdates).toContainEqual({ status: 'succeeded' });
+      const final = seen.cursorWrites[seen.cursorWrites.length - 1];
+      expect(final.page).toBe(1);
+      expect(final.after_cursor).toBeNull();
+      // The new watermark is when the WALK began (first tick), not now.
+      expect(final.modified_after).toBe(checkpoint.after_cursor);
+    });
+  }
+
+  it('records the run START time as the next watermark, not the finish time', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const T0 = new Date('2026-09-25T10:00:00.000Z');
+    vi.setSystemTime(T0);
+    // Every page fetch takes a minute of store time: a change made while the
+    // run is in flight must still be after the stored watermark.
+    storePages = manyPages(3).map((p) => ({
+      has_more: p.has_more,
+      get products() { vi.setSystemTime(Date.now() + 60_000); return p.products; },
+    }));
+    cursorRow = { page: 1, modified_after: WATERMARK, sweep_epoch: null, after_cursor: null };
+
+    await runSyncJobOnce(CONFIG, job({ job_type: 'incremental_sync' }));
+
+    const final = seen.cursorWrites[seen.cursorWrites.length - 1];
+    expect(Date.now()).toBeGreaterThan(T0.getTime());
+    expect(final.modified_after).toBe(T0.toISOString());
+  });
+
+  it('a full resync never resumes an interrupted incremental walk mid-way', async () => {
+    cursorRow = { page: 5, modified_after: WATERMARK, sweep_epoch: null, after_cursor: '2026-09-21T00:00:00.000Z' };
+    await runSyncJobOnce(CONFIG, job({ job_type: 'manual_resync' }));
+
+    expect(pageOf(seen.requestedPaths[0])).toBe(1);
+    expect(seen.requestedPaths[0]).not.toContain('modified_after=');
+  });
+
+  it('restarts an incremental walk whose start time was never recorded', async () => {
+    // A cursor written by an older build: resuming it could hand over a
+    // watermark later than the pages it already walked, so start over.
+    cursorRow = { page: 5, modified_after: WATERMARK, sweep_epoch: null, after_cursor: null };
+    await runSyncJobOnce(CONFIG, job({ job_type: 'incremental_sync' }));
+
+    expect(pageOf(seen.requestedPaths[0])).toBe(1);
   });
 });
 

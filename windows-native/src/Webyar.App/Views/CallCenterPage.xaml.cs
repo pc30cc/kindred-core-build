@@ -552,6 +552,7 @@ public sealed partial class CallCenterPage : Page
         var profile = Host.Callers.For(sessionId);
         CallerAvatar.Os = profile?.Device?.Os;
         CallerAvatar.CountryCode = profile?.Geo?.CountryCode;
+        CallerAvatar.IsPending = Host.Callers.IsPending(sessionId);
     }
 
     private void ShowCall(CallSession c, bool waiting, string? fallbackName = null, bool? isVideo = null)

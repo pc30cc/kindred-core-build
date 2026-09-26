@@ -254,10 +254,14 @@ public sealed class AppHost : IAsyncDisposable
     /// <summary>Raised when <see cref="Account"/> or <see cref="Presence"/> changes, for the shell's account corner.</summary>
     public event Action? MeChanged;
 
+    /// <summary>The account (and its photo) is being asked for: its avatar is a skeleton until the answer, or the failure.</summary>
+    public bool AccountPending { get; private set; }
+
     /// <summary>After sign-in: the profile photo, then presence (heartbeat, team states).</summary>
     public async Task StartPresenceAsync()
     {
         StopPresence();
+        AccountPending = Account is null;
         // Presence and the call queue start at once; the profile photo follows
         // when the server answers (or not at all offline), never holding up the shell.
         if (Workspace is { } ws)
@@ -280,6 +284,14 @@ public sealed class AppHost : IAsyncDisposable
         catch (Exception e)
         {
             Log.Error("account", e);
+        }
+        finally
+        {
+            if (scope == Scope && AccountPending)
+            {
+                AccountPending = false;
+                MeChanged?.Invoke();
+            }
         }
     }
 

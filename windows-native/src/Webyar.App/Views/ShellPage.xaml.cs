@@ -747,6 +747,7 @@ public sealed partial class ShellPage : Page
         MeName.Text = name;
         MeAvatar.DisplayName = name;
         MeAvatar.ImageUrl = Host.Account?.AvatarUrl;
+        MeAvatar.IsPending = Host.AccountPending;
         var presence = Host.Presence;
         var state = presence?.State ?? Core.Api.PresenceStates.Offline;
         MeAvatar.PresenceState = state;

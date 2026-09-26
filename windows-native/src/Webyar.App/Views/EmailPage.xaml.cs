@@ -458,6 +458,9 @@ public sealed partial class EmailPage : Page
         Body.NavigateToString(Html(detail));
     }
 
+    /// <summary>A person on a 24×24 grid, as the call page draws a caller with no photo or device.</summary>
+    private const string PersonPath = "M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zm0 2c-4.4 0-8 2.5-8 5.5V21h16v-1.5c0-3-3.6-5.5-8-5.5z";
+
     private const string BlankHtml = "<!doctype html><html><body style=\"margin:0;background:#ffffff\"></body></html>";
 
     /// <summary>
@@ -484,7 +487,10 @@ public sealed partial class EmailPage : Page
           .Append("summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;padding:10px 14px}")
           .Append("summary::-webkit-details-marker{display:none}")
           .Append("summary:hover{background:#eef2f8}")
-          .Append(".av{flex:none;width:30px;height:30px;border-radius:50%;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center}")
+          // The sender as the app's avatars draw a faceless person: a grey disc with a person, tinted by their name. Never initials.
+          .Append(".av{flex:none;position:relative;width:30px;height:30px;border-radius:50%;background:#eef1f5;display:flex;align-items:center;justify-content:center;overflow:hidden}")
+          .Append(".av i{position:absolute;inset:0;border-radius:50%;opacity:.24}")
+          .Append(".av svg{position:relative;width:46%;height:46%;opacity:.85}")
           .Append(".who{flex:none;max-width:40%;font-weight:600;font-size:13px;color:#0f1729;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}")
           .Append(".sn{flex:1;min-width:0;font-size:12.5px;color:#6b7485;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}")
           .Append("details[open] .sn{visibility:hidden}")
@@ -512,12 +518,12 @@ public sealed partial class EmailPage : Page
                     var m = messages[i];
                     var from = MailText.Parse(m.FromAddress);
                     var who = IsMe(from.Email) && from.Name is null ? s["you"] : from.Display;
-                    var initials = Display.Initials(from.Name ?? from.Email);
-                    var color = Palette.AvatarColor(from.Name ?? from.Email);
+                    var (r, g, b) = AvatarArt.Tint(from.Name, from.Email).ToRgb();
+                    var tint = $"#{r:x2}{g:x2}{b:x2}";
                     var when = m.SentAt is { } at ? Display.ListStamp(at, DateTimeOffset.Now, s) : string.Empty;
                     var snippet = Display.OneLine(m.Snippet ?? MailText.PlainText(m));
                     sb.Append("<details><summary>")
-                      .Append($"<span class=\"av\" style=\"background:#{color.R:x2}{color.G:x2}{color.B:x2}\">").Append(WebUtility.HtmlEncode(initials)).Append("</span>")
+                      .Append($"<span class=\"av\"><i style=\"background:{tint}\"></i><svg viewBox=\"0 0 24 24\"><path fill=\"{tint}\" d=\"{PersonPath}\"/></svg></span>")
                       .Append("<span class=\"who\" dir=\"auto\">").Append(WebUtility.HtmlEncode(who)).Append("</span>")
                       .Append("<span class=\"sn\" dir=\"auto\">").Append(WebUtility.HtmlEncode(snippet)).Append("</span>")
                       .Append("<span class=\"dt\">").Append(WebUtility.HtmlEncode(when)).Append("</span>")

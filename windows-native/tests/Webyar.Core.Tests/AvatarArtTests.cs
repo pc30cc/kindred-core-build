@@ -26,15 +26,14 @@ public class AvatarArtTests
         var test = AvatarArt.For(null, "test@test.com", null); // palette index 2: (192, 78)
         Assert.Equal(new Hsl(192, 78, 56), test.From);
         Assert.Equal(new Hsl(220, 78, 44), test.To);
-        Assert.Equal("TE", test.Initials);
     }
 
-    [Theory]
-    [InlineData("مجتبی داودی", null, "مد")]
-    [InlineData("مجتبی", null, "مج")]
-    [InlineData(null, null, "?")]
-    [InlineData("a", null, "A")]
-    public void Initials_follow_the_web(string? name, string? email, string expected) => Assert.Equal(expected, AvatarArt.InitialsOf(name, email));
+    [Fact]
+    public void A_faceless_person_keeps_their_own_tint()
+    {
+        Assert.Equal(new Hsl(192, 78, 54), AvatarArt.Tint(null, "test@test.com"));
+        Assert.Equal(AvatarArt.Tint("Sara", null), AvatarArt.Tint("sara", "other@x.com"));
+    }
 
     [Fact]
     public void Hsl_converts_to_rgb() => Assert.Equal(((byte)60, (byte)131, (byte)246), new Hsl(217, 91, 60).ToRgb());

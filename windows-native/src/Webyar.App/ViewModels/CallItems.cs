@@ -37,6 +37,15 @@ public sealed partial class QueueItem : ObservableObject
     [ObservableProperty] private string _priorityText = string.Empty;
     [ObservableProperty] private bool _busy;
 
+    private bool _facePending;
+
+    /// <summary>The caller's device is still being asked for: the face is a skeleton until it lands.</summary>
+    public bool FacePending
+    {
+        get => _facePending;
+        private set => SetProperty(ref _facePending, value);
+    }
+
     private Visibility _detailVisibility = Visibility.Collapsed;
 
     /// <summary>The line under the name shows only when there is something to say.</summary>
@@ -69,9 +78,11 @@ public sealed partial class QueueItem : ObservableObject
     /// <summary>The caller's OS and country once known (asked for once, in a batch with the other faces).</summary>
     public void ShowDevice()
     {
-        var profile = AppHost.Current.Callers.For(Entry.CallSession?.VisitorSessionId ?? Entry.VisitorSessionId);
+        var id = Entry.CallSession?.VisitorSessionId ?? Entry.VisitorSessionId;
+        var profile = AppHost.Current.Callers.For(id);
         Os = profile?.Device?.Os;
         CountryCode = profile?.Geo?.CountryCode;
+        FacePending = AppHost.Current.Callers.IsPending(id);
     }
 
     /// <summary>m:ss since the call came in, amber after a minute and red after three (the web desk's SLA).</summary>
@@ -140,6 +151,7 @@ public sealed class CallHistoryItem : ObservableObject
 
     private string? _os;
     private string? _countryCode;
+    private bool _facePending;
 
     /// <summary>The caller's device, from their visitor session, for the face.</summary>
     public string? Os
@@ -155,11 +167,19 @@ public sealed class CallHistoryItem : ObservableObject
         private set => SetProperty(ref _countryCode, value);
     }
 
+    /// <summary>The caller's device is still being asked for: the face is a skeleton until it lands.</summary>
+    public bool FacePending
+    {
+        get => _facePending;
+        private set => SetProperty(ref _facePending, value);
+    }
+
     /// <summary>The caller's OS and country once known (asked for once, in a batch with the other faces).</summary>
     public void ShowDevice()
     {
         var profile = AppHost.Current.Callers.For(Call.VisitorSessionId);
         Os = profile?.Device?.Os;
         CountryCode = profile?.Geo?.CountryCode;
+        FacePending = AppHost.Current.Callers.IsPending(Call.VisitorSessionId);
     }
 }

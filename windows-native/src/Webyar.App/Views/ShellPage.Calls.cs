@@ -78,11 +78,13 @@ public sealed partial class ShellPage
     /// <summary>A caller's face: their name or email, and their device and country from their visitor session.</summary>
     private static void ShowCallerFace(Controls.Avatar avatar, CallSession? call, string? sessionId)
     {
-        var profile = Host.Callers.For(call?.VisitorSessionId ?? sessionId);
+        var id = call?.VisitorSessionId ?? sessionId;
+        var profile = Host.Callers.For(id);
         avatar.DisplayName = call?.VisitorName;
         avatar.Email = call?.VisitorEmail;
         avatar.Os = profile?.Device?.Os;
         avatar.CountryCode = profile?.Geo?.CountryCode;
+        avatar.IsPending = Host.Callers.IsPending(id);
     }
 
     private void OnCallerProfiles()
@@ -282,6 +284,7 @@ public sealed partial class ShellPage
             avatar.Os = face.Os;
             avatar.CountryCode = face.CountryCode;
             avatar.ImageUrl = face.ImageUrl;
+            avatar.IsPending = face.Pending;
         }
         ActiveCallName.Text = call.Name;
         ActiveCallGlyph.Glyph = call.IsVideo ? "\uE714" : "\uE717";

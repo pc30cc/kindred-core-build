@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Shapes;
 using Webyar.App.Helpers;
@@ -14,11 +15,14 @@ using Path = Microsoft.UI.Xaml.Shapes.Path;
 namespace Webyar.App.Controls;
 
 /// <summary>
-/// A person, drawn exactly like the web console's ContactAvatar so a visitor
-/// looks the same in both: their photo; else their operating system's logo
-/// on that OS's gradient; else initials on a gradient picked by a hash of the
-/// name. Operators (Kind="operator") show their photo or first letter on the
-/// brand tint, as in the web thread.
+/// A person, drawn as the Mac app's AvatarView draws them: their photo; else
+/// their operating system's logo on that OS's gradient; else a grey disc with
+/// a person in it, softly tinted by a hash of the name. Operators show their
+/// photo or the grey disc with a person; the AI its sparkle. Never initials.
+///
+/// While the photo is on its way — or while the page still waits to learn
+/// who this is (<see cref="IsPending"/>) — the avatar is a pulsing skeleton,
+/// so a face is never drawn and then swapped for another.
 /// </summary>
 public sealed partial class Avatar : UserControl
 {
@@ -29,10 +33,16 @@ public sealed partial class Avatar : UserControl
     private const string AppleLeafPath = "M10 2c1 .5 2 2 2 5";
     private const string PhonePath = "M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z M12 18h.01";
 
+    private const string PersonGlyph = "\uE77B";
+    private const string SparkleGlyph = "\uE99A";
+
+    private Storyboard? _pulse;
+
     public Avatar()
     {
         InitializeComponent();
         Loaded += (_, _) => Render();
+        Unloaded += (_, _) => StopPulse();
     }
 
     private static DependencyProperty Prop<T>(string name, T fallback) =>
@@ -46,6 +56,7 @@ public sealed partial class Avatar : UserControl
     public static readonly DependencyProperty SizeProperty = Prop(nameof(Size), 40d);
     public static readonly DependencyProperty KindProperty = Prop<string?>(nameof(Kind), null);
     public static readonly DependencyProperty PresenceProperty = Prop<string?>(nameof(PresenceState), null);
+    public static readonly DependencyProperty IsPendingProperty = Prop(nameof(IsPending), false);
 
     /// <summary>The person's own name, not a generated "Visitor · 4ZTK" label: the web hashes the raw name.</summary>
     public string? DisplayName { get => (string?)GetValue(DisplayNameProperty); set => SetValue(DisplayNameProperty, value); }
@@ -65,6 +76,9 @@ public sealed partial class Avatar : UserControl
     /// </summary>
     public string? PresenceState { get => (string?)GetValue(PresenceProperty); set => SetValue(PresenceProperty, value); }
 
+    /// <summary>Who this is (their photo, device) is still loading: the skeleton, not a face that may change.</summary>
+    public bool IsPending { get => (bool)GetValue(IsPendingProperty); set => SetValue(IsPendingProperty, value); }
+
     private string? _failedUrl;
 
     /// <summary>The photo (URL and decode width) the brush shows or is loading, so a re-render does not start over.</summary>
@@ -77,6 +91,7 @@ public sealed partial class Avatar : UserControl
         Height = size;
 
         var photo = PhotoUri(ImageUrl);
+        var photoReady = false;
         if (photo is not null && photo.AbsoluteUri != _failedUrl && AvatarImages.ShouldTry(photo))
         {
             // Through the shared photo cache (memory → disk → network), not a
@@ -94,6 +109,7 @@ public sealed partial class Avatar : UserControl
                     _ = LoadPhotoAsync(photo, width, key);
                 }
             }
+            photoReady = PhotoBrush.ImageSource is not null;
             Photo.Visibility = Visibility.Visible;
         }
         else
@@ -107,60 +123,48 @@ public sealed partial class Avatar : UserControl
         GlyphBox.Visibility = Visibility.Collapsed;
         IconGlyph.Visibility = Visibility.Collapsed;
         Gloss.Visibility = Visibility.Collapsed;
-        InitialsText.Visibility = Visibility.Collapsed;
-        InitialsText.FontSize = size switch { <= 28 => 10, <= 36 => 12, <= 40 => 13, <= 48 => 15, _ => Math.Round(size * 0.32) };
+        Tint.Visibility = Visibility.Collapsed;
 
-        if (Kind is "ai")
+        // Still loading who this is, or their photo: the skeleton and nothing else.
+        var loading = Kind is not "ai" && (IsPending || (photo is not null && !photoReady));
+        Skeleton.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
+        if (loading) StartPulse();
+        else StopPulse();
+
+        if (loading || photoReady)
+        {
+            // Under the photo too, for a picture with transparent corners.
+            Disc.Fill = Palette.Resource("ElevatedBrush");
+        }
+        else if (Kind is "ai")
         {
             Disc.Fill = Palette.Resource("AiSoftBrush");
-            IconGlyph.Glyph = "";
-            IconGlyph.FontSize = size * 0.5;
-            IconGlyph.Foreground = Palette.Resource("AiBrush");
-            IconGlyph.Visibility = Visibility.Visible;
+            ShowIcon(SparkleGlyph, size * 0.5, Palette.Resource("AiBrush"));
         }
         else if (Kind is "operator")
         {
-            // The web thread: the photo, else the first letter on the brand tint.
-            Disc.Fill = Palette.Resource("BrandSoftBrush");
-            var name = (DisplayName ?? string.Empty).Trim();
-            if (name.Length > 0)
-            {
-                InitialsText.Text = name[..1].ToUpperInvariant();
-                InitialsText.Foreground = Palette.Resource("BrandBrush");
-                InitialsText.FontWeight = Microsoft.UI.Text.FontWeights.Bold;
-                InitialsText.Visibility = photo is null ? Visibility.Visible : Visibility.Collapsed;
-            }
-            else if (photo is null)
-            {
-                IconGlyph.Glyph = "";
-                IconGlyph.FontSize = size * 0.45;
-                IconGlyph.Foreground = Palette.Resource("BrandBrush");
-                IconGlyph.Visibility = Visibility.Visible;
-            }
+            // No initials anywhere: an operator without a photo is the grey disc with a person.
+            Disc.Fill = Palette.Resource("ElevatedBrush");
+            ShowIcon(PersonGlyph, size * 0.46, Palette.Resource("Text3Brush"));
+        }
+        else if (AvatarArt.For(DisplayName, Email, Os) is { Os: not AvatarOs.None } art)
+        {
+            Disc.Fill = Gradient(art);
+            Gloss.Visibility = Visibility.Visible;
+            ShowGlyph(art.Os, size);
         }
         else
         {
-            var art = AvatarArt.For(DisplayName, Email, Os);
-            Disc.Fill = Gradient(art);
-            InitialsText.Foreground = new SolidColorBrush(Colors.White);
-            InitialsText.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
-            if (photo is null)
-            {
-                if (art.Os != AvatarOs.None)
-                {
-                    Gloss.Visibility = Visibility.Visible;
-                    ShowGlyph(art.Os, size);
-                }
-                else
-                {
-                    InitialsText.Text = art.Initials;
-                    InitialsText.Visibility = Visibility.Visible;
-                }
-            }
+            // Nor for visitors: without their device's logo, a grey disc with a person, tinted by their name.
+            var tint = ToColor(AvatarArt.Tint(DisplayName, Email));
+            Disc.Fill = Palette.Resource("ElevatedBrush");
+            Tint.Fill = new SolidColorBrush(tint);
+            Tint.Visibility = Visibility.Visible;
+            ShowIcon(PersonGlyph, size * 0.46, new SolidColorBrush(tint) { Opacity = 0.85 });
         }
 
         var badge = AvatarArt.CountryBadge(CountryCode);
-        CountryBadge.Visibility = badge is null || size < 32 ? Visibility.Collapsed : Visibility.Visible;
+        CountryBadge.Visibility = badge is null || size < 32 || IsPending ? Visibility.Collapsed : Visibility.Visible;
         if (badge is not null)
         {
             var b = size switch { <= 36 => 15, <= 40 => 16, <= 48 => 18, _ => Math.Round(size * 0.36) };
@@ -172,6 +176,40 @@ public sealed partial class Avatar : UserControl
         }
 
         ShowDot(size);
+    }
+
+    private void ShowIcon(string glyph, double fontSize, Brush foreground)
+    {
+        IconGlyph.Glyph = glyph;
+        IconGlyph.FontSize = fontSize;
+        IconGlyph.Foreground = foreground;
+        IconGlyph.Visibility = Visibility.Visible;
+    }
+
+    private void StartPulse()
+    {
+        if (_pulse is not null) return;
+        var fade = new DoubleAnimation
+        {
+            From = 1,
+            To = 0.45,
+            Duration = TimeSpan.FromMilliseconds(900),
+            AutoReverse = true,
+            RepeatBehavior = RepeatBehavior.Forever,
+            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
+        };
+        Storyboard.SetTarget(fade, Skeleton);
+        Storyboard.SetTargetProperty(fade, "Opacity");
+        _pulse = new Storyboard { Children = { fade } };
+        _pulse.Begin();
+    }
+
+    private void StopPulse()
+    {
+        if (_pulse is null) return;
+        _pulse.Stop();
+        _pulse = null;
+        Skeleton.Opacity = 1;
     }
 
     private void ShowGlyph(AvatarOs os, double size)
@@ -273,12 +311,13 @@ public sealed partial class Avatar : UserControl
         if (_photoKey != key) return; // another person or size since
         if (image is null)
         {
-            // The name, OS or initials instead; the shared cache retries the URL later.
+            // Their device's logo or the person disc instead; the shared cache retries the URL later.
             _photoKey = null;
             Render();
             return;
         }
         PhotoBrush.ImageSource = image;
+        Render();
     }
 
     private void OnImageFailed(object sender, ExceptionRoutedEventArgs e)

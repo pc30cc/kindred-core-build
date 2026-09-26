@@ -182,7 +182,9 @@ final class SampleBackend: URLProtocol {
     /// server sends them. The app shows only what the plan says exactly true about.
     private static let samplePlan: [String: Any] = {
         func on(_ keys: [String]) -> [String: Any] {
-            Dictionary(uniqueKeysWithValues: keys.map { ($0, ["value": true, "source": "plan"] as [String: Any]) })
+            var flags: [String: Any] = [:]
+            for key in keys { flags[key] = ["value": true, "source": "plan"] as [String: Any] }
+            return flags
         }
         return [
             "plan": ["slug": "business", "name": "Business"],

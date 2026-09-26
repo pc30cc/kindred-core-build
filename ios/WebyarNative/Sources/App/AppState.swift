@@ -318,8 +318,8 @@ final class AppState {
     }
 
     /// Which workspace the snapshot in `entitlements` belongs to.
-    @ObservationIgnored private var planWorkspaceID: String?
-    @ObservationIgnored private var planRefresh: Task<Void, Never>?
+    @ObservationIgnored private var planWorkspaceID: String? = nil
+    @ObservationIgnored private var planRefresh: Task<Void, Never>? = nil
 
     private func schedulePlanRefresh(_ workspaceID: String) {
         planRefresh?.cancel()

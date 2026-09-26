@@ -24,7 +24,6 @@
             <Setter Property="FontSize" Value="18" />
             <Setter Property="FontWeight" Value="Bold" />
             <Setter Property="Foreground" Value="{ThemeResource TextBrush}" />
-            <Setter Property="FontFeatureSettings" Value="'tnum'" />
         </Style>
         <!-- One segment of a segmented control (the Mac's segmented Picker). -->
         <Style x:Key="SegToggle" TargetType="ToggleButton" BasedOn="{StaticResource DefaultToggleButtonStyle}">
@@ -218,7 +217,7 @@
                                     <Border Grid.Column="2" CornerRadius="8" Padding="9,3" VerticalAlignment="Center" Background="{x:Bind WaitBack, Mode=OneWay}">
                                         <StackPanel Orientation="Horizontal" Spacing="4" FlowDirection="LeftToRight">
                                             <FontIcon Glyph="&#xE823;" FontSize="10" Foreground="{x:Bind WaitBrush, Mode=OneWay}" />
-                                            <TextBlock FontSize="12.5" FontWeight="SemiBold" FontFeatureSettings="'tnum'" Foreground="{x:Bind WaitBrush, Mode=OneWay}" Text="{x:Bind WaitText, Mode=OneWay}" />
+                                            <TextBlock FontSize="12.5" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" Foreground="{x:Bind WaitBrush, Mode=OneWay}" Text="{x:Bind WaitText, Mode=OneWay}" />
                                         </StackPanel>
                                     </Border>
                                 </Grid>
@@ -260,7 +259,7 @@
                                     </StackPanel>
                                     <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" Spacing="1">
                                         <TextBlock FontSize="12" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind WhenText}" HorizontalAlignment="Right" />
-                                        <TextBlock FontSize="12" FontFeatureSettings="'tnum'" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind DurationText}" HorizontalAlignment="Right" />
+                                        <TextBlock FontSize="12" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind DurationText}" HorizontalAlignment="Right" />
                                     </StackPanel>
                                 </Grid>
                             </DataTemplate>

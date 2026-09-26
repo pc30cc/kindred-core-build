@@ -78,6 +78,10 @@ class SignInLoadTest {
     private class SlowWorkspacesApi(
         private val real: SampleApi = SampleApi(),
     ) : WebyarApi by real {
+        // Nothing stored: the launch's own restore signs nobody in, so the
+        // only workspace load is the one the sign-in starts.
+        override suspend fun hasToken(): Boolean = false
+
         override suspend fun workspaces(): List<Workspace> {
             delay(1_000)
             return real.workspaces()
@@ -87,18 +91,15 @@ class SignInLoadTest {
     @Test
     fun `the workspace load survives the login screen going away`() = runTest(dispatcher) {
         val app = state(SlowWorkspacesApi())
-        testScheduler.advanceUntilIdle()
+        app.session.first { it !is Session.Restoring }
 
         // The login screen's scope: it lives exactly as long as the screen.
         val loginScreenScope = CoroutineScope(dispatcher + Job())
         loginScreenScope.launch { app.logIn("operator@webyar.app", "whatever") }
 
-        // Far enough for the sign-in to succeed and the load to be in flight,
-        // not far enough for the load to have finished.
-        testScheduler.advanceTimeBy(300)
-
-        // Setting the session is what replaces the screen, so this is what
-        // really happens next.
+        // Setting the session is what replaces the screen, so the screen's
+        // scope goes the moment it is set — with the load a second from done.
+        app.session.first { it is Session.SignedIn }
         loginScreenScope.cancel()
         testScheduler.advanceUntilIdle()
 
@@ -115,8 +116,10 @@ class SignInLoadTest {
         testScheduler.advanceUntilIdle()
 
         val loginScreenScope = CoroutineScope(dispatcher + Job())
-        loginScreenScope.launch { app.logIn("operator@webyar.app", "whatever") }
-        testScheduler.advanceUntilIdle()
+        val login = loginScreenScope.launch { app.logIn("operator@webyar.app", "whatever") }
+        // The screen goes once the sign-in has answered — which includes the
+        // session's save, on DataStore's threads rather than this scheduler.
+        login.join()
         loginScreenScope.cancel()
         testScheduler.advanceUntilIdle()
 
@@ -177,25 +180,25 @@ class SignInLoadTest {
     }
 
     /**
-     * Until the launch has finished restoring. `init` reads the stored
-     * preferences from DataStore, which runs on its own IO threads rather
-     * than this test's scheduler — so `advanceUntilIdle()` can return before
-     * the read lands, and the read then overwrites whatever the test set in
-     * the meantime. The session leaves `Restoring` only after it.
+     * Super Admin's switches, as `GET /api/mobile-app/config` answers them —
+     * or, with [failing] set, as a request that never gets an answer.
+     *
+     * None of these tests waits for the launch's own restore: it reads
+     * DataStore on threads the test scheduler does not see, and a test that
+     * waited on it hung when a class before it in the same JVM had left
+     * DataStore busy. AppState no longer lets that late read overwrite a
+     * value set meanwhile, which is what these tests pin.
      */
-    private suspend fun AppState.restored(): AppState = also {
-        session.first { it !is Session.Restoring }
-    }
-
-    /** Super Admin's switches, as `GET /api/mobile-app/config` answers them. */
     private class ConfigApi(
         var config: MobileAppConfig,
         private val real: SampleApi = SampleApi(),
     ) : WebyarApi by real {
         var configCalls = 0
+        var failing = false
 
         override suspend fun mobileAppConfig(): MobileAppConfig {
             configCalls++
+            if (failing) throw ApiError.Transport()
             return config
         }
     }
@@ -203,7 +206,7 @@ class SignInLoadTest {
     @Test
     fun `Super Admin's switches arrive with the sign-in`() = runTest(dispatcher) {
         val api = ConfigApi(MobileAppConfig(showStorage = false, profileNameEditable = true))
-        val app = state(api).restored()
+        val app = state(api)
         testScheduler.advanceUntilIdle()
 
         app.logIn("operator@webyar.app", "whatever")
@@ -221,7 +224,7 @@ class SignInLoadTest {
     @Test
     fun `wallpaper colours follow Super Admin over the operator's choice`() = runTest(dispatcher) {
         val api = ConfigApi(MobileAppConfig(allowWallpaperColors = false))
-        val app = state(api).restored()
+        val app = state(api)
         testScheduler.advanceUntilIdle()
         app.setDynamicColor(true)
 
@@ -236,20 +239,22 @@ class SignInLoadTest {
         assertTrue("the operator's own choice was lost", app.dynamicColor.value)
     }
 
-    /** A request that fails keeps the defaults rather than an empty state. */
+    /** A later request that fails keeps the last answer rather than undoing it. */
     @Test
     fun `a config that cannot be read leaves the app as it was`() = runTest(dispatcher) {
-        val failing = object : WebyarApi by SampleApi() {
-            override suspend fun mobileAppConfig(): MobileAppConfig = throw ApiError.Transport()
-        }
-        val app = state(failing).restored()
+        val answer = MobileAppConfig(showSecurity = false)
+        val api = ConfigApi(answer)
+        val app = state(api)
         testScheduler.advanceUntilIdle()
-        // The defaults, or the last answer this phone stored.
-        val before = app.appConfig.value
-
         app.logIn("operator@webyar.app", "whatever")
         testScheduler.advanceUntilIdle()
+        assertEquals(answer, app.appConfig.value)
 
-        assertEquals(before, app.appConfig.value)
+        api.failing = true
+        app.refreshPlanIfStale()
+        testScheduler.advanceUntilIdle()
+
+        assertTrue("the failing request was never made", api.configCalls >= 2)
+        assertEquals(answer, app.appConfig.value)
     }
 }

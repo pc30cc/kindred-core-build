@@ -132,6 +132,26 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.webyar.operator.ui.design.Radius
 import com.webyar.operator.core.model.Contact
+import com.webyar.operator.ui.components.OperatorAvatar
+import androidx.compose.ui.unit.dp
+import com.webyar.operator.feature.email.EmailReplyMode
+import com.webyar.operator.feature.email.EmailComposeViewModel
+import com.webyar.operator.feature.email.EmailComposeScreen
+import com.webyar.operator.core.model.EmailAttachmentView
+import com.webyar.operator.i18n.StrEmail
+import com.webyar.operator.ui.components.AttachmentFiles
+import com.webyar.operator.ui.components.Glyph
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import androidx.compose.foundation.layout.size
 
 /**
  * The screens, as the navigation graph sees them.
@@ -153,6 +173,8 @@ fun InboxRoute(
     onOpenEmail: () -> Unit,
     promotions: PromotionCenter,
     bottomInset: Dp,
+    /** For the colleagues' unread count on their button; null leaves it off. */
+    api: WebyarApi? = null,
 ) {
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
     val plan by appState.entitlements.collectAsStateWithLifecycle()
@@ -196,6 +218,20 @@ fun InboxRoute(
 
     // The queues: the AI queue is the web's aiQueueVisible, which also depends
     // on the AI switches and on whether it already holds threads.
+    // The colleagues' unread messages, for the badge on their button. Asked
+    // whenever the inbox comes back on screen — which is also when an
+    // operator has just been reading them.
+    val teamChat = plan.value?.featureEnabled("inbox_team_chat") == true
+    var colleaguesUnread by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(workspace?.id, teamChat, api) {
+        val id = workspace?.id
+        colleaguesUnread = if (api == null || id == null || !teamChat) {
+            null
+        } else {
+            runCatching { api.colleagues(id).totalUnread }.getOrNull()
+        }
+    }
+
     val allFilters = conversations.filters(plan.value, access, counts.automated)
     val chipFilters = conversations.chips(plan.value, access, counts.automated)
     // A queue that has just gone away must not stay selected with nothing behind it.
@@ -254,6 +290,7 @@ fun InboxRoute(
         // The mailbox is also an owner/admin section, as in the console's sidebar.
         onOpenEmail = onOpenEmail
             .takeIf { access.isAdmin && plan.value?.moduleEnabled("email_inbox") == true },
+        colleaguesUnread = colleaguesUnread,
         banner = banner?.let { creative ->
             {
                 PromoBanner(
@@ -813,12 +850,19 @@ fun TeamThreadRoute(
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let(sendPicked) }
 
+    val myAvatar by appState.avatarUrl.collectAsStateWithLifecycle()
+
     Scaffold(
         topBar = {
-            BackBar(
+            // The colleague's face beside their name, as the visitor chat's
+            // bar carries the visitor's.
+            DetailTopBar(
                 title = colleague?.displayName ?: Str.colleagues(language),
-                language = language,
+                backLabel = StrAndroid.back(language),
                 onBack = onBack,
+                leading = colleague?.let { peer ->
+                    { OperatorAvatar(imageUrl = peer.avatarUrl, size = 40.dp) }
+                },
             )
         },
     ) { padding ->
@@ -830,6 +874,8 @@ fun TeamThreadRoute(
                 loadAttachment = thread::attachment,
                 onRetry = thread::retry,
                 attachments = attachmentSource,
+                peerAvatarUrl = colleague?.avatarUrl,
+                myAvatarUrl = myAvatar,
             ) {
                 Composer(
                     language = language,
@@ -908,12 +954,15 @@ fun EmailInboxRoute(
     language: Language,
     onOpenThread: (String) -> Unit,
     onBack: () -> Unit,
+    onCompose: () -> Unit = {},
 ) {
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
     val state by email.state.collectAsStateWithLifecycle()
     val mailbox by email.mailbox.collectAsStateWithLifecycle()
     val notConnected by email.notConnected.collectAsStateWithLifecycle()
     val refreshing by email.refreshing.collectAsStateWithLifecycle()
+    val folder by email.folder.collectAsStateWithLifecycle()
+    val loadingMore by email.loadingMore.collectAsStateWithLifecycle()
 
     val search = rememberSearchState(resetOn = workspace?.id ?: "-")
     LaunchedEffect(search) {
@@ -935,6 +984,18 @@ fun EmailInboxRoute(
                 onBack = onBack,
             )
         },
+        floatingActionButton = {
+            // A new mail, from wherever the list is — the button every mail
+            // client keeps in this corner.
+            if (!notConnected) {
+                ExtendedFloatingActionButton(
+                    onClick = onCompose,
+                    icon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                    text = { Text(StrEmail.compose(language)) },
+                    modifier = Modifier.testTag(A11y.EMAIL_COMPOSE),
+                )
+            }
+        },
     ) { padding ->
         EmailInboxScreen(
             state = state,
@@ -950,6 +1011,13 @@ fun EmailInboxRoute(
             search = search,
             onRefresh = email::refresh,
             onRetry = email::retry,
+            folder = folder,
+            onSelectFolder = email::selectFolder,
+            hasMore = email.hasMore,
+            loadingMore = loadingMore,
+            onLoadMore = email::loadMore,
+            onToggleStar = { email.toggleStar(it.id) },
+            onToggleRead = { email.toggleRead(it.id) },
         )
     }
 }
@@ -963,6 +1031,7 @@ fun EmailThreadRoute(
     email: EmailInboxViewModel,
     language: Language,
     onBack: () -> Unit,
+    onReply: ((EmailReplyMode) -> Unit)? = null,
 ) {
     val model: EmailThreadViewModel =
         viewModel(factory = viewModelFactory { EmailThreadViewModel(api) { language } })
@@ -978,6 +1047,42 @@ fun EmailThreadRoute(
     LaunchedEffect(workspace?.id, threadId) {
         workspace?.let { model.open(it.id, threadId, email.thread(threadId)) }
     }
+    // Back from the composer: the reply just sent belongs in the trail.
+    LifecycleResumeEffect(threadId) {
+        model.reloadQuietly()
+        onPauseOrDispose { }
+    }
+
+    val context = LocalContext.current
+    val graph = LocalAppGraph.current
+    val session by appState.session.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    var notice by remember { mutableStateOf<String?>(null) }
+    // A mail's file, fetched into this account's own cache folder (cleared
+    // at sign-out with the rest of it) and handed to whatever opens it.
+    val openAttachment: (EmailAttachmentView) -> Unit = open@{ attachment ->
+        val ws = workspace?.id ?: return@open
+        val user = (session as? Session.SignedIn)?.user ?: return@open
+        val media = graph?.media ?: return@open
+        scope.launch {
+            val file = runCatching {
+                withContext(Dispatchers.IO) {
+                    val folder = java.io.File(media.directory(CacheScope(user.id, ws)), "email").apply { mkdirs() }
+                    val name = (attachment.filename ?: attachment.id).replace(Regex("[^A-Za-z0-9._-]"), "_").takeLast(80)
+                    val target = java.io.File(folder, "${attachment.id.take(12)}-$name")
+                    if (!target.exists() || target.length() == 0L) {
+                        target.writeBytes(api.emailAttachmentData(ws, attachment.id))
+                    }
+                    target
+                }
+            }.getOrNull()
+            notice = when {
+                file == null -> StrEmail.downloadFailed(language)
+                !AttachmentFiles.openFile(context, file, attachment.contentType) -> StrEmail.openFailed(language)
+                else -> null
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -986,6 +1091,19 @@ fun EmailThreadRoute(
                 backLabel = StrAndroid.back(language),
                 onBack = onBack,
                 actions = {
+                    // The star where it is seen, in the bar, rather than in a
+                    // menu: it is the one thing done to nearly every mail.
+                    val starred = thread?.isStarred == true
+                    IconButton(onClick = {
+                        model.toggleStar()
+                        email.setStarredLocally(threadId, !starred)
+                    }) {
+                        Icon(
+                            if (starred) Icons.Filled.Star else Glyph.StarOutline,
+                            contentDescription = if (starred) StrEmail.unstar(language) else StrEmail.star(language),
+                            tint = if (starred) WebyarTheme.colors.warning else LocalContentColor.current,
+                        )
+                    }
                     Box {
                         IconButton(
                             onClick = { menuOpen = true },
@@ -1002,21 +1120,6 @@ fun EmailThreadRoute(
                             shape = RoundedCornerShape(Radius.lg),
                         ) {
                             DropdownMenuItem(
-                                text = { Text(Str.emailStar(language)) },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Filled.Star,
-                                        contentDescription = null,
-                                        tint = if (model.isStarred) {
-                                            WebyarTheme.colors.warning
-                                        } else {
-                                            LocalContentColor.current
-                                        },
-                                    )
-                                },
-                                onClick = { menuOpen = false; model.toggleStar() },
-                            )
-                            DropdownMenuItem(
                                 text = { Text(Str.emailMarkUnread(language)) },
                                 leadingIcon = {
                                     Icon(Icons.Filled.Email, contentDescription = null)
@@ -1024,6 +1127,7 @@ fun EmailThreadRoute(
                                 onClick = {
                                     menuOpen = false
                                     model.markUnread()
+                                    email.markUnreadLocally(threadId)
                                     // And back out, because the thread you
                                     // just marked unread is one you are done
                                     // with — staying on it would mark it read
@@ -1042,16 +1146,17 @@ fun EmailThreadRoute(
                 state = state,
                 thread = thread,
                 language = language,
+                mailbox = mailbox,
                 onRetry = model::retry,
-            ) {
-                PlainComposer(
-                    draft = draft,
-                    onDraftChange = model::setDraft,
-                    placeholder = Str.emailReplyPlaceholder(language),
-                    sendLabel = Str.emailSend(language),
-                    sending = sending,
-                    onSend = { model.send(mailbox) },
-                )
+                onOpenAttachment = openAttachment,
+                onReply = onReply,
+            )
+
+            notice?.let { text ->
+                Snackbar(
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(Space.md),
+                    action = { TextButton(onClick = { notice = null }) { Text(Str.cancel(language)) } },
+                ) { Text(text) }
             }
 
             if (sendFailed) {
@@ -1065,6 +1170,121 @@ fun EmailThreadRoute(
                 ) { Text(Str.emailSendFailed(language)) }
             }
         }
+    }
+}
+
+/**
+ * Writing a mail — new, or answering a thread — with Send in the bar and
+ * the paperclip beside it. Leaving with words written asks first.
+ */
+@Composable
+fun EmailComposeRoute(
+    sourceThreadId: String?,
+    mode: EmailReplyMode?,
+    appState: AppState,
+    api: WebyarApi,
+    email: EmailInboxViewModel,
+    language: Language,
+    onClose: () -> Unit,
+) {
+    val model: EmailComposeViewModel =
+        viewModel(factory = viewModelFactory { EmailComposeViewModel(api) { language } })
+    val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
+    val mailbox by email.mailbox.collectAsStateWithLifecycle()
+    val form by model.form.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    var confirmDiscard by remember { mutableStateOf(false) }
+
+    LaunchedEffect(workspace?.id) {
+        workspace?.let { model.start(it.id, sourceThreadId, mode, mailbox) }
+    }
+    LaunchedEffect(form.sent) {
+        if (form.sent) {
+            android.widget.Toast.makeText(context, StrEmail.sent(language), android.widget.Toast.LENGTH_SHORT).show()
+            email.refresh()
+            onClose()
+        }
+    }
+
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        when (val picked = readPickedFile(context, uri)) {
+            is PickedFile.Ready -> model.attach(picked.bytes, picked.fileName, picked.mimeType)
+            else -> picked.problemText(language)?.let(model::report)
+        }
+    }
+    val close = { if (form.touched && !form.sent) confirmDiscard = true else onClose() }
+    BackHandler(enabled = form.touched && !form.sent) { confirmDiscard = true }
+
+    Scaffold(
+        topBar = {
+            DetailTopBar(
+                title = when (mode) {
+                    EmailReplyMode.REPLY -> StrEmail.reply(language)
+                    EmailReplyMode.REPLY_ALL -> StrEmail.replyAll(language)
+                    EmailReplyMode.FORWARD -> StrEmail.forward(language)
+                    null -> StrEmail.newMessage(language)
+                },
+                subtitle = mailbox,
+                backLabel = StrAndroid.back(language),
+                onBack = close,
+                actions = {
+                    IconButton(onClick = { filePicker.launch(AttachmentRules.PICKABLE_MIME_TYPES) }, enabled = !form.sending) {
+                        Icon(Glyph.Paperclip, contentDescription = StrEmail.addAttachment(language))
+                    }
+                    IconButton(
+                        onClick = model::send,
+                        enabled = !form.sending && form.ready,
+                        modifier = Modifier.testTag(A11y.EMAIL_COMPOSE_SEND),
+                    ) {
+                        if (form.sending) {
+                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send,
+                                contentDescription = Str.emailSend(language),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        Box(Modifier.padding(padding)) {
+            EmailComposeScreen(
+                form = form,
+                language = language,
+                onToChange = model::setTo,
+                onCcChange = model::setCc,
+                onBccChange = model::setBcc,
+                onShowCopies = model::showCopies,
+                onSubjectChange = model::setSubject,
+                onBodyChange = model::setBody,
+                onRemoveAttachment = model::removeAttachment,
+            )
+            form.error?.let { text ->
+                Snackbar(
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(Space.md),
+                    action = { TextButton(onClick = model::dismissError) { Text(Str.cancel(language)) } },
+                ) { Text(text) }
+            }
+        }
+    }
+
+    if (confirmDiscard) {
+        AlertDialog(
+            onDismissRequest = { confirmDiscard = false },
+            title = { Text(StrEmail.discardDraft(language)) },
+            confirmButton = {
+                TextButton(onClick = { confirmDiscard = false; onClose() }) {
+                    Text(StrEmail.discard(language), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDiscard = false }) { Text(StrEmail.keepEditing(language)) }
+            },
+        )
     }
 }
 

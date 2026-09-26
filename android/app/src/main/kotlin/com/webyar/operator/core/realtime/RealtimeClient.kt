@@ -374,7 +374,7 @@ class RealtimeClient(
         val data = publication.data ?: return
         val envelope = runCatching { json.decodeFromJsonElement(RealtimeEnvelope.serializer(), data) }.getOrNull() ?: return
         val payload = envelope.payload ?: return
-        if (!seen.add(dedupeKey(envelope.type, payload))) return
+        if (!seen.add(dedupeKey(channel, publication.offset, positions?.get(channel)?.epoch, envelope.type, payload))) return
         when (envelope.type) {
             "message" -> runCatching { json.decodeFromJsonElement(Message.serializer(), payload) }
                 .getOrNull()
@@ -388,11 +388,31 @@ class RealtimeClient(
     }
 
     /**
-     * What makes two publications the same one. The whole payload, not the
-     * message id: the server republishes a call card under the SAME id when
-     * its status changes (`invitations.ts`), and that is news, not a repeat.
+     * What makes two publications the same one.
+     *
+     * For an event, its place in the stream when it has one: a replay after
+     * a reconnect is the same offset, and two events that merely read alike
+     * are not the same event. Keyed on the payload alone, a second hand-over
+     * or take-over with the same reason and actor in one session was
+     * silently dropped — several server events carry no timestamp to tell
+     * them apart.
+     *
+     * For a message, the whole payload, not the message id: the server
+     * republishes a call card under the SAME id when its status changes
+     * (`invitations.ts`), and that is news.
      */
-    private fun dedupeKey(type: String?, payload: JsonElement): String = "$type:${payload.hashCode()}:${payload.toString().length}"
+    private fun dedupeKey(
+        channel: String,
+        offset: Long?,
+        epoch: String?,
+        type: String?,
+        payload: JsonElement,
+    ): String =
+        // A message is its row: the same payload twice is the same state,
+        // whatever the stream says. An event is a happening, and two alike
+        // are two — unless they are the same place in the stream.
+        if (type == "event" && offset != null) "$channel:${epoch.orEmpty()}:$offset"
+        else "$type:${payload.hashCode()}:${payload.toString().length}"
 
     private companion object {
         const val AREA = "Realtime"

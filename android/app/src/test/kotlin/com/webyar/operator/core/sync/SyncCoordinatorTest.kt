@@ -74,6 +74,39 @@ class SyncCoordinatorTest {
         assertEquals(listOf(listOf("c-1")), api.idReads)
     }
 
+    /**
+     * A chat opened from the AI's queue, handed over to a person: the
+     * focused queue no longer lists it, so it is read by itself too — or its
+     * header and composer keep the AI's state.
+     */
+    @Test
+    fun `an event about an open chat also reads that chat by id`() = runTest {
+        val sync = coordinator()
+        sync.focusInbox(scope, InboxFilter.AI)
+        sync.openThread("c-1")
+
+        sync.onRealtimeEvent("ws-1", event("ai_handoff_requested", "c-1"))
+        sync.onRealtimeEvent("ws-1", event("conversation_updated", "c-2"))
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(listOf(listOf("c-1", "c-2")), api.idReads)
+        // Only the one on screen, not every id in the batch.
+        assertEquals(listOf("c-1"), api.byIdReads)
+    }
+
+    /** A chat restored with no inbox behind it still hears its conversation. */
+    @Test
+    fun `a chat with nothing in focus focuses the Open queue`() = runTest {
+        val sync = coordinator()
+        sync.ensureFocus(scope)
+        sync.onRealtimeEvent("ws-1", event("conversation_updated", "c-1"))
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(listOf(listOf("c-1")), api.idReads)
+    }
+
     @Test
     fun `switching workspace drops the old one's queued work and ignores its late events`() = runTest {
         val sync = coordinator()

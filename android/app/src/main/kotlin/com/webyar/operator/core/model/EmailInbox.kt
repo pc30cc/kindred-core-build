@@ -101,6 +101,45 @@ data class EmailThreadsResponse(
     val nextBefore: String? = null,
 )
 
+/** The mailbox's three views: everything, what is unread, what is starred. */
+enum class EmailFolder {
+    INBOX,
+    UNREAD,
+    STARRED;
+
+    /** The list endpoint's own switches (`unread=true`, `starred=true`). */
+    val query: List<Pair<String, String>>
+        get() = when (this) {
+            INBOX -> emptyList()
+            UNREAD -> listOf("unread" to "true")
+            STARRED -> listOf("starred" to "true")
+        }
+}
+
+/**
+ * A file uploaded ahead of a send. `POST /api/email-inbox/:ws/attachments`
+ * answers with this and `/send` takes it back; the row is only written once
+ * the message it belongs to exists.
+ */
+@Serializable
+data class StagedEmailAttachment(
+    val storageKey: String,
+    val filename: String,
+    val contentType: String,
+    val sizeBytes: Long,
+)
+
+/** Everything a sent mail is made of. `threadId` null starts a new thread. */
+data class EmailDraft(
+    val threadId: String?,
+    val to: List<String>,
+    val cc: List<String> = emptyList(),
+    val bcc: List<String> = emptyList(),
+    val subject: String,
+    val body: String,
+    val attachments: List<StagedEmailAttachment> = emptyList(),
+)
+
 /**
  * The connected mailbox, so the screen can say whose inbox this is — and say
  * something useful when there isn't one.
@@ -197,5 +236,33 @@ object EmailBody {
         text = RUNS_OF_SPACE.replace(text, " ")
         text = RUNS_OF_BLANK_LINES.replace(text, "\n\n")
         return text.trim()
+    }
+
+    private val QUOTE_OPENERS = listOf(
+        // "On Tue, 3 Sep 2026 at 10:04, Sara <sara@x.com> wrote:" — Gmail,
+        // Apple Mail and Outlook's English, which is most of what arrives.
+        Regex("^\\s*On .{4,200}wrote:\\s*$", RegexOption.IGNORE_CASE),
+        // The same line in Persian and Turkish clients.
+        Regex("^\\s*.{0,200}نوشت:\\s*$"),
+        Regex("^\\s*.{4,200}(yazdı|şunu yazdı):\\s*$", RegexOption.IGNORE_CASE),
+        Regex("^\\s*-{2,}\\s*(Original Message|Forwarded message|پیام اصلی|پیام ارسال‌شده)\\s*-{2,}\\s*$", RegexOption.IGNORE_CASE),
+        Regex("^\\s*From: .+$", RegexOption.IGNORE_CASE),
+    )
+
+    /**
+     * The new text of a mail, and the trail it quotes — split where the
+     * quote starts, so the trail can fold away the way every mail client
+     * folds it. Null when nothing is quoted, and when the "quote" would be
+     * the whole mail (a forward is its content, not a trail to hide).
+     */
+    fun splitQuoted(text: String): Pair<String, String?> {
+        val lines = text.lines()
+        val start = lines.indexOfFirst { line ->
+            line.trimStart().startsWith(">") || QUOTE_OPENERS.any { it.matches(line) }
+        }
+        if (start <= 0) return text to null
+        val fresh = lines.take(start).joinToString("\n").trimEnd()
+        if (fresh.isBlank()) return text to null
+        return fresh to lines.drop(start).joinToString("\n").trim()
     }
 }

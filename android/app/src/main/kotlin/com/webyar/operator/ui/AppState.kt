@@ -70,6 +70,12 @@ class AppState(
     /** The operator's own choice, kept even while Super Admin disallows it. */
     private val _dynamicColor = MutableStateFlow(false)
 
+    /** Set once the operator has chosen in this run; the stored value then never overwrites it. */
+    private var dynamicColorChosen = false
+
+    /** Set once the server has answered in this run; the stored copy then never overwrites it. */
+    private var appConfigFromServer = false
+
     /**
      * Wallpaper colours instead of the brand's — see [Preferences.dynamicColor].
      *
@@ -184,8 +190,14 @@ class AppState(
             prefs.language()?.let { _language.value = it }
             hooks.languageChanged(_language.value)
             _appearance.value = prefs.appearance()
-            _dynamicColor.value = prefs.dynamicColor()
-            _appConfig.value = prefs.appConfig()
+            // Stored values arrive from DataStore's own threads, possibly
+            // after the operator has already chosen (or the server already
+            // answered). The later, fresher value wins; the stored one only
+            // fills in what nothing newer has set.
+            val storedDynamic = prefs.dynamicColor()
+            if (!dynamicColorChosen) _dynamicColor.value = storedDynamic
+            val storedConfig = prefs.appConfig()
+            if (!appConfigFromServer) _appConfig.value = storedConfig
             restore()
         }
     }
@@ -209,6 +221,7 @@ class AppState(
     }
 
     fun setDynamicColor(on: Boolean) {
+        dynamicColorChosen = true
         _dynamicColor.value = on
         viewModelScope.launch { prefs.setDynamicColor(on) }
     }
@@ -333,6 +346,7 @@ class AppState(
         if (appConfigJob?.isActive == true) return
         appConfigJob = viewModelScope.launch {
             val config = runCatching { api.mobileAppConfig() }.getOrNull() ?: return@launch
+            appConfigFromServer = true
             if (config != _appConfig.value) {
                 _appConfig.value = config
                 // Stored on the side, so this job ends when the answer is

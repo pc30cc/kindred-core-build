@@ -85,6 +85,14 @@ class EmailThreadViewModel(
     }
 
     /**
+     * Read again without a spinner — coming back from the composer, the
+     * reply that was just sent should be in the trail.
+     */
+    fun reloadQuietly() {
+        if (_state.value is EmailThreadState.Loaded) load()
+    }
+
+    /**
      * Starred, optimistically.
      *
      * The star flips under the thumb and the request follows. A failure leaves

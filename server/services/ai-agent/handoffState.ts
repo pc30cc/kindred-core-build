@@ -77,7 +77,7 @@ export async function clearAiManagementForPlatformOff(
     .select('metadata')
     .eq('id', args.conversationId)
     .maybeSingle();
-  const meta = (((data as any)?.metadata) || {}) as Record<string, unknown>;
+  const meta = ((data as { metadata?: unknown } | null)?.metadata || {}) as Record<string, unknown>;
   const previousAiState = (meta.ai_state as string) || null;
 
   // Build a new metadata object explicitly omitting `ai_state` so the
@@ -106,12 +106,12 @@ export async function clearAiManagementForPlatformOff(
   if (wasManaged) {
     try {
       await publishOperatorEvent(config, {
-        kind: 'conversation_updated' as any,
+        kind: 'conversation_updated',
         conversation_id: args.conversationId,
         workspace_id: args.workspaceId,
         actor_id: null,
         reason: 'platform_ai_disabled_main_inbox_restore',
-      } as any);
+      });
     } catch { /* best-effort */ }
   }
 
@@ -140,7 +140,7 @@ export async function readAiConversationMeta(
     .select('metadata')
     .eq('id', conversationId)
     .maybeSingle();
-  const meta = ((data as any)?.metadata || {}) as Record<string, unknown>;
+  const meta = ((data as { metadata?: unknown } | null)?.metadata || {}) as Record<string, unknown>;
   return {
     state: (meta.ai_state as AiConversationState) || null,
     managed_by_ai: meta.ai_managed_by_ai === true || meta.managed_by_ai === true,
@@ -185,7 +185,7 @@ async function patchMeta(
     .eq('id', conversationId)
     .maybeSingle();
   if (!row) return false;
-  const meta = ((row as any)?.metadata || {}) as Record<string, unknown>;
+  const meta = ((row as { metadata?: unknown } | null)?.metadata || {}) as Record<string, unknown>;
   const { error: updErr } = await sb
     .from('conversations')
     .update({ metadata: { ...meta, ...patch }, updated_at: new Date().toISOString() })
@@ -193,18 +193,50 @@ async function patchMeta(
   return !updErr;
 }
 
-/** Mark a conversation as managed by AI (placed into the Automated inbox). */
+/**
+ * Mark a conversation as managed by AI (placed into the Automated inbox).
+ *
+ * Announced when it is a MOVE — the thread was not the AI's a moment ago —
+ * so an operator's list and an open chat see it leave the human queue and
+ * its composer change. This runs after the AI's reply has already been
+ * published, so without the event a client that re-read on that reply could
+ * read the old state and keep it. Not announced on every reply to a thread
+ * the AI already holds: that is no news, and it is most of the calls.
+ */
 export async function markAiManaged(
   config: ServerConfig,
   args: { workspaceId: string; conversationId: string },
 ): Promise<void> {
-  await patchMeta(config, args.conversationId, {
+  let wasManaged = false;
+  try {
+    const { data } = await getServiceClient(config)
+      .from('conversations')
+      .select('metadata')
+      .eq('id', args.conversationId)
+      .maybeSingle();
+    wasManaged = ((data as { metadata?: Record<string, unknown> } | null)?.metadata?.ai_state) === 'ai_managed';
+  } catch {
+    // Unknown: announce it; a spare event costs one read.
+  }
+  const ok = await patchMeta(config, args.conversationId, {
     ai_state: 'ai_managed',
     managed_by_ai: true,
     ai_managed_by_ai: true,
     ai_handoff_requested: false,
     last_ai_reply_at: new Date().toISOString(),
   }, args.workspaceId);
+  if (!ok || wasManaged) return;
+  try {
+    await publishOperatorEvent(config, {
+      kind: 'conversation_updated',
+      conversation_id: args.conversationId,
+      workspace_id: args.workspaceId,
+      actor_id: null,
+      reason: 'ai_managed',
+    });
+  } catch {
+    // Advisory: the thread is the AI's either way; the next read shows it.
+  }
 }
 
 export interface HandoffCommit {
@@ -237,12 +269,12 @@ export async function commitNeedsHuman(
 
   try {
     await publishOperatorEvent(config, {
-      kind: 'ai_handoff_requested' as any,
+      kind: 'ai_handoff_requested',
       conversation_id: args.conversationId,
       workspace_id: args.workspaceId,
       actor_id: null,
       reason: args.reason,
-    } as any);
+    });
   } catch { /* best-effort */ }
 
   // Owner asked for operator routing to wait until the visitor has actually
@@ -318,7 +350,8 @@ async function shouldDeferRoutingForPrechat(
       .select('ask_name, ask_email, ask_phone')
       .eq('workspace_id', workspaceId)
       .maybeSingle();
-    const anyAsked = !!(prechat && ((prechat as any).ask_name || (prechat as any).ask_email || (prechat as any).ask_phone));
+    const asks = prechat as { ask_name?: boolean | null; ask_email?: boolean | null; ask_phone?: boolean | null } | null;
+    const anyAsked = !!(asks && (asks.ask_name || asks.ask_email || asks.ask_phone));
     if (!anyAsked) return false;
 
     const { data: conv } = await sb
@@ -326,20 +359,21 @@ async function shouldDeferRoutingForPrechat(
       .select('contact_id')
       .eq('id', conversationId)
       .maybeSingle();
-    if (!(conv as any)?.contact_id) return true;
+    const contactId = (conv as { contact_id?: string | null } | null)?.contact_id;
+    if (!contactId) return true;
 
     const { data: contact } = await sb
       .from('contacts')
       .select('name, email, phone')
-      .eq('id', (conv as any).contact_id)
+      .eq('id', contactId)
       .maybeSingle();
     if (!contact) return true;
     // mergeVisitorIdentity() seeds an unidentified contact's name with the
     // literal placeholder 'Visitor' — a real pre-chat submission always
     // writes an actual field, so "still just the placeholder, no email/
     // phone either" means pre-chat genuinely hasn't happened yet.
-    const hasReal = ((contact as any).name && (contact as any).name !== 'Visitor')
-      || (contact as any).email || (contact as any).phone;
+    const who = contact as { name?: string | null; email?: string | null; phone?: string | null };
+    const hasReal = (who.name && who.name !== 'Visitor') || who.email || who.phone;
     return !hasReal;
   } catch {
     return false;
@@ -373,12 +407,12 @@ export async function markHumanTakeover(
 
   try {
     await publishOperatorEvent(config, {
-      kind: 'ai_human_takeover' as any,
+      kind: 'ai_human_takeover',
       conversation_id: args.conversationId,
       workspace_id: args.workspaceId,
       actor_id: args.operatorId,
       reason: args.reason,
-    } as any);
+    });
   } catch { /* best-effort */ }
 }
 
@@ -398,7 +432,7 @@ export function isHumanOperatorMessage(message: {
 }): boolean {
   if (!message) return false;
   const st = (message.sender_type || '').toLowerCase();
-  const meta = (message.metadata || {}) as Record<string, any>;
+  const meta = (message.metadata || {}) as Record<string, unknown>;
   const source = String(meta.source || '').toLowerCase();
   const actorType = String(meta.actor_type || '').toLowerCase();
 
@@ -428,7 +462,7 @@ export function isAiAgentMessage(message: {
 }): boolean {
   if (!message) return false;
   const st = (message.sender_type || '').toLowerCase();
-  const meta = (message.metadata || {}) as Record<string, any>;
+  const meta = (message.metadata || {}) as Record<string, unknown>;
   const source = String(meta.source || '').toLowerCase();
   if (st === 'ai') return true;
   if (source.startsWith('ai_agent')) return true;

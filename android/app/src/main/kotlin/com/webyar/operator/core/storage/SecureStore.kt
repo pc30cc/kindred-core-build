@@ -15,6 +15,8 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private val Context.dataStore by preferencesDataStore(name = "webyar")
 
@@ -77,16 +79,24 @@ class SecureStore(private val context: Context) {
     //
     // Deliberately not encrypted: a remembered name, an API origin and a
     // language are settings, not credentials. Only the token gets the key.
+    //
+    // All on IO, whoever asks. DataStore runs an edit's transform in the
+    // caller's context while it holds the file's one write lock, so an edit
+    // launched from a screen's scope needed that screen's dispatcher to come
+    // round again before anyone else could read or write — and a dispatcher
+    // that never did (a scope abandoned mid-write) held every later write in
+    // the process for good. On IO the lock is always let go; the caller only
+    // waits for the answer, and cancelling the caller still cancels the edit.
 
     suspend fun read(key: Preferences.Key<String>): String? =
-        context.dataStore.data.first()[key]
+        withContext(Dispatchers.IO) { context.dataStore.data.first()[key] }
 
     suspend fun write(key: Preferences.Key<String>, value: String) {
-        context.dataStore.edit { it[key] = value }
+        withContext(Dispatchers.IO) { context.dataStore.edit { it[key] = value } }
     }
 
     suspend fun remove(key: Preferences.Key<String>) {
-        context.dataStore.edit { it.remove(key) }
+        withContext(Dispatchers.IO) { context.dataStore.edit { it.remove(key) } }
     }
 
     // MARK: - Keystore

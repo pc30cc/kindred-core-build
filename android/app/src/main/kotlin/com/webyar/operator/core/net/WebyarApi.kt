@@ -43,6 +43,10 @@ import com.webyar.operator.core.model.RealtimeConnect
 import com.webyar.operator.core.model.RealtimeSubscribe
 import com.webyar.operator.core.model.SentMessage
 import java.io.File
+import com.webyar.operator.core.model.EmailFolder
+import com.webyar.operator.core.model.EmailThreadsResponse
+import com.webyar.operator.core.model.EmailDraft
+import com.webyar.operator.core.model.StagedEmailAttachment
 
 /**
  * What the app needs from a backend.
@@ -321,6 +325,35 @@ interface WebyarApi {
         body: String,
     )
     suspend fun gmailConnection(workspaceId: String): GmailConnection?
+
+    /**
+     * One page of a folder, with the cursor for the next. Defaulted onto
+     * [emailThreads] so a fake that only knows the old call still answers —
+     * with one page and no more.
+     */
+    suspend fun emailThreadsPage(
+        workspaceId: String,
+        folder: EmailFolder,
+        search: String?,
+        before: String?,
+    ): EmailThreadsResponse =
+        if (before != null) EmailThreadsResponse() else EmailThreadsResponse(emailThreads(workspaceId, search))
+
+    /** A full send — Cc, Bcc, attachments, a new thread. Defaulted onto [sendEmail]. */
+    suspend fun sendEmailDraft(workspaceId: String, draft: EmailDraft) =
+        sendEmail(workspaceId, draft.threadId, draft.to, draft.subject, draft.body)
+
+    /** Uploads a file to go with a mail being written. */
+    suspend fun stageEmailAttachment(
+        workspaceId: String,
+        bytes: ByteArray,
+        filename: String,
+        contentType: String,
+    ): StagedEmailAttachment = throw UnsupportedOperationException("stageEmailAttachment")
+
+    /** A received or sent attachment's bytes. */
+    suspend fun emailAttachmentData(workspaceId: String, attachmentId: String): ByteArray =
+        throw UnsupportedOperationException("emailAttachmentData")
 
     // MARK: - Availability and promotions
 

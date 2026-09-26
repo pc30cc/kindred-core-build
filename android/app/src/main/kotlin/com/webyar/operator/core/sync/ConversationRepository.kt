@@ -128,6 +128,14 @@ class ConversationRepository(
         ids: Collection<String>,
         filter: InboxFilter?,
         reason: String,
+        /**
+         * By id only: whether a conversation the server does not return is
+         * removed. False for a supplementary read (an open chat re-read so
+         * its header follows it): a missing row there must not wipe the
+         * transcript under the operator — the thread's own read is what
+         * says a conversation is gone.
+         */
+        removeMissing: Boolean = true,
     ) {
         val wanted = ids.filter { it.isNotBlank() }.distinct()
         if (wanted.isEmpty()) return
@@ -137,6 +145,7 @@ class ConversationRepository(
                 for (id in wanted) {
                     val row = api.conversation(scope.workspaceId, id)
                     if (row == null) {
+                        if (!removeMissing) continue
                         store.removeConversation(scope, id)
                         diag.info(AREA, "conversation ${Diag.id(id)} gone; removed ($reason)")
                     } else {
@@ -145,32 +154,37 @@ class ConversationRepository(
                 }
                 return@withLock
             }
-            val slice = api.conversationsByIds(scope.workspaceId, wanted, filter)
-            val whole = slice.wholeList
-            if (whole != null) {
-                // An older server ignored the narrowing and sent the whole
-                // queue: that IS a full read, so it is stored as one. The
-                // ETag is dropped because this response did not carry one.
-                store.writeConversations(scope, whole, listKey = filter.listKey, replaceList = true, now = now)
-                val key = SyncKeys.list(filter.listKey)
-                store.putSyncState(
-                    scope,
-                    (store.syncState(scope, key) ?: blank(scope, key)).copy(etag = null, fullReadAt = now, updatedAt = now),
-                )
-                diag.info(AREA, "targeted read unsupported by server; stored ${whole.size} rows as a full read")
-            } else {
-                val present = slice.rows.map { it.id }.toSet()
-                store.writeConversations(
-                    scope,
-                    slice.rows,
-                    listKey = filter.listKey,
-                    absent = wanted.filter { it !in present },
-                    now = now,
-                )
-                diag.info(
-                    AREA,
-                    "targeted read of ${wanted.size} (${slice.rows.size} in ${filter.listKey}, $reason)",
-                )
+            // A hundred at a time, the endpoint's own limit: ids beyond it used to
+            // be sent, silently not asked about, and marked absent from the list.
+            for (chunk in wanted.chunked(MAX_IDS_PER_READ)) {
+                val slice = api.conversationsByIds(scope.workspaceId, chunk, filter)
+                val whole = slice.wholeList
+                if (whole != null) {
+                    // An older server ignored the narrowing and sent the whole
+                    // queue: that IS a full read, so it is stored as one. The
+                    // ETag is dropped because this response did not carry one.
+                    store.writeConversations(scope, whole, listKey = filter.listKey, replaceList = true, now = now)
+                    val key = SyncKeys.list(filter.listKey)
+                    store.putSyncState(
+                        scope,
+                        (store.syncState(scope, key) ?: blank(scope, key)).copy(etag = null, fullReadAt = now, updatedAt = now),
+                    )
+                    diag.info(AREA, "targeted read unsupported by server; stored ${whole.size} rows as a full read")
+                } else {
+                    val present = slice.rows.map { it.id }.toSet()
+                    store.writeConversations(
+                        scope,
+                        slice.rows,
+                        listKey = filter.listKey,
+                        absent = chunk.filter { it !in present },
+                        now = now,
+                    )
+                    diag.info(
+                        AREA,
+                        "targeted read of ${chunk.size} (${slice.rows.size} in ${filter.listKey}, $reason)",
+                    )
+                }
+                if (whole != null) break
             }
         }
     }
@@ -259,3 +273,6 @@ sealed interface InboxRefresh {
     data object Unchanged : InboxRefresh
     data class Replaced(val count: Int) : InboxRefresh
 }
+
+/** `GET /api/conversations?ids=` answers for at most this many at once. */
+private const val MAX_IDS_PER_READ = 100

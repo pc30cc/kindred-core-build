@@ -41,6 +41,7 @@ import { isActionActive } from '../services/observability/autoActionsCache.js';
 import { isTelegramMenuEventsVisible } from '../services/channels/telegram/settings.js';
 import { emitLog } from '../services/observability/metrics.js';
 import { markHumanTakeover } from '../services/ai-agent/handoffState.js';
+import { resolveWorkspaceAgentLogoUrl } from '../services/ai-agent/settings.js';
 import { maybeCreateLearningCandidateFromOperatorReply } from '../services/ai-agent/learning/candidates.js';
 import { markSpam, unmarkSpam } from '../services/spam/state.js';
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
@@ -1449,9 +1450,12 @@ conversationsRouter.get('/inbox-tab-counts', async (req, res) => {
       scopeAssignment(sb.from('conversations').select('id', { count: 'exact', head: true })
         .eq('workspace_id', workspaceId).eq('is_spam', false).or('ai_state.is.null,ai_state.neq.ai_managed'));
     /* The AI tab lives outside `base()` scope: it counts exactly the
-       ai_managed threads that base() excludes. */
+       ai_managed threads that base() excludes — with the list's own
+       narrowing (not closed, not claimed by anyone), so the number on the
+       tab is the number of rows behind it. */
     const automatedQuery = scopeAssignment(sb.from('conversations').select('id', { count: 'exact', head: true })
-      .eq('workspace_id', workspaceId).eq('is_spam', false).eq('ai_state', 'ai_managed'));
+      .eq('workspace_id', workspaceId).eq('is_spam', false).eq('ai_state', 'ai_managed')
+      .neq('status', 'closed').is('assigned_to', null));
     const [openRes, pendingRes, resolvedRes, allRes, needsRes, automatedRes] = await Promise.all([
       base().eq('status', 'open'),
       base().eq('status', 'pending'),
@@ -1666,6 +1670,16 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
       }
     }
 
+    // An AI reply has no sender_id — nobody's profile is behind it — so the
+    // lookup above never gave it a face, and the operator apps drew every AI
+    // bubble with none. The agent's own logo is the one the widget shows the
+    // visitor; derived once per read, and only when the thread has AI turns.
+    // Null when the workspace never uploaded one: the apps draw their own.
+    const hasAiTurns = messages.some((m) => m.sender_type === 'ai' || m.sender_type === 'bot');
+    const agentLogo = hasAiTurns
+      ? await resolveWorkspaceAgentLogoUrl(config, conv.workspace_id).catch(() => null)
+      : null;
+
     const enriched = messages.map((m) => {
       const aid = m?.metadata?.attachment_id;
       const list: unknown[] = [];
@@ -1680,7 +1694,8 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
         // `attachment` kept for backwards compatibility with older clients.
         ...(list.length ? { attachment: list[0], attachments: list } : {}),
         sender_name: prof?.name ?? null,
-        sender_avatar: prof?.avatar ?? null,
+        sender_avatar: prof?.avatar
+          ?? ((m.sender_type === 'ai' || m.sender_type === 'bot') ? agentLogo : null),
       };
     });
 

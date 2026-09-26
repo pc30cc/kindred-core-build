@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.webyar.operator.core.model.string
+import com.webyar.operator.core.model.get
 
 /**
  * How realtime is doing, as the rest of the app needs to know it.
@@ -130,6 +132,18 @@ class SyncCoordinator(
         focus.value = Focus(scope, filter)
     }
 
+    /**
+     * A chat opened with no inbox behind it — restored after the process was
+     * killed, or reached from a notification — still has to hear about its
+     * conversation. Realtime publications and the poll are dropped while
+     * nothing is in focus, so the Open queue is focused here unless the
+     * inbox has already focused something.
+     */
+    fun ensureFocus(scope: CacheScope) {
+        val current = focus.value
+        if (current == null || current.scope != scope) focusInbox(scope, InboxFilter.OPEN)
+    }
+
     fun openThread(conversationId: String) {
         openThreads.update { it + conversationId }
         messages.watch(conversationId)
@@ -198,6 +212,14 @@ class SyncCoordinator(
             if (wrote) diag.info(AREA, "realtime message applied to ${Diag.id(message.conversationId)}")
         }
         queueConversation(message.conversationId, "realtime message")
+        // The envelope a visitor's photo arrives in names the attachment in
+        // its metadata but carries no `attachments` list, so the row it
+        // writes is an empty bubble. For a thread on screen, such a message
+        // brings a delta, which carries the attachment; a complete one needs
+        // nothing more.
+        if (message.conversationId in openThreads.value && message.namesMissingAttachment()) {
+            queueThread(message.conversationId, "realtime attachment")
+        }
     }
 
     /**
@@ -289,6 +311,19 @@ class SyncCoordinator(
         if (ids.isEmpty()) return
         runCatchingUnlessCancelled { conversations.refreshConversations(f.scope, ids, f.filter, reasons) }
             .onFailure { diag.warn(AREA, "targeted read failed ($reasons): ${it.javaClass.simpleName}") }
+        // A thread on screen is read by itself too, whatever queue it is in
+        // now. The focused read only answers for its own queue — a chat
+        // opened from the AI's that the AI has just handed over (or that the
+        // operator took over, resolved, reassigned) left it, and only the
+        // queue's absence was recorded: the header and the composer kept the
+        // old state. By id, the row is rewritten wherever it went.
+        val open = ids.filter { it in openThreads.value }
+        if (open.isNotEmpty()) {
+            runCatchingUnlessCancelled {
+                conversations.refreshConversations(f.scope, open, filter = null, reason = reasons, removeMissing = false)
+            }
+                .onFailure { diag.warn(AREA, "open-thread read failed ($reasons): ${it.javaClass.simpleName}") }
+        }
         runCatchingUnlessCancelled { refreshCounts(f.scope, f.filter.queue) }
     }
 
@@ -399,3 +434,8 @@ data class SyncPolicy(
 
 /** For the repositories' error handling: a failure the operator should hear about as "offline". */
 val Throwable.isOffline: Boolean get() = this is ApiError.Transport
+
+/** Names an attachment (in its metadata) that did not come with it. */
+internal fun Message.namesMissingAttachment(): Boolean =
+    attachments.isNullOrEmpty() &&
+        (metadata.string("attachment_id") != null || metadata["attachments"] != null || metadata["attachment"] != null)

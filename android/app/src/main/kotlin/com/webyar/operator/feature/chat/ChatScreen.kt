@@ -91,6 +91,9 @@ import com.webyar.operator.ui.components.OperatorAvatar
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.webyar.operator.ui.design.Radius
+import com.webyar.operator.ui.components.ChannelLabel
+import com.webyar.operator.ui.components.ConversationChannel
+import com.webyar.operator.ui.components.AiAvatar
 
 sealed interface ChatState {
     data object Loading : ChatState
@@ -188,6 +191,7 @@ fun ChatScreen(
                 },
                 avatarUrl = conversation?.contact?.avatarUrl,
                 visitor = visitor,
+                channel = conversation?.let { ConversationChannel.of(it) },
                 onOpenVisitor = onOpenVisitor,
                 sharedKey = conversation?.id?.let(::avatarKey),
                 onBack = onBack,
@@ -304,11 +308,16 @@ private fun layout(messages: List<Message>): List<TranscriptRow> {
             // A day header between two messages ends the run above it too:
             // the face belongs at the foot of each day's run, not only the
             // last one.
+            // Two colleagues answering in turn are two runs, each with its
+            // own face — the type alone would have made them one.
             endsRun = next == null || next.senderType != message.senderType ||
+                (message.senderType == SenderType.AGENT && next.senderId != message.senderId) ||
                 next.senderType == SenderType.SYSTEM ||
                 (next.createdAt != null && message.createdAt != null &&
                     next.createdAt!!.atZone(zone).toLocalDate() != message.createdAt!!.atZone(zone).toLocalDate()),
-            startsRun = previous == null || previous.senderType != message.senderType || !sameDayAsPrevious,
+            startsRun = previous == null || previous.senderType != message.senderType ||
+                (message.senderType == SenderType.AGENT && previous.senderId != message.senderId) ||
+                !sameDayAsPrevious,
         )
     }
 }
@@ -355,10 +364,18 @@ private fun Transcript(
                     // The visitor's face on their side, the sender's own on
                     // ours: an operator's photo, or the quiet circle while it
                     // loads or when there is none — never initials.
-                    avatar = if (message.senderType.isOutgoing) {
-                        { OperatorAvatar(imageUrl = message.senderAvatar, size = Size.avatarSmall) }
-                    } else {
-                        { visitorFace(Size.avatarSmall) }
+                    avatar = when {
+                        // The assistant: the workspace's logo for it, or
+                        // the app's own AI face — never an empty circle.
+                        message.senderType == SenderType.AI || message.senderType == SenderType.BOT -> {
+                            { AiAvatar(imageUrl = message.senderAvatar, size = Size.avatarSmall) }
+                        }
+                        message.senderType.isOutgoing -> {
+                            { OperatorAvatar(imageUrl = message.senderAvatar, size = Size.avatarSmall) }
+                        }
+                        else -> {
+                            { visitorFace(Size.avatarSmall) }
+                        }
                     },
                     // A photo on its own is its own shape; a coloured frame
                     // around it adds nothing but a border.
@@ -475,6 +492,8 @@ private fun ChatTopBar(
     onBack: () -> Unit,
     actions: (@Composable () -> Unit)?,
     visitor: VisitorProfile? = null,
+    /** Where the visitor is writing from; shown under their name. */
+    channel: String? = null,
     onOpenVisitor: (() -> Unit)? = null,
     sharedKey: String? = null,
 ) {
@@ -508,13 +527,26 @@ private fun ChatTopBar(
                         countryCode = visitor?.geo?.countryCode,
                         modifier = if (sharedKey != null) Modifier.sharedElement(sharedKey) else Modifier,
                     )
-                    Text(
-                        title,
-                        style = WebyarType.titleMediumEmphasized.bidiContent(),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(start = Space.md),
-                    )
+                    Column(Modifier.padding(start = Space.md)) {
+                        Text(
+                            title,
+                            style = WebyarType.titleMediumEmphasized.bidiContent(),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        // The channel under the name, as the console's
+                        // header shows it: an operator switching between a
+                        // Telegram thread and a website chat answers each
+                        // in its own register.
+                        if (channel != null) {
+                            ChannelLabel(
+                                key = channel,
+                                language = language,
+                                compact = true,
+                                modifier = Modifier.padding(top = 2.dp),
+                            )
+                        }
+                    }
                 }
             }
         },

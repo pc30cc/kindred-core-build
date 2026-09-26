@@ -239,4 +239,36 @@ object StrAndroid {
         Language.FA -> "این موارد را فضای کاری شما تعیین می‌کند. برای تغییرشان از پنل وب استفاده کنید یا به مدیر بگویید."
         Language.TR -> "Bunları çalışma alanınız belirler. Değiştirmek için web panelini kullanın ya da bir yöneticiye sorun."
     }
+
+    /** The inbox strip's last button, and the sheet it opens. */
+    fun everyInbox(l: Language): String = when (l) {
+        Language.EN -> "All inboxes"
+        Language.FA -> "همهٔ صندوق‌ها"
+        Language.TR -> "Tüm gelen kutuları"
+    }
+
+    /** The sheet's section for the colleagues' chat and the mailbox. */
+    fun teamAndMail(l: Language): String = when (l) {
+        Language.EN -> "Team and email"
+        Language.FA -> "همکاران و ایمیل"
+        Language.TR -> "Ekip ve e-posta"
+    }
+
+    /** The emoji panel's way back to typing. */
+    fun keyboard(l: Language): String = when (l) {
+        Language.EN -> "Keyboard"
+        Language.FA -> "صفحه‌کلید"
+        Language.TR -> "Klavye"
+    }
+
+    /**
+     * The AI's queue on the inbox strip, written out in full. The shared
+     * strings (generated from iOS) say «هوش», which is short for a tab bar;
+     * on a chip beside «باز» and «همکاران» it read as a word cut off.
+     */
+    fun filterAI(l: Language): String = when (l) {
+        Language.EN -> "AI"
+        Language.FA -> "هوش مصنوعی"
+        Language.TR -> "Yapay zekâ"
+    }
 }

@@ -11,7 +11,7 @@
  */
 
 import type { ServerConfig } from '../../config.js';
-import { getServiceClient } from '../../supabase.js';
+import { getServiceClient, type ServiceClient } from '../../supabase.js';
 import { recordConversationEvent } from '../conversationEvents.js';
 // Reusable-status matching now happens inside public.ensure_active_conversation
 // (migration 071) so the match and the insert are atomic; the TS constant
@@ -51,6 +51,17 @@ export type NormalizedInboundMessage = {
   sentAt: string | null;
 };
 
+/** The conversation_messages row processInboundMessage inserts and reads back. */
+interface InsertedChannelMessage {
+  id: string;
+  conversation_id: string;
+  sender_type: Parameters<typeof buildMessageEnvelope>[0]['sender_type'];
+  body: string;
+  created_at: string | null;
+  metadata: Record<string, unknown> | null;
+  seen_at: string | null;
+}
+
 export type InboundResult = {
   status: 'processed' | 'duplicate' | 'ignored';
   conversationId?: string;
@@ -60,7 +71,7 @@ export type InboundResult = {
 
 /** Contact resolution is keyed on the provider identity, not on the text. */
 async function ensureChannelContact(
-  sb: any,
+  sb: ServiceClient,
   input: NormalizedInboundMessage,
 ): Promise<string | null> {
   const identityKey = `${input.provider}:${input.externalUserId ?? input.externalChatId}`;
@@ -87,17 +98,28 @@ async function ensureChannelContact(
     .limit(1)
     .maybeSingle();
   if (existing?.id) {
-    // Keep the provider-side identity fresh (renames, new @username, locale).
+    const row = existing as { id: string; name: string | null; metadata: Record<string, unknown> | null };
+    // Keep the provider-side identity fresh (renames, new @username, locale)
+    // — writing only when something actually changed. This ran on every
+    // inbound message from a known sender and almost always rewrote the row
+    // with the name and metadata it already had. Each channel field is
+    // compared exactly as the merge below would store it (a field that is now
+    // undefined drops out of the stored JSON, so it counts as a change).
     const nextName =
       input.senderName || (input.senderUsername ? `@${input.senderUsername}` : null);
-    await sb
-      .from('contacts')
-      .update({
-        ...(nextName && nextName !== (existing as any).name ? { name: nextName } : {}),
-        metadata: { ...((existing as any).metadata || {}), ...channelMetadata },
-      })
-      .eq('id', (existing as any).id);
-    return (existing as any).id as string;
+    const prevMetadata = row.metadata || {};
+    const nameChanged = !!nextName && nextName !== row.name;
+    const metadataChanged = Object.entries(channelMetadata).some(([key, value]) => prevMetadata[key] !== value);
+    if (nameChanged || metadataChanged) {
+      await sb
+        .from('contacts')
+        .update({
+          ...(nameChanged ? { name: nextName } : {}),
+          metadata: { ...prevMetadata, ...channelMetadata },
+        })
+        .eq('id', row.id);
+    }
+    return row.id;
   }
 
   const buildPayload = (visitorCode: string | null) => ({
@@ -116,11 +138,11 @@ async function ensureChannelContact(
     console.error('[channels] contact creation failed:', error.message);
     return null;
   }
-  return (created as any)?.id ?? null;
+  return (created as { id?: string } | null)?.id ?? null;
 }
 
 async function ensureChannelConversation(
-  sb: any,
+  sb: ServiceClient,
   input: NormalizedInboundMessage,
   contactId: string | null,
   extraMetadata: Record<string, unknown> = {},
@@ -199,38 +221,50 @@ export async function processInboundMessage(
 
   // 1. Idempotency gate — insert first, process only if we won the race.
   //    Column names below MUST match public.channel_inbound_events exactly.
-  const { error: dedupeError } = await sb.from('channel_inbound_events').insert({
-    integration_id: input.integrationId,
-    workspace_id: input.workspaceId,
-    provider: input.provider,
-    external_event_id: input.providerEventId,
-    payload: {},
-    status: 'processing',
-  });
-  if (dedupeError) {
+  //    INSERT ... ON CONFLICT DO NOTHING rather than a plain INSERT: the
+  //    unique index is consulted BEFORE any row is written, so a duplicate
+  //    costs a read. The plain INSERT wrote the heap tuple and then aborted
+  //    on the unique violation — a transaction id, WAL and a dead tuple for
+  //    every re-delivered event (measured on PostgreSQL 16: 224 bytes of WAL
+  //    per duplicate, versus none), and X polling re-posts every recent
+  //    message on every poll.
+  const { data: claimedRows, error: dedupeError } = await sb
+    .from('channel_inbound_events')
+    .upsert(
+      {
+        integration_id: input.integrationId,
+        workspace_id: input.workspaceId,
+        provider: input.provider,
+        external_event_id: input.providerEventId,
+        payload: {},
+        status: 'processing',
+      },
+      { onConflict: 'integration_id,external_event_id', ignoreDuplicates: true },
+    )
+    .select('id');
+  if (dedupeError && dedupeError.code !== '23505') {
+    throw new Error(`inbound dedupe failed: ${dedupeError.message}`);
+  }
+  if (dedupeError || !claimedRows?.length) {
     // A processed event is a true duplicate. A previously failed event must
     // be reclaimable after its underlying defect is repaired; otherwise the
     // queue retry would be acknowledged while the message remains lost.
-    if ((dedupeError as any).code === '23505') {
-      const { data: existing, error: existingError } = await sb
-        .from('channel_inbound_events')
-        .select('status')
-        .eq('integration_id', input.integrationId)
-        .eq('external_event_id', input.providerEventId)
-        .maybeSingle();
-      if (existingError) throw new Error(`inbound dedupe lookup failed: ${existingError.message}`);
-      if ((existing as any)?.status !== 'failed') return { status: 'duplicate' };
+    const { data: existing, error: existingError } = await sb
+      .from('channel_inbound_events')
+      .select('status')
+      .eq('integration_id', input.integrationId)
+      .eq('external_event_id', input.providerEventId)
+      .maybeSingle();
+    if (existingError) throw new Error(`inbound dedupe lookup failed: ${existingError.message}`);
+    if ((existing as { status?: string } | null)?.status !== 'failed') return { status: 'duplicate' };
 
-      const { error: reclaimError } = await sb
-        .from('channel_inbound_events')
-        .update({ status: 'processing', last_error: null, processed_at: null })
-        .eq('integration_id', input.integrationId)
-        .eq('external_event_id', input.providerEventId)
-        .eq('status', 'failed');
-      if (reclaimError) throw new Error(`inbound retry claim failed: ${reclaimError.message}`);
-    } else {
-      throw new Error(`inbound dedupe failed: ${dedupeError.message}`);
-    }
+    const { error: reclaimError } = await sb
+      .from('channel_inbound_events')
+      .update({ status: 'processing', last_error: null, processed_at: null })
+      .eq('integration_id', input.integrationId)
+      .eq('external_event_id', input.providerEventId)
+      .eq('status', 'failed');
+    if (reclaimError) throw new Error(`inbound retry claim failed: ${reclaimError.message}`);
   }
 
   const finish = async (status: string, detail: Record<string, unknown> = {}) => {
@@ -283,7 +317,7 @@ export async function processInboundMessage(
     // whether this was real content or a menu tap — see below.
 
 
-    const { data: insertedMsg, error: msgError } = await sb
+    const { data: insertedRow, error: msgError } = await sb
       .from('conversation_messages')
       .insert({
         conversation_id: conversation.id,
@@ -303,14 +337,21 @@ export async function processInboundMessage(
       .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')
       .single();
     if (msgError) throw new Error(`message insert failed: ${msgError.message}`);
+    const insertedMsg = insertedRow as InsertedChannelMessage;
 
     // NOTE: the conversation `updated_at` bump happens after the provider
     // flow resolves, so pure menu navigation never re-floats the thread in
     // the operator inbox.
-    await sb
+    // Guarded: an unchanged contact_id — every later message of the same
+    // thread — matches no row and writes nothing, instead of a new row
+    // version per inbound message. (contactId is a contacts.id UUID.)
+    const linkContact = sb
       .from('conversations')
       .update({ contact_id: contactId })
       .eq('id', conversation.id);
+    await (contactId
+      ? linkContact.or(`contact_id.is.null,contact_id.neq.${contactId}`)
+      : linkContact.not('contact_id', 'is', null));
 
 
     // Media persistence — provider-specific, best-effort, non-fatal. The
@@ -324,19 +365,19 @@ export async function processInboundMessage(
           workspaceId: input.workspaceId,
           integrationId: input.integrationId,
           conversationId: conversation.id,
-          messageId: (insertedMsg as any).id,
+          messageId: insertedMsg.id,
           attachments: input.attachments,
         });
         await sb
           .from('conversation_messages')
           .update({
             metadata: {
-              ...(insertedMsg as any).metadata,
+              ...insertedMsg.metadata,
               attachments: outcomes,
             },
           })
-          .eq('id', (insertedMsg as any).id);
-      } catch (mediaErr: any) {
+          .eq('id', insertedMsg.id);
+      } catch (mediaErr) {
         console.warn('[channels] telegram media fetch enqueue error:', mediaErr?.message || mediaErr);
       }
     }
@@ -371,17 +412,17 @@ export async function processInboundMessage(
     // only renders them as a compact activity strip once the thread is open.
     if (menuCommand) {
       const nextMeta = {
-        ...(((insertedMsg as any).metadata as Record<string, unknown>) || {}),
+        ...((insertedMsg.metadata as Record<string, unknown>) || {}),
         channel_menu_command: menuCommand,
         channel_menu_event: 'true',
       };
       const seenAt = new Date().toISOString();
-      (insertedMsg as any).metadata = nextMeta;
-      (insertedMsg as any).seen_at = seenAt;
+      insertedMsg.metadata = nextMeta;
+      insertedMsg.seen_at = seenAt;
       await sb
         .from('conversation_messages')
         .update({ metadata: nextMeta, seen_at: seenAt })
-        .eq('id', (insertedMsg as any).id);
+        .eq('id', insertedMsg.id);
     } else {
       await sb
         .from('conversations')
@@ -398,9 +439,9 @@ export async function processInboundMessage(
       workspaceId: input.workspaceId,
       conversationId: conversation.id,
       source: input.provider,
-      messageId: (insertedMsg as any).id,
+      messageId: insertedMsg.id,
       message: {
-        senderType: (insertedMsg as any).sender_type,
+        senderType: insertedMsg.sender_type,
         direction: 'inbound',
         text: input.text,
         attachmentCount: input.attachments?.length ?? 0,
@@ -416,7 +457,7 @@ export async function processInboundMessage(
         config,
         input.workspaceId,
         conversation.id,
-        buildMessageEnvelope(insertedMsg as any),
+        buildMessageEnvelope(insertedMsg),
       ).catch(() => {});
 
       // NATIVE PUSH — canonical, channel-agnostic trigger. Runs only after
@@ -426,7 +467,7 @@ export async function processInboundMessage(
       void notifyInboundMessage(config, {
         workspaceId: input.workspaceId,
         conversationId: conversation.id,
-        messageId: (insertedMsg as any).id,
+        messageId: insertedMsg.id,
         text: input.text,
         senderName: input.senderName || input.senderUsername || null,
         channel: input.provider,
@@ -444,27 +485,27 @@ export async function processInboundMessage(
       void maybeRunAiAssistantAfterVisitorMessage(config, {
         workspaceId: input.workspaceId,
         conversationId: conversation.id,
-        visitorMessageId: (insertedMsg as any).id,
+        visitorMessageId: insertedMsg.id,
         question: aiPromptOverride || input.text,
         locale: replyLocale || undefined,
       })
-        .then((r: any) => {
+        .then((r) => {
           if (isBotProvider(input.provider)) console.log(`[channels] ${input.provider} ai result`, r);
         })
-        .catch((e: any) => console.warn('[channels] AI engine error:', e?.message || e));
+        .catch((e) => console.warn('[channels] AI engine error:', e?.message || e));
     }
 
 
     await finish('processed', {
       conversation_id: conversation.id,
       contact_id: contactId,
-      message_id: (insertedMsg as any).id,
+      message_id: insertedMsg.id,
     });
 
     return {
       status: 'processed',
       conversationId: conversation.id,
-      messageId: (insertedMsg as any).id,
+      messageId: insertedMsg.id,
       contactId: contactId ?? undefined,
     };
   } catch (err) {

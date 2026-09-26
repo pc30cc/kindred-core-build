@@ -592,6 +592,8 @@ internalChannelsRouter.post('/gmail/history-checkpoint', async (req: Request, re
     const config = serverConfigOf(req);
     const integration = await getIntegrationById(config, parsed.data.integration_id);
     if (!integration) return res.status(404).json({ error: 'unknown_integration' });
+    // Unchanged checkpoint → nothing to write (see /yahoo/poll-checkpoint).
+    if (integration.metadata?.gmail_history_id === parsed.data.history_id) return res.json({ ok: true });
     await updateIntegration(config, integration.id, {
       metadata: { ...integration.metadata, gmail_history_id: parsed.data.history_id },
     });
@@ -759,6 +761,23 @@ internalChannelsRouter.post('/yahoo/upsert-thread-message', async (req: Request,
     let threadId: string;
     if (existingThread) {
       threadId = existingThread.id;
+      // A message this thread already holds is a re-delivery: answer exactly
+      // as the duplicate branch below does, BEFORE touching the thread. The
+      // IMAP poller re-posts the newest message on idle polls (an `n:*` UID
+      // search always includes the highest UID), and each re-post used to
+      // mark the thread unread again — the newest thread flipped back to
+      // unread every ~75s — and then attempt an insert that could only die on
+      // the (thread_id, external_message_id) unique constraint, leaving a
+      // dead tuple and WAL behind every time.
+      const { data: knownMessage } = await sb
+        .from('email_messages')
+        .select('id')
+        .eq('thread_id', threadId)
+        .eq('external_message_id', data.message.external_message_id)
+        .maybeSingle();
+      if (knownMessage) {
+        return res.json({ thread_id: threadId, message_id: knownMessage.id, is_new_message: false });
+      }
       await sb
         .from('email_threads')
         .update({
@@ -896,6 +915,10 @@ internalChannelsRouter.post('/yahoo/poll-checkpoint', async (req: Request, res) 
     const config = serverConfigOf(req);
     const integration = await getIntegrationById(config, parsed.data.integration_id);
     if (!integration) return res.status(404).json({ error: 'unknown_integration' });
+    // Only an ADVANCED watermark is written. The worker reports its
+    // checkpoint after every poll, including the (usual) poll that found
+    // nothing, which rewrote channel_integrations with the value it held.
+    if (integration.metadata?.yahoo_last_uid === parsed.data.last_uid) return res.json({ ok: true });
     await updateIntegration(config, integration.id, {
       metadata: { ...integration.metadata, yahoo_last_uid: parsed.data.last_uid },
     });

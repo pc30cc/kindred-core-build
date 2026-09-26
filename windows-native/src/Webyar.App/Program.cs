@@ -16,6 +16,11 @@ public static class Program
         // Velopack's install, update and uninstall hooks run before anything else, then return.
         VelopackApp.Build().Run();
 
+        // WebView2 keeps its profile beside the exe unless told otherwise, and
+        // an install under Program Files is read-only for the user.
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER")))
+            Environment.SetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER", Services.AppPaths.WebView2);
+
         using var mutex = new Mutex(initiallyOwned: true, MutexName, out var first);
         if (!first)
         {

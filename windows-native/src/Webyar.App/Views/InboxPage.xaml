@@ -71,9 +71,17 @@
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock FontSize="14" FontWeight="{x:Bind NameWeight, Mode=OneWay}" Text="{x:Bind Name, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Grid.Column="1" FontSize="11.5" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind Stamp, Mode=OneWay}" VerticalAlignment="Center" />
+                                            <!-- The channel it came in on: Telegram, Bale, WhatsApp, the site widget… -->
+                                            <Border Grid.Column="1" Padding="6,1,7,2" CornerRadius="8" VerticalAlignment="Center" Background="{x:Bind ChannelSoftBrush, Mode=OneWay}">
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <FontIcon FontSize="9.5" Glyph="{x:Bind ChannelGlyph, Mode=OneWay}" Foreground="{x:Bind ChannelBrush, Mode=OneWay}" VerticalAlignment="Center" />
+                                                    <TextBlock FontSize="10.5" FontWeight="SemiBold" Foreground="{x:Bind ChannelBrush, Mode=OneWay}" Text="{x:Bind ChannelText, Mode=OneWay}" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                            </Border>
+                                            <TextBlock Grid.Column="2" FontSize="11.5" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind Stamp, Mode=OneWay}" VerticalAlignment="Center" />
                                         </Grid>
                                         <Grid ColumnSpacing="6">
                                             <Grid.ColumnDefinitions>

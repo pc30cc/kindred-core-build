@@ -175,6 +175,79 @@
                         </StackPanel>
                     </DockPanel>
 
+                    <!-- 1b. Already installed: update / repair, or uninstall -->
+                    <DockPanel x:Name="MaintainPage" Visibility="Collapsed">
+                        <StackPanel DockPanel.Dock="Top">
+                            <TextBlock x:Name="MaintainTitle" FontSize="26" FontWeight="Bold" Foreground="{DynamicResource TextBrush}" />
+                            <TextBlock x:Name="MaintainBody" Margin="0,8,0,0" FontSize="13.5" Foreground="{DynamicResource Text2Brush}" TextWrapping="Wrap" LineHeight="22" />
+                        </StackPanel>
+                        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+                            <Button x:Name="MaintainCancelButton" Style="{StaticResource SecondaryButton}" Click="OnClose" Margin="0,0,10,0" />
+                        </StackPanel>
+                        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="2,14,0,0">
+                            <TextBlock Text="&#xE8B7;" FontFamily="{StaticResource IconFont}" FontSize="12" Foreground="{DynamicResource Text3Brush}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="MaintainPathLabel" Margin="8,0,6,0" FontSize="12" Foreground="{DynamicResource Text3Brush}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="MaintainPath" FontSize="12" Foreground="{DynamicResource Text2Brush}" VerticalAlignment="Center" FlowDirection="LeftToRight" TextTrimming="CharacterEllipsis" MaxWidth="330" />
+                        </StackPanel>
+                        <StackPanel Margin="0,22,0,0">
+                            <Button x:Name="MaintainUpdateButton" Style="{StaticResource OptionButton}" Click="OnMaintainUpdate" Margin="0,0,0,10">
+                                <DockPanel>
+                                    <Border Style="{StaticResource IconTile}" DockPanel.Dock="Left">
+                                        <TextBlock Text="&#xE777;" Style="{StaticResource TileGlyph}" />
+                                    </Border>
+                                    <TextBlock Text="&#xE76C;" FontFamily="{StaticResource IconFont}" FontSize="12" Foreground="{DynamicResource Text3Brush}" DockPanel.Dock="Right" VerticalAlignment="Center" x:Name="MaintainUpdateChevron" />
+                                    <StackPanel Margin="12,0,12,0" VerticalAlignment="Center">
+                                        <TextBlock x:Name="MaintainUpdateTitle" FontSize="13.5" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" />
+                                        <TextBlock x:Name="MaintainUpdateHint" Margin="0,2,0,0" FontSize="12" Foreground="{DynamicResource Text3Brush}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Button>
+                            <Button x:Name="MaintainRemoveButton" Style="{StaticResource OptionButton}" Click="OnMaintainRemove">
+                                <DockPanel>
+                                    <Border Style="{StaticResource IconTile}" DockPanel.Dock="Left" Background="{DynamicResource DangerSoftBrush}">
+                                        <TextBlock Text="&#xE74D;" Style="{StaticResource TileGlyph}" Foreground="{DynamicResource DangerBrush}" />
+                                    </Border>
+                                    <TextBlock Text="&#xE76C;" FontFamily="{StaticResource IconFont}" FontSize="12" Foreground="{DynamicResource Text3Brush}" DockPanel.Dock="Right" VerticalAlignment="Center" x:Name="MaintainRemoveChevron" />
+                                    <StackPanel Margin="12,0,12,0" VerticalAlignment="Center">
+                                        <TextBlock x:Name="MaintainRemoveTitle" FontSize="13.5" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" />
+                                        <TextBlock x:Name="MaintainRemoveHint" Margin="0,2,0,0" FontSize="12" Foreground="{DynamicResource Text3Brush}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Button>
+                        </StackPanel>
+                    </DockPanel>
+
+                    <!-- 1c. Uninstall: confirm -->
+                    <DockPanel x:Name="UninstallPage" Visibility="Collapsed">
+                        <StackPanel DockPanel.Dock="Top">
+                            <TextBlock x:Name="UninstallTitle" FontSize="26" FontWeight="Bold" Foreground="{DynamicResource TextBrush}" />
+                            <TextBlock x:Name="UninstallBody" Margin="0,8,0,0" FontSize="13.5" Foreground="{DynamicResource Text2Brush}" TextWrapping="Wrap" LineHeight="22" />
+                        </StackPanel>
+                        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+                            <Button x:Name="UninstallCancelButton" Style="{StaticResource SecondaryButton}" Click="OnUninstallCancel" Margin="0,0,10,0" />
+                            <Button x:Name="UninstallButton" Style="{StaticResource DangerButton}" Click="OnUninstall">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE74D;" FontFamily="{StaticResource IconFont}" FontSize="14" VerticalAlignment="Center" Margin="0,1,9,0" />
+                                    <TextBlock x:Name="UninstallText" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                        <StackPanel Margin="0,22,0,0">
+                            <Border Style="{StaticResource OptionCard}">
+                                <DockPanel>
+                                    <Border Style="{StaticResource IconTile}" DockPanel.Dock="Left">
+                                        <TextBlock Text="&#xE77B;" Style="{StaticResource TileGlyph}" />
+                                    </Border>
+                                    <CheckBox x:Name="OptRemoveData" Style="{StaticResource ToggleSwitch}" DockPanel.Dock="Right" VerticalAlignment="Center" IsChecked="False" />
+                                    <StackPanel Margin="12,0,12,0" VerticalAlignment="Center">
+                                        <TextBlock x:Name="OptRemoveDataTitle" FontSize="13.5" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" />
+                                        <TextBlock x:Name="OptRemoveDataHint" Margin="0,2,0,0" FontSize="12" Foreground="{DynamicResource Text3Brush}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                        </StackPanel>
+                    </DockPanel>
+
                     <!-- 2. Installing -->
                     <DockPanel x:Name="ProgressPage" Visibility="Collapsed">
                         <StackPanel DockPanel.Dock="Top">
@@ -220,7 +293,7 @@
                     <DockPanel x:Name="ErrorPage" Visibility="Collapsed">
                         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right">
                             <Button x:Name="ErrorCloseButton" Style="{StaticResource SecondaryButton}" Click="OnClose" Margin="0,0,10,0" />
-                            <Button x:Name="RetryButton" Style="{StaticResource AccentButton}" Click="OnInstall" IsDefault="True">
+                            <Button x:Name="RetryButton" Style="{StaticResource AccentButton}" Click="OnRetry" IsDefault="True">
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="&#xE72C;" FontFamily="{StaticResource IconFont}" FontSize="14" VerticalAlignment="Center" Margin="0,1,9,0" />
                                     <TextBlock x:Name="RetryText" VerticalAlignment="Center" />

@@ -9,6 +9,6 @@
     <Product>Webyar</Product>
     <Copyright>Copyright © Webyar</Copyright>
     <!-- One version for the whole app; the release workflow checks the tag against it. -->
-    <Version>2.5.4</Version>
+    <Version>2.5.5</Version>
   </PropertyGroup>
 </Project>

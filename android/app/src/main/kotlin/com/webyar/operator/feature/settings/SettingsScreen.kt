@@ -70,6 +70,7 @@ import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
 import com.webyar.operator.ui.design.WebyarTheme
 import com.webyar.operator.ui.design.WebyarType
+import com.webyar.operator.ui.components.OperatorAvatar
 
 /**
  * Everything the operator can change about their own account.
@@ -404,7 +405,7 @@ private fun AccountCard(account: AccountHeader, onOpenProfile: () -> Unit) {
                 color = MaterialTheme.colorScheme.primaryContainer,
                 modifier = Modifier.size(72.dp),
             ) {
-                Avatar(name = account.name, imageUrl = account.avatarUrl, size = 72.dp)
+                OperatorAvatar(imageUrl = account.avatarUrl, size = 72.dp)
             }
             Column(Modifier.weight(1f).padding(horizontal = Space.lg)) {
                 Text(

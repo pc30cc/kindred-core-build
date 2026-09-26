@@ -20,12 +20,13 @@ report "$(cat <<JSON
 JSON
 )"
 
-if ! wal-g backup-push "$PGDATA" > /tmp/walg-base.out 2>&1; then
-  log "base backup FAILED: $(tail -c 500 /tmp/walg-base.out)"
+WALG_BASE_OUT="$BACKUP_TMP/walg-base.out"
+if ! wal-g backup-push "$PGDATA" > "$WALG_BASE_OUT" 2>&1; then
+  log "base backup FAILED: $(tail -c 500 "$WALG_BASE_OUT")"
   report "$(cat <<JSON
 {"backup_id":"$BACKUP_ID","kind":"base","status":"failed","started_at":"$STARTED",
  "finished_at":"$(now_iso)","destination":"${WALG_S3_PREFIX}/basebackups_005",
- "encrypted":true,"error":$(json_escape "$(tail -c 500 /tmp/walg-base.out)")}
+ "encrypted":true,"error":$(json_escape "$(tail -c 500 "$WALG_BASE_OUT")")}
 JSON
 )"
   exit 1
@@ -63,5 +64,5 @@ JSON
 # absolutely would.
 KEEP_DAILY="${BACKUP_KEEP_DAILY:-7}"
 log "applying retention: keep last ${KEEP_DAILY} full backups (+ weekly/monthly via bucket lifecycle)"
-wal-g delete retain FULL "$KEEP_DAILY" --confirm >> /tmp/walg-retention.out 2>&1 \
-  || log "WARNING: retention pass failed — backups kept, investigate"
+wal-g delete retain FULL "$KEEP_DAILY" --confirm > "$BACKUP_TMP/walg-retention.out" 2>&1 \
+  || log "WARNING: retention pass failed — backups kept, investigate: $(tail -c 300 "$BACKUP_TMP/walg-retention.out")"

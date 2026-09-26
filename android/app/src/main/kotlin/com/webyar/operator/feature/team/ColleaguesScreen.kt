@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.webyar.operator.ui.components.PullIndicator
 import com.webyar.operator.ui.design.Radius
+import com.webyar.operator.ui.components.OperatorAvatar
 
 /**
  * Everyone on the team, and what they last said.
@@ -164,11 +165,7 @@ private fun ColleagueRow(
                 .padding(horizontal = Space.md, vertical = Space.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Avatar(
-                name = colleague.displayName,
-                imageUrl = colleague.avatarUrl,
-                size = Size.avatarSmall,
-            )
+            OperatorAvatar(imageUrl = colleague.avatarUrl, size = Size.avatarSmall)
             Column(Modifier.weight(1f).padding(horizontal = Space.md)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(

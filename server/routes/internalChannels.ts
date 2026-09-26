@@ -62,6 +62,12 @@ import { whatsappToBotUpdates } from '../services/channels/whatsapp/toBotUpdate.
 import { extractWhatsAppDeliveryStatuses } from '../services/channels/whatsapp/deliveryStatus.js';
 import { applyProviderDeliveryStatuses } from '../services/channels/deliveryStatus.js';
 import { instagramToBotUpdates } from '../services/channels/instagram/toBotUpdate.js';
+import {
+  isMetaSignedDialect,
+  resolveMetaAppSecrets,
+  verifyMetaSignature,
+  warnUnverifiedMetaWebhook,
+} from '../services/channels/metaSignature.js';
 import { botProvider } from '../../shared/channels/botProviders.js';
 import { handleTelegramCallbackQuery } from '../services/channels/telegram/runtime.js';
 import { publishOperatorEvent } from '../services/realtime/publish.js';
@@ -123,6 +129,13 @@ const ingestSchema = z.object({
   public_integration_id: z.string().min(10).max(128),
   update: z.record(z.unknown()),
   received_at: z.string().optional(),
+  /**
+   * Meta providers only: the exact webhook body bytes (base64) and the
+   * `X-Hub-Signature-256` header, forwarded by the credential-free Gateway so
+   * Core can verify the app-secret signature (see metaSignature.ts).
+   */
+  raw_body_b64: z.string().max(4_000_000).optional(),
+  signature_256: z.string().max(256).nullable().optional(),
 });
 
 internalChannelsRouter.post('/ingest', async (req: Request, res) => {
@@ -133,21 +146,58 @@ internalChannelsRouter.post('/ingest', async (req: Request, res) => {
     const config = serverConfigOf(req);
     const integration = await getIntegrationByPublicId(config, parsed.data.public_integration_id);
     if (!integration) return res.status(404).json({ error: 'unknown_integration' });
+    // The Gateway derives the expected webhook secret from the provider in the
+    // URL path. An integration must only ever be reachable through its OWN
+    // provider's path, otherwise a request for e.g. a WhatsApp integration
+    // could be pushed through a laxer provider's authentication rules and
+    // parsed with the wrong dialect. Answered exactly like an unknown id
+    // (permanent, non-retryable, nothing disclosed).
+    if (integration.provider !== parsed.data.provider) {
+      console.warn(
+        `[internal-channels] ingest rejected: integration ${integration.id} is ${integration.provider}, webhook path said ${parsed.data.provider}`,
+      );
+      return res.status(404).json({ error: 'unknown_integration' });
+    }
     if (integration.status === 'disconnected') return res.status(410).json({ error: 'integration_disconnected' });
 
     const sb = getServiceClient(config);
+    const dialect = botProvider(parsed.data.provider).dialect;
+
+    // Meta webhooks: verify X-Hub-Signature-256 whenever an app secret is
+    // configured for this integration (or platform-wide). Without one, the
+    // legacy behaviour (public-id-only authenticity) is kept, with a warning.
+    let body: Record<string, unknown> = parsed.data.update;
+    if (isMetaSignedDialect(dialect)) {
+      const secrets = await resolveMetaAppSecrets(config, integration);
+      if (secrets.length) {
+        const raw = parsed.data.raw_body_b64 != null ? Buffer.from(parsed.data.raw_body_b64, 'base64') : null;
+        if (!raw || !verifyMetaSignature(raw, parsed.data.signature_256, secrets)) {
+          console.warn(`[internal-channels] ${parsed.data.provider} webhook rejected: invalid X-Hub-Signature-256 (integration ${integration.id})`);
+          return res.status(401).json({ error: 'invalid_signature' });
+        }
+        // Process exactly the bytes that were signed.
+        try {
+          const signed = JSON.parse(raw.toString('utf8'));
+          if (!signed || typeof signed !== 'object' || Array.isArray(signed)) throw new Error('not an object');
+          body = signed as Record<string, unknown>;
+        } catch {
+          return res.status(400).json({ error: 'invalid_payload' });
+        }
+      } else {
+        warnUnverifiedMetaWebhook(integration.id, parsed.data.provider);
+      }
+    }
 
     // Protocol translation happens ONCE, here: WhatsApp Cloud batches several
     // messages (plus non-conversational delivery statuses) into one webhook
     // body, so it expands into zero or more bot-shaped updates. Every other
     // provider already speaks the shared envelope.
-    const dialect = botProvider(parsed.data.provider).dialect;
     const updates =
       dialect === 'whatsapp-cloud'
-        ? whatsappToBotUpdates(parsed.data.update)
+        ? whatsappToBotUpdates(body)
         : dialect === 'instagram-graph'
-          ? instagramToBotUpdates(parsed.data.update)
-          : [parsed.data.update];
+          ? instagramToBotUpdates(body)
+          : [body];
 
 
     // DELIVERY STATUSES take a separate, narrow path. They are outbound
@@ -155,7 +205,7 @@ internalChannelsRouter.post('/ingest', async (req: Request, res) => {
     // pipeline (no conversation resume, no unread, no AI routing). Handled
     // inline because Core owns the write and no provider call is needed.
     if (dialect === 'whatsapp-cloud') {
-      const statuses = extractWhatsAppDeliveryStatuses(parsed.data.update);
+      const statuses = extractWhatsAppDeliveryStatuses(body);
       if (statuses.length) {
         await applyProviderDeliveryStatuses(config, {
           provider: parsed.data.provider,

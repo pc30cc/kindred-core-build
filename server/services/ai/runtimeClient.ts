@@ -74,18 +74,18 @@ async function callRuntime<T>(
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     throw new AiRuntimeError(
       'runtime_unreachable',
-      `AI runtime unreachable: ${redactSecrets(err?.message || String(err))}`,
+      `AI runtime unreachable: ${redactSecrets((err as { message?: string } | null | undefined)?.message || String(err))}`,
     );
   } finally {
     clearTimeout(timer);
   }
 
-  let payload: any = null;
+  let payload: { ok?: unknown; error?: AiRuntimeErrorCode; message?: string } | null = null;
   try {
-    payload = await res.json();
+    payload = (await res.json()) as typeof payload;
   } catch {
     payload = null;
   }
@@ -125,7 +125,14 @@ export async function runtimeTestConnection(
 /** Embedding generation on the remote runtime. */
 export async function runtimeEmbed(
   config: ServerConfig,
-  embedConfig: { provider: string; apiKey: string; model: string; baseUrl?: string; orgId?: string },
+  embedConfig: {
+    provider: string;
+    apiKey: string;
+    model: string;
+    baseUrl?: string;
+    orgId?: string;
+    endpointScope?: 'workspace' | 'platform';
+  },
   texts: string[],
 ): Promise<number[][]> {
   const payload = await callRuntime<{ vectors: number[][] }>(config, AI_RUNTIME_ROUTES.embed, {

@@ -23,6 +23,7 @@
 
 import type { Request, Response } from 'express';
 import { requireLimit, checkEntitlementFromDB } from '../../middleware/featureGating.js';
+import { setTrustedGateWorkspaceId } from '../../middleware/gateWorkspace.js';
 import { usageFnForLimit } from './usageResolvers.js';
 import type { ServerConfig } from '../../config.js';
 
@@ -38,7 +39,14 @@ const singleCreateMiddleware = requireLimit(
 export async function enforceMaxContactsCreate(
   req: Request,
   res: Response,
+  workspaceId: string,
 ): Promise<boolean> {
+  if (!workspaceId) {
+    res.status(400).json({ error: 'Missing workspaceId for limit check' });
+    return false;
+  }
+  // Evaluate the cap on the authorized workspace, never on raw body fields.
+  setTrustedGateWorkspaceId(req, workspaceId);
   let proceeded = false;
   await singleCreateMiddleware(req, res, () => {
     proceeded = true;
@@ -58,7 +66,7 @@ export async function assertContactsBatchFits(
   batchSize: number,
 ): Promise<boolean> {
   if (batchSize <= 0) return true;
-  const config = (req as any).serverConfig as ServerConfig | undefined;
+  const config = (req as Request & { serverConfig?: ServerConfig }).serverConfig;
   if (!config) {
     res.status(500).json({ error: 'serverConfig_missing' });
     return false;

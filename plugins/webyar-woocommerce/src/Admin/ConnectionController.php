@@ -28,30 +28,45 @@ final class ConnectionController {
 		add_action( 'admin_post_webyar_wc_save_settings', array( $this, 'save_settings' ) );
 	}
 
+	/** Day-to-day actions: test, sync, widget toggle. */
 	private function require_manage_capability(): void {
 		if ( ! Capabilities::current_user_can_manage() ) {
 			wp_die( esc_html__( 'You cannot manage the WebYar connection.', 'webyar-woocommerce' ), 403 );
 		}
 	}
 
+	/**
+	 * Anything that decides which Web Yar the store trusts (URLs, connect,
+	 * disconnect). Administrators only — see Capabilities.
+	 */
+	private function require_connect_capability(): void {
+		if ( ! Capabilities::current_user_can_connect() ) {
+			wp_die( esc_html__( 'Only a site administrator can connect or disconnect WebYar.', 'webyar-woocommerce' ), 403 );
+		}
+	}
+
 	public function connect(): void {
-		$this->require_manage_capability();
+		// Authorisation and CSRF first: nothing from the form is read, let
+		// alone saved, for anyone else.
+		$this->require_connect_capability();
 		check_admin_referer( 'webyar_wc_connect' );
 
 		// The Web Yar URL is entered on the SAME form as the Connect button
 		// (there is no single fixed Web Yar domain — this is a self-hostable
 		// platform) — save it here, before starting pairing, so one click
-		// both configures and connects.
-		$raw_app_url = isset( $_POST['app_url'] ) ? esc_url_raw( wp_unslash( $_POST['app_url'] ) ) : ''; // phpcs:ignore
-		if ( '' === $raw_app_url || false === filter_var( $raw_app_url, FILTER_VALIDATE_URL ) ) {
-			$this->redirect_with_notice( 'error', __( 'Enter a valid WebYar URL before connecting (for example, https://app.webyar.ai).', 'webyar-woocommerce' ) );
+		// both configures and connects. https only: the storefront loads the
+		// widget script from it and pairing sends secrets to it.
+		$app_url = PairingService::normalize_base_url( isset( $_POST['app_url'] ) ? (string) wp_unslash( $_POST['app_url'] ) : '' ); // phpcs:ignore
+		if ( '' === $app_url ) {
+			$this->redirect_with_notice( 'error', __( 'Enter a valid https WebYar URL before connecting (for example, https://app.webyar.ai).', 'webyar-woocommerce' ) );
 			return;
 		}
 		// Optional: a separate origin for the machine API. Empty means "same
 		// as the dashboard URL", which is the documented same-origin layout.
-		$raw_api_url = isset( $_POST['api_url'] ) ? trim( (string) esc_url_raw( wp_unslash( $_POST['api_url'] ) ) ) : ''; // phpcs:ignore
-		if ( '' !== $raw_api_url && false === filter_var( $raw_api_url, FILTER_VALIDATE_URL ) ) {
-			$this->redirect_with_notice( 'error', __( 'Enter a valid API URL or leave the field empty.', 'webyar-woocommerce' ) );
+		$raw_api_url = isset( $_POST['api_url'] ) ? trim( (string) wp_unslash( $_POST['api_url'] ) ) : ''; // phpcs:ignore
+		$api_url     = '' === $raw_api_url ? '' : PairingService::normalize_base_url( $raw_api_url );
+		if ( '' !== $raw_api_url && '' === $api_url ) {
+			$this->redirect_with_notice( 'error', __( 'Enter a valid https API URL or leave the field empty.', 'webyar-woocommerce' ) );
 			return;
 		}
 
@@ -59,9 +74,10 @@ final class ConnectionController {
 		if ( ! is_array( $settings ) ) {
 			$settings = array();
 		}
-		$settings['app_url'] = untrailingslashit( $raw_app_url );
-		$settings['api_url'] = '' === $raw_api_url ? '' : untrailingslashit( $raw_api_url );
+		$settings['app_url'] = $app_url;
+		$settings['api_url'] = $api_url;
 		update_option( 'webyar_wc_settings', $settings, false );
+		\WebYar\WooCommerce\Support\Updater::forget(); // a new origin: check its release afresh
 
 		try {
 			$url = PairingService::start();
@@ -79,7 +95,7 @@ final class ConnectionController {
 
 	/** Web Yar redirects the admin's browser BACK here with ?code=...&state=... after authorization. */
 	public function pairing_callback(): void {
-		$this->require_manage_capability();
+		$this->require_connect_capability();
 		$code  = isset( $_GET['code'] ) ? sanitize_text_field( wp_unslash( $_GET['code'] ) ) : ''; // phpcs:ignore
 		$state = isset( $_GET['state'] ) ? sanitize_text_field( wp_unslash( $_GET['state'] ) ) : ''; // phpcs:ignore
 
@@ -113,7 +129,7 @@ final class ConnectionController {
 	}
 
 	public function disconnect(): void {
-		$this->require_manage_capability();
+		$this->require_connect_capability();
 		check_admin_referer( 'webyar_wc_disconnect' );
 
 		$credential = CredentialStore::get();

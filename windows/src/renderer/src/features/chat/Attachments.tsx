@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { toast } from 'sonner'
 import { Download, ExternalLink, FileText, Image as ImageIcon, Loader2, Pause, Play, Video, X, ZoomIn, ZoomOut } from 'lucide-react'
 import type { MessageAttachment } from '@/api/types'
 import { attachmentBlob } from '@/lib/attachments'
@@ -208,7 +209,20 @@ function FileAttachment({ attachment, outgoing }: { attachment: MessageAttachmen
       actions={
         pending ? null : (
           <>
-            <IconButton size="sm" icon={ExternalLink} label={t('openFile')} className={outgoing ? 'text-white hover:bg-white/15 hover:text-white' : ''} onClick={() => withData((data) => window.webyar.app.openFileWith({ fileName: name, data }))} />
+            <IconButton
+              size="sm"
+              icon={ExternalLink}
+              label={t('openFile')}
+              className={outgoing ? 'text-white hover:bg-white/15 hover:text-white' : ''}
+              onClick={() =>
+                withData(async (data) => {
+                  // The main process only opens passive types; anything that could run code is saved instead.
+                  if ((await window.webyar.app.openFileWith({ fileName: name, data })) !== 'unsafe') return
+                  toast.info(t('openFileBlocked'))
+                  await window.webyar.app.saveFile({ fileName: name, data })
+                })
+              }
+            />
             <IconButton size="sm" icon={Download} label={t('download')} className={outgoing ? 'text-white hover:bg-white/15 hover:text-white' : ''} onClick={() => withData((data) => window.webyar.app.saveFile({ fileName: name, data }))} />
           </>
         )

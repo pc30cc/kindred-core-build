@@ -193,9 +193,15 @@ export const stripeProvider: BillingProviderHandler = {
   },
 
   async cancelSubscription(config: BillingProviderConfig, subscriptionId: string) {
+    // Cancel at period end (the counterpart of resumeSubscription below). A
+    // DELETE would end the Stripe subscription immediately, which both throws
+    // away the paid remainder and makes a later resume impossible.
+    const params = new URLSearchParams();
+    params.set('cancel_at_period_end', 'true');
     const res = await fetch(`https://api.stripe.com/v1/subscriptions/${subscriptionId}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${config.secret_key}` },
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${config.secret_key}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
     });
     return { success: res.ok };
   },
@@ -249,8 +255,8 @@ export const stripeProvider: BillingProviderHandler = {
       const data = await res.json();
       if (!res.ok) return { success: false, latencyMs: Date.now() - start, error: readStripeErrorMessage(data) };
       return { success: true, latencyMs: Date.now() - start };
-    } catch (e: any) {
-      return { success: false, latencyMs: Date.now() - start, error: e.message };
+    } catch (e: unknown) {
+      return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };
     }
   },
 };

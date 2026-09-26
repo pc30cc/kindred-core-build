@@ -15,12 +15,12 @@ import { writeFile } from 'node:fs/promises'
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { tmpdir } from 'node:os'
 import { execFile } from 'node:child_process'
 import type { ApiRequest, DesktopSettings, NotifyRequest, SaveFileRequest, TitleBarTheme } from '../shared/ipc'
 import * as api from './api'
 import { checkForUpdates, configureUpdater, installUpdate, startUpdater, updateState } from './updater'
 import { desktopConfig, refreshDesktopConfig } from './desktopConfig'
+import { markFromInternet, openAttachment, safeFileName } from './safeOpen'
 import { publicSettings, readSettings, writeSettings } from './settings'
 
 const APP_ID = 'com.webyar.desktop'
@@ -328,19 +328,15 @@ function registerIpc(): void {
 
   ipcMain.handle('app:saveFile', async (_e, req: SaveFileRequest) => {
     if (!win) return false
-    const result = await dialog.showSaveDialog(win, { defaultPath: basename(req.fileName) })
+    const result = await dialog.showSaveDialog(win, { defaultPath: safeFileName(req.fileName) })
     if (result.canceled || !result.filePath) return false
     await writeFile(result.filePath, Buffer.from(req.data))
+    // Visitor-sent: mark it as from the internet, as a browser download would be.
+    markFromInternet(result.filePath)
     return true
   })
 
-  ipcMain.handle('app:openFileWith', async (_e, req: SaveFileRequest) => {
-    const safe = basename(req.fileName).replace(/[^\w.\- ]+/g, '_') || 'file'
-    const path = join(tmpdir(), `webyar-${Date.now()}-${safe}`)
-    await writeFile(path, Buffer.from(req.data))
-    const error = await shell.openPath(path)
-    return error === ''
-  })
+  ipcMain.handle('app:openFileWith', (_e, req: SaveFileRequest) => openAttachment(req.fileName, req.data))
 
   ipcMain.handle('app:pickFiles', async () => {
     if (!win) return []

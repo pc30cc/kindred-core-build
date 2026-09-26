@@ -3,7 +3,7 @@
  * Plugin Name:       WebYar for WooCommerce
  * Plugin URI:        https://webyar.ai
  * Description:       Connect your WooCommerce store to WebYar for product answers, order status, and shipment tracking.
- * Version:           1.2.4
+ * Version:           1.2.5
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * WC requires at least: 8.0
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // No direct access.
 }
 
-define( 'WEBYAR_WC_VERSION', '1.2.4' );
+define( 'WEBYAR_WC_VERSION', '1.2.5' );
 define( 'WEBYAR_WC_PROTOCOL_VERSION', 'webyar-commerce/1' );
 define( 'WEBYAR_WC_FILE', __FILE__ );
 define( 'WEBYAR_WC_DIR', plugin_dir_path( __FILE__ ) );

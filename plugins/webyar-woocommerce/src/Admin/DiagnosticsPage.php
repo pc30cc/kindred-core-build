@@ -2,6 +2,7 @@
 namespace WebYar\WooCommerce\Admin;
 
 use WebYar\WooCommerce\Auth\PairingService;
+use WebYar\WooCommerce\Support\Updater;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -54,6 +55,13 @@ final class DiagnosticsPage {
 						<dt class="webyar-k"><?php esc_html_e( 'Plugin version', 'webyar-woocommerce' ); ?></dt>
 						<dd class="webyar-v"><code><?php echo esc_html( WEBYAR_WC_VERSION ); ?></code></dd>
 					</div>
+					<?php $update_status = Updater::status(); ?>
+					<?php if ( null !== $update_status ) : ?>
+					<div>
+						<dt class="webyar-k"><?php esc_html_e( 'Updates', 'webyar-woocommerce' ); ?></dt>
+						<dd class="webyar-v"><?php echo esc_html( Updater::status_label( $update_status['code'] ) ); ?> <code><?php echo esc_html( $update_status['code'] ); ?></code></dd>
+					</div>
+					<?php endif; ?>
 					<div>
 						<dt class="webyar-k"><?php esc_html_e( 'Protocol version', 'webyar-woocommerce' ); ?></dt>
 						<dd class="webyar-v"><code><?php echo esc_html( $credential['protocol_version'] ?? __( 'Not available', 'webyar-woocommerce' ) ); ?></code></dd>

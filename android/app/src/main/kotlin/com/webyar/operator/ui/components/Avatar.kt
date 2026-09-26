@@ -130,6 +130,45 @@ fun Avatar(
 }
 
 /**
+ * An operator's face — the operator's own, a colleague's, an assignee's.
+ *
+ * Never initials. While the photo loads the circle is a skeleton, and it is
+ * replaced by the photo that came; with no photo, or one that would not
+ * load, it stays that same quiet circle rather than turning into letters.
+ * A face that shows «SK» and then swaps it for a photograph reads as the row
+ * changing its mind, and the letters say nothing a name beside them does
+ * not already say.
+ *
+ * Visitors keep [Avatar]: for them the fallback carries information — the
+ * operating system's mark, the country's flag — that nothing else on the row
+ * does.
+ */
+@Composable
+fun OperatorAvatar(
+    imageUrl: String?,
+    size: Dp = Size.avatarMedium,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier
+            .size(size)
+            .clip(CircleShape)
+            // Decoration: the name beside it is what a screen reader reads.
+            .clearAndSetSemantics { },
+    ) {
+        RemoteImage(
+            url = imageUrl,
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            // No photo, or one that failed: still, not pulsing — nothing is
+            // on its way, so nothing should look like it is.
+            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHighest))
+        }
+    }
+}
+
+/**
  * A style for a glyph that has to fit a circle, whatever the font scale is.
  *
  * `12.sp` is not twelve points on a phone set to large text — it is

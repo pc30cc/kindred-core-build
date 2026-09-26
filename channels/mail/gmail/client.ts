@@ -70,16 +70,17 @@ async function requestJson(
   try {
     const res = await fetchImpl(url, { ...init, signal: controller.signal });
     if (res.status === 401 || res.status === 403) {
-      let body: any = null;
-      try { body = await res.json(); } catch { /* ignore */ }
+      let body: { error?: unknown; error_description?: unknown } | null = null;
+      try { body = (await res.json()) as typeof body; } catch { /* ignore */ }
       // Two different Google error envelopes share this 401/403 branch: the
       // OAuth token endpoint's flat { error, error_description }, and every
       // Gmail API resource call's structured { error: { code, message,
       // status, errors: [...] } }.
       const flatReason = typeof body?.error === 'string' ? body.error : '';
       const flatDescription = typeof body?.error_description === 'string' ? body.error_description : '';
-      const structuredMessage = typeof body?.error?.message === 'string' ? body.error.message : null;
-      const structuredStatus = typeof body?.error?.status === 'string' ? body.error.status : null;
+      const structured = (body?.error ?? null) as { message?: unknown; status?: unknown } | null;
+      const structuredMessage = typeof structured?.message === 'string' ? structured.message : null;
+      const structuredStatus = typeof structured?.status === 'string' ? structured.status : null;
       const reasonText =
         structuredMessage || structuredStatus ||
         [flatReason, flatDescription].filter(Boolean).join(': ') ||
@@ -195,6 +196,12 @@ function getHeader(headers: GmailHeader[], name: string): string | null {
  * unrecognized form is returned unchanged rather than throwing.
  */
 function decodeMimeWords(value: string): string {
+  // An encoded-word can smuggle CR/LF/NUL bytes into what is later re-used
+  // as a header value (e.g. the reply Subject); flatten them to spaces.
+  return stripHeaderBreaks(decodeMimeWordsRaw(value));
+}
+
+function decodeMimeWordsRaw(value: string): string {
   return value.replace(/=\?([^?]+)\?([BQ])\?([^?]*)\?=/gi, (_m, charset, encoding, text) => {
     try {
       if (encoding.toUpperCase() === 'B') {
@@ -324,10 +331,98 @@ export function parseGmailMessage(raw: Record<string, unknown>): ParsedGmailMess
 
 // ── MIME building (outbound) ──────────────────────────────────────────────
 
-/** RFC 2047-encodes a header value only when it contains non-ASCII bytes. */
-function encodeHeaderWord(value: string): string {
-  if (/^[\x00-\x7F]*$/.test(value)) return value;
-  return `=?UTF-8?B?${Buffer.from(value, 'utf8').toString('base64')}?=`;
+/**
+ * Header-injection guard: CR, LF and NUL can never appear inside a header
+ * value (a bare CRLF would start a new header — Bcc:, a forged From:, or a
+ * whole injected MIME body). Every value placed into a header line passes
+ * through here; line breaks become a single space.
+ */
+export function stripHeaderBreaks(value: string): string {
+  return String(value ?? '').replace(/[\r\n\0]+/g, ' ');
+}
+
+/** Builds one `Name: value` header line with the value sanitized. */
+function headerLine(name: string, value: string): string {
+  return `${name}: ${stripHeaderBreaks(value)}`;
+}
+
+/** Splits a string into chunks of at most `maxBytes` UTF-8 bytes without breaking a code point. */
+function utf8Chunks(value: string, maxBytes: number): string[] {
+  const chunks: string[] = [];
+  let current = '';
+  let currentBytes = 0;
+  for (const ch of value) {
+    const bytes = Buffer.byteLength(ch, 'utf8');
+    if (currentBytes + bytes > maxBytes && current) {
+      chunks.push(current);
+      current = '';
+      currentBytes = 0;
+    }
+    current += ch;
+    currentBytes += bytes;
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+/**
+ * RFC 2047-encodes a header value (after stripping CR/LF/NUL) when it
+ * contains non-ASCII or control characters, an encoded-word lookalike, or —
+ * with `encodeSpecials` — any RFC 5322 `specials` (needed for display names,
+ * where `"`, `<`, `,` … would otherwise change how the address list parses).
+ * Long values are split into several encoded-words joined by folding
+ * whitespace, keeping each word within the RFC 2047 75-character limit.
+ */
+export function encodeHeaderWord(value: string, opts: { encodeSpecials?: boolean } = {}): string {
+  const clean = stripHeaderBreaks(value);
+  const needsEncoding =
+    /[^\x20-\x7E\t]/.test(clean) ||
+    clean.includes('=?') ||
+    (opts.encodeSpecials === true && /[()<>[\]:;@\\,."]/.test(clean));
+  if (!needsEncoding) return clean;
+  return utf8Chunks(clean, 45)
+    .map((chunk) => `=?UTF-8?B?${Buffer.from(chunk, 'utf8').toString('base64')}?=`)
+    .join('\r\n ');
+}
+
+/** An addr-spec with anything that could break out of `<...>` removed. */
+function sanitizeEmail(email: string): string {
+  return stripHeaderBreaks(email).replace(/[<>\s,;"]/g, '');
+}
+
+/** A msg-id list entry (`<id@host>`): no whitespace or line breaks inside. */
+function sanitizeMessageId(id: string): string {
+  return stripHeaderBreaks(id).replace(/\s+/g, '');
+}
+
+/** MIME type for a Content-Type header: `type/subtype` token only. */
+function sanitizeContentType(value: string | null | undefined): string {
+  const v = String(value ?? '').trim().toLowerCase();
+  return /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(v) ? v : 'application/octet-stream';
+}
+
+/** Drops C0 control characters (U+0000–U+001F) and DEL (U+007F). */
+function stripControlChars(value: string): string {
+  let out = '';
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code > 0x1f && code !== 0x7f) out += value[i];
+  }
+  return out;
+}
+
+/**
+ * `name="…"` / `filename="…"` MIME parameters. The quoted form escapes `\`
+ * and `"`; non-ASCII names additionally get an RFC 2231 `*=UTF-8''…` form
+ * (with an ASCII fallback in the quoted one) so clients show the real name.
+ */
+export function mimeFilenameParams(param: 'name' | 'filename', filename: string): string {
+  const clean = stripControlChars(stripHeaderBreaks(filename)).trim() || 'attachment';
+  const ascii = clean.replace(/[^\x20-\x7E]/g, '_');
+  const quoted = `${param}="${ascii.replace(/[\\"]/g, '\\$&')}"`;
+  if (ascii === clean) return quoted;
+  const extended = encodeURIComponent(clean).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `${quoted}; ${param}*=UTF-8''${extended}`;
 }
 
 export interface GmailAddress {
@@ -336,8 +431,10 @@ export interface GmailAddress {
 }
 
 function formatAddress(addr: GmailAddress): string {
-  if (!addr.name || !addr.name.trim()) return addr.email;
-  return `${encodeHeaderWord(addr.name.trim())} <${addr.email}>`;
+  const email = sanitizeEmail(addr.email);
+  const name = addr.name ? stripHeaderBreaks(addr.name).trim() : '';
+  if (!name) return email;
+  return `${encodeHeaderWord(name, { encodeSpecials: true })} <${email}>`;
 }
 
 export function generateGmailMessageId(fromEmail: string): string {
@@ -378,17 +475,23 @@ export function buildRawGmailMessage(msg: GmailOutboundMessage): { raw: string; 
   const boundaryMixed = `mixed_${randomBytes(12).toString('hex')}`;
   const boundaryAlt = `alt_${randomBytes(12).toString('hex')}`;
 
+  // Every value is sanitized by headerLine()/encodeHeaderWord(): no header
+  // value can contain a CR/LF/NUL, so no caller-supplied field can inject a
+  // header or a body part. The only CRLFs inside a line are the RFC 5322
+  // folding whitespace that encodeHeaderWord() emits between encoded-words.
+  const references = (msg.references ?? []).map(sanitizeMessageId).filter(Boolean);
+  const inReplyTo = msg.inReplyTo ? sanitizeMessageId(msg.inReplyTo) : '';
   const headerLines: string[] = [
-    `From: ${formatAddress(msg.from)}`,
-    `To: ${msg.to.map(formatAddress).join(', ')}`,
+    headerLine('From', formatAddress(msg.from)),
+    headerLine('To', msg.to.map(formatAddress).join(', ')),
   ];
-  if (msg.cc?.length) headerLines.push(`Cc: ${msg.cc.map(formatAddress).join(', ')}`);
-  if (msg.bcc?.length) headerLines.push(`Bcc: ${msg.bcc.map(formatAddress).join(', ')}`);
+  if (msg.cc?.length) headerLines.push(headerLine('Cc', msg.cc.map(formatAddress).join(', ')));
+  if (msg.bcc?.length) headerLines.push(headerLine('Bcc', msg.bcc.map(formatAddress).join(', ')));
   headerLines.push(`Subject: ${encodeHeaderWord(msg.subject)}`);
-  headerLines.push(`Date: ${new Date().toUTCString()}`);
-  headerLines.push(`Message-ID: ${messageId}`);
-  if (msg.inReplyTo) headerLines.push(`In-Reply-To: ${msg.inReplyTo}`);
-  if (msg.references?.length) headerLines.push(`References: ${msg.references.join(' ')}`);
+  headerLines.push(headerLine('Date', new Date().toUTCString()));
+  headerLines.push(headerLine('Message-ID', sanitizeMessageId(messageId)));
+  if (inReplyTo) headerLines.push(headerLine('In-Reply-To', inReplyTo));
+  if (references.length) headerLines.push(headerLine('References', references.join(' ')));
   headerLines.push('MIME-Version: 1.0');
 
   const altPart = [
@@ -420,8 +523,8 @@ export function buildRawGmailMessage(msg: GmailOutboundMessage): { raw: string; 
     .map((att) =>
       [
         `--${boundaryMixed}`,
-        `Content-Type: ${att.contentType || 'application/octet-stream'}; name="${att.filename}"`,
-        `Content-Disposition: attachment; filename="${att.filename}"`,
+        `Content-Type: ${sanitizeContentType(att.contentType)}; ${mimeFilenameParams('name', att.filename)}`,
+        `Content-Disposition: attachment; ${mimeFilenameParams('filename', att.filename)}`,
         'Content-Transfer-Encoding: base64',
         '',
         chunkBase64(att.bytes.toString('base64')),

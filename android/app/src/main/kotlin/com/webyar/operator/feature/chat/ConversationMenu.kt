@@ -62,6 +62,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import com.webyar.operator.ui.components.FilledField
 import com.webyar.operator.ui.design.WebyarType
+import com.webyar.operator.ui.components.OperatorAvatar
 
 /** Which sheet the header menu has opened, if any. */
 enum class ChatSheet { STATUS, PRIORITY, TRANSFER, TAGS, NOTES }
@@ -229,11 +230,7 @@ fun TransferSheet(
                         .padding(horizontal = Space.screenInset, vertical = Space.sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Avatar(
-                        name = member.displayName,
-                        imageUrl = member.profile?.avatarUrl,
-                        size = Size.avatarSmall,
-                    )
+                    OperatorAvatar(imageUrl = member.profile?.avatarUrl, size = Size.avatarSmall)
                     Text(
                         member.displayName,
                         style = MaterialTheme.typography.bodyLarge,

@@ -16,6 +16,8 @@ export interface EmbedProviderConfig {
   model: string;
   baseUrl?: string;
   orgId?: string;
+  /** Who supplied baseUrl — see AIConfig.endpointScope. */
+  endpointScope?: 'workspace' | 'platform';
 }
 
 /** Batches are already sized by the caller; this keeps one request per call. */
@@ -52,6 +54,8 @@ export async function embedTexts(
     );
   }
 
-  const rows = ((res.data as any)?.data as any[]) || [];
+  const rows = ((res.data as { data?: unknown } | null | undefined)?.data as
+    | Array<{ embedding?: unknown } | null | undefined>
+    | undefined) || [];
   return rows.map((row) => (row?.embedding as number[]) || []);
 }

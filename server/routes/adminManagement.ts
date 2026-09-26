@@ -29,6 +29,7 @@ import { parseWorkspaceDomainInput, type DomainInputResult } from '../utils/work
 import { invalidateOriginHostCache, invalidateWorkspaceOriginCache } from '../services/widget/public.js';
 import { invalidateSignupPolicyCache } from '../services/auth/signupPolicy.js';
 import { invalidateSignupPlanCache } from '../services/billing/signupPlan.js';
+import { isParseableDate } from '../lib/dateInput.js';
 
 
 export const adminManagementRouter = Router();
@@ -412,8 +413,10 @@ const auditLogsQuerySchema = z.object({
   entityType: z.string().trim().max(120).optional().default(''),
   userId: z.string().uuid().optional(),
   workspaceId: z.string().uuid().optional(),
-  from: z.string().optional(),
-  to: z.string().optional(),
+  // Must be parseable (or empty = no bound): the handler calls
+  // new Date(x).toISOString(), which throws a RangeError on garbage input.
+  from: z.string().refine((v) => v === '' || isParseableDate(v)).optional(),
+  to: z.string().refine((v) => v === '' || isParseableDate(v)).optional(),
 });
 
 adminManagementRouter.get('/audit-logs', async (req, res) => {

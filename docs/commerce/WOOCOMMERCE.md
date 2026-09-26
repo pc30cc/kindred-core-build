@@ -91,3 +91,30 @@ staging copy) flips the connection to `stale_origin` and refuses live
 reads/event ingestion until the owner explicitly reconnects — a
 production credential can never silently start acting on behalf of a
 staging clone.
+
+## Updates and who may change the Web Yar URL (1.2.5+)
+
+- **Signed releases.** The plugin offers and installs an update only when
+  `/downloads/webyar-woocommerce.json.sig` is an Ed25519 signature (base64)
+  over the exact manifest bytes that verifies against
+  `Updater::UPDATE_PUBLIC_KEY` (the same release key as OpenCart and WHMCS).
+  On download (`upgrader_pre_download`) the manifest is fetched and verified
+  again and the zip must match its signed `sha256` and `size`; otherwise
+  WordPress gets a `WP_Error`, the installed version is kept, and the refusal
+  is logged, shown under Technical details and, to users who can update
+  plugins, as an admin notice. A staging site may define
+  `WEBYAR_UPDATE_PUBLIC_KEY` in `wp-config.php`. Fetches are https-only via
+  `wp_safe_remote_get`.
+- **Releasing.** `node scripts/build-woocommerce-plugin-zip.mjs` builds a
+  reproducible zip and manifest; sign on the release host with
+  `openssl pkeyutl -sign -rawin -inkey <key> -in webyar-woocommerce.json | base64 -w0 > webyar-woocommerce.json.sig`
+  and commit the `.sig`. A signed version is frozen on rebuild. Stores on
+  1.2.0–1.2.4 (unsigned-era updater) take 1.2.5 once; after that only signed
+  releases install.
+- **Capabilities.** `manage_woocommerce` (shop managers) sees the screen,
+  tests the connection, syncs and toggles the widget. Setting the Web Yar /
+  API URL, connecting, the pairing callback and disconnecting require
+  `manage_options`: the URL decides where every storefront page loads a
+  script from. URLs must be https (no credentials, query or fragment);
+  pairing uses `wp_safe_remote_post`, so a Web Yar on localhost or a private
+  IP needs WordPress's `http_request_host_is_external` filter in development.

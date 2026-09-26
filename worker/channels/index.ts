@@ -30,7 +30,7 @@ import {
 } from '../../server/services/channels/jobs.js';
 import { IdleBackoff } from '../../server/services/jobs/idleBackoff.js';
 import { envFlagEnabled } from '../../server/config.js';
-import { decryptPluginSecret } from '../../server/lib/pluginCrypto.js';
+import { decryptPluginSecret, type SecretEnvelope } from '../../server/lib/pluginCrypto.js';
 import {
   TelegramApiError,
   redactToken,
@@ -50,6 +50,14 @@ import {
 } from '../../channels/mail/yahoo/client.js';
 import { YAHOO_REFRESH_TOKEN_KEY } from '../../shared/channels/yahooKeys.js';
 import { botApiFor } from './botApi.js';
+import { gmailCheckpointDecision, isGmailMessageGone } from './gmailCheckpoint.js';
+import {
+  OUTBOUND_MEDIA_MAX_BYTES,
+  fetchOutboundMediaCandidate,
+  internalBaseList,
+  outboundMediaCandidates,
+  trustedCoreOrigins,
+} from './outboundMedia.js';
 import {
   CORE_INTERNAL_SERVICE_NAME,
   evaluateCoreReadiness,
@@ -273,12 +281,16 @@ async function ensureCoreAuthReady(): Promise<boolean> {
     return true;
 
 
-  } catch (err: any) {
+  } catch (err: unknown) {
     coreAuthReady = false;
     // Name the ACTUAL transport failure. "unreachable" alone sent operators
     // hunting for secrets when the real cause is DNS (wrong container name /
     // different Docker network), a refused port, or a timeout.
-    const code = err?.cause?.code || err?.code || err?.name || 'unknown';
+    const failure = err as
+      | { cause?: { code?: unknown }; code?: unknown; name?: unknown; message?: unknown }
+      | null
+      | undefined;
+    const code = failure?.cause?.code || failure?.code || failure?.name || 'unknown';
     const hint =
       code === 'ENOTFOUND' || code === 'EAI_AGAIN'
         ? 'DNS could not resolve the host — the Worker is not on the same Docker network as Core, or the container name is wrong'
@@ -286,7 +298,7 @@ async function ensureCoreAuthReady(): Promise<boolean> {
           ? 'the host resolved but nothing is listening on that port — check Core\'s internal port (usually 3001)'
           : code === 'TimeoutError'
             ? 'the connection timed out after 5s — a firewall/proxy is dropping traffic to Core'
-            : (err?.message || String(err));
+            : (failure?.message || String(err));
     console.error(
       `[channels-worker] paused before claiming jobs: Core is unreachable at ${coreBaseUrl} [${code}] — ${hint}`,
     );
@@ -303,7 +315,7 @@ async function ensureCoreAuthReady(): Promise<boolean> {
 type InfrastructureError = Error & { infrastructure: true };
 
 function isInfrastructureError(err: unknown): err is InfrastructureError {
-  return !!err && (err as any).infrastructure === true;
+  return !!err && (err as { infrastructure?: unknown }).infrastructure === true;
 }
 
 /** Asks Core which build answered and which internal routes it serves. */
@@ -323,7 +335,7 @@ async function describeCore(): Promise<string> {
   }
 }
 
-async function coreCall(path: string, body: unknown): Promise<any> {
+async function coreCall<T = unknown>(path: string, body: unknown): Promise<T> {
   const response = await fetch(`${coreBaseUrl}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...coreAuthHeaders() },
@@ -346,13 +358,13 @@ async function coreCall(path: string, body: unknown): Promise<any> {
 
     throw new Error(`core ${path} failed [${response.status}]: ${detail}`);
   }
-  return response.json();
+  return (await response.json()) as T;
 }
 
 
 
 /** Authenticated GET against Core's internal boundary. */
-async function coreGet(path: string): Promise<any> {
+async function coreGet<T = unknown>(path: string): Promise<T> {
   const response = await fetch(`${coreBaseUrl}${path}`, { headers: coreAuthHeaders() });
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 500);
@@ -365,14 +377,14 @@ async function coreGet(path: string): Promise<any> {
     }
     throw new Error(`core ${path} failed [${response.status}]: ${detail}`);
   }
-  return response.json();
+  return (await response.json()) as T;
 }
 
 /**
  * Streams raw provider bytes to Core. This is the ONLY path by which provider
  * media crosses the network boundary; Core validates and persists it.
  */
-async function coreUpload(path: string, bytes: Uint8Array, contentType: string): Promise<any> {
+async function coreUpload<T = unknown>(path: string, bytes: Uint8Array, contentType: string): Promise<T> {
   const response = await fetch(`${coreBaseUrl}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': contentType, ...coreAuthHeaders() },
@@ -382,7 +394,7 @@ async function coreUpload(path: string, bytes: Uint8Array, contentType: string):
     const detail = (await response.text()).slice(0, 300);
     throw new Error(`core media-ingest failed [${response.status}]: ${detail}`);
   }
-  return response.json();
+  return (await response.json()) as T;
 }
 
 /** Everything the provider executor is allowed to reach. */
@@ -401,23 +413,23 @@ async function resolveIntegrationToken(integrationId: string, secretKey: string)
     .from('channel_integrations')
     .select('installation_id,status')
     .eq('id', integrationId)
-    .maybeSingle();
+    .maybeSingle<{ installation_id: string; status: string | null }>();
   if (error) throw new Error(`integration lookup failed: ${error.message}`);
   if (!integration) throw Object.assign(new Error('integration not found'), { permanent: true });
-  if ((integration as any).status === 'disconnected') {
+  if (integration.status === 'disconnected') {
     throw Object.assign(new Error('integration disconnected'), { permanent: true });
   }
 
   const { data: secret, error: secretError } = await sb
     .from('plugin_secrets')
     .select('algorithm,nonce,ciphertext,auth_tag')
-    .eq('installation_id', (integration as any).installation_id)
+    .eq('installation_id', integration.installation_id)
     .eq('secret_key', secretKey)
-    .maybeSingle();
+    .maybeSingle<Pick<SecretEnvelope, 'algorithm' | 'nonce' | 'ciphertext' | 'auth_tag'>>();
   if (secretError) throw new Error(`credential lookup failed: ${secretError.message}`);
   if (!secret) throw Object.assign(new Error('credential missing'), { permanent: true });
 
-  return decryptPluginSecret(secret as any, masterKey);
+  return decryptPluginSecret(secret, masterKey);
 }
 
 /** Outbound jobs that carry a canonical `conversation_messages` row. */
@@ -445,8 +457,54 @@ async function reportOutbound(
   });
 }
 
+/**
+ * The `channel_jobs.payload` fields the handlers below read. Payloads are
+ * written by Core per job type, so every field is optional and anything not
+ * already narrowed by its consumer stays `unknown`.
+ */
+type ChannelJobPayload = {
+  update?: unknown;
+  self_user_id?: unknown;
+  start_history_id?: unknown;
+  email_message_id?: unknown;
+  email_address?: unknown;
+  since_uid?: unknown;
+  from_email?: unknown;
+  to?: unknown;
+  cc?: unknown;
+  bcc?: unknown;
+  subject?: unknown;
+  text_body?: unknown;
+  html_body?: unknown;
+  in_reply_to?: unknown;
+  references?: unknown;
+  gmail_thread_id?: unknown;
+  local_thread_id?: unknown;
+  chat_id?: number | string;
+  text?: unknown;
+  message_id?: string | null;
+  attachments?: unknown;
+  operation_id?: unknown;
+  actions?: unknown;
+};
+
+/** One entry of an outbound job's `attachments` array (untrusted JSON). */
+type OutboundAttachmentPayload = {
+  url?: unknown;
+  public_url?: unknown;
+  path?: unknown;
+  kind?: unknown;
+  filename?: unknown;
+  content_type?: unknown;
+  file_name?: unknown;
+  mime_type?: unknown;
+} | null | undefined;
+
+/** What Core's `upsert-thread-message` endpoints answer with. */
+type UpsertThreadMessageResult = { is_new_message?: boolean; message_id?: unknown } | null;
+
 async function handleJob(job: ChannelJob): Promise<void> {
-  const payload = (job.payload ?? {}) as any;
+  const payload = (job.payload ?? {}) as ChannelJobPayload;
 
   // Every Telegram-compatible bot channel shares these handlers; the API root
   // and capability flags come from the provider descriptor, never from a
@@ -557,6 +615,7 @@ async function handleJob(job: ChannelJob): Promise<void> {
         newHistoryId = await ga.getProfileHistoryId(accessToken);
       }
 
+      const failedMessageIds: string[] = [];
       for (const gmailMessageId of messageIds) {
         try {
           const parsed = await ga.getMessage(accessToken, gmailMessageId);
@@ -564,7 +623,7 @@ async function handleJob(job: ChannelJob): Promise<void> {
             new Set([parsed.fromAddress, ...parsed.toAddresses, ...parsed.ccAddresses].filter(Boolean) as string[]),
           ).map((email) => ({ email }));
 
-          const upsertResult = await coreCall('/internal/channels/gmail/upsert-thread-message', {
+          const upsertResult = await coreCall<UpsertThreadMessageResult>('/internal/channels/gmail/upsert-thread-message', {
             integration_id: job.integration_id,
             workspace_id: job.workspace_id,
             gmail_thread_id: parsed.threadId,
@@ -604,12 +663,41 @@ async function handleJob(job: ChannelJob): Promise<void> {
             }
           }
         } catch (msgErr) {
-          // One malformed/unfetchable message must not sink the whole
-          // batch — the next push (or the next history.list call, since
-          // the checkpoint below only advances past what actually landed)
-          // will pick it up again.
+          // Core itself unreachable/misrouted: requeue the whole job without
+          // spending a retry (see the job loop) instead of marking messages.
+          if (isInfrastructureError(msgErr)) throw msgErr;
+          // Deleted/purged between the history entry and our fetch: nothing
+          // left to import, so it must not hold the checkpoint back.
+          if (isGmailMessageGone(msgErr)) {
+            console.warn(`[channels-worker] gmail message ${gmailMessageId} no longer exists; skipping`);
+            continue;
+          }
+          // One malformed/unfetchable message must not sink the rest of the
+          // batch — keep going, but remember it so the checkpoint below does
+          // NOT advance past it.
+          failedMessageIds.push(gmailMessageId);
           console.error('[channels-worker] gmail message sync failed:', (msgErr as Error)?.message || msgErr);
         }
+      }
+
+      // The checkpoint only advances past what actually landed (see
+      // ./gmailCheckpoint.ts): with failures and retry budget left, the job
+      // fails and is retried from the SAME start_history_id; on the final
+      // attempt it advances anyway so one bad message cannot pin it forever.
+      const decision = gmailCheckpointDecision({
+        failedCount: failedMessageIds.length,
+        attemptCount: job.attempt_count,
+        maxAttempts: job.max_attempts,
+      });
+      if (decision === 'hold_and_retry') {
+        throw new Error(
+          `gmail_sync_incomplete: ${failedMessageIds.length}/${messageIds.length} message(s) failed; history checkpoint held for retry`,
+        );
+      }
+      if (decision === 'advance_giving_up') {
+        console.error(
+          `[channels-worker] gmail sync for integration ${job.integration_id} giving up on ${failedMessageIds.length} message(s) after ${job.attempt_count} attempts: ${failedMessageIds.join(', ')}`,
+        );
       }
 
       if (newHistoryId) {
@@ -634,7 +722,7 @@ async function handleJob(job: ChannelJob): Promise<void> {
         const refreshToken = await resolveIntegrationToken(job.integration_id, GMAIL_REFRESH_TOKEN_KEY);
         const { accessToken } = await ga.refreshAccessToken(refreshToken);
 
-        const rawAttachments: any[] = Array.isArray(payload.attachments) ? payload.attachments : [];
+        const rawAttachments: OutboundAttachmentPayload[] = Array.isArray(payload.attachments) ? payload.attachments : [];
         const attachments: GmailOutboundMessage['attachments'] = [];
         for (const att of rawAttachments) {
           const url = String(att?.url ?? '');
@@ -728,7 +816,7 @@ async function handleJob(job: ChannelJob): Promise<void> {
               new Set([msg.fromAddress, ...msg.toAddresses, ...msg.ccAddresses].filter(Boolean) as string[]),
             ).map((email) => ({ email }));
 
-            const upsertResult = await coreCall('/internal/channels/yahoo/upsert-thread-message', {
+            const upsertResult = await coreCall<UpsertThreadMessageResult>('/internal/channels/yahoo/upsert-thread-message', {
               integration_id: job.integration_id,
               workspace_id: job.workspace_id,
               subject: msg.subject,
@@ -799,7 +887,7 @@ async function handleJob(job: ChannelJob): Promise<void> {
         const refreshToken = await resolveIntegrationToken(job.integration_id, YAHOO_REFRESH_TOKEN_KEY);
         const { accessToken } = await ya.refreshAccessToken(refreshToken);
 
-        const rawAttachments: any[] = Array.isArray(payload.attachments) ? payload.attachments : [];
+        const rawAttachments: OutboundAttachmentPayload[] = Array.isArray(payload.attachments) ? payload.attachments : [];
         const attachments: YahooOutboundMessage['attachments'] = [];
         for (const att of rawAttachments) {
           const url = String(att?.url ?? '');
@@ -890,7 +978,7 @@ async function handleJob(job: ChannelJob): Promise<void> {
       if (!job.integration_id) throw Object.assign(new Error('outbound job without integration'), { permanent: true });
       const chatId = payload.chat_id;
       const messageId: string | null = payload.message_id ?? null;
-      const attachments: any[] = Array.isArray(payload.attachments) ? payload.attachments : [];
+      const attachments: OutboundAttachmentPayload[] = Array.isArray(payload.attachments) ? payload.attachments : [];
       if (!chatId || attachments.length === 0) return;
 
       const token = await credential(job.integration_id);
@@ -901,17 +989,15 @@ async function handleJob(job: ChannelJob): Promise<void> {
         for (const [index, attachment] of attachments.entries()) {
           const url = String(attachment?.url ?? attachment?.public_url ?? '');
           if (!/^https?:\/\//i.test(url)) continue; // never send an unsafe URL
-          // Domain-change resilience: also try the worker's own internal API
-          // base with the relative signed path, in case the absolute host
-          // stored at enqueue time is no longer reachable.
-          const relPath = attachment?.path ? String(attachment.path) : null;
           // Core is always reachable from the worker (that is how jobs are
           // claimed), so its base is the most reliable candidate of all.
-          const internalBases = [coreBaseUrl, process.env.INTERNAL_API_BASE_URL, process.env.API_BASE_URL]
-            .map((b) => (b ? b.trim().replace(/\/+$/, '') : ''))
-            .filter(Boolean);
-          const fetchCandidates = [url, ...(relPath ? internalBases.map((b) => `${b}${relPath}`) : [])]
-            .filter((u, i, arr) => arr.indexOf(u) === i);
+          // Domain-change resilience: the relative signed path is also tried
+          // against these bases in case the absolute host stored at enqueue
+          // time is no longer reachable — but ONLY when it is exactly the
+          // signed media route Core mints (see ./outboundMedia.ts).
+          const coreBases = [coreBaseUrl, process.env.INTERNAL_API_BASE_URL, process.env.API_BASE_URL];
+          const fetchCandidates = outboundMediaCandidates(attachment, internalBaseList(coreBases));
+          const trustedOrigins = trustedCoreOrigins(coreBases);
 
           const kind = String(attachment?.kind ?? 'document');
           const caption = index === 0 ? String(payload.text ?? '') || null : null;
@@ -927,14 +1013,16 @@ async function handleJob(job: ChannelJob): Promise<void> {
               const fetchErrors: string[] = [];
               for (const candidate of fetchCandidates) {
                 try {
-                  const res = await fetch(candidate, { redirect: 'follow' });
-                  if (!res.ok) throw new Error(`http_${res.status}`);
-                  const buf = new Uint8Array(await res.arrayBuffer());
-                  if (buf.byteLength === 0) throw new Error('empty_body');
-                  bytes = buf;
+                  // SSRF-guarded, redirect-validated, byte-capped download.
+                  bytes = await fetchOutboundMediaCandidate(candidate, {
+                    trustedOrigins,
+                    maxBytes: OUTBOUND_MEDIA_MAX_BYTES,
+                  });
                   break;
-                } catch (e: any) {
-                  fetchErrors.push(`${candidate} → ${e?.message || e}`);
+                } catch (e: unknown) {
+                  // Never echo the signed query string into logs/job errors.
+                  const reason = (e as { message?: unknown } | null | undefined)?.message || e;
+                  fetchErrors.push(`${candidate.replace(/\?.*$/, '')} → ${reason}`);
                 }
               }
               if (!bytes) {
@@ -952,8 +1040,11 @@ async function handleJob(job: ChannelJob): Promise<void> {
                 caption,
               });
               sent = true;
-            } catch (uploadErr: any) {
-              console.error('[channels-worker] media upload failed:', uploadErr?.message || uploadErr);
+            } catch (uploadErr: unknown) {
+              console.error(
+                '[channels-worker] media upload failed:',
+                (uploadErr as { message?: unknown } | null | undefined)?.message || uploadErr,
+              );
               throw uploadErr;
             }
           }
@@ -989,7 +1080,7 @@ async function handleJob(job: ChannelJob): Promise<void> {
     // ── Bot UI: menus, inline edits, callback acknowledgements ────────
     case 'provider_outbound_action': {
       if (!job.integration_id) throw Object.assign(new Error('action job without integration'), { permanent: true });
-      const actions: any[] = Array.isArray(payload.actions) ? payload.actions : [];
+      const actions: unknown[] = Array.isArray(payload.actions) ? payload.actions : [];
       if (!actions.length) return;
       await executeOutboundActions(operationContext(), job.integration_id, actions, job.provider);
       return;
@@ -1058,7 +1149,7 @@ async function processBatch(): Promise<number> {
 
       const telegramError = err instanceof TelegramApiError ? err : null;
       const permanent =
-        (err as any)?.permanent === true || (telegramError ? !telegramError.retryable : false);
+        (err as { permanent?: unknown } | null | undefined)?.permanent === true || (telegramError ? !telegramError.retryable : false);
 
       const outcome = permanent
         ? await failChannelJob(sb, { ...job, attempt_count: job.max_attempts }, message, null)
@@ -1076,7 +1167,7 @@ async function processBatch(): Promise<number> {
       // looking delivered forever (and the Inbox showing it as answered).
       // Core owns the canonical write — we only report the terminal outcome.
       if (outcome === 'failed' && isOutboundMessageJob(job.job_type)) {
-        const failedMessageId = (job.payload as any)?.message_id ?? null;
+        const failedMessageId = (job.payload as ChannelJobPayload | null)?.message_id ?? null;
         await reportOutbound(
           job,
           failedMessageId,
@@ -1101,7 +1192,7 @@ async function processBatch(): Promise<number> {
  * in production code paths.
  */
 export const __channelsWorkerTesting = {
-  configure(input: { sb: any; coreBaseUrl: string; coreSecret: string; masterKey?: string }) {
+  configure(input: { sb: unknown; coreBaseUrl: string; coreSecret: string; masterKey?: string }) {
     sb = input.sb as SupabaseClient;
     coreBaseUrl = input.coreBaseUrl.replace(/\/+$/, '');
     coreSecret = input.coreSecret;

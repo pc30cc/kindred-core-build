@@ -44,6 +44,17 @@ const AI_TOTAL_BUDGET_MS = readBoundedEnvInt('AI_TOTAL_BUDGET_MS', 28000, 1000, 
 
 export type { JsonResponse };
 
+/** Loose view of a thrown fetch / transport error (fields read defensively). */
+interface ErrorLike {
+  name?: string;
+  message?: string;
+  code?: string;
+  reason?: string;
+  cause?: { message?: string; code?: string };
+}
+
+type JsonBody = Record<string, unknown>;
+
 /**
  * Reads the JSON body while the request deadline is still armed. An abort
  * (total-budget/per-attempt timeout) must surface as a failure — never as a
@@ -52,8 +63,9 @@ export type { JsonResponse };
 async function readJsonUnderDeadline(res: Response, signal: AbortSignal): Promise<unknown> {
   try {
     return await res.json();
-  } catch (err: any) {
-    if (res.ok || signal.aborted || err?.name === 'AbortError') throw err;
+  } catch (caught: unknown) {
+    const err = caught as ErrorLike | null | undefined;
+    if (res.ok || signal.aborted || err?.name === 'AbortError') throw caught;
     return { error: { message: res.statusText } };
   }
 }
@@ -71,7 +83,7 @@ export async function requestJsonWithRetry(
   fetchImpl?: HttpFetch,
 ): Promise<JsonResponse> {
   const doFetch: HttpFetch = fetchImpl ?? ((input, requestInit) => fetch(input, requestInit));
-  let lastErr: any;
+  let lastErr: unknown;
   const deadline = Date.now() + AI_TOTAL_BUDGET_MS;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const remaining = deadline - Date.now();
@@ -96,14 +108,18 @@ export async function requestJsonWithRetry(
       console.warn('[ai-runtime] retryable provider status, retrying', { attempt, status: res.status, backoff });
       await new Promise((r) => setTimeout(r, backoff));
       continue;
-    } catch (err: any) {
-      lastErr = err;
+    } catch (caught: unknown) {
+      lastErr = caught;
+      const err = caught as ErrorLike | null | undefined;
       const detail = String(
         err?.message || err?.cause?.message || err?.code || err?.cause?.code || '',
       );
+      // SSRF-safe transport (workspace base URLs): connection-level failures
+      // retry like fetch's; policy rejections (blocked_ip, …) never do.
       const transient =
         err?.name === 'AbortError' ||
         err?.name === 'TypeError' ||
+        (err?.name === 'SafeTransportError' && (err?.reason === 'network_error' || err?.reason === 'timeout')) ||
         /fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|UND_ERR|socket hang up/i.test(detail);
       const delay = 750 * Math.pow(2, attempt - 1); // 750ms, 1.5s
       const budgetLeft = deadline - Date.now() - delay;
@@ -174,7 +190,7 @@ async function callOpenAI(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetc
   if (config.orgId) headers['OpenAI-Organization'] = config.orgId;
 
   const maxTokens = req.maxTokens || config.maxTokens || 4096;
-  const body: any = {
+  const body: JsonBody = {
     model,
     messages: [
       ...(req.systemPrompt ? [{ role: 'system', content: req.systemPrompt }] : []),
@@ -186,7 +202,7 @@ async function callOpenAI(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetc
     body.max_completion_tokens = reasoningCompletionTokens(maxTokens);
     // Keep latency and reasoning-token spend low for support answers; the
     // caller can still override via req.reasoningEffort.
-    body.reasoning_effort = (req as any).reasoningEffort || 'low';
+    body.reasoning_effort = (req as AIRequest & { reasoningEffort?: string }).reasoningEffort || 'low';
   } else {
     body.max_tokens = maxTokens;
     body.temperature = req.temperature ?? config.temperature ?? 0.7;
@@ -231,7 +247,7 @@ async function callAnthropic(config: AIConfig, req: AIRequest, fetchImpl?: HttpF
   const start = Date.now();
   const model = req.model || config.model || 'claude-sonnet-4-20250514';
 
-  const body: any = {
+  const body: JsonBody = {
     model,
     max_tokens: req.maxTokens || config.maxTokens || 4096,
     messages: [...priorMessages(req), { role: 'user', content: req.prompt }],
@@ -240,11 +256,12 @@ async function callAnthropic(config: AIConfig, req: AIRequest, fetchImpl?: HttpF
   if (req.tools?.length) {
     // Accepts either the native Anthropic tool shape or the OpenAI function
     // shape; the runtime only forwards declarations — it never executes a tool.
-    body.tools = req.tools.map((t: any) =>
-      t?.function
+    body.tools = req.tools.map((tool: unknown) => {
+      const t = tool as { function?: { name?: unknown; description?: unknown; parameters?: unknown } } | null | undefined;
+      return t?.function
         ? { name: t.function.name, description: t.function.description, input_schema: t.function.parameters }
-        : t,
-    );
+        : tool;
+    });
   }
 
   const res = await requestJsonWithRetry(`${config.baseUrl || 'https://api.anthropic.com'}/v1/messages`, {
@@ -283,7 +300,7 @@ async function callGemini(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetc
   const start = Date.now();
   const model = req.model || config.model || 'gemini-2.5-flash';
 
-  const body: any = {
+  const body: JsonBody = {
     contents: [
       ...priorMessages(req).map((m) => ({
         role: m.role === 'assistant' ? 'model' : 'user',
@@ -403,7 +420,8 @@ export async function testAIConnection(
       options.fetchImpl,
     );
     return { success: true, latencyMs: result.latencyMs, model: result.model };
-  } catch (err: any) {
+  } catch (caught: unknown) {
+    const err = caught as ErrorLike | null | undefined;
     return { success: false, latencyMs: 0, model: config.model, error: redactSecrets(err?.message) || 'unknown_error' };
   }
 }

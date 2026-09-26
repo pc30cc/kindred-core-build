@@ -73,4 +73,7 @@ $_ADDONLANG['update_integrity'] = 'تأیید سلامت بسته ناموفق �
 $_ADDONLANG['update_incompatible'] = 'نسخهٔ سازگار PHP و WHMCS و افزونهٔ ZIP لازم است';
 $_ADDONLANG['update_filesystem'] = 'مجوز نوشتن را بررسی کنید؛ WEBYAR_UPDATE_DIR باید خصوصی و روی فایل‌سیستم افزونه باشد';
 $_ADDONLANG['update_archive'] = 'بستهٔ آپدیت نامعتبر است؛ نسخهٔ فعلی حفظ شد';
+$_ADDONLANG['update_unsigned'] = 'نسخهٔ منتشرشده امضا نشده است؛ چیزی نصب نشد. تلاش مجدد ساعت بعد';
+$_ADDONLANG['update_signature'] = 'امضای نسخه تأیید نشد؛ چیزی نصب نشد. به وب‌یار اطلاع دهید';
+$_ADDONLANG['update_unsupported'] = 'آپدیت خودکار به افزونه‌های sodium و zip در PHP نیاز دارد؛ دستی آپدیت کنید';
 $_ADDONLANG['update_failed'] = 'بررسی آپدیت ناموفق بود؛ تلاش مجدد ساعت بعد';

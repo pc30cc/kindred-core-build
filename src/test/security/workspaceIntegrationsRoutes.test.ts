@@ -363,6 +363,61 @@ describe('workspace provider settings — manage:true (owner/admin only)', () =>
     expect(del.status).toBe(200);
   });
 
+  // ── SSRF: a workspace AI base_url is validated on write ─────────────────
+  it.each([
+    'http://93.184.216.34/v1',
+    'https://169.254.169.254/latest/meta-data',
+    'https://[::ffff:169.254.169.254]/v1',
+    'https://127.0.0.1:11434/v1',
+    'https://10.1.2.3/v1',
+    'https://metadata.google.internal/v1',
+    'not-a-url',
+  ])('rejects an AI base_url of %s with 400 and writes nothing', async (baseUrl) => {
+    const res = await call('PUT', `/api/workspace-integrations/${WS_A}/providers`, 'owner-a-token', {
+      provider_type: 'ai', provider_name: 'openai', enabled: true, config: { base_url: baseUrl }, secrets: {},
+    });
+    expect(res.status).toBe(400);
+    expect(res.json.error).toBe('invalid_base_url');
+    const after = await call('GET', `/api/workspace-integrations/${WS_A}/providers`, 'owner-a-token');
+    expect(after.json.settings).toHaveLength(0);
+  });
+
+  it('validates the legacy `endpoint` key too', async () => {
+    const res = await call('PUT', `/api/workspace-integrations/${WS_A}/providers`, 'owner-a-token', {
+      provider_type: 'ai', provider_name: 'azure_openai', enabled: true, config: { endpoint: 'https://192.168.0.10/' }, secrets: {},
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('accepts a public https base_url and an empty one', async () => {
+    for (const base_url of ['https://93.184.216.34/v1', '']) {
+      const res = await call('PUT', `/api/workspace-integrations/${WS_A}/providers`, 'owner-a-token', {
+        provider_type: 'ai', provider_name: 'openai', enabled: true, config: { base_url }, secrets: {},
+      });
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it('accepts an operator allow-listed private host (AI_PROVIDER_PRIVATE_HOSTS)', async () => {
+    process.env.AI_PROVIDER_PRIVATE_HOSTS = 'ollama.internal';
+    try {
+      const res = await call('PUT', `/api/workspace-integrations/${WS_A}/providers`, 'owner-a-token', {
+        provider_type: 'ai', provider_name: 'ollama', enabled: true,
+        config: { base_url: 'http://ollama.internal:11434/v1' }, secrets: {},
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      delete process.env.AI_PROVIDER_PRIVATE_HOSTS;
+    }
+  });
+
+  it('does not apply the AI endpoint rule to webhook settings', async () => {
+    const res = await call('PUT', `/api/workspace-integrations/${WS_A}/providers`, 'owner-a-token', {
+      provider_type: 'webhook', provider_name: 'custom', enabled: true, config: { base_url: 'not-a-url' }, secrets: {},
+    });
+    expect(res.status).toBe(200);
+  });
+
   it('rejects an invalid provider_type', async () => {
     const res = await call('PUT', `/api/workspace-integrations/${WS_A}/providers`, 'owner-a-token', {
       provider_type: 'not-a-real-type', provider_name: 'x', enabled: true, config: {}, secrets: {},

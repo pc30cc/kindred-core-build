@@ -31,6 +31,23 @@ vi.mock('../../../server/middleware/adminBypass.js', () => ({
 }));
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeSb }));
 
+// The crawler now goes through the hardened transport (per-hop validation +
+// pinned node:http(s) sockets). Keep its real hop/redirect policy but route
+// the socket through the stubbed global fetch and a public DNS answer, so the
+// restricted-network harness still observes the crawl hop.
+vi.mock('../../../server/services/ai-agent/crawler/safeCrawlFetch.js', async (importOriginal) => {
+  const orig: any = await importOriginal();
+  return {
+    ...orig,
+    safeCrawlFetch: (url: string, opts: any) =>
+      orig.safeCrawlFetch(url, {
+        ...opts,
+        fetchImpl: (u: any, init: any) => (globalThis as any).fetch(u, init),
+        lookupImpl: async () => [{ address: '93.184.216.34', family: 4 }],
+      }),
+  };
+});
+
 const { processJob } = await import('../../../worker/intelligence/processor.js');
 
 let fakeSb: any;
@@ -66,10 +83,7 @@ beforeEach(() => {
     // The crawler legitimately reaches the customer's own website from Core.
     allowHost: (url, host) => {
       if (host !== CRAWL_HOST) return undefined;
-      const res = new Response(PAGE_HTML, { status: 200, headers: { 'content-type': 'text/html' } });
-      // The crawler re-validates the post-redirect host via `res.url`.
-      Object.defineProperty(res, 'url', { value: url });
-      return res;
+      return new Response(PAGE_HTML, { status: 200, headers: { 'content-type': 'text/html' } });
     },
 
     providerResponse: (url) =>

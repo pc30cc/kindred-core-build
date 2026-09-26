@@ -101,9 +101,12 @@ export async function requestJsonWithRetry(
       const detail = String(
         err?.message || err?.cause?.message || err?.code || err?.cause?.code || '',
       );
+      // SSRF-safe transport (workspace base URLs): connection-level failures
+      // retry like fetch's; policy rejections (blocked_ip, …) never do.
       const transient =
         err?.name === 'AbortError' ||
         err?.name === 'TypeError' ||
+        (err?.name === 'SafeTransportError' && (err?.reason === 'network_error' || err?.reason === 'timeout')) ||
         /fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|UND_ERR|socket hang up/i.test(detail);
       const delay = 750 * Math.pow(2, attempt - 1); // 750ms, 1.5s
       const budgetLeft = deadline - Date.now() - delay;

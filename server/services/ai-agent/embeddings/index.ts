@@ -32,6 +32,7 @@ export async function resolveEmbeddingProvider(
       baseUrl: ai.baseUrl,
       model: DEFAULT_EMBEDDING_MODEL,
       orgId: ai.orgId,
+      endpointScope: ai.endpointScope,
       dimensions: DEFAULT_DIMENSIONS,
     });
   } catch (err) {

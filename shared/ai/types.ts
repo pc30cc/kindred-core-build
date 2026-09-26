@@ -16,6 +16,14 @@ export interface AIConfig {
   temperature?: number;
   baseUrl?: string;
   orgId?: string;
+  /**
+   * Who supplied `baseUrl`. Set ONLY by Core's resolver (never read from the
+   * stored provider config JSON): 'platform' = the operator's platform default
+   * (app_runtime_config, platform admins only); 'workspace' — or missing — =
+   * tenant-supplied, which the AI Runtime restricts to public https hosts
+   * (plus the operator's AI_PROVIDER_PRIVATE_HOSTS allow-list).
+   */
+  endpointScope?: 'workspace' | 'platform';
 }
 
 export interface AIRequest {

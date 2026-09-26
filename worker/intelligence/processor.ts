@@ -12,14 +12,14 @@
  *      credit exhaustion and marks the job 'partial'.
  *
  * NOTE: This v1 implementation focuses on safe scaffolding. The crawler
- * uses a small allow-list, DNS check via lookup, redirect re-validation,
- * and size/timeout caps. AI generation is delegated to the same provider
+ * uses the shared SSRF-hardened transport (safeCrawlFetch: per-hop redirect
+ * validation, fail-closed DNS checks, connect-time pinned lookup) plus
+ * size/timeout caps. AI generation is delegated to the same provider
  * resolution code used by /api/ai/complete (no duplicate AI client).
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createHash } from 'node:crypto';
-import { lookup } from 'node:dns/promises';
 import type { WorkerEnv } from './index.js';
 import { executeAICompletion, resolveAIConfig } from '../../server/services/ai/index.js';
 import { logGateBypass } from '../../server/middleware/adminBypass.js';
@@ -28,48 +28,22 @@ import { DbJobQueueProvider } from '../../server/services/ai-kb/queue.js';
 import { envFlagEnabled, type ServerConfig } from '../../server/config.js';
 import { normalizeArticleHtml } from '../../server/services/ai-kb/htmlNormalize.js';
 import { workerLog } from './index.js';
+import { safeCrawlFetch, type SafeCrawlFetchOptions } from '../../server/services/ai-agent/crawler/safeCrawlFetch.js';
+import { normalizeHostname } from '../../shared/net/hostGuard.js';
 
 const TIMEOUT_MS = parseInt(process.env.CRAWLER_TIMEOUT_MS || '15000', 10);
 const MAX_BYTES = parseInt(process.env.CRAWLER_MAX_BYTES || '2000000', 10); // 2 MB
 const USER_AGENT = process.env.CRAWLER_USER_AGENT || 'AiKbBuilder/1.0 (+self-hosted)';
-// SSRF guard policy: when DNS resolution fails (e.g. transient resolver error,
-// IPv6 stack issue, NXDOMAIN flake), default to ALLOW so a flaky resolver
-// doesn't permanently block public hosts. The actual fetch() will still fail
-// safely on its own. Set CRAWLER_STRICT_DNS=1 to revert to deny-on-failure.
-const STRICT_DNS = process.env.CRAWLER_STRICT_DNS === '1';
+const MAX_REDIRECTS = 5;
 
-function isPrivateIp(ip: string): boolean {
-  // IPv4 ranges + IPv6 loopback/link-local/unique-local
-  if (ip === '127.0.0.1' || ip === '::1' || ip === '0.0.0.0') return true;
-  if (/^10\./.test(ip)) return true;
-  if (/^192\.168\./.test(ip)) return true;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return true;
-  if (/^169\.254\./.test(ip)) return true;       // link-local / metadata
-  if (/^fe80:/i.test(ip)) return true;
-  if (/^fc|^fd/i.test(ip)) return true;
-  return false;
-}
-
-async function isHostSafe(host: string): Promise<{ ok: boolean; reason?: string; addrs?: string[] }> {
-  try {
-    const addrs = await lookup(host, { all: true });
-    const list = addrs.map((a) => a.address);
-    const bad = list.filter((ip) => isPrivateIp(ip));
-    if (bad.length > 0) {
-      return { ok: false, reason: `private_ip:${bad.join(',')}`, addrs: list };
-    }
-    if (list.length === 0) {
-      return STRICT_DNS
-        ? { ok: false, reason: 'no_dns_addresses' }
-        : { ok: true, reason: 'no_dns_addresses_allowed', addrs: [] };
-    }
-    return { ok: true, addrs: list };
-  } catch (err: any) {
-    const reason = `dns_error:${err?.code || err?.message || 'unknown'}`;
-    if (STRICT_DNS) return { ok: false, reason };
-    return { ok: true, reason };
-  }
-}
+// SSRF policy: every fetch goes through the shared hardened crawler transport
+// (safeCrawlFetch). It validates EVERY redirect hop (scheme, same-root-domain,
+// blocked hostnames, all DNS answers public via the shared isBlockedIpAddress
+// gate — covering 127/8, 0/8, 100.64/10, link-local/metadata, IPv4-mapped
+// IPv6 and friends), fails CLOSED on DNS errors, and pins the connect-time
+// DNS lookup so a rebinding resolver cannot swap in a private address after
+// the pre-flight check. The former local guard (and its fail-open
+// CRAWLER_STRICT_DNS toggle) is gone: DNS failure now always blocks the page.
 
 function sameOrSubdomain(host: string, root: string): boolean {
   return host === root || host.endsWith('.' + root);
@@ -95,58 +69,64 @@ function stripHtml(html: string): { text: string; title: string; links: string[]
   return { text, title, links };
 }
 
-async function fetchPage(url: string, allowedRoot: string): Promise<{
+/** Maps a hardened-transport failure to the page-level reason codes the job log already uses. */
+function crawlFailureReason(error: string | undefined): string {
+  switch (error) {
+    case 'invalid_url': return 'invalid_url';
+    case 'unsupported_protocol': return 'bad_protocol';
+    case 'blocked_host':
+    case 'dns_failure': return 'unsafe_host';
+    case 'redirect_blocked':
+    case 'too_many_redirects': return 'redirect_unsafe';
+    case 'unsupported_content_type': return 'non_html';
+    case 'page_too_large': return 'too_large';
+    case 'timeout': return 'timeout';
+    default: return error && /^http_\d+$/.test(error) ? 'http_error' : 'fetch_error';
+  }
+}
+
+export async function fetchPage(
+  url: string,
+  allowedRoot: string,
+  deps: Pick<SafeCrawlFetchOptions, 'fetchImpl' | 'lookupImpl'> = {},
+): Promise<{
   ok: boolean; status?: number; html?: string; bytes?: number; reason?: string; detail?: string;
 }> {
   let parsed: URL;
   try { parsed = new URL(url); } catch { return { ok: false, reason: 'invalid_url' }; }
   if (!/^https?:$/.test(parsed.protocol)) return { ok: false, reason: 'bad_protocol' };
-  if (!sameOrSubdomain(parsed.hostname, allowedRoot)) return { ok: false, reason: 'off_domain' };
-  const safe = await isHostSafe(parsed.hostname);
-  if (!safe.ok) return { ok: false, reason: 'unsafe_host', detail: safe.reason };
+  const root = normalizeHostname(allowedRoot);
+  if (!sameOrSubdomain(normalizeHostname(parsed.hostname), root)) return { ok: false, reason: 'off_domain' };
 
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-  try {
-    const res = await fetch(url, {
-      method: 'GET',
-      redirect: 'follow',
-      headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,application/xhtml+xml' },
-      signal: ctrl.signal,
-    });
-    // After redirect, re-check final host.
-    try {
-      const finalHost = new URL(res.url).hostname;
-      if (!sameOrSubdomain(finalHost, allowedRoot)) return { ok: false, status: res.status, reason: 'redirect_off_domain' };
-      const fSafe = await isHostSafe(finalHost);
-      if (!fSafe.ok) return { ok: false, status: res.status, reason: 'redirect_unsafe', detail: fSafe.reason };
-    } catch { return { ok: false, reason: 'bad_redirect_url' }; }
+  const result = await safeCrawlFetch(url, {
+    userAgent: USER_AGENT,
+    timeoutMs: TIMEOUT_MS,
+    maxBytes: MAX_BYTES,
+    maxRedirects: MAX_REDIRECTS,
+    accept: 'text/html,application/xhtml+xml',
+    // Verified-root-domain restriction, re-applied on EVERY redirect hop.
+    isUrlAllowed: (hopUrl: string) => {
+      try { return sameOrSubdomain(normalizeHostname(new URL(hopUrl).hostname), root); }
+      catch { return false; }
+    },
+    ...deps,
+  });
 
-    const ct = res.headers.get('content-type') || '';
-    if (!/text\/html|application\/xhtml/i.test(ct)) return { ok: false, status: res.status, reason: 'non_html' };
-
-    const reader = res.body?.getReader();
-    if (!reader) return { ok: false, status: res.status, reason: 'no_body' };
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > MAX_BYTES) return { ok: false, status: res.status, reason: 'too_large' };
-      chunks.push(value);
-    }
-    const buf = Buffer.concat(chunks.map((c) => Buffer.from(c)));
-    return { ok: true, status: res.status, html: buf.toString('utf8'), bytes: total };
-  } catch (err: any) {
+  if (!result.ok || typeof result.html !== 'string') {
+    const error = String(result.error || 'fetch_error');
     return {
       ok: false,
-      reason: err?.name === 'AbortError' ? 'timeout' : 'fetch_error',
-      detail: `${err?.name || ''}:${err?.message || err?.code || 'unknown'}`,
+      status: result.status,
+      reason: crawlFailureReason(error),
+      detail: result.finalUrl && result.finalUrl !== url ? `${error} @ ${result.finalUrl}` : error,
     };
-  } finally {
-    clearTimeout(t);
   }
+  return {
+    ok: true,
+    status: result.status,
+    html: result.html,
+    bytes: Buffer.byteLength(result.html, 'utf8'),
+  };
 }
 
 /**

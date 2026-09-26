@@ -38,6 +38,8 @@ export interface OpenAIEmbeddingResolved {
   baseUrl?: string;
   model: string;
   orgId?: string;
+  /** Who supplied baseUrl (see AIConfig.endpointScope); drives runtime SSRF policy. */
+  endpointScope?: 'workspace' | 'platform';
   dimensions: number;
 }
 
@@ -69,6 +71,7 @@ export function buildOpenAIEmbeddingProvider(
             model: cfg.model,
             baseUrl: cfg.baseUrl,
             orgId: cfg.orgId,
+            endpointScope: cfg.endpointScope,
           },
           batch,
         );

@@ -16,6 +16,8 @@ export interface EmbedProviderConfig {
   model: string;
   baseUrl?: string;
   orgId?: string;
+  /** Who supplied baseUrl — see AIConfig.endpointScope. */
+  endpointScope?: 'workspace' | 'platform';
 }
 
 /** Batches are already sized by the caller; this keeps one request per call. */

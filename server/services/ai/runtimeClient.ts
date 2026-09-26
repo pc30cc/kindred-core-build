@@ -125,7 +125,14 @@ export async function runtimeTestConnection(
 /** Embedding generation on the remote runtime. */
 export async function runtimeEmbed(
   config: ServerConfig,
-  embedConfig: { provider: string; apiKey: string; model: string; baseUrl?: string; orgId?: string },
+  embedConfig: {
+    provider: string;
+    apiKey: string;
+    model: string;
+    baseUrl?: string;
+    orgId?: string;
+    endpointScope?: 'workspace' | 'platform';
+  },
   texts: string[],
 ): Promise<number[][]> {
   const payload = await callRuntime<{ vectors: number[][] }>(config, AI_RUNTIME_ROUTES.embed, {

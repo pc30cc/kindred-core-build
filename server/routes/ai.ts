@@ -13,8 +13,8 @@ import { checkModuleAccess, deductAICredits, incrementUsage } from '../middlewar
 import {
   authorizeWorkspaceAccess,
   requirePlatformAdmin,
-  checkOutboundUrl,
 } from '../lib/workspaceAuth.js';
+import { checkWorkspaceProviderBaseUrl } from '../../shared/ai/endpointPolicy.js';
 
 
 export const aiRouter = Router();
@@ -170,8 +170,10 @@ aiRouter.post('/test', async (req, res) => {
     // SSRF pre-check in Core (fail-closed) on the operator-supplied endpoint.
     // The connection itself is made by the AI Runtime, which re-validates and
     // pins DNS inside its own transport — Core never opens the socket.
+    // Same policy as workspace endpoints: public https, or a host explicitly
+    // allow-listed by the operator in AI_PROVIDER_PRIVATE_HOSTS.
     if (parsed.data.baseUrl) {
-      const urlCheck = await checkOutboundUrl(parsed.data.baseUrl);
+      const urlCheck = await checkWorkspaceProviderBaseUrl(parsed.data.baseUrl);
       if (!urlCheck.ok) {
         return res.status(400).json({ success: false, error: 'baseUrl is not an allowed https endpoint' });
       }

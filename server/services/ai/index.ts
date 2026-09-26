@@ -102,6 +102,9 @@ export async function resolveAIConfig(serverConfig: ServerConfig, workspaceId: s
         temperature: c.temperature ? parseFloat(c.temperature) : undefined,
         baseUrl: c.base_url || c.endpoint || undefined,
         orgId: c.org_id,
+        // Tenant-supplied endpoint: the AI Runtime restricts it (public https
+        // only, DNS-pinned). Always set here — never taken from the row.
+        endpointScope: 'workspace',
       };
     }
   }
@@ -136,6 +139,9 @@ export async function resolveAIConfig(serverConfig: ServerConfig, workspaceId: s
       temperature: c.temperature ? parseFloat(c.temperature) : undefined,
       baseUrl: c.base_url || c.endpoint || undefined,
       orgId: c.org_id,
+      // Operator (platform admin) configuration — may legitimately target a
+      // private/self-hosted LLM, so the runtime leaves its transport as is.
+      endpointScope: 'platform',
     };
   }
 

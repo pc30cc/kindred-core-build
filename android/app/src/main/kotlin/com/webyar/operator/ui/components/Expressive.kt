@@ -156,7 +156,20 @@ fun rememberPressShape(
         animationSpec = Motion.fastSpatial(),
         label = "pressShape",
     )
-    return RoundedCornerShape(CornerSize(percent.coerceIn(0f, 50f)))
+    return percentShape(percent)
+}
+
+/**
+ * A rounded shape whose corners are a fraction of its shorter side, taken as
+ * a float so an animated corner moves smoothly. `CornerSize(Float)` would not
+ * do: that overload is pixels, and `CornerSize(Int)` — the percent one —
+ * steps a whole percent at a time.
+ */
+fun percentShape(percent: Float): Shape = RoundedCornerShape(PercentCorner(percent.coerceIn(0f, 50f)))
+
+private data class PercentCorner(private val percent: Float) : CornerSize {
+    override fun toPx(shapeSize: androidx.compose.ui.geometry.Size, density: androidx.compose.ui.unit.Density): Float =
+        shapeSize.minDimension * percent / 100f
 }
 
 /**

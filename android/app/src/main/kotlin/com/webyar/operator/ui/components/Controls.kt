@@ -200,7 +200,7 @@ fun ChoiceButton(
     Surface(
         selected = selected,
         onClick = onClick,
-        shape = RoundedCornerShape(CornerSize(percent)),
+        shape = percentShape(percent),
         color = container,
         contentColor = content,
         interactionSource = interaction,

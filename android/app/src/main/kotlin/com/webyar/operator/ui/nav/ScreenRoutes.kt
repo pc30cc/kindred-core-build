@@ -69,6 +69,7 @@ import com.webyar.operator.feature.team.TeamThreadScreen
 import com.webyar.operator.feature.team.TeamThreadViewModel
 import com.webyar.operator.feature.chat.Composer
 import com.webyar.operator.ui.components.SearchState
+import com.webyar.operator.ui.components.DetailTopBar
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.TextButton
 import com.webyar.operator.feature.email.EmailInboxScreen
@@ -747,7 +748,6 @@ fun TeamThreadRoute(
  * The same bar the inbox wears, minus the queue menu — a pushed list still
  * needs a way back, which is the one thing the inbox's own bar never does.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SearchableBar(
     title: String,
@@ -757,40 +757,16 @@ private fun SearchableBar(
     /** A second, quieter line — whose mailbox this is, when we know. */
     subtitle: String? = null,
 ) {
-    TopAppBar(
-        title = {
-            Column {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (!subtitle.isNullOrEmpty()) {
-                    LatinText(
-                        subtitle,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = WebyarTheme.colors.labelTertiary,
-                        maxLines = 1,
-                        align = rowTextAlign(),
-                    )
-                }
-            }
-        },
-        navigationIcon = {
-            IconButton(onClick = onBack) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = StrAndroid.back(language),
-                )
-            }
-        },
-        actions = {
-            IconButton(onClick = { search.toggle() }) {
-                Icon(Icons.Filled.Search, contentDescription = Str.search(language))
-            }
-        },
-    )
+    DetailTopBar(
+        title = title,
+        subtitle = subtitle,
+        backLabel = StrAndroid.back(language),
+        onBack = onBack,
+    ) {
+        IconButton(onClick = { search.toggle() }) {
+            Icon(Icons.Filled.Search, contentDescription = Str.search(language))
+        }
+    }
 }
 
 @Composable
@@ -873,22 +849,10 @@ fun EmailThreadRoute(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        Str.emailInbox(language),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = StrAndroid.back(language),
-                        )
-                    }
-                },
+            DetailTopBar(
+                title = Str.emailInbox(language),
+                backLabel = StrAndroid.back(language),
+                onBack = onBack,
                 actions = {
                     Box {
                         IconButton(
@@ -1369,33 +1333,9 @@ fun SecurityRoute(
 }
 
 /** The bar every pushed screen wears: a title and a way back. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BackBar(title: String, language: Language, onBack: () -> Unit) {
-    TopAppBar(
-        title = {
-            Text(
-                title,
-                // A contact's name is whatever they typed, and
-                // "Alexander Konstantinopoulos" is two words wider than the
-                // bar. One line, ellipsised, and its reading order from the
-                // name rather than from the layout.
-                style = MaterialTheme.typography.titleLarge.bidiContent(),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        },
-        navigationIcon = {
-            IconButton(onClick = onBack) {
-                Icon(
-                    // AutoMirrored: a back arrow points the way you came, and
-                    // in Persian that is the other way.
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = StrAndroid.back(language),
-                )
-            }
-        },
-    )
+    DetailTopBar(title = title, backLabel = StrAndroid.back(language), onBack = onBack)
 }
 
 /**

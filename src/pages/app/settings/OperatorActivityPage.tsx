@@ -2,8 +2,9 @@
  * Operator Activity — online-time & productivity report for the workspace.
  *
  * Visible to workspace owners/admins only (the API enforces this too).
- * Online minutes come from `operator_activity_samples`, filled by the
- * panel heartbeat and filtered by each operator's availability schedule.
+ * Online minutes are no longer recorded — their table,
+ * `operator_activity_samples`, is dropped (database/migrations/223) — so the
+ * API reports zero for them; assignments and message counts are still live.
  */
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';

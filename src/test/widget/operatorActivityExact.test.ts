@@ -1,22 +1,24 @@
 /**
  * CROSS-NODE ACTIVITY MUST BE EXACT.
  *
- * The coarse `operator_activity_samples` fallback (5-minute buckets) could
- * keep an operator "active" for up to ~10 minutes when the beat landed on
- * another node. With the exact ephemeral index configured, `away` must
- * trigger at exactly 5 minutes and the coarse fallback must NOT run.
+ * With the exact ephemeral index configured, `away` must trigger at exactly
+ * 5 minutes. With or without it, the lookup never touches PostgreSQL: the
+ * coarse `operator_activity_samples` fallback (5-minute buckets, up to ~10
+ * minutes of false `active`) went with its table.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import type { ServerConfig } from '../../../server/config';
 
 const zset = new Map<string, Map<string, number>>();
-let bucketReads = 0;
+let dbReads = 0;
 
 // Set to false to emulate a Redis/Valkey older than 6.2 (no ZADD GT).
 export let supportsGt = true;
 export const setSupportsGt = (v: boolean) => { supportsGt = v; };
 
 const redis = {
-  async command(cmd: string, key: string, ...rest: any[]) {
+  async command(cmd: string, key: string, ...rest: unknown[]) {
     const set = zset.get(key) || new Map<string, number>();
     zset.set(key, set);
     if (cmd === 'ZADD') {
@@ -51,13 +53,21 @@ const redis = {
 vi.mock('../../../server/lib/redisClient.js', () => ({ getRedisClient: () => redis }));
 vi.mock('../../../server/lib/redisClient', () => ({ getRedisClient: () => redis }));
 
+interface FakeApi {
+  select: () => FakeApi;
+  eq: () => FakeApi;
+  in: () => FakeApi;
+  gte: () => Promise<{ data: unknown[] }>;
+}
+
 const fakeClient = {
   from() {
-    const api: any = {
+    dbReads += 1;
+    const api: FakeApi = {
       select: () => api,
       eq: () => api,
       in: () => api,
-      gte: async () => { bucketReads += 1; return { data: [] }; },
+      gte: async () => ({ data: [] }),
     };
     return api;
   },
@@ -73,14 +83,16 @@ const {
   flushOperatorActivityWrites,
   __evictActivityCoalesceState,
   OPERATOR_ACTIVITY_ACTIVE_MS,
-} = mod as any;
+} = mod;
+
+const CFG = {} as ServerConfig;
 
 const T0 = Date.parse('2026-01-07T12:00:01Z');
 
 describe('exact cross-node operator activity', () => {
   beforeEach(() => {
     zset.clear();
-    bucketReads = 0;
+    dbReads = 0;
     setSupportsGt(true);
     resetOperatorActivity();
     process.env.OPERATOR_ACTIVITY_REDIS_URL = 'redis://127.0.0.1:6379';
@@ -89,7 +101,7 @@ describe('exact cross-node operator activity', () => {
 
   it('stores the exact interaction timestamp, not a 5-minute bucket', async () => {
     await publishOperatorActivity('ws', 'u1', T0);
-    const got = await getOperatorLastActivity({} as any, 'ws', ['u1'], new Date(T0 + 60_000));
+    const got = await getOperatorLastActivity(CFG, 'ws', ['u1'], new Date(T0 + 60_000));
     expect(got.get('u1')).toBe(T0);
   });
 
@@ -97,7 +109,7 @@ describe('exact cross-node operator activity', () => {
     await publishOperatorActivity('ws', 'u1', T0);
     const at = async (ms: number) => {
       const now = new Date(T0 + ms);
-      const m = await getOperatorLastActivity({} as any, 'ws', ['u1'], now);
+      const m = await getOperatorLastActivity(CFG, 'ws', ['u1'], now);
       return now.getTime() - (m.get('u1') || 0) < OPERATOR_ACTIVITY_ACTIVE_MS;
     };
     expect(await at(OPERATOR_ACTIVITY_ACTIVE_MS - 1_000)).toBe(true);
@@ -105,10 +117,10 @@ describe('exact cross-node operator activity', () => {
     expect(await at(OPERATOR_ACTIVITY_ACTIVE_MS + 60_000)).toBe(false);
   });
 
-  it('does not consult the coarse analytics buckets when the exact index answers', async () => {
+  it('does not read the database when the exact index answers', async () => {
     await publishOperatorActivity('ws', 'u1', T0);
-    await getOperatorLastActivity({} as any, 'ws', ['u1'], new Date(T0 + 10 * 60_000));
-    expect(bucketReads).toBe(0);
+    await getOperatorLastActivity(CFG, 'ws', ['u1'], new Date(T0 + 10 * 60_000));
+    expect(dbReads).toBe(0);
   });
 
   it('coalesces repeated writes into at most one command per window', async () => {
@@ -118,11 +130,15 @@ describe('exact cross-node operator activity', () => {
     expect(zset.get('op:activity:ws')!.get('u1')).toBe(T0);
   });
 
-  it('falls back to the analytics buckets only when no exact index is configured', async () => {
+  it('answers from this node alone, without the database, when no exact index is configured', async () => {
     delete process.env.OPERATOR_ACTIVITY_REDIS_URL;
     delete process.env.REALTIME_REDIS_URL;
-    await getOperatorLastActivity({} as any, 'ws', ['u1'], new Date(T0));
-    expect(bucketReads).toBe(1);
+    const got = await getOperatorLastActivity(CFG, 'ws', ['u1'], new Date(T0));
+    expect(got.size).toBe(0);
+    expect(dbReads).toBe(0);
+    // Source-level: no service client, and no read of the dropped table.
+    const source = readFileSync('server/services/widget/operatorActivity.ts', 'utf8');
+    expect(source).not.toMatch(/getServiceClient|\.from\(/);
   });
 });
 
@@ -134,7 +150,7 @@ describe('exact cross-node operator activity', () => {
 describe('trailing-edge flush of coalesced activity', () => {
   beforeEach(() => {
     zset.clear();
-    bucketReads = 0;
+    dbReads = 0;
     setSupportsGt(true);
     resetOperatorActivity();
     process.env.OPERATOR_ACTIVITY_REDIS_URL = 'redis://127.0.0.1:6379';
@@ -157,7 +173,7 @@ describe('trailing-edge flush of coalesced activity', () => {
 
     const activeAt = async (ms: number) => {
       const now = new Date(T0 + ms);
-      const m = await getOperatorLastActivity({} as any, 'ws', ['u1'], now);
+      const m = await getOperatorLastActivity(CFG, 'ws', ['u1'], now);
       return now.getTime() - (m.get('u1') || 0) < OPERATOR_ACTIVITY_ACTIVE_MS;
     };
     expect(await activeAt(OPERATOR_ACTIVITY_ACTIVE_MS)).toBe(true);

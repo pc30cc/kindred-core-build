@@ -15,28 +15,62 @@ if ( ! defined( 'ABSPATH' ) ) {
  * a newer version and the site silently keeps whatever build it was first
  * given. Every fix shipped since then simply never arrives.
  *
- * WHERE UPDATES COME FROM is the security question, and the answer is: the
- * SAME origin the admin typed into Settings → Web Yar, never a value the
- * manifest itself supplies. A manifest is data fetched over the network; if
- * it could name its own download host, tampering with it would turn this
- * into an arbitrary-code installer. So the package URL is required to be
- * https and to live on the configured host, and anything else is discarded.
+ * WHAT MAY BE INSTALLED is the security question, and the answer is: only
+ * an archive whose sha256 is listed in a manifest SIGNED by the Web Yar
+ * release key. The download host is not trusted — it is a URL any shop
+ * manager once could change, and a web server that can be compromised:
+ *
+ *   - `/downloads/webyar-woocommerce.json.sig` must be a detached Ed25519
+ *     signature (base64) over the manifest's exact bytes that verifies
+ *     against UPDATE_PUBLIC_KEY, built into this plugin (the same release
+ *     key as the OpenCart and WHMCS connectors; the private key lives only
+ *     on the release host). Otherwise no update is offered;
+ *   - when WordPress downloads the package (`upgrader_pre_download`) the
+ *     manifest is fetched and verified AGAIN and the archive must match its
+ *     signed sha256 and size, or the update is refused;
+ *   - both fetches are https-only via wp_safe_remote_get(), and the package
+ *     path must stay on the configured Web Yar origin.
+ *
+ * Refusals are logged and shown to administrators (see status()).
  *
  * Nothing runs at all until the store has an app URL configured, and the
  * result is cached so a busy admin does not refetch on every page load.
  */
 final class Updater {
 
-	private const MANIFEST_PATH = '/downloads/webyar-woocommerce.json';
-	private const CACHE_KEY     = 'webyar_wc_update_manifest';
-	private const CACHE_TTL     = 6 * HOUR_IN_SECONDS;
+	private const MANIFEST_PATH  = '/downloads/webyar-woocommerce.json';
+	private const SIGNATURE_PATH = '/downloads/webyar-woocommerce.json.sig';
+	private const CACHE_KEY      = 'webyar_wc_update_manifest';
+	private const CACHE_TTL      = 6 * HOUR_IN_SECONDS;
 	/** Re-check sooner after a failure than after a success, but never hammer. */
-	private const FAILURE_TTL   = 30 * MINUTE_IN_SECONDS;
+	private const FAILURE_TTL    = 30 * MINUTE_IN_SECONDS;
+	private const MAX_MANIFEST_BYTES = 65536;
+	public const MAX_PACKAGE_BYTES   = 16777216;
+	/** Last check/download outcome, for the settings page and the admin notice. */
+	public const STATUS_OPTION = 'webyar_wc_update_status';
+	/** Outcomes that mean "someone served something the release key did not sign". */
+	private const ALARMING = array( 'signature_invalid', 'checksum_mismatch', 'package_mismatch' );
+
+	/**
+	 * Ed25519 public key release manifests are signed with — the SAME key as
+	 * plugins/webyar-opencart/core/Protocol.php and the WHMCS addon, so there
+	 * is one release key to guard. A staging site can define
+	 * WEBYAR_UPDATE_PUBLIC_KEY in wp-config.php (editing wp-config.php is
+	 * already full control of the site, so this opens nothing new).
+	 */
+	public const UPDATE_PUBLIC_KEY = 'vbNNY6jM7bZvxmvV39oRSZ4XSZ7EMks/eEyyVcrwPKQ=';
 
 	public function register(): void {
 		add_filter( 'pre_set_site_transient_update_plugins', array( $this, 'inject_update' ) );
 		add_filter( 'plugins_api', array( $this, 'plugin_details' ), 10, 3 );
+		add_filter( 'upgrader_pre_download', array( $this, 'verify_download' ), 10, 4 );
 		add_action( 'upgrader_process_complete', array( $this, 'flush_cache' ), 10, 2 );
+		add_action( 'admin_notices', array( $this, 'admin_notice' ) );
+		add_action( 'network_admin_notices', array( $this, 'admin_notice' ) );
+	}
+
+	public static function public_key(): string {
+		return defined( 'WEBYAR_UPDATE_PUBLIC_KEY' ) ? (string) constant( 'WEBYAR_UPDATE_PUBLIC_KEY' ) : self::UPDATE_PUBLIC_KEY;
 	}
 
 	public static function basename(): string {
@@ -178,7 +212,77 @@ final class Updater {
 	}
 
 	/**
-	 * @return array{version:string,package:string,requires:string,requires_php:string,tested:string,homepage:string,description:string,changelog:string,last_updated:string}|null
+	 * WordPress is about to download a package. If it is this plugin's, the
+	 * download happens HERE: the manifest is fetched and its signature
+	 * checked afresh (nothing cached is trusted for an install), and the
+	 * archive is handed to WordPress only when it matches the signed sha256
+	 * and size. Anything else is refused with a WP_Error, which WordPress
+	 * reports and which leaves the installed plugin untouched.
+	 *
+	 * @param mixed $reply      false, or what an earlier filter decided
+	 * @param mixed $package    the package URL WordPress was given
+	 * @param mixed $upgrader
+	 * @param mixed $hook_extra ['plugin' => basename, …] for plugin updates
+	 * @return mixed
+	 */
+	public function verify_download( $reply, $package, $upgrader = null, $hook_extra = array() ) {
+		if ( false !== $reply || ! self::is_own_package( $package, $hook_extra ) ) {
+			return $reply;
+		}
+
+		$base  = PairingService::app_base_url();
+		$error = 'insecure_url';
+		$manifest = self::is_https_url( $base ) ? $this->fetch_verified( $base, $error ) : null;
+		if ( null === $manifest ) {
+			return $this->refuse( $error );
+		}
+		if ( ! is_string( $package ) || $package !== $manifest['package'] ) {
+			return $this->refuse( 'package_mismatch' );
+		}
+
+		if ( ! function_exists( 'download_url' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+		}
+		$file = download_url( $package, 300 );
+		if ( is_wp_error( $file ) ) {
+			return $file;
+		}
+		$size = (int) filesize( $file );
+		if ( $size !== $manifest['size'] || ! hash_equals( $manifest['sha256'], (string) hash_file( 'sha256', $file ) ) ) {
+			wp_delete_file( $file );
+			return $this->refuse( 'checksum_mismatch' );
+		}
+
+		self::record( 'verified' );
+		return $file;
+	}
+
+	/** @param mixed $package @param mixed $hook_extra */
+	private static function is_own_package( $package, $hook_extra ): bool {
+		if ( is_array( $hook_extra ) && isset( $hook_extra['plugin'] ) ) {
+			return self::basename() === $hook_extra['plugin'];
+		}
+		// No hook_extra (an unusual caller): recognise the package by its path.
+		$path = is_string( $package ) ? (string) wp_parse_url( $package, PHP_URL_PATH ) : '';
+		return '' !== $path && '/downloads/webyar-woocommerce.zip' === substr( $path, -strlen( '/downloads/webyar-woocommerce.zip' ) );
+	}
+
+	/** @return \WP_Error */
+	private function refuse( string $code ) {
+		self::record( $code );
+		Logger::error( 'plugin update refused', array( 'reason' => $code ) );
+		return new \WP_Error(
+			'webyar_update_refused',
+			sprintf(
+				/* translators: %s: short machine-readable reason */
+				__( 'WebYar: the update was not installed because it could not be verified (%s).', 'webyar-woocommerce' ),
+				$code
+			)
+		);
+	}
+
+	/**
+	 * @return array{version:string,package:string,sha256:string,size:int,requires:string,requires_php:string,tested:string,homepage:string,description:string,changelog:string,changelog_fa:string,last_updated:string}|null
 	 */
 	private function manifest(): ?array {
 		$cached = get_site_transient( self::CACHE_KEY );
@@ -194,31 +298,142 @@ final class Updater {
 			return null; // not configured yet; nothing to check against
 		}
 
-		$response = wp_remote_get(
-			trailingslashit( $base ) . ltrim( self::MANIFEST_PATH, '/' ),
-			array( 'timeout' => 10, 'headers' => array( 'Accept' => 'application/json' ) )
-		);
-		$manifest = $this->parse( $response, $base );
+		$error    = 'insecure_url';
+		$manifest = self::is_https_url( $base ) ? $this->fetch_verified( $base, $error ) : null;
 		if ( null === $manifest ) {
+			self::record( $error );
+			if ( in_array( $error, self::ALARMING, true ) ) {
+				Logger::error( 'plugin update manifest refused', array( 'reason' => $error ) );
+			}
 			set_site_transient( self::CACHE_KEY, 'error', self::FAILURE_TTL );
 			return null;
 		}
 
+		self::record( 'ok' );
 		set_site_transient( self::CACHE_KEY, $manifest, self::CACHE_TTL );
 		return $manifest;
 	}
 
 	/**
-	 * @param mixed  $response
-	 * @param string $base
-	 * @return array<string,string>|null
+	 * The manifest from $base, parsed, only when its signature verifies;
+	 * otherwise null with $error set to why.
+	 *
+	 * @return array<string,mixed>|null
 	 */
-	private function parse( $response, string $base ): ?array {
-		if ( is_wp_error( $response ) || (int) wp_remote_retrieve_response_code( $response ) !== 200 ) {
+	private function fetch_verified( string $base, ?string &$error ): ?array {
+		if ( ! function_exists( 'sodium_crypto_sign_verify_detached' ) ) {
+			// WordPress 5.2+ bundles sodium_compat, so this means a broken install.
+			$error = 'unsupported';
 			return null;
 		}
-		$data = json_decode( wp_remote_retrieve_body( $response ), true );
-		if ( ! is_array( $data ) || empty( $data['version'] ) || empty( $data['package'] ) ) {
+		$base     = trailingslashit( $base );
+		$response = wp_safe_remote_get(
+			$base . ltrim( self::MANIFEST_PATH, '/' ),
+			array( 'timeout' => 10, 'limit_response_size' => self::MAX_MANIFEST_BYTES, 'headers' => array( 'Accept' => 'application/json' ) )
+		);
+		if ( is_wp_error( $response ) || (int) wp_remote_retrieve_response_code( $response ) !== 200 ) {
+			$error = 'unreachable';
+			return null;
+		}
+		$signature = wp_safe_remote_get( $base . ltrim( self::SIGNATURE_PATH, '/' ), array( 'timeout' => 10, 'limit_response_size' => 1024 ) );
+		if ( is_wp_error( $signature ) || (int) wp_remote_retrieve_response_code( $signature ) !== 200 ) {
+			$error = 'unsigned';
+			return null;
+		}
+
+		$body  = (string) wp_remote_retrieve_body( $response );
+		$error = self::verify_signature( $body, (string) wp_remote_retrieve_body( $signature ), self::public_key() );
+		if ( null !== $error ) {
+			return null;
+		}
+		$manifest = $this->parse( $body, untrailingslashit( $base ) );
+		if ( null === $manifest ) {
+			$error = 'manifest_invalid';
+		}
+		return $manifest;
+	}
+
+	/**
+	 * Null when $signature_b64 is a valid Ed25519 signature over exactly
+	 * $body by $public_key_b64; otherwise the reason.
+	 */
+	public static function verify_signature( string $body, string $signature_b64, string $public_key_b64 ): ?string {
+		$signature  = base64_decode( trim( $signature_b64 ), true ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode
+		$public_key = base64_decode( $public_key_b64, true ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode
+		if ( false === $signature || 64 !== strlen( $signature ) ) {
+			return 'unsigned';
+		}
+		if ( false === $public_key || 32 !== strlen( $public_key ) ) {
+			return 'bad_key';
+		}
+		try {
+			return sodium_crypto_sign_verify_detached( $signature, $body, $public_key ) ? null : 'signature_invalid';
+		} catch ( \Throwable $e ) {
+			return 'signature_invalid';
+		}
+	}
+
+	private static function is_https_url( string $url ): bool {
+		$parts = wp_parse_url( $url );
+		return is_array( $parts ) && 'https' === strtolower( (string) ( $parts['scheme'] ?? '' ) ) && '' !== (string) ( $parts['host'] ?? '' );
+	}
+
+	private static function record( string $code ): void {
+		update_option( self::STATUS_OPTION, array( 'code' => $code, 'at' => time() ), false );
+	}
+
+	/** @return array{code:string,at:int}|null the last update check or download outcome */
+	public static function status(): ?array {
+		$status = get_option( self::STATUS_OPTION, null );
+		return is_array( $status ) && isset( $status['code'] ) ? array( 'code' => (string) $status['code'], 'at' => (int) ( $status['at'] ?? 0 ) ) : null;
+	}
+
+	/** Human wording for status() codes, for the settings page. */
+	public static function status_label( string $code ): string {
+		switch ( $code ) {
+			case 'ok':
+			case 'verified':
+				return __( 'Release signature verified', 'webyar-woocommerce' );
+			case 'unsigned':
+				return __( 'The published release is not signed yet; no update is offered', 'webyar-woocommerce' );
+			case 'signature_invalid':
+			case 'bad_key':
+			case 'checksum_mismatch':
+			case 'package_mismatch':
+				return __( 'An update was refused because its signature or checksum did not verify', 'webyar-woocommerce' );
+			case 'insecure_url':
+				return __( 'Updates need an https WebYar URL', 'webyar-woocommerce' );
+			case 'unsupported':
+				return __( 'Updates need the PHP sodium functions', 'webyar-woocommerce' );
+			default:
+				return __( 'Could not check for updates; will retry', 'webyar-woocommerce' );
+		}
+	}
+
+	/** A refused (possibly tampered) update is worth telling whoever can update plugins. */
+	public function admin_notice(): void {
+		$status = self::status();
+		if ( null === $status || ! in_array( $status['code'], self::ALARMING, true ) || ! current_user_can( 'update_plugins' ) ) {
+			return;
+		}
+		printf(
+			'<div class="notice notice-error"><p>%s</p></div>',
+			esc_html(
+				sprintf(
+					/* translators: %s: short machine-readable reason */
+					__( 'WebYar for WooCommerce refused an update that did not match the WebYar release signature (%s). The installed version was kept. If this repeats, check the WebYar URL in the plugin settings and contact WebYar.', 'webyar-woocommerce' ),
+					$status['code']
+				)
+			)
+		);
+	}
+
+	/**
+	 * @return array<string,mixed>|null
+	 */
+	private function parse( string $body, string $base ): ?array {
+		$data = json_decode( $body, true );
+		if ( ! is_array( $data ) || 'webyar-woocommerce' !== ( $data['slug'] ?? '' ) || empty( $data['version'] ) || empty( $data['package'] ) ) {
 			return null;
 		}
 
@@ -226,6 +441,12 @@ final class Updater {
 		// A version string is compared with version_compare() and printed into
 		// the admin — keep it to what a version can actually be.
 		if ( ! preg_match( '/^[0-9]+(\.[0-9]+){0,3}(-[A-Za-z0-9.]+)?$/', $version ) ) {
+			return null;
+		}
+
+		$sha256 = strtolower( (string) ( $data['sha256'] ?? '' ) );
+		$size   = $data['size'] ?? null;
+		if ( ! preg_match( '/^[a-f0-9]{64}$/', $sha256 ) || ! is_int( $size ) || $size <= 0 || $size > self::MAX_PACKAGE_BYTES ) {
 			return null;
 		}
 
@@ -237,6 +458,8 @@ final class Updater {
 		return array(
 			'version'      => $version,
 			'package'      => $package,
+			'sha256'       => $sha256,
+			'size'         => $size,
 			'requires'     => isset( $data['requires'] ) ? (string) $data['requires'] : '6.0',
 			'requires_php' => isset( $data['requires_php'] ) ? (string) $data['requires_php'] : '7.4',
 			'tested'       => isset( $data['tested'] ) ? (string) $data['tested'] : '',
@@ -251,11 +474,10 @@ final class Updater {
 	/**
 	 * The download must come from the Web Yar install the admin configured.
 	 *
-	 * This is the whole trust boundary of an updater: WordPress will fetch
-	 * whatever URL it is handed, unzip it and run it. A manifest that could
-	 * choose its own host would be a way to install anything on the store,
-	 * so the host is taken from local configuration and the manifest only
-	 * gets to say which path on it.
+	 * Defence in depth behind the signature: WordPress will fetch whatever
+	 * URL it is handed, so the host is taken from local configuration and
+	 * the manifest only gets to say which path on it. What is INSTALLED is
+	 * decided by the signed sha256 in verify_download(), not by this check.
 	 */
 	private function same_origin_package( string $package, string $base ): ?string {
 		$package = trim( $package );
@@ -286,12 +508,14 @@ final class Updater {
 		if ( isset( $package_parts['user'] ) || isset( $package_parts['pass'] ) || isset( $package_parts['fragment'] ) ) {
 			return null;
 		}
+		// https only — also for localhost: wp_safe_remote_get() refuses local
+		// hosts anyway, and a plain-http package is swappable in transit.
 		$base_scheme = strtolower( (string) ( $base_parts['scheme'] ?? '' ) );
-		if ( $scheme !== $base_scheme || ( 'https' !== $scheme && ! ( 'http' === $scheme && 'localhost' === $host ) ) ) {
+		if ( 'https' !== $scheme || 'https' !== $base_scheme ) {
 			return null;
 		}
-		$port      = (int) ( $package_parts['port'] ?? ( 'https' === $scheme ? 443 : 80 ) );
-		$base_port = (int) ( $base_parts['port'] ?? ( 'https' === $base_scheme ? 443 : 80 ) );
+		$port      = (int) ( $package_parts['port'] ?? 443 );
+		$base_port = (int) ( $base_parts['port'] ?? 443 );
 		if ( $port !== $base_port ) {
 			return null;
 		}

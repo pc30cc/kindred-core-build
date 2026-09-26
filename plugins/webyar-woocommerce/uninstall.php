@@ -21,6 +21,7 @@ delete_option( 'webyar_wc_installation' );
 delete_option( 'webyar_wc_settings' );
 delete_option( 'webyar_wc_pairing_state' );
 delete_option( 'webyar_wc_dead_letters' );
+delete_option( 'webyar_wc_update_status' );
 
 if ( function_exists( 'as_unschedule_all_actions' ) ) {
 	// Hook only — see Events/EventQueue::cancel_all(). The

@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 8.0
 WC tested up to: 9.4
-Stable tag: 1.2.4
+Stable tag: 1.2.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -47,6 +47,10 @@ License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
 == Changelog ==
 
+= 1.2.5 =
+* Updates install only when signed by the WebYar release key and matching its checksum.
+* Only administrators can connect, disconnect or change the WebYar URL (https only).
+
 = 1.2.4 =
 * Format update notes in the WordPress plugin details window.
 
@@ -70,6 +74,10 @@ License URI: https://www.gnu.org/licenses/gpl-2.0.html
 * First release of the WebYar store connection.
 
 == Changelog fa_IR ==
+
+= 1.2.5 =
+* به‌روزرسانی فقط با امضای وب‌یار و تطابق چک‌سام نصب می‌شود.
+* اتصال، قطع اتصال و تغییر آدرس وب‌یار (فقط https) فقط برای مدیر سایت ممکن است.
 
 = 1.2.4 =
 * نمایش خوانای تغییرات در پنجرهٔ جزئیات افزونه.

@@ -18,6 +18,8 @@ import { catalogExportPaths } from './catalogPaths.js';
 
 const MAX_PAGES_PER_RUN = 20; // bounds one worker tick to <= 1000 products
 const MAX_ATTEMPTS = 5;
+const RETRY_BASE_DELAY_MS = 30_000;
+const RETRY_MAX_DELAY_MS = 15 * 60_000;
 
 export interface SyncJobRow {
   id: string;
@@ -134,8 +136,16 @@ export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Pro
     }
   }
 
-  let page = job.job_type === 'incremental_sync' || job.job_type === 'reconciliation' ? 1 : (cursorRow?.page ?? 1);
   const modifiedAfter = job.job_type === 'incremental_sync' || job.job_type === 'reconciliation' ? (cursorRow?.modified_after ?? null) : null;
+  // Resume where the cursor stopped, but only a walk over the same window:
+  // the stored page counts through the catalogue AS FILTERED by the cursor's
+  // modified_after. An incremental job reads exactly that window, so it
+  // always resumes. It used to restart at page 1 on every run instead, so a
+  // change set bigger than one run's page budget (a bulk price edit, or the
+  // first reconciliation of a large store, which walks everything) re-queued
+  // itself forever, re-reading the same MAX_PAGES_PER_RUN pages each time. A
+  // full sync resumes only a full walk, never an incremental one's page.
+  let page = (cursorRow?.modified_after ?? null) === modifiedAfter ? (cursorRow?.page ?? 1) : 1;
 
   // A full sync walks the WHOLE catalogue, so anything it does not meet is
   // gone from the store. An incremental one fetches only what changed, where
@@ -174,10 +184,15 @@ export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Pro
           .in('external_id', seen);
       }
 
-      await sb.from('commerce_sync_cursors').upsert(
-        { connection_id: job.connection_id, cursor_type: cursorType, page: page + 1, modified_after: modifiedAfter, ...(sweepSupported ? { sweep_epoch: sweepEpoch } : {}), updated_at: new Date().toISOString() },
-        { onConflict: 'connection_id,cursor_type' },
-      );
+      // The last page needs no checkpoint of its own: completion rewrites the
+      // cursor just below. A pass that finds nothing new — most periodic
+      // reconciliations — saves a write this way.
+      if (more) {
+        await sb.from('commerce_sync_cursors').upsert(
+          { connection_id: job.connection_id, cursor_type: cursorType, page: page + 1, modified_after: modifiedAfter, ...(sweepSupported ? { sweep_epoch: sweepEpoch } : {}), updated_at: new Date().toISOString() },
+          { onConflict: 'connection_id,cursor_type' },
+        );
+      }
 
       hasMore = more;
       page += 1;
@@ -186,8 +201,11 @@ export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Pro
 
     if (hasMore) {
       // Bounded run limit reached but more pages remain — re-queue rather
-      // than blocking this worker tick indefinitely.
-      await sb.from('commerce_sync_jobs').update({ status: 'queued' }).eq('id', job.id);
+      // than blocking this worker tick indefinitely. A run that used its
+      // whole page budget made progress, so it is not a failed attempt: every
+      // claim counts one, and without the reset a catalogue of more than
+      // MAX_ATTEMPTS runs dead-lettered on its first transient error.
+      await sb.from('commerce_sync_jobs').update({ status: 'queued', attempts: 0 }).eq('id', job.id);
       return;
     }
 
@@ -258,15 +276,39 @@ async function sweepUnseenProducts(
   if (count) console.log('[commerce.sync] removed products absent from store', { connectionId, count });
 }
 
+/** Wait before retrying a transiently failed sync: 30s, 1m, 2m, 4m, ... */
+export function syncRetryDelayMs(attempts: number): number {
+  return Math.min(RETRY_MAX_DELAY_MS, RETRY_BASE_DELAY_MS * 2 ** Math.max(0, attempts - 1));
+}
+
 async function failJob(config: ServerConfig, job: SyncJobRow, code: string, permanent: boolean): Promise<void> {
   const sb = getServiceClient(config);
+  const now = Date.now();
   // 401/403/invalid-installation-shaped errors and exhausted retries go to
-  // dead_letter; anything else is requeued for the next worker tick.
+  // dead_letter; anything else is retried after a backoff.
   const isPermanentCode = code === 'commerce_permission_denied' || code === 'commerce_not_connected' || code === 'protocol_mismatch';
-  const status = permanent || isPermanentCode ? 'dead_letter' : 'queued';
+  if (permanent || isPermanentCode) {
+    await sb
+      .from('commerce_sync_jobs')
+      .update({ status: 'dead_letter', last_error_code: code, last_error_at: new Date(now).toISOString() })
+      .eq('id', job.id);
+    return;
+  }
+  // Re-queued at once, a failed job was claimed again on the worker's very
+  // next poll (50ms later), so all MAX_ATTEMPTS ran within a couple of
+  // seconds: a store that was down for one minute dead-lettered its sync. The
+  // job instead keeps a lease that nobody holds until the retry is due, and
+  // commerce_claim_sync_job reclaims an expired lease exactly as it does a
+  // crashed worker's, so this needs no schema change.
   await sb
     .from('commerce_sync_jobs')
-    .update({ status, last_error_code: code, last_error_at: new Date().toISOString() })
+    .update({
+      status: 'running',
+      leased_by: null,
+      leased_until: new Date(now + syncRetryDelayMs(job.attempts)).toISOString(),
+      last_error_code: code,
+      last_error_at: new Date(now).toISOString(),
+    })
     .eq('id', job.id);
 }
 

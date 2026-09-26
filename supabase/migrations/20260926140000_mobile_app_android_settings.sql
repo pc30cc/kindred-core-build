@@ -1,5 +1,5 @@
 -- ============================================================
--- 223 — THE ANDROID APP IN SUPER ADMIN → MOBILE APP
+-- 224 — THE ANDROID APP IN SUPER ADMIN → MOBILE APP
 --
 -- Until now the `mobile_app_settings` singleton described the iOS app only
 -- (bundle id, App Store, TestFlight). The Android app — package

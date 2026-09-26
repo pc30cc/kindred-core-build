@@ -1,6 +1,8 @@
 package com.webyar.operator.core.model
 
 import com.webyar.operator.feature.chat.ComposerCapabilities
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -84,6 +86,73 @@ class PlanAccessTest {
         )
         assertFalse(InboxFilter.available(p).contains(InboxFilter.AI)) // a feature, not a module
         assertTrue(InboxFilter.available(p).contains(InboxFilter.NEEDS_HUMAN))
+    }
+
+    private fun json(text: String): JsonElement = Json.parseToJsonElement(text)
+
+    @Test
+    fun `the side answers are read as the server sends them`() {
+        val access = WorkspaceAccess.from(
+            role = json("""{"role":"admin"}"""),
+            ai = json("""{"capabilities":{"ai_agent_enabled":true,"customer_ai_agent_visible":false,"auto_answer_enabled":true}}"""),
+            calls = json("""{"workspace_call_center_visible":true}"""),
+        )
+        assertEquals(
+            WorkspaceAccess(role = "admin", aiAgentEnabled = true, aiCustomerVisible = false, aiAutoAnswer = true, callCenterVisible = true),
+            access,
+        )
+        assertTrue(access.isAdmin)
+        // Flat AI flags, as some servers send them.
+        assertEquals(true, WorkspaceAccess.from(null, json("""{"ai_agent_enabled":true}"""), null).aiAgentEnabled)
+    }
+
+    @Test
+    fun `a side answer that cannot be read is unknown, and unknown is off`() {
+        val access = WorkspaceAccess.from(
+            role = null,
+            ai = json("""{"capabilities":{"ai_agent_enabled":"true","customer_ai_agent_visible":null}}"""),
+            calls = json("""[]"""),
+        )
+        assertEquals(WorkspaceAccess.UNKNOWN, access)
+        assertFalse(access.isAdmin)
+        assertFalse(access.aiQueueVisible(inPlan = true, automated = 5))
+        assertFalse(access.callCenter(plan(modules = flags("call_center" to true))))
+    }
+
+    @Test
+    fun `only owners and admins are admins`() {
+        assertTrue(WorkspaceAccess(role = "owner").isAdmin)
+        assertTrue(WorkspaceAccess(role = "admin").isAdmin)
+        assertFalse(WorkspaceAccess(role = "agent").isAdmin)
+    }
+
+    @Test
+    fun `the AI queue follows the web's aiQueueVisible`() {
+        val features = plan(features = flags("inbox_ai_queue" to true))
+        fun queue(access: WorkspaceAccess, automated: Int?) =
+            InboxFilter.available(features, access, automated).contains(InboxFilter.AI)
+        val on = WorkspaceAccess(aiAgentEnabled = true, aiCustomerVisible = true, aiAutoAnswer = true)
+        assertTrue(queue(on, null))
+        assertFalse(queue(on.copy(aiCustomerVisible = false), 3)) // not shown to customers
+        assertFalse(queue(on.copy(aiAgentEnabled = false), 3)) // switched off
+        assertFalse(queue(WorkspaceAccess.UNKNOWN, 3)) // switches unreadable: fail closed
+        // Not answering by itself: shown only while something is already in the queue.
+        val manual = on.copy(aiAutoAnswer = false)
+        assertFalse(queue(manual, 0))
+        assertFalse(queue(manual, null))
+        assertTrue(queue(manual, 2))
+        // And never without the plan's feature.
+        assertFalse(InboxFilter.available(plan(), on, 5).contains(InboxFilter.AI))
+    }
+
+    @Test
+    fun `the call center needs the module and the workspace switch known on`() {
+        val p = plan(modules = flags("call_center" to true))
+        assertTrue(WorkspaceAccess(callCenterVisible = true).callCenter(p))
+        assertFalse(WorkspaceAccess(callCenterVisible = false).callCenter(p))
+        assertFalse(WorkspaceAccess().callCenter(p))
+        assertFalse(WorkspaceAccess(callCenterVisible = true).callCenter(plan()))
+        assertFalse(WorkspaceAccess(callCenterVisible = true).callCenter(null))
     }
 
     @Test

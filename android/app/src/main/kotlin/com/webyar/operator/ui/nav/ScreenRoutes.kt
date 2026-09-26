@@ -54,6 +54,7 @@ import com.webyar.operator.core.model.CallChannel
 import com.webyar.operator.core.model.CallChannels
 import com.webyar.operator.core.model.CannedText
 import com.webyar.operator.core.model.Entitlements
+import com.webyar.operator.core.model.InboxFilter
 import com.webyar.operator.feature.chat.CannedResponsePicker
 import com.webyar.operator.feature.chat.ChatSheet
 import com.webyar.operator.feature.chat.ChatViewModel
@@ -146,6 +147,7 @@ fun InboxRoute(
 ) {
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
     val plan by appState.entitlements.collectAsStateWithLifecycle()
+    val access by appState.access.collectAsStateWithLifecycle()
     val inbox by conversations.state.collectAsStateWithLifecycle()
     val filter by conversations.filter.collectAsStateWithLifecycle()
     val counts by conversations.counts.collectAsStateWithLifecycle()
@@ -169,13 +171,27 @@ fun InboxRoute(
         workspace?.let { conversations.bind(it.id) }
     }
 
+    // A screen that lives by the plan: one over three minutes old is asked for again.
+    LaunchedEffect(Unit) { appState.refreshPlanIfStale() }
+
     // The installed channel inboxes the plan lets this workspace work in (the
-    // web's channelInboxVisible). One the plan drops must not stay selected.
-    val visibleChannels = remember(channels, plan) {
-        channels.filter { Entitlements.channelInboxVisible(plan.value, it.key) }
+    // web's channelInboxVisible) — an owner/admin surface, as in the console's
+    // sidebar. One that goes away must not stay selected.
+    val visibleChannels = remember(channels, plan, access) {
+        if (!access.isAdmin) emptyList()
+        else channels.filter { Entitlements.channelInboxVisible(plan.value, it.key) }
     }
     LaunchedEffect(visibleChannels, channel) {
         if (channel != null && visibleChannels.none { it.key == channel }) conversations.selectChannel(null)
+    }
+
+    // The queues: the AI queue is the web's aiQueueVisible, which also depends
+    // on the AI switches and on whether it already holds threads.
+    val allFilters = conversations.filters(plan.value, access, counts.automated)
+    val chipFilters = conversations.chips(plan.value, access, counts.automated)
+    // A queue that has just gone away must not stay selected with nothing behind it.
+    LaunchedEffect(allFilters, filter) {
+        if (filter !in allFilters) conversations.select(InboxFilter.OPEN)
     }
 
     // Loaded here and offered here, and nowhere else in the app: the inbox is
@@ -200,8 +216,8 @@ fun InboxRoute(
         modifier = Modifier.statusBarsPadding(),
         contentPadding = PaddingValues(bottom = bottomInset),
         filter = filter,
-        allFilters = conversations.filters(plan.value),
-        chipFilters = conversations.chips(plan.value),
+        allFilters = allFilters,
+        chipFilters = chipFilters,
         counts = counts,
         channels = visibleChannels,
         selectedChannel = channel,
@@ -221,8 +237,9 @@ fun InboxRoute(
         // false. Only a key that is exactly true opens a row.
         onOpenColleagues = onOpenColleagues
             .takeIf { plan.value?.featureEnabled("inbox_team_chat") == true },
+        // The mailbox is also an owner/admin section, as in the console's sidebar.
         onOpenEmail = onOpenEmail
-            .takeIf { plan.value?.moduleEnabled("email_inbox") == true },
+            .takeIf { access.isAdmin && plan.value?.moduleEnabled("email_inbox") == true },
         banner = banner?.let { creative ->
             {
                 PromoBanner(

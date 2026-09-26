@@ -3,6 +3,7 @@ package com.webyar.operator.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.webyar.operator.core.model.EntitlementsState
+import com.webyar.operator.core.model.WorkspaceAccess
 import com.webyar.operator.core.model.User
 import com.webyar.operator.core.model.Workspace
 import com.webyar.operator.core.net.ApiError
@@ -13,6 +14,8 @@ import com.webyar.operator.core.storage.Preferences
 import com.webyar.operator.core.storage.SessionCache
 import com.webyar.operator.i18n.Language
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -74,6 +77,13 @@ class AppState(
 
     private val _entitlements = MutableStateFlow<EntitlementsState>(EntitlementsState.Loading)
     val entitlements: StateFlow<EntitlementsState> = _entitlements.asStateFlow()
+
+    /**
+     * The operator's role and the AI / call-center switches, read with the
+     * plan. Unknown (null) hides whatever depends on it.
+     */
+    private val _access = MutableStateFlow(WorkspaceAccess.UNKNOWN)
+    val access: StateFlow<WorkspaceAccess> = _access.asStateFlow()
 
     /**
      * Which tab is open, held here rather than in the shell.
@@ -264,6 +274,8 @@ class AppState(
                     _selectedWorkspace.value = null
                     entitlementsRetry?.cancel()
                     _entitlements.value = EntitlementsState.Loading
+                    _access.value = WorkspaceAccess.UNKNOWN
+                    planLoadedAt = null
                     _avatarUrl.value = null
                     _pendingLink.value = null
                     _selectedTab.value = AppTab.INBOX
@@ -308,32 +320,71 @@ class AppState(
         // wrong rather than merely stale. Back to Loading, which is what keeps
         // a gated tab from lingering across the switch.
         _entitlements.value = EntitlementsState.Loading
+        _access.value = WorkspaceAccess.UNKNOWN
+        planLoadedAt = null
         loadEntitlements()
     }
 
-    /** The pending re-ask after a plan that could not be read. */
+    /** The plan load in flight, or its pending re-ask after a plan that could not be read. */
     private var entitlementsRetry: Job? = null
 
+    /** When this workspace's plan was last read ([System.nanoTime]); null until it is. */
+    private var planLoadedAt: Long? = null
+
+    /**
+     * Asks for the plan again if the one in hand is over three minutes old —
+     * Super Admin can change it at any time and nothing announces it. Called
+     * when the app comes to the foreground and when a screen that depends on
+     * the plan is shown, so there is no timer running in the background; a
+     * load or a 20-second re-ask already on its way is left to finish.
+     */
+    fun refreshPlanIfStale() {
+        if (_selectedWorkspace.value == null) return
+        if (entitlementsRetry?.isActive == true) return
+        val loadedAt = planLoadedAt
+        if (loadedAt != null && System.nanoTime() - loadedAt < PLAN_REFRESH_NS) return
+        loadEntitlements()
+    }
+
+    /**
+     * The plan, with the operator's role and the AI and call-center switches
+     * read alongside it (a side request that fails leaves its value unknown,
+     * and never fails the plan).
+     */
     private fun loadEntitlements() {
         val workspaceId = _selectedWorkspace.value?.id ?: return
         entitlementsRetry?.cancel()
         entitlementsRetry = viewModelScope.launch {
             while (true) {
-                val next = runCatching { api.entitlements(workspaceId) }
-                    .fold(
-                        onSuccess = { EntitlementsState.Loaded(it) },
-                        // Failed, not Loading: the difference is the whole point
-                        // of the state. Staying in Loading would hide the gated
-                        // tab for ever on a flaky network; Failed resolves, and
-                        // a fail-closed plan simply grants nothing.
-                        onFailure = { EntitlementsState.Failed },
-                    )
+                val (next, nextAccess) = coroutineScope {
+                    val side = async { runCatching { api.workspaceAccess(workspaceId) }.getOrNull() }
+                    val plan = runCatching { api.entitlements(workspaceId) }
+                        .fold(
+                            onSuccess = { EntitlementsState.Loaded(it) },
+                            // Failed, not Loading: the difference is the whole point
+                            // of the state. Staying in Loading would hide the gated
+                            // tab for ever on a flaky network; Failed resolves, and
+                            // a fail-closed plan simply grants nothing.
+                            onFailure = { EntitlementsState.Failed },
+                        )
+                    plan to (side.await() ?: WorkspaceAccess.UNKNOWN)
+                }
                 // Replaced by a newer load, or a workspace switched to meanwhile
                 // (which has its own load): this answer is not the one to show.
                 ensureActive()
                 if (_selectedWorkspace.value?.id != workspaceId) return@launch
+                if (next is EntitlementsState.Loaded) {
+                    _entitlements.value = next
+                    _access.value = nextAccess
+                    planLoadedAt = System.nanoTime()
+                    return@launch
+                }
+                // A refresh that fails keeps the snapshot already in hand for this
+                // workspace, with the role and switches read with it, as the web's
+                // query does; the next foreground asks again.
+                if (_entitlements.value is EntitlementsState.Loaded) return@launch
                 _entitlements.value = next
-                if (next is EntitlementsState.Loaded) return@launch
+                _access.value = nextAccess
                 // Nothing gated shows while the plan cannot be read (the web's
                 // rule), so ask again soon rather than at the next workspace switch.
                 delay(PLAN_RETRY_MS)
@@ -344,5 +395,6 @@ class AppState(
 
     private companion object {
         const val PLAN_RETRY_MS = 20_000L
+        const val PLAN_REFRESH_NS = 3 * 60 * 1_000_000_000L
     }
 }

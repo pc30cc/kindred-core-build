@@ -45,6 +45,7 @@ import com.webyar.operator.core.model.TeamThreadResponse
 import com.webyar.operator.core.model.User
 import com.webyar.operator.core.model.VisitorProfile
 import com.webyar.operator.core.model.Workspace
+import com.webyar.operator.core.model.WorkspaceAccess
 import com.webyar.operator.core.model.WorkspaceMember
 import java.time.Instant
 import kotlinx.serialization.json.JsonElement
@@ -203,6 +204,19 @@ class SampleApi : WebyarApi {
             features = FEATURES.associateWith { EffectiveBool(value = true) },
             channels = CHANNELS.associateWith { EffectiveBool(value = true) },
             plan = Entitlements.PlanSummary(slug = "pro", name = "Pro", tier = "pro"),
+        )
+
+    /**
+     * An owner, with the AI switched on, shown to customers and answering, and
+     * the call center on — so every section the plan carries is laid out.
+     */
+    override suspend fun workspaceAccess(workspaceId: String): WorkspaceAccess =
+        WorkspaceAccess(
+            role = "owner",
+            aiAgentEnabled = true,
+            aiCustomerVisible = true,
+            aiAutoAnswer = true,
+            callCenterVisible = true,
         )
 
     override suspend fun account(): Account = Account(

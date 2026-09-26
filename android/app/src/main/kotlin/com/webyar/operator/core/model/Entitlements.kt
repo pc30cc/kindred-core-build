@@ -1,6 +1,10 @@
 package com.webyar.operator.core.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 
 /** One capability's resolved state, and where the value came from. */
 @Serializable
@@ -85,4 +89,73 @@ sealed interface EntitlementsState {
 
     val value: Entitlements? get() = (this as? Loaded)?.entitlements
     val isResolved: Boolean get() = this !is Loading
+}
+
+/**
+ * What the operator's role and the platform's switches add to the plan — the
+ * web's `SectionContext` (src/hooks/useWorkspaceSections.ts), read alongside
+ * the snapshot the way the desktop apps read it.
+ *
+ * Each value is null until it is read, and stays null when it cannot be read:
+ * both hide whatever depends on it (fail closed), because every gate asks for
+ * exactly `true`.
+ */
+data class WorkspaceAccess(
+    /** owner, admin, agent… from `GET /api/workspaces/:id/role`. */
+    val role: String? = null,
+    /** `GET /api/ai-agent/capabilities`: the AI agent is on for this workspace. */
+    val aiAgentEnabled: Boolean? = null,
+    /** The same: Super Admin shows the AI agent to this workspace's customers. */
+    val aiCustomerVisible: Boolean? = null,
+    /** The same: the AI answers visitors by itself. */
+    val aiAutoAnswer: Boolean? = null,
+    /** `GET /api/call-center/capabilities`: `workspace_call_center_visible`. */
+    val callCenterVisible: Boolean? = null,
+) {
+    /** Owners and admins: the web's admin-only sections (the mailbox, the other inboxes…). */
+    val isAdmin: Boolean get() = role == "owner" || role == "admin"
+
+    /**
+     * The web's `aiQueueVisible`, given whether the plan carries
+     * `inbox_ai_queue`: the AI switched on and shown to customers, and either
+     * answering by itself or already holding threads.
+     */
+    fun aiQueueVisible(inPlan: Boolean, automated: Int?): Boolean =
+        inPlan && aiAgentEnabled == true && aiCustomerVisible == true &&
+            (aiAutoAnswer == true || (automated ?: 0) > 0)
+
+    /**
+     * The call center, as the web: the plan's `call_center` module and the
+     * workspace's switch known to be on. The app has no call-center screen
+     * yet; the rule lives here so there is one place for it when it does.
+     */
+    fun callCenter(plan: Entitlements?): Boolean =
+        plan?.moduleInPlan("call_center") == true && callCenterVisible == true
+
+    companion object {
+        val UNKNOWN = WorkspaceAccess()
+
+        /**
+         * Reads the three side answers as the server sends them — the AI flags
+         * under `capabilities`, or at the top level. A missing answer (the
+         * request failed) or a value of the wrong kind reads as unknown.
+         */
+        fun from(role: JsonElement?, ai: JsonElement?, calls: JsonElement?): WorkspaceAccess {
+            val aiObject = ai as? JsonObject
+            val caps = aiObject?.get("capabilities") as? JsonObject ?: aiObject
+            val roleValue = (role as? JsonObject)?.get("role") as? JsonPrimitive
+            return WorkspaceAccess(
+                role = roleValue?.takeIf { it.isString }?.content,
+                aiAgentEnabled = caps.flag("ai_agent_enabled"),
+                aiCustomerVisible = caps.flag("customer_ai_agent_visible"),
+                aiAutoAnswer = caps.flag("auto_answer_enabled"),
+                callCenterVisible = (calls as? JsonObject).flag("workspace_call_center_visible"),
+            )
+        }
+
+        private fun JsonObject?.flag(key: String): Boolean? {
+            val value = this?.get(key) as? JsonPrimitive ?: return null
+            return if (value.isString) null else value.booleanOrNull
+        }
+    }
 }

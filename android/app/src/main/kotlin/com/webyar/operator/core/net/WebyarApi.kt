@@ -31,6 +31,7 @@ import com.webyar.operator.core.model.TeamThreadResponse
 import com.webyar.operator.core.model.User
 import com.webyar.operator.core.model.VisitorProfile
 import com.webyar.operator.core.model.Workspace
+import com.webyar.operator.core.model.WorkspaceAccess
 import com.webyar.operator.core.model.WorkspaceMember
 import com.webyar.operator.core.model.ConversationSlice
 import com.webyar.operator.core.model.InboxPage
@@ -199,6 +200,14 @@ interface WebyarApi {
 
     suspend fun contacts(workspaceId: String): List<Contact>
     suspend fun entitlements(workspaceId: String): Entitlements
+
+    /**
+     * The operator's role and the AI and call-center switches, read side by
+     * side as the desktop apps do. A side request that fails leaves its value
+     * null — off — and never fails the plan: only a lost session (401) is
+     * thrown.
+     */
+    suspend fun workspaceAccess(workspaceId: String): WorkspaceAccess
     suspend fun account(): Account
 
     // MARK: - Conversation actions

@@ -188,15 +188,17 @@ private fun layout(messages: List<TeamMessage>, me: String?): List<ThreadRow> {
         val next = dated.getOrNull(index + 1)
         val outgoing = me != null && message.senderId == me
 
-        val sameDayAsPrevious = previous?.createdAt != null &&
-            previous.createdAt!!.atZone(zone).toLocalDate() ==
-            message.createdAt!!.atZone(zone).toLocalDate()
+        val day = message.createdAt!!.atZone(zone).toLocalDate()
+        val sameDayAsPrevious = previous?.createdAt?.atZone(zone)?.toLocalDate() == day
+        // A day header breaks a run from both sides: the last message before
+        // one keeps its face and its time, as the first after it starts anew.
+        val sameDayAsNext = next?.createdAt?.atZone(zone)?.toLocalDate() == day
 
         ThreadRow(
             message = message,
             outgoing = outgoing,
             dayHeader = if (sameDayAsPrevious) null else message.createdAt,
-            endsRun = next == null || (next.senderId == me) != outgoing,
+            endsRun = next == null || (next.senderId == me) != outgoing || !sameDayAsNext,
             startsRun = previous == null ||
                 (previous.senderId == me) != outgoing ||
                 !sameDayAsPrevious,

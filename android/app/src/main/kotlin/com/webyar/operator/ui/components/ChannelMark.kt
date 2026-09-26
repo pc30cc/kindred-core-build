@@ -40,26 +40,36 @@ import com.webyar.operator.i18n.Language
  * (`metadata.channel`, `server/services/channels/inboundProcessing.ts`) and
  * on the contact; a thread from the site's own widget carries none. So the
  * answer is the conversation's, then the contact's, then "the website" —
- * the order `resolveChannelKey` in `ChannelBadge.tsx` reads them in.
+ * the order `resolveChannelKey` in `ChannelBadge.tsx` reads them in, and
+ * like it only a channel it knows counts: `metadata.source` also says how a
+ * thread began (`ai_agent_intro`, an import…), which is not where anyone
+ * writes from, so such a value is passed over, not shown.
  */
 object ConversationChannel {
     const val WEB = "widget"
 
+    /** Every channel a label is drawn for; the rest read as the website. */
+    private val KNOWN = setOf(
+        "telegram", "bale", "whatsapp", "instagram", "x", "email", "phone", "messenger", "sms",
+    )
+
     fun of(conversation: Conversation?): String {
         conversation ?: return WEB
-        val raw = conversation.metadata.string("channel")
-            ?: conversation.metadata.string("source")
-            ?: conversation.contact?.metadata.string("channel")
-            ?: conversation.contact?.metadata.string("source")
-        return normalize(raw)
+        for (meta in listOf(conversation.metadata, conversation.contact?.metadata)) {
+            val raw = meta.string("channel") ?: meta.string("source")
+            val key = normalize(raw)
+            if (key in KNOWN) return key
+        }
+        return WEB
     }
 
-    /** Lower-cased and trimmed; anything empty, or the widget's own names, is the website. */
+    /** Lower-cased and trimmed, with a provider's other names folded into one. */
     fun normalize(raw: String?): String {
         val key = raw?.trim()?.lowercase().orEmpty()
         return when (key) {
             "", "widget", "web", "website", "chat", "livechat" -> WEB
             "twitter" -> "x"
+            "facebook" -> "messenger"
             else -> key
         }
     }

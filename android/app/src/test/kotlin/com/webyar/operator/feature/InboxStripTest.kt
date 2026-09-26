@@ -25,6 +25,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import com.webyar.operator.core.model.ConversationContact
 
 /**
  * The strip above the inbox — Open, AI, Colleagues, and the button that
@@ -121,5 +122,20 @@ class InboxStripTest {
             ConversationChannel.of(plain.copy(metadata = buildJsonObject { put("channel", JsonPrimitive("WhatsApp")) })),
         )
         assertEquals("x", ConversationChannel.normalize("twitter"))
+    }
+
+    @Test
+    fun `how a thread began is not where it is written from`() {
+        val plain = runBlocking { SampleApi().conversations("ws-1", InboxFilter.OPEN) }.first()
+        // The AI's greeting stamps `source`; the thread is still the website's.
+        val greeted = plain.copy(metadata = buildJsonObject { put("source", JsonPrimitive("ai_agent_intro")) })
+        assertEquals(ConversationChannel.WEB, ConversationChannel.of(greeted))
+        // …and an unknown value on the thread gives way to the contact's channel.
+        val viaContact = greeted.copy(
+            contact = (greeted.contact ?: ConversationContact()).copy(
+                metadata = buildJsonObject { put("channel", JsonPrimitive("bale")) },
+            ),
+        )
+        assertEquals("bale", ConversationChannel.of(viaContact))
     }
 }

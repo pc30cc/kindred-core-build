@@ -52,4 +52,27 @@ public class DesktopConfigTests
         var settings = DesktopConfig.Defaults.Update with { MinimumSupportedVersion = minimum };
         Assert.Equal(below, settings.IsBelowMinimum(Version.Parse(current)));
     }
+
+    [Theory]
+    [InlineData("native-v2.5.0", "2.5.0")]
+    [InlineData("v2.5.1", "2.5.1")]
+    [InlineData("2.5.1", "2.5.1")]
+    [InlineData("V3.0", "3.0")]
+    [InlineData("v2.6.0-beta.1", "2.6.0-beta.1")]
+    [InlineData("native", null)]
+    [InlineData("", null)]
+    [InlineData(null, null)]
+    public void A_release_tag_gives_its_version_wherever_it_sits(string? tag, string? expected)
+    {
+        Assert.Equal(expected, SemVer.FromTag(tag));
+    }
+
+    [Fact]
+    public void A_newer_release_tag_is_newer_than_the_running_build()
+    {
+        // The Program Files update read "native-v2.5.0" as no version at all, and so never updated.
+        Assert.True(SemVer.TryParse(SemVer.FromTag("native-v2.5.0"), out var latest));
+        Assert.True(SemVer.TryParse("2.4.1+949fa16ef421295116421267bee9d759e3f28b6e", out var current));
+        Assert.True(SemVer.Compare(latest, current) > 0);
+    }
 }

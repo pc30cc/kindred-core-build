@@ -195,13 +195,14 @@ public sealed partial class UpdateService : ObservableObject
     {
         _ui(() => Status = UpdateStatus.Checking);
         var release = await LatestSetupAsync().ConfigureAwait(false);
-        if (release is null || !SemVer.TryParse(release.Value.Version, out var latest) ||
+        // The tag is "v2.5.1" (or "native-v2.5.0" on releases made before that): the version is read out of it.
+        if (release is null || SemVer.FromTag(release.Value.Version) is not { } version || !SemVer.TryParse(version, out var latest) ||
             !SemVer.TryParse(CurrentVersion, out var current) || SemVer.Compare(latest, current) <= 0)
         {
+            Log.Write($"update check (setup): {release?.Version ?? "no installer"} is not newer than {CurrentVersion}");
             _ui(() => Status = UpdateStatus.Current);
             return;
         }
-        var version = release.Value.Version.TrimStart('v', 'V');
         _ui(() =>
         {
             AvailableVersion = version;

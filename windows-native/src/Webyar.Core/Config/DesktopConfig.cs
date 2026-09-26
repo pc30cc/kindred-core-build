@@ -123,6 +123,17 @@ public static class SemVer
         return true;
     }
 
+    /// <summary>
+    /// The version a release tag carries, wherever it sits in the tag:
+    /// "native-v2.5.0", "v2.5.0" and "2.5.0" are all "2.5.0". Null when the tag has none.
+    /// </summary>
+    public static string? FromTag(string? tag)
+    {
+        if (string.IsNullOrWhiteSpace(tag)) return null;
+        var m = System.Text.RegularExpressions.Regex.Match(tag, @"(?<![\d.])\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?");
+        return m.Success ? m.Value : null;
+    }
+
     public static int Compare(Version a, Version b) =>
         new Version(a.Major, a.Minor, Math.Max(a.Build, 0)).CompareTo(new Version(b.Major, b.Minor, Math.Max(b.Build, 0)));
 }

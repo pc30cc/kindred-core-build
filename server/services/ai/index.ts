@@ -55,6 +55,17 @@ export type {
 
 import type { AIConfig, AIRequest, AIResponse } from '../../../shared/ai/types.js';
 
+/** The provider config JSON as stored (provider_configs.config / app_runtime_config). */
+interface ProviderConfigJson {
+  api_key?: string;
+  model?: string;
+  max_tokens?: string | number;
+  temperature?: string | number;
+  base_url?: string;
+  endpoint?: string;
+  org_id?: string;
+}
+
 /**
  * Resolve AI provider config from DB for a workspace.
  * Resolution: workspace provider_configs → global app_runtime_config → null
@@ -87,7 +98,7 @@ export async function resolveAIConfig(serverConfig: ServerConfig, workspaceId: s
   }
 
   if (wsConfig?.config) {
-    const c = wsConfig.config as any;
+    const c = wsConfig.config as ProviderConfigJson;
     if (!c.api_key) {
       console.error('[ai] workspace provider_configs missing api_key', {
         workspaceId,
@@ -98,8 +109,8 @@ export async function resolveAIConfig(serverConfig: ServerConfig, workspaceId: s
         provider: wsConfig.provider_name,
         apiKey: c.api_key,
         model: c.model || 'gpt-4o-mini',
-        maxTokens: c.max_tokens ? parseInt(c.max_tokens) : undefined,
-        temperature: c.temperature ? parseFloat(c.temperature) : undefined,
+        maxTokens: c.max_tokens ? parseInt(String(c.max_tokens)) : undefined,
+        temperature: c.temperature ? parseFloat(String(c.temperature)) : undefined,
         baseUrl: c.base_url || c.endpoint || undefined,
         orgId: c.org_id,
       };
@@ -114,12 +125,12 @@ export async function resolveAIConfig(serverConfig: ServerConfig, workspaceId: s
     .single();
 
   if (globalConfig?.value) {
-    const raw = globalConfig.value as any;
+    const raw = globalConfig.value as ProviderConfigJson & { provider?: string; provider_name?: string; config?: ProviderConfigJson };
     // Support two shapes:
     //  A) flat: { provider, api_key, model, ... }
     //  B) nested: { provider_name, config: { api_key, model, ... } }
     const provider = raw.provider || raw.provider_name || 'openai';
-    const c = raw.config && typeof raw.config === 'object' ? raw.config : raw;
+    const c: ProviderConfigJson = raw.config && typeof raw.config === 'object' ? raw.config : raw;
     if (!c.api_key) {
       console.error('[ai] default_ai_provider missing api_key', {
         provider,
@@ -132,8 +143,8 @@ export async function resolveAIConfig(serverConfig: ServerConfig, workspaceId: s
       provider,
       apiKey: c.api_key,
       model: c.model || 'gpt-4o-mini',
-      maxTokens: c.max_tokens ? parseInt(c.max_tokens) : undefined,
-      temperature: c.temperature ? parseFloat(c.temperature) : undefined,
+      maxTokens: c.max_tokens ? parseInt(String(c.max_tokens)) : undefined,
+      temperature: c.temperature ? parseFloat(String(c.temperature)) : undefined,
       baseUrl: c.base_url || c.endpoint || undefined,
       orgId: c.org_id,
     };
@@ -179,9 +190,27 @@ async function recordAiUsageLog(
   serverConfig: ServerConfig,
   sb: ServiceClient,
   row: Record<string, unknown>,
-): Promise<void> {
-  if (serverConfig.productAnalyticsLoggingEnabled === false) return;
-  await sb.from('ai_usage_logs').insert(row as any);
+): Promise<boolean> {
+  if (serverConfig.productAnalyticsLoggingEnabled === false) return false;
+  const { error } = await sb.from('ai_usage_logs').insert(row);
+  return !error;
+}
+
+/** Responses whose success row reached ai_usage_logs — see wasRequestCounted(). */
+const requestCountedByUsageLog = new WeakSet<AIResponse>();
+
+/**
+ * True when this completion's usage row was written to ai_usage_logs. On a
+ * database with the hosted migration chain, that insert's trigger
+ * (tg_ai_usage_logs_count_request) already counts the request in
+ * `ai_requests_count`, so a caller that meters requests itself must count
+ * only when this is false. It is false when PRODUCT_ANALYTICS_LOGGING=off
+ * skipped the row, and on self-host databases, which have neither the table
+ * nor the trigger. Counting unconditionally counted /api/ai/complete twice
+ * wherever the trigger exists.
+ */
+export function wasRequestCounted(response: AIResponse): boolean {
+  return requestCountedByUsageLog.has(response);
 }
 
 /**
@@ -216,43 +245,38 @@ async function runOneCompletion(
   let ctx: AiRunContext | null = providedCtx ?? null;
   let ownsRun = false;
   if (!ctx) {
-    try {
-      ctx = await beginAiRunGuarded(serverConfig, {
+    // beginAiRunGuarded decides by mode: in METER_ONLY a billing outage
+    // returns null (AI keeps serving, loss is audited); anything that throws
+    // here is a real denial and must fail closed BEFORE the provider call.
+    ctx = await beginAiRunGuarded(serverConfig, {
+      workspaceId: request.workspaceId,
+      operationKey:
+        request.billing?.operationKey ||
+        `standalone:${request.billing?.entryPoint || 'ai_complete'}:${request.requestId || newAiRequestId()}`,
+      payload: {
         workspaceId: request.workspaceId,
-        operationKey:
-          request.billing?.operationKey ||
-          `standalone:${request.billing?.entryPoint || 'ai_complete'}:${request.requestId || newAiRequestId()}`,
-        payload: {
-          workspaceId: request.workspaceId,
-          prompt: request.prompt,
-          systemPrompt: request.systemPrompt,
-          model: request.model || aiConfig.model,
-        },
-        entryPoint: request.billing?.entryPoint || 'ai_complete',
-        channel: request.billing?.channel ?? null,
-        conversationId: request.billing?.conversationId ?? null,
-        estimate: {
-          promptChars: (request.prompt || '').length + (request.systemPrompt || '').length,
-          maxTokens: request.maxTokens ?? aiConfig.maxTokens ?? null,
-          provider: aiConfig.provider,
-          model: request.model || aiConfig.model,
-        },
-      });
-      ownsRun = !!ctx;
-    } catch (err) {
-      // beginAiRunGuarded already decided by mode: in METER_ONLY a billing
-      // outage returns null (AI keeps serving, loss is audited); anything that
-      // throws here is a real denial and must fail closed BEFORE the provider
-      // call.
-      throw err;
-    }
+        prompt: request.prompt,
+        systemPrompt: request.systemPrompt,
+        model: request.model || aiConfig.model,
+      },
+      entryPoint: request.billing?.entryPoint || 'ai_complete',
+      channel: request.billing?.channel ?? null,
+      conversationId: request.billing?.conversationId ?? null,
+      estimate: {
+        promptChars: (request.prompt || '').length + (request.systemPrompt || '').length,
+        maxTokens: request.maxTokens ?? aiConfig.maxTokens ?? null,
+        provider: aiConfig.provider,
+        model: request.model || aiConfig.model,
+      },
+    });
+    ownsRun = !!ctx;
   }
 
   try {
     // The ONLY outbound AI path in Core: an authenticated, private call to the
     // AI Runtime. Never a provider socket.
     response = await runtimeComplete(serverConfig, aiConfig, request);
-  } catch (err: any) {
+  } catch (err) {
     const message = redactSecrets(
       err instanceof AiRuntimeError ? `[${err.code}] ${err.message}` : err?.message,
     );
@@ -284,7 +308,7 @@ async function runOneCompletion(
     raw: { finishReason: response.finishReason },
   });
 
-  await recordAiUsageLog(serverConfig, sb, {
+  const usageLogged = await recordAiUsageLog(serverConfig, sb, {
     workspace_id: request.workspaceId,
     provider_name: usage.provider,
     model: usage.actualModel,
@@ -295,6 +319,9 @@ async function runOneCompletion(
     success: true,
     endpoint: 'complete',
   });
+  // Replays of the same requestId get this same object, so they read the
+  // same answer (withAiIdempotency).
+  if (usageLogged) requestCountedByUsageLog.add(response);
 
   if (ctx) {
     try {
@@ -302,7 +329,7 @@ async function runOneCompletion(
       if (ownsRun) await settleAiRun(serverConfig, ctx);
     } catch (err) {
       if (err instanceof AiBillingError && err.code === 'ai_allowance_exhausted') throw err;
-      console.error('[ai-billing] usage recording failed', (err as any)?.message);
+      console.error('[ai-billing] usage recording failed', (err as Error | undefined)?.message);
     }
   }
 

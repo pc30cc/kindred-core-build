@@ -3,10 +3,10 @@
  * Now with AI credit deduction, module gating, and usage tracking.
  */
 
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
-import { executeAICompletion, resolveAIConfig } from '../services/ai/index.js';
+import { executeAICompletion, resolveAIConfig, wasRequestCounted } from '../services/ai/index.js';
 import { runtimeTestConnection, AiRuntimeError } from '../services/ai/runtimeClient.js';
 import { logSecurityEvent } from '../middleware/security.js';
 import { checkModuleAccess, deductAICredits, incrementUsage } from '../middleware/featureGating.js';
@@ -56,7 +56,7 @@ const completionSchema = z.object({
  */
 aiRouter.post('/complete', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as Request & { serverConfig: ServerConfig }).serverConfig;
 
     const parsed = completionSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -107,7 +107,7 @@ aiRouter.post('/complete', async (req, res) => {
         upgrade_required: true,
       });
     }
-    (req as any).aiCredits = credits;
+    (req as Request & { aiCredits?: typeof credits }).aiCredits = credits;
 
     // Build the request explicitly: zod's inferred output marks every property
     // optional under `strictNullChecks: false`, while AIRequest requires
@@ -122,8 +122,14 @@ aiRouter.post('/complete', async (req, res) => {
       billing: { entryPoint: 'api_ai_complete' },
     });
 
-    // Track usage
-    incrementUsage(config.supabaseUrl, config.supabaseServiceRoleKey, parsed.data.workspaceId, 'ai_requests_count');
+    // Count the request exactly once. Where the database has the hosted
+    // chain's ai_usage_logs trigger, the usage row written by the completion
+    // already counted it; self-host databases have neither table nor trigger,
+    // and PRODUCT_ANALYTICS_LOGGING=off skips the row, so this route counts
+    // only when that did not happen.
+    if (!wasRequestCounted(result)) {
+      incrementUsage(config.supabaseUrl, config.supabaseServiceRoleKey, parsed.data.workspaceId, 'ai_requests_count');
+    }
 
     return res.json({
       text: result.text,
@@ -137,7 +143,7 @@ aiRouter.post('/complete', async (req, res) => {
       latencyMs: result.latencyMs,
       credits,
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[ai] Completion error:', err.message);
     return res.status(500).json({ error: err.message || 'AI completion failed' });
   }
@@ -156,7 +162,7 @@ const testSchema = z.object({
  */
 aiRouter.post('/test', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as Request & { serverConfig: ServerConfig }).serverConfig;
     // Provider connection testing is a platform-admin operation: it makes the
     // AI Runtime issue an outbound request with operator-supplied parameters.
     if (!(await requirePlatformAdmin(req, res))) return;
@@ -186,7 +192,7 @@ aiRouter.post('/test', async (req, res) => {
     });
 
     return res.json(result);
-  } catch (err: any) {
+  } catch (err) {
     // A runtime-boundary failure is surfaced verbatim (with its stable code) so
     // operators see "AI runtime not configured/unreachable" instead of a
     // misleading "provider rejected your key".
@@ -203,7 +209,7 @@ aiRouter.post('/test', async (req, res) => {
  */
 aiRouter.get('/config/:workspaceId', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as Request & { serverConfig: ServerConfig }).serverConfig;
     if (!(await authorizeWorkspaceAccess(req, res, req.params.workspaceId))) return;
 
     const aiConfig = await resolveAIConfig(config, req.params.workspaceId);
@@ -218,7 +224,7 @@ aiRouter.get('/config/:workspaceId', async (req, res) => {
       maxTokens: aiConfig.maxTokens,
       temperature: aiConfig.temperature,
     });
-  } catch (err: any) {
+  } catch (err) {
     return res.status(500).json({ error: err.message });
   }
 });

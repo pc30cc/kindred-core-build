@@ -191,6 +191,7 @@ public sealed partial class ChatView : UserControl
     {
         Close();
         _id = id;
+        DockSlot.Key = $"conv:{id}";
         _lastSeenMessage = null;
         _serverShown = false;
         _messages.Clear();
@@ -1048,6 +1049,6 @@ public sealed partial class ChatView : UserControl
     private void StartCall(string channel)
     {
         if (_conversation is not { } c || Host.Workspace is not { } ws) return;
-        CallWindow.Start(c, ws.Id, channel, Display.ConversationName(c, Host.Strings));
+        LiveCall.Start(c, ws.Id, channel, Display.ConversationName(c, Host.Strings));
     }
 }

@@ -44,7 +44,7 @@ public sealed partial class CallCenterPage : Page
     private string? _onCallId;
     /// <summary>The desk call whose media window this page opened, to notice it ended while the page was away.</summary>
     private string? _mediaCallId;
-    private bool _suppressAvailability;
+    private string _availability = "offline";
     private bool _queueShown;
     private bool _historyLoaded;
     private bool _historyLoading;
@@ -77,7 +77,7 @@ public sealed partial class CallCenterPage : Page
             q.Changed += ShowQueue;
             q.Kick();
         }
-        CallWindow.DeskCallEnded += OnDeskCallEnded;
+        LiveCall.DeskCallEnded += OnDeskCallEnded;
         Host.Callers.Changed += OnCallerProfiles;
         // Call-center state has no realtime feed to the app, so poll at the web desk's pace always.
         _overview = new Poller("call overview", LoadOverviewAsync, () => TimeSpan.FromSeconds(5));
@@ -92,7 +92,7 @@ public sealed partial class CallCenterPage : Page
         }
         if (_showHistory) _ = ReloadHistoryAsync();
         // A desk call that ended while the page was away (hung up from the shell or its window).
-        if (_mediaCallId is { } media && CallWindow.DeskCallId != media) OnDeskCallEnded(media);
+        if (_mediaCallId is { } media && LiveCall.DeskCallId != media) OnDeskCallEnded(media);
         _ = LoadAvailabilityAsync();
     }
 
@@ -108,7 +108,7 @@ public sealed partial class CallCenterPage : Page
         if (!_visible) return;
         _visible = false;
         if (Host.CallQueue is { } q) q.Changed -= ShowQueue;
-        CallWindow.DeskCallEnded -= OnDeskCallEnded;
+        LiveCall.DeskCallEnded -= OnDeskCallEnded;
         Host.Callers.Changed -= OnCallerProfiles;
         _overview?.Dispose();
         _overview = null;
@@ -126,11 +126,10 @@ public sealed partial class CallCenterPage : Page
         HistoryTab.Content = s["ccHistory"];
         AvailabilityLabel.Text = s["ccStatusLabel"];
         ToolTipService.SetToolTip(RefreshButton, s["refresh"]);
-        _suppressAvailability = true;
-        AvailabilityBox.Items.Clear();
-        AvailabilityBox.Items.Add(new ComboBoxItem { Content = s["ccAvailable"], Tag = "available" });
-        AvailabilityBox.Items.Add(new ComboBoxItem { Content = s["ccAway"], Tag = "away" });
-        _suppressAvailability = false;
+        ToolTipService.SetToolTip(AvailabilityButton, s["ccStatusLabel"]);
+        AvailableItem.Text = s["ccAvailable"];
+        AwayItem.Text = s["ccAway"];
+        ShowAvailability();
         WaitingLabel.Text = s["ccWaiting"];
         ActiveLabel.Text = s["ccActive"];
         LongestLabel.Text = s["ccLongestWait"];
@@ -141,8 +140,8 @@ public sealed partial class CallCenterPage : Page
         if (!_overviewLoaded) ActiveValue.Text = MissedValue.Text = TodayValue.Text = "—";
         Search.PlaceholderText = s["ccSearch"];
         AllFilter.Content = s["ccFilterAll"];
-        VoiceFilter.Content = s["ccFilterVoice"];
-        VideoFilter.Content = s["ccFilterVideo"];
+        VoiceFilterText.Text = s["ccFilterVoice"];
+        VideoFilterText.Text = s["ccFilterVideo"];
         PlaceholderTitle.Text = s["ccNoCallSelected"];
         PlaceholderBody.Text = s["ccNoCallSelectedHint"];
         RejectText.Text = s["ccReject"];
@@ -156,6 +155,7 @@ public sealed partial class CallCenterPage : Page
         NotesTitle.Text = s["ccNotes"];
         NoteBox.PlaceholderText = s["ccNotePlaceholder"];
         if (!_addingNote) AddNoteButton.Content = s["ccAddNote"];
+        ShowNoteButton();
         ShowListChrome();
     }
 
@@ -164,7 +164,10 @@ public sealed partial class CallCenterPage : Page
         var s = Host.Strings;
         ListTitle.Text = _showHistory ? s["ccHistory"] : s["ccQueue"];
         SortButton.Visibility = _showHistory ? Visibility.Collapsed : Visibility.Visible;
+        // Longest wait first (a stopwatch), or newest first (an arrow down), as on the Mac.
+        SortGlyph.Glyph = _newestFirst ? "\uE74B" : "\uE916";
         ToolTipService.SetToolTip(SortButton, s[_newestFirst ? "ccSortNewest" : "ccSortLongest"]);
+        ShowWaitingBadge();
         QueueList.Visibility = _showHistory ? Visibility.Collapsed : Visibility.Visible;
         HistoryList.Visibility = _showHistory ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -181,6 +184,7 @@ public sealed partial class CallCenterPage : Page
     private void OnCallerProfiles()
     {
         foreach (var item in _byId.Values) item.ShowDevice();
+        foreach (var row in _history) row.ShowDevice();
         if (ShownCall() is { } c) ShowFace(c);
     }
 
@@ -233,6 +237,8 @@ public sealed partial class CallCenterPage : Page
         Loading.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
         var none = _showHistory ? _history.Count == 0 : _queue.Count == 0;
         Empty.Visibility = none && !loading ? Visibility.Visible : Visibility.Collapsed;
+        // A phone for an empty line or log; a filter when the search or the channel hides what there is.
+        EmptyGlyph.Glyph = !_showHistory && _byId.Count > 0 ? "\uE71C" : "\uE717";
         if (_showHistory)
         {
             EmptyTitle.Text = s["ccNoHistory"];
@@ -248,6 +254,7 @@ public sealed partial class CallCenterPage : Page
             EmptyTitle.Text = s["ccNoMatches"];
             EmptyBody.Text = string.Empty;
         }
+        EmptyBody.Visibility = EmptyBody.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>Every second: the wait clocks, the longest wait and the SLA count.</summary>
@@ -260,8 +267,16 @@ public sealed partial class CallCenterPage : Page
         LongestValue.Text = Digits.Localize($"{(int)longest.TotalMinutes}:{longest.Seconds:00}", s.Language);
         SlaValue.Text = N(_byId.Values.Count(i => (now - i.Since).TotalSeconds > 180));
         WaitingValue.Text = N(_byId.Count);
+        ShowWaitingBadge();
         if (_selectedId is { } id && _byId.TryGetValue(id, out var sel))
             WaitLine.Text = s.Get("ccQueuedFor", "time", sel.WaitText);
+    }
+
+    /// <summary>The red count beside the line's title: how many wait.</summary>
+    private void ShowWaitingBadge()
+    {
+        WaitingBadge.Value = _byId.Count;
+        WaitingBadge.Visibility = !_showHistory && _byId.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private static string N(int n) => Digits.Localize(n.ToString(System.Globalization.CultureInfo.InvariantCulture), Host.Strings.Language);
@@ -320,11 +335,8 @@ public sealed partial class CallCenterPage : Page
         try
         {
             var agents = await Host.Api.AgentCallStatusesAsync(ws.Id);
-            var mine = agents.FirstOrDefault(a => a.UserId == Host.User?.Id)?.Status ?? "offline";
-            _suppressAvailability = true;
-            AvailabilityBox.SelectedIndex = mine == "available" ? 0 : mine == "away" ? 1 : -1;
-            AvailabilityBox.PlaceholderText = Host.Strings["ccSetAvailable"];
-            _suppressAvailability = false;
+            _availability = agents.FirstOrDefault(a => a.UserId == Host.User?.Id)?.Status ?? "offline";
+            ShowAvailability();
         }
         catch (Exception e)
         {
@@ -332,9 +344,32 @@ public sealed partial class CallCenterPage : Page
         }
     }
 
-    private async void OnAvailability(object sender, SelectionChangedEventArgs e)
+    /// <summary>The capsule: a green dot for available, amber for away, grey (and "set available") for anything else.</summary>
+    private void ShowAvailability()
     {
-        if (_suppressAvailability || Host.Workspace is not { } ws || (AvailabilityBox.SelectedItem as ComboBoxItem)?.Tag is not string status) return;
+        var s = Host.Strings;
+        AvailabilityText.Text = _availability switch
+        {
+            "available" => s["ccAvailable"],
+            "away" => s["ccAway"],
+            _ => s["ccSetAvailable"],
+        };
+        AvailabilityDot.Fill = Palette.Resource(_availability switch
+        {
+            "available" => "SuccessBrush",
+            "away" => "WarningBrush",
+            _ => "Text3Brush",
+        });
+        AvailableItem.IsChecked = _availability == "available";
+        AwayItem.IsChecked = _availability == "away";
+    }
+
+    private async void OnAvailability(object sender, RoutedEventArgs e)
+    {
+        if (Host.Workspace is not { } ws || (sender as FrameworkElement)?.Tag is not string status) return;
+        var before = _availability;
+        _availability = status;
+        ShowAvailability();
         try
         {
             await Host.Api.SetAgentCallStatusAsync(ws.Id, status);
@@ -342,6 +377,8 @@ public sealed partial class CallCenterPage : Page
         catch (Exception ex)
         {
             Log.Error("set agent status", ex);
+            _availability = before;
+            ShowAvailability();
             ShowDeskError(ErrorText.For(ex, Host.Strings));
             await LoadAvailabilityAsync();
         }
@@ -382,7 +419,6 @@ public sealed partial class CallCenterPage : Page
     private void OnSort(object sender, RoutedEventArgs e)
     {
         _newestFirst = !_newestFirst;
-        SortGlyph.Glyph = _newestFirst ? "" : "";
         ShowListChrome();
         Filter();
     }
@@ -415,9 +451,9 @@ public sealed partial class CallCenterPage : Page
         if (!_byId.TryGetValue(callId, out var item))
         {
             // The call this operator is on: long gone from the line, still the one to show.
-            if (CallWindow.DeskCallId == callId)
+            if (LiveCall.DeskCallId == callId)
             {
-                if (_selectedId != callId) Open(callId, CallWindow.DeskSession ?? new CallSession(callId), waiting: false);
+                if (_selectedId != callId) Open(callId, LiveCall.DeskSession ?? new CallSession(callId), waiting: false);
                 return true;
             }
             ShowDeskError(Host.Strings["callTakenElsewhere"], InfoBarSeverity.Informational);
@@ -469,10 +505,14 @@ public sealed partial class CallCenterPage : Page
             DeskError.IsOpen = false;
             NoteBox.Text = string.Empty;
             NoteRows.Children.Clear();
+            // A spinner until the call's timeline arrives, as on the Mac.
             TimelineRows.Children.Clear();
+            TimelineRows.Children.Add(new ProgressRing { IsActive = true, Width = 18, Height = 18, HorizontalAlignment = HorizontalAlignment.Left });
         }
         _selectedId = id;
         _selectedCall = call;
+        // The call answered on this desk docks over the call it belongs to.
+        DockSlot.Key = $"desk:{id}";
         if (item is not null) ShowQueueDetail(item);
         else if (call is not null) ShowCall(call, waiting);
         StartDetailPolling(id);
@@ -748,7 +788,7 @@ public sealed partial class CallCenterPage : Page
     {
         if (_selectedId is not { } id || Host.Workspace is not { } ws || !_byId.TryGetValue(id, out var item)) return;
         var s = Host.Strings;
-        if (CallWindow.IsBusy)
+        if (LiveCall.IsBusy)
         {
             ShowDeskError(s["ccOnCall"]);
             return;
@@ -772,7 +812,7 @@ public sealed partial class CallCenterPage : Page
                 if (call.VisitorSessionId is null) call = call with { VisitorSessionId = item.Entry.VisitorSessionId };
                 _mediaCallId = id;
                 // StartDesk answers by voice when the plan has no video calls.
-                CallWindow.StartDesk(id, accept, ws.Id, item.Entry.IsVideo ? "video" : "audio", item.Name, call);
+                LiveCall.StartDesk(id, accept, ws.Id, item.Entry.IsVideo ? "video" : "audio", item.Name, call);
             }
             Host.CallQueue?.Kick();
             _detailPoller?.Kick();
@@ -896,6 +936,24 @@ public sealed partial class CallCenterPage : Page
         _detailPoller?.Kick();
     }
 
+    /// <summary>Add is there only for a note with something in it.</summary>
+    private void OnNoteChanged(object sender, TextChangedEventArgs e) => ShowNoteButton();
+
+    private void ShowNoteButton() => AddNoteButton.IsEnabled = !_addingNote && NoteBox.Text.Trim().Length > 0;
+
+    /// <summary>The caller's card: the buttons beside the caller when there is room, under them when the column is narrow.</summary>
+    private void OnCallerCardSize(object sender, SizeChangedEventArgs e)
+    {
+        CallerButtons.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+        // The avatar (64), the gaps (2 × 18), a name worth reading (200) and the card's padding (40).
+        var stacked = e.NewSize.Width < 64 + 36 + 200 + 40 + CallerButtons.DesiredSize.Width;
+        Grid.SetRow(CallerButtons, stacked ? 1 : 0);
+        Grid.SetColumn(CallerButtons, stacked ? 0 : 2);
+        Grid.SetColumnSpan(CallerButtons, stacked ? 3 : 1);
+        CallerButtons.HorizontalAlignment = stacked ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
+        CallerButtons.Margin = stacked ? new Thickness(0, 14, 0, 0) : new Thickness(0);
+    }
+
     /// <summary>Ctrl+Enter adds the note; Enter alone starts a new line.</summary>
     private void OnNoteKeyDown(object sender, KeyRoutedEventArgs e)
     {
@@ -926,8 +984,8 @@ public sealed partial class CallCenterPage : Page
         finally
         {
             _addingNote = false;
-            AddNoteButton.IsEnabled = true;
             AddNoteButton.Content = Host.Strings["ccAddNote"];
+            ShowNoteButton();
         }
     }
 
@@ -938,11 +996,6 @@ public sealed partial class CallCenterPage : Page
         DeskError.Message = message;
         DeskError.ActionButton = null;
         DeskError.IsOpen = true;
-        if (DetailScroll.Visibility != Visibility.Visible)
-        {
-            Placeholder.Visibility = Visibility.Collapsed;
-            DetailScroll.Visibility = Visibility.Visible;
-        }
     }
 }
 

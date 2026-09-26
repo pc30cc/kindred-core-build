@@ -28,6 +28,7 @@ public sealed partial class ShellPage : Page
     public ShellPage()
     {
         InitializeComponent();
+        AddSectionShortcuts();
         NavigationCacheMode = NavigationCacheMode.Disabled;
         ContentFrame.Navigated += (_, _) => SyncSelection();
         // The settings item only exists once the template is applied.
@@ -103,6 +104,39 @@ public sealed partial class ShellPage : Page
         StopRinging();
         StopCalls();
         Inbox?.Teardown();
+    }
+
+    /// <summary>
+    /// Ctrl+1…8 go to the sections, as ⌘1…8 on the Mac: the open, pending and
+    /// resolved inboxes, contacts, visitors, the call center, colleagues and
+    /// email (Ctrl+0 is the inbox too). A section the plan hides stays out of reach.
+    /// </summary>
+    private void AddSectionShortcuts()
+    {
+        var sections = new (Windows.System.VirtualKey Key, Func<NavigationViewItem> Item)[]
+        {
+            (Windows.System.VirtualKey.Number0, () => InboxOpenItem),
+            (Windows.System.VirtualKey.Number1, () => InboxOpenItem),
+            (Windows.System.VirtualKey.Number2, () => InboxPendingItem),
+            (Windows.System.VirtualKey.Number3, () => InboxResolvedItem),
+            (Windows.System.VirtualKey.Number4, () => ContactsItem),
+            (Windows.System.VirtualKey.Number5, () => VisitorsItem),
+            (Windows.System.VirtualKey.Number6, () => CallCenterItem),
+            (Windows.System.VirtualKey.Number7, () => ColleaguesItem),
+            (Windows.System.VirtualKey.Number8, () => EmailItem),
+        };
+        foreach (var (key, item) in sections)
+        {
+            var shortcut = new Microsoft.UI.Xaml.Input.KeyboardAccelerator { Key = key, Modifiers = Windows.System.VirtualKeyModifiers.Control };
+            shortcut.Invoked += (_, e) =>
+            {
+                e.Handled = true;
+                if (item() is { Visibility: Visibility.Visible } target) Nav.SelectedItem = target;
+            };
+            KeyboardAccelerators.Add(shortcut);
+        }
+        // The shortcuts are the Mac's, not a tooltip on every item.
+        KeyboardAcceleratorPlacementMode = Microsoft.UI.Xaml.Input.KeyboardAcceleratorPlacementMode.Hidden;
     }
 
     public void OpenConversation(string id)
@@ -583,7 +617,7 @@ public sealed partial class ShellPage : Page
         {
             // Keep ringing like a phone until someone acts, then fall silent but leave the banner up.
             if (_ringing is null || DateTimeOffset.Now - _ringSince > RingFor) { t.Stop(); return; }
-            if (Host.Settings.NotificationSound && !CallWindow.IsBusy) Chime.Play();
+            if (Host.Settings.NotificationSound && !LiveCall.IsBusy) Chime.Play();
         };
         return t;
     }
@@ -775,7 +809,7 @@ public sealed partial class ShellPage : Page
     {
         if (ws.Id == Host.Workspace?.Id) return;
         // A call belongs to the workspace it started in.
-        await CallWindow.EndForQuitAsync(TimeSpan.FromSeconds(2));
+        await LiveCall.EndForQuitAsync(TimeSpan.FromSeconds(2));
         Host.Settings.WorkspaceId = ws.Id;
         Host.Settings.Save();
         Teardown();
@@ -798,7 +832,7 @@ public sealed partial class ShellPage : Page
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         // Nothing would be left on screen to hang up with, and the session the hang-up needs ends next.
-        await CallWindow.EndForQuitAsync(TimeSpan.FromSeconds(2));
+        await LiveCall.EndForQuitAsync(TimeSpan.FromSeconds(2));
         try
         {
             await Host.Client.LogoutAsync();

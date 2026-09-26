@@ -171,25 +171,77 @@
         </NavigationView.MenuItems>
 
         <NavigationView.PaneFooter>
-            <!--
-                The account: the photo alone, where an icon would be. A plain
-                button rather than a menu item, so the photo sits centred in the
-                compact rail (48 px: 4 margin + 5 padding + 30 photo + 9) instead
-                of being cut in half, and the name and status follow when the
-                pane is open.
-            -->
-            <Button x:Name="AccountItem" Style="{StaticResource BubbleButtonStyle}" Margin="4,2" Padding="5,6,8,6" CornerRadius="6" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
-                <StackPanel Orientation="Horizontal" Spacing="12">
-                    <controls:Avatar x:Name="MeAvatar" Size="30" Kind="operator" />
-                    <StackPanel VerticalAlignment="Center">
-                        <TextBlock x:Name="MeName" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="150" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                        <TextBlock x:Name="MeStatus" FontSize="11.5" Foreground="{ThemeResource Text2Brush}" TextTrimming="CharacterEllipsis" MaxWidth="150" />
+            <StackPanel Spacing="8">
+                <!--
+                    The call, while it is docked in a page that is not on screen: who,
+                    how long, mute, back to it, out into a window, hang up (the Mac's
+                    call bar at the foot of the sidebar). In the narrow rail, the face
+                    alone leads back.
+                -->
+                <Border x:Name="ActiveCallBar" Visibility="Collapsed" Margin="8,0" Padding="10" CornerRadius="14" RequestedTheme="Dark" Background="#0C0E14">
+                    <StackPanel Spacing="10">
+                        <Button x:Name="ActiveCallBack" Style="{StaticResource BubbleButtonStyle}" HorizontalContentAlignment="Stretch" Click="OnActiveCallBack">
+                            <Grid ColumnSpacing="9">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <controls:Avatar x:Name="ActiveCallAvatar" Size="30" VerticalAlignment="Center" />
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                    <TextBlock x:Name="ActiveCallName" FontSize="12.5" FontWeight="SemiBold" Foreground="{ThemeResource TextBrush}" TextTrimming="CharacterEllipsis" />
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <FontIcon x:Name="ActiveCallGlyph" Glyph="&#xE717;" FontSize="9" VerticalAlignment="Center" />
+                                        <TextBlock x:Name="ActiveCallStatus" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+                        <Grid ColumnSpacing="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="ActiveCallMute" Width="30" Height="30" Padding="0" CornerRadius="15" BorderThickness="0" Click="OnActiveCallMute">
+                                <FontIcon x:Name="ActiveCallMuteGlyph" Glyph="&#xE720;" FontSize="12" />
+                            </Button>
+                            <Button x:Name="ActiveCallReturn" Grid.Column="1" Width="30" Height="30" Padding="0" CornerRadius="15" BorderThickness="0" Click="OnActiveCallBack">
+                                <FontIcon Glyph="&#xE7A7;" FontSize="12" />
+                            </Button>
+                            <Button x:Name="ActiveCallPopOut" Grid.Column="2" Width="30" Height="30" Padding="0" CornerRadius="15" BorderThickness="0" Click="OnActiveCallPopOut">
+                                <FontIcon Glyph="&#xE8A7;" FontSize="12" />
+                            </Button>
+                            <Button x:Name="ActiveCallHangUp" Grid.Column="4" Width="30" Height="30" Padding="0" CornerRadius="15" BorderThickness="0" Foreground="White" Background="{ThemeResource DangerBrush}" Click="OnActiveCallHangUp">
+                                <FontIcon x:Name="ActiveCallHangUpGlyph" Glyph="&#xE778;" FontSize="12" />
+                            </Button>
+                        </Grid>
                     </StackPanel>
-                </StackPanel>
-                <Button.Flyout>
-                    <MenuFlyout x:Name="AccountMenu" Placement="RightEdgeAlignedBottom" />
-                </Button.Flyout>
-            </Button>
+                </Border>
+                <Button x:Name="ActiveCallRail" Visibility="Collapsed" Margin="4,0" Padding="5" Width="40" Height="40" CornerRadius="20" HorizontalAlignment="Left" RequestedTheme="Dark" Background="#0C0E14" BorderThickness="0" Click="OnActiveCallBack">
+                    <controls:Avatar x:Name="ActiveCallRailAvatar" Size="30" />
+                </Button>
+                <!--
+                    The account: the photo alone, where an icon would be. A plain
+                    button rather than a menu item, so the photo sits centred in the
+                    compact rail (48 px: 4 margin + 5 padding + 30 photo + 9) instead
+                    of being cut in half, and the name and status follow when the
+                    pane is open.
+                -->
+                <Button x:Name="AccountItem" Style="{StaticResource BubbleButtonStyle}" Margin="4,2" Padding="5,6,8,6" CornerRadius="6" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <controls:Avatar x:Name="MeAvatar" Size="30" Kind="operator" />
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock x:Name="MeName" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="150" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                            <TextBlock x:Name="MeStatus" FontSize="11.5" Foreground="{ThemeResource Text2Brush}" TextTrimming="CharacterEllipsis" MaxWidth="150" />
+                        </StackPanel>
+                    </StackPanel>
+                    <Button.Flyout>
+                        <MenuFlyout x:Name="AccountMenu" Placement="RightEdgeAlignedBottom" />
+                    </Button.Flyout>
+                </Button>
+            </StackPanel>
         </NavigationView.PaneFooter>
 
         <Grid>
@@ -200,110 +252,6 @@
             <StackPanel x:Name="Banners" Spacing="4" Margin="12,0,12,4">
                 <!-- Super Admin: announcements (Desktop app -> Ads & announcements) and live broadcasts. -->
                 <StackPanel x:Name="Announcements" Spacing="4" Margin="0,8,0,0" Visibility="Collapsed" />
-                <!-- The call running in its own window: who, the time, mute, back to it, hang up (the Mac's call bar). -->
-                <Border x:Name="ActiveCallBar" Visibility="Collapsed" Margin="0,8,0,0" Padding="12,8" CornerRadius="10"
-                        RequestedTheme="Dark" Background="#0C0E14">
-                    <Grid ColumnSpacing="10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <controls:Avatar x:Name="ActiveCallAvatar" Size="34" VerticalAlignment="Center" />
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
-                            <TextBlock x:Name="ActiveCallName" FontSize="13" FontWeight="SemiBold" Foreground="{ThemeResource TextBrush}" TextTrimming="CharacterEllipsis" />
-                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                <FontIcon x:Name="ActiveCallGlyph" Glyph="&#xE717;" FontSize="10" VerticalAlignment="Center" />
-                                <TextBlock x:Name="ActiveCallStatus" FontSize="11.5" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </StackPanel>
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                            <Button x:Name="ActiveCallMute" Width="32" Height="32" Padding="0" CornerRadius="16" BorderThickness="0" Click="OnActiveCallMute">
-                                <FontIcon x:Name="ActiveCallMuteGlyph" Glyph="&#xE720;" FontSize="13" />
-                            </Button>
-                            <Button x:Name="ActiveCallBack" Width="32" Height="32" Padding="0" CornerRadius="16" BorderThickness="0" Click="OnActiveCallBack">
-                                <FontIcon Glyph="&#xE8A7;" FontSize="13" />
-                            </Button>
-                            <Button x:Name="ActiveCallHangUp" Width="32" Height="32" Padding="0" CornerRadius="16" BorderThickness="0" Foreground="White" Background="{ThemeResource DangerBrush}" Click="OnActiveCallHangUp">
-                                <FontIcon x:Name="ActiveCallHangUpGlyph" Glyph="&#xE778;" FontSize="13" />
-                            </Button>
-                        </StackPanel>
-                    </Grid>
-                </Border>
-                <!-- A call a colleague handed to this operator: who, from whom and why, and join it. -->
-                <Border x:Name="HandedBar" Visibility="Collapsed" Margin="0,8,0,0" Padding="14,10" CornerRadius="10"
-                        Background="{ThemeResource BrandSoftBrush}" BorderBrush="{ThemeResource BrandBrush}" BorderThickness="1">
-                    <Grid ColumnSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <controls:Avatar x:Name="HandedAvatar" Size="40" VerticalAlignment="Center" />
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <FontIcon Glyph="&#xE8AB;" FontSize="14" Foreground="{ThemeResource BrandBrush}" />
-                                <TextBlock x:Name="HandedTitle" FontSize="12.5" FontWeight="SemiBold" Foreground="{ThemeResource BrandBrush}" />
-                            </StackPanel>
-                            <TextBlock x:Name="HandedName" FontSize="14.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                            <TextBlock x:Name="HandedMeta" FontSize="12" Foreground="{ThemeResource Text2Brush}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
-                            <TextBlock x:Name="HandedError" FontSize="12" Foreground="{ThemeResource DangerBrush}" TextWrapping="Wrap" MaxLines="3" Visibility="Collapsed" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <Button x:Name="HandedClose" Click="OnHandedClose" />
-                            <Button x:Name="HandedJoin" Click="OnHandedJoin" Foreground="White" Background="{ThemeResource SuccessBrush}" BorderThickness="0">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon x:Name="HandedJoinGlyph" Glyph="&#xE717;" FontSize="14" />
-                                    <TextBlock x:Name="HandedJoinText" />
-                                    <ProgressRing x:Name="HandedJoinRing" Width="14" Height="14" IsActive="False" Visibility="Collapsed" Foreground="White" />
-                                </StackPanel>
-                            </Button>
-                        </StackPanel>
-                    </Grid>
-                </Border>
-                <Border x:Name="CallBar" Visibility="Collapsed" Margin="0,8,0,0" Padding="14,10" CornerRadius="10"
-                        Background="{ThemeResource SuccessSoftBrush}" BorderBrush="{ThemeResource SuccessBrush}" BorderThickness="1">
-                    <Grid ColumnSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <!-- The caller's face, with a ring spreading from it every 1.2 s while it rings. -->
-                        <Grid VerticalAlignment="Center">
-                            <controls:Avatar x:Name="CallBarAvatar" Size="40" />
-                            <Ellipse x:Name="RingPulse" Width="40" Height="40" Stroke="{ThemeResource SuccessBrush}" StrokeThickness="2"
-                                     Opacity="0" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.5">
-                                <Ellipse.RenderTransform>
-                                    <ScaleTransform x:Name="RingPulseScale" />
-                                </Ellipse.RenderTransform>
-                            </Ellipse>
-                        </Grid>
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <FontIcon x:Name="CallBarGlyph" Glyph="&#xE717;" FontSize="14" Foreground="{ThemeResource SuccessBrush}" />
-                                <TextBlock x:Name="CallBarTitle" FontSize="12.5" FontWeight="SemiBold" Foreground="{ThemeResource SuccessBrush}" />
-                            </StackPanel>
-                            <TextBlock x:Name="CallBarName" FontSize="14.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                            <TextBlock x:Name="CallBarMeta" FontSize="12" Foreground="{ThemeResource Text2Brush}" TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <Button x:Name="CallBarOpen" Click="OnCallBarOpen" />
-                            <Button x:Name="CallBarReject" Click="OnCallBarReject" Foreground="White" Background="{ThemeResource DangerBrush}" BorderThickness="0">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon Glyph="&#xE778;" FontSize="14" />
-                                    <TextBlock x:Name="CallBarRejectText" />
-                                </StackPanel>
-                            </Button>
-                            <Button x:Name="CallBarAnswer" Click="OnCallBarAnswer" Foreground="White" Background="{ThemeResource SuccessBrush}" BorderThickness="0">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon Glyph="&#xE717;" FontSize="14" />
-                                    <TextBlock x:Name="CallBarAnswerText" />
-                                </StackPanel>
-                            </Button>
-                        </StackPanel>
-                    </Grid>
-                </Border>
                 <InfoBar x:Name="UpdateBar" IsClosable="True">
                     <InfoBar.ActionButton>
                         <Button x:Name="UpdateButton" Click="OnRestartToUpdate" />
@@ -316,6 +264,112 @@
                 </InfoBar>
             </StackPanel>
             <Frame x:Name="ContentFrame" Grid.Row="1" />
+            <!-- The docked call's page, laid over the place its page keeps for it (CallDock). -->
+            <Canvas x:Name="CallLayer" Grid.RowSpan="2" />
+
+            <!--
+                Calls from anywhere in the app, floating at the bottom corner as on
+                the Mac (380 wide): a call a colleague handed over, above a call
+                ringing on the desk.
+            -->
+            <StackPanel x:Name="CallCards" Grid.RowSpan="2" Width="380" Margin="20" Spacing="12" HorizontalAlignment="Right" VerticalAlignment="Bottom">
+                <Border x:Name="HandedBar" Visibility="Collapsed" CornerRadius="22" Background="{ThemeResource SurfaceBrush}" BorderBrush="{ThemeResource LineBrush}" BorderThickness="1" Translation="0,0,32">
+                    <Border.Shadow>
+                        <ThemeShadow />
+                    </Border.Shadow>
+                    <Grid>
+                        <Border CornerRadius="22" Background="{ThemeResource BrandBrush}" Opacity="0.10" />
+                        <StackPanel Padding="16" Spacing="12">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <controls:Avatar x:Name="HandedAvatar" Size="44" VerticalAlignment="Center" />
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                        <FontIcon Glyph="&#xE8AB;" FontSize="11" Foreground="{ThemeResource BrandBrush}" />
+                                        <TextBlock x:Name="HandedTitle" FontSize="11.5" FontWeight="SemiBold" Foreground="{ThemeResource BrandBrush}" />
+                                    </StackPanel>
+                                    <TextBlock x:Name="HandedName" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock x:Name="HandedMeta" FontSize="11.5" Foreground="{ThemeResource Text2Brush}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock x:Name="HandedError" FontSize="11.5" Foreground="{ThemeResource DangerBrush}" TextWrapping="Wrap" MaxLines="3" Visibility="Collapsed" />
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Button x:Name="HandedClose" CornerRadius="8" Click="OnHandedClose" />
+                                <Button x:Name="HandedJoin" Grid.Column="2" CornerRadius="8" Click="OnHandedJoin" Foreground="White" Background="{ThemeResource SuccessBrush}" BorderThickness="0">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <FontIcon x:Name="HandedJoinGlyph" Glyph="&#xE717;" FontSize="13" />
+                                        <TextBlock x:Name="HandedJoinText" />
+                                        <ProgressRing x:Name="HandedJoinRing" Width="14" Height="14" IsActive="False" Visibility="Collapsed" Foreground="White" />
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                <Border x:Name="CallBar" Visibility="Collapsed" CornerRadius="22" Background="{ThemeResource SurfaceBrush}" BorderBrush="{ThemeResource LineBrush}" BorderThickness="1" Translation="0,0,32">
+                    <Border.Shadow>
+                        <ThemeShadow />
+                    </Border.Shadow>
+                    <Grid>
+                        <Border CornerRadius="22" Background="{ThemeResource SuccessBrush}" Opacity="0.10" />
+                        <StackPanel Padding="16" Spacing="12">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <!-- The caller's face, with a ring spreading from it every 1.2 s while it rings. -->
+                                <Grid VerticalAlignment="Center">
+                                    <controls:Avatar x:Name="CallBarAvatar" Size="44" />
+                                    <Ellipse x:Name="RingPulse" Width="44" Height="44" Stroke="{ThemeResource SuccessBrush}" StrokeThickness="2"
+                                             Opacity="0" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.5">
+                                        <Ellipse.RenderTransform>
+                                            <ScaleTransform x:Name="RingPulseScale" />
+                                        </Ellipse.RenderTransform>
+                                    </Ellipse>
+                                </Grid>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                        <FontIcon x:Name="CallBarGlyph" Glyph="&#xE717;" FontSize="11" Foreground="{ThemeResource SuccessBrush}" />
+                                        <TextBlock x:Name="CallBarTitle" FontSize="11.5" FontWeight="SemiBold" Foreground="{ThemeResource SuccessBrush}" />
+                                    </StackPanel>
+                                    <TextBlock x:Name="CallBarName" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock x:Name="CallBarMeta" FontSize="11.5" Foreground="{ThemeResource Text2Brush}" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                            </Grid>
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Button x:Name="CallBarOpen" CornerRadius="8" Click="OnCallBarOpen" />
+                                <Button x:Name="CallBarReject" Grid.Column="2" CornerRadius="8" Click="OnCallBarReject" Foreground="White" Background="{ThemeResource DangerBrush}" BorderThickness="0">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <FontIcon Glyph="&#xE778;" FontSize="13" />
+                                        <TextBlock x:Name="CallBarRejectText" />
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="CallBarAnswer" Grid.Column="3" CornerRadius="8" Click="OnCallBarAnswer" Foreground="White" Background="{ThemeResource SuccessBrush}" BorderThickness="0">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <FontIcon Glyph="&#xE717;" FontSize="13" />
+                                        <TextBlock x:Name="CallBarAnswerText" />
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </StackPanel>
         </Grid>
     </NavigationView>
 </Page>

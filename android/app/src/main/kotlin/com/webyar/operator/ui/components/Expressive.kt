@@ -48,6 +48,10 @@ import com.webyar.operator.ui.design.Motion
 import com.webyar.operator.ui.design.PolygonShape
 import com.webyar.operator.ui.design.Radius
 import com.webyar.operator.ui.design.Space
+import androidx.compose.animation.core.InfiniteRepeatableSpec
+import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableFloatStateOf
+import com.webyar.operator.ui.design.LocalReducedMotion
 
 /**
  * Material 3 Expressive's loading indicator: a shape that morphs through the
@@ -73,19 +77,18 @@ fun LoadingIndicator(
     val morphs = remember(polygons) {
         polygons.indices.map { Morph(polygons[it], polygons[(it + 1) % polygons.size]) }
     }
-    val transition = rememberInfiniteTransition(label = "loading")
     // One morph every 650ms, the Expressive indicator's own pace.
-    val step by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = morphs.size.toFloat(),
-        animationSpec = infiniteRepeatable(tween(MORPH_MS * morphs.size, easing = LinearEasing)),
-        label = "step",
+    val step by rememberLoop(
+        label = "loading.step",
+        from = 0f,
+        to = morphs.size.toFloat(),
+        spec = infiniteRepeatable(tween(MORPH_MS * morphs.size, easing = LinearEasing)),
     )
-    val spin by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(SPIN_MS, easing = LinearEasing)),
-        label = "spin",
+    val spin by rememberLoop(
+        label = "loading.spin",
+        from = 0f,
+        to = 360f,
+        spec = infiniteRepeatable(tween(SPIN_MS, easing = LinearEasing)),
     )
 
     Box(
@@ -131,6 +134,31 @@ fun ContainedLoadingIndicator(
     ) {
         LoadingIndicator(color = indicatorColor, size = size * 0.76f)
     }
+}
+
+
+/**
+ * A value that loops for as long as it is on screen — or holds still at
+ * [rest] when motion is reduced (see [LocalReducedMotion]).
+ *
+ * Returned as a State so a caller can read it in a draw or layer block and
+ * redraw each frame without recomposing.
+ */
+@Composable
+fun rememberLoop(
+    label: String,
+    from: Float,
+    to: Float,
+    spec: InfiniteRepeatableSpec<Float>,
+    rest: Float = from,
+): State<Float> {
+    if (LocalReducedMotion.current) return remember { mutableFloatStateOf(rest) }
+    return rememberInfiniteTransition(label = label).animateFloat(
+        initialValue = from,
+        targetValue = to,
+        animationSpec = spec,
+        label = label,
+    )
 }
 
 private const val MORPH_MS = 650

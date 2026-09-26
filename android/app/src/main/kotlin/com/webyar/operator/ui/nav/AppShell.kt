@@ -72,17 +72,12 @@ import com.webyar.operator.i18n.StrAndroid
 import com.webyar.operator.ui.AppState
 import com.webyar.operator.ui.AppTab
 import com.webyar.operator.ui.components.ShapeFrame
+import com.webyar.operator.ui.components.LocalEntryAnimatedScope
+import com.webyar.operator.ui.components.LocalSharedTransitionScope
+import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import com.webyar.operator.ui.design.ExpressiveShapes
 import com.webyar.operator.ui.design.Motion
 import com.webyar.operator.ui.design.Space
-
-/**
- * The scope shared-element transitions run in, for a screen that wants one —
- * the avatar that carries over from an inbox row to the chat it opens. Null
- * outside the shell (tests, previews), where a screen simply does without.
- */
-@OptIn(ExperimentalSharedTransitionApi::class)
-val LocalSharedTransitionScope = staticCompositionLocalOf<SharedTransitionScope?> { null }
 
 /**
  * The signed-in shell.
@@ -146,27 +141,31 @@ fun AppShell(
                 detailPlaceholder = { DetailPlaceholder(StrAndroid.pickConversation(language)) },
             ) + tabOf(AppTab.INBOX),
         ) {
-            InboxRoute(
-                appState = appState,
-                conversations = conversations,
-                language = language,
-                onOpenConversation = { navigator.open(ChatKey(it)) },
-                onOpenColleagues = { navigator.open(ColleaguesKey) },
-                onOpenEmail = { navigator.open(EmailKey) },
-                promotions = promotions,
-                bottomInset = 0.dp,
-            )
+            WithEntryScope {
+                InboxRoute(
+                    appState = appState,
+                    conversations = conversations,
+                    language = language,
+                    onOpenConversation = { navigator.open(ChatKey(it)) },
+                    onOpenColleagues = { navigator.open(ColleaguesKey) },
+                    onOpenEmail = { navigator.open(EmailKey) },
+                    promotions = promotions,
+                    bottomInset = 0.dp,
+                )
+            }
         }
         entry<ChatKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = InboxKey) + tabOf(AppTab.INBOX)) { key ->
-            ChatRoute(
-                conversationId = key.conversationId,
-                appState = appState,
-                api = api,
-                conversations = conversations,
-                language = language,
-                onBack = { navigator.back() },
-                onStartCall = { channel -> navigator.open(CallKey(key.conversationId, channel.wire)) },
-            )
+            WithEntryScope {
+                ChatRoute(
+                    conversationId = key.conversationId,
+                    appState = appState,
+                    api = api,
+                    conversations = conversations,
+                    language = language,
+                    onBack = { navigator.back() },
+                    onStartCall = { channel -> navigator.open(CallKey(key.conversationId, channel.wire)) },
+                )
+            }
         }
         entry<CallKey>(metadata = tabOf(AppTab.INBOX)) { key ->
             CallRoute(
@@ -442,4 +441,13 @@ private fun AppTab.item(language: Language): TabItem = when (this) {
     AppTab.INBOX -> TabItem(Str.tabInbox(language), Icons.Outlined.Email, Icons.Filled.Email)
     AppTab.CONTACTS -> TabItem(Str.tabContacts(language), Icons.Outlined.Person, Icons.Filled.Person)
     AppTab.SETTINGS -> TabItem(Str.tabSettings(language), Icons.Outlined.Settings, Icons.Filled.Settings)
+}
+
+/**
+ * Hands the entry's enter/exit scope to the screen inside it, for the shared
+ * avatar. Read here, inside the entry, where Navigation 3 provides it.
+ */
+@Composable
+private fun WithEntryScope(content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalEntryAnimatedScope provides LocalNavAnimatedContentScope.current, content = content)
 }

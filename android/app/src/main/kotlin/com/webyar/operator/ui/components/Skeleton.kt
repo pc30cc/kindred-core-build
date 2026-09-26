@@ -32,6 +32,7 @@ import com.webyar.operator.ui.design.Motion
 import com.webyar.operator.ui.design.Radius
 import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
+import androidx.compose.ui.graphics.graphicsLayer
 
 /**
  * The shape of a row that has not arrived yet.
@@ -48,19 +49,19 @@ import com.webyar.operator.ui.design.Space
  */
 @Composable
 private fun Shimmer(modifier: Modifier, shape: androidx.compose.ui.graphics.Shape) {
-    val transition = rememberInfiniteTransition(label = "skeleton")
-    val alpha by transition.animateFloat(
-        initialValue = 0.45f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
+    val alpha by rememberLoop(
+        label = "skeleton.alpha",
+        from = 0.45f,
+        to = 1f,
+        spec = infiniteRepeatable(
             animation = tween(Motion.skeletonPulse, easing = androidx.compose.animation.core.LinearEasing),
             repeatMode = RepeatMode.Reverse,
         ),
-        label = "skeleton.alpha",
+        rest = 0.7f,
     )
     Box(
         modifier
-            .alpha(alpha)
+            .graphicsLayer { this.alpha = alpha }
             .background(MaterialTheme.colorScheme.surfaceContainerHighest, shape)
     )
 }

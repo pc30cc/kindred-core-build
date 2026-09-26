@@ -56,6 +56,16 @@ import com.webyar.operator.ui.design.Space
 import com.webyar.operator.ui.design.WebyarTheme
 import io.livekit.android.room.track.VideoTrack
 import java.time.Instant
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
+import com.webyar.operator.ui.components.percentShape
+import com.webyar.operator.ui.design.ExpressiveShapes
+import com.webyar.operator.ui.design.PolygonShape
+import com.webyar.operator.ui.design.WebyarType
+import com.webyar.operator.ui.components.rememberLoop
 
 /**
  * The call, from "ringing their browser" to "over".
@@ -179,30 +189,45 @@ private fun Identity(
         verticalArrangement = Arrangement.spacedBy(Space.md),
     ) {
         if (!compact) {
-            // The ring pulses while it rings, so the wait does not look like
-            // a frozen screen.
-            val pulsing = phase == CallPhase.Waiting
-            val transition = rememberInfiniteTransition(label = "ring")
-            val alpha by transition.animateFloat(
-                initialValue = if (pulsing) 0.35f else 1f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(Motion.skeletonPulse),
+            // While it rings the avatar sits on a slowly turning, breathing
+            // scalloped shape — Expressive's way of saying "working" without
+            // a spinner — so the wait does not look like a frozen screen.
+            // Once answered the shape stops and settles into a quiet halo.
+            val ringing = phase == CallPhase.Waiting || phase == CallPhase.Connecting
+            val turn by rememberLoop(
+                label = "ring.turn",
+                from = 0f,
+                to = 360f,
+                spec = infiniteRepeatable(tween(12_000, easing = LinearEasing)),
+            )
+            val breath by rememberLoop(
+                label = "ring.breath",
+                from = 0.92f,
+                to = 1.06f,
+                spec = infiniteRepeatable(
+                    animation = tween(Motion.skeletonPulse * 2),
                     repeatMode = RepeatMode.Reverse,
                 ),
-                label = "ring.alpha",
+                rest = 1f,
             )
-            Box(
-                Modifier
-                    .size(Size.avatarLarge + 16.dp)
-                    .alpha(if (pulsing) alpha else 1f)
-                    .background(Color.White.copy(alpha = 0.12f), CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
+            val halo = remember { PolygonShape(ExpressiveShapes.cookie9) }
+            Box(Modifier.size(Size.avatarLarge + 56.dp), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            rotationZ = if (ringing) turn else 0f
+                            val scale = if (ringing) breath else 1f
+                            scaleX = scale
+                            scaleY = scale
+                        }
+                        .clip(halo)
+                        .background(Color.White.copy(alpha = if (ringing) 0.16f else 0.10f)),
+                )
                 Avatar(
                     name = contactName,
                     imageUrl = contactAvatarUrl,
-                    size = Size.avatarLarge,
+                    size = Size.avatarLarge + 8.dp,
                     os = visitor?.device?.os,
                     device = visitor?.device?.device,
                     countryCode = visitor?.geo?.countryCode,
@@ -212,8 +237,7 @@ private fun Identity(
 
         Text(
             contactName,
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.SemiBold,
+            style = WebyarType.headlineMediumEmphasized,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -398,6 +422,21 @@ private fun CallToggle(
     tint: Color? = null,
 ) {
     val lit = tint ?: Color.White
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    // Expressive toggle buttons change shape as well as colour: round at
+    // rest, a rounded square when switched on, squarer still under the
+    // finger. On a dark screen with nothing to compare against, a shape
+    // that changes is read where a tint alone is not.
+    val percent by animateFloatAsState(
+        targetValue = when {
+            pressed -> 22f
+            on && tint == null -> 30f
+            else -> 50f
+        },
+        animationSpec = Motion.fastSpatial(),
+        label = "callToggleShape",
+    )
     Surface(
         color = when {
             !enabled -> Color.White.copy(alpha = 0.06f)
@@ -410,16 +449,20 @@ private fun CallToggle(
             on -> Color.White
             else -> Color.White.copy(alpha = 0.75f)
         },
-        shape = CircleShape,
+        shape = percentShape(percent),
         enabled = enabled,
         onClick = onClick,
+        interactionSource = interaction,
         modifier = Modifier
-            .size(Size.minTouchTarget + 8.dp)
+            // The one that ends the call is a wide pill — the dialler's own
+            // shape for it, and the one button here that must never be
+            // mistaken for a toggle.
+            .size(width = if (tint != null) 96.dp else Size.minTouchTarget + 16.dp, height = Size.minTouchTarget + 16.dp)
             .semantics { if (on) selected = true }
             .testTag(tag),
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = label, modifier = Modifier.size(24.dp))
+            Icon(icon, contentDescription = label, modifier = Modifier.size(26.dp))
         }
     }
 }

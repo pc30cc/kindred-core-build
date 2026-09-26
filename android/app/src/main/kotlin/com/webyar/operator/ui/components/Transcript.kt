@@ -152,7 +152,11 @@ fun MessageBubble(
                             .padding(top = Space.xxs, start = Space.xs, end = Space.xs)
                             .testTag(A11y.messageStatus(id)),
                     )
-                    DropdownMenu(expanded = actionsOpen, onDismissRequest = { actionsOpen = false }) {
+                    DropdownMenu(
+                        expanded = actionsOpen,
+                        onDismissRequest = { actionsOpen = false },
+                        shape = RoundedCornerShape(Radius.lg),
+                    ) {
                         statusActions.forEach { (label, action) ->
                             DropdownMenuItem(
                                 text = { Text(label) },

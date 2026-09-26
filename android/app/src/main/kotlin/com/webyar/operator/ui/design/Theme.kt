@@ -10,6 +10,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import com.webyar.operator.i18n.Language
+import android.provider.Settings
+import androidx.compose.runtime.remember
 
 /**
  * The app's theme.
@@ -58,9 +60,15 @@ fun WebyarTheme(
         else -> WebyarLightExtras
     }
 
+    val context = LocalContext.current
+    val reducedMotion = remember(context) {
+        Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+    }
+
     CompositionLocalProvider(
         LocalWebyarColors provides extras,
         LocalLayoutDirection provides language.layoutDirection,
+        LocalReducedMotion provides reducedMotion,
     ) {
         MaterialTheme(
             colorScheme = colors,

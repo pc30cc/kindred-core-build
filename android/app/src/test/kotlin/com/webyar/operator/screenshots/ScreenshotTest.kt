@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -32,6 +33,7 @@ import com.webyar.operator.feature.email.EmailInboxState
 import com.webyar.operator.core.model.VisitorProfile
 import java.time.Instant
 import com.webyar.operator.i18n.Language
+import com.webyar.operator.ui.design.LocalReducedMotion
 import com.webyar.operator.ui.design.WebyarTheme
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
@@ -62,8 +64,12 @@ class ScreenshotTest {
     private fun shot(name: String, language: Language, dark: Boolean, content: @Composable () -> Unit) {
         captureRoboImage("build/outputs/roborazzi/$name.png") {
             WebyarTheme(language = language, dark = dark) {
-                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    content()
+                // Loops hold still: a capture waits for the screen to go
+                // idle, and a shape that turns forever never does.
+                CompositionLocalProvider(LocalReducedMotion provides true) {
+                    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                        content()
+                    }
                 }
             }
         }

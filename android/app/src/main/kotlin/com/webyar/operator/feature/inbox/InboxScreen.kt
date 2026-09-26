@@ -82,6 +82,8 @@ import com.webyar.operator.ui.design.WebyarType
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
+import com.webyar.operator.ui.components.avatarKey
+import com.webyar.operator.ui.components.sharedElement
 
 sealed interface InboxState {
     data object Loading : InboxState
@@ -503,6 +505,8 @@ private fun ConversationRow(
             os = profile?.device?.os,
             device = profile?.device?.device,
             countryCode = profile?.geo?.countryCode,
+            // Carried into the chat's bar when the row is opened.
+            modifier = Modifier.sharedElement(avatarKey(conversation.id)),
         )
 
         Column(Modifier.weight(1f).padding(start = Space.lg)) {

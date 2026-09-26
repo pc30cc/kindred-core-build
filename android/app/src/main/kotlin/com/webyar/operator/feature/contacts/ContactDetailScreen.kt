@@ -93,9 +93,9 @@ fun ContactDetailScreen(
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(top = Space.sm, bottom = Space.xl),
+                .padding(bottom = Space.lg),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(Space.md),
+            verticalArrangement = Arrangement.spacedBy(Space.sm),
         ) {
             // The avatar on a soft burst: the expressive shapes as a frame
             // that does not clip — the flag and the device badge on the
@@ -192,7 +192,7 @@ fun ContactDetailScreen(
     }
 }
 
-private val HeroSize = 112.dp
+private val HeroSize = 100.dp
 
 /**
  * One line of the facts section.

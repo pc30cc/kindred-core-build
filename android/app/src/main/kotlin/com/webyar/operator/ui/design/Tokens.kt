@@ -3,6 +3,7 @@ package com.webyar.operator.ui.design
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.spring
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.staticCompositionLocalOf
 
 /**
  * Spacing, radius and size, in one place.
@@ -115,6 +116,18 @@ object Size {
  * colour and opacity and never overshoot, because an alpha of 1.04 is not a
  * bounce, it is a flicker.
  */
+/**
+ * True when motion that loops should stand still.
+ *
+ * Set from the system's "remove animations" (an animator scale of zero), so
+ * the shapes that turn and breathe while something waits — the loading
+ * indicator, the ringing call, the sign-in backdrop — hold one steady pose
+ * for the people who asked for that. Screenshot tests set it too: a picture
+ * of a loop is a picture of one frame, and a capture has to be able to wait
+ * for the screen to go still.
+ */
+val LocalReducedMotion = staticCompositionLocalOf { false }
+
 object Motion {
     /** Most movement: a panel opening, an indicator sliding, a row settling. */
     fun <T> spatial(): SpringSpec<T> = spring(dampingRatio = 0.8f, stiffness = 380f)

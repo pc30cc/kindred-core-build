@@ -124,6 +124,8 @@ import com.webyar.operator.LocalAppGraph
 import kotlinx.coroutines.launch
 import com.webyar.operator.core.cache.CacheScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.webyar.operator.ui.design.Radius
 
 /**
  * The screens, as the navigation graph sees them.
@@ -866,7 +868,11 @@ fun EmailThreadRoute(
                                 contentDescription = StrAndroid.moreOptions(language),
                             )
                         }
-                        DropdownMenu(menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenu(
+                            menuOpen,
+                            onDismissRequest = { menuOpen = false },
+                            shape = RoundedCornerShape(Radius.lg),
+                        ) {
                             DropdownMenuItem(
                                 text = { Text(Str.emailStar(language)) },
                                 leadingIcon = {

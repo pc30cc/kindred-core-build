@@ -83,6 +83,8 @@ import com.webyar.operator.ui.components.LoadingIndicator
 import com.webyar.operator.ui.design.Motion
 import com.webyar.operator.ui.design.WebyarType
 import kotlinx.coroutines.launch
+import com.webyar.operator.ui.components.avatarKey
+import com.webyar.operator.ui.components.sharedElement
 
 sealed interface ChatState {
     data object Loading : ChatState
@@ -167,6 +169,7 @@ fun ChatScreen(
                     )
                 },
                 avatarUrl = conversation?.contact?.avatarUrl,
+                sharedKey = conversation?.id?.let(::avatarKey),
                 onBack = onBack,
                 actions = header,
             )
@@ -410,12 +413,19 @@ private fun ChatTopBar(
     avatarUrl: String?,
     onBack: () -> Unit,
     actions: (@Composable () -> Unit)?,
+    sharedKey: String? = null,
 ) {
     TopAppBar(
         title = {
             if (title != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(name = title, imageUrl = avatarUrl, size = 40.dp)
+                    // The face from the inbox row, carried up into the bar.
+                    Avatar(
+                        name = title,
+                        imageUrl = avatarUrl,
+                        size = 40.dp,
+                        modifier = if (sharedKey != null) Modifier.sharedElement(sharedKey) else Modifier,
+                    )
                     Text(
                         title,
                         style = WebyarType.titleMediumEmphasized.bidiContent(),

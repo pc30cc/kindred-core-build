@@ -2,9 +2,7 @@ package com.webyar.operator.feature.auth
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -83,6 +81,7 @@ import com.webyar.operator.ui.design.Radius
 import com.webyar.operator.ui.design.Space
 import com.webyar.operator.ui.design.WebyarType
 import kotlinx.coroutines.launch
+import com.webyar.operator.ui.components.rememberLoop
 
 /**
  * The way in.
@@ -127,14 +126,6 @@ fun LoginScreen(
     val passwordFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
 
-    // The keyboard comes up with the screen rather than waiting to be asked.
-    // There is exactly one thing to do here and it needs typing, so making
-    // somebody tap a field first is a tap that carries no information.
-    LaunchedEffect(Unit) {
-        emailFocus.requestFocus()
-        keyboard?.show()
-    }
-
     fun submit() {
         if (busy || email.isBlank() || password.isEmpty()) return
         keyboard?.hide()
@@ -163,6 +154,17 @@ fun LoginScreen(
             // phone in landscape, the keyboard up in split screen — it gives
             // its room to the fields.
             val roomy = maxHeight >= 560.dp
+
+            // The keyboard comes up with the screen rather than waiting to be
+            // asked. There is exactly one thing to do here and it needs
+            // typing, so making somebody tap a field first is a tap that
+            // carries no information. Requested from in here, not from the
+            // top of the screen: this is a subcomposition, and an effect up
+            // there runs before the fields down here exist to take focus.
+            LaunchedEffect(Unit) {
+                emailFocus.requestFocus()
+                keyboard?.show()
+            }
 
             Column(
                 Modifier
@@ -320,11 +322,11 @@ private fun ErrorNote(text: String) {
  */
 @Composable
 private fun Backdrop() {
-    val turn by rememberInfiniteTransition(label = "backdrop").animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(90_000, easing = LinearEasing)),
-        label = "turn",
+    val turn by rememberLoop(
+        label = "backdrop.turn",
+        from = 0f,
+        to = 360f,
+        spec = infiniteRepeatable(tween(90_000, easing = LinearEasing)),
     )
     Box(Modifier.fillMaxSize()) {
         SoftShape(

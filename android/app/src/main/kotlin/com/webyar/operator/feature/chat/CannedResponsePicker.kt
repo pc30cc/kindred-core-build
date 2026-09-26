@@ -26,7 +26,6 @@ import com.webyar.operator.i18n.Str
 import com.webyar.operator.ui.A11y
 import com.webyar.operator.ui.components.EmptyState
 import com.webyar.operator.ui.components.PillTone
-import com.webyar.operator.ui.components.RowDivider
 import com.webyar.operator.ui.components.SearchField
 import com.webyar.operator.ui.components.StatusPill
 import com.webyar.operator.ui.components.rememberSearchState
@@ -35,6 +34,11 @@ import com.webyar.operator.ui.design.Space
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
+import com.webyar.operator.ui.design.Radius
+import com.webyar.operator.ui.design.WebyarType
 
 /** What the picker knows about the workspace's saved replies. */
 sealed interface ShortcutsState {
@@ -138,18 +142,26 @@ fun CannedResponsePicker(
 
 @Composable
 private fun ShortcutRow(reply: CannedResponse, onClick: () -> Unit) {
-    Column(Modifier.clickable(onClick = onClick).testTag(A11y.shortcutRow(reply.id))) {
+    // A rounded row on the sheet, like the lists behind it — no dividers.
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Space.sm, vertical = 1.dp)
+            .clip(RoundedCornerShape(Radius.xl))
+            .clickable(onClick = onClick)
+            .testTag(A11y.shortcutRow(reply.id)),
+    ) {
         Row(
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = Size.rowMinHeight)
-                .padding(horizontal = Space.screenInset, vertical = Space.sm),
+                .padding(horizontal = Space.lg, vertical = Space.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f).padding(end = Space.sm)) {
                 Text(
                     reply.title,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = WebyarType.titleMediumEmphasized,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -167,7 +179,6 @@ private fun ShortcutRow(reply: CannedResponse, onClick: () -> Unit) {
             }
             StatusPill(reply.shortcut, tone = PillTone.NEUTRAL)
         }
-        RowDivider()
     }
 }
 

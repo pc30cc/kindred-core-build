@@ -233,6 +233,7 @@
   // the same reason Policy is: reachable without holding the instance
   // closure, and testable as the contract rather than as an implementation
   // detail of one template.
+  __gs_runtime.escapeHtml = function (text) { return Util.escapeHtml(text); };
   __gs_runtime.linkifyHtml = function (text, label) { return Util.linkifyHtml(text, label); };
   __gs_runtime.readableUrl = function (href) { return Util.readableUrl(href); };
   __gs_runtime.safeHttpUrl = function (raw) { return Util.safeHttpUrl(raw); };

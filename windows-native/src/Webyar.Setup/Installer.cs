@@ -26,10 +26,11 @@ namespace Webyar.Setup
     /// <summary>
     /// Installs Webyar for the person signed in, as Slack, Discord and VS Code's
     /// user setup do — no administrator rights, and updates that apply in place:
-    ///   %LOCALAPPDATA%\WebyarWindows\current   the app, which updates itself (Velopack)
-    ///   Start menu → Webyar, Desktop → Webyar   the user's own shortcuts
-    ///   Settings → Apps                         "Webyar", with Uninstall
-    /// The app's settings and sign-in stay in %APPDATA%\WebyarWindows, untouched.
+    ///   %LOCALAPPDATA%\Programs\Webyar\current   the app, which updates itself (Velopack)
+    ///   Start menu → Webyar, Desktop → Webyar      the user's own shortcuts
+    ///   Settings → Apps                            "Webyar", with Uninstall
+    /// The app's settings and sign-in stay in %APPDATA%\WebyarWindows and its
+    /// cache in %LOCALAPPDATA%\WebyarWindows, apart from the program, untouched.
     ///
     /// The payload is Velopack's own setup for this version, run silently. The
     /// app's updater also runs this installer when it is still installed the old
@@ -46,8 +47,15 @@ namespace Webyar.Setup
         private const string PayloadName = "app-setup.exe";
         private const string MachineUninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Webyar";
 
-        /// <summary>Where the app lives: Velopack's install root for this user.</summary>
-        public static string InstallDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), PackId);
+        /// <summary>
+        /// Where the app lives: Velopack's install root for this user, where Windows keeps
+        /// per-user programs. Not %LOCALAPPDATA%\WebyarWindows, Velopack's default: that
+        /// holds the app's cache, and setup would first try to move it aside.
+        /// </summary>
+        public static string InstallDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", ProductName);
+
+        /// <summary>The app's cache and WebView2 profile (see the app's AppPaths); disposable.</summary>
+        private static string DataDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), PackId);
         public static string AppExe => Path.Combine(InstallDir, "current", ExeName);
 
         /// <summary>The all-users install of versions 2.2 to 2.5.1, replaced by this one.</summary>
@@ -125,7 +133,6 @@ namespace Webyar.Setup
             progress.Report(Tuple.Create(Stage.Prepare, 0.0));
 
             CloseRunningApp();
-            ClearDataOnlyRoot();
             progress.Report(Tuple.Create(Stage.Prepare, 0.08));
 
             // Velopack's setup, as its own file: it installs for this user and registers the app.
@@ -145,7 +152,6 @@ namespace Webyar.Setup
                     // Something still had the folder open: close everything again and try once more.
                     Log("Velopack setup exited with code " + code + "; retrying (its log: %LOCALAPPDATA%\\velopack\\velopack.log)");
                     CloseRunningApp();
-                    ClearDataOnlyRoot();
                     Thread.Sleep(1000);
                     code = RunAppSetup(setup, progress, ct);
                 }
@@ -176,7 +182,7 @@ namespace Webyar.Setup
         /// <summary>Velopack's setup, silent; its exit code. No progress comes from it: the bar moves on its own until it is done.</summary>
         private static int RunAppSetup(string setup, IProgress<Tuple<Stage, double>> progress, CancellationToken ct)
         {
-            using (var p = Process.Start(new ProcessStartInfo(setup, "--silent") { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetTempPath() }))
+            using (var p = Process.Start(new ProcessStartInfo(setup, "--silent --installto \"" + InstallDir + "\"") { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetTempPath() }))
             {
                 var share = 0.15;
                 var until = DateTime.UtcNow.AddMinutes(10);
@@ -189,36 +195,6 @@ namespace Webyar.Setup
                 }
                 return p.ExitCode;
             }
-        }
-
-        /// <summary>
-        /// Versions 2.2 to 2.5.1 kept their cache and WebView2 profile in
-        /// %LOCALAPPDATA%\WebyarWindows, the folder Velopack installs into: its setup
-        /// moves such a folder aside first and fails while anything in it is open.
-        /// Everything there is disposable (settings and sign-in live in %APPDATA%),
-        /// so a folder without an install in it is cleared out of the way first.
-        /// </summary>
-        private static void ClearDataOnlyRoot()
-        {
-            if (!Directory.Exists(InstallDir) || File.Exists(Path.Combine(InstallDir, "Update.exe"))) return;
-            var aside = InstallDir + ".old-" + DateTime.Now.ToString("yyyyMMddHHmmss");
-            for (var i = 0; i < 20 && Directory.Exists(InstallDir); i++)
-            {
-                try
-                {
-                    Directory.Move(InstallDir, aside);
-                    Log("old data folder moved aside");
-                }
-                catch (Exception e) when (e is IOException || e is UnauthorizedAccessException)
-                {
-                    if (i == 19) Log("old data folder still in use: " + e.Message);
-                    CloseRunningApp();
-                    Thread.Sleep(500);
-                }
-            }
-            if (!Directory.Exists(aside)) return;
-            TryDelete(aside);
-            if (Directory.Exists(aside)) ScheduleDelete(aside);
         }
 
         /// <summary>After a failed update: the app as it was, so the operator is never left without it.</summary>
@@ -310,8 +286,9 @@ namespace Webyar.Setup
             if (removeUserData)
             {
                 TryDelete(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), PackId));
-                TryDelete(InstallDir);
+                TryDelete(DataDir);
             }
+            TryDelete(InstallDir);
             await Task.Delay(250, ct);
             progress.Report(Tuple.Create(Stage.Remove, 1.0));
             Log("uninstalled");
@@ -350,13 +327,19 @@ namespace Webyar.Setup
             catch { }
         }
 
-        /// <summary>The app's files and Apps entry for this user; its settings and sign-in in %APPDATA% stay.</summary>
+        /// <summary>
+        /// The app's files and Apps entry for this user (and those of the per-user install of
+        /// versions up to 2.1, in %LOCALAPPDATA%\WebyarWindows); its settings and sign-in in %APPDATA% stay.
+        /// </summary>
         private static void RemoveUserInstall()
         {
             try
             {
-                foreach (var name in new[] { "current", "packages" }) TryDelete(Path.Combine(InstallDir, name));
-                foreach (var name in new[] { "Update.exe", ExeName, "sq.version", ".betaId" }) TryDeleteFile(Path.Combine(InstallDir, name));
+                foreach (var root in new[] { InstallDir, DataDir })
+                {
+                    foreach (var name in new[] { "current", "packages" }) TryDelete(Path.Combine(root, name));
+                    foreach (var name in new[] { "Update.exe", ExeName, "sq.version", ".betaId" }) TryDeleteFile(Path.Combine(root, name));
+                }
                 using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall", true))
                     key?.DeleteSubKeyTree(PackId, false);
             }

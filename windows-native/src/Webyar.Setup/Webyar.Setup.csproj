@@ -4,7 +4,7 @@
     (Fluent, as in the WinUI Gallery). It installs Webyar for the signed-in
     user with no administrator rights, as Slack and Discord do: inside is
     Velopack's own setup for the app, run silently, which puts the app in
-    %LOCALAPPDATA%\WebyarWindows with its shortcuts and Apps entry and lets it
+    %LOCALAPPDATA%\Programs\Webyar with its shortcuts and Apps entry and lets it
     update itself in place. It also moves installs of versions 2.2 to 2.5.1
     out of Program Files. .NET Framework 4.8 ships with every supported
     Windows 10 and 11, so this runs with nothing installed first and stays one file.

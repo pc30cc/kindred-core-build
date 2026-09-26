@@ -27,7 +27,7 @@
 - **فید باید مورد اعتماد باشد:** اپ فقط از فیدهایی که در خود build مجازند آپدیت می‌گیرد
   (`src/Webyar.Core/Config/UpdateFeeds.cs`). اگر در سوپر ادمین آدرس دیگری گذاشته شود، آپدیت خودکار خاموش می‌شود.
 - **نصب برای هر کاربر، مثل Slack و Discord** (از ۲.۵.۲؛ `src/Webyar.App/Services/UpdateService.cs`):
-  - `Webyar-Setup.exe` برنامه را بدون اجازه‌ی مدیر در `%LOCALAPPDATA%\WebyarWindows` نصب می‌کند. درونش setup خود Velopack است که بی‌صدا اجرا می‌شود. برنامه در منوی Start، دسکتاپ و «Apps & features» قرار می‌گیرد.
+  - `Webyar-Setup.exe` برنامه را بدون اجازه‌ی مدیر در `%LOCALAPPDATA%\Programs\Webyar` نصب می‌کند (مثل VS Code). کش برنامه جدا در `%LOCALAPPDATA%\WebyarWindows` می‌ماند. درونش setup خود Velopack است که بی‌صدا اجرا می‌شود. برنامه در منوی Start، دسکتاپ و «Apps & features» قرار می‌گیرد.
   - اپ خودش آپدیت را از روی `releases.win.json` دانلود می‌کند؛ اگر بشود فقط تغییرات را (delta).
   - با «راه‌اندازی مجدد و به‌روزرسانی»، برنامه یک لحظه بسته و با نسخه‌ی جدید باز می‌شود. پنجره‌ی اجازه‌ی ویندوز هم نمی‌آید.
   - تنظیمات و ورود کاربر در `%APPDATA%\WebyarWindows` است و با نصب، آپدیت یا حذف دست نمی‌خورد.
@@ -107,5 +107,5 @@ ln -sf "Webyar-Setup-$v.exe" Webyar-Setup.exe
 - اگر نسخه‌ی قدیمی در Program Files باشد، نصب‌کننده یک بار اجازه می‌خواهد و آن را پاک می‌کند. تنظیمات و ورود کاربر حفظ می‌شود.
 - اجرای بی‌صدا: `Webyar-Setup.exe /silent /launch`.
   حذف: از «Apps & features»، یا `Webyar-Setup.exe /uninstall /silent`.
-- `WebyarWindows-win-Setup.exe` در همان ریلیز، setup خام Velopack است (بدون پنجره‌ی ما) و همان نصب را انجام می‌دهد.
+- `WebyarWindows-win-Setup.exe` در همان ریلیز، setup خام Velopack است (بدون پنجره‌ی ما). آن را فقط برای آزمایش به کار ببرید، چون برنامه را در پوشه‌ی پیش‌فرض خودش (`%LOCALAPPDATA%\WebyarWindows`) نصب می‌کند.
 - کپی portable (`WebyarWindows-win-Portable.zip`) فقط برای تست است و خودش آپدیت نمی‌شود.

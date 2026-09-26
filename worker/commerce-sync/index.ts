@@ -15,11 +15,11 @@
  */
 import os from 'node:os';
 import { envFlagEnabled, type ServerConfig } from '../../server/config.js';
-import { claimNextSyncJob, runSyncJobOnce, enqueueSyncJob } from '../../server/services/commerce/sync.js';
+import { claimNextSyncJob, runSyncJobOnce, enqueueSyncJob, pruneFinishedSyncJobs } from '../../server/services/commerce/sync.js';
 import { runCapabilityHandshake } from '../../server/services/commerce/pairing.js';
 import { catalogIndexedProviders } from '../../server/services/commerce/connectors/registry.js';
 import { getServiceClient } from '../../server/supabase.js';
-import { IdleBackoff } from '../../server/services/jobs/idleBackoff.js';
+import { IdleBackoff, IntervalGate } from '../../server/services/jobs/idleBackoff.js';
 
 function clampInt(v: string | undefined, def: number, min: number, max: number): number {
   const n = parseInt(v || '', 10);
@@ -112,8 +112,16 @@ export function startCommerceSyncWorker(): void {
    * the capability handshake so a plugin update / recovered store is
    * noticed without waiting on the next admin-initiated "Test connection".
    */
+  // Old finished jobs are pruned hourly, piggybacking on the reconcile timer:
+  // this worker is what creates them, and the retention worker is optional.
+  const pruneGate = new IntervalGate(60 * 60_000);
+
   const reconcile = async () => {
     if (stopping) return;
+    if (pruneGate.due()) {
+      const removed = await pruneFinishedSyncJobs(config).catch(() => 0);
+      if (removed > 0) console.log('[commerce-sync worker] pruned finished sync jobs', { removed });
+    }
     try {
       const sb = getServiceClient(config);
       // Catalogue-indexed providers only. A live-queried billing connection

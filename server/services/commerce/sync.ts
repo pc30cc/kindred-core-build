@@ -312,6 +312,51 @@ async function failJob(config: ServerConfig, job: SyncJobRow, code: string, perm
     .eq('id', job.id);
 }
 
+const SUCCEEDED_JOB_KEEP_MS = 7 * 24 * 60 * 60_000;
+const DEAD_LETTER_JOB_KEEP_MS = 30 * 24 * 60 * 60_000;
+const PRUNE_BATCH = 500;
+const MAX_PRUNE_BATCHES = 10;
+
+/**
+ * Deletes finished sync jobs that have outlived their use, and returns how
+ * many went.
+ *
+ * Every reconciliation pass enqueues a job per connected store — 96 a day
+ * each — and nothing ever removed one, so the table only grew. Succeeded
+ * jobs are kept a week; dead-lettered ones a month, since the admin
+ * diagnostics list them for retrying. Queued and running jobs are never
+ * touched. `updated_at` is set by every claim, so for a finished job it is
+ * when its last run started. Bounded per call: at most
+ * MAX_PRUNE_BATCHES × PRUNE_BATCH rows per status, and any error just stops
+ * this pass.
+ */
+export async function pruneFinishedSyncJobs(config: ServerConfig, now: number = Date.now()): Promise<number> {
+  const sb = getServiceClient(config);
+  let removed = 0;
+  const rules: Array<[status: string, keepMs: number]> = [
+    ['succeeded', SUCCEEDED_JOB_KEEP_MS],
+    ['dead_letter', DEAD_LETTER_JOB_KEEP_MS],
+  ];
+  for (const [status, keepMs] of rules) {
+    const cutoff = new Date(now - keepMs).toISOString();
+    for (let batch = 0; batch < MAX_PRUNE_BATCHES; batch++) {
+      const { data, error } = await sb
+        .from('commerce_sync_jobs')
+        .select('id')
+        .eq('status', status)
+        .lt('updated_at', cutoff)
+        .limit(PRUNE_BATCH);
+      if (error || !data?.length) break;
+      const ids = (data as Array<{ id: string }>).map((row) => row.id);
+      const { error: deleteError } = await sb.from('commerce_sync_jobs').delete().in('id', ids).eq('status', status);
+      if (deleteError) break;
+      removed += ids.length;
+      if (ids.length < PRUNE_BATCH) break;
+    }
+  }
+  return removed;
+}
+
 /** Admin diagnostics — failed jobs without PII/secrets (spec §17). */
 export async function listFailedSyncJobs(config: ServerConfig, workspaceId: string) {
   const sb = getServiceClient(config);

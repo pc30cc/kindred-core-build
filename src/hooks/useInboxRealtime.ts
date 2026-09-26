@@ -24,6 +24,14 @@ import type {
 } from '@/realtime';
 import type { OperatorEventPayload } from '@/realtime/types';
 import { rtDebug, rtWarn } from '@/realtime/debug';
+import { invalidateThrottled } from '@/realtime/invalidationThrottle';
+
+/**
+ * The open thread's message list is small and latency-visible, so its burst
+ * window is shorter than the lists' default: an isolated message still shows
+ * at once, a burst lands within half a second.
+ */
+const MESSAGES_WINDOW_MS = 500;
 
 export interface InboxRealtimeOptions {
   workspaceId: string | undefined;
@@ -66,14 +74,14 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
             rtDebug('inbox', 'event:message', {
               vendor: provider.vendor,
               channel,
-              id: (payload as any)?.id,
-              sender_type: (payload as any)?.sender_type,
+              id: payload?.id,
+              sender_type: payload?.sender_type,
             });
             // Default behavior: invalidate the message list so React Query
             // refetches and the Inbox renders the new row. Conservative —
             // no optimistic patching here.
-            queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
-            queryClient.invalidateQueries({ queryKey: ['conversations', workspaceId] });
+            invalidateThrottled(queryClient, ['messages', conversationId], MESSAGES_WINDOW_MS);
+            invalidateThrottled(queryClient, ['conversations', workspaceId]);
             handlersRef.current.onMessage?.(payload);
           },
           onTyping: (payload) => {
@@ -82,7 +90,7 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
           },
           onSeen: () => {
             rtDebug('inbox', 'event:seen', { vendor: provider.vendor, channel });
-            queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
+            invalidateThrottled(queryClient, ['messages', conversationId], MESSAGES_WINDOW_MS);
           },
           // Phase 5 — operator-only `event` envelopes on the conv channel.
           // Note: notes routes publish ONLY note_added/_deleted (no
@@ -95,33 +103,25 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
             const kind = (payload as { kind?: string })?.kind;
             rtDebug('inbox', 'event:event', { vendor: provider.vendor, channel, kind });
             if (kind === 'note_added' || kind === 'note_deleted') {
-              queryClient.invalidateQueries({
-                queryKey: ['conversation-notes', conversationId, workspaceId],
-              });
-              queryClient.invalidateQueries({
-                queryKey: ['conversation-timeline', conversationId, workspaceId],
-              });
+              invalidateThrottled(queryClient, ['conversation-notes', conversationId, workspaceId]);
+              invalidateThrottled(queryClient, ['conversation-timeline', conversationId, workspaceId]);
             } else if (
               kind === 'conversation_updated' ||
               kind === 'conversation_resolved' ||
               kind === 'conversation_reopened' ||
               kind === 'timeline_event'
             ) {
-              queryClient.invalidateQueries({
-                queryKey: ['conversation-timeline', conversationId, workspaceId],
-              });
+              invalidateThrottled(queryClient, ['conversation-timeline', conversationId, workspaceId]);
               // Assignment transfers append an internal system message to the
               // thread — refresh the message list so it shows without reload.
-              queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
+              invalidateThrottled(queryClient, ['messages', conversationId], MESSAGES_WINDOW_MS);
 
             } else if (
               kind === 'ai_suggestion_created' ||
               kind === 'ai_suggestion_updated'
             ) {
               // Phase 2 — operator AI suggestion card refresh
-              queryClient.invalidateQueries({
-                queryKey: ['ai-agent', 'conv-suggestions', conversationId],
-              });
+              invalidateThrottled(queryClient, ['ai-agent', 'conv-suggestions', conversationId]);
             }
             handlersRef.current.onEvent?.(payload);
           },
@@ -141,7 +141,7 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
       } catch (err) {
         // Resolver itself never throws; this catches subscribe-time errors
         // from a primary transport. Polling fallback is implicit.
-        rtWarn('inbox', 'subscribe failed, polling continues', { error: (err as any)?.message });
+        rtWarn('inbox', 'subscribe failed, polling continues', { error: (err as Error | undefined)?.message });
       }
     })();
 

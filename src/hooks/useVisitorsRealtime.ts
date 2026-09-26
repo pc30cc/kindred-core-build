@@ -14,7 +14,15 @@ import { useQueryClient } from '@tanstack/react-query';
 import { resolveClientRealtimeProvider } from '@/realtime';
 import type { RealtimeSubscription } from '@/realtime/types';
 import { rtDebug, rtWarn } from '@/realtime/debug';
+import { invalidateThrottled } from '@/realtime/invalidationThrottle';
 import type { VisitorIntelItem, MapMarker } from '@/lib/visitors-api';
+
+/**
+ * Visitor events come in bursts (a traffic spike, or visitors beyond the
+ * loaded page who each count as "unknown"), and every one used to refetch the
+ * full live list AND the map from every open dashboard.
+ */
+const LIST_REFRESH_WINDOW_MS = 2_000;
 
 interface VisitorEventPayload {
   kind: 'visitor.upsert' | 'visitor.remove';
@@ -60,14 +68,12 @@ export function useVisitorsRealtime(workspaceId: string | undefined) {
             // invalidate so the next refetch pulls the full normalized row.
             const matched = applyUpsertPatch(qc, workspaceId, payload);
             if (!matched) {
-              qc.invalidateQueries({ queryKey: ['visitor-intel-live', workspaceId] });
-              qc.invalidateQueries({ queryKey: ['visitor-intel-map', workspaceId] });
+              invalidateThrottled(qc, ['visitor-intel-live', workspaceId], LIST_REFRESH_WINDOW_MS);
+              invalidateThrottled(qc, ['visitor-intel-map', workspaceId], LIST_REFRESH_WINDOW_MS);
             }
 
             // Always refresh the per-visitor detail cache if the drawer is open.
-            qc.invalidateQueries({
-              queryKey: ['visitor-intel-detail', workspaceId, payload.session_id],
-            });
+            invalidateThrottled(qc, ['visitor-intel-detail', workspaceId, payload.session_id]);
           },
           onStatus: (status, info) => {
             if (status === 'error') rtWarn('visitors', 'status=error', { reason: info?.reason });
@@ -77,7 +83,7 @@ export function useVisitorsRealtime(workspaceId: string | undefined) {
         sub = subscription;
       } catch (err) {
         rtWarn('visitors', 'subscribe failed, polling continues', {
-          error: (err as any)?.message,
+          error: (err as Error | undefined)?.message,
         });
       }
     })();

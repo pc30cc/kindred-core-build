@@ -270,6 +270,7 @@ dependencies {
     implementation(libs.androidx.compose.material3.adaptive.layout)
     implementation(libs.androidx.compose.material3.adaptive.navigation3)
     implementation(libs.androidx.compose.material3.adaptive.navigation.suite)
+    implementation(libs.androidx.graphics.shapes)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.lifecycle.process)
 

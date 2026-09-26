@@ -73,13 +73,13 @@ import {
 
 // ─── Constants ───
 const CURRENCIES = ['USD', 'EUR', 'TRY', 'IRR'];
-const LOCALE_LABELS: Record<string, string> = {
-  en: '🇬🇧 English',
-  tr: '🇹🇷 Türkçe',
-  fa: '🇮🇷 فارسی',
-  de: '🇩🇪 Deutsch',
-  fr: '🇫🇷 Français',
-  ar: '🇸🇦 العربية',
+const LOCALE_FLAGS: Record<string, string> = {
+  en: '🇬🇧',
+  tr: '🇹🇷',
+  fa: '🇮🇷',
+  de: '🇩🇪',
+  fr: '🇫🇷',
+  ar: '🇸🇦',
 };
 
 interface LocalizedPlan {
@@ -138,6 +138,25 @@ function planName(plan: { name?: string | null; localized?: Record<string, { nam
 /** A capability's name and description in the admin's language (src/lib/capability-i18n.ts). */
 const capName = (cap: CapabilityDefinition, locale: string) => capabilityLabel(cap.key, locale, cap.label);
 const capText = (cap: CapabilityDefinition, locale: string) => capabilityDescription(cap.key, locale, cap.description);
+
+/** A currency's name in the admin's language with its code, e.g. «دلار آمریکا (USD)». */
+function currencyName(code: string, locale: string): string {
+  try {
+    const name = new Intl.DisplayNames([locale], { type: 'currency' }).of(code);
+    return name && name !== code ? `${name} (${code})` : code;
+  } catch {
+    return code;
+  }
+}
+
+/** A language's name in the admin's language, e.g. `en` → «انگلیسی». */
+function languageName(code: string, locale: string): string {
+  try {
+    return new Intl.DisplayNames([locale], { type: 'language' }).of(code) || code;
+  } catch {
+    return code;
+  }
+}
 
 interface PlanFormData {
   name: string;
@@ -538,7 +557,7 @@ function PlanFormDialog({
                 {CURRENCIES.map((cur) => (
                   <Card key={cur} className="bg-muted/20 border-border">
                     <CardContent className="pt-3 pb-3 space-y-2">
-                      <p className="text-xs font-bold text-foreground">{cur}</p>
+                      <p className="text-xs font-bold text-foreground">{currencyName(cur, locale)}</p>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label className="text-[11px]">{t('admin.plans.monthly')}</Label>
@@ -586,17 +605,19 @@ function PlanFormDialog({
               {locales.map((loc) => (
                 <Card key={loc} className="bg-muted/20 border-border">
                   <CardContent className="pt-3 pb-3 space-y-2">
-                    <p className="text-xs font-bold text-foreground">{LOCALE_LABELS[loc] || loc.toUpperCase()}</p>
+                    <p className="text-xs font-bold text-foreground">
+                      {LOCALE_FLAGS[loc]} {languageName(loc, locale)}
+                    </p>
                     <Input
                       value={form.localized[loc]?.name || ''}
                       onChange={(e) => updateLocalized(loc, 'name', e.target.value)}
-                      placeholder={t('admin.plans.form.localizedName', { locale: loc })}
+                      placeholder={t('admin.plans.form.localizedName', { locale: languageName(loc, locale) })}
                       dir={loc === 'fa' || loc === 'ar' ? 'rtl' : 'ltr'}
                     />
                     <Textarea
                       value={form.localized[loc]?.description || ''}
                       onChange={(e) => updateLocalized(loc, 'description', e.target.value)}
-                      placeholder={t('admin.plans.form.localizedDescription', { locale: loc })}
+                      placeholder={t('admin.plans.form.localizedDescription', { locale: languageName(loc, locale) })}
                       rows={2}
                       dir={loc === 'fa' || loc === 'ar' ? 'rtl' : 'ltr'}
                     />
@@ -1496,7 +1517,7 @@ export default function AdminPlansPage() {
                             d.name ? (
                               <Badge key={loc} variant="outline" className="text-[11px] gap-1 font-normal">
                                 <Globe className="w-3 h-3" />
-                                {LOCALE_LABELS[loc]?.split(' ')[0] || loc} {d.name}
+                                {LOCALE_FLAGS[loc] || loc} {d.name}
                               </Badge>
                             ) : null,
                           )}

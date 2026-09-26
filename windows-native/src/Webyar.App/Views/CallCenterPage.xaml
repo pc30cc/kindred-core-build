@@ -192,7 +192,7 @@
                         </ListView.ItemContainerStyle>
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueItem">
-                                <Grid Padding="4,8" ColumnSpacing="12" Background="Transparent" ToolTipService.ToolTip="{x:Bind ChannelText, Mode=OneWay}">
+                                <Grid Padding="4,8" ColumnSpacing="12" Background="Transparent" ToolTipService.ToolTip="{x:Bind ChannelText}">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
@@ -217,7 +217,7 @@
                                     <Border Grid.Column="2" CornerRadius="8" Padding="9,3" VerticalAlignment="Center" Background="{x:Bind WaitBack, Mode=OneWay}">
                                         <StackPanel Orientation="Horizontal" Spacing="4" FlowDirection="LeftToRight">
                                             <FontIcon Glyph="&#xE823;" FontSize="10" Foreground="{x:Bind WaitBrush, Mode=OneWay}" />
-                                            <TextBlock FontSize="12.5" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" Foreground="{x:Bind WaitBrush, Mode=OneWay}" Text="{x:Bind WaitText, Mode=OneWay}" />
+                                            <TextBlock FontSize="12.5" FontWeight="SemiBold" Foreground="{x:Bind WaitBrush, Mode=OneWay}" Text="{x:Bind WaitText, Mode=OneWay}" />
                                         </StackPanel>
                                     </Border>
                                 </Grid>
@@ -242,7 +242,7 @@
                                     </Grid.ColumnDefinitions>
                                     <!-- The caller's face, with the channel in the call's state colour at its corner. -->
                                     <Grid>
-                                        <controls:Avatar Size="36" DisplayName="{x:Bind AvatarName}" Email="{x:Bind Call.VisitorEmail}" Os="{x:Bind Os, Mode=OneWay}" CountryCode="{x:Bind CountryCode, Mode=OneWay}" />
+                                        <controls:Avatar Size="36" DisplayName="{x:Bind AvatarName}" Email="{x:Bind Email}" Os="{x:Bind Os, Mode=OneWay}" CountryCode="{x:Bind CountryCode, Mode=OneWay}" />
                                         <Border Width="16" Height="16" CornerRadius="5" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-4,-4" Background="{x:Bind StateBrush}" BorderBrush="{ThemeResource SurfaceBrush}" BorderThickness="2">
                                             <FontIcon Glyph="{x:Bind IconGlyph}" FontSize="7.5" Foreground="White" />
                                         </Border>
@@ -259,7 +259,7 @@
                                     </StackPanel>
                                     <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" Spacing="1">
                                         <TextBlock FontSize="12" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind WhenText}" HorizontalAlignment="Right" />
-                                        <TextBlock FontSize="12" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind DurationText}" HorizontalAlignment="Right" />
+                                        <TextBlock FontSize="12" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind DurationText}" HorizontalAlignment="Right" />
                                     </StackPanel>
                                 </Grid>
                             </DataTemplate>

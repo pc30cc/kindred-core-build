@@ -273,10 +273,7 @@
                 ringing on the desk.
             -->
             <StackPanel x:Name="CallCards" Grid.RowSpan="2" Width="380" Margin="20" Spacing="12" HorizontalAlignment="Right" VerticalAlignment="Bottom">
-                <Border x:Name="HandedBar" Visibility="Collapsed" CornerRadius="22" Background="{ThemeResource SurfaceBrush}" BorderBrush="{ThemeResource LineBrush}" BorderThickness="1" Translation="0,0,32">
-                    <Border.Shadow>
-                        <ThemeShadow />
-                    </Border.Shadow>
+                <Border x:Name="HandedBar" Visibility="Collapsed" CornerRadius="22" Background="{ThemeResource SurfaceBrush}" BorderBrush="{ThemeResource LineBrush}" BorderThickness="1">
                     <Grid>
                         <Border CornerRadius="22" Background="{ThemeResource BrandBrush}" Opacity="0.10" />
                         <StackPanel Padding="16" Spacing="12">
@@ -314,10 +311,7 @@
                         </StackPanel>
                     </Grid>
                 </Border>
-                <Border x:Name="CallBar" Visibility="Collapsed" CornerRadius="22" Background="{ThemeResource SurfaceBrush}" BorderBrush="{ThemeResource LineBrush}" BorderThickness="1" Translation="0,0,32">
-                    <Border.Shadow>
-                        <ThemeShadow />
-                    </Border.Shadow>
+                <Border x:Name="CallBar" Visibility="Collapsed" CornerRadius="22" Background="{ThemeResource SurfaceBrush}" BorderBrush="{ThemeResource LineBrush}" BorderThickness="1">
                     <Grid>
                         <Border CornerRadius="22" Background="{ThemeResource SuccessBrush}" Opacity="0.10" />
                         <StackPanel Padding="16" Spacing="12">

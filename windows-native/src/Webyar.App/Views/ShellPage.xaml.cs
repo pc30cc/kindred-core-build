@@ -29,6 +29,12 @@ public sealed partial class ShellPage : Page
     {
         InitializeComponent();
         AddSectionShortcuts();
+        // The floating call cards stand off the page with a shadow, as the Mac's glass cards.
+        foreach (var card in new UIElement[] { HandedBar, CallBar })
+        {
+            card.Shadow = new Microsoft.UI.Xaml.Media.ThemeShadow();
+            card.Translation = new System.Numerics.Vector3(0, 0, 32);
+        }
         NavigationCacheMode = NavigationCacheMode.Disabled;
         ContentFrame.Navigated += (_, _) => SyncSelection();
         // The settings item only exists once the template is applied.

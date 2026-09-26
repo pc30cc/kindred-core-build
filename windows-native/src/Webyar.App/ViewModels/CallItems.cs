@@ -101,6 +101,7 @@ public sealed partial class CallHistoryItem : ObservableObject
         Call = c;
         Name = CallNames.Caller(c, c.ContactId ?? c.VisitorSessionId ?? c.Id, s);
         AvatarName = c.VisitorName ?? Name;
+        Email = c.VisitorEmail;
         IconGlyph = c.IsVideo ? "\uE714" : "\uE717";
         StateText = Views.CallText.State(c.State, s);
         var (fore, back) = Views.CallText.StateColors(c.State);
@@ -117,6 +118,7 @@ public sealed partial class CallHistoryItem : ObservableObject
     public string Name { get; }
     /// <summary>The name the face is drawn from: the visitor's own, else the caller's label.</summary>
     public string AvatarName { get; }
+    public string? Email { get; }
     public string IconGlyph { get; }
     public string StateText { get; }
     public Brush StateBrush { get; }

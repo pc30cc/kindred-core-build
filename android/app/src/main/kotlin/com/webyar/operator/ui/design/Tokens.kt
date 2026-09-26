@@ -71,6 +71,9 @@ object Size {
      */
     val minTouchTarget = 48.dp
 
+    /** A screen's main button — Material 3 Expressive's medium size. */
+    val buttonHeight = 56.dp
+
     val avatarSmall = 32.dp
     val avatarMedium = 44.dp
     val avatarLarge = 76.dp

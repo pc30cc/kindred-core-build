@@ -12,15 +12,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,13 +33,37 @@ import com.webyar.operator.ui.design.Radius
 import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
 import com.webyar.operator.ui.design.WebyarTheme
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CornerSize
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.sp
+import com.webyar.operator.ui.design.ExpressiveShapes
+import com.webyar.operator.ui.design.Motion
+import com.webyar.operator.ui.design.WebyarType
 
 /**
  * The one prominent action on a screen.
  *
- * Full width, [Size.minTouchTarget] tall, and it swaps its label for a spinner
- * while busy **without changing size** — a button that shrinks under the thumb
- * mid-tap is how a mis-tap happens.
+ * Full width, 56dp — Material 3 Expressive's medium button — and a pill
+ * that squares up under the finger, the Expressive press feedback. It swaps
+ * its label for the loading indicator while busy **without changing size**:
+ * a button that shrinks under the thumb mid-tap is how a mis-tap happens.
  */
 @Composable
 fun PrimaryButton(
@@ -56,31 +73,35 @@ fun PrimaryButton(
     enabled: Boolean = true,
     busy: Boolean = false,
 ) {
+    val interaction = remember { MutableInteractionSource() }
     Button(
         onClick = onClick,
         enabled = enabled && !busy,
-        shape = RoundedCornerShape(Radius.md),
-        contentPadding = PaddingValues(horizontal = Space.lg, vertical = Space.md),
+        shape = rememberPressShape(interaction),
+        interactionSource = interaction,
+        contentPadding = PaddingValues(horizontal = Space.xl, vertical = Space.md),
         modifier = modifier
             .fillMaxWidth()
             // heightIn, not height: at a large font scale the label needs room
             // to grow, and a fixed height is how a button clips its own text
             // on exactly the devices where that matters most.
-            .heightIn(min = Size.minTouchTarget),
+            .heightIn(min = Size.buttonHeight),
     ) {
         if (busy) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(20.dp),
-                color = ButtonDefaults.buttonColors().contentColor,
-                strokeWidth = 2.dp,
+            LoadingIndicator(
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                size = 28.dp,
             )
         } else {
-            Text(label, style = MaterialTheme.typography.labelLarge)
+            Text(label, style = WebyarType.labelLargeEmphasized.copy(fontSize = 16.sp))
         }
     }
 }
 
-/** The quieter second action, where a screen has one. */
+/**
+ * The quieter second action, where a screen has one — tonal, so it is plainly
+ * a button without competing with the primary one.
+ */
 @Composable
 fun SecondaryButton(
     label: String,
@@ -88,10 +109,13 @@ fun SecondaryButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    OutlinedButton(
+    val interaction = remember { MutableInteractionSource() }
+    FilledTonalButton(
         onClick = onClick,
         enabled = enabled,
-        shape = RoundedCornerShape(Radius.md),
+        shape = rememberPressShape(interaction),
+        interactionSource = interaction,
+        contentPadding = PaddingValues(horizontal = Space.xl, vertical = Space.sm),
         modifier = modifier.heightIn(min = Size.minTouchTarget),
     ) {
         Text(label, style = MaterialTheme.typography.labelLarge)
@@ -99,16 +123,18 @@ fun SecondaryButton(
 }
 
 /**
- * The inbox queue filter.
+ * One choice out of a few — Material 3 Expressive's connected button group.
  *
- * A count rides in the label when there is one, because the whole reason to
- * glance at this control is to see where the work is.
+ * Each option is its own button with a small gap between them. The selected
+ * one is filled and fully round, the rest are tonal with softer corners, and
+ * the shape morphs as the selection moves: the change is seen, not just
+ * read. A count rides in the label when there is one, because the whole
+ * reason to glance at this control is to see where the work is.
  *
- * The queues come from the plan, not from an enum's own cases — a segment that
- * leads to a permanently empty list because the plan excludes it reads as a
- * broken app, not as an upsell.
+ * The options come from the plan, not from an enum's own cases — a choice
+ * that leads to a permanently empty list because the plan excludes it reads
+ * as a broken app, not as an upsell.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun <T> FilterPicker(
     options: List<T>,
@@ -119,22 +145,88 @@ fun <T> FilterPicker(
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    SingleChoiceSegmentedButtonRow(modifier.fillMaxWidth()) {
-        options.forEachIndexed { index, option ->
-            val badge = count(option)
-            SegmentedButton(
+    Row(
+        modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .selectableGroup(),
+        horizontalArrangement = Arrangement.spacedBy(Space.xs),
+    ) {
+        options.forEach { option ->
+            ChoiceButton(
+                label = label(option),
+                count = count(option),
                 selected = option == selected,
+                language = language,
                 onClick = { onSelect(option) },
-                shape = SegmentedButtonDefaults.itemShape(index, options.size),
-            ) {
+            )
+        }
+    }
+}
+
+/** One button of a [FilterPicker]. */
+@Composable
+fun ChoiceButton(
+    label: String,
+    selected: Boolean,
+    language: Language,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    count: Int? = null,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    // Selected: a full pill. Otherwise a softer rectangle, and squarer still
+    // while pressed — the press "squish" the Expressive buttons have.
+    val percent by animateFloatAsState(
+        targetValue = when {
+            pressed -> 18f
+            selected -> 50f
+            else -> 30f
+        },
+        animationSpec = Motion.fastSpatial(),
+        label = "choiceShape",
+    )
+    val container by animateColorAsState(
+        if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+        Motion.effects(),
+        label = "choiceContainer",
+    )
+    val content by animateColorAsState(
+        if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+        Motion.effects(),
+        label = "choiceContent",
+    )
+    Surface(
+        selected = selected,
+        onClick = onClick,
+        shape = RoundedCornerShape(CornerSize(percent)),
+        color = container,
+        contentColor = content,
+        interactionSource = interaction,
+        modifier = modifier
+            .heightIn(min = 40.dp)
+            .semantics { role = Role.RadioButton },
+    ) {
+        Row(
+            Modifier.padding(horizontal = Space.lg, vertical = Space.sm),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Space.sm),
+        ) {
+            AnimatedVisibility(visible = selected) {
+                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+            }
+            Text(
+                label,
+                style = if (selected) WebyarType.labelLargeEmphasized else MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+            )
+            if (count != null && count > 0) {
                 Text(
-                    text = if (badge != null && badge > 0) {
-                        "${label(option)} ${Format.number(badge, language)}"
-                    } else {
-                        label(option)
-                    },
+                    Format.number(count, language),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = content.copy(alpha = 0.8f),
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -144,9 +236,11 @@ fun <T> FilterPicker(
 /**
  * Shown when a list legitimately has nothing in it.
  *
- * Centred as a block, with the body centre-aligned and width-limited so it
- * never runs edge to edge — a paragraph the full width of a tablet is a wall,
- * not a sentence.
+ * The icon sits on one of the Expressive shapes, which is the difference
+ * between "nothing here" said by a designed product and said by a blank
+ * screen. Centred as a block, with the body centre-aligned and width-limited
+ * so it never runs edge to edge — a paragraph the full width of a tablet is a
+ * wall, not a sentence.
  */
 @Composable
 fun EmptyState(
@@ -158,17 +252,28 @@ fun EmptyState(
     Column(
         modifier
             .fillMaxWidth()
-            .padding(Space.xl),
+            .padding(horizontal = Space.xl, vertical = Space.xxl),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Space.md),
     ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = WebyarTheme.colors.labelTertiary,
-            modifier = Modifier.size(40.dp),
+        ShapeFrame(
+            polygon = ExpressiveShapes.softBurst,
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            modifier = Modifier.size(104.dp),
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.size(36.dp),
+            )
+        }
+        Text(
+            title,
+            style = WebyarType.titleLargeEmphasized,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = Space.sm),
         )
-        Text(title, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
         if (body != null) {
             Text(
                 body,
@@ -193,15 +298,27 @@ fun ErrorState(
     Column(
         modifier
             .fillMaxWidth()
-            .padding(Space.xl),
+            .padding(horizontal = Space.xl, vertical = Space.xxl),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Space.md),
     ) {
+        ShapeFrame(
+            polygon = ExpressiveShapes.cookie4,
+            color = MaterialTheme.colorScheme.errorContainer,
+            modifier = Modifier.size(96.dp),
+        ) {
+            Icon(
+                Icons.Outlined.Info,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.size(34.dp),
+            )
+        }
         Text(
             title,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.error,
+            style = WebyarType.titleLargeEmphasized,
             textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = Space.sm),
         )
         if (body != null) {
             Text(
@@ -212,7 +329,7 @@ fun ErrorState(
                 modifier = Modifier.widthIn(max = 320.dp),
             )
         }
-        SecondaryButton(retryLabel, onRetry)
+        SecondaryButton(retryLabel, onRetry, Modifier.padding(top = Space.sm))
     }
 }
 
@@ -226,17 +343,19 @@ fun ErrorState(
 fun UnreadBadge(count: Int, language: Language, modifier: Modifier = Modifier) {
     if (count <= 0) return
     Surface(
-        color = WebyarTheme.colors.badge,
-        contentColor = WebyarTheme.colors.onBadge,
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
         shape = RoundedCornerShape(Radius.pill),
-        modifier = modifier,
+        modifier = modifier.defaultMinSize(minWidth = 22.dp, minHeight = 22.dp),
     ) {
-        Text(
-            text = Format.number(count, language),
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-            modifier = Modifier.padding(horizontal = Space.sm, vertical = Space.xxs),
-        )
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = Format.number(count, language),
+                style = WebyarType.labelLargeEmphasized.copy(fontSize = 12.sp, lineHeight = 16.sp),
+                maxLines = 1,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+            )
+        }
     }
 }
 

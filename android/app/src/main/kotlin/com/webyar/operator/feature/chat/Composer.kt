@@ -106,7 +106,7 @@ fun Composer(
     var emojiOpen by remember { mutableStateOf(false) }
 
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        color = MaterialTheme.colorScheme.surface,
         modifier = modifier.fillMaxWidth(),
     ) {
         if (recordingSeconds != null) {
@@ -150,12 +150,14 @@ fun Composer(
             // which is what keeps the row's height set by the pill rather than
             // by whichever control happens to be tallest today.
             Surface(
-                color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 shape = RoundedCornerShape(Radius.xl),
                 modifier = Modifier.weight(1f).padding(horizontal = Space.xs),
             ) {
                 Row(
-                    Modifier.padding(horizontal = Space.md, vertical = Space.sm),
+                    Modifier
+                        .heightIn(min = Size.minTouchTarget)
+                        .padding(horizontal = Space.lg, vertical = Space.sm),
                     verticalAlignment = Alignment.Bottom,
                 ) {
                     Box(Modifier.weight(1f).padding(vertical = Space.xs)) {

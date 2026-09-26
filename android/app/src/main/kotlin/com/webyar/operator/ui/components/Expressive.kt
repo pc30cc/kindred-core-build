@@ -1,6 +1,10 @@
 package com.webyar.operator.ui.components
 
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material3.pulltorefresh.PullToRefreshState
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -220,5 +224,31 @@ fun ShapeFrame(
     val shape = remember(polygon) { PolygonShape(polygon) }
     Box(modifier.clip(shape).background(color), contentAlignment = Alignment.Center) {
         content()
+    }
+}
+
+/**
+ * Pull-to-refresh with the Expressive indicator: the contained loading shape
+ * follows the finger down, grows as the pull nears the threshold, and keeps
+ * morphing while the refresh runs.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BoxScope.PullIndicator(state: PullToRefreshState, refreshing: Boolean) {
+    val visible = refreshing || state.distanceFraction > 0f
+    if (!visible) return
+    Box(
+        Modifier
+            .align(Alignment.TopCenter)
+            .graphicsLayer {
+                val pulled = if (refreshing) 1f else state.distanceFraction.coerceAtMost(1.2f)
+                translationY = pulled * 72.dp.toPx() - size.height
+                val scale = if (refreshing) 1f else state.distanceFraction.coerceIn(0f, 1f)
+                scaleX = scale
+                scaleY = scale
+                alpha = if (refreshing) 1f else state.distanceFraction.coerceIn(0f, 1f)
+            },
+    ) {
+        ContainedLoadingIndicator()
     }
 }

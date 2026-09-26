@@ -186,12 +186,19 @@ describe('zibal verifyPayment', () => {
   });
 
   it('treats 102/103 and other codes as failures', async () => {
-    for (const result of [102, 103, 0, -1, 201]) {
+    for (const result of [102, 103, 0, -1, '201']) {
       mockJson({ result, refNumber: 'ref-1' });
       const out = await zibalProvider.verifyPayment!(config, verifyParams);
       expect(out.verified).toBe(false);
       expect(out.status).toBe('failed');
     }
+  });
+
+  it('reports 201 (already verified) as already_verified, never as a fresh success', async () => {
+    mockJson({ result: 201, refNumber: 'ref-1' });
+    const out = await zibalProvider.verifyPayment!(config, verifyParams);
+    expect(out.verified).toBe(true);
+    expect(out.status).toBe('already_verified');
   });
 
   it('does not coerce string result codes', async () => {

@@ -25,11 +25,11 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import type { PurchaseActionType } from './periods.js';
+import { extractProviderRefCandidates } from './providerBinding.js';
 import {
-  extractProviderRefCandidates,
-  getProviderReferenceContract,
-  requiresReferenceBinding,
-} from './providerBinding.js';
+  GATEWAY_VERIFICATION_METADATA_KEY,
+  type GatewayVerificationMarker,
+} from './gatewayVerification.js';
 import { insertWithDocumentNumber } from './invoiceNumber.js';
 
 export type PurchaseType = 'subscription' | 'ai_credit_topup' | 'wallet_deposit';
@@ -361,15 +361,32 @@ export type ClaimOutcome =
 export async function claimIntentForProcessing(
   config: ServerConfig,
   intentId: string,
-  opts: { now?: Date } = {},
+  opts: {
+    now?: Date;
+    /**
+     * Gateway verification that justified this claim. Persisted on the
+     * `pending → processing` transition (merged into `baseMetadata`), so a
+     * later "already verified" gateway answer can be proven to belong to THIS
+     * intent.
+     */
+    verification?: GatewayVerificationMarker;
+    baseMetadata?: Record<string, unknown> | null;
+  } = {},
 ): Promise<ClaimOutcome> {
   const supabase = getServiceClient(config);
   const now = opts.now ?? new Date();
   const nowIso = now.toISOString();
+  const claimPatch: Record<string, unknown> = { status: 'processing', processing_at: nowIso, updated_at: nowIso };
+  if (opts.verification) {
+    claimPatch.metadata = {
+      ...(opts.baseMetadata || {}),
+      [GATEWAY_VERIFICATION_METADATA_KEY]: opts.verification,
+    };
+  }
 
   const { data, error } = await supabase
     .from('billing_payment_intents')
-    .update({ status: 'processing', processing_at: nowIso, updated_at: nowIso })
+    .update(claimPatch)
     .eq('id', intentId)
     .eq('status', 'pending')
     .select('id')
@@ -475,38 +492,8 @@ export function extractProviderRef(params: unknown, providerName?: string): stri
   return extractProviderRefCandidates(providerName || '', params)[0] ?? null;
 }
 
-/**
- * Fail-closed binding check.
- *
- *   - binding provider without a stored reference  -> reject (checkout was
- *     never bound; finalizing it would trust the callback blindly);
- *   - callback without any reference               -> reject;
- *   - reference present but different              -> reject;
- *   - exact match                                  -> accept.
- */
-export function providerRefMatchesIntent(
-  intent: PaymentIntentRow,
-  params: unknown,
-): { ok: true } | { ok: false; reason: string } {
-  const providerName = intent.provider_name;
-  const contract = getProviderReferenceContract(providerName);
-  const stored = (intent.provider_ref || '').trim();
-
-  if (!stored) {
-    if (requiresReferenceBinding(providerName)) {
-      return { ok: false, reason: 'missing_stored_provider_reference' };
-    }
-    // Explicitly declared as having no bindable checkout reference.
-    return { ok: true };
-  }
-
-  const candidates = extractProviderRefCandidates(providerName, params);
-  if (candidates.length === 0) return { ok: false, reason: 'missing_provider_reference' };
-  if (!candidates.includes(stored)) return { ok: false, reason: 'provider_reference_mismatch' };
-  void contract;
-  return { ok: true };
-}
-
+// Fail-closed binding check (pure; lives with the other verification rules).
+export { providerRefMatchesIntent } from './gatewayVerification.js';
 
 /**
  * TTL sweep: a `pending` intent whose deadline passed becomes `expired`.

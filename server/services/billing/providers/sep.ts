@@ -42,18 +42,31 @@ function describeSepFailure(body: Record<string, unknown>): string {
 }
 
 // ── Verify-only readers ───────────────────────────────────────────────
-/** Raw `ResultCode`; the `> 0` comparison itself is left untouched. */
+/** Raw `ResultCode`, compared strictly (never coerced). */
 function readSepVerifyResultCode(body: unknown): unknown {
   return readSepRecord(body).ResultCode;
 }
 
+/** Raw `Success` flag; only an explicit `false` vetoes a success code. */
+function readSepVerifySuccess(body: unknown): unknown {
+  return readSepRecord(body).Success;
+}
+
 /**
- * Reproduces the previous `data.ResultCode > 0` relational comparison exactly,
- * including its JavaScript coercion, so no verification outcome changes. The
- * assertion only silences the compiler; it emits no runtime code.
+ * SEP VerifyTransaction result codes (Saman IPG contract):
+ *    0  -> verified now (success)
+ *    2  -> duplicate request: this RefNum was ALREADY verified
+ *   <0  -> failure (-2 not found, -6 older than 30 min, -104/-105 terminal,
+ *          -106 IP not allowed)
+ * A duplicate is reported as `already_verified`, so the caller accepts it only
+ * for the intent that itself consumed this RefNum, never for another one.
  */
-function isSepVerifyResultCodePositive(code: unknown): boolean {
-  return (code as number) > 0;
+function classifySepVerifyResult(body: unknown): 'success' | 'already_verified' | 'failed' {
+  const code = readSepVerifyResultCode(body);
+  if (readSepVerifySuccess(body) === false && code !== 2) return 'failed';
+  if (code === 0) return 'success';
+  if (code === 2) return 'already_verified';
+  return 'failed';
 }
 
 /** `TransactionDetail` only when it is a plain object. */
@@ -117,14 +130,15 @@ export const sepProvider: BillingProviderHandler = {
         TerminalNumber: config.terminal_id,
       }),
     });
-    const data = await res.json();
-    const resultCode = readSepVerifyResultCode(data);
-    const verified = isSepVerifyResultCodePositive(resultCode);
+    const data: unknown = await res.json();
+    const outcome = classifySepVerifyResult(data);
     return {
-      verified,
+      verified: outcome !== 'failed',
       providerRef: params.RefNum || '',
+      // Gateway-reported original amount (Rial): the caller compares it with
+      // the intent amount, which is what ties this RefNum to the checkout.
       amount: readSepOriginalAmount(data),
-      status: verified ? 'success' : 'failed',
+      status: outcome,
     };
   },
 
@@ -151,8 +165,8 @@ export const sepProvider: BillingProviderHandler = {
       const body = readSepRecord(data);
       if (readSepStatus(body) === -1) return { success: false, latencyMs: Date.now() - start, error: 'Invalid terminal ID' };
       return { success: true, latencyMs: Date.now() - start };
-    } catch (e: any) {
-      return { success: false, latencyMs: Date.now() - start, error: e.message };
+    } catch (e: unknown) {
+      return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };
     }
   },
 };

@@ -142,7 +142,7 @@ export const iranPardakhtSandboxProvider: BillingProviderHandler = {
       verified,
       providerRef: str(response?.refId) || str(params.refId) || authority,
       amount,
-      status: verified ? 'success' : 'failed',
+      status: !verified ? 'failed' : verifyStatus === 101 ? 'already_verified' : 'success',
     };
   },
 

@@ -7,7 +7,35 @@ changed by this document. This predates the GoTrue-off cutover work and is
 recorded here per that closure pass's instruction to document it formally
 without blocking the cutover on it.
 
-## Finding
+## Update — unguessable Supabase topics (C8 / H1 fix)
+
+The "channel name is the only boundary" gap below is closed without Supabase
+Auth:
+
+- The Supabase publisher (`server/services/realtime/publishers/supabase.ts`)
+  no longer broadcasts on canonical names. Each canonical channel maps to
+  `<canonical>:<base64url(HMAC-SHA256(key, "v1|<audience>|<canonical>"))[0..32]>`
+  (`server/services/realtime/channelTopic.ts`). Conversation channels get a
+  separate operator topic and visitor topic, so a visitor cannot inject
+  broadcasts that operators receive; operator-only channels have no visitor
+  topic at all.
+- Key: `REALTIME_CHANNEL_SECRET` (≥ 32 chars), else derived from
+  `SUPABASE_SERVICE_ROLE_KEY`; with neither, publishing and topic hand-out
+  fail closed (polling).
+- Clients never compute topics. Operators get them from
+  `/api/realtime/operator-{subscribe,inbox-subscribe,visitors-subscribe,presence-subscribe}`
+  with `transport: 'supabase'` (session + workspace membership). The widget
+  gets its conversation topic from `/api/realtime/subscribe` with
+  `transport: 'supabase'`.
+- `/api/realtime/subscribe` (both vendors) now also requires that the visitor
+  identified by the signed HttpOnly `dvsid` cookie owns the conversation
+  (`verifyConversationOwnership`, no client-supplied ids), instead of only
+  checking the conversation is in the token's workspace.
+
+The recommendation to prefer Centrifugo still stands (per-subscription
+tokens, revocation on expiry), but Supabase is no longer publicly readable.
+
+## Finding (original, pre-fix)
 
 Supabase Realtime broadcast channels, as currently wired, are **not
 authorized per-subscriber**. The practical access-control boundary for a

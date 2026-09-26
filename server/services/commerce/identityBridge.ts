@@ -214,6 +214,9 @@ export async function verifyAndBindCustomerContext(
     name: payload.name ?? null,
     email: payload.email ?? null,
     phone: payload.phone ?? null,
+    // Signed by the installation's own secret above — a proven identity,
+    // so it may resolve the store customer's existing contact.
+    identityVerified: true,
   }).catch((err) => {
     console.warn('[commerce.identity] contact upsert failed:', err instanceof Error ? err.message : err);
     return null;

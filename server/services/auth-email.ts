@@ -3,7 +3,16 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { sendEmail } from './email/index.js';
 
-const PLATFORM_WORKSPACE_FALLBACK = '00000000-0000-0000-0000-000000000000';
+/**
+ * Platform auth mail (verification, password reset) belongs to no tenant.
+ *
+ * This used to be attributed to "the first workspace in the table"
+ * (`workspaces.select('id').limit(1)`), which wrote the raw reset/verify link
+ * — token included — into THAT tenant's `email_logs`, readable by its admins:
+ * an account takeover for any platform user. `null` tells sendEmail() this is
+ * a platform send: same platform provider and templates, no tenant log row.
+ */
+const PLATFORM_EMAIL_WORKSPACE: null = null;
 
 function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
@@ -80,11 +89,6 @@ export async function resolveAppBaseUrl(config: ServerConfig): Promise<string> {
   return 'http://localhost:5173';
 }
 
-async function resolveWorkspaceId(config: ServerConfig) {
-  const sb = getServiceClient(config);
-  const { data: workspace } = await sb.from('workspaces').select('id').limit(1).maybeSingle();
-  return workspace?.id || PLATFORM_WORKSPACE_FALLBACK;
-}
 
 async function resolveBrandName(config: ServerConfig, locale: string = 'en'): Promise<string> {
   const sb = getServiceClient(config);
@@ -167,9 +171,8 @@ export async function issueVerificationEmail(
       return { success: false, error: tokenInsertError.message };
     }
 
-    const [appBaseUrl, workspaceId, brandName] = await Promise.all([
+    const [appBaseUrl, brandName] = await Promise.all([
       resolveAppBaseUrl(config),
-      resolveWorkspaceId(config),
       resolveBrandName(config, options.locale),
     ]);
 
@@ -177,7 +180,7 @@ export async function issueVerificationEmail(
     const userName = options.fullName || options.email.split('@')[0];
 
     const result = await sendEmail(config, {
-      workspaceId,
+      workspaceId: PLATFORM_EMAIL_WORKSPACE,
       to: options.email,
       templateSlug: 'email_verify',
       templateData: {
@@ -237,9 +240,8 @@ export async function issueRecoveryEmail(
       return { success: false, error: tokenInsertError.message };
     }
 
-    const [appBaseUrl, workspaceId, brandName] = await Promise.all([
+    const [appBaseUrl, brandName] = await Promise.all([
       resolveAppBaseUrl(config),
-      resolveWorkspaceId(config),
       resolveBrandName(config, options.locale),
     ]);
 
@@ -247,7 +249,7 @@ export async function issueRecoveryEmail(
     const userName = options.fullName || options.email.split('@')[0];
 
     const result = await sendEmail(config, {
-      workspaceId,
+      workspaceId: PLATFORM_EMAIL_WORKSPACE,
       to: options.email,
       templateSlug: 'password_reset',
       templateData: {

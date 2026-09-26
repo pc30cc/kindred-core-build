@@ -10,7 +10,7 @@
  *       - audit list
  */
 
-import { Router } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
@@ -36,7 +36,7 @@ import {
   normalizeNodes,
   type RealtimeProviderConfig,
 } from '../services/realtime/index.js';
-import { verifySessionToken } from '../services/widget/security.js';
+import { verifySessionToken, verifyConversationOwnership } from '../services/widget/security.js';
 import { readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import { perfHttpMiddleware } from '../services/observability/perf.js';
 import {
@@ -45,6 +45,9 @@ import {
 } from '../services/widget/public.js';
 import { isOriginAllowed } from '../utils/domain.js';
 import {
+  buildChannelName,
+  buildInboxChannelName,
+  buildVisitorsChannelName,
   channelBelongsToWorkspace,
   isInboxChannel,
   isVisitorsChannel,
@@ -55,7 +58,13 @@ import {
   isVisitorPresenceChannel,
   VISITOR_PRESENCE_CHANNEL_VERSION,
   VISITOR_PRESENCE_BATCH_MAX,
+  type CentrifugoConfig,
 } from '../services/realtime/types.js';
+import {
+  deriveSupabaseTopic,
+  RealtimeChannelSecretUnavailableError,
+  type RealtimeTopicAudience,
+} from '../services/realtime/channelTopic.js';
 
 import {
   resolveVisitorPresenceMode,
@@ -76,9 +85,43 @@ import { getMonitoringCollector } from '../services/observability/collector/inde
 import { realtimeControlRouter } from './realtimeControl.js';
 import { resolveEffectivePolicy } from '../services/realtime/effectivePolicy.js';
 import { recordRealtimeProviderAudit } from '../services/realtime/providerAudit.js';
-import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
+import { authorizeWorkspaceAccess, requirePlatformAdmin, serverConfigOf } from '../lib/workspaceAuth.js';
 
 export const realtimeRouter = Router();
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err ?? '');
+}
+
+/**
+ * Optional client hint: the caller is the Supabase transport and needs the
+ * concrete (unguessable) broadcast topic for the channel instead of a
+ * Centrifugo subscription token. Only ever honored AFTER the endpoint's own
+ * authentication/authorization has passed. Absent → Centrifugo behavior,
+ * byte-identical to before.
+ */
+const transportHintSchema = z.enum(['supabase']).optional();
+
+/**
+ * Reply with the Supabase topic for an already-authorized channel. Fails
+ * closed with 503 when no topic secret is configured — the client then
+ * stays on polling instead of joining a guessable public channel.
+ */
+function sendSupabaseTopic(
+  res: Response,
+  channel: string,
+  audience: RealtimeTopicAudience,
+): Response {
+  try {
+    const topic = deriveSupabaseTopic(channel, audience);
+    return res.json({ vendor: 'supabase', channel, topic });
+  } catch (err) {
+    if (err instanceof RealtimeChannelSecretUnavailableError) {
+      return res.status(503).json({ error: 'Realtime channel secret unavailable' });
+    }
+    return res.status(403).json({ error: 'Channel not allowed' });
+  }
+}
 
 // Phase 6A — Realtime Control Plane (admin-only). Mounted before the
 // dynamic /admin/* handlers below so it gets first match on /admin/control*.
@@ -95,8 +138,8 @@ realtimeRouter.use('/admin/control', realtimeControlRouter);
  * Returns true on allow, false on deny (response already sent).
  */
 async function enforceWorkspaceOrigin(
-  req: any,
-  res: any,
+  req: Request,
+  res: Response,
   config: ServerConfig,
   workspaceId: string,
 ): Promise<boolean> {
@@ -137,7 +180,7 @@ const connectSchema = z.object({
 });
 
 realtimeRouter.post('/connect', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   try {
     const parsed = connectSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -156,7 +199,7 @@ realtimeRouter.post('/connect', async (req, res) => {
     if (!(await enforceWorkspaceOrigin(req, res, config, parsed.data.workspace_id))) return;
 
     // Visitor identity comes from HttpOnly cookie (cross-tab/device safe).
-    const visitor = readVisitorCookie(req as any, parsed.data.workspace_id);
+    const visitor = readVisitorCookie(req, parsed.data.workspace_id);
     const subjectId = visitor?.v || `vt_${tokRes.nonce || 'anon'}`;
 
     // Reconnect-labeling fix: the client already declared its own lifecycle
@@ -237,6 +280,10 @@ realtimeRouter.post('/connect', async (req, res) => {
     // can open a Realtime websocket directly. The anon key is a public
     // (publishable) key and is already shipped to the dashboard browser
     // bundle today; the service-role key is NEVER sent to the client.
+    // The anon key alone grants nothing useful: every broadcast goes to an
+    // unguessable HMAC-derived topic (services/realtime/channelTopic.ts),
+    // which the widget obtains per conversation from /subscribe after the
+    // cookie-based ownership check.
     if (resolved.effective_vendor === 'supabase') {
       return res.json({
         vendor: 'supabase',
@@ -323,7 +370,7 @@ realtimeRouter.post('/connect', async (req, res) => {
       source: resolved.source,
       effective_policy,
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[realtime/connect] error:', err);
     emitMetric(config, {
       metric: 'realtime.token_refresh_failed',
@@ -350,7 +397,7 @@ realtimeRouter.post('/connect', async (req, res) => {
 const reconnectSignalSchema = z.object({ workspace_id: z.string().uuid() });
 
 realtimeRouter.post('/reconnect-signal', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   try {
     const parsed = reconnectSignalSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
@@ -363,7 +410,7 @@ realtimeRouter.post('/reconnect-signal', async (req, res) => {
     }
     if (!(await enforceWorkspaceOrigin(req, res, config, parsed.data.workspace_id))) return;
 
-    const visitor = readVisitorCookie(req as any, parsed.data.workspace_id);
+    const visitor = readVisitorCookie(req, parsed.data.workspace_id);
     const subjectId = visitor?.v || `vt_${tokRes.nonce || 'anon'}`;
 
     const { duplicate, hadPriorGrant } = getMonitoringCollector().validateReconnect(
@@ -380,7 +427,7 @@ realtimeRouter.post('/reconnect-signal', async (req, res) => {
       });
     }
     return res.json({ ok: true });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[realtime/reconnect-signal] error:', err);
     return res.status(500).json({ error: 'Internal error' });
   }
@@ -409,7 +456,7 @@ const visitorPresenceSchema = z.object({
 });
 
 realtimeRouter.post('/visitor-presence', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   try {
     const parsed = visitorPresenceSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
@@ -452,7 +499,7 @@ realtimeRouter.post('/visitor-presence', async (req, res) => {
     // HttpOnly visitor cookie is, so presence requires it and requires it to
     // match the session row. Without this, a caller holding a bootstrap token
     // could enumerate session ids and mint presence for someone else.
-    const visitor = readVisitorCookie(req as any, workspaceId);
+    const visitor = readVisitorCookie(req, workspaceId);
     const identityOk = !!visitor?.v && !!session.visitor_id && visitor.v === session.visitor_id;
     if (!identityOk) {
       emitMetric(config, {
@@ -524,20 +571,32 @@ realtimeRouter.post('/visitor-presence', async (req, res) => {
       lease_expires_at: lease.expires_at,
     });
 
-  } catch (err: any) {
+  } catch (err) {
     console.error('[realtime/visitor-presence] error:', err);
     return res.status(500).json({ error: 'Internal error' });
   }
 });
 
 // Public-ish channel subscription token issuer.
+//
+// Authorization (both vendors):
+//   1. valid widget session token for this workspace;
+//   2. request origin in the workspace allow-list;
+//   3. the conversation must belong to THIS visitor — proven with the signed
+//      HttpOnly `dvsid` cookie identity (verifyConversationOwnership with no
+//      client-supplied visitor/session id). A widget token alone only proves
+//      "our server issued a token for this workspace", which anyone can get
+//      from bootstrap, so it must never unlock an arbitrary conversation.
+// Then: Centrifugo → channel-scoped subscription token (unchanged);
+//       Supabase (`transport: 'supabase'`) → the visitor-audience topic.
 const subscribeSchema = z.object({
   workspace_id: z.string().uuid(),
   conversation_id: z.string().uuid(),
+  transport: transportHintSchema,
 });
 
 realtimeRouter.post('/subscribe', perfHttpMiddleware('realtime.subscribe'), async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   try {
     const parsed = subscribeSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -560,33 +619,48 @@ realtimeRouter.post('/subscribe', perfHttpMiddleware('realtime.subscribe'), asyn
     // Dynamic per-workspace origin enforcement.
     if (!(await enforceWorkspaceOrigin(req, res, config, parsed.data.workspace_id))) return;
 
-    const visitor = readVisitorCookie(req as any, parsed.data.workspace_id);
+    const visitor = readVisitorCookie(req, parsed.data.workspace_id);
     const subjectId = visitor?.v || `vt_${tokRes.nonce || 'anon'}`;
 
-    const sb = getServiceClient(config);
-    // Authorize: this conversation must belong to this visitor's workspace.
-    const { data: conv } = await sb
-      .from('conversations')
-      .select('id, workspace_id')
-      .eq('id', parsed.data.conversation_id)
-      .maybeSingle();
-    if (!conv || conv.workspace_id !== parsed.data.workspace_id) {
+    // Authorize: the conversation must be in this workspace AND owned by the
+    // visitor identified by the signed HttpOnly cookie. No client-supplied
+    // visitor_id / session_id is consulted (both are forgeable).
+    const ownership = await verifyConversationOwnership(
+      config,
+      parsed.data.conversation_id,
+      parsed.data.workspace_id,
+      null,
+      null,
+      req,
+    );
+    if (!ownership.valid) {
       emitMetric(config, {
         metric: 'realtime.channel_ownership_reject',
         workspaceId: parsed.data.workspace_id,
         conversationId: parsed.data.conversation_id,
-        driver: 'centrifugo',
-        tags: { reason: 'conversation_not_in_workspace', endpoint: 'subscribe' },
+        driver: parsed.data.transport === 'supabase' ? 'supabase' : 'centrifugo',
+        tags: {
+          reason: visitor?.v ? 'conversation_not_owned' : 'missing_visitor_cookie',
+          endpoint: 'subscribe',
+        },
       });
       return res.status(403).json({ error: 'Conversation not accessible' });
+    }
+
+    // Strict channel naming — never trust client-supplied channel names.
+    const channel = buildChannelName(parsed.data.workspace_id, parsed.data.conversation_id);
+
+    if (parsed.data.transport === 'supabase') {
+      if (!channelBelongsToWorkspace(channel, parsed.data.workspace_id)) {
+        return res.status(403).json({ error: 'Channel not allowed' });
+      }
+      return sendSupabaseTopic(res, channel, 'visitor');
     }
 
     const driver = await getCentrifugoDriver(config);
     if (!driver) {
       return res.json({ vendor: 'polling_builtin' });
     }
-    // Strict channel naming — never trust client-supplied channel names.
-    const channel = `ws:${parsed.data.workspace_id}:conv:${parsed.data.conversation_id}`;
     if (!channelBelongsToWorkspace(channel, parsed.data.workspace_id)
         || isInboxChannel(channel, parsed.data.workspace_id)
         || isVisitorsChannel(channel, parsed.data.workspace_id)
@@ -619,7 +693,7 @@ realtimeRouter.post('/subscribe', perfHttpMiddleware('realtime.subscribe'), asyn
       tags: { kind: 'subscribe', ttl_s: platform.realtime.tokenTtlSeconds },
     });
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[realtime/subscribe] error:', err);
     emitMetric(config, {
       metric: 'realtime.subscribe_failed',
@@ -655,16 +729,17 @@ const operatorConnectSchema = z.object({
 const operatorSubscribeSchema = z.object({
   workspace_id: z.string().uuid(),
   conversation_id: z.string().uuid(),
+  transport: transportHintSchema,
 });
 
-async function authorizeOperator(req: any, res: any, _config: ServerConfig, workspaceId: string) {
+async function authorizeOperator(req: Request, res: Response, _config: ServerConfig, workspaceId: string) {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return null;
   return { id: auth.userId };
 }
 
 realtimeRouter.post('/operator-connect', perfHttpMiddleware('realtime.operator_connect'), async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   try {
     const parsed = operatorConnectSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
@@ -761,7 +836,7 @@ realtimeRouter.post('/operator-connect', perfHttpMiddleware('realtime.operator_c
       capabilities: resolved.capabilities,
       effective_policy,
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[realtime/operator-connect]', err);
     emitMetric(config, {
       metric: 'realtime.token_refresh_failed',
@@ -784,7 +859,7 @@ realtimeRouter.post('/operator-connect', perfHttpMiddleware('realtime.operator_c
 const operatorReconnectSignalSchema = z.object({ workspace_id: z.string().uuid() });
 
 realtimeRouter.post('/operator-reconnect-signal', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   try {
     const parsed = operatorReconnectSignalSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
@@ -806,14 +881,14 @@ realtimeRouter.post('/operator-reconnect-signal', async (req, res) => {
       });
     }
     return res.json({ ok: true });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[realtime/operator-reconnect-signal] error:', err);
     return res.status(500).json({ error: 'Internal error' });
   }
 });
 
 realtimeRouter.post('/operator-subscribe', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   try {
     const parsed = operatorSubscribeSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -842,9 +917,15 @@ realtimeRouter.post('/operator-subscribe', async (req, res) => {
       });
       return res.status(404).json({ error: 'Conversation not in workspace' });
     }
+    const channel = buildChannelName(parsed.data.workspace_id, parsed.data.conversation_id);
+    if (parsed.data.transport === 'supabase') {
+      if (!channelBelongsToWorkspace(channel, parsed.data.workspace_id)) {
+        return res.status(403).json({ error: 'Channel not allowed' });
+      }
+      return sendSupabaseTopic(res, channel, 'operator');
+    }
     const driver = await getCentrifugoDriver(config);
     if (!driver) return res.json({ vendor: 'polling_builtin' });
-    const channel = `ws:${parsed.data.workspace_id}:conv:${parsed.data.conversation_id}`;
     if (!channelBelongsToWorkspace(channel, parsed.data.workspace_id)) {
       emitMetric(config, {
         metric: 'realtime.channel_ownership_reject',
@@ -870,7 +951,7 @@ realtimeRouter.post('/operator-subscribe', async (req, res) => {
       tags: { kind: 'operator-subscribe', ttl_s: platform.realtime.tokenTtlSeconds },
     });
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[realtime/operator-subscribe]', err);
     emitMetric(config, {
       metric: 'realtime.subscribe_failed',
@@ -896,19 +977,23 @@ realtimeRouter.post('/operator-subscribe', async (req, res) => {
 //  is never trusted. Widget/visitor tokens can never reach this endpoint,
 //  and /realtime/subscribe explicitly refuses this channel shape.
 // ─────────────────────────────────────────────────────────────────────
-const operatorPresenceSubscribeSchema = z.object({ workspace_id: z.string().uuid() });
+const operatorPresenceSubscribeSchema = z.object({
+  workspace_id: z.string().uuid(),
+  transport: transportHintSchema,
+});
 
 realtimeRouter.post('/operator-presence-subscribe', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   try {
     const parsed = operatorPresenceSubscribeSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
     const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
     if (!user) return;
 
+    const channel = buildOperatorPresenceChannelName(parsed.data.workspace_id);
+    if (parsed.data.transport === 'supabase') return sendSupabaseTopic(res, channel, 'operator');
     const driver = await getCentrifugoDriver(config);
     if (!driver) return res.json({ vendor: 'polling_builtin' });
-    const channel = buildOperatorPresenceChannelName(parsed.data.workspace_id);
     const platform = await loadWidgetPlatformRuntimeSettings(config);
     const tk = driver.issueSubscriptionToken({
       sub: `op_${user.id}`,
@@ -917,7 +1002,7 @@ realtimeRouter.post('/operator-presence-subscribe', async (req, res) => {
       expiresInSeconds: platform.realtime.tokenTtlSeconds,
     });
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[realtime/operator-presence-subscribe]', err);
     return res.status(500).json({ error: 'Internal error' });
   }
@@ -933,10 +1018,13 @@ realtimeRouter.post('/operator-presence-subscribe', async (req, res) => {
 //  never reach this endpoint and could not subscribe to this channel
 //  even if they tried (`/realtime/subscribe` rejects inbox channel names).
 // ─────────────────────────────────────────────────────────────────────
-const operatorInboxSubscribeSchema = z.object({ workspace_id: z.string().uuid() });
+const operatorInboxSubscribeSchema = z.object({
+  workspace_id: z.string().uuid(),
+  transport: transportHintSchema,
+});
 
 realtimeRouter.post('/operator-inbox-subscribe', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   try {
     const parsed = operatorInboxSubscribeSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -951,16 +1039,17 @@ realtimeRouter.post('/operator-inbox-subscribe', async (req, res) => {
     const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
     if (!user) return;
 
+    const channel = buildInboxChannelName(parsed.data.workspace_id);
+    if (parsed.data.transport === 'supabase') return sendSupabaseTopic(res, channel, 'operator');
     const driver = await getCentrifugoDriver(config);
     if (!driver) return res.json({ vendor: 'polling_builtin' });
-    const channel = `ws:${parsed.data.workspace_id}:inbox`;
     const platform = await loadWidgetPlatformRuntimeSettings(config);
     const tk = driver.issueSubscriptionToken({
       sub: `op_${user.id}`, channel, workspaceId: parsed.data.workspace_id,
       expiresInSeconds: platform.realtime.tokenTtlSeconds,
     });
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[realtime/operator-inbox-subscribe]', err);
     emitMetric(config, {
       metric: 'realtime.subscribe_failed',
@@ -979,10 +1068,13 @@ realtimeRouter.post('/operator-inbox-subscribe', async (req, res) => {
 //  payload.kind = 'visitor.upsert' | 'visitor.remove' for the live
 //  Visitors page (list + map).
 // ─────────────────────────────────────────────────────────────────────
-const operatorVisitorsSubscribeSchema = z.object({ workspace_id: z.string().uuid() });
+const operatorVisitorsSubscribeSchema = z.object({
+  workspace_id: z.string().uuid(),
+  transport: transportHintSchema,
+});
 
 realtimeRouter.post('/operator-visitors-subscribe', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   try {
     const parsed = operatorVisitorsSubscribeSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -997,16 +1089,17 @@ realtimeRouter.post('/operator-visitors-subscribe', async (req, res) => {
     const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
     if (!user) return;
 
+    const channel = buildVisitorsChannelName(parsed.data.workspace_id);
+    if (parsed.data.transport === 'supabase') return sendSupabaseTopic(res, channel, 'operator');
     const driver = await getCentrifugoDriver(config);
     if (!driver) return res.json({ vendor: 'polling_builtin' });
-    const channel = `ws:${parsed.data.workspace_id}:visitors`;
     const platform = await loadWidgetPlatformRuntimeSettings(config);
     const tk = driver.issueSubscriptionToken({
       sub: `op_${user.id}`, channel, workspaceId: parsed.data.workspace_id,
       expiresInSeconds: platform.realtime.tokenTtlSeconds,
     });
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[realtime/operator-visitors-subscribe]', err);
     emitMetric(config, {
       metric: 'realtime.subscribe_failed',
@@ -1021,11 +1114,17 @@ realtimeRouter.post('/operator-visitors-subscribe', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────
 //  ADMIN: /api/realtime/admin/*
 // ─────────────────────────────────────────────────────────────────────
-async function requireAdmin(req: any, res: any, next: any) {
+async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const userId = await requirePlatformAdmin(req, res);
   if (!userId) return;
-  (req as any).adminUser = { id: userId };
+  res.locals.adminUserId = userId;
   next();
+}
+
+/** The platform-admin id `requireAdmin` verified for this request. */
+function adminUserIdOf(res: Response): string | null {
+  const id: unknown = res.locals.adminUserId;
+  return typeof id === 'string' ? id : null;
 }
 
 /**
@@ -1036,7 +1135,7 @@ async function requireAdmin(req: any, res: any, next: any) {
  * `db_liveness_writes_while_realtime_healthy` MUST stay 0.
  */
 realtimeRouter.get('/admin/visitor-presence', requireAdmin, async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   try {
     const workspaceId = typeof req.query.workspace_id === 'string' ? req.query.workspace_id : undefined;
     const mode = await resolveVisitorPresenceMode(config, workspaceId);
@@ -1050,14 +1149,14 @@ realtimeRouter.get('/admin/visitor-presence', requireAdmin, async (req, res) => 
       candidate_index: getCandidateIndexMetrics(),
     });
 
-  } catch (err: any) {
+  } catch (err) {
     console.error('[realtime/admin/visitor-presence] error:', err);
     res.status(500).json({ error: 'Internal error' });
   }
 });
 
 realtimeRouter.get('/admin/config', requireAdmin, async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const cfg = await loadRealtimeConfig(config, true);
   res.json({ config: maskedConfig(cfg) });
 });
@@ -1086,8 +1185,8 @@ const adminUpdateSchema = z.object({
 
 realtimeRouter.put('/admin/config', requireAdmin, async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const adminUser = (req as any).adminUser;
+    const config: ServerConfig = serverConfigOf(req);
+    const adminUserId = adminUserIdOf(res);
     const parsed = adminUpdateSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
 
@@ -1119,7 +1218,7 @@ realtimeRouter.put('/admin/config', requireAdmin, async (req, res) => {
         const check = await preflightTopology(next);
         if (!check.ok && !force) {
           await recordRealtimeProviderAudit(config, {
-            changed_by: adminUser.id,
+            changed_by: adminUserId,
             action: 'preflight_failed',
             vendor: next.vendor,
             prev_vendor: prev.vendor,
@@ -1136,7 +1235,7 @@ realtimeRouter.put('/admin/config', requireAdmin, async (req, res) => {
 
     // Audit (masked diff only)
     await recordRealtimeProviderAudit(config, {
-      changed_by: adminUser.id,
+      changed_by: adminUserId,
       action: 'configure',
       vendor: next.vendor,
       prev_vendor: prev.vendor,
@@ -1146,16 +1245,16 @@ realtimeRouter.put('/admin/config', requireAdmin, async (req, res) => {
     });
 
     res.json({ ok: true, config: maskedConfig(next) });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[realtime/admin/config PUT] error:', err);
-    res.status(500).json({ error: err.message || 'Internal error' });
+    res.status(500).json({ error: errMessage(err) || 'Internal error' });
   }
 });
 
 realtimeRouter.post('/admin/test', requireAdmin, async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   try {
-    const adminUser = (req as any).adminUser;
+    const adminUserId = adminUserIdOf(res);
     const cfg = await loadRealtimeConfig(config, true);
 
     if (cfg.vendor !== 'centrifugo' || !cfg.centrifugo) {
@@ -1165,7 +1264,7 @@ realtimeRouter.post('/admin/test', requireAdmin, async (req, res) => {
     if (!c.ws_url || !c.api_url || !c.api_key || !c.token_hmac_secret) {
       return res.json({ status: 'down', message: 'Centrifugo configuration incomplete' });
     }
-    const driver = new CentrifugoDriver(c as any);
+    const driver = new CentrifugoDriver(c as CentrifugoConfig);
     const h = await driver.health();
     if (h.status !== 'healthy') {
       // Phase 3 — surface upstream Centrifugo socket failure as a
@@ -1180,32 +1279,32 @@ realtimeRouter.post('/admin/test', requireAdmin, async (req, res) => {
       });
     }
     await recordRealtimeProviderAudit(config, {
-      changed_by: adminUser.id,
+      changed_by: adminUserId,
       action: 'test',
       vendor: cfg.vendor,
       result: h.status === 'healthy' ? 'success' : 'failed',
       error_message: h.status !== 'healthy' ? h.message : null,
     });
     res.json({ status: h.status, message: h.message, checked_at: Date.now() });
-  } catch (err: any) {
+  } catch (err) {
     emitMetric(config, {
       metric: 'realtime.ws_error',
       driver: 'centrifugo',
       source: 'server',
       tags: { endpoint: 'admin-test', reason: 'exception' },
     });
-    res.status(500).json({ status: 'down', message: err.message });
+    res.status(500).json({ status: 'down', message: errMessage(err) });
   }
 });
 
 realtimeRouter.get('/admin/resolved', requireAdmin, async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const resolved = await resolveRealtimeProvider(config);
   res.json(resolved);
 });
 
 realtimeRouter.get('/admin/audit', requireAdmin, async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data, error } = await sb.rpc('admin_list_realtime_audit', { _limit: 50 });
   if (error) return res.status(500).json({ error: error.message });
@@ -1238,16 +1337,17 @@ const nodeInputSchema = z.object({
 const nodePatchSchema = nodeInputSchema.partial().omit({ id: true });
 
 async function auditNodeAction(
-  req: any,
+  req: Request,
+  res: Response,
   action: string,
   detail: Record<string, unknown>,
   result: 'success' | 'failed' = 'success',
   errorMessage?: string,
 ) {
-  const config: ServerConfig = req.serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   try {
     await recordRealtimeProviderAudit(config, {
-      changed_by: req.adminUser?.id ?? null,
+      changed_by: adminUserIdOf(res),
       action,
       vendor: 'centrifugo',
       // Node records carry no secrets, so the diff is safe to store as-is.
@@ -1264,7 +1364,7 @@ async function auditNodeAction(
 /** Node list + live health (cached; forced refresh with ?refresh=1). */
 realtimeRouter.get('/admin/nodes', requireAdmin, async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const cfg = await loadRealtimeConfig(config, true);
     const nodes = await listNodes(config);
     const health = nodes.length
@@ -1279,45 +1379,45 @@ realtimeRouter.get('/admin/nodes', requireAdmin, async (req, res) => {
         effective_status: effectiveNodeStatus(n, health[n.id]),
       })),
     });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Internal error' });
+  } catch (err) {
+    res.status(500).json({ error: errMessage(err) || 'Internal error' });
   }
 });
 
 realtimeRouter.post('/admin/nodes', requireAdmin, async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const parsed = nodeInputSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid node', details: parsed.error.flatten() });
     const nodes = await addNode(config, parsed.data as Parameters<typeof addNode>[1]);
-    await auditNodeAction(req, 'node_add', { id: parsed.data.id ?? null, ws_url: parsed.data.ws_url });
+    await auditNodeAction(req, res, 'node_add', { id: parsed.data.id ?? null, ws_url: parsed.data.ws_url });
     res.json({ ok: true, nodes });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Internal error' });
+  } catch (err) {
+    res.status(400).json({ error: errMessage(err) || 'Internal error' });
   }
 });
 
 realtimeRouter.put('/admin/nodes/:id', requireAdmin, async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const parsed = nodePatchSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid patch', details: parsed.error.flatten() });
     const nodes = await updateNode(config, req.params.id, parsed.data);
-    await auditNodeAction(req, 'node_update', { id: req.params.id, patch: parsed.data });
+    await auditNodeAction(req, res, 'node_update', { id: req.params.id, patch: parsed.data });
     res.json({ ok: true, nodes });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Internal error' });
+  } catch (err) {
+    res.status(400).json({ error: errMessage(err) || 'Internal error' });
   }
 });
 
 realtimeRouter.delete('/admin/nodes/:id', requireAdmin, async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const nodes = await removeNode(config, req.params.id);
-    await auditNodeAction(req, 'node_remove', { id: req.params.id });
+    await auditNodeAction(req, res, 'node_remove', { id: req.params.id });
     res.json({ ok: true, nodes });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Internal error' });
+  } catch (err) {
+    res.status(400).json({ error: errMessage(err) || 'Internal error' });
   }
 });
 
@@ -1328,52 +1428,52 @@ realtimeRouter.delete('/admin/nodes/:id', requireAdmin, async (req, res) => {
  */
 realtimeRouter.post('/admin/nodes/:id/drain', requireAdmin, async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const draining = req.body?.draining !== false;
     const nodes = await setNodeDraining(config, req.params.id, draining);
-    await auditNodeAction(req, draining ? 'node_drain' : 'node_resume', { id: req.params.id });
+    await auditNodeAction(req, res, draining ? 'node_drain' : 'node_resume', { id: req.params.id });
     res.json({ ok: true, nodes });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Internal error' });
+  } catch (err) {
+    res.status(400).json({ error: errMessage(err) || 'Internal error' });
   }
 });
 
 /** Probe a single node (forced, bypasses the health cache). */
 realtimeRouter.post('/admin/nodes/:id/test', requireAdmin, async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const cfg = await loadRealtimeConfig(config, true);
     const nodes = await listNodes(config);
     const node = nodes.find((n) => n.id === req.params.id);
     if (!node) return res.status(404).json({ error: 'Node not found' });
     const health = await getClusterHealth([node], cfg.centrifugo?.api_key || '', { force: true });
     res.json({ node_id: node.id, health: health[node.id] ?? null });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Internal error' });
+  } catch (err) {
+    res.status(500).json({ error: errMessage(err) || 'Internal error' });
   }
 });
 
 /** Probe every node at once. */
 realtimeRouter.post('/admin/nodes/test-all', requireAdmin, async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const cfg = await loadRealtimeConfig(config, true);
     const nodes = await listNodes(config);
     const health = await getClusterHealth(nodes, cfg.centrifugo?.api_key || '', { force: true });
     res.json({ health });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Internal error' });
+  } catch (err) {
+    res.status(500).json({ error: errMessage(err) || 'Internal error' });
   }
 });
 
 /** Preflight the CURRENT stored config without changing anything. */
 realtimeRouter.post('/admin/preflight', requireAdmin, async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const cfg = await loadRealtimeConfig(config, true);
     res.json(await preflightTopology(cfg));
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Internal error' });
+  } catch (err) {
+    res.status(500).json({ error: errMessage(err) || 'Internal error' });
   }
 });
 
@@ -1416,7 +1516,7 @@ export async function preflightTopology(cfg: RealtimeProviderConfig): Promise<To
     if (!ok) errors.push('WebSocket URL and API URL are required');
     checks.single_node_urls = { ok };
     if (ok && c.api_key) {
-      const h = await new CentrifugoDriver(c as any).info();
+      const h = await new CentrifugoDriver(c as CentrifugoConfig).info();
       checks.node_health = { ok: h.status === 'healthy', detail: h.message };
       if (h.status !== 'healthy') errors.push(`Centrifugo unreachable: ${h.message}`);
     }
@@ -1501,7 +1601,7 @@ export async function preflightTopology(cfg: RealtimeProviderConfig): Promise<To
       // proven here — that is covered by the integration test suite
       // (scripts/realtime/cross-node-integration.mjs). We do not claim more
       // than we measured.
-      const driverA = new CentrifugoDriver({ ...(c as any), api_url: healthy[0].api_url });
+      const driverA = new CentrifugoDriver({ ...(c as CentrifugoConfig), api_url: healthy[0].api_url });
       const pub = await driverA.publish(`ws:preflight:conv:${Date.now()}`, { kind: 'preflight' });
       checks.publish_accepted = { ok: pub.ok, detail: pub.error };
       if (!pub.ok) errors.push(`Publish through ${healthy[0].id} failed: ${pub.error}`);
@@ -1529,29 +1629,34 @@ export async function preflightTopology(cfg: RealtimeProviderConfig): Promise<To
 }
 
 
-function mergeCentrifugo(prev: any, next: any): any {
-  const result: any = { ...(prev || {}) };
-  if (!next) return result;
+type CentrifugoConfigPatch = Record<string, unknown>;
+
+function mergeCentrifugo(
+  prev: Partial<CentrifugoConfig> | undefined,
+  next: CentrifugoConfigPatch | undefined,
+): Partial<CentrifugoConfig> {
+  const result: CentrifugoConfigPatch = { ...(prev || {}) };
+  if (!next) return result as Partial<CentrifugoConfig>;
   for (const k of Object.keys(next)) {
-    const v = (next as any)[k];
+    const v = next[k];
     // Empty or masked secret values mean "do not change".
     if ((k === 'api_key' || k === 'token_hmac_secret') && (v === '' || v == null || isMaskedSecretValue(v))) continue;
     result[k] = v;
   }
-  return result;
+  return result as Partial<CentrifugoConfig>;
 }
 
 function isMaskedSecretValue(value: unknown): boolean {
   return typeof value === 'string' && value.includes('•');
 }
 
-function diffMask(prev: RealtimeProviderConfig, next: RealtimeProviderConfig): Record<string, any> {
-  const out: Record<string, any> = {};
+function diffMask(prev: RealtimeProviderConfig, next: RealtimeProviderConfig): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
   if (prev.vendor !== next.vendor) out.vendor = { from: prev.vendor, to: next.vendor };
   if (prev.enabled !== next.enabled) out.enabled = { from: prev.enabled, to: next.enabled };
   if (prev.fallback_policy !== next.fallback_policy) out.fallback_policy = { from: prev.fallback_policy, to: next.fallback_policy };
   if (next.centrifugo) {
-    const cdiff: Record<string, any> = {};
+    const cdiff: Record<string, unknown> = {};
     const fields: Array<keyof NonNullable<RealtimeProviderConfig['centrifugo']>> = ['ws_url', 'api_url', 'allowed_origins', 'connect_timeout_ms', 'subscribe_timeout_ms', 'presence_enabled', 'typing_enabled', 'token_ttl_seconds'];
     for (const f of fields) {
       const pv = prev.centrifugo?.[f];

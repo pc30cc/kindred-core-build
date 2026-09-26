@@ -36,7 +36,8 @@ public sealed partial class SettingsPage : Page
         SoundToggle.IsOn = settings.NotificationSound;
         StartupToggle.IsOn = settings.StartWithWindows;
         TrayToggle.IsOn = settings.CloseToTray;
-        _ = ShowCacheAsync();
+        ShowStorage();
+        Host.PlatformChanged += ShowStorage;
         Host.Updates.PropertyChanged += OnUpdateChanged;
         ShowUpdate();
         _ready = true;
@@ -46,6 +47,18 @@ public sealed partial class SettingsPage : Page
     {
         base.OnNavigatedFrom(e);
         Host.Updates.PropertyChanged -= OnUpdateChanged;
+        Host.PlatformChanged -= ShowStorage;
+    }
+
+    /// <summary>
+    /// The Storage section, when Super Admin shows it to operators. Hidden, the
+    /// cache itself works exactly the same; only this view of it is left out.
+    /// </summary>
+    private void ShowStorage()
+    {
+        var visible = Host.Settings.StorageSettingsVisible;
+        StorageHeader.Visibility = CacheExpander.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        if (visible) _ = ShowCacheAsync();
     }
 
     private void ApplyLanguage()

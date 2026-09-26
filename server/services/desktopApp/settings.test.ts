@@ -24,6 +24,7 @@ describe('desktop app settings — normalize', () => {
       download_url: '',
       update_feed_url: '   ',
       realtime_enabled: false,
+      storage_settings_visible: 'no',
     });
     expect(settings.update_channel).toBe('stable');
     expect(settings.poll_interval_seconds).toBe(5);
@@ -33,6 +34,8 @@ describe('desktop app settings — normalize', () => {
     expect(settings.download_url).toBeNull();
     expect(settings.update_feed_url).toBe(DESKTOP_APP_DEFAULT_FEED_URL);
     expect(settings.realtime_enabled).toBe(false);
+    expect(settings.storage_settings_visible).toBe(true);
+    expect(normalize({ storage_settings_visible: false }).storage_settings_visible).toBe(false);
   });
 });
 
@@ -92,7 +95,7 @@ describe('desktop app settings — public projection', () => {
       },
       realtime: { enabled: true },
       polling: { intervalSeconds: 15, withRealtimeSeconds: 120 },
-      features: { calls: true },
+      features: { calls: true, storageSettings: true },
     });
   });
 });

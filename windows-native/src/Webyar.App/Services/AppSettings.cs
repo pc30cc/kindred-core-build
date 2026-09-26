@@ -37,6 +37,12 @@ public sealed class AppSettings
     /// <summary>The last Super Admin broadcast shown, so a restart does not replay it.</summary>
     public long? LastBroadcastSeq { get; set; }
 
+    /// <summary>
+    /// Super Admin's last answer on showing Settings → Storage, so a launch
+    /// shows the page as it was set before the platform has been asked again.
+    /// </summary>
+    public bool StorageSettingsVisible { get; set; } = true;
+
     [System.Text.Json.Serialization.JsonIgnore]
     public Language ResolvedLanguage =>
         Strings.Parse(Language) ?? Core.Localization.Language.Fa;

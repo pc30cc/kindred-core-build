@@ -52,6 +52,7 @@ import com.webyar.operator.feature.settings.NotificationsScreen
 import com.webyar.operator.feature.settings.NotificationsViewModel
 import com.webyar.operator.feature.settings.SystemNotificationPermission
 import com.webyar.operator.core.media.AttachmentRules
+import com.webyar.operator.core.model.MobileAppConfig
 import com.webyar.operator.core.model.CallChannel
 import com.webyar.operator.core.model.CallChannels
 import com.webyar.operator.core.model.CannedText
@@ -130,6 +131,7 @@ import com.webyar.operator.core.cache.CacheScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.webyar.operator.ui.design.Radius
+import com.webyar.operator.core.model.Contact
 
 /**
  * The screens, as the navigation graph sees them.
@@ -274,6 +276,7 @@ fun ChatRoute(
     language: Language,
     onBack: () -> Unit,
     onStartCall: (CallChannel) -> Unit,
+    onOpenVisitor: (VisitorKey) -> Unit = {},
 ) {
     val graph = LocalAppGraph.current
     val chatModel: ChatViewModel =
@@ -331,8 +334,14 @@ fun ChatRoute(
     }
 
     val capabilities = remember(conversation) { ComposerCapabilities.resolve(conversation) }
-    val callChannels = remember(plan) { CallChannels.resolve(plan.value) }
     val aiManaged = capabilities.isAiManaged
+    // No calls from the AI's inbox: the AI answers there, and a voice or
+    // video call is a person on the line. An operator who wants to call takes
+    // the thread over first, which puts it back in their own inbox — and the
+    // calls come back with it.
+    val callChannels = remember(plan, aiManaged) {
+        if (aiManaged) CallChannels.NONE else CallChannels.resolve(plan.value)
+    }
 
     var sheet by remember { mutableStateOf<ChatSheet?>(null) }
     var showShortcuts by remember { mutableStateOf(false) }
@@ -477,6 +486,20 @@ fun ChatRoute(
         onRetry = chatModel::retry,
         onDiscard = chatModel::discard,
         visitor = intel[conversationId],
+        onOpenVisitor = conversation?.let { c ->
+            {
+                onOpenVisitor(
+                    VisitorKey(
+                        conversationId = c.id,
+                        contactId = c.contactId,
+                        name = c.contact?.name,
+                        email = c.contact?.email,
+                        avatarUrl = c.contact?.avatarUrl,
+                        visitorCode = c.contact?.visitorCode,
+                    )
+                )
+            }
+        },
         header = {
             ConversationMenu(
                 language = language,
@@ -597,6 +620,53 @@ fun ContactsRoute(
         onRefresh = contacts::refresh,
         onRetry = contacts::retry,
     )
+}
+
+/**
+ * The visitor of a chat, as a contact. The address book's row when it has
+ * one — it carries the phone and the first-seen date — and otherwise what the
+ * chat already knew; the device and the place from whichever list knows them.
+ */
+@Composable
+fun VisitorContactRoute(
+    key: VisitorKey,
+    contacts: ContactsViewModel,
+    conversations: InboxViewModel,
+    language: Language,
+    onBack: () -> Unit,
+) {
+    val conversationIntel by conversations.intel.collectAsStateWithLifecycle()
+    val contactIntel by contacts.intel.collectAsStateWithLifecycle()
+    val contact = remember(key) {
+        key.contactId?.let(contacts::contact) ?: Contact(
+            id = key.contactId ?: key.conversationId,
+            name = key.name,
+            email = key.email,
+            avatarUrl = key.avatarUrl,
+            visitorCode = key.visitorCode,
+        )
+    }
+    Scaffold(
+        topBar = {
+            BackBar(
+                title = Format.contactName(
+                    name = contact.name,
+                    email = contact.email,
+                    visitorCode = contact.visitorCode,
+                    language = language,
+                ),
+                language = language,
+                onBack = onBack,
+            )
+        },
+    ) { padding ->
+        ContactDetailScreen(
+            contact = contact,
+            language = language,
+            modifier = Modifier.padding(padding),
+            profile = conversationIntel[key.conversationId] ?: key.contactId?.let { contactIntel[it] },
+        )
+    }
 }
 
 @Composable
@@ -1153,13 +1223,17 @@ fun SettingsRoute(
     val user = (session as? Session.SignedIn)?.user
     val avatarUrl by appState.avatarUrl.collectAsStateWithLifecycle()
     val dynamicColor by appState.dynamicColor.collectAsStateWithLifecycle()
+    // Super Admin → Mobile App → Android decides which sections are here.
+    val config by appState.appConfig.collectAsStateWithLifecycle()
 
     // Measured each time the screen is shown; a size is only interesting
-    // when somebody is looking at it.
+    // when somebody is looking at it — and not at all while it is hidden.
     val graph = LocalAppGraph.current
     val context = LocalContext.current
     var storage by remember { mutableStateOf<com.webyar.operator.StorageUsage?>(null) }
-    LaunchedEffect(graph) { storage = graph?.storageUsage() }
+    LaunchedEffect(graph, config.showStorage) {
+        if (config.showStorage) storage = graph?.storageUsage()
+    }
 
     SettingsScreen(
         language = language,
@@ -1188,10 +1262,16 @@ fun SettingsRoute(
         contentPadding = PaddingValues(bottom = bottomInset),
         // Wallpaper colours exist from Android 12; before that there is
         // nothing to offer and the row is left out.
-        dynamicColor = dynamicColor.takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.S },
+        // Nor where Super Admin has kept everyone on the brand colours.
+        dynamicColor = dynamicColor.takeIf {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && config.allowWallpaperColors
+        },
         onSetDynamicColor = appState::setDynamicColor,
+        showNotifications = config.showNotificationSettings,
+        showSecurity = config.showSecurity,
         storage = storage,
-        onClearCache = graph?.let { g ->
+        // Null leaves the whole Storage section out; the cache keeps working.
+        onClearCache = graph?.takeIf { config.showStorage }?.let { g ->
             {
                 storage = null
                 // On the app's scope, not this screen's: a clear that is
@@ -1230,6 +1310,8 @@ fun ProfileRoute(
     api: WebyarApi,
     language: Language,
     onBack: () -> Unit,
+    /** Super Admin's switches: which of these the operator may change here. */
+    config: MobileAppConfig = MobileAppConfig.DEFAULT,
 ) {
     val model: AccountViewModel =
         viewModel(factory = viewModelFactory { AccountViewModel(api) { language } })
@@ -1275,8 +1357,16 @@ fun ProfileRoute(
                 )
             },
             onRemoveAvatar = model::removeAvatar,
-            onSave = { model.saveProfile() },
+            onSave = {
+                model.saveProfile(
+                    nameEditable = config.profileNameEditable,
+                    phoneEditable = config.profilePhoneEditable,
+                )
+            },
             modifier = Modifier.padding(padding),
+            nameEditable = config.profileNameEditable,
+            phoneEditable = config.profilePhoneEditable,
+            photoEditable = config.profilePhotoEditable,
         )
     }
 }

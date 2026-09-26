@@ -39,6 +39,7 @@ import com.webyar.operator.core.model.Message
 import com.webyar.operator.core.model.MessagesResponse
 import com.webyar.operator.core.model.NotesResponse
 import com.webyar.operator.core.model.PluginCatalogResponse
+import com.webyar.operator.core.model.MobileAppConfig
 import com.webyar.operator.core.model.Promotions
 import com.webyar.operator.core.model.SayNowVoice
 import com.webyar.operator.core.model.SessionResponse
@@ -1021,6 +1022,13 @@ class ApiClient(
             HttpMethod.Get,
             "/api/mobile-app/promotions",
             listOf("workspace_id" to workspaceId, "locale" to locale),
+        ).decode()
+
+    override suspend fun mobileAppConfig(): MobileAppConfig =
+        build(
+            HttpMethod.Get,
+            "/api/mobile-app/config",
+            listOf("platform" to "android"),
         ).decode()
 
     // MARK: - Calls

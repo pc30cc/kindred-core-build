@@ -10,6 +10,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import com.webyar.operator.core.model.InboxFilter
 import com.webyar.operator.core.net.SampleApi
 import com.webyar.operator.feature.chat.ChatScreen
 import com.webyar.operator.feature.chat.ChatState
@@ -144,5 +145,44 @@ class ChatScreenTest {
         val after = api.messages("c-1")
         assertEquals(before + 1, after.size)
         assertEquals("سلام", after.last().body)
+    }
+
+    /**
+     * The visitor's face or name in the bar is the way to their contact page —
+     * one target, the way a messaging app's header is.
+     */
+    @Test
+    fun `tapping the visitor in the bar opens their contact`() = runTest {
+        val api = SampleApi()
+        val conversation = api.conversations("ws-1", InboxFilter.OPEN).first()
+        var opened = 0
+        compose.setContent {
+            ChatScreen(
+                state = ChatState.Loaded(emptyList()),
+                language = Language.EN,
+                onSend = {},
+                onBack = {},
+                conversation = conversation,
+                onOpenVisitor = { opened++ },
+            )
+        }
+        compose.onNodeWithTag(A11y.CHAT_OPEN_VISITOR).performClick()
+        assertEquals(1, opened)
+    }
+
+    /** Without somewhere to go, the header is not dressed up as a button. */
+    @Test
+    fun `no contact to open means no target in the bar`() = runTest {
+        val conversation = SampleApi().conversations("ws-1", InboxFilter.OPEN).first()
+        compose.setContent {
+            ChatScreen(
+                state = ChatState.Loaded(emptyList()),
+                language = Language.EN,
+                onSend = {},
+                onBack = {},
+                conversation = conversation,
+            )
+        }
+        compose.onNodeWithTag(A11y.CHAT_OPEN_VISITOR).assertDoesNotExist()
     }
 }

@@ -201,6 +201,10 @@ class ScreenshotTest {
             onPickAvatar = {},
             onRemoveAvatar = {},
             onSave = {},
+            // As a phone sees it out of the box: Super Admin has not
+            // unlocked the name or the number, so both are facts.
+            nameEditable = false,
+            phoneEditable = false,
         )
     }
 

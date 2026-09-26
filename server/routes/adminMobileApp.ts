@@ -1,5 +1,5 @@
 /**
- * SUPER ADMIN → MOBILE APP (iOS).
+ * SUPER ADMIN → MOBILE APP (iOS and Android).
  *
  * Mounted under adminRouter, which already gates `/api/admin/*` behind
  * `requirePlatformAdmin`, so nothing here re-implements authentication.
@@ -133,7 +133,33 @@ const settingsSchema = z.object({
   phased_release: z.boolean().optional(),
   testflight_group: z.string().trim().max(120).nullable().optional(),
   release_notes: z.string().trim().max(4000).nullable().optional(),
-});
+
+  android_package_name: z.string().trim().min(3).max(150).regex(/^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/).optional(),
+  android_app_name: z.string().trim().min(1).max(50).optional(),
+  android_play_store_url: HTTPS_URL.optional(),
+  android_version_name: z.string().trim().max(30).regex(/^\d+(\.\d+){0,3}([-+][0-9A-Za-z.]+)?$/).optional(),
+  android_version_code: z.coerce.number().int().min(1).max(2_100_000_000).optional(),
+  android_min_sdk: z.coerce.number().int().min(21).max(99).optional(),
+  android_target_sdk: z.coerce.number().int().min(21).max(99).optional(),
+  android_release_track: z.enum(['internal', 'closed', 'open', 'production']).optional(),
+  android_rollout_percent: z.coerce.number().int().min(1).max(100).optional(),
+  // Play caps "What's new" at 500 characters per language.
+  android_release_notes: z
+    .object({ en: z.string().max(500), fa: z.string().max(500), tr: z.string().max(500) })
+    .partial()
+    .optional(),
+
+  android_app_show_storage: z.boolean().optional(),
+  android_app_show_security: z.boolean().optional(),
+  android_app_show_notification_settings: z.boolean().optional(),
+  android_app_allow_wallpaper_colors: z.boolean().optional(),
+  android_app_profile_name_editable: z.boolean().optional(),
+  android_app_profile_phone_editable: z.boolean().optional(),
+  android_app_profile_photo_editable: z.boolean().optional(),
+}).refine(
+  (v) => v.android_min_sdk === undefined || v.android_target_sdk === undefined || v.android_min_sdk <= v.android_target_sdk,
+  { message: 'minimum SDK above target SDK', path: ['android_min_sdk'] },
+);
 
 async function readRow(config: ServerConfig) {
   const sb = getServiceClient(config);

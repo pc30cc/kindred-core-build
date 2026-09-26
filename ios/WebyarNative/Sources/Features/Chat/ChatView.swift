@@ -72,6 +72,15 @@ struct ChatView: View {
         @Bindable var model = model
 
         transcript
+            // Offline with a saved copy: the copy stays on screen, and this
+            // says so above it. Nothing at all otherwise — an empty inset.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if model.state.isLoaded, model.syncStatus.isOffline {
+                    OfflineNotice(text: Str.offlineSavedCopy(language))
+                        .padding(.horizontal, Theme.screenInset)
+                        .padding(.vertical, Theme.Space.xs)
+                }
+            }
             // Tapping the transcript puts the keyboard away. `simultaneous`
             // rather than `onTapGesture` so it rides alongside the taps the
             // rows have of their own — opening a photo, opening a document —
@@ -187,6 +196,12 @@ struct ChatView: View {
             }
             .task {
                 await model.load(appState: appState)
+            }
+            // Realtime, pushes and the return to the foreground keep the
+            // transcript current while it is open; the task — and with it
+            // every read it would start — ends when the screen goes.
+            .task {
+                await model.listen()
             }
             .alert(sayNow.notice ?? "", isPresented: Binding(
                 get: { sayNow.notice != nil },
@@ -431,6 +446,9 @@ struct MessageRow: View {
 
     private var isOutgoing: Bool { message.senderType.isOutgoing }
 
+    /// Typed on this phone and not confirmed by the server yet.
+    private var isPending: Bool { message.isPending }
+
     private var isAI: Bool {
         message.senderType == .ai || message.senderType == .bot
     }
@@ -451,6 +469,9 @@ struct MessageRow: View {
                     if isOutgoing {
                         Spacer(minLength: Theme.Space.xl)
                         bubbleColumn
+                            // Still on its way: shown at once, and quieter
+                            // until the server has it.
+                            .opacity(isPending ? 0.6 : 1)
                         avatarSlot
                     } else {
                         avatarSlot
@@ -585,6 +606,10 @@ struct MessageRow: View {
             if isAI {
                 Text(Str.aiReply(language))
                 Text(verbatim: "·")
+            }
+            if isPending {
+                Image(systemName: "clock")
+                    .accessibilityLabel(Str.messageSending(language))
             }
             Text(Format.bubbleTime(message.createdAt, locale: locale))
         }

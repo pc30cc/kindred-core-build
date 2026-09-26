@@ -1,7 +1,7 @@
 import Foundation
 
 /// The counters behind each inbox filter. `GET /api/conversations/inbox-tab-counts`.
-struct InboxCounts: Codable, Sendable {
+struct InboxCounts: Codable, Equatable, Sendable {
     let open: Int?
     let pending: Int?
     let resolved: Int?

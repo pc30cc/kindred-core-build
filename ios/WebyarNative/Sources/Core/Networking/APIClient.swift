@@ -65,6 +65,14 @@ actor APIClient {
         // confusing transport.
         config.httpCookieAcceptPolicy = .never
         config.httpShouldSetCookies = false
+        // No HTTP cache for the API. An authenticated JSON answer kept by
+        // `URLCache` would be an application cache nobody decided on — keyed
+        // by URL, shared across accounts, and able to answer a revalidation
+        // with a stale 200 instead of the 304 the app asked for. What the app
+        // keeps, it keeps on purpose: messages and lists in `LocalStore`
+        // (checked with a cursor or an ETag), files in `AttachmentDiskCache`.
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
         self.session = URLSession(configuration: config)
 
         let dec = JSONDecoder()
@@ -313,7 +321,7 @@ actor APIClient {
 
     // MARK: - Conversations
 
-    func conversations(workspaceID: String, filter: InboxFilter) async throws -> [Conversation] {
+    private func listQuery(workspaceID: String, filter: InboxFilter) -> [URLQueryItem] {
         var query = [
             URLQueryItem(name: "workspace_id", value: workspaceID),
             URLQueryItem(name: "queue", value: filter.queue),
@@ -322,15 +330,125 @@ actor APIClient {
             query.append(URLQueryItem(name: "status", value: status))
         }
         if filter.needsHumanOnly {
-            query.append(URLQueryItem(name: "needsHuman", value: "true"))
+            // Snake case: the route's schema reads `needs_human`, and an
+            // unknown key is silently dropped — which is how this queue used
+            // to show the whole open inbox.
+            query.append(URLQueryItem(name: "needs_human", value: "true"))
         }
-        let request = try makeRequest("GET", "/api/conversations", query: query)
+        return query
+    }
+
+    func conversations(workspaceID: String, filter: InboxFilter) async throws -> [Conversation] {
+        let request = try makeRequest("GET", "/api/conversations", query: listQuery(workspaceID: workspaceID, filter: filter))
         return try await perform(request, as: ConversationsResponse.self).conversations
     }
 
+    /// The list, revalidated against the copy already held.
+    ///
+    /// `etag` goes out as `If-None-Match`; a 304 comes back as
+    /// `conversations == nil` — "what you have is current" — with no body at
+    /// all, which on a busy queue is the difference between a few hundred
+    /// bytes and a few hundred kilobytes for every refresh that finds nothing
+    /// new.
+    func conversations(workspaceID: String, filter: InboxFilter, etag: String?) async throws -> ListPage {
+        var request = try makeRequest("GET", "/api/conversations", query: listQuery(workspaceID: workspaceID, filter: filter))
+        if let etag, !etag.isEmpty { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
+        let (data, http) = try await exchange(request, accepting304: true)
+        let tag = http.value(forHTTPHeaderField: "ETag")
+        if http.statusCode == 304 { return ListPage(conversations: nil, etag: tag ?? etag) }
+        do {
+            return ListPage(conversations: try decoder.decode(ConversationsResponse.self, from: data).conversations, etag: tag)
+        } catch {
+            throw APIError.decoding
+        }
+    }
+
+    /// One conversation of `workspaceID`, wherever it is filed; nil when the
+    /// server does not have it there (gone, or in another workspace).
+    func conversation(id: String, workspaceID: String) async throws -> Conversation? {
+        let request = try makeRequest(
+            "GET", "/api/conversations/\(Self.escape(id))",
+            query: [URLQueryItem(name: "workspace_id", value: workspaceID)]
+        )
+        do {
+            return try await perform(request, as: ConversationResponse.self).conversation
+        } catch APIError.server(status: 404, message: _) {
+            return nil
+        }
+    }
+
     func messages(conversationID: String) async throws -> [Message] {
-        let request = try makeRequest("GET", "/api/conversations/\(conversationID)/messages")
-        return try await perform(request, as: MessagesResponse.self).messages
+        try await messagePage(conversationID: conversationID, since: nil).messages
+    }
+
+    /// A thread, or only what changed in it since `since`.
+    ///
+    /// The server answers a cursor with the rows created *or changed* after
+    /// it (so a delivery receipt or a file landing on an old message comes
+    /// back too), and says which it did. A server that predates this — or
+    /// whose database is not migrated yet — ignores the cursor and sends the
+    /// whole thread, which is read as exactly that.
+    func messagePage(conversationID: String, since: String?) async throws -> ThreadPage {
+        var query: [URLQueryItem] = []
+        if let since { query.append(URLQueryItem(name: "since", value: since)) }
+        let request = try makeRequest("GET", "/api/conversations/\(Self.escape(conversationID))/messages", query: query)
+        let response = try await perform(request, as: MessagesResponse.self)
+        let delta = since != nil && response.sync?.mode == "delta"
+        return ThreadPage(messages: response.messages, delta: delta, cursor: response.sync?.cursor)
+    }
+
+    private static func escape(_ id: String) -> String {
+        id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? id
+    }
+
+    /// The raw exchange, for the few callers that need the status and headers
+    /// themselves. 401 is still the session ending, everywhere.
+    private func exchange(_ request: URLRequest, accepting304: Bool = false) async throws -> (Data, HTTPURLResponse) {
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw APIError.transport
+        }
+        guard let http = response as? HTTPURLResponse else { throw APIError.transport }
+        if (200..<300).contains(http.statusCode) || (accepting304 && http.statusCode == 304) { return (data, http) }
+        if http.statusCode == 401 { throw APIError.unauthorized }
+        let message = try? decoder.decode(ErrorResponse.self, from: data).error
+        throw APIError.server(status: http.statusCode, message: message)
+    }
+
+    // MARK: - Realtime
+
+    private struct RealtimeConnectBody: Encodable, Sendable {
+        let workspace_id: String
+        let intent: String
+    }
+
+    private struct WorkspaceBody: Encodable, Sendable {
+        let workspace_id: String
+    }
+
+    /// The Centrifugo connection token, the same one the console and the
+    /// desktop apps ask for. A platform running without realtime answers with
+    /// another vendor and no token, and the app keeps to its polling.
+    func realtimeConnect(workspaceID: String, intent: String) async throws -> RealtimeConnect {
+        let request = try makeRequest(
+            "POST", "/api/realtime/operator-connect",
+            body: RealtimeConnectBody(workspace_id: workspaceID, intent: intent)
+        )
+        return try await perform(request, as: RealtimeConnect.self)
+    }
+
+    /// The subscription token for `ws:<workspace>:inbox`, the operator-only
+    /// channel every message and conversation change in the workspace is
+    /// published on.
+    func realtimeInboxSubscribe(workspaceID: String) async throws -> RealtimeSubscribe {
+        let request = try makeRequest(
+            "POST", "/api/realtime/operator-inbox-subscribe",
+            body: WorkspaceBody(workspace_id: workspaceID)
+        )
+        return try await perform(request, as: RealtimeSubscribe.self)
     }
 
     private struct SendBody: Encodable, Sendable {
@@ -976,6 +1094,40 @@ actor APIClient {
         let escaped = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
         let request = try makeRequest("GET", "/api/conversation-attachments/\(escaped)/file")
         return try await performData(request)
+    }
+
+    /// The same bytes, straight to a file rather than into memory.
+    ///
+    /// For video and documents, which can be tens of megabytes: a download
+    /// task writes as it receives, so the file never has to fit in memory
+    /// first. The file is moved out of URLSession's own temporary location
+    /// before this returns, and the caller owns it from there.
+    func attachmentFile(id: String) async throws -> URL {
+        let escaped = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        let request = try makeRequest("GET", "/api/conversation-attachments/\(escaped)/file")
+        let location: URL
+        let response: URLResponse
+        do {
+            (location, response) = try await session.download(for: request)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw APIError.transport
+        }
+        defer { try? FileManager.default.removeItem(at: location) }
+        guard let http = response as? HTTPURLResponse else { throw APIError.transport }
+        guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 401 { throw APIError.unauthorized }
+            throw APIError.server(status: http.statusCode, message: nil)
+        }
+        let owned = FileManager.default.temporaryDirectory
+            .appendingPathComponent("webyar-download-\(UUID().uuidString)")
+        do {
+            try FileManager.default.moveItem(at: location, to: owned)
+        } catch {
+            throw APIError.transport
+        }
+        return owned
     }
 
     func deleteAvatar() async throws {

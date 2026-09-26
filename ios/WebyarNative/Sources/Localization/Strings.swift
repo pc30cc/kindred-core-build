@@ -1439,6 +1439,91 @@ enum Str {
         }
     }
 
+    // MARK: - Offline and storage
+
+    /// Above conversations the phone saved earlier, when the server cannot
+    /// be reached right now.
+    static func offlineSavedCopy(_ l: Language) -> String {
+        switch l {
+        case .en: "Offline — showing what was saved on this phone."
+        case .fa: "آفلاین — آنچه روی این گوشی ذخیره شده نمایش داده می‌شود."
+        case .tr: "Çevrimdışı — bu telefonda kayıtlı olanlar gösteriliyor."
+        }
+    }
+
+    /// Read aloud for a message that has not reached the server yet.
+    static func messageSending(_ l: Language) -> String {
+        switch l {
+        case .en: "Sending"
+        case .fa: "در حال ارسال"
+        case .tr: "Gönderiliyor"
+        }
+    }
+
+    static func storage(_ l: Language) -> String {
+        switch l {
+        case .en: "Storage"
+        case .fa: "فضای ذخیره‌سازی"
+        case .tr: "Depolama"
+        }
+    }
+
+    static func storageConversations(_ l: Language) -> String {
+        switch l {
+        case .en: "Saved conversations"
+        case .fa: "گفتگوهای ذخیره‌شده"
+        case .tr: "Kayıtlı konuşmalar"
+        }
+    }
+
+    static func storageFiles(_ l: Language) -> String {
+        switch l {
+        case .en: "Files and media"
+        case .fa: "فایل‌ها و رسانه‌ها"
+        case .tr: "Dosyalar ve medya"
+        }
+    }
+
+    static func storagePictures(_ l: Language) -> String {
+        switch l {
+        case .en: "Pictures"
+        case .fa: "تصاویر پروفایل"
+        case .tr: "Profil resimleri"
+        }
+    }
+
+    static func storageTotal(_ l: Language) -> String {
+        switch l {
+        case .en: "Total"
+        case .fa: "مجموع"
+        case .tr: "Toplam"
+        }
+    }
+
+    static func storageFooter(_ l: Language) -> String {
+        switch l {
+        case .en: "Copies kept on this phone so conversations open at once and files are not downloaded twice. Clearing them removes nothing from the server and does not sign you out."
+        case .fa: "نسخه‌هایی که روی این گوشی نگه داشته می‌شوند تا گفتگوها فوراً باز شوند و فایل‌ها دوباره دانلود نشوند. پاک کردن آن‌ها چیزی را از سرور حذف نمی‌کند و شما را از حساب خارج نمی‌کند."
+        case .tr: "Konuşmaların hemen açılması ve dosyaların iki kez indirilmemesi için bu telefonda tutulan kopyalar. Silmek sunucudan hiçbir şeyi kaldırmaz ve oturumunuzu kapatmaz."
+        }
+    }
+
+    static func clearCache(_ l: Language) -> String {
+        switch l {
+        case .en: "Clear Cache"
+        case .fa: "پاک کردن حافظهٔ موقت"
+        case .tr: "Önbelleği Temizle"
+        }
+    }
+
+    static func clearCacheConfirm(_ l: Language) -> String {
+        switch l {
+        case .en: "Remove the copies saved on this phone? They will be downloaded again as needed."
+        case .fa: "نسخه‌های ذخیره‌شده روی این گوشی حذف شوند؟ در صورت نیاز دوباره دانلود می‌شوند."
+        case .tr: "Bu telefonda kayıtlı kopyalar kaldırılsın mı? Gerektiğinde yeniden indirilecekler."
+        }
+    }
+
     static func sessionExpired(_ l: Language) -> String {
         switch l {
         case .en: "Your session expired. Please sign in again."

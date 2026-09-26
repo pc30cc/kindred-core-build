@@ -24,14 +24,19 @@ import ImageIO
 final class ImageCache {
     static let shared = ImageCache()
 
-    /// Keyed by the URL *and* the size it was decoded for.
+    /// Keyed by the picture *and* the size it was decoded for.
     ///
     /// The same picture can be wanted as a 32-point avatar and as a 260-point
     /// promotion, and handing the avatar a full-resolution bitmap is how a
-    /// list of faces eats a hundred megabytes. A key of "url|maxPixel" keeps
-    /// the two apart and lets each be as small as it needs to be.
+    /// list of faces eats a hundred megabytes. A key of "picture|maxPixel"
+    /// keeps the two apart and lets each be as small as it needs to be.
+    ///
+    /// The picture is its link less any signature (`identity(of:)`): the
+    /// platform's avatar and logo links are plain CDN paths today, but a
+    /// provider that signs them would otherwise make every read of the same
+    /// face a new picture.
     private struct Key: Hashable {
-        let url: URL
+        let identity: String
         let maxPixel: Int
     }
 
@@ -39,24 +44,80 @@ final class ImageCache {
     /// Downloads already in flight, so eight rows sharing one avatar make one
     /// request rather than eight.
     private var loading: [Key: Task<UIImage?, Never>] = [:]
-    /// URLs that failed, so a broken link is not retried on every scroll.
-    private var failed: Set<URL> = []
+    /// When each picture last failed, so a broken link is not retried on
+    /// every scroll — and IS retried a minute later. It used to be a set kept
+    /// for the life of the process: one failed read during a network blip
+    /// left that face blank until the app was killed.
+    private var failedAt: [String: Date] = [:]
 
     /// Bounded, because an inbox scrolled all day would otherwise hold every
     /// face it has ever drawn. Faces are small; a few hundred is nothing, and
     /// dropping the oldest is the right thing when the list moves on.
-    private static let limit = 300
+    private static let limit = CachePolicy.remoteImageMemoryCount
     private var order: [Key] = []
 
-    private init() {}
+    private init() {
+        // The decoded faces are the one thing here worth giving back when
+        // iOS runs short: the bytes stay in the URL cache on disk.
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { ImageCache.shared.clearMemory() }
+        }
+    }
 
-    func cached(_ url: URL, maxPixel: Int) -> UIImage? { images[Key(url: url, maxPixel: maxPixel)] }
-    func hasFailed(_ url: URL) -> Bool { failed.contains(url) }
+    /// Query parameters of signed links (S3 and compatible, CloudFront,
+    /// Google Cloud Storage) that name the signature and its expiry rather
+    /// than the file.
+    nonisolated private static let signatureParameters: Set<String> = [
+        "x-amz-algorithm", "x-amz-credential", "x-amz-date", "x-amz-expires", "x-amz-signedheaders",
+        "x-amz-signature", "x-amz-security-token", "x-goog-algorithm", "x-goog-credential", "x-goog-date",
+        "x-goog-expires", "x-goog-signedheaders", "x-goog-signature", "expires", "signature", "key-pair-id", "policy",
+    ]
+
+    /// What a picture is known by in memory: its link without the signature.
+    /// Only the decoded image is shared this way — the download always uses
+    /// the link as given, so an expired link is never replayed.
+    nonisolated static func identity(of url: URL) -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let items = components.queryItems, !items.isEmpty
+        else { return url.absoluteString }
+        let kept = items.filter { !signatureParameters.contains($0.name.lowercased()) }
+        guard kept.count != items.count else { return url.absoluteString }
+        components.queryItems = kept.isEmpty ? nil : kept
+        return components.string ?? url.absoluteString
+    }
+
+    func cached(_ url: URL, maxPixel: Int) -> UIImage? { images[Key(identity: Self.identity(of: url), maxPixel: maxPixel)] }
+
+    func hasFailed(_ url: URL, now: Date = Date()) -> Bool {
+        guard let at = failedAt[Self.identity(of: url)] else { return false }
+        return now.timeIntervalSince(at) < CachePolicy.remoteImageFailureTTL
+    }
+
+    /// Decoded pictures and failure marks go; the bytes on disk stay.
+    func clearMemory() {
+        images = [:]
+        order = []
+        failedAt = [:]
+    }
+
+    /// Clear Cache: the disk copies too.
+    func clearAll() {
+        clearMemory()
+        Self.session.configuration.urlCache?.removeAllCachedResponses()
+    }
+
+    /// The pictures' disk cache, for Settings.
+    var diskBytes: Int {
+        Self.session.configuration.urlCache?.currentDiskUsage ?? 0
+    }
 
     func load(_ url: URL, maxPixel: Int) async -> UIImage? {
-        let key = Key(url: url, maxPixel: maxPixel)
+        let identity = Self.identity(of: url)
+        let key = Key(identity: identity, maxPixel: maxPixel)
         if let image = images[key] { return image }
-        if failed.contains(url) { return nil }
+        if hasFailed(url) { return nil }
         if let existing = loading[key] { return await existing.value }
 
         // Detached on purpose. A plain `Task` here would inherit this class's
@@ -81,8 +142,9 @@ final class ImageCache {
 
         if let image {
             store(image, for: key)
+            failedAt[identity] = nil
         } else {
-            failed.insert(url)
+            failedAt[identity] = Date()
         }
         return image
     }
@@ -128,8 +190,8 @@ final class ImageCache {
         let configuration = URLSessionConfiguration.default
         configuration.requestCachePolicy = .returnCacheDataElseLoad
         configuration.urlCache = URLCache(
-            memoryCapacity: 8 * 1024 * 1024,
-            diskCapacity: 64 * 1024 * 1024,
+            memoryCapacity: CachePolicy.remoteImageURLCacheMemory,
+            diskCapacity: CachePolicy.remoteImageURLCacheDisk,
             diskPath: "webyar-images"
         )
         return URLSession(configuration: configuration)

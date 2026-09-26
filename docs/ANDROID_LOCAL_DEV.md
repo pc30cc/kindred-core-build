@@ -30,6 +30,57 @@ Measured on a 2019 Intel i9 MacBook Pro, cold caches: `BUILD SUCCESSFUL in
 
 ## The emulator
 
+### Start here: the launch that shows the app (26 Sep 2026)
+
+On this Mac (Intel i9, macOS 26, emulator 37.1.11) this is the launch that
+put the app on screen after every other attempt that day gave a black or
+half-width window:
+
+```sh
+~/dev/webyar-emulator.command        # also on the Desktop as "Webyar Emulator.command"
+```
+
+which is, in full:
+
+```sh
+rm -rf ~/.android/avd/Webyar_API36.avd/*.lock          # only if no emulator is running
+emulator -avd Webyar_API36 -gpu swiftshader_indirect \
+  -no-snapshot-load -no-snapshot-save -no-boot-anim
+adb wait-for-device   # then wait for sys.boot_completed=1
+adb shell am start -n com.webyar.operator/.MainActivity
+```
+
+Four things have to be true, and each one cost a round of "the screen is
+black" or "the screen is tiny" before it was found:
+
+1. **`Webyar_API36`, not `Webyar_API37`.** The 37.0 image crash-loops
+   SurfaceFlinger under this emulator build (next section). `-feature
+   -ReadColorBufferDma` does not rescue it.
+2. **`-gpu swiftshader_indirect` on the command line.** `-gpu host` (and
+   `auto`) gave a window that stayed black while `adb exec-out screencap`
+   showed the app running fine. The same value in `config.ini` is *not*
+   equivalent: from the file the emulator logs `Selected GPU option
+   'swiftshader_indirect' is not valid, switching to 'auto' mode` and the
+   window goes black again. Only the flag works.
+3. **No second display.** The AVD had `hw.display1.width = 720` /
+   `height = 1280`, a secondary display the emulator draws beside the phone
+   in the same window — the phone got half the width and the other half
+   showed a wallpaper. It is now `hw.display1.* = 0` (the original is kept
+   as `config.ini.bak-before-claude`).
+4. **`hw.ramSize = 4096`** — see "2GB inside the guest is not enough"
+   below.
+
+If a later session sees the app "not responding" on this launch, that is the
+swiftshader cost measured further down (`-gpu swiftshader_indirect` is why
+the app kept "not responding"); the way out that keeps a picture is Android
+Studio's Running Devices panel over `-gpu host`, not a black native window.
+
+The app itself also used to look broken on a cold boot, and was not: the
+emulator's DNS answers `UnknownHostException` for its first seconds, and the
+one workspace request made then was never repeated — grey rows, two tabs, no
+AI queue. The app now retries (`AppState.loadWorkspaces`); on an older build,
+relaunch the app once the emulator has settled.
+
 ### Use a system image whose major.minor matches the emulator
 
 This is the finding most likely to cost someone a day, so it is stated first.

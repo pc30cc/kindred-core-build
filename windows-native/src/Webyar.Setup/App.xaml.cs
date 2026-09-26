@@ -65,6 +65,11 @@ namespace Webyar.Setup
                     {
                         Installer.Log("silent failed: " + ex);
                         code = 1;
+                        // The app's updater closed it to get here: it comes back as it was.
+                        if (launch && !uninstall)
+                        {
+                            try { Installer.LaunchWhatIsInstalled(); } catch (Exception e2) { Installer.Log("relaunch: " + e2.Message); }
+                        }
                     }
                     Dispatcher.Invoke(() => Shutdown(code));
                 });

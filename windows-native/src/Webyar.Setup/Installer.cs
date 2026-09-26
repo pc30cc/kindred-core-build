@@ -125,6 +125,7 @@ namespace Webyar.Setup
             progress.Report(Tuple.Create(Stage.Prepare, 0.0));
 
             CloseRunningApp();
+            ClearDataOnlyRoot();
             progress.Report(Tuple.Create(Stage.Prepare, 0.08));
 
             // Velopack's setup, as its own file: it installs for this user and registers the app.
@@ -138,20 +139,17 @@ namespace Webyar.Setup
 
             try
             {
-                using (var p = Process.Start(new ProcessStartInfo(setup, "--silent") { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetTempPath() }))
+                var code = RunAppSetup(setup, progress, ct);
+                if (code != 0)
                 {
-                    // No progress from a silent setup: the bar moves on its own until it is done.
-                    var share = 0.15;
-                    var until = DateTime.UtcNow.AddMinutes(10);
-                    while (!p.WaitForExit(250))
-                    {
-                        ct.ThrowIfCancellationRequested();
-                        if (DateTime.UtcNow > until) throw new TimeoutException("setup did not finish in 10 minutes");
-                        share = Math.Min(0.8, share + 0.006);
-                        progress.Report(Tuple.Create(Stage.Copy, share));
-                    }
-                    if (p.ExitCode != 0) throw new InvalidOperationException("Velopack setup exited with code " + p.ExitCode);
+                    // Something still had the folder open: close everything again and try once more.
+                    Log("Velopack setup exited with code " + code + "; retrying (its log: %LOCALAPPDATA%\\velopack\\velopack.log)");
+                    CloseRunningApp();
+                    ClearDataOnlyRoot();
+                    Thread.Sleep(1000);
+                    code = RunAppSetup(setup, progress, ct);
                 }
+                if (code != 0) throw new InvalidOperationException("Velopack setup exited with code " + code);
             }
             finally
             {
@@ -173,6 +171,64 @@ namespace Webyar.Setup
             await Task.Delay(250, ct);
             progress.Report(Tuple.Create(Stage.Finish, 1.0));
             Log("done");
+        }
+
+        /// <summary>Velopack's setup, silent; its exit code. No progress comes from it: the bar moves on its own until it is done.</summary>
+        private static int RunAppSetup(string setup, IProgress<Tuple<Stage, double>> progress, CancellationToken ct)
+        {
+            using (var p = Process.Start(new ProcessStartInfo(setup, "--silent") { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetTempPath() }))
+            {
+                var share = 0.15;
+                var until = DateTime.UtcNow.AddMinutes(10);
+                while (!p.WaitForExit(250))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (DateTime.UtcNow > until) throw new TimeoutException("setup did not finish in 10 minutes");
+                    share = Math.Min(0.8, share + 0.006);
+                    progress.Report(Tuple.Create(Stage.Copy, share));
+                }
+                return p.ExitCode;
+            }
+        }
+
+        /// <summary>
+        /// Versions 2.2 to 2.5.1 kept their cache and WebView2 profile in
+        /// %LOCALAPPDATA%\WebyarWindows, the folder Velopack installs into: its setup
+        /// moves such a folder aside first and fails while anything in it is open.
+        /// Everything there is disposable (settings and sign-in live in %APPDATA%),
+        /// so a folder without an install in it is cleared out of the way first.
+        /// </summary>
+        private static void ClearDataOnlyRoot()
+        {
+            if (!Directory.Exists(InstallDir) || File.Exists(Path.Combine(InstallDir, "Update.exe"))) return;
+            var aside = InstallDir + ".old-" + DateTime.Now.ToString("yyyyMMddHHmmss");
+            for (var i = 0; i < 20 && Directory.Exists(InstallDir); i++)
+            {
+                try
+                {
+                    Directory.Move(InstallDir, aside);
+                    Log("old data folder moved aside");
+                }
+                catch (Exception e) when (e is IOException || e is UnauthorizedAccessException)
+                {
+                    if (i == 19) Log("old data folder still in use: " + e.Message);
+                    CloseRunningApp();
+                    Thread.Sleep(500);
+                }
+            }
+            if (!Directory.Exists(aside)) return;
+            TryDelete(aside);
+            if (Directory.Exists(aside)) ScheduleDelete(aside);
+        }
+
+        /// <summary>After a failed update: the app as it was, so the operator is never left without it.</summary>
+        public static void LaunchWhatIsInstalled()
+        {
+            var exe = File.Exists(AppExe) ? AppExe : File.Exists(MachineExe) ? MachineExe : null;
+            if (exe == null) return;
+            if (IsElevated) Process.Start(new ProcessStartInfo("explorer.exe", "\"" + exe + "\"") { UseShellExecute = true });
+            else Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(exe) });
+            Log("started " + exe);
         }
 
         /// <summary>Starts the app as the signed-in user, never elevated (an elevated installer starts it through Explorer).</summary>
@@ -324,6 +380,14 @@ namespace Webyar.Setup
                 catch (Exception e) { Log("close app: " + e.Message); }
                 finally { p.Dispose(); }
             }
+            // They exit on their own a moment after the app; any still there are closed, and waited for.
+            for (var round = 0; round < 20 && CloseWebViews() > 0; round++) Thread.Sleep(500);
+        }
+
+        /// <summary>Closes the WebView2 processes running on Webyar's profile; how many there were.</summary>
+        private static int CloseWebViews()
+        {
+            var found = 0;
             try
             {
                 using (var search = new ManagementObjectSearcher("SELECT ProcessId, CommandLine FROM Win32_Process WHERE Name = 'msedgewebview2.exe'"))
@@ -334,6 +398,7 @@ namespace Webyar.Setup
                         {
                             var cmd = o["CommandLine"] as string;
                             if (cmd == null || cmd.IndexOf(PackId + @"\WebView2", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                            found++;
                             try
                             {
                                 using (var p = Process.GetProcessById(Convert.ToInt32(o["ProcessId"])))
@@ -348,6 +413,8 @@ namespace Webyar.Setup
                 }
             }
             catch (Exception e) { Log("close webview: " + e.Message); }
+            if (found > 0) Log("closed " + found + " WebView2 processes");
+            return found;
         }
 
         /// <summary>The app's own settings file: its language and "start with Windows", so the app agrees with the choices made here.</summary>

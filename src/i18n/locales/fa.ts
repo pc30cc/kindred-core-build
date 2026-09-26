@@ -178,6 +178,13 @@ const fa: TranslationKeys = {
       INSUFFICIENT_FUNDS: 'موجودی کیف پول کافی نیست.',
       FORBIDDEN: 'شما اجازه انجام این عملیات را ندارید.',
     },
+    planLimits: {
+      description: 'همه سقف‌های پلن شما، همراه با مصرف فعلی هر جا که اندازه‌گیری می‌شود',
+      allowance: 'سهمیه پلن',
+      limitReached: 'به سقف رسیده',
+      otherGroup: 'سایر',
+      usageUnavailable: 'مصرف فعلی بارگذاری نشد',
+    },
   },
   planBanner: {
     trialTitle: 'پلن شما آزمایشی است',

@@ -158,12 +158,17 @@ class SignInLoadTest {
         app.logIn("operator@webyar.app", "whatever")
         testScheduler.advanceUntilIdle()
 
-        assertTrue("the workspaces were never retried", app.workspaces.value.isNotEmpty())
-        assertTrue(app.selectedWorkspace.value != null)
         assertTrue(
-            "the plan was left failed after a transient error",
+            "the workspaces were never retried (${api.workspaceCalls} calls)",
+            app.workspaces.value.isNotEmpty(),
+        )
+        assertTrue("no workspace was selected", app.selectedWorkspace.value != null)
+        assertTrue(
+            "the plan was left ${app.entitlements.value} after a transient error " +
+                "(${api.entitlementCalls} calls)",
             app.entitlements.value is EntitlementsState.Loaded,
         )
-        assertTrue(api.workspaceCalls == 3)
+        // At least: the launch's own session restore may ask once more.
+        assertTrue("only ${api.workspaceCalls} workspace calls", api.workspaceCalls >= 3)
     }
 }

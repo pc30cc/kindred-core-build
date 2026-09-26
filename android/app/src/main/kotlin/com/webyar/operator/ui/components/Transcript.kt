@@ -41,6 +41,7 @@ import com.webyar.operator.i18n.Format
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
 import com.webyar.operator.ui.A11y
+import com.webyar.operator.ui.design.Radius
 import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
 import com.webyar.operator.ui.design.WebyarTheme
@@ -91,7 +92,6 @@ fun MessageBubble(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = WebyarTheme.colors
-    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     var actionsOpen by remember(id) { mutableStateOf(false) }
 
     Row(
@@ -128,21 +128,10 @@ fun MessageBubble(
             Surface(
                 color = if (outgoing) colors.bubbleOutgoing else colors.bubbleIncoming,
                 contentColor = if (outgoing) colors.onBubbleOutgoing else colors.onBubbleIncoming,
-                shape = ChatBubbleShape(
-                    hasBeak = endsRun,
-                    // The beak sits on the bubble's OUTER edge — the side the
-                    // bubble itself is on — and which physical side that is
-                    // depends on the language. `Arrangement.End` puts an
-                    // outgoing bubble on the left in Persian, the same way
-                    // Telegram and WhatsApp do, so its beak belongs on the
-                    // left too. `pointsRight = outgoing` was right-handed in
-                    // both senses: it drew a tail pointing back into the
-                    // middle of the screen.
-                    pointsRight = if (rtl) !outgoing else outgoing,
-                ),
+                shape = bubbleShape(outgoing = outgoing, startsRun = startsRun),
             ) {
                 Column(
-                    Modifier.padding(horizontal = Space.md, vertical = Space.sm),
+                    Modifier.padding(horizontal = Space.lg - 2.dp, vertical = Space.sm + 2.dp),
                     content = content,
                 )
             }
@@ -163,7 +152,11 @@ fun MessageBubble(
                             .padding(top = Space.xxs, start = Space.xs, end = Space.xs)
                             .testTag(A11y.messageStatus(id)),
                     )
-                    DropdownMenu(expanded = actionsOpen, onDismissRequest = { actionsOpen = false }) {
+                    DropdownMenu(
+                        expanded = actionsOpen,
+                        onDismissRequest = { actionsOpen = false },
+                        shape = RoundedCornerShape(Radius.lg),
+                    ) {
                         statusActions.forEach { (label, action) ->
                             DropdownMenuItem(
                                 text = { Text(label) },
@@ -263,14 +256,14 @@ fun DayHeader(instant: Instant, language: Language) {
         contentAlignment = Alignment.Center,
     ) {
         Surface(
-            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-            shape = RoundedCornerShape(Space.md),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = RoundedCornerShape(Radius.pill),
         ) {
             Text(
                 Format.dayHeader(instant, language),
-                style = MaterialTheme.typography.labelMedium,
-                color = WebyarTheme.colors.labelTertiary,
-                modifier = Modifier.padding(horizontal = Space.md, vertical = Space.xs),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = Space.lg, vertical = Space.xs + 2.dp),
             )
         }
     }

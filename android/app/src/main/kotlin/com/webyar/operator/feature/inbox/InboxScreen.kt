@@ -1,8 +1,12 @@
 package com.webyar.operator.feature.inbox
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,24 +19,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,9 +45,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import com.webyar.operator.core.model.ChannelInbox
 import com.webyar.operator.core.model.Conversation
 import com.webyar.operator.core.model.ConversationStatus
@@ -55,19 +63,27 @@ import com.webyar.operator.i18n.Str
 import com.webyar.operator.i18n.SystemMessage
 import com.webyar.operator.ui.A11y
 import com.webyar.operator.ui.components.Avatar
+import com.webyar.operator.ui.components.ChoiceButton
 import com.webyar.operator.ui.components.EmptyState
 import com.webyar.operator.ui.components.ErrorState
 import com.webyar.operator.ui.components.PillTone
-import com.webyar.operator.ui.components.RowDivider
+import com.webyar.operator.ui.components.PullIndicator
 import com.webyar.operator.ui.components.SearchField
 import com.webyar.operator.ui.components.SearchState
 import com.webyar.operator.ui.components.SkeletonList
 import com.webyar.operator.ui.components.StatusPill
 import com.webyar.operator.ui.components.UnreadBadge
 import com.webyar.operator.ui.components.bidiContent
+import com.webyar.operator.ui.design.Radius
 import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
 import com.webyar.operator.ui.design.WebyarTheme
+import com.webyar.operator.ui.design.WebyarType
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
+import com.webyar.operator.ui.components.avatarKey
+import com.webyar.operator.ui.components.sharedElement
 
 sealed interface InboxState {
     data object Loading : InboxState
@@ -78,10 +94,16 @@ sealed interface InboxState {
 /**
  * Every conversation waiting for an answer.
  *
+ * Material 3 Expressive, laid out for an operator's day: a large title that
+ * names the queue and opens the menu of every queue and channel; the two
+ * queues switched between all day as a connected button group under it;
+ * then the rows — rounded, without dividers, an unread one set in bold with
+ * its time in the brand colour, so the eye lands on the work first.
+ *
  * Two queues sit on the strip and the rest live in the menu behind the title,
- * which is where the console keeps them too. Four chips across a phone left no
- * room for the counts, and two of the six — Resolved and the AI handover queue
- * — are places you go now and then rather than switch between all day.
+ * which is where the console keeps them too. Four across a phone left no
+ * room for the counts, and two of the six — Resolved and the AI handover
+ * queue — are places you go now and then rather than switch between all day.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -120,7 +142,7 @@ fun InboxScreen(
     syncNotice: String? = null,
 ) {
     Column(modifier.fillMaxSize()) {
-        InboxBar(
+        InboxHeader(
             language = language,
             filter = filter,
             allFilters = allFilters,
@@ -134,12 +156,16 @@ fun InboxScreen(
             onOpenEmail = onOpenEmail,
         )
 
-        if (search != null && search.isVisible) {
-            SearchField(state = search, prompt = Str.search(language))
+        AnimatedVisibility(
+            visible = search != null && search.isVisible,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut(),
+        ) {
+            if (search != null) SearchField(state = search, prompt = Str.search(language))
         }
 
         if (chipFilters.size > 1) {
-            FilterStrip(language, chipFilters, filter, counts, onSelectFilter)
+            QueueGroup(language, chipFilters, filter, counts, selectedChannel, onSelectFilter)
         }
 
         // Above the list and below the chrome: an operator scrolling the
@@ -148,25 +174,19 @@ fun InboxScreen(
         banner?.invoke()
 
         if (syncNotice != null && state is InboxState.Loaded) {
-            Text(
-                syncNotice,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                    .padding(horizontal = Space.lg, vertical = Space.sm)
-                    .testTag(A11y.INBOX_SYNC_NOTICE),
-            )
+            SyncNotice(syncNotice)
         }
 
+        val pullState = rememberPullToRefreshState()
         PullToRefreshBox(
             isRefreshing = refreshing,
             onRefresh = onRefresh,
+            state = pullState,
+            indicator = { PullIndicator(pullState, refreshing) },
             modifier = Modifier.weight(1f),
         ) {
             when (state) {
-                // Grey rows rather than a spinner: the shape of the answer is
+                // Rows rather than a spinner: the shape of the answer is
                 // known before the answer is, so nothing jumps when it lands.
                 is InboxState.Loading -> SkeletonList(
                     Modifier.fillMaxSize().padding(contentPadding),
@@ -181,7 +201,7 @@ fun InboxScreen(
 
                 is InboxState.Loaded -> if (state.conversations.isEmpty()) {
                     EmptyState(
-                        icon = Icons.Filled.Search,
+                        icon = Icons.Filled.Email,
                         title = Str.inboxEmptyTitle(language),
                         body = Str.inboxEmptyBody(language),
                         modifier = Modifier.testTag(A11y.INBOX_EMPTY),
@@ -189,13 +209,17 @@ fun InboxScreen(
                 } else {
                     LazyColumn(
                         Modifier.fillMaxSize().testTag(A11y.INBOX_LIST),
-                        contentPadding = contentPadding,
+                        contentPadding = PaddingValues(
+                            top = Space.xs,
+                            bottom = Space.lg + contentPadding.calculateBottomPadding(),
+                        ),
                     ) {
                         items(state.conversations, key = { it.id }) { conversation ->
                             ConversationRow(
                                 conversation = conversation,
                                 language = language,
                                 profile = intel[conversation.id],
+                                modifier = Modifier.animateItem(),
                             ) { onOpen(conversation) }
                         }
                     }
@@ -206,20 +230,21 @@ fun InboxScreen(
 }
 
 /**
- * The title, which is also the menu of every queue and every channel.
+ * The large title, which is also the menu of every queue and every channel,
+ * and the search button beside it.
  *
  * A title that is a button is unusual, so it wears a chevron — the one
  * affordance that says "there is more behind this word".
  *
- * Both axes live in here rather than on strips of their own. A queue strip, a
- * channel strip and a title bar is three rows of chrome before the first
- * conversation, which on a 5-inch phone in Persian left four rows visible; a
- * menu with two sections costs one extra tap for something you change now and
- * then. The queue that IS switched all day keeps its chips below.
+ * Both axes live in the menu rather than on strips of their own. A queue
+ * strip, a channel strip and a title bar is three rows of chrome before the
+ * first conversation, which on a 5-inch phone in Persian left four rows
+ * visible; a menu with two sections costs one extra tap for something you
+ * change now and then. The queue that IS switched all day keeps its buttons
+ * below.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun InboxBar(
+private fun InboxHeader(
     language: Language,
     filter: InboxFilter,
     allFilters: List<InboxFilter>,
@@ -235,118 +260,116 @@ private fun InboxBar(
     var menuOpen by remember { mutableStateOf(false) }
     val channel = channels.firstOrNull { it.key == selectedChannel }
 
-    TopAppBar(
-        title = {
-            Box {
-                Row(
-                    Modifier
-                        .clickable { menuOpen = true }
-                        .testTag(A11y.INBOX_TITLE_MENU),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // One line, and the channel REPLACES the queue rather
-                    // than sitting under it — iOS's
-                    // `model.channel?.title ?? model.filter.headerTitle`.
-                    // A queue and a channel are never both in force, so
-                    // naming both was naming a state the app cannot be in.
-                    Text(
-                        channel?.title(language) ?: filter.headerTitle(language),
-                        style = MaterialTheme.typography.titleLarge,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 72.dp)
+            .padding(start = Space.sm, end = Space.lg, top = Space.sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.weight(1f)) {
+            Row(
+                Modifier
+                    .clip(RoundedCornerShape(Radius.lg))
+                    .clickable(role = Role.DropdownList) { menuOpen = true }
+                    .padding(horizontal = Space.sm, vertical = Space.xs)
+                    .testTag(A11y.INBOX_TITLE_MENU),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // One line, and the channel REPLACES the queue rather than
+                // sitting under it: a queue and a channel are never both in
+                // force, so naming both was naming a state the app cannot be in.
+                Text(
+                    channel?.title(language) ?: filter.headerTitle(language),
+                    style = WebyarType.headlineMediumEmphasized,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Icon(
+                    Icons.Filled.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = Space.xs),
+                )
+            }
+
+            DropdownMenu(
+                expanded = menuOpen,
+                onDismissRequest = { menuOpen = false },
+                shape = RoundedCornerShape(Radius.lg),
+            ) {
+                allFilters.forEach { option ->
+                    MenuRow(
+                        label = option.title(language),
+                        // A queue is current only when no channel is laid
+                        // over it.
+                        selected = option == filter && selectedChannel == null,
+                        badge = counts.count(option)?.takeIf { it > 0 }?.let { count ->
+                            { UnreadBadge(count, language) }
+                        },
+                    ) { menuOpen = false; onSelectFilter(option) }
                 }
 
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    allFilters.forEach { option ->
+                // A workspace with no channel plugins installed gets no
+                // second section at all, rather than a heading over one item
+                // that undoes nothing.
+                if (channels.isNotEmpty()) {
+                    HorizontalDivider(Modifier.padding(vertical = Space.xs))
+                    Text(
+                        Str.otherInboxes(language),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = Space.lg, vertical = Space.xs),
+                    )
+                    // No "all inboxes" row: picking any queue above drops the
+                    // channel, so the tick comes off the way it does on iOS.
+                    channels.forEach { option ->
                         MenuRow(
                             label = option.title(language),
-                            // iOS: "A queue is current only when no channel is
-                            // laid over it."
-                            selected = option == filter && selectedChannel == null,
-                            badge = counts.count(option)?.takeIf { it > 0 }?.let { count ->
-                                { UnreadBadge(count, language) }
-                            },
-                        ) { menuOpen = false; onSelectFilter(option) }
+                            selected = option.key == selectedChannel,
+                        ) { menuOpen = false; onSelectChannel(option.key) }
                     }
+                }
 
-                    // A workspace with no channel plugins installed gets no
-                    // second section at all, rather than a heading over one
-                    // item that undoes nothing.
-                    if (channels.isNotEmpty()) {
-                        HorizontalDivider(Modifier.padding(vertical = Space.xs))
-                        Text(
-                            Str.otherInboxes(language),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = WebyarTheme.colors.labelTertiary,
-                            modifier = Modifier.padding(
-                                horizontal = Space.md,
-                                vertical = Space.xs,
-                            ),
+                // The internal inbox and the email inbox. Not queues and not
+                // channels — somewhere else entirely — so they go below a rule
+                // of their own with no tick, because you do not come back to
+                // this menu to leave them. You press Back.
+                if (onOpenColleagues != null || onOpenEmail != null) {
+                    HorizontalDivider(Modifier.padding(vertical = Space.xs))
+                    if (onOpenColleagues != null) {
+                        DropdownMenuItem(
+                            text = { Text(Str.colleagues(language)) },
+                            leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null) },
+                            onClick = { menuOpen = false; onOpenColleagues() },
                         )
-                        // No "all inboxes" row: picking any queue above drops
-                        // the channel, so the tick comes off the way it does
-                        // on iOS. A row whose only job was escaping a trap
-                        // that no longer exists is one more thing to read.
-                        channels.forEach { option ->
-                            MenuRow(
-                                label = option.title(language),
-                                selected = option.key == selectedChannel,
-                            ) { menuOpen = false; onSelectChannel(option.key) }
-                        }
                     }
+                    if (onOpenEmail != null) {
+                        DropdownMenuItem(
+                            text = { Text(Str.emailInbox(language)) },
+                            leadingIcon = { Icon(Icons.Filled.Email, contentDescription = null) },
+                            onClick = { menuOpen = false; onOpenEmail() },
+                        )
+                    }
+                }
+            }
+        }
 
-                    // The internal inbox. Not a queue and not a channel — it
-                    // is somewhere else entirely — so it goes below a rule of
-                    // its own with no tick, because you do not come back to
-                    // this menu to leave it. You press Back.
-                    if (onOpenColleagues != null || onOpenEmail != null) {
-                        HorizontalDivider(Modifier.padding(vertical = Space.xs))
-                        if (onOpenColleagues != null) {
-                            DropdownMenuItem(
-                                text = { Text(Str.colleagues(language)) },
-                                leadingIcon = {
-                                    Icon(Icons.Filled.Person, contentDescription = null)
-                                },
-                                onClick = { menuOpen = false; onOpenColleagues() },
-                            )
-                        }
-                        if (onOpenEmail != null) {
-                            DropdownMenuItem(
-                                text = { Text(Str.emailInbox(language)) },
-                                leadingIcon = {
-                                    Icon(Icons.Filled.Email, contentDescription = null)
-                                },
-                                onClick = { menuOpen = false; onOpenEmail() },
-                            )
-                        }
-                    }
-                }
+        if (search != null) {
+            FilledTonalIconButton(
+                onClick = { search.toggle() },
+                modifier = Modifier.size(Size.minTouchTarget).testTag(A11y.INBOX_SEARCH),
+            ) {
+                Icon(Icons.Filled.Search, contentDescription = Str.search(language))
             }
-        },
-        actions = {
-            if (search != null) {
-                IconButton(
-                    onClick = { search.toggle() },
-                    modifier = Modifier.testTag(A11y.INBOX_SEARCH),
-                ) {
-                    Icon(Icons.Filled.Search, contentDescription = Str.search(language))
-                }
-            }
-        },
-    )
+        }
+    }
 }
 
 /**
  * One row of the title menu — a queue or a channel, ticked when it is the one
  * in force.
- *
- * Both sections use the same mark. The queues alone could have got by on a
- * bold weight, but then the menu would say "current" two different ways
- * depending on how far down you had scrolled, and a weight is a poor signal
- * next to a count that is already bold.
  *
  * The tick's slot is held open whether it is filled or not, so a section's
  * labels stay in one column instead of stepping sideways as the selection
@@ -378,40 +401,59 @@ private fun MenuRow(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The queues switched between all day, as a connected button group. The
+ * selected one is filled and round; a channel laid over the queues leaves
+ * none of them selected, because none of them is what the list shows.
+ */
 @Composable
-private fun FilterStrip(
+private fun QueueGroup(
     language: Language,
     chips: List<InboxFilter>,
     selected: InboxFilter,
     counts: InboxCounts,
+    selectedChannel: String?,
     onSelect: (InboxFilter) -> Unit,
 ) {
     Row(
         Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
-            .padding(horizontal = Space.screenInset, vertical = Space.xs),
-        horizontalArrangement = Arrangement.spacedBy(Space.sm),
+            .selectableGroup()
+            .padding(horizontal = Space.screenInset, vertical = Space.sm),
+        horizontalArrangement = Arrangement.spacedBy(Space.xs),
     ) {
         chips.forEach { option ->
-            val count = counts.count(option)
-            FilterChip(
-                selected = option == selected,
+            ChoiceButton(
+                label = option.title(language),
+                count = counts.count(option),
+                selected = option == selected && selectedChannel == null,
+                language = language,
                 onClick = { onSelect(option) },
-                label = {
-                    Text(
-                        // The count rides in the label, because the whole
-                        // reason to glance at this strip is to see where the
-                        // work is.
-                        if (count != null && count > 0) {
-                            "${option.title(language)} ${Format.number(count, language)}"
-                        } else {
-                            option.title(language)
-                        }
-                    )
-                },
             )
+        }
+    }
+}
+
+/** Why the list may be out of date, as a tonal strip rather than an alarm. */
+@Composable
+private fun SyncNotice(text: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        shape = RoundedCornerShape(Radius.lg),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Space.screenInset, vertical = Space.xs)
+            .testTag(A11y.INBOX_SYNC_NOTICE),
+    ) {
+        Row(
+            Modifier.padding(horizontal = Space.md, vertical = Space.sm),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Space.sm),
+        ) {
+            Icon(Icons.Outlined.Info, contentDescription = null, modifier = Modifier.size(18.dp))
+            Text(text, style = MaterialTheme.typography.labelLarge)
         }
     }
 }
@@ -421,13 +463,16 @@ private fun FilterStrip(
  *
  * The avatar carries what we know about the visitor — their operating system
  * as a brand mark, their country as a flag — because a row an operator can
- * recognise without reading is a row they can skip.
+ * recognise without reading is a row they can skip. An unread one is set in
+ * bold, its preview in full ink and its time in the brand colour, so the
+ * rows that need an answer stand out before a word is read.
  */
 @Composable
 private fun ConversationRow(
     conversation: Conversation,
     language: Language,
     profile: VisitorProfile?,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val name = Format.contactName(
@@ -437,33 +482,42 @@ private fun ConversationRow(
         language = language,
     )
     val unread = conversation.unreadCount ?: 0
+    val emphasis = unread > 0
 
-    Column(
-        Modifier
+    Row(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = Space.sm, vertical = 1.dp)
+            .clip(RoundedCornerShape(Radius.xl))
+            .background(
+                if (emphasis) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surface,
+            )
             .clickable(onClick = onClick)
             .testTag(A11y.conversationRow(conversation.id))
+            .heightIn(min = Size.rowMinHeight + 12.dp)
+            .padding(horizontal = Space.md, vertical = Space.md),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .heightIn(min = Size.rowMinHeight)
-                .padding(horizontal = Space.screenInset, vertical = Space.sm),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Avatar(
-                name = name,
-                imageUrl = conversation.contact?.avatarUrl,
-                os = profile?.device?.os,
-                device = profile?.device?.device,
-                countryCode = profile?.geo?.countryCode,
-            )
+        Avatar(
+            name = name,
+            imageUrl = conversation.contact?.avatarUrl,
+            size = Size.avatarLarge * 0.68f,
+            os = profile?.device?.os,
+            device = profile?.device?.device,
+            countryCode = profile?.geo?.countryCode,
+            // Carried into the chat's bar when the row is opened.
+            modifier = Modifier.sharedElement(avatarKey(conversation.id)),
+        )
 
-            Column(Modifier.weight(1f).padding(horizontal = Space.md)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(start = Space.lg)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // The name and its pill share the room the time leaves them;
+                // the name gives way first.
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         name,
-                        style = MaterialTheme.typography.titleMedium.bidiContent(),
-                        fontWeight = if (unread > 0) FontWeight.Bold else FontWeight.SemiBold,
+                        style = (if (emphasis) WebyarType.titleMediumEmphasized else MaterialTheme.typography.titleMedium)
+                            .bidiContent(),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
@@ -477,31 +531,35 @@ private fun ConversationRow(
                     }
                 }
                 Text(
+                    Format.listTimestamp(conversation.lastActivity, language),
+                    style = if (emphasis) WebyarType.labelLargeEmphasized.copy(fontSize = MaterialTheme.typography.labelMedium.fontSize)
+                    else MaterialTheme.typography.labelMedium,
+                    color = if (emphasis) MaterialTheme.colorScheme.primary else WebyarTheme.colors.labelTertiary,
+                    maxLines = 1,
+                    modifier = Modifier.padding(start = Space.sm),
+                )
+            }
+            Row(
+                Modifier.padding(top = Space.xxs),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
                     conversation.preview(language),
                     // The preview can arrive in any of the three languages,
                     // and a Turkish sentence in a Persian list had its full
                     // stop moved to the front until this went in.
-                    style = MaterialTheme.typography.bodyMedium.bidiContent(),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = (if (emphasis) WebyarType.bodyMediumEmphasized else MaterialTheme.typography.bodyMedium)
+                        .bidiContent(),
+                    color = if (emphasis) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.weight(1f),
                 )
-            }
-
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    Format.listTimestamp(conversation.lastActivity, language),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = WebyarTheme.colors.labelTertiary,
-                    maxLines = 1,
-                )
-                if (unread > 0) {
-                    UnreadBadge(unread, language, Modifier.padding(top = Space.xs))
+                if (emphasis) {
+                    UnreadBadge(unread, language, Modifier.padding(start = Space.sm))
                 }
             }
         }
-        RowDivider()
     }
 }
 

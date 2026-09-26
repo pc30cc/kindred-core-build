@@ -1,0 +1,176 @@
+name: Android screenshots
+
+# Renders the app's main screens on the JVM (Robolectric native graphics,
+# Roborazzi) and publishes the PNGs to a branch of their own,
+# `screenshots/<branch>`, so a change to the look can be reviewed without a
+# device. The source branch is never written to.
+#
+# On request only: it is a review tool, not a gate. Either run it by hand, or
+# put `[screenshots]` in a pushed commit's message (a manual run needs the
+# workflow on the default branch first; the tag works from any branch).
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore: ['screenshots/**', 'toolchain/**']
+    paths:
+      - 'android/**'
+      - '.github/workflows/android-screenshots.yml'
+
+permissions:
+  # Only to push the screenshots branch.
+  contents: write
+
+concurrency:
+  group: android-screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  record:
+    name: Record
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[screenshots]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    env:
+      GRADLE_OPTS: -Dorg.gradle.daemon=false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Record screenshots
+        working-directory: android
+        run: ./gradlew :app:testDebugUnitTest --tests 'com.webyar.operator.screenshots.*' -Proborazzi.test.record=true --stacktrace
+
+      - name: Publish to screenshots/${{ github.ref_name }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          out="$GITHUB_WORKSPACE/android/app/build/outputs/roborazzi"
+          ls -la "$out"
+          dest=$(mktemp -d)
+          cp "$out"/*.png "$dest"/
+          cd "$dest"
+          git init -q -b main .
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "Screenshots of ${GITHUB_SHA}"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/screenshots/${GITHUB_REF_NAME}"
+          echo "Published $(ls *.png | wc -l) screenshots to screenshots/${GITHUB_REF_NAME}"
+
+  # The compile classpath and the sources of the libraries the UI is written
+  # against, published to `toolchain/<branch>`: what lets the Kotlin be
+  # type-checked, and the libraries' real API read, on a machine that cannot
+  # reach Google's Maven. Only on a commit tagged `[toolchain]`, or by hand.
+  toolchain:
+    name: Export toolchain
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[toolchain]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    env:
+      GRADLE_OPTS: -Dorg.gradle.daemon=false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Export the compile classpath
+        working-directory: android
+        run: |
+          set -eu
+          cat > "$RUNNER_TEMP/export.init.gradle" <<'GRADLE'
+          gradle.projectsEvaluated {
+              def p = gradle.rootProject.project(':app')
+              def kt = p.tasks.getByName('compileDebugKotlin')
+              p.tasks.register('exportCompileClasspath') {
+                  dependsOn kt
+                  doLast {
+                      def out = new File(p.buildDir, 'export/classpath')
+                      out.mkdirs()
+                      int i = 0
+                      kt.libraries.files.each { f ->
+                          if (f.isFile() && f.name.endsWith('.jar')) {
+                              def owner = f.parentFile?.parentFile?.name ?: 'x'
+                              def name = String.format('%03d_%s_%s', i, owner, f.name)
+                              java.nio.file.Files.copy(f.toPath(), new File(out, name).toPath())
+                              i++
+                          } else {
+                              println "not copied: ${f}"
+                          }
+                      }
+                      println "exported ${i} jars"
+                  }
+              }
+          }
+          GRADLE
+          ./gradlew --init-script "$RUNNER_TEMP/export.init.gradle" :app:exportCompileClasspath --stacktrace
+          ./gradlew -q :app:dependencies --configuration debugRuntimeClasspath > app/build/export/dependencies.txt
+
+      - name: Assemble the bundle
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          bundle=$(mktemp -d)
+          mkdir -p "$bundle/classpath" "$bundle/generated" "$bundle/sources" "$bundle/sdk"
+          cp android/app/build/export/classpath/*.jar "$bundle/classpath/"
+          cp android/app/build/export/dependencies.txt "$bundle/"
+          for d in android/app/build/generated/ksp/debug android/app/build/generated/source/buildConfig/debug; do
+            [ -d "$d" ] && mkdir -p "$bundle/generated/$(basename "$(dirname "$d")")" && cp -r "$d" "$bundle/generated/$(basename "$(dirname "$d")")/"
+          done
+          find android/app/build/intermediates -name 'R.jar' -path '*debug*' -exec cp {} "$bundle/classpath/zzz_app_R.jar" \; -quit
+          platform=$(ls -d "$ANDROID_HOME"/platforms/android-* | sort -V | tail -1)
+          cp "$platform/android.jar" "$bundle/sdk/"
+          echo "$platform" > "$bundle/sdk/platform.txt"
+          M=https://dl.google.com/dl/android/maven2
+          fetch() {
+            url="$M/$1/$2/$3/$2-$3-sources.jar"
+            if curl -4 -fsSL -o "$bundle/sources/$2-$3-sources.jar" "$url"; then echo "sources: $2 $3"; else echo "missing: $url"; fi
+          }
+          fetch androidx/compose/material3 material3-android 1.4.0
+          fetch androidx/compose/material3 material3-adaptive-navigation-suite-android 1.4.0
+          m3=$(sed -nE 's/^material3 = "([^"]+)"/\1/p' android/gradle/libs.versions.toml)
+          if [ -n "$m3" ]; then
+            fetch androidx/compose/material3 material3-android "$m3"
+            fetch androidx/compose/material3 material3-adaptive-navigation-suite-android "$m3"
+          fi
+          fetch androidx/compose/material3/adaptive adaptive-android 1.3.0
+          fetch androidx/compose/material3/adaptive adaptive-layout-android 1.3.0
+          fetch androidx/compose/material3/adaptive adaptive-navigation-android 1.3.0
+          fetch androidx/compose/material3/adaptive adaptive-navigation3-android 1.3.0
+          fetch androidx/navigation3 navigation3-ui-android 1.2.0
+          fetch androidx/navigation3 navigation3-runtime-android 1.2.0
+          fetch androidx/lifecycle lifecycle-viewmodel-navigation3-android 2.11.0
+          fetch androidx/compose/foundation foundation-android 1.12.1
+          fetch androidx/compose/foundation foundation-layout-android 1.12.1
+          fetch androidx/compose/animation animation-android 1.12.1
+          fetch androidx/compose/animation animation-core-android 1.12.1
+          fetch androidx/compose/ui ui-android 1.12.1
+          fetch androidx/activity activity-compose 1.13.0
+          fetch androidx/graphics graphics-shapes-android 1.1.0
+          du -sh "$bundle"/*
+          cd "$bundle"
+          git init -q -b main .
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "Toolchain of ${GITHUB_SHA}"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/toolchain/${GITHUB_REF_NAME}"
+          echo "Published toolchain/${GITHUB_REF_NAME}"

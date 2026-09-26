@@ -168,4 +168,47 @@ object StrAndroid {
         Language.FA -> "پیام تازه"
         Language.TR -> "Yeni mesaj"
     }
+
+    // MARK: - Adaptive layout and appearance
+
+    /** The detail pane beside the inbox on a tablet, before a row is picked. */
+    fun pickConversation(l: Language): String = when (l) {
+        Language.EN -> "Pick a conversation to read it here"
+        Language.FA -> "یک گفتگو را انتخاب کنید تا اینجا نمایش داده شود"
+        Language.TR -> "Burada okumak için bir konuşma seçin"
+    }
+
+    /** The detail pane beside the contacts on a tablet. */
+    fun pickContact(l: Language): String = when (l) {
+        Language.EN -> "Pick a contact to see their details"
+        Language.FA -> "یک مخاطب را انتخاب کنید تا جزئیاتش را ببینید"
+        Language.TR -> "Ayrıntıları görmek için bir kişi seçin"
+    }
+
+    /** Any other detail pane beside a list, before anything is picked. */
+    fun pickItem(l: Language): String = when (l) {
+        Language.EN -> "Pick an item to see it here"
+        Language.FA -> "یک مورد را انتخاب کنید تا اینجا نمایش داده شود"
+        Language.TR -> "Burada görmek için bir öğe seçin"
+    }
+
+    /** Settings → Appearance: Material You colours from the wallpaper. */
+    fun wallpaperColors(l: Language): String = when (l) {
+        Language.EN -> "Wallpaper colours"
+        Language.FA -> "رنگ‌های والپیپر"
+        Language.TR -> "Duvar kâğıdı renkleri"
+    }
+
+    fun wallpaperColorsBody(l: Language): String = when (l) {
+        Language.EN -> "Use colours from your wallpaper instead of the brand's"
+        Language.FA -> "به‌جای رنگ‌های برند، از رنگ‌های والپیپر استفاده شود"
+        Language.TR -> "Marka renkleri yerine duvar kâğıdındaki renkleri kullan"
+    }
+
+    /** Spoken label of the button that jumps to the newest message. */
+    fun jumpToLatest(l: Language): String = when (l) {
+        Language.EN -> "Jump to the latest message"
+        Language.FA -> "رفتن به آخرین پیام"
+        Language.TR -> "Son mesaja git"
+    }
 }

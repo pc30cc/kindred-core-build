@@ -57,6 +57,10 @@ class AppState(
     private val _appearance = MutableStateFlow(Appearance.SYSTEM)
     val appearance: StateFlow<Appearance> = _appearance.asStateFlow()
 
+    /** Wallpaper colours instead of the brand's — see [Preferences.dynamicColor]. */
+    private val _dynamicColor = MutableStateFlow(false)
+    val dynamicColor: StateFlow<Boolean> = _dynamicColor.asStateFlow()
+
     private val _workspaces = MutableStateFlow<List<Workspace>>(emptyList())
     val workspaces: StateFlow<List<Workspace>> = _workspaces.asStateFlow()
 
@@ -160,6 +164,7 @@ class AppState(
             prefs.language()?.let { _language.value = it }
             hooks.languageChanged(_language.value)
             _appearance.value = prefs.appearance()
+            _dynamicColor.value = prefs.dynamicColor()
             restore()
         }
     }
@@ -180,6 +185,11 @@ class AppState(
     fun setAppearance(appearance: Appearance) {
         _appearance.value = appearance
         viewModelScope.launch { prefs.setAppearance(appearance) }
+    }
+
+    fun setDynamicColor(on: Boolean) {
+        _dynamicColor.value = on
+        viewModelScope.launch { prefs.setDynamicColor(on) }
     }
 
     /**

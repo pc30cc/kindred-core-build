@@ -71,6 +71,9 @@ import com.webyar.operator.feature.team.TeamThreadScreen
 import com.webyar.operator.feature.team.TeamThreadViewModel
 import com.webyar.operator.feature.chat.Composer
 import com.webyar.operator.ui.components.SearchState
+import com.webyar.operator.ui.components.DetailTopBar
+import androidx.compose.ui.graphics.Color
+import com.webyar.operator.feature.settings.settingsPageColor
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.TextButton
 import com.webyar.operator.feature.email.EmailInboxScreen
@@ -123,6 +126,8 @@ import com.webyar.operator.LocalAppGraph
 import kotlinx.coroutines.launch
 import com.webyar.operator.core.cache.CacheScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.webyar.operator.ui.design.Radius
 
 /**
  * The screens, as the navigation graph sees them.
@@ -769,7 +774,6 @@ fun TeamThreadRoute(
  * The same bar the inbox wears, minus the queue menu — a pushed list still
  * needs a way back, which is the one thing the inbox's own bar never does.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SearchableBar(
     title: String,
@@ -779,40 +783,16 @@ private fun SearchableBar(
     /** A second, quieter line — whose mailbox this is, when we know. */
     subtitle: String? = null,
 ) {
-    TopAppBar(
-        title = {
-            Column {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (!subtitle.isNullOrEmpty()) {
-                    LatinText(
-                        subtitle,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = WebyarTheme.colors.labelTertiary,
-                        maxLines = 1,
-                        align = rowTextAlign(),
-                    )
-                }
-            }
-        },
-        navigationIcon = {
-            IconButton(onClick = onBack) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = StrAndroid.back(language),
-                )
-            }
-        },
-        actions = {
-            IconButton(onClick = { search.toggle() }) {
-                Icon(Icons.Filled.Search, contentDescription = Str.search(language))
-            }
-        },
-    )
+    DetailTopBar(
+        title = title,
+        subtitle = subtitle,
+        backLabel = StrAndroid.back(language),
+        onBack = onBack,
+    ) {
+        IconButton(onClick = { search.toggle() }) {
+            Icon(Icons.Filled.Search, contentDescription = Str.search(language))
+        }
+    }
 }
 
 @Composable
@@ -895,22 +875,10 @@ fun EmailThreadRoute(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        Str.emailInbox(language),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = StrAndroid.back(language),
-                        )
-                    }
-                },
+            DetailTopBar(
+                title = Str.emailInbox(language),
+                backLabel = StrAndroid.back(language),
+                onBack = onBack,
                 actions = {
                     Box {
                         IconButton(
@@ -922,7 +890,11 @@ fun EmailThreadRoute(
                                 contentDescription = StrAndroid.moreOptions(language),
                             )
                         }
-                        DropdownMenu(menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenu(
+                            menuOpen,
+                            onDismissRequest = { menuOpen = false },
+                            shape = RoundedCornerShape(Radius.lg),
+                        ) {
                             DropdownMenuItem(
                                 text = { Text(Str.emailStar(language)) },
                                 leadingIcon = {
@@ -1144,6 +1116,7 @@ fun SettingsRoute(
     val session by appState.session.collectAsStateWithLifecycle()
     val user = (session as? Session.SignedIn)?.user
     val avatarUrl by appState.avatarUrl.collectAsStateWithLifecycle()
+    val dynamicColor by appState.dynamicColor.collectAsStateWithLifecycle()
 
     // Measured each time the screen is shown; a size is only interesting
     // when somebody is looking at it.
@@ -1176,8 +1149,11 @@ fun SettingsRoute(
         onSetAvailableWhenUsingApp = settings::setAvailableWhenUsingApp,
         onSetScheduleEnabled = settings::setScheduleEnabled,
         onSignOut = appState::logOut,
-        modifier = Modifier.statusBarsPadding(),
         contentPadding = PaddingValues(bottom = bottomInset),
+        // Wallpaper colours exist from Android 12; before that there is
+        // nothing to offer and the row is left out.
+        dynamicColor = dynamicColor.takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.S },
+        onSetDynamicColor = appState::setDynamicColor,
         storage = storage,
         onClearCache = graph?.let { g ->
             {
@@ -1241,7 +1217,9 @@ fun ProfileRoute(
     }
 
     Scaffold(
-        topBar = { BackBar(Str.profile(language), language, onBack) },
+        // The settings page's tone, so its cards read as they do there.
+        containerColor = settingsPageColor(),
+        topBar = { BackBar(Str.profile(language), language, onBack, settingsPageColor()) },
     ) { padding ->
         ProfileScreen(
             language = language,
@@ -1310,7 +1288,9 @@ fun NotificationsRoute(
     }
 
     Scaffold(
-        topBar = { BackBar(Str.notifications(language), language, onBack) },
+        // The settings page's tone, so its cards read as they do there.
+        containerColor = settingsPageColor(),
+        topBar = { BackBar(Str.notifications(language), language, onBack, settingsPageColor()) },
     ) { padding ->
         NotificationsScreen(
             language = language,
@@ -1365,7 +1345,9 @@ fun SecurityRoute(
     val form by model.security.collectAsStateWithLifecycle()
 
     Scaffold(
-        topBar = { BackBar(Str.security(language), language, onBack) },
+        // The settings page's tone, so its cards read as they do there.
+        containerColor = settingsPageColor(),
+        topBar = { BackBar(Str.security(language), language, onBack, settingsPageColor()) },
     ) { padding ->
         SecurityScreen(
             language = language,
@@ -1387,32 +1369,18 @@ fun SecurityRoute(
 }
 
 /** The bar every pushed screen wears: a title and a way back. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BackBar(title: String, language: Language, onBack: () -> Unit) {
-    TopAppBar(
-        title = {
-            Text(
-                title,
-                // A contact's name is whatever they typed, and
-                // "Alexander Konstantinopoulos" is two words wider than the
-                // bar. One line, ellipsised, and its reading order from the
-                // name rather than from the layout.
-                style = MaterialTheme.typography.titleLarge.bidiContent(),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        },
-        navigationIcon = {
-            IconButton(onClick = onBack) {
-                Icon(
-                    // AutoMirrored: a back arrow points the way you came, and
-                    // in Persian that is the other way.
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = StrAndroid.back(language),
-                )
-            }
-        },
+private fun BackBar(
+    title: String,
+    language: Language,
+    onBack: () -> Unit,
+    containerColor: Color = MaterialTheme.colorScheme.surface,
+) {
+    DetailTopBar(
+        title = title,
+        backLabel = StrAndroid.back(language),
+        onBack = onBack,
+        containerColor = containerColor,
     )
 }
 

@@ -8,6 +8,8 @@ plugins {
     // Room's annotation processor, and the plugin that exports its schema.
     alias(libs.plugins.ksp)
     alias(libs.plugins.androidx.room)
+    // Screenshot tests: `recordRoborazziDebug` writes the PNGs.
+    alias(libs.plugins.roborazzi)
 }
 
 /**
@@ -260,7 +262,14 @@ dependencies {
 
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
-    implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.navigation3.runtime)
+    implementation(libs.androidx.navigation3.ui)
+    implementation(libs.androidx.lifecycle.viewmodel.navigation3)
+    implementation(libs.androidx.compose.material3.adaptive)
+    implementation(libs.androidx.compose.material3.adaptive.layout)
+    implementation(libs.androidx.compose.material3.adaptive.navigation3)
+    implementation(libs.androidx.compose.material3.adaptive.navigation.suite)
+    implementation(libs.androidx.graphics.shapes)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.lifecycle.process)
 
@@ -311,6 +320,8 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.ext.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
     testImplementation(libs.androidx.room.testing)
     testImplementation(libs.androidx.work.testing)
     testImplementation(platform(libs.androidx.compose.bom))

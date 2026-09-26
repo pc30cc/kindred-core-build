@@ -21,7 +21,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -56,6 +55,13 @@ import com.webyar.operator.ui.components.RowDivider
 import com.webyar.operator.ui.components.StatusPill
 import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.webyar.operator.ui.design.Radius
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import com.webyar.operator.ui.components.FilledField
+import com.webyar.operator.ui.design.WebyarType
 
 /** Which sheet the header menu has opened, if any. */
 enum class ChatSheet { STATUS, PRIORITY, TRANSFER, TAGS, NOTES }
@@ -94,6 +100,7 @@ fun ConversationMenu(
         androidx.compose.material3.DropdownMenu(
             expanded = open,
             onDismissRequest = { open = false },
+            shape = RoundedCornerShape(Radius.lg),
         ) {
             if (aiManaged) {
                 MenuItem(Str.takeOver(language)) { open = false; onTakeOver() }
@@ -282,11 +289,10 @@ fun TagsSheet(
                 Modifier.fillMaxWidth().padding(vertical = Space.md),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                OutlinedTextField(
+                FilledField(
                     value = draft,
                     onValueChange = { draft = it },
-                    label = { Text(Str.addTag(language)) },
-                    singleLine = true,
+                    label = Str.addTag(language),
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(
@@ -374,12 +380,13 @@ fun NotesSheet(
         }
 
         Column(Modifier.padding(horizontal = Space.screenInset, vertical = Space.md)) {
-            OutlinedTextField(
+            FilledField(
                 value = draft,
                 onValueChange = { draft = it },
-                label = { Text(Str.writeNote(language)) },
-                modifier = Modifier.fillMaxWidth(),
+                label = Str.writeNote(language),
+                singleLine = false,
                 maxLines = 4,
+                modifier = Modifier.fillMaxWidth(),
             )
             PrimaryButton(
                 Str.send(language),
@@ -393,24 +400,30 @@ fun NotesSheet(
 
 @Composable
 private fun ChoiceRow(label: String, selected: Boolean, onClick: () -> Unit) {
-    Column {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onClick)
-                .heightIn(min = Size.minTouchTarget)
-                .padding(horizontal = Space.screenInset, vertical = Space.sm),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-            if (selected) {
-                Icon(
-                    Icons.Filled.Check,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
+    // A rounded row that fills with a tone when it is the current choice —
+    // the sheet's version of the settings pickers.
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Space.sm, vertical = 1.dp)
+            .clip(RoundedCornerShape(Radius.lg))
+            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+            .clickable(onClick = onClick)
+            .heightIn(min = Size.minTouchTarget)
+            .padding(horizontal = Space.lg, vertical = Space.sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = if (selected) WebyarType.bodyLargeEmphasized else MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
+        )
+        if (selected) {
+            Icon(
+                Icons.Filled.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
         }
-        RowDivider()
     }
 }

@@ -31,7 +31,6 @@ import com.webyar.operator.ui.A11y
 import com.webyar.operator.ui.components.Avatar
 import com.webyar.operator.ui.components.EmptyState
 import com.webyar.operator.ui.components.ErrorState
-import com.webyar.operator.ui.components.RowDivider
 import com.webyar.operator.ui.components.SearchField
 import com.webyar.operator.ui.components.SearchState
 import com.webyar.operator.ui.components.SkeletonList
@@ -40,6 +39,20 @@ import com.webyar.operator.ui.components.bidiContent
 import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
 import com.webyar.operator.ui.design.WebyarTheme
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import com.webyar.operator.ui.components.PullIndicator
+import com.webyar.operator.ui.design.Radius
 
 /**
  * Everyone on the team, and what they last said.
@@ -63,13 +76,20 @@ fun ColleaguesScreen(
     onRetry: () -> Unit = {},
 ) {
     Column(modifier.fillMaxSize()) {
-        if (search != null && search.isVisible) {
-            SearchField(state = search, prompt = Str.search(language))
+        AnimatedVisibility(
+            visible = search != null && search.isVisible,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            if (search != null) SearchField(state = search, prompt = Str.search(language))
         }
 
+        val pullState = rememberPullToRefreshState()
         PullToRefreshBox(
             isRefreshing = refreshing,
             onRefresh = onRefresh,
+            state = pullState,
+            indicator = { PullIndicator(pullState, refreshing) },
             modifier = Modifier.weight(1f),
         ) {
             when (state) {
@@ -100,10 +120,13 @@ fun ColleaguesScreen(
                 } else {
                     LazyColumn(
                         Modifier.fillMaxSize().testTag(A11y.COLLEAGUES_LIST),
-                        contentPadding = contentPadding,
+                        contentPadding = PaddingValues(
+                            top = Space.xs + contentPadding.calculateTopPadding(),
+                            bottom = Space.lg + contentPadding.calculateBottomPadding(),
+                        ),
                     ) {
                         items(state.colleagues, key = { it.userId }) { colleague ->
-                            ColleagueRow(colleague, language) { onOpen(colleague) }
+                            ColleagueRow(colleague, language, Modifier.animateItem()) { onOpen(colleague) }
                         }
                     }
                 }
@@ -116,12 +139,21 @@ fun ColleaguesScreen(
 private fun ColleagueRow(
     colleague: Colleague,
     language: Language,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val unread = colleague.unread ?: 0
 
-    Column(
-        Modifier
+    // The inbox's rounded row: no dividers, and a tone under the rows that
+    // have something unread, so they are found before they are read.
+    Box(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = Space.sm, vertical = 1.dp)
+            .clip(RoundedCornerShape(Radius.xl))
+            .background(
+                if (unread > 0) MaterialTheme.colorScheme.surfaceContainerLow else Color.Transparent,
+            )
             .clickable(onClick = onClick)
             .testTag(A11y.colleagueRow(colleague.userId))
     ) {
@@ -129,7 +161,7 @@ private fun ColleagueRow(
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = Size.rowMinHeight)
-                .padding(horizontal = Space.screenInset, vertical = Space.sm),
+                .padding(horizontal = Space.md, vertical = Space.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Avatar(
@@ -142,7 +174,7 @@ private fun ColleagueRow(
                     Text(
                         colleague.displayName,
                         style = MaterialTheme.typography.titleMedium.bidiContent(),
-                        fontWeight = if (unread > 0) FontWeight.Bold else FontWeight.SemiBold,
+                        fontWeight = if (unread > 0) FontWeight.Bold else FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
@@ -150,8 +182,8 @@ private fun ColleagueRow(
                     colleague.lastMessage?.createdAt?.let {
                         Text(
                             Format.listTimestamp(it, language),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = WebyarTheme.colors.labelTertiary,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (unread > 0) MaterialTheme.colorScheme.primary else WebyarTheme.colors.labelTertiary,
                             maxLines = 1,
                             modifier = Modifier.padding(start = Space.sm),
                         )
@@ -172,7 +204,6 @@ private fun ColleagueRow(
                 }
             }
         }
-        RowDivider()
     }
 }
 

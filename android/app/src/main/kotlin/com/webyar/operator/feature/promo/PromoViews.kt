@@ -64,8 +64,8 @@ fun PromoBanner(
     val uriHandler = LocalUriHandler.current
 
     Surface(
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.07f),
-        shape = RoundedCornerShape(Radius.lg),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+        shape = RoundedCornerShape(Radius.xl),
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = Space.screenInset, vertical = Space.xs)

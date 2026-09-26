@@ -27,12 +27,13 @@ import com.webyar.operator.ui.components.StickToNewest
 import com.webyar.operator.ui.components.DayHeader
 import com.webyar.operator.ui.components.ErrorState
 import com.webyar.operator.ui.components.MessageBubble
-import com.webyar.operator.ui.components.SkeletonList
 import com.webyar.operator.ui.components.bidiContent
 import androidx.compose.foundation.layout.fillMaxWidth
 import com.webyar.operator.ui.design.Space
 import java.time.Instant
 import java.time.ZoneId
+import androidx.compose.ui.Alignment
+import com.webyar.operator.ui.components.LoadingIndicator
 
 /**
  * A thread with one colleague.
@@ -64,11 +65,12 @@ fun TeamThreadScreen(
     Column(modifier.fillMaxSize()) {
         Box(Modifier.weight(1f)) {
             when (state) {
-                is TeamThreadState.Loading -> SkeletonList(
-                    Modifier.fillMaxSize(),
-                    rows = 6,
-                    lines = 1,
-                )
+                // The expressive indicator, as the visitor chat has: a
+                // thread's shape is not known until it arrives, so there are
+                // no rows to sketch in ahead of it.
+                is TeamThreadState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
+                    LoadingIndicator()
+                }
 
                 is TeamThreadState.Failed -> ErrorState(
                     title = Str.offlineTitle(language),
@@ -108,7 +110,7 @@ private fun Transcript(
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize().testTag(A11y.TEAM_TRANSCRIPT),
-        contentPadding = PaddingValues(Space.lg),
+        contentPadding = PaddingValues(horizontal = Space.md, vertical = Space.lg),
     ) {
         items(rows.size, key = { rows[it].message.id }) { index ->
             val row = rows[index]

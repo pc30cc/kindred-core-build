@@ -22,7 +22,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Icon
@@ -37,13 +36,16 @@ import com.webyar.operator.ui.components.Avatar
 import com.webyar.operator.ui.components.ErrorState
 import com.webyar.operator.ui.components.Glyph
 import com.webyar.operator.ui.components.LatinText
-import com.webyar.operator.ui.components.SkeletonList
 import com.webyar.operator.ui.components.bidiContent
 import com.webyar.operator.ui.components.rowTextAlign
 import com.webyar.operator.ui.design.Radius
 import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
 import com.webyar.operator.ui.design.WebyarTheme
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import com.webyar.operator.ui.components.LoadingIndicator
+import com.webyar.operator.ui.design.WebyarType
 
 /**
  * One email thread: the subject, the trail, and a box to answer it.
@@ -68,10 +70,9 @@ fun EmailThreadScreen(
     Column(modifier.fillMaxSize()) {
         Box(Modifier.weight(1f)) {
             when (state) {
-                is EmailThreadState.Loading -> SkeletonList(
-                    Modifier.fillMaxSize().padding(contentPadding),
-                    rows = 4,
-                )
+                is EmailThreadState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
+                    LoadingIndicator()
+                }
 
                 is EmailThreadState.Failed -> ErrorState(
                     title = Str.offlineTitle(language),
@@ -89,9 +90,8 @@ fun EmailThreadScreen(
                         Text(
                             thread?.subject?.takeIf { it.isNotEmpty() }
                                 ?: Str.emailNoSubject(language),
-                            style = MaterialTheme.typography.titleLarge.bidiContent(),
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.fillMaxWidth(),
+                            style = WebyarType.headlineSmallEmphasized.bidiContent(),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = Space.xs),
                         )
                     }
                     items(state.messages, key = { it.id }) {
@@ -109,16 +109,16 @@ private fun EmailMessageCard(message: EmailMessageView, language: Language) {
     Surface(
         color = if (message.isOutbound) {
             // Tinted, not moved: a quoted trail stays one readable column.
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
         } else {
-            MaterialTheme.colorScheme.surfaceContainer
+            MaterialTheme.colorScheme.surfaceContainerLow
         },
-        shape = RoundedCornerShape(Radius.lg),
+        shape = RoundedCornerShape(Radius.xl),
         modifier = Modifier.fillMaxWidth().testTag(A11y.emailMessage(message.id)),
     ) {
         Column(
-            Modifier.padding(Space.md),
-            verticalArrangement = Arrangement.spacedBy(Space.sm),
+            Modifier.padding(Space.lg),
+            verticalArrangement = Arrangement.spacedBy(Space.md),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Avatar(
@@ -128,7 +128,7 @@ private fun EmailMessageCard(message: EmailMessageView, language: Language) {
                 Column(Modifier.weight(1f).padding(horizontal = Space.sm)) {
                     LatinText(
                         message.fromAddress.orEmpty(),
-                        style = MaterialTheme.typography.titleSmall,
+                        style = WebyarType.titleMediumEmphasized,
                         maxLines = 1,
                         align = rowTextAlign(),
                         modifier = Modifier.fillMaxWidth(),
@@ -155,12 +155,20 @@ private fun EmailMessageCard(message: EmailMessageView, language: Language) {
 
             Text(
                 message.displayBody,
-                style = MaterialTheme.typography.bodyMedium.bidiContent(),
+                style = MaterialTheme.typography.bodyLarge.bidiContent(),
                 modifier = Modifier.fillMaxWidth(),
             )
 
+            // Each attachment as a tonal pill, so a file reads as a thing
+            // that came with the mail rather than a line of its text.
             message.attachments?.forEach { attachment ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(Radius.pill))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                        .padding(horizontal = Space.md, vertical = Space.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Icon(
                         Glyph.Paperclip,
                         contentDescription = null,

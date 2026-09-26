@@ -151,6 +151,12 @@ jobs:
             [ -e "$f" ] || continue
             sed -n 's/.*<testsuite name="\([^"]*\)" tests="\([0-9]*\)" skipped="\([0-9]*\)" failures="\([0-9]*\)" errors="\([0-9]*\)".*/\1: \2 tests, \4 failures, \5 errors/p' "$f"
           done
+          # Gradle's console names a failed test and a line number; the
+          # reason is only in the XML. Print it, so a red run says why.
+          for f in app/build/test-results/testDebugUnitTest/*.xml; do
+            [ -e "$f" ] || continue
+            grep -A12 '<failure' "$f" | head -40 || true
+          done
 
       - name: Lint
         working-directory: android

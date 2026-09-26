@@ -56,7 +56,6 @@ import com.webyar.operator.i18n.StrAndroid
 import com.webyar.operator.i18n.SystemMessage
 import com.webyar.operator.ui.A11y
 import com.webyar.operator.ui.components.Avatar
-import com.webyar.operator.ui.components.ChatBubbleShape
 import com.webyar.operator.ui.components.Glyph
 import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.components.AttachmentView
@@ -68,6 +67,24 @@ import com.webyar.operator.ui.design.Space
 import com.webyar.operator.ui.design.WebyarTheme
 import java.time.Instant
 import java.time.ZoneId
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.rememberCoroutineScope
+import com.webyar.operator.ui.components.EmptyState
+import com.webyar.operator.ui.components.LoadingIndicator
+import com.webyar.operator.ui.design.Motion
+import com.webyar.operator.ui.design.WebyarType
+import kotlinx.coroutines.launch
+import com.webyar.operator.ui.components.avatarKey
+import com.webyar.operator.ui.components.sharedElement
 
 sealed interface ChatState {
     data object Loading : ChatState
@@ -87,8 +104,8 @@ sealed interface ChatState {
  *
  * And a bubble sits on the right side for the operator in every language,
  * because `Arrangement.End` resolves against the layout direction — so a
- * Persian transcript mirrors with no conditional at all. The BEAK is the
- * exception and has to be told which way to point; see [ChatBubbleShape].
+ * Persian transcript mirrors with no conditional at all, the bubbles' tight
+ * corners included; see [com.webyar.operator.ui.components.bubbleShape].
  */
 @Composable
 fun ChatScreen(
@@ -151,6 +168,8 @@ fun ChatScreen(
                         language = language,
                     )
                 },
+                avatarUrl = conversation?.contact?.avatarUrl,
+                sharedKey = conversation?.id?.let(::avatarKey),
                 onBack = onBack,
                 actions = header,
             )
@@ -159,19 +178,24 @@ fun ChatScreen(
         Box(Modifier.weight(1f)) {
             when (state) {
                 is ChatState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    CircularProgressIndicator()
+                    LoadingIndicator()
                 }
 
-                is ChatState.Failed -> Box(
-                    Modifier.fillMaxSize().padding(Space.xl),
-                    Alignment.Center,
-                ) {
-                    Text(state.message, style = MaterialTheme.typography.bodyMedium)
+                is ChatState.Failed -> Box(Modifier.fillMaxSize(), Alignment.Center) {
+                    EmptyState(
+                        icon = Icons.Outlined.Info,
+                        title = state.message,
+                        body = null,
+                    )
                 }
 
                 is ChatState.Loaded -> if (state.messages.isEmpty()) {
-                    Box(Modifier.fillMaxSize().padding(Space.xl), Alignment.Center) {
-                        Text(Str.chatEmpty(language), style = MaterialTheme.typography.bodyMedium)
+                    Box(Modifier.fillMaxSize(), Alignment.Center) {
+                        EmptyState(
+                            icon = Icons.Outlined.Email,
+                            title = Str.chatEmpty(language),
+                            body = null,
+                        )
                     }
                 } else {
                     Transcript(state.messages, language, source, onRetry, onDiscard)
@@ -254,10 +278,11 @@ private fun Transcript(
     // there while that message settles — see [StickToNewest].
     StickToNewest(listState, rows.size)
 
+    Box(Modifier.fillMaxSize()) {
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize().testTag(A11y.CHAT_TRANSCRIPT),
-        contentPadding = PaddingValues(Space.lg),
+        contentPadding = PaddingValues(horizontal = Space.md, vertical = Space.lg),
     ) {
         // The local id, not the server's: a message sent from here keeps its
         // key when the server confirms it, so the bubble is not recreated
@@ -315,6 +340,44 @@ private fun Transcript(
             }
         }
     }
+
+    JumpToLatest(
+        visible = listState.canScrollForward,
+        language = language,
+        onClick = { listState.animateScrollToItem(rows.lastIndex.coerceAtLeast(0)) },
+        modifier = Modifier.align(Alignment.BottomEnd).padding(Space.lg),
+    )
+    }
+}
+
+/**
+ * Back to the newest message, when the operator has scrolled up to read.
+ *
+ * Only while there is something below: at the bottom of the thread the
+ * button would be a way of going where you already are.
+ */
+@Composable
+private fun JumpToLatest(
+    visible: Boolean,
+    language: Language,
+    onClick: suspend () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scope = rememberCoroutineScope()
+    AnimatedVisibility(
+        visible = visible,
+        enter = scaleIn(Motion.fastSpatial()) + fadeIn(Motion.effects()),
+        exit = scaleOut(Motion.fastSpatial()) + fadeOut(Motion.fastEffects()),
+        modifier = modifier,
+    ) {
+        SmallFloatingActionButton(
+            onClick = { scope.launch { onClick() } },
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        ) {
+            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = StrAndroid.jumpToLatest(language))
+        }
+    }
 }
 
 @Composable
@@ -337,32 +400,56 @@ private fun SystemRow(message: Message, language: Language) {
     }
 }
 
+/**
+ * The conversation's header: back, the visitor's face and name, and the
+ * conversation's own menu. The face is the same one the inbox row showed, so
+ * the eye keeps hold of who this is while the screen changes under it.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChatTopBar(
     language: Language,
     title: String?,
+    avatarUrl: String?,
     onBack: () -> Unit,
     actions: (@Composable () -> Unit)?,
+    sharedKey: String? = null,
 ) {
     TopAppBar(
         title = {
             if (title != null) {
-                Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // The face from the inbox row, carried up into the bar.
+                    Avatar(
+                        name = title,
+                        imageUrl = avatarUrl,
+                        size = 40.dp,
+                        modifier = if (sharedKey != null) Modifier.sharedElement(sharedKey) else Modifier,
+                    )
+                    Text(
+                        title,
+                        style = WebyarType.titleMediumEmphasized.bidiContent(),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = Space.md),
+                    )
+                }
             }
         },
         navigationIcon = {
             IconButton(onClick = onBack) {
                 Icon(
                     // AutoMirrored: a back arrow points the way you came, and
-                    // in Persian that is the other way. This is the one family
-                    // of icons that MUST mirror, as against the bubble beak,
-                    // which must not.
+                    // in Persian that is the other way.
                     Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = StrAndroid.back(language),
                 )
             }
         },
         actions = { actions?.invoke() },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
     )
 }

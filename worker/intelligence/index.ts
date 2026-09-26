@@ -18,10 +18,13 @@ import { DbJobQueueProvider, type JobQueueProvider } from '../../server/services
 import { loadConfig } from '../../server/config.js';
 import { drainKnowledgeBaseChangeEvents } from '../../server/services/ai-agent/knowledgeIndex/kbEvents.js';
 import { drainEntitlementFanoutJobs } from '../../server/services/billing/entitlementFanout.js';
+import { IdleBackoff, IdleIntervalSkipper, intFromEnv } from '../../server/services/jobs/idleBackoff.js';
 
-const POLL_INTERVAL_MS = parseInt(process.env.AI_KB_WORKER_POLL_MS || '5000', 10);
+const POLL_INTERVAL_MS = intFromEnv(process.env.AI_KB_WORKER_POLL_MS, 5000, 1000, 60_000);
+/** Ceiling for the idle poll: how long a new job may wait after a quiet spell. */
+const MAX_IDLE_POLL_MS = intFromEnv(process.env.AI_KB_WORKER_MAX_IDLE_POLL_MS, 30_000, POLL_INTERVAL_MS, 300_000);
 const WORKER_ID = process.env.WORKER_ID || `ai-kb-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
-const IDLE_LOG_INTERVAL_MS = parseInt(process.env.AI_KB_WORKER_IDLE_LOG_MS || '60000', 10);
+const IDLE_LOG_INTERVAL_MS = intFromEnv(process.env.AI_KB_WORKER_IDLE_LOG_MS, 60_000, 5000, 600_000);
 const WORKER_CODE_VERSION = 'ai-kb-admin-json-retry-v2';
 const REQUIRED_TABLES = [
   'ai_kb_jobs',
@@ -45,7 +48,7 @@ export interface WorkerEnv {
   aiRuntimeInternalSecret?: string;
 }
 
-export function workerLog(event: string, data: Record<string, any> = {}) {
+export function workerLog(event: string, data: object = {}) {
   // Single-line structured log so Coolify/Loki can parse easily.
   try {
     console.log(`[ai-kb worker] ${event}`, JSON.stringify(data));
@@ -88,15 +91,17 @@ let lastIdleLogAt = 0;
  * Failures are released back to the queue with backoff and never propagate
  * back into the Knowledge Base product.
  */
-async function drainKbEvents() {
+async function drainKbEvents(): Promise<boolean> {
   try {
     const summary = await drainKnowledgeBaseChangeEvents(loadConfig(), {
       batchSize: 100,
       workerId: WORKER_ID,
     });
     if (summary.claimed > 0) log('kb change events drained', summary);
-  } catch (err: any) {
+    return summary.claimed > 0;
+  } catch (err) {
     log('kb change events drain error', { error: err?.message });
+    return false;
   }
 }
 
@@ -109,19 +114,22 @@ async function drainKbEvents() {
  * Restart-safe: progress is checkpointed per page, so a redeploy resumes
  * exactly where it stopped instead of losing the remainder.
  */
-async function drainFanoutJobs() {
+async function drainFanoutJobs(): Promise<boolean> {
   try {
     const summary = await drainEntitlementFanoutJobs(loadConfig(), {
       workerId: WORKER_ID,
       limit: 1,
     });
     if (summary.claimed > 0) log('entitlement fan-out drained', summary);
-  } catch (err: any) {
+    return summary.claimed > 0;
+  } catch (err) {
     log('entitlement fan-out drain error', { error: err?.message });
+    return false;
   }
 }
 
-async function tick(sb: SupabaseClient, queue: JobQueueProvider, env: WorkerEnv) {
+/** One poll of ai_kb_jobs. Resolves true when the queue had a job. */
+async function tick(sb: SupabaseClient, queue: JobQueueProvider, env: WorkerEnv): Promise<boolean> {
   try {
     // Probe before claim so we can log race losses distinctly.
     const { data: candidate } = await sb
@@ -138,14 +146,16 @@ async function tick(sb: SupabaseClient, queue: JobQueueProvider, env: WorkerEnv)
         lastIdleLogAt = now;
         log('idle — no queued jobs', { workerId: env.workerId });
       }
-      return;
+      return false;
     }
 
-    log('queued job found', { jobId: (candidate as any).id });
+    const candidateId = (candidate as { id: string }).id;
+    log('queued job found', { jobId: candidateId });
     const job = await queue.claimNext(env.workerId);
     if (!job) {
-      log('claim skipped/race lost', { jobId: (candidate as any).id });
-      return;
+      // Another replica won it; the queue was still not empty.
+      log('claim skipped/race lost', { jobId: candidateId });
+      return true;
     }
     log('job claimed', { jobId: job.id, workspaceId: job.workspace_id, workerId: env.workerId });
 
@@ -153,13 +163,15 @@ async function tick(sb: SupabaseClient, queue: JobQueueProvider, env: WorkerEnv)
       await processJob(sb, env, job);
       // processJob writes the authoritative final log ("job finished")
       // with up-to-date local counters, so we don't log stale ones here.
-    } catch (err: any) {
+    } catch (err) {
       log('job failed', { jobId: job.id, error: err?.message });
       await queue.failJob(job.id, err?.message || 'unknown');
       await queue.recordEvent(job.id, job.workspace_id, 'error', 'Job failed', { error: err?.message });
     }
-  } catch (err: any) {
+    return true;
+  } catch (err) {
     console.error('[ai-kb worker] tick error:', err?.message);
+    return false;
   }
 }
 
@@ -205,6 +217,7 @@ export function startAiKbWorker(envOverride?: Partial<WorkerEnv>) {
   log('started', {
     workerId: env.workerId,
     interval: POLL_INTERVAL_MS,
+    maxIdleInterval: MAX_IDLE_POLL_MS,
     codeVersion: WORKER_CODE_VERSION,
     standalone,
     inproc,
@@ -212,11 +225,28 @@ export function startAiKbWorker(envOverride?: Partial<WorkerEnv>) {
   if (standalone) log('mode standalone', { workerId: env.workerId });
   else if (inproc) log('mode inproc', { workerId: env.workerId });
 
-  const run = () =>
-    tick(sb, queue, env)
-      .catch((e) => console.error('[ai-kb worker]', e))
-      .then(drainKbEvents)
-      .then(drainFanoutJobs);
+  // setInterval, not a self-rescheduling timeout: a job runs for minutes
+  // inside tick() while the next interval still claims the next queued one.
+  // What eases off is an idle cycle — three queue polls every 5s around the
+  // clock — which skips a growing number of intervals, up to
+  // MAX_IDLE_POLL_MS; any cycle that finds work resets it.
+  const idle = new IdleIntervalSkipper(
+    POLL_INTERVAL_MS,
+    new IdleBackoff({ busyMs: POLL_INTERVAL_MS, idleMs: POLL_INTERVAL_MS, maxIdleMs: MAX_IDLE_POLL_MS }),
+  );
+  const cycle = async (): Promise<boolean> => {
+    const foundJob = await tick(sb, queue, env).catch((e) => {
+      console.error('[ai-kb worker]', e);
+      return false;
+    });
+    const foundKbEvents = await drainKbEvents();
+    const foundFanout = await drainFanoutJobs();
+    return foundJob || foundKbEvents || foundFanout;
+  };
+  const run = () => {
+    if (idle.skip()) return;
+    void cycle().then((found) => idle.record(found));
+  };
 
   // Run schema self-check first, then start the poll loop. Never crashes the
   // process — just retries with backoff so a temporary DB outage does not

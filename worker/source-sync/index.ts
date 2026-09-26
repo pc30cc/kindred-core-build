@@ -19,6 +19,7 @@
 import os from 'node:os';
 import { envFlagEnabled, type ServerConfig } from '../../server/config.js';
 import { processOne, getWorkerInfo } from '../../server/services/ai-agent/sourceWorker.js';
+import { IdleBackoff } from '../../server/services/jobs/idleBackoff.js';
 
 function clampInt(v: string | undefined, def: number, min: number, max: number): number {
   const n = parseInt(v || '', 10);
@@ -85,6 +86,7 @@ export function startSourceSyncWorker(): void {
     `${os.hostname?.() || 'host'}-${process.pid}-source-sync`;
   const pollMs = clampInt(process.env.AI_KB_WORKER_INTERVAL_MS, 5000, 1000, 60_000);
   const idleLogMs = clampInt(process.env.AI_KB_WORKER_IDLE_LOG_MS, 60_000, 5000, 600_000);
+  const maxIdlePollMs = clampInt(process.env.AI_SOURCE_WORKER_MAX_IDLE_POLL_MS, 30_000, pollMs, 300_000);
 
   // Restrict claimable job types based on WORKER_KIND so a dedicated
   // file-ingest worker never accidentally claims website crawl jobs (and
@@ -102,11 +104,16 @@ export function startSourceSyncWorker(): void {
     workerId, pollMs, lockTtl: info.lockTtlSeconds, kind, jobTypes: jobTypes || 'all',
   });
 
+  // A processed job keeps the pollMs cadence; only a queue that stays empty
+  // eases off, to maxIdlePollMs, instead of being asked every pollMs forever.
+  const backoff = new IdleBackoff({ busyMs: pollMs, idleMs: pollMs, maxIdleMs: maxIdlePollMs });
   let lastIdleLog = 0;
   const tick = async () => {
     if (stopping) return;
+    let processed = false;
     try {
       const res = await processOne(config, { jobTypes });
+      processed = !!res.processed;
       if (!res.processed) {
         const now = Date.now();
         if (now - lastIdleLog >= idleLogMs) {
@@ -114,10 +121,10 @@ export function startSourceSyncWorker(): void {
           console.log('[ai-source worker] idle');
         }
       }
-    } catch (e: any) {
+    } catch (e) {
       console.warn('[ai-source worker] tick error:', e?.message);
     } finally {
-      if (!stopping) timer = setTimeout(tick, pollMs);
+      if (!stopping) timer = setTimeout(tick, backoff.next(processed));
     }
   };
   timer = setTimeout(tick, 1000);

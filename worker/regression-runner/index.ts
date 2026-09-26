@@ -15,14 +15,19 @@ import {
   runRegressionBatch,
 } from '../../server/services/ai-agent/regressionRunner.js';
 import { loadConfig } from '../../server/config.js';
+import { IdleBackoff, IdleIntervalSkipper, intFromEnv } from '../../server/services/jobs/idleBackoff.js';
 
-const POLL_INTERVAL_MS = parseInt(
-  process.env.REGRESSION_WORKER_INTERVAL_MS || process.env.WORKER_INTERVAL_MS || '15000',
-  10,
+const POLL_INTERVAL_MS = intFromEnv(
+  process.env.REGRESSION_WORKER_INTERVAL_MS || process.env.WORKER_INTERVAL_MS,
+  15_000,
+  1000,
+  300_000,
 );
+/** Ceiling for the idle poll: how long a queued batch may wait after a quiet spell. */
+const MAX_IDLE_POLL_MS = intFromEnv(process.env.REGRESSION_WORKER_MAX_IDLE_POLL_MS, 60_000, POLL_INTERVAL_MS, 600_000);
 const WORKER_ID = process.env.WORKER_ID || `regression-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 
-function log(event: string, data: Record<string, any> = {}) {
+function log(event: string, data: object = {}) {
   try { console.log(`[regression-worker] ${event}`, JSON.stringify(data)); }
   catch { console.log(`[regression-worker] ${event}`); }
 }
@@ -34,14 +39,17 @@ function loadEnv() {
   return { url, key };
 }
 
-async function tick(sb: SupabaseClient) {
+/** One poll of schedules and batches. Resolves true when anything was claimed. */
+async function tick(sb: SupabaseClient): Promise<boolean> {
   const config = loadConfig();
+  let found = false;
 
   // 1) Run due schedules — claim atomically then enqueue+run a batch.
   const dueIds = await findDueScheduleIds(sb, 5);
   for (const id of dueIds) {
     const claimed = await claimDueSchedule(sb, id);
     if (!claimed) continue;
+    found = true;
     log('schedule due → enqueue batch', { scheduleId: id, ws: claimed.workspace_id });
     try {
       const batch = await enqueueRegressionBatch(config, {
@@ -54,7 +62,7 @@ async function tick(sb: SupabaseClient) {
         const r = await runRegressionBatch(config, batch.id);
         log('scheduled batch finished', { batchId: batch.id, ...r });
       }
-    } catch (e: any) {
+    } catch (e) {
       log('schedule run error', { id, error: e?.message });
     }
   }
@@ -64,11 +72,12 @@ async function tick(sb: SupabaseClient) {
   for (const id of queuedIds) {
     const claimed = await claimQueuedBatch(sb, id);
     if (!claimed) continue;
+    found = true;
     log('queued batch claimed', { batchId: id, ws: claimed.workspace_id });
     try {
       const r = await runRegressionBatch(config, id);
       log('queued batch finished', { batchId: id, ...r });
-    } catch (e: any) {
+    } catch (e) {
       log('queued batch error', { id, error: e?.message });
       await sb.from('ai_agent_regression_batches').update({
         status: 'failed',
@@ -77,6 +86,7 @@ async function tick(sb: SupabaseClient) {
       }).eq('id', id);
     }
   }
+  return found;
 }
 
 let started = false;
@@ -87,8 +97,24 @@ export function startRegressionWorker() {
   started = true;
   const env = loadEnv();
   const sb = createClient(env.url, env.key, { auth: { autoRefreshToken: false, persistSession: false } });
-  log('started', { workerId: WORKER_ID, interval: POLL_INTERVAL_MS });
-  const run = () => tick(sb).catch((e) => log('tick error', { error: e?.message }));
+  log('started', { workerId: WORKER_ID, interval: POLL_INTERVAL_MS, maxIdleInterval: MAX_IDLE_POLL_MS });
+  // setInterval, not a self-rescheduling timeout: a batch runs for minutes
+  // inside tick() while the next interval still picks up the next one. Only
+  // idle polls ease off, skipping a growing number of intervals up to
+  // MAX_IDLE_POLL_MS; anything claimed resets it.
+  const idle = new IdleIntervalSkipper(
+    POLL_INTERVAL_MS,
+    new IdleBackoff({ busyMs: POLL_INTERVAL_MS, idleMs: POLL_INTERVAL_MS, maxIdleMs: MAX_IDLE_POLL_MS }),
+  );
+  const run = () => {
+    if (idle.skip()) return;
+    void tick(sb)
+      .catch((e) => {
+        log('tick error', { error: e?.message });
+        return false;
+      })
+      .then((found) => idle.record(found));
+  };
   run();
   timer = setInterval(run, POLL_INTERVAL_MS);
 

@@ -54,8 +54,9 @@ Create one service per worker below, all from the same repo and the same
      Catalogue pages are fetched with the store's installation secret, which
      is stored encrypted; without this key every job fails to authenticate.
    - Optional: `COMMERCE_WORKER_POLL_MS` (default `5000`),
-     `COMMERCE_WORKER_RECONCILE_MS` (default `900000` — how often connected
-     stores get a bounded incremental reconciliation pass)
+     `COMMERCE_WORKER_MAX_IDLE_POLL_MS` (default `30000` — see "Idle polling"
+     below), `COMMERCE_WORKER_RECONCILE_MS` (default `900000` — how often
+     connected stores get a bounded incremental reconciliation pass)
    - Locally: `npm run worker:commerce-sync`
 4. **SEO Crawler Worker** (also handles backlink scans, keyword research and
    performance audits — one poller, one process, claiming all four
@@ -76,6 +77,7 @@ Create one service per worker below, all from the same repo and the same
      a ticker inside the Backend API process instead (see below).
    - Optional: `SEO_CRAWLER_USER_AGENT` (default `KindredSeoBot/1.0
      (+self-hosted)`), `SEO_WORKER_INTERVAL_MS` (default `5000`),
+     `SEO_WORKER_MAX_IDLE_POLL_MS` (default `30000`),
      `SEO_WORKER_LOCK_TTL_SECONDS` (default `120`)
    - No public port, no public UI. The end user never sees the crawler
      engine (SiteOne) — all SEO business logic, normalization, scoring and
@@ -128,6 +130,28 @@ and starts the corresponding loop in-process for backward compatibility.
 | `WORKER_ID`                | `AI_KB_WORKER_ID`                            |
 | `WORKER_INTERVAL_MS`       | `AI_KB_WORKER_INTERVAL_MS` / `AI_KB_WORKER_POLL_MS` |
 | `WORKER_LOCK_TTL_SECONDS`  | `AI_KB_WORKER_LOCK_TTL_SECONDS`              |
+
+## Idle polling
+
+Every queue worker polls at its configured interval while it finds work,
+and eases off while its queue stays empty: the first empty poll still waits
+the normal interval, consecutive ones double the wait up to a ceiling, and
+the first poll that finds work resets it. A busy queue behaves exactly as
+before; an idle one stops asking the database every few seconds around the
+clock. The ceiling is also the longest a new job can wait after a quiet
+spell:
+
+| Kind                | Ceiling env                          | Default |
+|---------------------|--------------------------------------|---------|
+| `intelligence`      | `AI_KB_WORKER_MAX_IDLE_POLL_MS`      | `30000` |
+| `source-sync`       | `AI_SOURCE_WORKER_MAX_IDLE_POLL_MS`  | `30000` |
+| `seo-crawler`       | `SEO_WORKER_MAX_IDLE_POLL_MS`        | `30000` |
+| `commerce-sync`     | `COMMERCE_WORKER_MAX_IDLE_POLL_MS`   | `30000` |
+| `regression-runner` | `REGRESSION_WORKER_MAX_IDLE_POLL_MS` | `60000` |
+
+Interval and lease variables are read as plain integers and clamped to a
+sane range: a value such as `5s` or a typo no longer turns into a
+millisecond-scale poll.
 
 ## Local commands
 

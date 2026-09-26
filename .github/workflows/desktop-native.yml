@@ -69,7 +69,11 @@ jobs:
         run: dotnet test tests/Webyar.Core.Tests -c Release
 
       - name: Publish app
-        run: dotnet publish src/Webyar.App/Webyar.App.csproj -c Release -r win-x64 --self-contained -p:Platform=x64 -o publish
+        run: dotnet publish src/Webyar.App/Webyar.App.csproj -c Release -r win-x64 --self-contained -p:Platform=x64 -p:UseXamlCompilerExecutable=true -o publish
+
+      - name: XAML compiler log
+        if: failure()
+        run: Get-ChildItem -Recurse -Filter output.json src/Webyar.App/obj | ForEach-Object { Get-Content $_.FullName -Raw }
 
       - name: Package installer
         run: |

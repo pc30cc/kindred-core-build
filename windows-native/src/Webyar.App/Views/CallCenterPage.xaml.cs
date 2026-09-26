@@ -747,6 +747,12 @@ public sealed partial class CallCenterPage : Page
 
     private static TextBlock Muted(string text) => new() { Text = text, FontSize = 12.5, Foreground = Palette.Resource("Text2Brush"), TextWrapping = TextWrapping.Wrap };
 
+    /// <summary>Voice or video, for the whole row, as the Mac's row help.</summary>
+    private void OnQueueRow(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (args.Item is QueueItem item) ToolTipService.SetToolTip(args.ItemContainer, item.ChannelText);
+    }
+
     // ── Right-click on a waiting call ──
 
     /// <summary>Answer or decline a waiting call without opening it first (mouse or Shift+F10).</summary>

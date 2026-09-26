@@ -182,7 +182,7 @@
                 </StackPanel>
 
                 <Grid Grid.Row="3" BorderBrush="{ThemeResource LineBrush}" BorderThickness="0,1,0,0">
-                    <ListView x:Name="QueueList" Padding="6,4" SelectionMode="Single" SelectionChanged="OnSelectQueue" ContextRequested="OnQueueContext">
+                    <ListView x:Name="QueueList" Padding="6,4" SelectionMode="Single" SelectionChanged="OnSelectQueue" ContextRequested="OnQueueContext" ContainerContentChanging="OnQueueRow">
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
                                 <Setter Property="CornerRadius" Value="10" />
@@ -193,7 +193,6 @@
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueItem">
                                 <Grid>
-                                    <!-- Voice or video, for the whole row (on the Mac, the row's help). -->
                                     <Grid Padding="4,8" ColumnSpacing="12" Background="Transparent">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto" />
@@ -214,7 +213,7 @@
                                                     <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource DangerBrush}" Text="{x:Bind PriorityText, Mode=OneWay}" />
                                                 </Border>
                                             </StackPanel>
-                                            <TextBlock FontSize="12" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind Detail, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock FontSize="12" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind Detail, Mode=OneWay}" TextTrimming="CharacterEllipsis" Visibility="{x:Bind DetailVisibility, Mode=OneWay}" />
                                         </StackPanel>
                                         <Border Grid.Column="2" CornerRadius="8" Padding="9,3" VerticalAlignment="Center" Background="{x:Bind WaitBack, Mode=OneWay}">
                                             <StackPanel Orientation="Horizontal" Spacing="4" FlowDirection="LeftToRight">

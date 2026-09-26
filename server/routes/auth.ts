@@ -561,40 +561,48 @@ authSecurityRouter.post('/logout-all', authRateLimiter, async (req, res) => {
  * magic-link verify URL; the frontend just opens this URL in a new tab.
  */
 authSecurityRouter.get('/impersonate', authRateLimiter, async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
-  const redeemed = await redeemImpersonationToken(config, req.query.token as string | undefined);
-  if (!redeemed) {
-    return res.status(400).send('This impersonation link is invalid or has expired.');
-  }
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const redeemed = await redeemImpersonationToken(config, req.query.token as string | undefined);
+    if (!redeemed) {
+      return res.status(400).send('This impersonation link is invalid or has expired.');
+    }
 
-  const identity = await findIdentityById(config, redeemed.targetUserId);
-  if (!identity) {
-    return res.status(404).send('Target user no longer exists.');
-  }
-  if (identity.status === 'disabled') {
-    // Blocking a user revokes their existing sessions (see
-    // admin_set_user_block_status, database/migrations/034), but a
-    // one-time impersonation token issued BEFORE the block (and redeemed
-    // after) is a separate session-creation path that check doesn't cover
-    // — an already-disabled target must never receive a fresh, valid
-    // session through this route either.
-    return res.status(403).send('This user account has been disabled.');
-  }
+    const identity = await findIdentityById(config, redeemed.targetUserId);
+    if (!identity) {
+      return res.status(404).send('Target user no longer exists.');
+    }
+    if (identity.status === 'disabled') {
+      // Blocking a user revokes their existing sessions (see
+      // admin_set_user_block_status, database/migrations/034), but a
+      // one-time impersonation token issued BEFORE the block (and redeemed
+      // after) is a separate session-creation path that check doesn't cover
+      // — an already-disabled target must never receive a fresh, valid
+      // session through this route either.
+      return res.status(403).send('This user account has been disabled.');
+    }
 
-  const session = await createSession(config, {
-    userId: identity.id,
-    email: identity.email,
-    ipAddress: getClientIp(req) || null,
-    userAgent: (req.headers['user-agent'] as string | undefined) || null,
-  });
-  setSessionCookie(res, session.token, session.expiresAt);
-  await logSecurityEvent(req, 'admin_impersonation', 'warn', {
-    userId: identity.id,
-    adminUserId: redeemed.createdBy,
-  });
+    const session = await createSession(config, {
+      userId: identity.id,
+      email: identity.email,
+      ipAddress: getClientIp(req) || null,
+      userAgent: (req.headers['user-agent'] as string | undefined) || null,
+    });
+    setSessionCookie(res, session.token, session.expiresAt);
+    await logSecurityEvent(req, 'admin_impersonation', 'warn', {
+      userId: identity.id,
+      adminUserId: redeemed.createdBy,
+    });
 
-  const redirectBase = await resolveAppBaseUrl(config, req);
-  return res.redirect(302, `${redirectBase || ''}/app`);
+    const redirectBase = await resolveAppBaseUrl(config, req);
+    return res.redirect(302, `${redirectBase || ''}/app`);
+  } catch (err) {
+    // Redemption / session creation hit the DB; a failure must answer a
+    // generic error, never escape as an unhandled rejection.
+    console.error('[auth] Impersonation redeem error:', err);
+    if (res.headersSent) return;
+    return res.status(500).send('Internal error');
+  }
 });
 
 /**

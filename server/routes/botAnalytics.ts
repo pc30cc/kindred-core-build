@@ -15,6 +15,7 @@ import { requireModule } from '../middleware/featureGating.js';
 import { resolveBotAnalyticsLimits } from '../services/botAnalytics/limits.js';
 import { createImport, listImports, deleteImport, BotImportError } from '../services/botAnalytics/importService.js';
 import { getOverview, getCategories, getCrawledPages, getAiBots, type DateRange } from '../services/botAnalytics/reportService.js';
+import { isValidYmdDate } from '../lib/dateInput.js';
 
 export const botAnalyticsRouter = Router();
 
@@ -22,13 +23,13 @@ function configOf(req: any): ServerConfig {
   return req.serverConfig as ServerConfig;
 }
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
 /** Defaults to the last 28 days (ending "yesterday"), matching Web Analytics' convention. */
 function parseRange(req: any): DateRange | null {
   const q = req.query as Record<string, string | undefined>;
   if (q.startDate && q.endDate) {
-    if (!DATE_RE.test(q.startDate) || !DATE_RE.test(q.endDate)) return null;
+    // Real calendar dates only: the report service calls toISOString() on
+    // them, which throws for e.g. 2024-13-01 (the old regex let that through).
+    if (!isValidYmdDate(q.startDate) || !isValidYmdDate(q.endDate)) return null;
     return { startDate: q.startDate, endDate: q.endDate };
   }
   const end = new Date();

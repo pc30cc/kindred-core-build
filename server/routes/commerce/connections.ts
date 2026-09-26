@@ -119,8 +119,15 @@ commerceConnectionsRouter.get('/:workspaceId/commerce/connections/:connectionId'
 commerceConnectionsRouter.post('/:workspaceId/commerce/connections/:connectionId/disconnect', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
-  await disconnectConnection(serverConfigOf(req), req.params.workspaceId, req.params.connectionId, auth.userId);
-  res.json({ ok: true });
+  const connectionId = z.string().uuid().safeParse(req.params.connectionId);
+  if (!connectionId.success) return res.status(400).json({ error: 'invalid_connection_id' });
+  try {
+    await disconnectConnection(serverConfigOf(req), req.params.workspaceId, connectionId.data, auth.userId);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[commerce] disconnect failed:', err);
+    res.status(500).json({ error: 'disconnect_failed' });
+  }
 });
 
 commerceConnectionsRouter.post('/:workspaceId/commerce/connections/:connectionId/rotate', async (req, res) => {

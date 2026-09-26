@@ -238,6 +238,11 @@ app.post('/hooks/:provider/:publicIntegrationId', async (req, res) => {
 app.use((_req, res) => res.status(404).json({ error: 'not_found' }));
 
 if (process.env.NODE_ENV !== 'test') {
+  // Node's default for an unhandled rejection is to kill the process (every
+  // inbound webhook with it). Log it instead — never silently.
+  process.on('unhandledRejection', (reason) => {
+    console.error('[channels-gateway] unhandledRejection:', reason);
+  });
   app.listen(PORT, () => {
     console.log(`[channels-gateway] listening on :${PORT} → core ${CORE_INTERNAL_BASE_URL}`);
   });

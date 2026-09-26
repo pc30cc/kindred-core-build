@@ -4,7 +4,9 @@
 param(
     [string]$Releases = 'releases',
     [string]$Dotnet = 'dotnet',
-    [string]$PackId = 'WebyarWindows'
+    [string]$PackId = 'WebyarWindows',
+    # The release's number (the workflow passes the tag's); Directory.Build.props otherwise.
+    [string]$Version = ''
 )
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
@@ -14,7 +16,9 @@ if (-not (Test-Path $appSetup)) { throw "$appSetup is missing: run vpk pack firs
 
 if (Test-Path 'setup-out') { Remove-Item 'setup-out' -Recurse -Force }
 Remove-Item src\Webyar.Setup\obj -Recurse -Force -ErrorAction SilentlyContinue
-& $Dotnet build src\Webyar.Setup\Webyar.Setup.csproj -c Release -o setup-out -v q -clp:NoSummary "-p:PayloadPath=$appSetup"
+$props = @("-p:PayloadPath=$appSetup")
+if ($Version) { $props += "-p:Version=$Version" }
+& $Dotnet build src\Webyar.Setup\Webyar.Setup.csproj -c Release -o setup-out -v q -clp:NoSummary @props
 if ($LASTEXITCODE) { throw 'installer build failed' }
 
 Copy-Item setup-out\Webyar-Setup.exe (Join-Path $Releases 'Webyar-Setup.exe') -Force

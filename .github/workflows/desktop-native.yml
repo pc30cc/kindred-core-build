@@ -8,8 +8,10 @@ name: Windows app (native)
 # artifact. A tag named native-v<version> also publishes that installer and
 # its update feed to the public releases repo the installed apps update from.
 #
-#   1. Bump <Version> in windows-native/Directory.Build.props.
-#   2. Push a tag native-v<that version>, e.g. native-v2.0.0.
+#   Either push a tag native-v<version> (e.g. native-v2.0.0) on main, or run
+#   this workflow on main with release_version set (e.g. 2.0.0). The version
+#   named there is the release: it overrides <Version> in
+#   windows-native/Directory.Build.props, which only numbers everyday builds.
 #
 # Publishing needs the DESKTOP_RELEASES_TOKEN secret: a fine-grained token
 # with "Contents: Read and write" on pc30cc/webyar-desktop-releases only.
@@ -24,6 +26,10 @@ on:
     inputs:
       publish_tag:
         description: 'Only make an existing draft release public, e.g. v2.5.1 (no build)'
+        required: false
+        default: ''
+      release_version:
+        description: 'Build main and publish it as this version, e.g. 2.5.5 (no tag needed)'
         required: false
         default: ''
 
@@ -55,21 +61,35 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      # A release takes its number from the tag (or release_version), so a tag
+      # made before <Version> was bumped still publishes what it names.
       - name: Version
         id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
         run: |
           $version = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
-          if ("${{ github.ref_type }}" -eq "tag") {
-            $tag = "${{ github.ref_name }}".Substring("native-v".Length)
-            if ($tag -ne $version) { throw "Tag $tag does not match <Version> $version in Directory.Build.props" }
+          $publish = $false
+          if ($env:REF_TYPE -eq 'tag') {
+            $version = $env:REF_NAME.Substring('native-v'.Length)
+            $publish = $true
+          } elseif ($env:RELEASE_VERSION) {
+            if ($env:REF -ne 'refs/heads/main') { throw "A release is built from main only, not $env:REF" }
+            $version = $env:RELEASE_VERSION.Trim().TrimStart('v', 'V')
+            $publish = $true
           }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Not a release version: $version" }
           "version=$version" >> $env:GITHUB_OUTPUT
+          "publish=$($publish.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
       - name: Test Core
         run: dotnet test tests/Webyar.Core.Tests -c Release
 
       - name: Publish app
-        run: dotnet publish src/Webyar.App/Webyar.App.csproj -c Release -r win-x64 --self-contained -p:Platform=x64 -o publish
+        run: dotnet publish src/Webyar.App/Webyar.App.csproj -c Release -r win-x64 --self-contained -p:Platform=x64 -p:Version=${{ steps.version.outputs.version }} -o publish
 
       - name: Package installer
         run: |
@@ -85,7 +105,7 @@ jobs:
       # setup (src/Webyar.Setup), which also moves an old Program Files copy over.
       - name: Build installer
         # Program Files installer with its own uninstaller; see build-installer.ps1.
-        run: ./build-installer.ps1
+        run: ./build-installer.ps1 -Version ${{ steps.version.outputs.version }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -94,7 +114,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish release
-        if: github.ref_type == 'tag'
+        if: steps.version.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ secrets.DESKTOP_RELEASES_TOKEN }}
         run: |

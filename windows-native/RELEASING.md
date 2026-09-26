@@ -1,8 +1,10 @@
 # انتشار نسخه‌ی جدید اپ ویندوز (Releasing the Windows app)
 
-> **English summary.** Bump `<Version>` in `windows-native/Directory.Build.props`
-> through a PR, merge it, then create the tag `native-v<version>` on `main`
-> (GitHub → Releases → *Draft a new release*). The **Windows app (native)**
+> **English summary.** Merge the change to `main`, then create the tag
+> `native-v<version>` on `main` (GitHub → Releases → *Draft a new release*), or
+> run the workflow on `main` with `release_version`. The number in the tag (or
+> input) is the release's version; `<Version>` in
+> `windows-native/Directory.Build.props` only numbers everyday builds. The **Windows app (native)**
 > workflow tests, builds and publishes the Velopack feed plus
 > `Webyar-Setup.exe` to `pc30cc/webyar-desktop-releases`, using the
 > `DESKTOP_RELEASES_TOKEN` secret. Installed apps pick it up by themselves.
@@ -55,20 +57,19 @@
 
 ## ۳. مراحل انتشار هر نسخه
 
-1. **شماره‌ی نسخه را بالا ببرید.** در `windows-native/Directory.Build.props`:
-   ```xml
-   <Version>2.4.2</Version>
-   ```
-   این تغییر را در یک PR بگذارید. بعد از سبز شدن CI، آن را در `main` مرج کنید.
+1. **تغییرات را در `main` مرج کنید** (بعد از سبز شدن CI).
+   بهتر است `<Version>` در `windows-native/Directory.Build.props` را هم در همان PR بالا ببرید، ولی اجباری نیست:
+   **شماره‌ی نسخه‌ی ریلیز همان شماره‌ی تگ است.**
    - شماره باید از همه‌ی نسخه‌هایی که جایی نصب شده‌اند بزرگ‌تر باشد.
    - برای رفع باگ رقم آخر را بالا ببرید، برای امکانات جدید رقم وسط را.
-2. **تگ بزنید.** در
+2. **تگ بزنید** (بعد از مرج). در
    <https://github.com/pc30cc/kindred-core-build/releases/new>:
    - Choose a tag: `native-v2.4.2` → «Create new tag»
    - Target: **`main`**
    - «Publish release»
 
-   تگ باید دقیقاً با `<Version>` یکی باشد، وگرنه CI در مرحله‌ی «Version» متوقف می‌شود.
+   **راه دوم، بدون تگ:** Actions → **Windows app (native)** → «Run workflow»، شاخه‌ی `main`، و در فیلد
+   `release_version` شماره را بنویسید (مثلاً `2.4.2`). همان کار تگ را می‌کند. فقط روی `main` اجازه دارد.
 3. **CI خودش بقیه را انجام می‌دهد.** workflow به نام **Windows app (native)**
    (`.github/workflows/desktop-native.yml`) روی تگ اجرا می‌شود. تست‌های Core، build، ساخت بسته‌ی Velopack و ساخت `Webyar-Setup.exe` را انجام می‌دهد و همه را در `webyar-desktop-releases` منتشر می‌کند. حدود ۴ دقیقه طول می‌کشد.
 4. **بررسی کنید.** در
@@ -80,7 +81,8 @@
 
 | مشکل | کار لازم |
 |---|---|
-| مرحله‌ی «Version»: `Tag X does not match <Version> Y` | تگ و `<Version>` یکی نیستند. تگ را روی کامیتی بزنید که همان نسخه را دارد. |
+| تگ قبل از مرج زده شد (روی کد قدیمی) | ریلیز همان کد قدیمی را با آن شماره منتشر می‌کند. بعد از مرج، با شماره‌ی بعدی دوباره تگ بزنید یا «Run workflow» با `release_version`. |
+| مرحله‌ی «Version»: `Not a release version` | تگ باید `native-v<عدد>.<عدد>.<عدد>` باشد، مثلاً `native-v2.4.2`. |
 | مرحله‌ی «Test Core» شکست خورد | باگ را رفع کنید و نسخه را یک پله بالا ببرید (مثلاً ۲.۴.۲ → ۲.۴.۳). تگ قبلی را دوباره استفاده نکنید. |
 | `DESKTOP_RELEASES_TOKEN is not set` یا خطای دسترسی | توکن را بسازید یا تمدید کنید (بخش ۲). بعد در صفحه‌ی همان اجرا «Re-run failed jobs» را بزنید؛ تگ جدید لازم نیست. |
 | ریلیز در `webyar-desktop-releases` به‌صورت **Draft** مانده (آدرسش `untagged-…` است)، یا مرحله‌ی «Publish release» با `The release is still a draft` متوقف شد | مخزن ریلیزها commit ندارد. یک `README.md` به آن اضافه کنید (الان دارد). بعد یا draft را باز کنید و «Publish release» را بزنید، یا در Actions → **Windows app (native)** → «Run workflow» در فیلد `publish_tag` تگ را بنویسید (مثلاً `v2.5.1`) تا بدون build دوباره منتشرش کند. نسخه و تگ جدید لازم نیست. |

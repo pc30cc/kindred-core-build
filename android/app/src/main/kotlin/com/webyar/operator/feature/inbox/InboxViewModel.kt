@@ -9,6 +9,7 @@ import com.webyar.operator.core.model.Entitlements
 import com.webyar.operator.core.model.InboxCounts
 import com.webyar.operator.core.model.InboxFilter
 import com.webyar.operator.core.model.VisitorProfile
+import com.webyar.operator.core.model.WorkspaceAccess
 import com.webyar.operator.core.model.channelKey
 import com.webyar.operator.core.net.WebyarApi
 import com.webyar.operator.core.sync.SyncGraph
@@ -320,9 +321,11 @@ class InboxViewModel(
         ).any { it.lowercase().contains(needle) }
     }
 
-    /** The queues this plan includes. */
-    fun filters(entitlements: Entitlements?): List<InboxFilter> = InboxFilter.available(entitlements)
+    /** The queues this plan (and the AI switches, for the AI queue) include. */
+    fun filters(entitlements: Entitlements?, access: WorkspaceAccess, automated: Int?): List<InboxFilter> =
+        InboxFilter.available(entitlements, access, automated)
 
     /** The subset that stays on the strip above the list. */
-    fun chips(entitlements: Entitlements?): List<InboxFilter> = InboxFilter.chips(entitlements)
+    fun chips(entitlements: Entitlements?, access: WorkspaceAccess, automated: Int?): List<InboxFilter> =
+        InboxFilter.chips(entitlements, access, automated)
 }

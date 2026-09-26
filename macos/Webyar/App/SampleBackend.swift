@@ -178,6 +178,23 @@ final class SampleBackend: URLProtocol {
         ["id": "m-4", "user_id": "u-4", "role": "agent", "profile": ["full_name": "نگار صالحی", "email": "negar@webyar.app"]],
     ]
 
+    /// /api/plans/workspace/:id/effective for a plan with everything on, values wrapped as the
+    /// server sends them. The app shows only what the plan says exactly true about.
+    private static let samplePlan: [String: Any] = {
+        func on(_ keys: [String]) -> [String: Any] {
+            var flags: [String: Any] = [:]
+            for key in keys { flags[key] = ["value": true, "source": "plan"] as [String: Any] }
+            return flags
+        }
+        return [
+            "plan": ["slug": "business", "name": "Business"],
+            "modules": on(["contacts", "visitor_tracking", "call_center", "email_inbox", "web_analytics", "voice_video", "ai_assistant"]),
+            "features": on(["inbox_ai_queue", "inbox_needs_human", "inbox_team_chat", "call_recording",
+                            "widget_attachments", "widget_voice_notes", "widget_emoji"]),
+            "channels": on(["chat_widget", "telegram", "whatsapp", "bale", "email", "voice", "video"]),
+        ]
+    }()
+
     /// Super Admin → macOS app, as toPublicMacosAppConfig writes it: every
     /// switch on, the help links set, and a maintenance notice on demand.
     private static func macosApp() -> [String: Any] {
@@ -312,7 +329,8 @@ final class SampleBackend: URLProtocol {
         case ("GET", "/api/availability"), ("PATCH", "/api/availability"):
             let off = body["force_offline"] as? Bool ?? false
             return (200, ["prefs": ["force_offline": off], "status": ["state": off ? "offline" : "online"]])
-        case ("GET", "/api/ai-agent/capabilities"): return (200, ["capabilities": ["ai_agent_enabled": true, "auto_answer_enabled": true]])
+        case ("GET", "/api/ai-agent/capabilities"):
+            return (200, ["capabilities": ["ai_agent_enabled": true, "customer_ai_agent_visible": true, "auto_answer_enabled": true]])
         case ("GET", "/api/call-center/capabilities"): return (200, ["workspace_call_center_visible": true])
         case ("GET", "/api/conversations/inbox-counts"): return (200, ["main": 5, "automated": 1, "needs_human": 2, "spam": 0])
         case ("GET", "/api/conversations/inbox-tab-counts"): return (200, ["open": 4, "pending": 1, "resolved": 1])
@@ -536,7 +554,7 @@ final class SampleBackend: URLProtocol {
             ]])
         }
         if parts.count >= 4, parts[1] == "web-analytics" { return webAnalytics(parts[3], q) }
-        if parts.count >= 4, parts[1] == "plans" { return (200, ["plan": ["name": "Business"], "features": [String: Any](), "modules": [String: Any](), "channels": [String: Any]()]) }
+        if parts.count >= 4, parts[1] == "plans" { return (200, samplePlan) }
         if parts.count >= 4, parts[1] == "workspaces", parts[3] == "role" { return (200, ["role": "owner"]) }
         if parts.count >= 3, parts[1] == "contacts" {
             let id = parts[2]

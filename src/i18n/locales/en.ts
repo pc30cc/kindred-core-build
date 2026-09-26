@@ -176,6 +176,13 @@ const en = {
       INSUFFICIENT_FUNDS: 'Your wallet balance is not enough.',
       FORBIDDEN: 'You do not have permission for this action.',
     },
+    planLimits: {
+      description: 'Every limit in your plan, with current usage wherever it is measured',
+      allowance: 'Plan allowance',
+      limitReached: 'Limit reached',
+      otherGroup: 'Other',
+      usageUnavailable: 'Current usage could not be loaded',
+    },
   },
   planBanner: {
     trialTitle: 'You are on a trial plan',

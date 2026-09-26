@@ -74,9 +74,33 @@ public sealed record CallSession(
     string? VisitorSessionId = null,
     string? ContactId = null,
     string? AssignedAgentId = null,
-    JsonElement? Metadata = null)
+    JsonElement? Metadata = null,
+    // Set by a transfer: the colleague who handed the call on, and why.
+    string? TransferFromAgentId = null,
+    string? TransferReason = null)
 {
     public bool IsVideo => CallType == "video";
+
+    /// <summary>Marked as spam on the desk: `metadata.spam` is there and not null.</summary>
+    public bool IsSpam =>
+        Metadata is { ValueKind: JsonValueKind.Object } meta &&
+        meta.TryGetProperty("spam", out var spam) &&
+        spam.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined);
+
+    /// <summary>
+    /// The call as the server has it after a spam toggle, so the desk shows it
+    /// at once instead of after the next poll: `metadata.spam` set (who marked
+    /// it) or removed, everything else in the metadata kept.
+    /// </summary>
+    public CallSession WithSpam(bool spam, string? markedBy)
+    {
+        var meta = Metadata is { ValueKind: JsonValueKind.Object } m
+            ? System.Text.Json.Nodes.JsonNode.Parse(m.GetRawText()) as System.Text.Json.Nodes.JsonObject ?? []
+            : [];
+        meta.Remove("spam");
+        if (spam) meta["spam"] = new System.Text.Json.Nodes.JsonObject { ["marked_by"] = markedBy ?? string.Empty };
+        return this with { Metadata = JsonSerializer.SerializeToElement(meta) };
+    }
 }
 
 public sealed record QueueEntry(
@@ -107,6 +131,15 @@ public sealed record CallCenterOverview(
     CallProvider? Provider = null);
 
 public sealed record AgentCallStatus(string UserId, string? Status = null);
+
+/// <summary>
+/// `GET /api/call-center/agents/presence`: an operator on the desk and how busy
+/// they are, for the transfer panel. Status is available | busy | away | offline.
+/// </summary>
+public sealed record CallAgentPresence(string UserId, string? Status = null, int? ActiveCallCount = null, string? FullName = null, string? Email = null);
+
+/// <summary>`GET /api/call-center/departments`: a department a call can be handed to.</summary>
+public sealed record CallDepartment(string Id, string? Name = null, bool? Enabled = null, bool? CcVoiceEnabled = null, bool? CcVideoEnabled = null);
 
 public sealed record CallConnect(bool Supported, string? Provider = null, string? ServerUrl = null, string? RoomId = null, string? Identity = null, string? Reason = null);
 

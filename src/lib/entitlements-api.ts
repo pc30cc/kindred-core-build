@@ -120,6 +120,27 @@ export async function fetchLimitUsage(workspaceId: string, keys: string[]) {
   return get<LimitUsage>(`/api/plans/workspace/${workspaceId}/limit-usage?${qs.toString()}`);
 }
 
+/** The server answers at most this many keys per /limit-usage call (server/routes/plans.ts). */
+export const LIMIT_USAGE_BATCH = 20;
+
+/**
+ * fetchLimitUsage for any number of keys: one call per LIMIT_USAGE_BATCH keys,
+ * answers merged. Keys the server cannot measure are simply absent. A batch
+ * that fails leaves its keys absent too; only a total failure throws.
+ */
+export async function fetchLimitUsageBatched(workspaceId: string, keys: string[]): Promise<LimitUsage['usage']> {
+  const batches: string[][] = [];
+  for (let i = 0; i < keys.length; i += LIMIT_USAGE_BATCH) batches.push(keys.slice(i, i + LIMIT_USAGE_BATCH));
+  const results = await Promise.allSettled(batches.map((batch) => fetchLimitUsage(workspaceId, batch)));
+  const merged: LimitUsage['usage'] = {};
+  for (const r of results) {
+    if (r.status === 'fulfilled') Object.assign(merged, r.value.usage);
+  }
+  const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (failed && results.every((r) => r.status === 'rejected')) throw failed.reason;
+  return merged;
+}
+
 /** One finding of the plan validator (server: capabilityRegistry.validatePlanPayload). */
 export interface PlanValidationIssue {
   level: 'error' | 'warning';

@@ -178,6 +178,13 @@ const tr: TranslationKeys = {
       INSUFFICIENT_FUNDS: 'Cüzdan bakiyeniz yeterli değil.',
       FORBIDDEN: 'Bu işlem için yetkiniz yok.',
     },
+    planLimits: {
+      description: 'Planınızdaki tüm limitler; ölçülebilenler için güncel kullanımla birlikte',
+      allowance: 'Plan hakkı',
+      limitReached: 'Limite ulaşıldı',
+      otherGroup: 'Diğer',
+      usageUnavailable: 'Güncel kullanım yüklenemedi',
+    },
   },
   planBanner: {
     trialTitle: 'Deneme planındasınız',

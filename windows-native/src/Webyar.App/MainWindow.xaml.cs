@@ -261,6 +261,8 @@ public sealed partial class MainWindow : Window
     public async Task SwitchWorkspaceAsync(Workspace workspace)
     {
         if (workspace.Id == Host.Workspace?.Id) return;
+        // A call belongs to the workspace it started in.
+        await CallWindow.EndForQuitAsync(TimeSpan.FromSeconds(2));
         // Cancel the old workspace's work, switch scope, then draw the new one from the PC and sync.
         Shell?.Teardown();
         Host.StopPresence();
@@ -308,6 +310,8 @@ public sealed partial class MainWindow : Window
         _signingOut = true;
         try
         {
+            // Nothing would be left on screen to hang up with, and the microphone would stay live.
+            _ = CallWindow.EndForQuitAsync(TimeSpan.Zero);
             Shell?.Teardown();
             Host.User = null;
             Host.Account = null;
@@ -344,6 +348,13 @@ public sealed partial class MainWindow : Window
 
     public void OpenFromNotification(IReadOnlyDictionary<string, string> args)
     {
+        // A notice from another workspace opens there, not under the one on show now.
+        if (Shell is not null && args.TryGetValue("workspace", out var wsId) && wsId.Length > 0 && wsId != Host.Workspace?.Id)
+        {
+            if (Host.Workspaces.FirstOrDefault(w => w.Id == wsId) is not { } target) return;
+            _ = OpenInWorkspaceAsync(target, args);
+            return;
+        }
         if (args.TryGetValue("page", out var page) && !args.ContainsKey("conversation"))
         {
             if (Shell is not { } sh) _pendingOpen = args;
@@ -354,6 +365,20 @@ public sealed partial class MainWindow : Window
         if (!args.TryGetValue("conversation", out var id)) return;
         if (Shell is { } shell) shell.OpenConversation(id);
         else _pendingOpen = args;
+    }
+
+    private async Task OpenInWorkspaceAsync(Workspace target, IReadOnlyDictionary<string, string> args)
+    {
+        try
+        {
+            await SwitchWorkspaceAsync(target);
+        }
+        catch (Exception e)
+        {
+            Log.Error("switch workspace from notification", e);
+            return;
+        }
+        if (Host.Workspace?.Id == target.Id) OpenFromNotification(args);
     }
 
     private async Task RefreshPlatformQuietlyAsync()

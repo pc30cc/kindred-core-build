@@ -131,6 +131,9 @@ public sealed class WorkspacePlan
     /// <summary>The mailbox, as the web sidebar shows it: owners and admins, when the plan has the Email Inbox module.</summary>
     public bool EmailInbox => IsAdmin && ModuleInPlan("email_inbox");
 
+    /// <summary>Website analytics, as the web sidebar shows it: owners and admins, when the plan has the Web Analytics module.</summary>
+    public bool WebAnalytics => IsAdmin && ModuleInPlan("web_analytics");
+
     /// <summary>Call recordings, where the plan keeps them (the web's Recordings tab).</summary>
     public bool CallRecordings => Feature("call_recording");
 

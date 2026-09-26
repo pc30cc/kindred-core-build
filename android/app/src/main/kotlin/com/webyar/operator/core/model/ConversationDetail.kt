@@ -143,14 +143,10 @@ data class CallInvitationResponse(val invitation: CallInvitation)
 /**
  * Which call channels this workspace may actually offer.
  *
- * Mirrors `SidebarCallCard`'s gating exactly, **including its "not explicitly
- * false" reading**: a key the plan has never heard of is allowed, and only a
- * resolved `false` closes the door. The server enforces the same rule on
- * create, so the two can never drift into offering a button that 403s.
- *
- * Note this is the opposite of [Entitlements.moduleEnabled], which is
- * fail-closed. Both are right for what they gate, and getting them the wrong
- * way round is how a paid feature disappears or a forbidden one appears.
+ * Mirrors `SidebarCallCard`'s gating exactly: the Voice & Video module and
+ * the call's own channel, each exactly `true` in a snapshot that is in. A key
+ * the plan does not carry is not available, and nothing is offered while the
+ * snapshot loads or cannot be read — the server would refuse the call.
  */
 data class CallChannels(val voice: Boolean, val video: Boolean) {
     val any: Boolean get() = voice || video
@@ -159,12 +155,10 @@ data class CallChannels(val voice: Boolean, val video: Boolean) {
         val NONE = CallChannels(voice = false, video = false)
 
         fun resolve(entitlements: Entitlements?): CallChannels {
-            if (entitlements == null) return NONE
-            val moduleOn = entitlements.modules?.get("voice_video")?.value != false
-            if (!moduleOn) return NONE
+            if (entitlements == null || !entitlements.moduleEnabled("voice_video")) return NONE
             return CallChannels(
-                voice = entitlements.channels?.get("voice")?.value != false,
-                video = entitlements.channels?.get("video")?.value != false,
+                voice = entitlements.channelEnabled("voice"),
+                video = entitlements.channelEnabled("video"),
             )
         }
     }

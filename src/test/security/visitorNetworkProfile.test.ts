@@ -14,6 +14,7 @@ import {
   geoFromPersistedSession,
   accuracyOf,
   legacyGeoSource,
+  type SessionNetworkRow,
 } from '../../../server/services/visitors/networkProfile.js';
 
 const session = {
@@ -54,7 +55,7 @@ describe('IP visibility policy', () => {
 });
 
 describe('geo read precedence', () => {
-  const persisted = {
+  const persisted: SessionNetworkRow = {
     ...session,
     geo_country_code: 'tr',
     geo_country_name: null,

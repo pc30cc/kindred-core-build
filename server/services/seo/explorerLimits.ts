@@ -1,16 +1,20 @@
 /**
- * SEO Site Explorer — plan-limit resolver, mirroring
- * server/services/seo/performanceLimits.ts exactly: source of truth is
- * `billing_plans.limits` jsonb, with tight hardcoded fallbacks that never
- * default to "unlimited". Free-plan fallback is 0 (opt-in per plan) since
- * every lookup costs the platform a real DataForSEO API call against a
- * domain the workspace doesn't necessarily own.
+ * SEO Site Explorer — plan-limit resolver.
+ *
+ * Every limit here is a registry capability and resolves exactly as
+ * GET /api/plans/workspace/:id/effective shows it: workspace override ??
+ * plan ?? registry default (billing/servicePlanLimits.ts). A platform admin
+ * changes them per plan in the existing plan editor.
+ *
+ * The per-scan registry defaults are 0 (opt-in per plan) since every lookup
+ * costs the platform a real DataForSEO API call against a domain the
+ * workspace doesn't necessarily own.
  *
  * The UI NEVER hardcodes a limit number; every limit shown to the user comes
  * from the API response, which comes from here.
  */
 import type { ServerConfig } from '../../config.js';
-import { getWorkspacePlanInfo } from '../../middleware/featureGating.js';
+import { readServicePlanInfo, registryLimits, servicePlanIdentity } from '../billing/servicePlanLimits.js';
 import { getServiceClient } from '../../supabase.js';
 
 export interface SeoExplorerLimits {
@@ -20,44 +24,13 @@ export interface SeoExplorerLimits {
   seo_explorer_scan_frequency_hours: number;
 }
 
-const FALLBACKS: Record<string, SeoExplorerLimits> = {
-  free: {
-    seo_explorer_max_backlinks_per_scan: 0,
-    seo_explorer_max_keywords_per_scan: 0,
-    seo_explorer_workspace_concurrent_scans: 1,
-    seo_explorer_scan_frequency_hours: 168,
-  },
-  pro: {
-    seo_explorer_max_backlinks_per_scan: 100,
-    seo_explorer_max_keywords_per_scan: 100,
-    seo_explorer_workspace_concurrent_scans: 1,
-    seo_explorer_scan_frequency_hours: 168,
-  },
-  business: {
-    seo_explorer_max_backlinks_per_scan: 500,
-    seo_explorer_max_keywords_per_scan: 500,
-    seo_explorer_workspace_concurrent_scans: 2,
-    seo_explorer_scan_frequency_hours: 24,
-  },
-  enterprise: {
-    // Treated as Business unless billing_plans.limits overrides — never unlimited.
-    seo_explorer_max_backlinks_per_scan: 500,
-    seo_explorer_max_keywords_per_scan: 500,
-    seo_explorer_workspace_concurrent_scans: 2,
-    seo_explorer_scan_frequency_hours: 24,
-  },
-};
-const STRICT = FALLBACKS.free;
-
-function num(v: unknown, fallback: number): number {
-  if (v === null || v === undefined) return fallback;
-  if (typeof v === 'number' && Number.isFinite(v)) return v;
-  if (typeof v === 'string' && v.trim()) {
-    const n = Number(v);
-    if (Number.isFinite(n)) return n;
-  }
-  return fallback;
-}
+/** Registry limits: override ?? plan ?? registry default. */
+export const SEO_EXPLORER_PLAN_KEYS = [
+  'seo_explorer_max_backlinks_per_scan',
+  'seo_explorer_max_keywords_per_scan',
+  'seo_explorer_workspace_concurrent_scans',
+  'seo_explorer_scan_frequency_hours',
+] as const satisfies readonly (keyof SeoExplorerLimits)[];
 
 export interface ResolvedSeoExplorerLimits {
   limits: SeoExplorerLimits;
@@ -66,19 +39,8 @@ export interface ResolvedSeoExplorerLimits {
 }
 
 export async function resolveExplorerLimits(config: ServerConfig, workspaceId: string): Promise<ResolvedSeoExplorerLimits> {
-  let info: { plan: any; limits: Record<string, number> } | null = null;
-  try {
-    info = await getWorkspacePlanInfo(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId);
-  } catch {
-    info = null;
-  }
-  const slug = (info?.plan?.slug || 'free') as string;
-  const fallback = FALLBACKS[slug] || STRICT;
-  const db = (info?.limits || {}) as Record<string, unknown>;
-  const keys = Object.keys(fallback) as (keyof SeoExplorerLimits)[];
-  const limits = {} as SeoExplorerLimits;
-  for (const key of keys) limits[key] = num(db[key], fallback[key]);
-  return { planSlug: slug, planName: info?.plan?.name || null, limits };
+  const info = await readServicePlanInfo(config, workspaceId);
+  return { ...servicePlanIdentity(info), limits: registryLimits(info, SEO_EXPLORER_PLAN_KEYS) };
 }
 
 /** Backlink + keyword + competitor Explorer scans currently queued/running/processing for the whole workspace — one shared concurrency budget. */

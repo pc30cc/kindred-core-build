@@ -163,10 +163,10 @@ struct CallInvitationResponse: Codable, Sendable {
 
 /// Which call channels this workspace may actually offer.
 ///
-/// Mirrors `SidebarCallCard`'s gating exactly, including its "not explicitly
-/// false" reading: a key the plan has never heard of is allowed, and only a
-/// resolved `false` closes the door. The server enforces the same rule on
-/// create, so the two can never drift into offering a button that 403s.
+/// Mirrors `SidebarCallCard`'s gating exactly: the Voice & Video module and
+/// the call's own channel, each exactly `true` in a snapshot that is in. A key
+/// the plan does not carry is not available, and nothing is offered while the
+/// snapshot loads or cannot be read — the server would refuse the call.
 struct CallChannels: Sendable {
     let voice: Bool
     let video: Bool
@@ -174,12 +174,12 @@ struct CallChannels: Sendable {
     var any: Bool { voice || video }
 
     static func resolve(_ entitlements: Entitlements?) -> CallChannels {
-        guard let entitlements else { return CallChannels(voice: false, video: false) }
-        let moduleOn = entitlements.modules?["voice_video"]?.value != false
-        guard moduleOn else { return CallChannels(voice: false, video: false) }
+        guard let entitlements, entitlements.moduleEnabled("voice_video") else {
+            return CallChannels(voice: false, video: false)
+        }
         return CallChannels(
-            voice: entitlements.channels?["voice"]?.value != false,
-            video: entitlements.channels?["video"]?.value != false
+            voice: entitlements.channelEnabled("voice"),
+            video: entitlements.channelEnabled("video")
         )
     }
 }

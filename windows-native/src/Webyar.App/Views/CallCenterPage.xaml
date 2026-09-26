@@ -192,34 +192,37 @@
                         </ListView.ItemContainerStyle>
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueItem">
-                                <Grid Padding="4,8" ColumnSpacing="12" Background="Transparent" ToolTipService.ToolTip="{x:Bind ChannelText}">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <Grid>
-                                        <controls:Avatar Size="42" DisplayName="{x:Bind Name, Mode=OneWay}" Email="{x:Bind Email, Mode=OneWay}" Os="{x:Bind Os, Mode=OneWay}" CountryCode="{x:Bind CountryCode, Mode=OneWay}" />
-                                        <Border Width="18" Height="18" CornerRadius="6" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-4,-4" Background="{ThemeResource BrandBrush}" BorderBrush="{ThemeResource SurfaceBrush}" BorderThickness="2">
-                                            <FontIcon Glyph="{x:Bind ChannelGlyph, Mode=OneWay}" FontSize="8.5" Foreground="White" />
+                                <Grid>
+                                    <!-- Voice or video, for the whole row (on the Mac, the row's help). -->
+                                    <Grid Padding="4,8" ColumnSpacing="12" Background="Transparent" ToolTipService.ToolTip="{x:Bind ChannelText}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid>
+                                            <controls:Avatar Size="42" DisplayName="{x:Bind Name, Mode=OneWay}" Email="{x:Bind Email, Mode=OneWay}" Os="{x:Bind Os, Mode=OneWay}" CountryCode="{x:Bind CountryCode, Mode=OneWay}" />
+                                            <Border Width="18" Height="18" CornerRadius="6" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-4,-4" Background="{ThemeResource BrandBrush}" BorderBrush="{ThemeResource SurfaceBrush}" BorderThickness="2">
+                                                <FontIcon Glyph="{x:Bind ChannelGlyph, Mode=OneWay}" FontSize="8.5" Foreground="White" />
+                                            </Border>
+                                        </Grid>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock FontSize="11.5" FontWeight="Bold" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind RankText, Mode=OneWay}" VerticalAlignment="Center" />
+                                                <TextBlock FontSize="13.5" FontWeight="SemiBold" Text="{x:Bind Name, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
+                                                <Border CornerRadius="9" Padding="8,2.5" VerticalAlignment="Center" Background="{ThemeResource DangerSoftBrush}" Visibility="{x:Bind PriorityVisibility, Mode=OneWay}">
+                                                    <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource DangerBrush}" Text="{x:Bind PriorityText, Mode=OneWay}" />
+                                                </Border>
+                                            </StackPanel>
+                                            <TextBlock FontSize="12" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind Detail, Mode=OneWay}" TextTrimming="CharacterEllipsis" Visibility="{x:Bind DetailVisibility, Mode=OneWay}" />
+                                        </StackPanel>
+                                        <Border Grid.Column="2" CornerRadius="8" Padding="9,3" VerticalAlignment="Center" Background="{x:Bind WaitBack, Mode=OneWay}">
+                                            <StackPanel Orientation="Horizontal" Spacing="4" FlowDirection="LeftToRight">
+                                                <FontIcon Glyph="&#xE823;" FontSize="10" Foreground="{x:Bind WaitBrush, Mode=OneWay}" />
+                                                <TextBlock FontSize="12.5" FontWeight="SemiBold" Foreground="{x:Bind WaitBrush, Mode=OneWay}" Text="{x:Bind WaitText, Mode=OneWay}" />
+                                            </StackPanel>
                                         </Border>
                                     </Grid>
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <TextBlock FontSize="11.5" FontWeight="Bold" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind RankText, Mode=OneWay}" VerticalAlignment="Center" />
-                                            <TextBlock FontSize="13.5" FontWeight="SemiBold" Text="{x:Bind Name, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
-                                            <Border CornerRadius="9" Padding="8,2.5" VerticalAlignment="Center" Background="{ThemeResource DangerSoftBrush}" Visibility="{x:Bind PriorityVisibility, Mode=OneWay}">
-                                                <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource DangerBrush}" Text="{x:Bind PriorityText, Mode=OneWay}" />
-                                            </Border>
-                                        </StackPanel>
-                                        <TextBlock FontSize="12" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind Detail, Mode=OneWay}" TextTrimming="CharacterEllipsis" Visibility="{x:Bind DetailVisibility, Mode=OneWay}" />
-                                    </StackPanel>
-                                    <Border Grid.Column="2" CornerRadius="8" Padding="9,3" VerticalAlignment="Center" Background="{x:Bind WaitBack, Mode=OneWay}">
-                                        <StackPanel Orientation="Horizontal" Spacing="4" FlowDirection="LeftToRight">
-                                            <FontIcon Glyph="&#xE823;" FontSize="10" Foreground="{x:Bind WaitBrush, Mode=OneWay}" />
-                                            <TextBlock FontSize="12.5" FontWeight="SemiBold" Foreground="{x:Bind WaitBrush, Mode=OneWay}" Text="{x:Bind WaitText, Mode=OneWay}" />
-                                        </StackPanel>
-                                    </Border>
                                 </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>

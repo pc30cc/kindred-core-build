@@ -21,6 +21,11 @@ on:
     tags:
       - 'native-v*'
   workflow_dispatch:
+    inputs:
+      publish_tag:
+        description: 'Only make an existing draft release public, e.g. native-v2.4.1 (no build)'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -37,6 +42,7 @@ env:
 jobs:
   build:
     name: Build, test and package
+    if: inputs.publish_tag == '' || inputs.publish_tag == null
     runs-on: windows-latest
     defaults:
       run:
@@ -98,3 +104,25 @@ jobs:
           if ($draft -eq 'true') { gh release edit ${{ github.ref_name }} --repo pc30cc/webyar-desktop-releases --draft=false }
           $draft = gh release view ${{ github.ref_name }} --repo pc30cc/webyar-desktop-releases --json isDraft --jq .isDraft
           if ($draft -ne 'false') { throw "The release is still a draft. webyar-desktop-releases needs at least one commit (e.g. a README) before a tag can be created; add one, then publish the draft on GitHub." }
+
+  # A release GitHub left as a draft (it could not create the tag) is invisible
+  # to installed apps. This publishes one that is already uploaded, without a rebuild.
+  publish-draft:
+    name: Publish a draft release
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_tag != ''
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.DESKTOP_RELEASES_TOKEN }}
+      TAG: ${{ inputs.publish_tag }}
+      REPO: pc30cc/webyar-desktop-releases
+    steps:
+      - name: Publish
+        run: |
+          [ -n "$GH_TOKEN" ] || { echo "DESKTOP_RELEASES_TOKEN is not set"; exit 1; }
+          [[ "$TAG" =~ ^native-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Not a release tag: $TAG"; exit 1; }
+          gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name' | grep -qx 'Webyar-Setup.exe' \
+            || { echo "$TAG has no Webyar-Setup.exe"; exit 1; }
+          gh release edit "$TAG" --repo "$REPO" --target main --draft=false
+          [ "$(gh release view "$TAG" --repo "$REPO" --json isDraft --jq .isDraft)" = false ] \
+            || { echo "$TAG is still a draft"; exit 1; }
+          gh release view "$TAG" --repo "$REPO" --json url,tagName,assets --jq '{url, tagName, assets: [.assets[].name]}'

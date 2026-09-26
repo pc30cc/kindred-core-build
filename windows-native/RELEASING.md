@@ -78,11 +78,9 @@
 | مرحله‌ی «Version»: `Tag X does not match <Version> Y` | تگ و `<Version>` یکی نیستند. تگ را روی کامیتی بزنید که همان نسخه را دارد. |
 | مرحله‌ی «Test Core» شکست خورد | باگ را رفع کنید و نسخه را یک پله بالا ببرید (مثلاً ۲.۴.۲ → ۲.۴.۳). تگ قبلی را دوباره استفاده نکنید. |
 | `DESKTOP_RELEASES_TOKEN is not set` یا خطای دسترسی | توکن را بسازید یا تمدید کنید (بخش ۲). بعد در صفحه‌ی همان اجرا «Re-run failed jobs» را بزنید؛ تگ جدید لازم نیست. |
-| ریلیز در `webyar-desktop-releases` به‌صورت **Draft** مانده (آدرسش `untagged-…` است)، یا مرحله‌ی «Publish release» با `The release is still a draft` متوقف شد | مخزن ریلیزها commit ندارد. یک `README.md` به آن اضافه کنید، بعد draft را باز کنید و «Publish release» را بزنید. نسخه و تگ جدید لازم نیست. |
+| ریلیز در `webyar-desktop-releases` به‌صورت **Draft** مانده (آدرسش `untagged-…` است)، یا مرحله‌ی «Publish release» با `The release is still a draft` متوقف شد | مخزن ریلیزها commit ندارد. یک `README.md` به آن اضافه کنید (الان دارد). بعد یا draft را باز کنید و «Publish release» را بزنید، یا در Actions → **Windows app (native)** → «Run workflow» در فیلد `publish_tag` تگ را بنویسید (مثلاً `native-v2.4.1`) تا بدون build دوباره منتشرش کند. نسخه و تگ جدید لازم نیست. |
 | jobها در چند ثانیه fail شدند و runner نگرفتند | مشکل GitHub است؛ یک بار «Re-run» بزنید. |
 | اپ آپدیت نمی‌شود | ۱) نسخه‌ی منتشرشده از نسخه‌ی نصب‌شده بزرگ‌تر باشد؛ ۲) در سوپر ادمین آپدیت خودکار روشن و فید درست باشد؛ ۳) اپ با `Webyar-Setup.exe` نصب شده باشد، نه کپی دستی یا portable. |
-
-> نکته برای جلسه‌های Claude: محیط Claude اجازه‌ی push تگ ندارد (فقط push به branch خودش مجاز است). تگ را صاحب مخزن از صفحه‌ی Releases می‌سازد. Claude بعد از آن اجرای CI را دنبال می‌کند و در صورت نیاز re-run می‌زند.
 
 ## ۵. صفحه‌ی دانلود سایت (`app.webyar.ai/downloads`)
 

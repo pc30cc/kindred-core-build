@@ -33,6 +33,7 @@ public sealed class AppHost : IAsyncDisposable
         Engagement = new EngagementService(this);
         Threads = new ThreadSync(Api, null, log: Log.Write);
         Lists = new ConversationListSync(Api, null, Log.Write);
+        Callers = new CallerProfiles(this);
     }
 
     // ── The PC's copy of the operator's inbox (local-first) ──
@@ -133,6 +134,7 @@ public sealed class AppHost : IAsyncDisposable
         AttachmentItem.ClearAll();
         AvatarImages.ClearMemory();
         _profiles.Clear();
+        Callers.Clear();
         _members = null;
         Log.Write($"[cache] after sign-out: {Client.Traffic}");
     }
@@ -145,6 +147,7 @@ public sealed class AppHost : IAsyncDisposable
         Lists.ClearMemory();
         AttachmentItem.ClearMemory();
         _profiles.Clear();
+        Callers.Clear();
     }
 
     /// <summary>
@@ -241,6 +244,9 @@ public sealed class AppHost : IAsyncDisposable
             VisitorRegion = p.Geo?.Region,
         } : c).ToList();
     }
+
+    /// <summary>Callers' OS and country by visitor session, for their faces on the desk, the banner and the call.</summary>
+    public CallerProfiles Callers { get; }
 
     /// <summary>The call center's waiting line, watched app-wide; null while signed out.</summary>
     public CallQueueWatcher? CallQueue { get; private set; }

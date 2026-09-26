@@ -17,11 +17,14 @@ import type { Request } from 'express';
 /** Symbol-keyed so no JSON body / query string can forge it. */
 const TRUSTED_GATE_WORKSPACE_ID = Symbol('featureGating.trustedWorkspaceId');
 
+/** A request carrying (or about to carry) the trusted pin. */
+type PinnedRequest = Request & { [TRUSTED_GATE_WORKSPACE_ID]?: unknown };
+
 export function setTrustedGateWorkspaceId(req: Request, workspaceId: string): void {
-  (req as any)[TRUSTED_GATE_WORKSPACE_ID] = workspaceId;
+  (req as PinnedRequest)[TRUSTED_GATE_WORKSPACE_ID] = workspaceId;
 }
 
 export function getTrustedGateWorkspaceId(req: Request): string | undefined {
-  const v = (req as any)?.[TRUSTED_GATE_WORKSPACE_ID];
+  const v = (req as PinnedRequest | null | undefined)?.[TRUSTED_GATE_WORKSPACE_ID];
   return typeof v === 'string' && v ? v : undefined;
 }

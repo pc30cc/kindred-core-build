@@ -8,6 +8,7 @@
  * invariant tests with verified runtime behavior.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { Request, Response } from "express";
 
 const rpcMock = vi.fn();
 const counterRowMock = vi.fn();
@@ -39,7 +40,7 @@ import { setTrustedGateWorkspaceId } from "../../../server/middleware/gateWorksp
 import { usageFnForLimit } from "../../../server/services/billing/usageResolvers";
 
 function makeReqRes(body: Record<string, unknown> = {}) {
-  const req: any = {
+  const req = {
     body,
     query: {},
     params: {},
@@ -47,13 +48,13 @@ function makeReqRes(body: Record<string, unknown> = {}) {
       supabaseUrl: "http://stub",
       supabaseServiceRoleKey: "stub-key",
     },
-  };
+  } as unknown as Request;
   let statusCode: number | undefined;
-  let jsonBody: any;
-  const res: any = {
+  let jsonBody: Record<string, unknown> | undefined;
+  const res = {
     status(code: number) { statusCode = code; return res; },
-    json(b: any) { jsonBody = b; return res; },
-  };
+    json(b: Record<string, unknown>) { jsonBody = b; return res; },
+  } as unknown as Response;
   const getResult = () => ({ statusCode, jsonBody });
   return { req, res, getResult };
 }
@@ -80,7 +81,7 @@ describe("requireLimit middleware — runtime behavior", () => {
     await mw(req, res, next);
     expect(next).toHaveBeenCalledTimes(1);
     expect(getResult().statusCode).toBeUndefined();
-    expect((req as any).entitlement?.allowed).toBe(true);
+    expect((req as Request & { entitlement?: { allowed?: boolean } }).entitlement?.allowed).toBe(true);
   });
 
   it("returns 403 and does NOT call next() when usage is at or above limit", async () => {

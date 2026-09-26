@@ -84,8 +84,8 @@ async function hasInMonthVisitorSession(
       return true;
     }
     return !!data;
-  } catch (e: any) {
-    console.warn('[visitorLimit] in-month membership read threw:', e?.message ?? e);
+  } catch (e: unknown) {
+    console.warn('[visitorLimit] in-month membership read threw:', e instanceof Error ? e.message : e);
     return true;
   }
 }

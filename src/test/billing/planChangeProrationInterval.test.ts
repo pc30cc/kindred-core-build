@@ -10,22 +10,50 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
+interface SubRow {
+  id: string;
+  status: string;
+  plan_id: string;
+  billing_interval: string | null;
+  current_period_start: string;
+  current_period_end: string;
+}
+interface PeriodRow {
+  id: string;
+  period_start: string;
+  period_end: string;
+  billing_interval: string;
+  plan_id: string;
+}
+interface FakeBuilder {
+  _filters: Row;
+  _insert: Row | Row[] | null;
+  _update: Row | null;
+  select: () => FakeBuilder;
+  eq: (col: string, val: unknown) => FakeBuilder;
+  gte: () => FakeBuilder;
+  limit: () => FakeBuilder;
+  insert: (row: Row | Row[]) => FakeBuilder | Promise<{ data: null; error: null }>;
+  update: (patch: Row) => FakeBuilder;
+  maybeSingle: () => Promise<{ data: unknown; error: null }>;
+  single: () => Promise<{ data: unknown; error: null }>;
+}
 
 const DAY = 86_400_000;
 const NOW = new Date('2026-09-16T00:00:00.000Z');
 
 let plans: Record<string, Row> = {};
-let sub: Row | null = null;
-let period: Row | null = null;
+let sub: SubRow | null = null;
+let period: PeriodRow | null = null;
 const insertedInvoices: Row[] = [];
 
 function fakeClient() {
   const make = (table: string) => {
-    const b: any = {
-      _filters: {} as Row,
-      _insert: null as Row | null,
-      _update: null as Row | null,
+    const b: FakeBuilder = {
+      _filters: {},
+      _insert: null,
+      _update: null,
       select: () => b,
       eq: (col: string, val: unknown) => { b._filters[col] = val; return b; },
       gte: () => b,
@@ -37,7 +65,7 @@ function fakeClient() {
       },
       update: (patch: Row) => { b._update = patch; return b; },
       maybeSingle: async () => {
-        if (table === 'billing_plans') return { data: plans[b._filters.id] ?? null, error: null };
+        if (table === 'billing_plans') return { data: plans[b._filters.id as string] ?? null, error: null };
         if (table === 'workspace_subscriptions') return { data: sub, error: null };
         if (table === 'billing_subscription_periods') return { data: period, error: null };
         return { data: null, error: null };
@@ -66,7 +94,7 @@ function fakeClient() {
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeClient() }));
 vi.mock('../../../server/services/billing/rollout.js', () => ({ isV2Active: async () => true }));
 vi.mock('../../../server/services/billing/invoiceNumber.js', () => ({
-  insertWithDocumentNumber: async (fn: (n: string) => Promise<{ data: any; error: any }>) => {
+  insertWithDocumentNumber: async (fn: (n: string) => Promise<{ data: unknown; error: { message: string } | null }>) => {
     const { data, error } = await fn('WY-TEST-1');
     if (error) throw new Error(error.message);
     return data;
@@ -78,7 +106,7 @@ const { previewPlanChange, applyPlanChange, BillingActionError } = await import(
 );
 const { issueSubscriptionInvoice } = await import('../../../server/services/billing/invoice/issue.js');
 
-const CONFIG: any = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' };
+const CONFIG = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' } as unknown as Parameters<typeof previewPlanChange>[0];
 const WS = 'ws-1';
 
 const plan = (id: string, monthly: number, yearly: number): Row => ({
@@ -147,7 +175,7 @@ describe('immediate upgrade at the same interval', () => {
     });
     expect(inv.amount_due_irr).toBe(1_000_000);
     expect(inv.period_end).toBe(period!.period_end);
-    expect((inv as any).effect_snapshot.proration.unused_credit_irr).toBe(500_000);
+    expect((inv as unknown as { effect_snapshot: { proration: { unused_credit_irr: number } } }).effect_snapshot.proration.unused_credit_irr).toBe(500_000);
   });
 
   it('uses the stored period interval even when the subscription row lacks one', async () => {
@@ -166,15 +194,15 @@ describe('immediate upgrade that also changes the interval', () => {
     const err = await previewPlanChange(CONFIG, WS, { planId: 'pro-id', interval: 'yearly', mode: 'immediate' })
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(BillingActionError);
-    expect((err as any).code).toBe('INTERVAL_CHANGE_NOT_IMMEDIATE');
-    expect((err as any).status).toBe(409);
+    expect((err as { code?: string }).code).toBe('INTERVAL_CHANGE_NOT_IMMEDIATE');
+    expect((err as { status?: number }).status).toBe(409);
   });
 
   it('yearly -> monthly with paid time left is refused', async () => {
     yearlyBasicHalfUsed();
     const err = await previewPlanChange(CONFIG, WS, { planId: 'pro-id', interval: 'monthly', mode: 'immediate' })
       .catch((e: unknown) => e);
-    expect((err as any).code).toBe('INTERVAL_CHANGE_NOT_IMMEDIATE');
+    expect((err as { code?: string }).code).toBe('INTERVAL_CHANGE_NOT_IMMEDIATE');
   });
 
   it('the invoice issuer refuses a mismatched interval too (defence in depth)', async () => {
@@ -202,6 +230,6 @@ describe('immediate upgrade that also changes the interval', () => {
     expect(inv.invoice_type).toBe('new_subscription');
     expect(inv.billing_interval).toBe('yearly');
     // A full year from now, not squeezed into the free month.
-    expect(new Date(inv.period_end).getTime() - new Date(inv.period_start).getTime()).toBeGreaterThan(360 * DAY);
+    expect(new Date(inv.period_end as string).getTime() - new Date(inv.period_start as string).getTime()).toBeGreaterThan(360 * DAY);
   });
 });

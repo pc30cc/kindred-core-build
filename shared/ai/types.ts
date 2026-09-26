@@ -53,8 +53,8 @@ export interface AIRequest {
   /** Force JSON object response (OpenAI/compatible: response_format json_object). */
   jsonMode?: boolean;
   /** Optional OpenAI-compatible function tools for structured output. */
-  tools?: any[];
-  toolChoice?: any;
+  tools?: unknown[];
+  toolChoice?: unknown;
   /**
    * Stable id for ONE logical AI execution. Core mints it; transport-level
    * retries/replays of the same logical request reuse it so usage accounting

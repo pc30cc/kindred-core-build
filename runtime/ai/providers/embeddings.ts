@@ -54,6 +54,8 @@ export async function embedTexts(
     );
   }
 
-  const rows = ((res.data as any)?.data as any[]) || [];
+  const rows = ((res.data as { data?: unknown } | null | undefined)?.data as
+    | Array<{ embedding?: unknown } | null | undefined>
+    | undefined) || [];
   return rows.map((row) => (row?.embedding as number[]) || []);
 }

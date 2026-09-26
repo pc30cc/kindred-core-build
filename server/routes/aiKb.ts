@@ -19,12 +19,12 @@
 import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
-import { getServiceClient } from '../supabase.js';
+import { getServiceClient, type ServiceClient } from '../supabase.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { setTrustedGateWorkspaceId } from '../middleware/gateWorkspace.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
-import { requireUser as requireSessionUser, authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { requireUser as requireSessionUser, authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import {
   checkAiKbAccess,
   readAiKbCapabilities,
@@ -52,11 +52,37 @@ import {
   toPublicAiKbJobEvent,
   toPublicErrorCode,
   type AiKbJobRowLike,
+  type AiKbPageRowLike,
+  type AiKbGeneratedRowLike,
+  type AiKbJobEventRowLike,
   toPublicAiKbVisibility,
   type AiKbLinkedArticle,
 } from '../services/ai-kb/dto.js';
 
 export const aiKbRouter: Router = express.Router();
+
+/**
+ * The service client is untyped (no generated Database schema), so rows read
+ * with a column-list constant come back without a usable static shape. This
+ * narrows such a result set to the DTO row shape the columns constant selects.
+ */
+function rowsAs<T>(rows: unknown): T[] {
+  return (rows || []) as T[];
+}
+
+/** Draft row as selected by AI_KB_GENERATED_INTERNAL_COLUMNS. */
+interface GeneratedDraftRow {
+  id: string;
+  job_id: string;
+  workspace_id: string;
+  title: string;
+  slug: string | null;
+  excerpt: string | null;
+  locale: string;
+  status: string;
+  kb_article_id: string | null;
+  content_md: string | null;
+}
 
 /**
  * Sanitized server-side logging. Internal error text never reaches the client:
@@ -144,7 +170,7 @@ async function gateAiKb(
 //  GET /api/ai-kb/source — resolved scan source
 // ──────────────────────────────────────────────────────────────
 aiKbRouter.get('/source', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = String(req.query.workspaceId || req.query.workspace_id || '');
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
 
@@ -254,7 +280,7 @@ const createJobSchema = z.object({
 });
 
 aiKbRouter.post('/jobs', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = createJobSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
@@ -350,14 +376,14 @@ aiKbRouter.post('/jobs', async (req: Request, res: Response) => {
 
   await logAiKbUsage(config, workspaceId, 'job_created', { jobId: job.id, metadata: { domain: source.domain } });
 
-  return res.status(201).json({ job: toPublicAiKbJob(job as any) });
+  return res.status(201).json({ job: toPublicAiKbJob(job) });
 });
 
 // ──────────────────────────────────────────────────────────────
 //  GET /api/ai-kb/jobs — list jobs for workspace
 // ──────────────────────────────────────────────────────────────
 aiKbRouter.get('/jobs', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = String(req.query.workspaceId || req.query.workspace_id || '');
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
 
@@ -378,14 +404,14 @@ aiKbRouter.get('/jobs', async (req: Request, res: Response) => {
     logInternal('list_failed', error, { workspaceId });
     return res.status(500).json({ error: 'list_failed' });
   }
-  return res.json({ jobs: (data || []).map((r) => toPublicAiKbJob(r as any)) });
+  return res.json({ jobs: rowsAs<AiKbJobRowLike>(data).map((r) => toPublicAiKbJob(r)) });
 });
 
 // ──────────────────────────────────────────────────────────────
 //  GET /api/ai-kb/jobs/:id — job + pages + generated drafts
 // ──────────────────────────────────────────────────────────────
 aiKbRouter.get('/jobs/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
 
   const auth = await authenticate(req, res, config);
@@ -432,8 +458,9 @@ aiKbRouter.get('/jobs/:id', async (req: Request, res: Response) => {
   // every draft that is linked to a KB article. The draft's own `slug` is a
   // suggestion the database may have de-duplicated during publish, so a link
   // built from it can 404. The lookup is scoped to this job's workspace.
-  const linkedIds = (generated || [])
-    .map((g: any) => g.kb_article_id)
+  const generatedRows = rowsAs<AiKbGeneratedRowLike>(generated);
+  const linkedIds = generatedRows
+    .map((g) => g.kb_article_id)
     .filter((id: unknown): id is string => typeof id === 'string' && !!id);
   const articleById = new Map<string, AiKbLinkedArticle>();
   if (linkedIds.length) {
@@ -448,22 +475,22 @@ aiKbRouter.get('/jobs/:id', async (req: Request, res: Response) => {
       console.error('[ai-kb] linked article lookup failed', JSON.stringify({ code: articlesError.code }));
       return res.status(503).json({ error: 'ai_kb_status_unavailable' });
     }
-    for (const a of articles || []) {
-      articleById.set((a as any).id, {
-        slug: (a as any).slug ?? null,
-        locale: (a as any).locale ?? null,
-        status: (a as any).status ?? null,
+    for (const a of rowsAs<{ id: string; slug: string | null; locale: string | null; status: string | null }>(articles)) {
+      articleById.set(a.id, {
+        slug: a.slug ?? null,
+        locale: a.locale ?? null,
+        status: a.status ?? null,
       });
     }
   }
 
   return res.json({
-    job: toPublicAiKbJob(job as any),
-    pages: (pages || []).map((r) => toPublicAiKbPage(r as any)),
-    generated: (generated || []).map((r) =>
-      toPublicAiKbGenerated(r as any, articleById.get((r as any).kb_article_id) ?? null),
+    job: toPublicAiKbJob(job),
+    pages: rowsAs<AiKbPageRowLike>(pages).map((r) => toPublicAiKbPage(r)),
+    generated: generatedRows.map((r) =>
+      toPublicAiKbGenerated(r, (r.kb_article_id && articleById.get(r.kb_article_id)) || null),
     ),
-    events: (events || []).map((r) => toPublicAiKbJobEvent(r as any)),
+    events: rowsAs<AiKbJobEventRowLike>(events).map((r) => toPublicAiKbJobEvent(r)),
   });
 });
 
@@ -484,7 +511,7 @@ async function loadGenerated(
     .from('ai_kb_generated_articles')
     .select(AI_KB_GENERATED_INTERNAL_COLUMNS)
     .eq('id', req.params.id)
-    .maybeSingle();
+    .maybeSingle<GeneratedDraftRow>();
   if (genError) {
     console.error('[ai-kb] generated lookup failed', JSON.stringify({ code: genError.code }));
     res.status(503).json({ error: 'ai_kb_status_unavailable' });
@@ -506,7 +533,7 @@ async function loadGenerated(
 }
 
 aiKbRouter.post('/generated/:id/reject', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const ctx = await loadGenerated(req, res, config, ['can_manage_knowledge_base']);
   if (!ctx) return;
   const { gen, sb, userId } = ctx;
@@ -531,7 +558,7 @@ aiKbRouter.post('/generated/:id/reject', async (req: Request, res: Response) => 
     if (result.error === 'invalid_state') {
       return res.status(409).json({
         error: 'invalid_state',
-        current_status: (data as any)?.current_status ?? null,
+        current_status: (data as { current_status?: string | null } | null)?.current_status ?? null,
       });
     }
     return res.status(500).json({ error: 'reject_failed' });
@@ -562,8 +589,8 @@ interface ApplyGeneratedResult {
 }
 
 async function applyGeneratedDraft(
-  sb: any,
-  gen: any,
+  sb: ServiceClient,
+  gen: GeneratedDraftRow,
   userId: string,
   mode: 'accept' | 'publish',
 ): Promise<{ result?: ApplyGeneratedResult; transportError?: unknown }> {
@@ -622,11 +649,11 @@ async function enforceKbArticleQuotaForDraft(
 }
 
 aiKbRouter.post('/generated/:id/accept', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const ctx = await loadGenerated(req, res, config, ['can_manage_knowledge_base']);
   if (!ctx) return;
   const { gen, sb, userId } = ctx;
-  if (!(await enforceKbArticleQuotaForDraft(res, config, gen as any))) return;
+  if (!(await enforceKbArticleQuotaForDraft(res, config, gen))) return;
 
 
 
@@ -642,14 +669,14 @@ aiKbRouter.post('/generated/:id/accept', async (req: Request, res: Response) => 
 });
 
 aiKbRouter.post('/generated/:id/publish', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const ctx = await loadGenerated(req, res, config, [
     'can_manage_knowledge_base',
     'can_publish_knowledge_base',
   ]);
   if (!ctx) return;
   const { gen, sb, userId } = ctx;
-  if (!(await enforceKbArticleQuotaForDraft(res, config, gen as any))) return;
+  if (!(await enforceKbArticleQuotaForDraft(res, config, gen))) return;
 
 
 
@@ -683,7 +710,7 @@ aiKbRouter.post('/generated/:id/publish', async (req: Request, res: Response) =>
 //  Bulk publish all pending/accepted generated drafts for a job.
 // ──────────────────────────────────────────────────────────────
 aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
 
   const auth = await authenticate(req, res, config);
@@ -734,8 +761,8 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
     error: 'publish_failed' | 'invalid_state' | 'limit_reached';
     current_status?: string | null;
   }> = [];
-  for (const gen of drafts || []) {
-    const consumesCapacity = !(gen as any).kb_article_id;
+  for (const gen of rowsAs<GeneratedDraftRow>(drafts)) {
+    const consumesCapacity = !gen.kb_article_id;
     if (consumesCapacity && remaining <= 0) {
       failed.push({ generated_id: gen.id, error: 'limit_reached' });
       continue;
@@ -786,7 +813,7 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
 //  GET /api/ai-kb/generated/:id/visibility — diagnostics
 // ──────────────────────────────────────────────────────────────
 aiKbRouter.get('/generated/:id/visibility', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const ctx = await loadGenerated(req, res, config, []);
   if (!ctx) return;
   const { gen, sb } = ctx;
@@ -839,7 +866,7 @@ aiKbRouter.get('/generated/:id/visibility', async (req: Request, res: Response) 
 //  GET /api/ai-kb/worker/diagnostics — observability for AI Builder
 // ──────────────────────────────────────────────────────────────
 aiKbRouter.get('/worker/diagnostics', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = String(req.query.workspaceId || req.query.workspace_id || '');
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
 
@@ -884,8 +911,8 @@ aiKbRouter.get('/worker/diagnostics', async (req: Request, res: Response) => {
   // on an unreadable table are worse than no diagnostics: an operator uses
   // this page to decide whether the worker is stuck.
   const countError =
-    (queuedRes as any).error || (runningRes as any).error ||
-    (failedRes as any).error || (latestRes as any).error;
+    queuedRes.error || runningRes.error ||
+    failedRes.error || latestRes.error;
   if (countError) {
     console.error('[ai-kb] diagnostics lookup failed', JSON.stringify({ code: countError.code }));
     return res.status(503).json({ error: 'ai_kb_status_unavailable' });
@@ -902,7 +929,7 @@ aiKbRouter.get('/worker/diagnostics', async (req: Request, res: Response) => {
   const credits = creditsRead.ok ? creditsRead.value : null!;
   const jobsThisMonth = jobsRead.ok ? jobsRead.value : 0;
 
-  const latest: any = (latestRes as any).data || null;
+  const latest: AiKbJobRowLike | null = latestRes.data || null;
 
   return res.json({
     counts: {
@@ -945,7 +972,7 @@ const testJobSchema = z.object({
 });
 
 aiKbRouter.post('/jobs/test', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = testJobSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
@@ -964,7 +991,7 @@ aiKbRouter.post('/jobs/test', async (req: Request, res: Response) => {
       .eq('workspace_id', workspaceId)
       .eq('user_id', auth.userId)
       .maybeSingle();
-    const role = (roleRow as any)?.role;
+    const role = (roleRow as { role?: string | null } | null)?.role;
     if (role !== 'owner' && role !== 'admin') {
       return res.status(403).json({ error: 'admin_required' });
     }
@@ -1036,5 +1063,5 @@ aiKbRouter.post('/jobs/test', async (req: Request, res: Response) => {
     metadata: { domain: source.domain, test: true, generate: !!generate },
   });
 
-  return res.status(201).json({ job: toPublicAiKbJob(job as any), test: true });
+  return res.status(201).json({ job: toPublicAiKbJob(job), test: true });
 });

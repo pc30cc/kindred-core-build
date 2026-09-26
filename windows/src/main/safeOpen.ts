@@ -44,12 +44,24 @@ export function markFromInternet(path: string): boolean {
 
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i
 
+const RESERVED_NAME_CHARS = '<>:"/\\|?*'
+
+/** Replaces reserved characters and control characters (U+0000-U+001F, U+007F) with '_'. */
+function replaceReservedChars(value: string): string {
+  let out = ''
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i]
+    const code = value.charCodeAt(i)
+    out += code <= 0x1f || code === 0x7f || RESERVED_NAME_CHARS.includes(ch) ? '_' : ch
+  }
+  return out
+}
+
 /** A file name Windows will store exactly as given: no folders, streams or tricks. */
 export function safeFileName(name: string): string {
   const last = String(name ?? '').split(/[\\/]/).pop() ?? ''
-  let safe = last
-    // Reserved characters (':' would name an alternate data stream) and control characters.
-    .replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g, '_')
+  // Reserved characters (':' would name an alternate data stream) and control characters.
+  let safe = replaceReservedChars(last)
     // Bidi controls let "evil‮fdp.exe" look like "evilexe.pdf".
     .replace(/[‎‏‪-‮⁦-⁩]/g, '')
     // Windows drops trailing dots and spaces, so "a.exe." would really be "a.exe".

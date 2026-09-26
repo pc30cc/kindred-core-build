@@ -69,7 +69,7 @@ export async function checkMaxConversationsAllowance(
       config.supabaseServiceRoleKey,
       workspaceId,
       LIMIT_KEY,
-      { numeric: true, selfHostBillingUnlimited: (config as any).selfHostBillingUnlimited === true },
+      { numeric: true, selfHostBillingUnlimited: config.selfHostBillingUnlimited === true },
     );
   } catch {
     return { allowed: false, reason: 'entitlement_unavailable', retryable: true };

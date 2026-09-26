@@ -255,8 +255,8 @@ export const stripeProvider: BillingProviderHandler = {
       const data = await res.json();
       if (!res.ok) return { success: false, latencyMs: Date.now() - start, error: readStripeErrorMessage(data) };
       return { success: true, latencyMs: Date.now() - start };
-    } catch (e: any) {
-      return { success: false, latencyMs: Date.now() - start, error: e.message };
+    } catch (e: unknown) {
+      return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };
     }
   },
 };

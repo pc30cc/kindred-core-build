@@ -25,6 +25,7 @@ import { executeAICompletion, resolveAIConfig } from '../../server/services/ai/i
 import { logGateBypass } from '../../server/middleware/adminBypass.js';
 import { consumeAiCredits } from '../../server/services/ai-kb/credits.js';
 import { DbJobQueueProvider } from '../../server/services/ai-kb/queue.js';
+import type { AiKbJobRow } from '../../server/services/ai-kb/types.js';
 import { envFlagEnabled, type ServerConfig } from '../../server/config.js';
 import { normalizeArticleHtml } from '../../server/services/ai-kb/htmlNormalize.js';
 import { workerLog } from './index.js';
@@ -168,7 +169,8 @@ function isDraftFailure(result: GenerateDraftResult): result is GenerateDraftFai
   return result.ok === false;
 }
 
-type ParsedDraftJson = { ok: true; value: any } | { ok: false; error: string };
+/** `value` is whatever JSON.parse produced; fields are read defensively. */
+type ParsedDraftJson = { ok: true; value: Record<string, unknown> } | { ok: false; error: string };
 
 function isParsedDraftJsonFailure(
   parsed: ParsedDraftJson,
@@ -200,8 +202,8 @@ function tryParseDraftJson(raw: string): ParsedDraftJson {
   for (const candidate of candidates) {
     try {
       return { ok: true, value: JSON.parse(candidate) };
-    } catch (e: any) {
-      lastError = e?.message || lastError;
+    } catch (e: unknown) {
+      lastError = (e as { message?: string } | null | undefined)?.message || lastError;
     }
   }
   return { ok: false, error: lastError };
@@ -300,7 +302,8 @@ If the source is thin, still produce a useful article from what is there — nev
       temperature: 0.2,
       jsonMode: true,
     });
-  } catch (err: any) {
+  } catch (caught: unknown) {
+    const err = caught as { message?: string; name?: string; stack?: string } | null | undefined;
     return {
       ok: false,
       reason: 'ai_call_failed',
@@ -354,7 +357,13 @@ If the source is thin, still produce a useful article from what is there — nev
   };
 }
 
-export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): Promise<void> {
+/** A claimed ai_kb_jobs row, plus admin-override columns some deployments carry. */
+type ProcessableJob = AiKbJobRow & {
+  admin_override?: boolean;
+  created_by_global_admin?: string | null;
+};
+
+export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: ProcessableJob): Promise<void> {
   const serverConfig: ServerConfig = {
     port: 0,
     supabaseUrl: env.supabaseUrl,
@@ -393,7 +402,7 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
   let lastGenerationError: string | null = null;
   let lastGenerationReason: string | null = null;
 
-  await jobQueue.updateJob(job.id, { status: 'crawling', progress: 5 } as any);
+  await jobQueue.updateJob(job.id, { status: 'crawling', progress: 5 });
   await jobQueue.recordEvent(job.id, job.workspace_id, 'info', 'Crawl started', { domain: root });
   workerLog('crawl started', { jobId: job.id, domain: root });
 
@@ -458,7 +467,7 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
       pages_discovered: seen.size,
       pages_crawled: fetched.length,
       progress: Math.min(50, 5 + Math.floor((fetched.length / maxPages) * 45)),
-    } as any);
+    });
   }
 
   // ── Crawl-only test job: maxArticles explicitly 0 → no generation. ──
@@ -474,7 +483,7 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
       articles_generated: 0,
       credits_used: 0,
       completed_at: new Date().toISOString(),
-    } as any);
+    });
     await jobQueue.recordEvent(job.id, job.workspace_id, 'info',
       'Crawl-only test completed', { reason: 'crawl_only_test', pagesCrawled: pagesFetched });
     await sb.from('ai_kb_usage').insert({
@@ -507,7 +516,7 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
   }
 
   // Generate
-  await jobQueue.updateJob(job.id, { status: 'generating', progress: 55 } as any);
+  await jobQueue.updateJob(job.id, { status: 'generating', progress: 55 });
   workerLog('generation started', { jobId: job.id, candidatePages: fetched.length });
 
   let creditExhausted = false;
@@ -677,7 +686,7 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
       articles_generated: articlesGenerated,
       credits_used: creditsUsed,
       progress: Math.min(95, 55 + Math.floor((articlesGenerated / maxArticles) * 40)),
-    } as any);
+    });
     await sb.from('ai_kb_usage').insert({
       workspace_id: job.workspace_id, job_id: job.id, generated_article_id: ins?.id || null,
       event_type: 'article_generated', credits: adminOverride ? 0 : 1, metadata: {
@@ -717,7 +726,7 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
     credits_used: creditsUsed,
     completed_at: new Date().toISOString(),
     ...(finalError ? { error_message: finalError.slice(0, 1000) } : {}),
-  } as any);
+  });
 
   await sb.from('ai_kb_usage').insert({
     workspace_id: job.workspace_id, job_id: job.id,

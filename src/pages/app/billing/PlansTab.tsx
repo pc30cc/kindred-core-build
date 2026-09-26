@@ -16,14 +16,14 @@
  * never as a fabricated yearly AI figure, because the allowance is released
  * monthly.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { SkeletonStats } from '@/components/common/Skeletons';
 import { Check, Loader2, Sparkles } from 'lucide-react';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { toast } from '@/lib/toast';
 import {
   billingPlans,
@@ -141,7 +141,7 @@ export default function PlansTab({
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              {t(`billing.plans.${i}` as any)}
+              {t(`billing.plans.${i}` as TranslationKey)}
             </button>
           ))}
         </div>
@@ -156,7 +156,7 @@ export default function PlansTab({
           return (
             <Card
               key={plan.id}
-              style={{ ['--plan-accent' as any]: accent }}
+              style={{ '--plan-accent': accent } as CSSProperties}
               className={`relative flex h-full flex-col overflow-hidden transition-all hover:-translate-y-1 hover:shadow-xl ${
                 isCurrent ? 'border-2 shadow-lg' : 'border-2 border-border/60'
               }`}
@@ -324,11 +324,11 @@ function PlanFeatureList({ plan, accentVar }: { plan: PlanCard; accentVar: strin
     const raw = Number(limits[key]);
     if (!Number.isFinite(raw) || raw === 0) continue;
     const value = raw < 0 ? t('billing.plans.unlimited') : nf.format(raw);
-    items.push(t(`billing.plans.cap.${key}` as any, { value }));
+    items.push(t(`billing.plans.cap.${key}` as TranslationKey, { value }));
   }
   for (const key of FEATURE_KEYS) {
     if (ents[key] !== true) continue;
-    items.push(t(`billing.plans.feat.${key}` as any));
+    items.push(t(`billing.plans.feat.${key}` as TranslationKey));
   }
   // Legacy free-text features, if an admin ever set them.
   if (Array.isArray(plan.features)) {

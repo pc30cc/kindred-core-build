@@ -12,6 +12,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import express from 'express';
 
 let sessionUserId: string | null = null;
@@ -40,12 +41,19 @@ vi.mock('../../../server/services/ai-agent/platformSettings.js', () => ({
 }));
 
 vi.mock('../../../server/supabase.js', () => {
-  const builder: any = {
+  interface FakeBuilder {
+    select: () => FakeBuilder;
+    eq: () => FakeBuilder;
+    gte: () => FakeBuilder;
+    limit: () => Promise<{ data: unknown[]; error: null }>;
+    then: (resolve: (v: { count: number; data: unknown[]; error: null }) => unknown) => unknown;
+  }
+  const builder: FakeBuilder = {
     select: () => builder,
     eq: () => builder,
     gte: () => builder,
     limit: async () => ({ data: [], error: null }),
-    then: (resolve: any) => resolve({ count: 0, data: [], error: null }),
+    then: (resolve) => resolve({ count: 0, data: [], error: null }),
   };
   return { getServiceClient: () => ({ from: () => builder, rpc: async () => ({ data: null, error: null }) }) };
 });
@@ -60,7 +68,7 @@ const { platformRouter } = await import('../../../server/routes/ai-agent/platfor
 function makeServer(mount: (app: express.Express) => void) {
   const app = express();
   app.use((req, _res, next) => {
-    (req as any).serverConfig = {
+    (req as express.Request & { serverConfig?: unknown }).serverConfig = {
       supabaseUrl: 'https://example.supabase.co',
       supabaseServiceRoleKey: 'SERVICE_KEY',
     };
@@ -72,7 +80,7 @@ function makeServer(mount: (app: express.Express) => void) {
 }
 
 function call(server: http.Server, method: string, path: string, withSession = true) {
-  const port = (server.address() as any).port;
+  const port = (server.address() as AddressInfo).port;
   const headers: Record<string, string> = withSession ? { authorization: 'Bearer session-token' } : {};
   return new Promise<{ status: number; body: string }>((resolve, reject) => {
     const req = http.request({ host: '127.0.0.1', port, path, method, headers }, (res) => {

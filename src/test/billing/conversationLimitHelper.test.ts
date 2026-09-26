@@ -14,6 +14,7 @@
  * `singleWriterInvariants.test.ts`.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { Request, Response } from "express";
 
 const rpcMock = vi.fn();
 const counterRowMock = vi.fn();
@@ -37,17 +38,17 @@ import { enforceMaxConversationsLimit } from "../../../server/services/billing/c
 import { clearEntitlementCache } from "../../../server/middleware/featureGating";
 
 function makeReqRes(body: Record<string, unknown> = { workspace_id: "ws-c" }) {
-  const req: any = {
+  const req = {
     body,
     query: {},
     params: {},
     serverConfig: { supabaseUrl: "http://stub", supabaseServiceRoleKey: "key" },
-  };
+  } as unknown as Request;
   let statusCode: number | undefined;
-  const res: any = {
+  const res = {
     status(code: number) { statusCode = code; return res; },
     json() { return res; },
-  };
+  } as unknown as Response;
   return { req, res, getStatus: () => statusCode };
 }
 

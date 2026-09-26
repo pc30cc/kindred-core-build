@@ -231,7 +231,7 @@ describe('GET /:workspaceId/email-logs — owner/admin only', () => {
   it('owner can read their workspace email logs', async () => {
     const res = await call('GET', `/api/workspace-integrations/${WS_A}/email-logs`, 'owner-a-token');
     expect(res.status).toBe(200);
-    expect((res.json as any).logs.map((l: { id: string }) => l.id)).toEqual(['l1']);
+    expect((res.json.logs as Array<{ id: string }>).map((l: { id: string }) => l.id)).toEqual(['l1']);
   });
 
   it('plain member (non owner/admin) is denied', async () => {
@@ -309,10 +309,10 @@ describe('workspace provider settings — manage:true (owner/admin only)', () =>
       provider_type: 'ai', provider_name: 'openai', enabled: true, config: {}, secrets: {},
     });
     expect(put.status).toBe(200);
-    expect((put.json as any).setting.workspace_id).toBe(WS_A);
+    expect((put.json.setting as Row).workspace_id).toBe(WS_A);
 
     const get = await call('GET', `/api/workspace-integrations/${WS_A}/providers`, 'owner-a-token');
-    expect((get.json as any).settings).toHaveLength(1);
+    expect(get.json.settings as unknown[]).toHaveLength(1);
 
     const del = await call('DELETE', `/api/workspace-integrations/${WS_A}/providers/ai`, 'owner-a-token');
     expect(del.status).toBe(200);
@@ -443,7 +443,7 @@ describe('workspace privacy-export storage override — manage:true', () => {
     expect(activeRows[0].provider_name).toBe('minio');
 
     const get = await call('GET', `/api/workspace-integrations/${WS_A}/privacy-storage`, 'owner-a-token');
-    expect((get.json as any).storage.provider_name).toBe('minio');
+    expect((get.json.storage as Row).provider_name).toBe('minio');
   });
 
   it('a plain member cannot set the storage override', async () => {
@@ -465,7 +465,7 @@ describe('workspace privacy-export storage override — manage:true', () => {
     const del = await call('DELETE', `/api/workspace-integrations/${WS_A}/privacy-storage`, 'owner-a-token');
     expect(del.status).toBe(200);
     const get = await call('GET', `/api/workspace-integrations/${WS_A}/privacy-storage`, 'owner-a-token');
-    expect((get.json as any).storage).toBeNull();
+    expect(get.json.storage).toBeNull();
   });
 });
 
@@ -480,7 +480,7 @@ describe('workspace email templates — manage:true', () => {
   it('owner reads only their own workspace templates', async () => {
     const res = await call('GET', `/api/workspace-integrations/${WS_A}/email-templates`, 'owner-a-token');
     expect(res.status).toBe(200);
-    expect((res.json as any).templates.map((t: { id: string }) => t.id)).toEqual(['t1']);
+    expect((res.json.templates as Array<{ id: string }>).map((t: { id: string }) => t.id)).toEqual(['t1']);
   });
 
   it('a plain member is denied', async () => {

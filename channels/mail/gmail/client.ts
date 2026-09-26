@@ -70,16 +70,17 @@ async function requestJson(
   try {
     const res = await fetchImpl(url, { ...init, signal: controller.signal });
     if (res.status === 401 || res.status === 403) {
-      let body: any = null;
-      try { body = await res.json(); } catch { /* ignore */ }
+      let body: { error?: unknown; error_description?: unknown } | null = null;
+      try { body = (await res.json()) as typeof body; } catch { /* ignore */ }
       // Two different Google error envelopes share this 401/403 branch: the
       // OAuth token endpoint's flat { error, error_description }, and every
       // Gmail API resource call's structured { error: { code, message,
       // status, errors: [...] } }.
       const flatReason = typeof body?.error === 'string' ? body.error : '';
       const flatDescription = typeof body?.error_description === 'string' ? body.error_description : '';
-      const structuredMessage = typeof body?.error?.message === 'string' ? body.error.message : null;
-      const structuredStatus = typeof body?.error?.status === 'string' ? body.error.status : null;
+      const structured = (body?.error ?? null) as { message?: unknown; status?: unknown } | null;
+      const structuredMessage = typeof structured?.message === 'string' ? structured.message : null;
+      const structuredStatus = typeof structured?.status === 'string' ? structured.status : null;
       const reasonText =
         structuredMessage || structuredStatus ||
         [flatReason, flatDescription].filter(Boolean).join(': ') ||
@@ -377,7 +378,7 @@ export function encodeHeaderWord(value: string, opts: { encodeSpecials?: boolean
   const needsEncoding =
     /[^\x20-\x7E\t]/.test(clean) ||
     clean.includes('=?') ||
-    (opts.encodeSpecials === true && /[()<>\[\]:;@\\,."]/.test(clean));
+    (opts.encodeSpecials === true && /[()<>[\]:;@\\,."]/.test(clean));
   if (!needsEncoding) return clean;
   return utf8Chunks(clean, 45)
     .map((chunk) => `=?UTF-8?B?${Buffer.from(chunk, 'utf8').toString('base64')}?=`)
@@ -400,13 +401,23 @@ function sanitizeContentType(value: string | null | undefined): string {
   return /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(v) ? v : 'application/octet-stream';
 }
 
+/** Drops C0 control characters (U+0000–U+001F) and DEL (U+007F). */
+function stripControlChars(value: string): string {
+  let out = '';
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code > 0x1f && code !== 0x7f) out += value[i];
+  }
+  return out;
+}
+
 /**
  * `name="…"` / `filename="…"` MIME parameters. The quoted form escapes `\`
  * and `"`; non-ASCII names additionally get an RFC 2231 `*=UTF-8''…` form
  * (with an ASCII fallback in the quoted one) so clients show the real name.
  */
 export function mimeFilenameParams(param: 'name' | 'filename', filename: string): string {
-  const clean = stripHeaderBreaks(filename).replace(/[\x00-\x1F\x7F]/g, '').trim() || 'attachment';
+  const clean = stripControlChars(stripHeaderBreaks(filename)).trim() || 'attachment';
   const ascii = clean.replace(/[^\x20-\x7E]/g, '_');
   const quoted = `${param}="${ascii.replace(/[\\"]/g, '\\$&')}"`;
   if (ascii === clean) return quoted;

@@ -14,6 +14,8 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
+import type { LookupAddress } from 'node:dns';
+import type * as https from 'node:https';
 
 const { handleComplete, handleEmbed, providerFetchFor } = await import('../../../runtime/ai/service.js');
 const { createSafeProviderFetch, SafeTransportError } = await import('../../../runtime/ai/providers/safeTransport.js');
@@ -29,7 +31,7 @@ const COMPLETION = JSON.stringify({
 let fetchCalls: string[];
 beforeEach(() => {
   fetchCalls = [];
-  vi.stubGlobal('fetch', async (input: any) => {
+  vi.stubGlobal('fetch', async (input: unknown) => {
     fetchCalls.push(String(input));
     return new Response(
       String(input).includes('/embeddings') ? JSON.stringify({ data: [{ embedding: [0.1] }] }) : COMPLETION,
@@ -41,6 +43,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.AI_PROVIDER_PRIVATE_HOSTS;
 });
+
+/** The fields of a runtime result these tests inspect. */
+type RuntimeOutcome = { ok: boolean; code?: string; message?: string };
 
 const complete = (config: Record<string, unknown>) =>
   handleComplete({ config: { apiKey: 'k', model: 'm', ...config }, request: { workspaceId: 'ws', prompt: 'p' } });
@@ -66,7 +71,7 @@ describe('completions / embeddings with a workspace base URL', () => {
     'https://metadata.google.internal/v1',
     'https://localhost/v1',
   ])('refuses %s without ever opening a socket', async (baseUrl) => {
-    const res: any = await complete({ provider: 'azure_openai', baseUrl, endpointScope: 'workspace' });
+    const res: RuntimeOutcome = await complete({ provider: 'azure_openai', baseUrl, endpointScope: 'workspace' });
     expect(res.ok).toBe(false);
     expect(res.code).toBe('provider_error');
     expect(res.message).toMatch(/blocked_ip|host_not_allowed|unsafe_scheme/);
@@ -74,14 +79,14 @@ describe('completions / embeddings with a workspace base URL', () => {
   });
 
   it('applies the official-provider host policy to a workspace base URL', async () => {
-    const res: any = await complete({ provider: 'openai', baseUrl: 'https://evil.example.com/v1', endpointScope: 'workspace' });
+    const res: RuntimeOutcome = await complete({ provider: 'openai', baseUrl: 'https://evil.example.com/v1', endpointScope: 'workspace' });
     expect(res.ok).toBe(false);
     expect(res.message).toMatch(/host_not_allowed/);
     expect(fetchCalls).toEqual([]);
   });
 
   it('guards embeddings the same way', async () => {
-    const res: any = await handleEmbed({
+    const res: RuntimeOutcome = await handleEmbed({
       config: { provider: 'ollama', apiKey: '', model: 'e', baseUrl: 'https://169.254.169.254/v1', endpointScope: 'workspace' },
       texts: ['a'],
     });
@@ -93,13 +98,13 @@ describe('completions / embeddings with a workspace base URL', () => {
 
 describe('operator-configured providers keep working', () => {
   it('platform default may point at a private/self-hosted LLM (existing transport)', async () => {
-    const res: any = await complete({ provider: 'ollama', baseUrl: 'http://10.0.0.5:11434/v1', endpointScope: 'platform' });
+    const res: RuntimeOutcome = await complete({ provider: 'ollama', baseUrl: 'http://10.0.0.5:11434/v1', endpointScope: 'platform' });
     expect(res.ok).toBe(true);
     expect(fetchCalls).toEqual(['http://10.0.0.5:11434/v1/chat/completions']);
   });
 
   it('platform default embeddings are unchanged too', async () => {
-    const res: any = await handleEmbed({
+    const res: RuntimeOutcome = await handleEmbed({
       config: { provider: 'ollama', apiKey: '', model: 'e', baseUrl: 'http://ollama:11434/v1', endpointScope: 'platform' },
       texts: ['a'],
     });
@@ -108,7 +113,7 @@ describe('operator-configured providers keep working', () => {
   });
 
   it('catalog default endpoint (no base URL) is unchanged', async () => {
-    const res: any = await complete({ provider: 'openai' });
+    const res: RuntimeOutcome = await complete({ provider: 'openai' });
     expect(res.ok).toBe(true);
     expect(fetchCalls).toEqual(['https://api.openai.com/v1/chat/completions']);
   });
@@ -116,12 +121,19 @@ describe('operator-configured providers keep working', () => {
 
 // ── Transport-level checks (DNS + socket stubbed) ───────────────────────
 type Hop = { status: number; headers?: Record<string, string>; body?: string };
+type FakeRequestOptions = {
+  protocol: string;
+  host: string;
+  port: number;
+  servername?: string;
+  lookup: (host: string, opts: object, cb: (e: unknown, addr: string) => void) => void;
+};
 function fakeRequest(hops: Hop[]) {
   const seen: Array<{ protocol: string; host: string; port: number; address: string; servername?: string }> = [];
   let i = 0;
-  const impl: any = (options: any, cb: (res: any) => void) => {
+  const fakeImpl = (options: FakeRequestOptions, cb: (res: EventEmitter) => void) => {
     const hop = hops[Math.min(i++, hops.length - 1)];
-    const req: any = new EventEmitter();
+    const req = new EventEmitter() as EventEmitter & { write?: () => void; destroy?: () => void; end?: () => void };
     let address = '';
     options.lookup(options.host, {}, (_e: unknown, addr: string) => { address = addr; });
     req.write = () => {};
@@ -129,7 +141,12 @@ function fakeRequest(hops: Hop[]) {
     req.end = () => {
       seen.push({ protocol: options.protocol, host: options.host, port: options.port, address, servername: options.servername });
       setImmediate(() => {
-        const res: any = new EventEmitter();
+        const res = new EventEmitter() as EventEmitter & {
+          statusCode?: number;
+          statusMessage?: string;
+          headers?: Record<string, string>;
+          destroy?: () => void;
+        };
         res.statusCode = hop.status;
         res.statusMessage = 'OK';
         res.headers = hop.headers || {};
@@ -143,12 +160,13 @@ function fakeRequest(hops: Hop[]) {
     };
     return req;
   };
+  const impl = fakeImpl as unknown as typeof https.request;
   return { impl, seen };
 }
 
 async function reasonOf(p: Promise<unknown>): Promise<string> {
-  try { await p; return 'no_error'; } catch (err: any) {
-    return err instanceof SafeTransportError ? err.reason : err?.name || 'other';
+  try { await p; return 'no_error'; } catch (err: unknown) {
+    return err instanceof SafeTransportError ? err.reason : (err as { name?: string } | null)?.name || 'other';
   }
 }
 
@@ -157,7 +175,7 @@ describe('safe provider transport', () => {
     const { impl, seen } = fakeRequest([{ status: 200, body: '{}' }]);
     const f = createSafeProviderFetch({
       requestImpl: impl,
-      lookupImpl: async () => [{ address: '::ffff:169.254.169.254', family: 6 }] as any,
+      lookupImpl: async () => [{ address: '::ffff:169.254.169.254', family: 6 }] as LookupAddress[],
     });
     expect(await reasonOf(f('https://llm.example.com/v1/chat/completions', { method: 'POST', body: '{}' }))).toBe('blocked_ip');
     expect(seen).toHaveLength(0);
@@ -168,14 +186,14 @@ describe('safe provider transport', () => {
       { status: 307, headers: { location: 'https://10.0.0.1/v1/chat/completions' } },
       { status: 200, body: '{}' },
     ]);
-    const f = createSafeProviderFetch({ requestImpl: impl, lookupImpl: async () => [{ address: '93.184.216.34', family: 4 }] as any });
+    const f = createSafeProviderFetch({ requestImpl: impl, lookupImpl: async () => [{ address: '93.184.216.34', family: 4 }] as LookupAddress[] });
     expect(await reasonOf(f('https://llm.example.com/v1/chat/completions', { method: 'POST', body: '{}' }))).toBe('redirect_blocked');
     expect(seen).toHaveLength(1);
   });
 
   it('pins the validated address and keeps SNI on the hostname', async () => {
     const { impl, seen } = fakeRequest([{ status: 200, body: COMPLETION }]);
-    const f = createSafeProviderFetch({ requestImpl: impl, lookupImpl: async () => [{ address: '93.184.216.34', family: 4 }] as any });
+    const f = createSafeProviderFetch({ requestImpl: impl, lookupImpl: async () => [{ address: '93.184.216.34', family: 4 }] as LookupAddress[] });
     const res = await f('https://llm.example.com/v1/chat/completions', { method: 'POST', body: '{}' });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ choices: [{ message: { content: 'hi' } }] });
@@ -188,7 +206,7 @@ describe('safe provider transport', () => {
     const f = createSafeProviderFetch({
       requestImpl: impl,
       isPrivateHostAllowed: allow,
-      lookupImpl: async () => [{ address: '10.0.0.5', family: 4 }] as any,
+      lookupImpl: async () => [{ address: '10.0.0.5', family: 4 }] as LookupAddress[],
     });
     const res = await f('http://ollama.lan:11434/v1/chat/completions', { method: 'POST', body: '{}' });
     expect(res.status).toBe(200);
@@ -200,7 +218,7 @@ describe('safe provider transport', () => {
     const blocked = createSafeProviderFetch({
       requestImpl: fakeRequest([{ status: 200 }]).impl,
       isPrivateHostAllowed: allow,
-      lookupImpl: async () => [{ address: '10.0.0.6', family: 4 }] as any,
+      lookupImpl: async () => [{ address: '10.0.0.6', family: 4 }] as LookupAddress[],
     });
     expect(await reasonOf(blocked('http://other.lan/v1'))).toBe('unsafe_scheme');
     expect(await reasonOf(blocked('https://other.lan/v1'))).toBe('blocked_ip');
@@ -208,7 +226,7 @@ describe('safe provider transport', () => {
     const redirecting = createSafeProviderFetch({
       requestImpl: hop.impl,
       isPrivateHostAllowed: allow,
-      lookupImpl: async () => [{ address: '10.0.0.5', family: 4 }] as any,
+      lookupImpl: async () => [{ address: '10.0.0.5', family: 4 }] as LookupAddress[],
     });
     expect(await reasonOf(redirecting('http://ollama.lan:11434/v1'))).toBe('unsafe_scheme');
     expect(hop.seen).toHaveLength(1);
@@ -216,7 +234,7 @@ describe('safe provider transport', () => {
 
   it('honours the caller AbortSignal', async () => {
     const { impl } = fakeRequest([{ status: 200, body: '{}' }]);
-    const f = createSafeProviderFetch({ requestImpl: impl, lookupImpl: async () => [{ address: '93.184.216.34', family: 4 }] as any });
+    const f = createSafeProviderFetch({ requestImpl: impl, lookupImpl: async () => [{ address: '93.184.216.34', family: 4 }] as LookupAddress[] });
     const ctrl = new AbortController();
     ctrl.abort();
     expect(await reasonOf(f('https://llm.example.com/v1', { signal: ctrl.signal }))).toBe('AbortError');
@@ -227,7 +245,7 @@ describe('safe provider transport', () => {
     const f = createSafeProviderFetch({
       requestImpl: impl,
       maxResponseBytes: 1024,
-      lookupImpl: async () => [{ address: '93.184.216.34', family: 4 }] as any,
+      lookupImpl: async () => [{ address: '93.184.216.34', family: 4 }] as LookupAddress[],
     });
     expect(await reasonOf(f('https://llm.example.com/v1'))).toBe('response_too_large');
   });
@@ -261,7 +279,7 @@ describe('shared endpoint policy (Core write validation + runtime allow-list)', 
 
   it('runtime honours AI_PROVIDER_PRIVATE_HOSTS for a workspace base URL', async () => {
     process.env.AI_PROVIDER_PRIVATE_HOSTS = '10.0.0.9';
-    const denied: any = await complete({ provider: 'ollama', baseUrl: 'http://10.0.0.8:1/v1', endpointScope: 'workspace' });
+    const denied: RuntimeOutcome = await complete({ provider: 'ollama', baseUrl: 'http://10.0.0.8:1/v1', endpointScope: 'workspace' });
     expect(denied.message).toMatch(/unsafe_scheme/);
     expect(fetchCalls).toEqual([]);
     // The allow-listed host passes the policy. A pre-aborted signal stops the

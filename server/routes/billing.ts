@@ -1,4 +1,4 @@
-import { Router, raw } from 'express';
+import { Router, raw, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import {
   resolveBillingConfig,
@@ -51,7 +51,11 @@ import {
   recordCustomerPayment,
 } from '../services/billing/applyPayment.js';
 import * as aiLedger from '../services/ai-billing/ledger.js';
-import { buildTransactionHistory } from '../services/billing/transactionHistory.js';
+import {
+  buildTransactionHistory,
+  type IntentRowInput,
+  type PaymentRowInput,
+} from '../services/billing/transactionHistory.js';
 import {
   assertLegacyPathAllowed,
   auditV2,
@@ -63,6 +67,23 @@ import { applyWalletDeposit } from '../services/billing/wallet/index.js';
 import { recoverUnappliedInvoices } from '../services/billing/worker/recovery.js';
 import { buildWorkspaceBillingReadModel } from '../services/billing/readModel.js';
 import { isAllowedBillingCallbackUrl } from '../services/billing/callbackUrl.js';
+import type { PlanDefinitionLike } from '../services/billing/entitlementFanout.js';
+
+/** `billing_plans.prices`: currency → interval → amount. */
+type PlanPrices = Record<string, Partial<Record<'monthly' | 'yearly', unknown>> | null | undefined>;
+
+/** Intent columns written by Billing Engine V2 that `PaymentIntentRow` does not declare. */
+type IntentV2Fields = {
+  billing_engine_version?: string | null;
+  invoice_id?: string | null;
+  wallet_deposit_id?: string | null;
+  expected_amount_irr?: number | string | null;
+};
+
+/** `err?.message` of an unknown thrown value (undefined when it has none). */
+function errorMessageOf(err: unknown): unknown {
+  return (err as { message?: unknown } | null | undefined)?.message;
+}
 
 /**
  * Customer-friendly receipt for a finalized intent. Everything here comes from
@@ -146,7 +167,6 @@ function logBillingSafeError(input: {
   stage: string;
   safeErrorCode: string;
 }) {
-  // eslint-disable-next-line no-console
   console.error('[billing] verify-callback failure', input);
 }
 
@@ -171,8 +191,8 @@ async function releaseIntentCollections(
 
 export const billingRouter = Router();
 
-function getConfig(req: any) {
-  const c = (req as any).serverConfig;
+function getConfig(req: Request) {
+  const c = serverConfigOf(req);
   return { url: c.supabaseUrl, key: c.supabaseServiceRoleKey };
 }
 
@@ -182,12 +202,12 @@ function getConfig(req: any) {
 // (server/lib/workspaceAuth.ts); workspace membership/role is verified
 // BEFORE any service-role database access or provider request happens.
 
-function serverConfigOf(req: any): ServerConfig {
-  return (req as any).serverConfig as ServerConfig;
+function serverConfigOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig: ServerConfig }).serverConfig;
 }
 
 /** Resolves the calling user from the session cookie. Writes 401 and returns null on failure. */
-async function requireUser(req: any, res: any): Promise<string | null> {
+async function requireUser(req: Request, res: Response): Promise<string | null> {
   return requireSessionUser(req, res);
 }
 
@@ -199,8 +219,8 @@ type BillingAuth = { userId: string; isAdmin: boolean; role: string | null };
  * Never reveals whether a workspace exists to a non-member.
  */
 async function authorizeWorkspace(
-  req: any,
-  res: any,
+  req: Request,
+  res: Response,
   workspaceId: unknown,
   opts: { manage?: boolean } = {},
 ): Promise<BillingAuth | null> {
@@ -208,10 +228,10 @@ async function authorizeWorkspace(
 }
 
 /** Super-admin (platform) gate — `has_role(uid,'admin')` only. No fallbacks. */
-async function requireSuperAdmin(req: any, res: any, next: any) {
+async function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
   const userId = await requirePlatformAdmin(req, res);
   if (!userId) return;
-  (req as any).adminUserId = userId;
+  (req as Request & { adminUserId?: string }).adminUserId = userId;
   next();
 }
 
@@ -235,7 +255,11 @@ billingRouter.get('/plans', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
 
   // Filter plans based on locale currency display
-  const plans = (data || []).map((plan: any) => ({
+  type PlanListRow = Record<string, unknown> & {
+    prices?: Record<string, unknown> | null;
+    default_currency?: string | null;
+  };
+  const plans = ((data || []) as PlanListRow[]).map((plan) => ({
     ...plan,
     displayPrice: plan.prices?.[locale === 'fa' ? 'IRR' : locale === 'tr' ? 'TRY' : plan.default_currency || 'USD'],
     displayCurrency: locale === 'fa' ? 'IRR' : locale === 'tr' ? 'TRY' : plan.default_currency || 'USD',
@@ -251,7 +275,7 @@ billingRouter.get('/status/:workspaceId', async (req, res) => {
   const supabase = createClient(url, key);
 
   // Lazy-flip stale trials to "expired" so downstream UI/queries see correct status.
-  try { await supabase.rpc('expire_stale_trials' as any); } catch { /* non-fatal */ }
+  try { await supabase.rpc('expire_stale_trials'); } catch { /* non-fatal */ }
   // Same idea for payment attempts: a pending intent past its TTL is expired,
   // never "canceled" (the customer may simply have closed the tab).
   try { await expireStalePaymentIntents(serverConfigOf(req), workspaceId); } catch { /* non-fatal */ }
@@ -263,7 +287,7 @@ billingRouter.get('/status/:workspaceId', async (req, res) => {
     .maybeSingle();
   if (subError) return res.status(500).json({ error: 'BILLING_SUBSCRIPTION_READ_FAILED' });
 
-  let subscription = sub as any;
+  let subscription: unknown = sub;
   if (sub?.plan_id) {
     const { data: plan, error: planError } = await supabase
       .from('billing_plans')
@@ -293,12 +317,15 @@ billingRouter.get('/status/:workspaceId', async (req, res) => {
 
   // Unified, de-duplicated customer-facing history (payment wins, intent
   // enriches). The raw arrays stay for backward compatibility.
-  const transactions = buildTransactionHistory((payments || []) as any, (intents || []) as any);
+  const transactions = buildTransactionHistory(
+    (payments || []) as PaymentRowInput[],
+    (intents || []) as IntentRowInput[],
+  );
 
   res.json({
     subscription,
     payments: payments || [],
-    attempts: (intents || []).filter((i: any) => i.status !== 'succeeded'),
+    attempts: ((intents || []) as Array<{ status: string }>).filter((i) => i.status !== 'succeeded'),
     transactions,
   });
 });
@@ -341,7 +368,7 @@ billingRouter.post('/invoice-preview', async (req, res) => {
       .maybeSingle();
     if (!plan) return res.status(400).json({ error: 'Unknown plan' });
 
-    const amount = Number((plan.prices as any)?.[currency]?.[input.interval]);
+    const amount = Number((plan.prices as PlanPrices | null)?.[currency]?.[input.interval]);
     if (!Number.isFinite(amount) || amount <= 0) {
       return res.status(400).json({ error: 'FREE_PLAN_NO_CHECKOUT' });
     }
@@ -359,18 +386,18 @@ billingRouter.post('/invoice-preview', async (req, res) => {
     if (currentPlanError) throw new Error(`billing plan read failed: ${currentPlanError.message}`);
 
     const actionType = classifyPlanAction({
-      currentPlanId: (sub as any)?.plan_id ?? null,
-      currentPlanRank: ((currentPlan as any)?.sort_order as number | undefined) ?? null,
-      currentStatus: (sub as any)?.status ?? null,
+      currentPlanId: (sub?.plan_id as string | null | undefined) ?? null,
+      currentPlanRank: (currentPlan?.sort_order as number | undefined) ?? null,
+      currentStatus: (sub?.status as string | null | undefined) ?? null,
       nextPlanId: plan.id,
-      nextPlanRank: (plan as any).sort_order ?? null,
+      nextPlanRank: (plan.sort_order as number | null | undefined) ?? null,
     });
 
     const window = computeSubscriptionWindow({
       now: new Date(),
       interval: input.interval,
       action: actionType,
-      currentPeriodEnd: (sub as any)?.current_period_end ? new Date((sub as any).current_period_end) : null,
+      currentPeriodEnd: sub?.current_period_end ? new Date(sub.current_period_end as string) : null,
     });
 
     const { data: workspace } = await supabase
@@ -407,7 +434,7 @@ billingRouter.post('/invoice-preview', async (req, res) => {
       amountIrr: amount,
       actionType,
       planNameSnapshot: plan.name,
-      workspaceNameSnapshot: (workspace as any)?.name ?? null,
+      workspaceNameSnapshot: (workspace?.name as string | null | undefined) ?? null,
       periodStart: window.start.toISOString(),
       periodEnd: window.end.toISOString(),
       metadata: { origin: 'invoice_preview' },
@@ -422,7 +449,7 @@ billingRouter.post('/invoice-preview', async (req, res) => {
         expiresAt: intent.expires_at,
         planId: plan.id,
         planName: intent.plan_name_snapshot || plan.name,
-        workspaceName: intent.workspace_name_snapshot || (workspace as any)?.name || null,
+        workspaceName: intent.workspace_name_snapshot || (workspace?.name as string | null | undefined) || null,
         interval: input.interval,
         actionType,
         amountIrr: intent.amount_irr ?? amount,
@@ -435,8 +462,8 @@ billingRouter.post('/invoice-preview', async (req, res) => {
       },
     });
 
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (e: unknown) {
+    res.status(500).json({ error: errorMessageOf(e) });
   }
 });
 
@@ -509,7 +536,7 @@ billingRouter.post('/checkout', async (req, res) => {
       .eq('is_active', true)
       .maybeSingle();
     if (!plan) return res.status(400).json({ error: 'Unknown plan' });
-    const amount = Number((plan.prices as any)?.[currency]?.[input.interval]);
+    const amount = Number((plan.prices as PlanPrices | null)?.[currency]?.[input.interval]);
     if (!Number.isFinite(amount) || amount < 0) {
       return res.status(400).json({ error: `Plan has no ${currency} price for interval ${input.interval}` });
     }
@@ -585,8 +612,8 @@ billingRouter.post('/checkout', async (req, res) => {
       if (bindingRequired || ref) {
         try {
           await setPaymentIntentProviderRef(serverConfigOf(req), intentId, ref);
-        } catch (bindError: any) {
-          await markPaymentIntentFailed(serverConfigOf(req), intentId, String(bindError?.message || 'binding_failed'));
+        } catch (bindError: unknown) {
+          await markPaymentIntentFailed(serverConfigOf(req), intentId, String(errorMessageOf(bindError) || 'binding_failed'));
           if (bindingRequired) {
             return res.status(502).json({ error: 'CHECKOUT_REFERENCE_BINDING_FAILED' });
           }
@@ -605,8 +632,8 @@ billingRouter.post('/checkout', async (req, res) => {
     });
 
     res.json({ success: true, ...result, intentId, invoiceNumber });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (e: unknown) {
+    res.status(500).json({ error: errorMessageOf(e) });
   }
 });
 
@@ -778,9 +805,10 @@ billingRouter.post('/verify-callback', async (req, res) => {
       // cutover policy guarantees no BOUND legacy intent survives activation,
       // so reaching this branch means something is wrong. The money is parked
       // for reconciliation instead of being applied or discarded.
-      const intentEngine = (intent as any).billing_engine_version === 'v2' ? 'v2' : 'v1';
-      const invoiceId = (intent as any).invoice_id as string | null | undefined;
-      const walletDepositId = (intent as any).wallet_deposit_id as string | null | undefined;
+      const intentV2 = intent as PaymentIntentRow & IntentV2Fields;
+      const intentEngine = intentV2.billing_engine_version === 'v2' ? 'v2' : 'v1';
+      const invoiceId = intentV2.invoice_id;
+      const walletDepositId = intentV2.wallet_deposit_id;
 
       // ── Wallet deposit ──────────────────────────────────────────────────
       // A deposit buys no service, so it has no invoice and no entitlement
@@ -805,11 +833,11 @@ billingRouter.post('/verify-callback', async (req, res) => {
           // Idempotent per deposit: a replayed callback credits nothing twice.
           await applyWalletDeposit(cfg, {
             depositId: walletDepositId,
-            amountIrr: Number((intent as any).expected_amount_irr ?? intent.amount_irr),
+            amountIrr: Number(intentV2.expected_amount_irr ?? intent.amount_irr),
             paymentId: payment.id,
           });
-        } catch (depositError: any) {
-          await noteIntentFailureAttempt(cfg, intent, String(depositError?.message || depositError));
+        } catch (depositError: unknown) {
+          await noteIntentFailureAttempt(cfg, intent, String(errorMessageOf(depositError) || depositError));
           logBillingSafeError({
             intentId: intent.id, workspaceId, providerName,
             stage: 'wallet_deposit_finalization', safeErrorCode: 'FINALIZATION_PENDING',
@@ -837,7 +865,7 @@ billingRouter.post('/verify-callback', async (req, res) => {
           amount: intent.amount_irr,
           currency: 'IRR',
           purchaseType: intent.purchase_type === 'ai_credit_topup' ? 'ai_credit_topup' : 'subscription',
-          actionType: (intent.action_type as any) || 'plan_new',
+          actionType: intent.action_type || 'plan_new',
           metadata: { intentId: intent.id, providerRef, parked: 'legacy_intent_after_v2_cutover' },
         });
         if (parked.id) {
@@ -873,13 +901,13 @@ billingRouter.post('/verify-callback', async (req, res) => {
             amount: intent.amount_irr,
             currency: 'IRR',
             purchaseType: intent.purchase_type === 'ai_credit_topup' ? 'ai_credit_topup' : 'subscription',
-            actionType: (intent.action_type as any) || 'plan_new',
+            actionType: intent.action_type || 'plan_new',
             metadata: { intentId: intent.id, providerRef, invoiceId },
           });
           await settleAndApply(cfg, {
             invoiceId,
             paymentId: payment.id as string,
-            amountIrr: Number((intent as any).expected_amount_irr ?? intent.amount_irr),
+            amountIrr: Number(intentV2.expected_amount_irr ?? intent.amount_irr),
             commandKey: `intent:${intent.id}`,
           });
         } else if (intent.purchase_type === 'ai_credit_topup') {
@@ -951,10 +979,10 @@ billingRouter.post('/verify-callback', async (req, res) => {
             metadata: { intentId: intent.id, actionType: applied.actionType },
           });
         }
-      } catch (sideEffectError: any) {
+      } catch (sideEffectError: unknown) {
         // The customer HAS paid. Keep the intent recoverable and tell the UI
         // this is pending, never "failed" — a retry finishes the job.
-        await noteIntentFailureAttempt(cfg, intent, String(sideEffectError?.message || sideEffectError));
+        await noteIntentFailureAttempt(cfg, intent, String(errorMessageOf(sideEffectError) || sideEffectError));
         logBillingSafeError({
           intentId: intent.id, workspaceId, providerName,
           stage: 'finalization', safeErrorCode: 'FINALIZATION_PENDING',
@@ -990,8 +1018,8 @@ billingRouter.post('/verify-callback', async (req, res) => {
     }
 
     res.json({ success: true, ...result });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (e: unknown) {
+    res.status(500).json({ error: errorMessageOf(e) });
   }
 });
 
@@ -1017,7 +1045,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** Generic ops log — never includes body, headers, secrets or signatures. */
 function logWebhookRejection(providerName: string, category: string) {
-  // eslint-disable-next-line no-console
   console.warn(`[billing-webhook] rejected provider=${providerName} reason=${category}`);
 }
 
@@ -1227,8 +1254,8 @@ billingRouter.post('/subscription/cancel', async (req, res) => {
         .eq('workspace_id', workspaceId);
     }
     res.json(result);
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (e: unknown) {
+    res.status(500).json({ error: errorMessageOf(e) });
   }
 });
 
@@ -1277,8 +1304,8 @@ billingRouter.post('/subscription/resume', async (req, res) => {
       }
     }
     res.json(result);
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (e: unknown) {
+    res.status(500).json({ error: errorMessageOf(e) });
   }
 });
 
@@ -1307,8 +1334,8 @@ billingRouter.post('/portal', async (req, res) => {
   try {
     const result = await provider.getPortalUrl(resolved.config, sub.provider_customer_id, returnUrl || (await resolveWorkspaceAppUrl(serverConfigOf(req), workspaceId, '/billing')));
     res.json(result);
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (e: unknown) {
+    res.status(500).json({ error: errorMessageOf(e) });
   }
 });
 
@@ -1332,8 +1359,8 @@ billingRouter.post('/test', async (req, res) => {
   try {
     const result = await provider.testConnection({ provider: providerName, ...config });
     res.json(result);
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (e: unknown) {
+    res.status(500).json({ error: errorMessageOf(e) });
   }
 });
 
@@ -1348,8 +1375,8 @@ billingRouter.get('/entitlement', async (req, res) => {
   try {
     const result = await checkEntitlement(url, key, workspaceId, feature);
     res.json(result);
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (e: unknown) {
+    res.status(500).json({ error: errorMessageOf(e) });
   }
 });
 
@@ -1380,7 +1407,7 @@ billingRouter.get('/admin/overview', requireSuperAdmin, async (req, res) => {
     supabase.from('billing_plans').select('*').order('sort_order'),
   ]);
 
-  const activeSubs = (subs.data || []).filter((s: any) => s.status === 'active' || s.status === 'trialing');
+  const activeSubs = ((subs.data || []) as Array<{ status: string }>).filter((s) => s.status === 'active' || s.status === 'trialing');
 
   res.json({
     totalSubscriptions: subs.count || 0,
@@ -1396,6 +1423,39 @@ billingRouter.get('/admin/overview', requireSuperAdmin, async (req, res) => {
 // Aggregations are computed server-side from the two financial sources of
 // truth: billing_payments (settled money) and billing_payment_intents
 // (attempts). No client-side guessing of revenue.
+/** Columns of `billing_payments` the finance report reads (rows are passed through whole). */
+type FinancePaymentRow = Record<string, unknown> & {
+  status: string;
+  amount: number | string | null;
+  refund_amount?: number | string | null;
+  paid_at: string | null;
+  created_at: string;
+  action_type: string | null;
+  purchase_type: string | null;
+  provider_name: string | null;
+  plan_name_snapshot: string | null;
+  plan_id: string | null;
+  workspace_id: string | null;
+};
+interface FinancePlanRow {
+  id: string;
+  name: string;
+  slug: string | null;
+  prices: PlanPrices | null;
+  is_free: boolean | null;
+}
+interface FinanceWorkspaceRow {
+  id: string;
+  name: string | null;
+  slug: string | null;
+}
+interface FinanceSubscriptionRow {
+  workspace_id: string;
+  plan_id: string | null;
+  status: string;
+  billing_interval: string | null;
+}
+
 billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = createClient(url, key);
@@ -1414,9 +1474,10 @@ billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) =
     supabase.from('workspaces').select('id, name, slug').limit(2000),
   ]);
 
-  const paid = (payments.data || []).filter((p: any) => p.status === 'succeeded' || p.status === 'refunded' || p.status === 'partially_refunded');
-  const planById = new Map((plans.data || []).map((p: any) => [p.id, p]));
-  const workspaceById = new Map((workspaces.data || []).map((w: any) => [w.id, w]));
+  const paymentRows = (payments.data || []) as FinancePaymentRow[];
+  const paid = paymentRows.filter((p) => p.status === 'succeeded' || p.status === 'refunded' || p.status === 'partially_refunded');
+  const planById = new Map(((plans.data || []) as FinancePlanRow[]).map((p) => [p.id, p]));
+  const workspaceById = new Map(((workspaces.data || []) as FinanceWorkspaceRow[]).map((w) => [w.id, w]));
 
   const monthKeys: string[] = [];
   for (let i = months - 1; i >= 0; i--) {
@@ -1465,7 +1526,7 @@ billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) =
     }
   }
 
-  const intentRows = intents.data || [];
+  const intentRows = (intents.data || []) as Array<{ status: string }>;
   const byStatus = new Map<string, number>();
   for (const i of intentRows) byStatus.set(i.status, (byStatus.get(i.status) || 0) + 1);
   const attempts = intentRows.length;
@@ -1474,13 +1535,13 @@ billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) =
   // Recurring revenue snapshot from ACTIVE subscriptions, normalised monthly.
   let mrrIrr = 0;
   const planDistribution = new Map<string, number>();
-  for (const s of subs.data || []) {
+  for (const s of (subs.data || []) as FinanceSubscriptionRow[]) {
     if (s.status !== 'active' && s.status !== 'trialing') continue;
     const plan = planById.get(s.plan_id);
     if (!plan) continue;
     planDistribution.set(plan.name, (planDistribution.get(plan.name) || 0) + 1);
     if (plan.is_free) continue;
-    const irr = (plan.prices as any)?.IRR || {};
+    const irr: Partial<Record<'monthly' | 'yearly', unknown>> = plan.prices?.IRR || {};
     const monthly = s.billing_interval === 'yearly'
       ? Number(irr.yearly || 0) / 12
       : Number(irr.monthly || 0);
@@ -1508,7 +1569,7 @@ billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) =
     byStatus: [...byStatus.entries()].map(([status, count]) => ({ status, count })).sort((a, b) => b.count - a.count),
     topWorkspaces: [...byWorkspace.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 10),
     planDistribution: [...planDistribution.entries()].map(([plan, count]) => ({ plan, count })).sort((a, b) => b.count - a.count),
-    recentPayments: (payments.data || []).slice(0, 50).map((p: any) => ({
+    recentPayments: paymentRows.slice(0, 50).map((p) => ({
       ...p,
       workspace_name: workspaceById.get(p.workspace_id)?.name || null,
     })),
@@ -1534,9 +1595,9 @@ billingRouter.post('/admin/plans', requireSuperAdmin, async (req, res) => {
     // entitlements of EVERY workspace on that plan; queue a durable fan-out
     // job (skipped automatically when no AI-relevant field moved).
     await handlePlanDefinitionChanged(
-      (req as any).serverConfig,
+      serverConfigOf(req),
       plan.id,
-      { previous: previousPlan as any, next: data as any },
+      { previous: previousPlan as PlanDefinitionLike | null, next: data as PlanDefinitionLike | null },
     );
     return res.json({ plan: data });
   }
@@ -1580,7 +1641,7 @@ billingRouter.post('/admin/grant', requireSuperAdmin, async (req, res) => {
   }, { onConflict: 'workspace_id' }).select().single();
 
   if (error) return res.status(500).json({ error: 'Request failed' });
-  await handleWorkspaceEntitlementChanged((req as any).serverConfig, {
+  await handleWorkspaceEntitlementChanged(serverConfigOf(req), {
     workspaceId,
     source: 'admin_grant',
   });
@@ -1597,7 +1658,7 @@ billingRouter.get('/workspaces/:workspaceId/engine', async (req, res) => {
   if (!(await authorizeWorkspace(req, res, workspaceId))) return;
   try {
     res.json(await buildWorkspaceBillingReadModel(serverConfigOf(req), workspaceId));
-  } catch (e: any) {
-    res.status(500).json({ error: String(e?.message || e) });
+  } catch (e: unknown) {
+    res.status(500).json({ error: String(errorMessageOf(e) || e) });
   }
 });

@@ -28,7 +28,6 @@ describe('installExpressAsyncErrors', () => {
     });
     router.get('/reject-falsy', async () => {
       await sleep(1);
-      // eslint-disable-next-line prefer-promise-reject-errors
       return Promise.reject(undefined);
     });
     router.get('/sync-throw', () => {

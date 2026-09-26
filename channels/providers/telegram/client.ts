@@ -67,7 +67,16 @@ export function redactToken(text: string): string {
   return text.replace(/\d{6,}:[A-Za-z0-9_-]{20,}/g, '[REDACTED_BOT_TOKEN]');
 }
 
-export async function callTelegram<T = any>(
+/** The Bot API response envelope, as far as it is read here. */
+type TelegramEnvelope<T> = {
+  ok?: boolean;
+  result?: T;
+  error_code?: number;
+  description?: unknown;
+  parameters?: { retry_after?: number };
+} | null;
+
+export async function callTelegram<T = unknown>(
   botToken: BotCredential,
   method: string,
   body?: Record<string, unknown>,
@@ -99,7 +108,7 @@ export async function callTelegram<T = any>(
   }
 
   const raw = await response.text();
-  let parsed: any = null;
+  let parsed: TelegramEnvelope<T> = null;
   try {
     parsed = raw ? JSON.parse(raw) : null;
   } catch {
@@ -136,7 +145,7 @@ export type TelegramBotIdentity = {
 };
 
 export async function getMe(botToken: BotCredential): Promise<TelegramBotIdentity> {
-  const me = await callTelegram<any>(botToken, 'getMe');
+  const me = await callTelegram<{ id: number; username?: string; first_name?: string }>(botToken, 'getMe');
   return { id: me.id, username: me.username ?? null, firstName: me.first_name ?? null };
 }
 
@@ -358,16 +367,17 @@ export async function sendMediaBytes(
       body: form,
       signal: controller.signal,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = (err as { message?: unknown } | null | undefined)?.message;
     throw new TelegramApiError(
-      `Telegram ${method} upload transport error: ${redactToken(String(err?.message || err))}`,
+      `Telegram ${method} upload transport error: ${redactToken(String(message || err))}`,
       0, null, null, true,
     );
   } finally {
     clearTimeout(timer);
   }
 
-  const payload: any = await response.json().catch(() => null);
+  const payload: TelegramEnvelope<{ message_id: number }> = await response.json().catch(() => null);
   if (!response.ok || !payload?.ok) {
     const description = redactToken(String(payload?.description ?? response.statusText));
     const retryAfter = payload?.parameters?.retry_after ?? null;

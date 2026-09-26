@@ -12,7 +12,7 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 vi.mock('leaflet.markercluster/dist/MarkerCluster.css', () => ({}));
 vi.mock('leaflet.markercluster/dist/MarkerCluster.Default.css', () => ({}));
 
-import { buildTooltipHtml } from '@/components/visitors/VisitorMap';
+import { buildTooltipHtml } from '@/components/visitors/visitorMapTooltip';
 import type { MapMarker } from '@/lib/visitors-api';
 
 const XSS = '<img src=x onerror="alert(1)">';

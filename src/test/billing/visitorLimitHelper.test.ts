@@ -7,6 +7,7 @@
  *   - read errors fail OPEN (treat as in-month) by contract
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { Request, Response } from "express";
 
 const rpcMock = vi.fn();
 
@@ -33,30 +34,40 @@ import { clearEntitlementCache } from "../../../server/middleware/featureGating"
  * Returns a chain whose terminal `.maybeSingle()` resolves with the value
  * configured per test.
  */
-function makeSupabaseStub(maybeSingleResult: { data: any; error: any }) {
-  const chain: any = {
+type SupabaseStub = Parameters<typeof enforceMaxVisitorsLimitIfNewThisMonth>[2];
+
+interface StubChain {
+  select: () => StubChain;
+  eq: () => StubChain;
+  gte: () => StubChain;
+  limit: () => StubChain;
+  maybeSingle: () => Promise<{ data: unknown; error: unknown }>;
+}
+
+function makeSupabaseStub(maybeSingleResult: { data: unknown; error: unknown }) {
+  const chain: StubChain = {
     select: () => chain,
     eq: () => chain,
     gte: () => chain,
     limit: () => chain,
     maybeSingle: async () => maybeSingleResult,
   };
-  const sb: any = { from: () => chain };
+  const sb = { from: () => chain } as unknown as SupabaseStub;
   return sb;
 }
 
 function makeReqRes() {
-  const req: any = {
+  const req = {
     body: { workspace_id: "ws-vis" },
     query: {},
     params: {},
     serverConfig: { supabaseUrl: "http://stub", supabaseServiceRoleKey: "key" },
-  };
+  } as unknown as Request;
   let statusCode: number | undefined;
-  const res: any = {
+  const res = {
     status(code: number) { statusCode = code; return res; },
     json() { return res; },
-  };
+  } as unknown as Response;
   return { req, res, getStatus: () => statusCode };
 }
 

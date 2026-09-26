@@ -48,7 +48,12 @@ export function redactXToken(text: string): string {
 
 export function parseXCredential(credential: BotCredential): XCredential {
   const raw = typeof credential === 'string' ? credential : credential.token;
-  let parsed: any;
+  let parsed: {
+    api_key?: unknown;
+    api_secret?: unknown;
+    access_token?: unknown;
+    access_token_secret?: unknown;
+  } | null;
   try {
     parsed = JSON.parse(raw);
   } catch {
@@ -114,7 +119,25 @@ export function buildOAuth1Header(
   return `OAuth ${header}`;
 }
 
-async function apiV2<T = any>(
+/** The error fields of an X API v2 response body, as far as they are read here. */
+type XApiErrorBody = { errors?: unknown; title?: unknown } | null;
+
+/** `data` of an X API v2 response, as far as it is read here. */
+type XDataResult<D> = { data?: D } | null;
+
+type XUserRaw = { id?: unknown; username?: string };
+type XMediaRaw = { media_key?: unknown; type?: unknown; url?: unknown; preview_image_url?: unknown };
+type XDmEventRaw = {
+  id?: unknown;
+  text?: unknown;
+  event_type?: unknown;
+  created_at?: string;
+  dm_conversation_id?: unknown;
+  sender_id?: unknown;
+  attachments?: { media_keys?: unknown };
+};
+
+async function apiV2<T = unknown>(
   cred: XCredential,
   method: 'GET' | 'POST',
   path: string,
@@ -152,7 +175,7 @@ async function apiV2<T = any>(
   }
 
   const raw = await response.text();
-  let parsed: any = null;
+  let parsed: XApiErrorBody = null;
   try {
     parsed = raw ? JSON.parse(raw) : null;
   } catch {
@@ -160,7 +183,10 @@ async function apiV2<T = any>(
   }
 
   if (!response.ok || parsed?.errors) {
-    const firstError = Array.isArray(parsed?.errors) ? parsed.errors[0] : parsed?.errors;
+    const firstError = (Array.isArray(parsed?.errors) ? parsed.errors[0] : parsed?.errors) as
+      | { message?: unknown }
+      | null
+      | undefined;
     const description = redactXToken(String(firstError?.message ?? parsed?.title ?? raw ?? 'unknown error')).slice(0, 500);
     const retryable = response.status === 429 || response.status >= 500;
     throw new TelegramApiError(`X ${path} failed [${response.status}]: ${description}`, response.status, null, null, retryable);
@@ -173,7 +199,7 @@ async function apiV2<T = any>(
 
 export async function getMe(credential: BotCredential) {
   const cred = parseXCredential(credential);
-  const result = await apiV2<any>(cred, 'GET', 'users/me', { query: { 'user.fields': 'username,name' } });
+  const result = await apiV2<XDataResult<{ id?: unknown; username?: string; name?: string }>>(cred, 'GET', 'users/me', { query: { 'user.fields': 'username,name' } });
   return {
     id: String(result?.data?.id ?? ''),
     username: result?.data?.username ?? null,
@@ -210,7 +236,10 @@ export async function getWebhookInfo() {
  */
 export async function pollDmEvents(credential: BotCredential, maxResults = 50): Promise<XDmEvent[]> {
   const cred = parseXCredential(credential);
-  const result = await apiV2<any>(cred, 'GET', 'dm_events', {
+  const result = await apiV2<{
+    data?: unknown;
+    includes?: { users?: XUserRaw[]; media?: XMediaRaw[] };
+  } | null>(cred, 'GET', 'dm_events', {
     query: {
       max_results: String(Math.min(Math.max(maxResults, 1), 100)),
       event_types: 'MessageCreate',
@@ -221,10 +250,14 @@ export async function pollDmEvents(credential: BotCredential, maxResults = 50): 
     },
   });
 
-  const usersById = new Map<string, any>((result?.includes?.users ?? []).map((u: any) => [String(u.id), u]));
-  const mediaByKey = new Map<string, any>((result?.includes?.media ?? []).map((m: any) => [String(m.media_key), m]));
+  const usersById = new Map<string, XUserRaw>(
+    (result?.includes?.users ?? []).map((u): [string, XUserRaw] => [String(u.id), u]),
+  );
+  const mediaByKey = new Map<string, XMediaRaw>(
+    (result?.includes?.media ?? []).map((m): [string, XMediaRaw] => [String(m.media_key), m]),
+  );
 
-  const events: any[] = Array.isArray(result?.data) ? result.data : [];
+  const events: XDmEventRaw[] = Array.isArray(result?.data) ? result.data : [];
   return events
     .filter((event) => event?.event_type === 'MessageCreate')
     .map((event): XDmEvent => {
@@ -233,8 +266,8 @@ export async function pollDmEvents(credential: BotCredential, maxResults = 50): 
       const mediaKeys: string[] = Array.isArray(event?.attachments?.media_keys) ? event.attachments.media_keys : [];
       const mediaUrls = mediaKeys
         .map((key) => mediaByKey.get(key))
-        .filter(Boolean)
-        .map((media: any) => {
+        .filter((media): media is XMediaRaw => Boolean(media))
+        .map((media) => {
           const type = media.type === 'video' || media.type === 'animated_gif' ? 'video' : media.type === 'photo' ? 'photo' : 'audio';
           const url = type === 'video' ? media.preview_image_url || media.url : media.url;
           return url ? { kind: type as 'photo' | 'video' | 'audio', url: String(url) } : null;
@@ -269,7 +302,7 @@ export async function sendMessage(
 ): Promise<{ message_id: number | string }> {
   const cred = parseXCredential(credential);
   const dmConversationId = String(input.chatId);
-  const result = await apiV2<any>(cred, 'POST', `dm_conversations/${percentEncode(dmConversationId)}/messages`, {
+  const result = await apiV2<XDataResult<{ dm_event_id?: string }>>(cred, 'POST', `dm_conversations/${percentEncode(dmConversationId)}/messages`, {
     jsonBody: { text: input.text.slice(0, 10_000) || '…' },
   });
   return { message_id: result?.data?.dm_event_id ?? 0 };
@@ -384,7 +417,7 @@ export async function sendMedia(
       });
       if (bytes.byteLength > 0) {
         const mediaId = await uploadMedia(cred, bytes, mimeType);
-        const result = await apiV2<any>(cred, 'POST', `dm_conversations/${percentEncode(dmConversationId)}/messages`, {
+        const result = await apiV2<XDataResult<{ dm_event_id?: string }>>(cred, 'POST', `dm_conversations/${percentEncode(dmConversationId)}/messages`, {
           jsonBody: { attachments: [{ media_id: mediaId }], ...(input.caption?.trim() ? { text: input.caption.slice(0, 10_000) } : {}) },
         });
         return { message_id: result?.data?.dm_event_id ?? 0 };
@@ -422,7 +455,7 @@ export async function setMyCommands(): Promise<void> {
 export async function getUserProfilePhotoFileId(credential: BotCredential, userId: string | number): Promise<string | null> {
   try {
     const cred = parseXCredential(credential);
-    const result = await apiV2<any>(cred, 'GET', `users/${percentEncode(String(userId))}`, {
+    const result = await apiV2<XDataResult<{ profile_image_url?: unknown }>>(cred, 'GET', `users/${percentEncode(String(userId))}`, {
       query: { 'user.fields': 'profile_image_url' },
     });
     const url = result?.data?.profile_image_url ? String(result.data.profile_image_url) : null;

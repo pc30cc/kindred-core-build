@@ -38,14 +38,50 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function planPriceIrr(plan: any, interval: 'monthly' | 'yearly'): number {
+/** The `billing_plans` columns this module reads. */
+interface PlanRow {
+  id: string;
+  name: string;
+  is_active?: boolean | null;
+  prices?: { IRR?: { monthly?: unknown; yearly?: unknown } | null } | null;
+  price_monthly?: unknown;
+  price_yearly?: unknown;
+  limits?: { ai_credits_per_month?: unknown } | null;
+}
+
+interface SubscriptionContextRow {
+  id: string;
+  status: string | null;
+  plan_id: string | null;
+  billing_interval: string | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  pending_change_type: string | null;
+  next_plan_id: string | null;
+}
+
+interface PeriodContextRow {
+  id: string;
+  period_start: string | null;
+  period_end: string | null;
+  billing_interval: string | null;
+  plan_id: string | null;
+}
+
+interface EntitlementCycleRow {
+  cycle_id?: string | null;
+  start: string;
+  end: string;
+}
+
+function planPriceIrr(plan: PlanRow | null | undefined, interval: 'monthly' | 'yearly'): number {
   const raw = plan?.prices?.IRR?.[interval] ?? (interval === 'yearly' ? plan?.price_yearly : plan?.price_monthly);
   const value = Math.round(num(raw));
   if (value < 0) throw new BillingActionError('plan price invalid', 500, 'PLAN_PRICE_INVALID');
   return value;
 }
 
-function monthlyAllowanceIrr(plan: any): number {
+function monthlyAllowanceIrr(plan: PlanRow | null | undefined): number {
   return Math.max(0, Math.round(num(plan?.limits?.ai_credits_per_month)));
 }
 
@@ -92,7 +128,11 @@ async function loadContext(config: ServerConfig, workspaceId: string) {
   const { data: cycle } = await sb.rpc('billing_v2_current_entitlement_cycle', {
     p_workspace_id: workspaceId,
   });
-  return { sub: sub as any, period: period as any, cycle: (cycle as any) ?? null };
+  return {
+    sub: sub as SubscriptionContextRow | null,
+    period: period as PeriodContextRow | null,
+    cycle: (cycle as EntitlementCycleRow | null) ?? null,
+  };
 }
 
 export async function previewPlanChange(
@@ -105,16 +145,18 @@ export async function previewPlanChange(
     throw new BillingActionError('workspace is not on billing engine v2', 409, 'BILLING_V2_REQUIRED');
   }
 
-  const { data: target } = await sb.from('billing_plans').select('*').eq('id', input.planId).maybeSingle();
-  if (!target || (target as any).is_active === false) {
+  const { data: targetData } = await sb.from('billing_plans').select('*').eq('id', input.planId).maybeSingle();
+  const target = targetData as PlanRow | null;
+  if (!target || target.is_active === false) {
     throw new BillingActionError('unknown plan', 404, 'UNKNOWN_PLAN');
   }
 
   const { sub, period, cycle } = await loadContext(config, workspaceId);
   const currentPlanId = sub?.plan_id ?? null;
-  const { data: current } = currentPlanId
+  const { data: currentData } = currentPlanId
     ? await sb.from('billing_plans').select('*').eq('id', currentPlanId).maybeSingle()
     : { data: null };
+  const current = currentData as PlanRow | null;
 
   const interval = input.interval;
   const targetPrice = planPriceIrr(target, interval);
@@ -221,12 +263,12 @@ export async function previewPlanChange(
     direction,
     currentPlan: {
       id: currentPlanId,
-      name: (current as any)?.name ?? null,
-      interval: currentInterval ?? ((sub?.billing_interval as any) ?? null),
+      name: current?.name ?? null,
+      interval: currentInterval ?? ((sub?.billing_interval as 'monthly' | 'yearly' | null | undefined) ?? null),
     },
     targetPlan: {
-      id: (target as any).id,
-      name: (target as any).name,
+      id: target.id,
+      name: target.name,
       interval,
       fullPriceIrr: targetPrice,
     },
@@ -308,7 +350,7 @@ export async function applyPlanChange(
       mode: 'immediate',
       invoiceId: invoice.id,
       invoiceNumber: invoice.invoice_number,
-      amountIrr: num((invoice as any).amount_due_irr),
+      amountIrr: num(invoice.amount_due_irr),
       effectiveAt: preview.effectiveAt,
       pending: false,
     };
@@ -332,14 +374,15 @@ export async function applyPlanChange(
     p_workspace_id: workspaceId,
     p_force: false,
   });
-  if ((reissued as any)?.invoice_id) {
-    invoiceId = (reissued as any).invoice_id;
+  const reissuedRow = reissued as { invoice_id?: string | null } | null;
+  if (reissuedRow?.invoice_id) {
+    invoiceId = reissuedRow.invoice_id;
     const { data: inv } = await sb
       .from('billing_invoices')
       .select('invoice_number')
       .eq('id', invoiceId)
       .maybeSingle();
-    invoiceNumber = (inv as any)?.invoice_number ?? null;
+    invoiceNumber = (inv as { invoice_number: string | null } | null)?.invoice_number ?? null;
   }
 
   return {
@@ -366,7 +409,7 @@ export async function cancelPendingPlanChange(
     .select('id, pending_change_type')
     .eq('workspace_id', workspaceId)
     .maybeSingle();
-  if (!(sub as any)?.pending_change_type) return { canceled: false };
+  if (!(sub as { pending_change_type: string | null } | null)?.pending_change_type) return { canceled: false };
 
   const { data: paidFuture } = await sb
     .from('billing_invoices')
@@ -414,7 +457,7 @@ export async function setWalletAutoPay(
     .select('auto_pay_enabled')
     .eq('workspace_id', workspaceId)
     .maybeSingle();
-  return { autoPayEnabled: Boolean((fresh as any)?.auto_pay_enabled) };
+  return { autoPayEnabled: Boolean((fresh as { auto_pay_enabled: boolean | null } | null)?.auto_pay_enabled) };
 }
 
 /** Server-validated AI credit purchase → an invoice, never a direct grant. */

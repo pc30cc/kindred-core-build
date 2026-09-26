@@ -16,15 +16,24 @@ const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 
 const PAYLOAD = `x" onerror="alert(1)" data-y='z`;
 
-let rt: {
+type WidgetRuntime = {
   escapeHtml: (v: unknown) => string;
   linkifyHtml: (text: string, label?: string) => string;
 };
+type WidgetPresentation = {
+  messagesHtml: (state: { messages: Array<Record<string, unknown>> }, extra: string, opts: Record<string, unknown>) => string;
+};
+/** Globals the widget scripts install on `window`. */
+type WidgetWindow = Window & {
+  __gs_runtime: WidgetRuntime;
+  __gs_presentation_default: { create: (env: Record<string, unknown>) => WidgetPresentation };
+};
+
+let rt: WidgetRuntime;
 
 beforeAll(() => {
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval
   new Function(read('public/widget/runtime.js')).call(window);
-  rt = (window as any).__gs_runtime;
+  rt = (window as unknown as WidgetWindow).__gs_runtime;
 });
 
 function parse(html: string): HTMLElement {
@@ -67,9 +76,8 @@ describe('runtime escapeHtml', () => {
 
 describe('default presentation with the real escaper', () => {
   function template() {
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval
-    new Function(read('public/widget/presentation-default.js')).call(window);
-    return (window as any).__gs_presentation_default.create({
+      new Function(read('public/widget/presentation-default.js')).call(window);
+    return (window as unknown as WidgetWindow).__gs_presentation_default.create({
       t: (k: string) => k,
       escapeHtml: rt.escapeHtml,
       linkifyHtml: rt.linkifyHtml,
@@ -113,9 +121,8 @@ describe('default presentation with the real escaper', () => {
   });
 
   it('the fallback escaper (no env.escapeHtml) also escapes quotes', () => {
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval
-    new Function(read('public/widget/presentation-default.js')).call(window);
-    const tpl = (window as any).__gs_presentation_default.create({
+      new Function(read('public/widget/presentation-default.js')).call(window);
+    const tpl = (window as unknown as WidgetWindow).__gs_presentation_default.create({
       t: (k: string) => k,
       config: {},
       locale: 'en',

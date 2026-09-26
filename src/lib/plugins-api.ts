@@ -17,10 +17,13 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
   });
   const text = await res.text();
-  let body: any = null;
+  let body: { details?: unknown; error?: unknown; reason?: unknown; raw?: string } | null = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
   if (!res.ok) {
-    const err: any = new Error(body?.details || body?.error || `HTTP ${res.status}`);
+    const err = new Error((body?.details || body?.error || `HTTP ${res.status}`) as string) as Error & {
+      code?: unknown;
+      status?: number;
+    };
     err.code = body?.reason || body?.error || null;
     err.status = res.status;
     throw err;

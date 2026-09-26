@@ -30,12 +30,18 @@ import { expireCanceledSubscriptions } from '../cancellation.js';
  */
 async function runTrialLifecycle(config: ServerConfig): Promise<unknown> {
   const supabase = getServiceClient(config);
-  const expired = await supabase.rpc('expire_stale_trials' as any);
-  const ending = await supabase.rpc('billing_notify_trial_ending' as any);
+  const expired = await supabase.rpc('expire_stale_trials');
+  const ending = await supabase.rpc('billing_notify_trial_ending');
   return {
     expired: expired.error ? `error: ${expired.error.message}` : expired.data,
     endingSoon: ending.error ? `error: ${ending.error.message}` : ending.data,
   };
+}
+
+/** Same text as `String(err?.message || err)` for an unknown thrown value. */
+function errText(err: unknown): string {
+  const message = (err as { message?: unknown } | null | undefined)?.message;
+  return String(message || err);
 }
 
 const TICK_MS = 5 * 60 * 1000;
@@ -62,7 +68,8 @@ export function startBillingV2Schedulers(config: ServerConfig): void {
   if (timer) return;
   setTimeout(() => void tick(config), FIRST_RUN_DELAY_MS);
   timer = setInterval(() => void tick(config), TICK_MS);
-  if (typeof (timer as any)?.unref === 'function') (timer as any).unref();
+  const handle = timer as { unref?: () => void } | null;
+  if (typeof handle?.unref === 'function') handle.unref();
 }
 
 export function stopBillingV2Schedulers(): void {
@@ -89,23 +96,23 @@ export async function tick(config: ServerConfig): Promise<void> {
     const activation = await runPeriodActivation(config);
     const dunning = await runDunning(config);
     const grace = await runGraceExpiry(config);
-    const trials = await runTrialLifecycle(config).catch((err: any) => ({
-      error: String(err?.message || err),
+    const trials = await runTrialLifecycle(config).catch((err: unknown) => ({
+      error: errText(err),
     }));
     // Cancel-at-period-end: the paid window is over, so access ends now.
     // Runs after activation so a renewal period that was paid for (and just
     // started) has already moved current_period_end forward.
-    const canceledAtPeriodEnd = await expireCanceledSubscriptions(config).catch((err: any) => ({
-      error: String(err?.message || err),
+    const canceledAtPeriodEnd = await expireCanceledSubscriptions(config).catch((err: unknown) => ({
+      error: errText(err),
     }));
     // Delivery last, and isolated: a dead SMS provider must not make the tick
     // look like the financial workers failed.
     let notifications: unknown;
     try {
       notifications = await dispatchBillingNotifications(config);
-    } catch (err: any) {
-      notifications = { error: String(err?.message || err) };
-      console.warn('[billing] notification dispatch failed:', String(err?.message || err));
+    } catch (err: unknown) {
+      notifications = { error: errText(err) };
+      console.warn('[billing] notification dispatch failed:', errText(err));
     }
     lastRun = {
       at: new Date().toISOString(),
@@ -121,8 +128,8 @@ export async function tick(config: ServerConfig): Promise<void> {
       notifications,
     };
     lastError = null;
-  } catch (err: any) {
-    lastError = { at: new Date().toISOString(), message: String(err?.message || err) };
+  } catch (err: unknown) {
+    lastError = { at: new Date().toISOString(), message: errText(err) };
     console.warn('[billing] scheduler tick failed:', lastError.message);
   } finally {
     running = false;

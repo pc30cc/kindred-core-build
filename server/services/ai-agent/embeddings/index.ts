@@ -36,7 +36,7 @@ export async function resolveEmbeddingProvider(
       dimensions: DEFAULT_DIMENSIONS,
     });
   } catch (err) {
-    console.warn('[ai-agent.embeddings] resolve failed, using noop:', (err as any)?.message);
+    console.warn('[ai-agent.embeddings] resolve failed, using noop:', (err as { message?: unknown } | null | undefined)?.message);
     return noopEmbeddingProvider;
   }
 }

@@ -66,7 +66,7 @@ export async function assertContactsBatchFits(
   batchSize: number,
 ): Promise<boolean> {
   if (batchSize <= 0) return true;
-  const config = (req as any).serverConfig as ServerConfig | undefined;
+  const config = (req as Request & { serverConfig?: ServerConfig }).serverConfig;
   if (!config) {
     res.status(500).json({ error: 'serverConfig_missing' });
     return false;

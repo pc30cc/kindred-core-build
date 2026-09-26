@@ -46,7 +46,7 @@ export function parseInstagramCredential(credential: BotCredential): InstagramCr
     /\/+$/,
     '',
   );
-  let parsed: any;
+  let parsed: { ig_account_id?: unknown; access_token?: unknown; page_id?: unknown } | null;
   try {
     parsed = JSON.parse(raw);
   } catch {
@@ -71,7 +71,7 @@ export function parseInstagramCredential(credential: BotCredential): InstagramCr
   };
 }
 
-async function graph<T = any>(
+async function graph<T = unknown>(
   cred: InstagramCredential,
   method: 'GET' | 'POST',
   path: string,
@@ -106,7 +106,7 @@ async function graph<T = any>(
   }
 
   const raw = await response.text();
-  let parsed: any = null;
+  let parsed: { error?: { code?: unknown; message?: unknown } } | null = null;
   try {
     parsed = raw ? JSON.parse(raw) : null;
   } catch {
@@ -141,7 +141,11 @@ async function graph<T = any>(
 
 export async function getMe(credential: BotCredential) {
   const cred = parseInstagramCredential(credential);
-  const profile = await graph<any>(cred, 'GET', `${cred.igAccountId}?fields=username,name`);
+  const profile = await graph<{ username?: string; name?: string } | null>(
+    cred,
+    'GET',
+    `${cred.igAccountId}?fields=username,name`,
+  );
   return {
     id: cred.igAccountId,
     username: profile?.username ?? null,
@@ -165,6 +169,9 @@ export async function getWebhookInfo() {
 
 // ── messaging ─────────────────────────────────────────────────────────
 
+/** One button of a Bot-API inline or reply keyboard, as far as it is read here. */
+type KeyboardButtonLike = { text?: unknown; callback_data?: unknown };
+
 /**
  * Translates a Bot-API keyboard into Instagram quick replies.
  *
@@ -173,10 +180,10 @@ export async function getWebhookInfo() {
  * 20-character title.
  */
 export function quickRepliesFromReplyMarkup(
-  replyMarkup: Record<string, any> | undefined,
+  replyMarkup: Record<string, unknown> | undefined,
 ): Array<Record<string, unknown>> | null {
   if (!replyMarkup) return null;
-  const rows: any[] = Array.isArray(replyMarkup.inline_keyboard)
+  const rows: unknown[] = Array.isArray(replyMarkup.inline_keyboard)
     ? replyMarkup.inline_keyboard
     : Array.isArray(replyMarkup.keyboard)
       ? replyMarkup.keyboard
@@ -184,7 +191,8 @@ export function quickRepliesFromReplyMarkup(
 
   const chips = rows
     .flat()
-    .map((button: any) => {
+    .map((entry) => {
+      const button = entry as KeyboardButtonLike | null | undefined;
       const label = String(button?.text ?? '').trim();
       if (!label) return null;
       return {
@@ -199,7 +207,10 @@ export function quickRepliesFromReplyMarkup(
 }
 
 async function send(cred: InstagramCredential, recipientId: string, message: Record<string, unknown>) {
-  const result = await graph<any>(cred, 'POST', `${cred.igAccountId}/messages`, {
+  const result = await graph<{
+    message_id?: number | string;
+    messages?: Array<{ id?: number | string }>;
+  } | null>(cred, 'POST', `${cred.igAccountId}/messages`, {
     messaging_product: 'instagram',
     recipient: { id: recipientId },
     message,
@@ -218,7 +229,7 @@ export async function sendMessage(
   },
 ): Promise<{ message_id: number | string }> {
   const cred = parseInstagramCredential(credential);
-  const quickReplies = quickRepliesFromReplyMarkup(input.replyMarkup as any);
+  const quickReplies = quickRepliesFromReplyMarkup(input.replyMarkup);
   const message: Record<string, unknown> = { text: input.text.slice(0, 1000) || '…' };
   if (quickReplies) message.quick_replies = quickReplies;
   return send(cred, String(input.chatId), message);
@@ -381,7 +392,7 @@ export async function getUserProfilePhotoFileId(
 ): Promise<string | null> {
   try {
     const cred = parseInstagramCredential(credential);
-    const profile = await graph<any>(cred, 'GET', `${userId}?fields=profile_pic`);
+    const profile = await graph<{ profile_pic?: unknown } | null>(cred, 'GET', `${userId}?fields=profile_pic`);
     const url = profile?.profile_pic ? String(profile.profile_pic) : null;
     return url && /^https:\/\//i.test(url) ? url : null;
   } catch {

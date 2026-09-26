@@ -9,7 +9,17 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
+type Filter = [string, string, unknown];
+interface FakeBuilder {
+  _patch: Row | null;
+  _filters: Filter[];
+  update: (patch: Row) => FakeBuilder;
+  eq: (c: string, v: unknown) => FakeBuilder;
+  in: (c: string, v: unknown) => FakeBuilder;
+  lte: (c: string, v: unknown) => FakeBuilder;
+  select: () => Promise<{ data: Row[]; error: null }>;
+}
 
 const updates: Array<{ patch: Row; filters: Array<[string, string, unknown]> }> = [];
 let expiredRows: Row[] = [];
@@ -18,9 +28,9 @@ const entitlementCalls: Row[] = [];
 function fakeClient() {
   return {
     from: (_table: string) => {
-      const b: any = {
-        _patch: null as Row | null,
-        _filters: [] as Array<[string, string, unknown]>,
+      const b: FakeBuilder = {
+        _patch: null,
+        _filters: [],
         update: (patch: Row) => { b._patch = patch; return b; },
         eq: (c: string, v: unknown) => { b._filters.push(['eq', c, v]); return b; },
         in: (c: string, v: unknown) => { b._filters.push(['in', c, v]); return b; },
@@ -115,7 +125,7 @@ describe('resume', () => {
 describe('period-end expiry (billing tick)', () => {
   it('only ends live subscriptions scheduled to cancel whose period has passed', async () => {
     expiredRows = [{ workspace_id: 'ws-a' }, { workspace_id: 'ws-b' }];
-    const r = await expireCanceledSubscriptions({} as any, NOW);
+    const r = await expireCanceledSubscriptions({} as Parameters<typeof expireCanceledSubscriptions>[0], NOW);
 
     expect(r).toEqual({ expired: 2 });
     expect(updates).toHaveLength(1);

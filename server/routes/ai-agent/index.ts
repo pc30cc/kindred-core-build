@@ -54,7 +54,7 @@ aiAgentRouter.use(async (req: Request, res: Response, next) => {
   // same handlers and must not slip past these `$`-anchored patterns.
   const guardPath = normalizeAiAgentGuardPath(req.path);
   if (!ADVANCED_PATH_PATTERNS.some((rx) => rx.test(guardPath))) return next();
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as Request & { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
   const { userId } = await resolveCurrentUserId(req, config);
   if (!userId) return res.status(401).json({ error: 'unauthenticated' });
   const workspaceId = String(

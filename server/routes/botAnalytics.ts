@@ -8,7 +8,7 @@
  * nothing is collected until a workspace uploads a log (see
  * server/services/botAnalytics/importService.ts).
  */
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import type { ServerConfig } from '../config.js';
 import { requireModule } from '../middleware/featureGating.js';
@@ -19,12 +19,12 @@ import { isValidYmdDate } from '../lib/dateInput.js';
 
 export const botAnalyticsRouter = Router();
 
-function configOf(req: any): ServerConfig {
-  return req.serverConfig as ServerConfig;
+function configOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
 }
 
 /** Defaults to the last 28 days (ending "yesterday"), matching Web Analytics' convention. */
-function parseRange(req: any): DateRange | null {
+function parseRange(req: Request): DateRange | null {
   const q = req.query as Record<string, string | undefined>;
   if (q.startDate && q.endDate) {
     // Real calendar dates only: the report service calls toISOString() on

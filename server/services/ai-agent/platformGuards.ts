@@ -11,7 +11,11 @@ import type { ServerConfig } from '../../config.js';
 import { checkModuleAccess } from '../../middleware/featureGating.js';
 import { getServiceClient } from '../../supabase.js';
 import { isGlobalAdmin } from '../../middleware/adminBypass.js';
-import { getPlatformAiAgentSettings, isPlatformSettingsLookupFailed } from './platformSettings.js';
+import {
+  getPlatformAiAgentSettings,
+  isPlatformSettingsLookupFailed,
+  type PlatformAiAgentSettings,
+} from './platformSettings.js';
 import { validateSessionToken, SESSION_COOKIE_NAME } from '../auth/sessions.js';
 import { readSessionToken } from '../../lib/sessionTransport.js';
 
@@ -86,7 +90,7 @@ export async function assertAiAgentPlatformEnabledForWorkspace(
       if (error) {
         return { ok: false, status: 503, error: PLATFORM_STATUS_UNAVAILABLE, reason: 'lookup_failed' };
       }
-      const meta = ((row as any)?.metadata || {}) as Record<string, unknown>;
+      const meta = ((row as { metadata?: unknown } | null)?.metadata || {}) as Record<string, unknown>;
       if (meta.platform_disabled === true) {
         return { ok: false, status: 403, error: 'ai_agent_platform_disabled', reason: 'workspace_disabled' };
       }
@@ -108,9 +112,9 @@ export async function assertFeatureEnabled(
   opts: { userId?: string | null } = {},
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   try {
-    const platform = await getPlatformAiAgentSettings(config) as any;
+    const platform = await getPlatformAiAgentSettings(config);
     const def = FEATURE_FLAG[feature];
-    const enabled = !!platform[def.flag];
+    const enabled = !!platform[def.flag as keyof PlatformAiAgentSettings];
     const isAdmin = opts.userId
       ? await isGlobalAdmin(config, opts.userId).catch(() => false)
       : false;
@@ -120,7 +124,7 @@ export async function assertFeatureEnabled(
       if (isAdmin) return { ok: true };
       const customerOk =
         enabled &&
-        !!platform[def.customerVisibilityFlag as string];
+        !!platform[def.customerVisibilityFlag as keyof PlatformAiAgentSettings];
       return customerOk
         ? { ok: true }
         : { ok: false, status: 403, error: def.error };
@@ -186,7 +190,7 @@ async function resolveWorkspaceFromIdParam(
   const id = m[2];
   // NOTE: file uploads live in ai_data_sources with source_type='file'.
   // There is no separate ai_agent_files table in this schema.
-  const tableMap: Record<string, { table: string; filter?: { col: string; eq: string } }> = {
+  const tableMap: Record<string, string | { table: string; filter?: { col: string; eq: string } }> = {
     'files': { table: 'ai_data_sources', filter: { col: 'source_type', eq: 'file' } },
     'data-sources': { table: 'ai_data_sources' },
     'qna': 'ai_agent_qna',
@@ -207,20 +211,20 @@ async function resolveWorkspaceFromIdParam(
     'tools': 'ai_agent_tools',
     'tool-servers': 'ai_agent_tool_servers',
     'runs': 'ai_agent_runs',
-  } as any;
-  const entry = (tableMap as any)[resource];
+  };
+  const entry = tableMap[resource];
   if (!entry) return null;
   const table = typeof entry === 'string' ? entry : entry.table;
   const filter = typeof entry === 'string' ? null : entry.filter || null;
   try {
     const sb = getServiceClient(config);
-    let q: any = sb
-      .from(table as any)
+    let q = sb
+      .from(table)
       .select('workspace_id')
       .eq('id', id);
     if (filter) q = q.eq(filter.col, filter.eq);
     const { data } = await q.maybeSingle();
-    return ((data as any)?.workspace_id as string) || null;
+    return ((data as { workspace_id?: unknown } | null)?.workspace_id as string) || null;
   } catch {
     return null;
   }
@@ -269,7 +273,7 @@ export function aiAgentPlatformGuard() {
     ];
     const isWorkspaceExempt = WORKSPACE_EXEMPT.some((rx) => rx.test(guardPath));
 
-    const config = (req as any).serverConfig as ServerConfig;
+    const config = (req as Request & { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
 
     // Resolve workspaceId: prefer query/body, else look up by :id.
     let workspaceId =
@@ -298,7 +302,7 @@ export function aiAgentPlatformGuard() {
     // BUT: super admins NEVER bypass `ai_agent_enabled=false` (true kill switch).
     let userId: string | null = null;
     try {
-      const token = readSessionToken(req as any).token;
+      const token = readSessionToken(req).token;
       const session = await validateSessionToken(config, token);
       userId = session?.userId || null;
     } catch { /* ignore */ }
@@ -373,7 +377,7 @@ export async function isAutoAnswerAllowedForWorkspace(
   workspaceId: string,
 ): Promise<{ allowed: true } | { allowed: false; reason: string }> {
   try {
-    const platform = await getPlatformAiAgentSettings(config) as any;
+    const platform = await getPlatformAiAgentSettings(config);
     // P0-AI-2 — an UNRESOLVED platform lookup is not "enabled". Without this
     // a transient settings-read failure silently turned the visitor-facing
     // AI gate back ON.
@@ -417,7 +421,7 @@ export async function isAutoAnswerAllowedForWorkspace(
       if (error) {
         return { allowed: false, reason: PLATFORM_STATUS_UNAVAILABLE };
       }
-      const meta = ((row as any)?.metadata || {}) as Record<string, unknown>;
+      const meta = ((row as { metadata?: unknown } | null)?.metadata || {}) as Record<string, unknown>;
       if (meta.platform_disabled === true) {
         return { allowed: false, reason: 'ai_agent_platform_disabled' };
       }

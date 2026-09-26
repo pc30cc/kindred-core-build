@@ -189,8 +189,8 @@ function performRequest(
 ): Promise<RawResponse> {
   return new Promise<RawResponse>((resolve, reject) => {
     let settled = false;
-    let req: ReturnType<RequestImpl> | undefined;
     // Caller-driven cancellation (per-attempt / total-budget deadline).
+    // Only registered on `signal` after `req` below is initialised.
     const onAbort = () => {
       fail(abortError());
       try { req?.destroy(); } catch { /* ignore */ }
@@ -207,7 +207,7 @@ function performRequest(
     }
 
     const isHttp = url.protocol === 'http:';
-    req = requestImpl(
+    const req = requestImpl(
       {
         protocol: isHttp ? 'http:' : 'https:',
         // No connection pooling: a reused keep-alive socket would skip our

@@ -82,12 +82,15 @@ export function resolveGateWorkspaceId(req: Request): GateWorkspaceResolution {
   const trusted = getTrustedGateWorkspaceId(req);
   if (trusted) return { ok: true, workspaceId: trusted };
 
+  const params = req.params as Record<string, unknown> | null | undefined;
+  const body = req.body as Record<string, unknown> | null | undefined;
+  const query = req.query as Record<string, unknown> | null | undefined;
   const candidates: unknown[] = [
-    (req.params as any)?.workspaceId,
-    (req.body as any)?.workspaceId,
-    (req.body as any)?.workspace_id,
-    (req.query as any)?.workspaceId,
-    (req.query as any)?.workspace_id,
+    params?.workspaceId,
+    body?.workspaceId,
+    body?.workspace_id,
+    query?.workspaceId,
+    query?.workspace_id,
   ];
   let resolved: string | undefined;
   for (const value of candidates) {

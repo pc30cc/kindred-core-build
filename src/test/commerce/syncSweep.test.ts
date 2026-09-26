@@ -22,10 +22,26 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 const CONN = 'conn-1';
 const WS = 'ws-1';
 
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
+interface FakeProduct { externalId: string; [key: string]: unknown }
+interface FakeBuilder {
+  _patch: Row | null;
+  _in: string[] | null;
+  _selecting: boolean;
+  _cols?: string;
+  select: (cols?: string) => FakeBuilder;
+  eq: () => FakeBuilder;
+  is: () => FakeBuilder;
+  in: (_col: string, vals: string[]) => FakeBuilder;
+  or: () => FakeBuilder;
+  update: (patch: Row) => FakeBuilder;
+  upsert: (row: Row) => Promise<{ data: null; error: null }>;
+  maybeSingle: () => Promise<{ data: Row | null; error: { code: string; message: string } | null }>;
+  then: (resolve: (v: { data: unknown; error: null }) => unknown) => unknown;
+}
 
 /** What the fake store returns, one entry per page. */
-let storePages: Array<{ products: any[]; has_more: boolean }> = [];
+let storePages: Array<{ products: FakeProduct[]; has_more: boolean }> = [];
 /** How many rows the sweep's SQL reports removing. */
 let sweptCount = 0;
 let cursorRow: Row | null = null;
@@ -46,9 +62,9 @@ const seen = {
 
 function fakeClient() {
   const make = (table: string) => {
-    const b: any = {
-      _patch: null as Row | null,
-      _in: null as string[] | null,
+    const b: FakeBuilder = {
+      _patch: null,
+      _in: null,
       _selecting: false,
       select: (cols?: string) => { b._selecting = true; b._cols = cols ?? ''; return b; },
       eq: () => b,
@@ -69,7 +85,7 @@ function fakeClient() {
           error: null,
         };
       },
-      then: (resolve: any) => {
+      then: (resolve) => {
         if (table === 'commerce_products') {
           if (b._patch?.last_seen_at) seen.stampedIds.push(b._in ?? []);
           else if (b._patch?.deleted_at) seen.softDeleted.push(table);
@@ -95,11 +111,11 @@ vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeClie
 vi.mock('../../../server/services/commerce/credentials.js', () => ({ readInstallationSecret: async () => 'secret' }));
 vi.mock('../../../server/services/commerce/signing.js', () => ({ buildSignedHeaders: () => ({}) }));
 vi.mock('../../../server/services/commerce/productIndex.js', () => ({
-  upsertProductInIndex: async (_c: any, _w: string, _conn: string, p: any) => { seen.upserted.push(p.externalId); return p.externalId; },
+  upsertProductInIndex: async (_c: unknown, _w: string, _conn: string, p: FakeProduct) => { seen.upserted.push(p.externalId); return p.externalId; },
 }));
 vi.mock('../../../server/services/commerce/connectors/woocommerce.js', () => ({
   WooCommerceConnector: class {},
-  normalizeWooCommerceProduct: (raw: any) => raw,
+  normalizeWooCommerceProduct: (raw: unknown) => raw,
 }));
 vi.mock('../../../server/services/commerce/httpClient.js', () => ({
   commerceHttpRequest: async ({ url }: { url: string }) => {
@@ -112,9 +128,9 @@ vi.mock('../../../server/services/commerce/httpClient.js', () => ({
 
 const { runSyncJobOnce } = await import('../../../server/services/commerce/sync.js');
 
-const CONFIG: any = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' };
+const CONFIG = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' } as unknown as Parameters<typeof runSyncJobOnce>[0];
 const product = (id: string) => ({ externalId: id, sku: `SKU-${id}`, title: `P${id}`, variants: [] });
-const job = (o: Partial<Row> = {}): any => ({
+const job = (o: Partial<Row> = {}): Parameters<typeof runSyncJobOnce>[1] => ({
   id: 'job-1', workspace_id: WS, connection_id: CONN, job_type: 'manual_resync',
   status: 'running', attempts: 0, max_attempts: 5, ...o,
 });
@@ -125,7 +141,7 @@ beforeEach(() => {
   cursorRow = null;
   sweepColumnMissing = false;
   connectionRow = { id: CONN, workspace_id: WS, installation_id: 'inst-1', approved_origin: 'https://shop.example.com', revoked_at: null };
-  for (const k of Object.keys(seen)) (seen as any)[k].length = 0;
+  for (const k of Object.keys(seen) as Array<keyof typeof seen>) seen[k].length = 0;
 });
 
 describe('a full sync sweeps what the store no longer has', () => {
@@ -286,7 +302,7 @@ describe('incremental and reconciliation syncs resume their cursor', () => {
 
       // Next tick: the worker reads back what the previous one stored.
       cursorRow = { ...checkpoint };
-      for (const k of Object.keys(seen)) (seen as any)[k].length = 0;
+      for (const k of Object.keys(seen) as Array<keyof typeof seen>) seen[k].length = 0;
       await runSyncJobOnce(CONFIG, job({ job_type }));
 
       expect(seen.requestedPaths.map(pageOf)).toEqual([21, 22, 23, 24, 25]);

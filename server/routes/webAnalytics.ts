@@ -8,7 +8,7 @@
  * gates the reporting UI + the two things that write new data: custom
  * events and funnels).
  */
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import type { ServerConfig } from '../config.js';
 import { requireModule } from '../middleware/featureGating.js';
@@ -31,12 +31,12 @@ function isUuid(v: unknown): v is string {
   return typeof v === 'string' && UUID_RE.test(v);
 }
 
-function configOf(req: any): ServerConfig {
-  return req.serverConfig as ServerConfig;
+function configOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
 }
 
 /** Defaults to the last 28 days (ending "yesterday", matching the GSC Insights convention) when not given. */
-function parseRange(req: any): DateRange | null {
+function parseRange(req: Request): DateRange | null {
   const q = req.query as Record<string, string | undefined>;
   if (q.startDate && q.endDate) {
     // Real calendar dates only: the services call toISOString() on them,

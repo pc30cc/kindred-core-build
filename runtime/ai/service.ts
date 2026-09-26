@@ -27,8 +27,16 @@ function fail(code: AiRuntimeErrorCode, message: string): RuntimeFailure {
   return { ok: false, code, message: redactSecrets(message) || code };
 }
 
-function validConfig(raw: any): raw is AIConfig {
-  return Boolean(raw && typeof raw.provider === 'string' && typeof raw.model === 'string');
+/** Untrusted JSON body posted to the runtime; every field is validated before use. */
+type RuntimeRequestBody = { config?: unknown; request?: unknown; texts?: unknown } | null | undefined;
+
+function errorMessage(err: unknown): string | undefined {
+  return (err as { message?: string } | null | undefined)?.message;
+}
+
+function validConfig(raw: unknown): raw is AIConfig {
+  const c = raw as { provider?: unknown; model?: unknown } | null | undefined;
+  return Boolean(c && typeof c.provider === 'string' && typeof c.model === 'string');
 }
 
 /**
@@ -61,9 +69,9 @@ export function providerFetchFor(config: {
   });
 }
 
-export async function handleComplete(body: any): Promise<RuntimeResult<{ response: AIResponse }>> {
-  const config = body?.config;
-  const request = body?.request as AIRequest | undefined;
+export async function handleComplete(body: unknown): Promise<RuntimeResult<{ response: AIResponse }>> {
+  const config = (body as RuntimeRequestBody)?.config;
+  const request = (body as RuntimeRequestBody)?.request as AIRequest | undefined;
   if (!validConfig(config)) return fail('invalid_request', 'config.provider and config.model are required');
   if (!request || typeof request.prompt !== 'string' || !request.prompt) {
     return fail('invalid_request', 'request.prompt is required');
@@ -77,13 +85,13 @@ export async function handleComplete(body: any): Promise<RuntimeResult<{ respons
     // Echo the logical execution id so Core can correlate one request with one
     // usage/accounting row even across transport replays.
     return { ok: true, data: { response: { ...response, requestId: request.requestId } } };
-  } catch (err: any) {
-    return fail('provider_error', err?.message || 'provider call failed');
+  } catch (err: unknown) {
+    return fail('provider_error', errorMessage(err) || 'provider call failed');
   }
 }
 
-export async function handleTest(body: any): Promise<RuntimeResult<{ result: AIConnectionTestResult }>> {
-  const config = body?.config;
+export async function handleTest(body: unknown): Promise<RuntimeResult<{ result: AIConnectionTestResult }>> {
+  const config = (body as RuntimeRequestBody)?.config;
   if (!validConfig(config)) return fail('invalid_request', 'config.provider and config.model are required');
   if (!isSupportedProvider(config.provider)) {
     return fail('unsupported_provider', `Unsupported AI provider: ${config.provider}`);
@@ -103,9 +111,9 @@ export async function handleTest(body: any): Promise<RuntimeResult<{ result: AIC
   return { ok: true, data: { result } };
 }
 
-export async function handleEmbed(body: any): Promise<RuntimeResult<{ vectors: number[][] }>> {
-  const config = body?.config as EmbedProviderConfig | undefined;
-  const texts = body?.texts;
+export async function handleEmbed(body: unknown): Promise<RuntimeResult<{ vectors: number[][] }>> {
+  const config = (body as RuntimeRequestBody)?.config as EmbedProviderConfig | undefined;
+  const texts = (body as RuntimeRequestBody)?.texts;
   if (!config || typeof config.provider !== 'string' || typeof config.model !== 'string') {
     return fail('invalid_request', 'config.provider and config.model are required');
   }
@@ -118,8 +126,8 @@ export async function handleEmbed(body: any): Promise<RuntimeResult<{ vectors: n
   try {
     const vectors = await embedTexts(config, texts, providerFetchFor(config));
     return { ok: true, data: { vectors } };
-  } catch (err: any) {
-    return fail('provider_error', err?.message || 'embedding call failed');
+  } catch (err: unknown) {
+    return fail('provider_error', errorMessage(err) || 'embedding call failed');
   }
 }
 

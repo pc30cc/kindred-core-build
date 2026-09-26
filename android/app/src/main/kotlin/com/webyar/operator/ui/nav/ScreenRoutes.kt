@@ -231,7 +231,12 @@ fun InboxRoute(
         search = search,
         onSelectFilter = conversations::select,
         onSelectChannel = conversations::selectChannel,
-        onRefresh = conversations::refresh,
+        onRefresh = {
+            // Also whatever the launch failed to load: with no workspace
+            // there is no list to refresh, and pulling is what people try.
+            appState.retryIfIncomplete()
+            conversations.refresh()
+        },
         // Gated on the plan: a row that leads to a screen the server will
         // refuse is worse than no row.
         //

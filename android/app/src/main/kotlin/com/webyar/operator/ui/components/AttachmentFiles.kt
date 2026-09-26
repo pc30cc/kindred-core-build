@@ -31,12 +31,16 @@ object AttachmentFiles {
      * a bare device with no PDF reader — and one the operator should be told
      * about rather than left tapping a card that does nothing.
      */
-    fun open(context: Context, attachment: MessageAttachment, file: File): Boolean {
+    fun open(context: Context, attachment: MessageAttachment, file: File): Boolean =
+        openFile(context, file, attachment.mimeType)
+
+    /** The same, for a file that is not a chat attachment — a mail's. */
+    fun openFile(context: Context, file: File, mimeType: String?): Boolean {
         val uri = runCatching { FileProvider.getUriForFile(context, authority(context), file) }
             .getOrNull() ?: return false
 
         val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, attachment.mimeType ?: "*/*")
+            setDataAndType(uri, mimeType ?: "*/*")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             // The chooser is started from a non-activity context in tests and
             // from an activity in the app; the flag is required for the first

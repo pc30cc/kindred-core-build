@@ -2,6 +2,7 @@ package com.webyar.operator.feature.email
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.webyar.operator.core.model.EmailFolder
 import com.webyar.operator.core.model.EmailThreadSummary
 import com.webyar.operator.core.net.ApiError
 import com.webyar.operator.core.net.WebyarApi
@@ -58,8 +59,19 @@ class EmailInboxViewModel(
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
 
+    /** Everything, what is unread, or what is starred — the server's own filters. */
+    private val _folder = MutableStateFlow(EmailFolder.INBOX)
+    val folder: StateFlow<EmailFolder> = _folder.asStateFlow()
+
+    /** A further page is on its way. */
+    private val _loadingMore = MutableStateFlow(false)
+    val loadingMore: StateFlow<Boolean> = _loadingMore.asStateFlow()
+
     private var workspaceId: String? = null
     private var loaded: List<EmailThreadSummary> = emptyList()
+    /** Where the next page starts; null when this is all there is. */
+    private var nextBefore: String? = null
+    private var generation = 0
 
     fun bind(workspaceId: String) {
         if (this.workspaceId == workspaceId) return
@@ -67,6 +79,73 @@ class EmailInboxViewModel(
         _query.value = ""
         _mailbox.value = null
         load()
+    }
+
+    fun selectFolder(folder: EmailFolder) {
+        if (_folder.value == folder) return
+        _folder.value = folder
+        load()
+    }
+
+    val hasMore: Boolean get() = nextBefore != null
+
+    /** The next page, when the list has been scrolled to its end. */
+    fun loadMore() {
+        val workspace = workspaceId ?: return
+        val before = nextBefore ?: return
+        if (_loadingMore.value) return
+        val mine = generation
+        _loadingMore.value = true
+        viewModelScope.launch {
+            runCatching { api.emailThreadsPage(workspace, _folder.value, search = null, before = before) }
+                .onSuccess { page ->
+                    if (mine != generation) return@onSuccess
+                    val seen = loaded.mapTo(HashSet()) { it.id }
+                    loaded = loaded + page.threads.filter { it.id !in seen }
+                    nextBefore = page.nextBefore
+                    publish()
+                }
+            _loadingMore.value = false
+        }
+    }
+
+    /**
+     * Starred or not, on the row, optimistically — the star flips under the
+     * thumb and the request follows. In the Starred folder an unstarred row
+     * stays until the next load rather than vanishing under the finger.
+     */
+    fun toggleStar(threadId: String) {
+        val workspace = workspaceId ?: return
+        val current = loaded.firstOrNull { it.id == threadId } ?: return
+        val next = current.isStarred != true
+        update(threadId) { it.copy(isStarred = next) }
+        viewModelScope.launch {
+            runCatching { api.setEmailThreadStarred(workspace, threadId, next) }
+                .onFailure { update(threadId) { it.copy(isStarred = !next) } }
+        }
+    }
+
+    /** Read or unread, from the row. */
+    fun toggleRead(threadId: String) {
+        val workspace = workspaceId ?: return
+        val current = loaded.firstOrNull { it.id == threadId } ?: return
+        val next = current.isRead != true
+        update(threadId) { it.copy(isRead = next) }
+        viewModelScope.launch {
+            runCatching { api.setEmailThreadRead(workspace, threadId, next) }
+                .onFailure { update(threadId) { it.copy(isRead = !next) } }
+        }
+    }
+
+    /** Marked unread from inside the thread: the row says so at once. */
+    fun markUnreadLocally(threadId: String) = update(threadId) { it.copy(isRead = false) }
+
+    /** The thread's star changed inside it: the row follows. */
+    fun setStarredLocally(threadId: String, starred: Boolean) = update(threadId) { it.copy(isStarred = starred) }
+
+    private fun update(threadId: String, change: (EmailThreadSummary) -> EmailThreadSummary) {
+        loaded = loaded.map { if (it.id == threadId) change(it) else it }
+        publish()
     }
 
     fun setQuery(value: String) {
@@ -84,10 +163,15 @@ class EmailInboxViewModel(
     private fun load(showSkeleton: Boolean = true) {
         val workspace = workspaceId ?: return
         if (showSkeleton) _state.value = EmailInboxState.Loading
+        val mine = ++generation
+        val folder = _folder.value
         viewModelScope.launch {
-            runCatching { api.emailThreads(workspace, search = null) }
-                .onSuccess {
-                    loaded = it
+            runCatching { api.emailThreadsPage(workspace, folder, search = null, before = null) }
+                .onSuccess { page ->
+                    // A folder switched meanwhile has its own load on the way.
+                    if (mine != generation) return@onSuccess
+                    loaded = page.threads
+                    nextBefore = page.nextBefore
                     _notConnected.value = false
                     publish()
                 }

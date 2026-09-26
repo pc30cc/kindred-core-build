@@ -68,23 +68,21 @@ enum class InboxFilter(val wire: String) {
         }
 
         /**
-         * The queues on the strip above the list — all of them.
+         * The queues on the strip above the list: Open, and the AI's queue
+         * where the plan and the switches give it one.
          *
-         * This used to be Open and AI only, with the other four behind the
-         * screen's title, because four chips across a phone left no room for
-         * the counts. That reasoning was about a fixed row; the strip
-         * scrolls, so the room is there, and the menu stays as the second
-         * way in rather than the only one.
-         *
-         * What it is NOT is a different set from [available]: a queue the
-         * plan includes is a queue you can reach without knowing that a
-         * title is a menu.
+         * The strip used to carry every queue. "Needs me" and "Awaiting
+         * customer" are places an operator visits rather than works in, and
+         * with them on the strip the two that ARE worked in all day scrolled
+         * off a Persian phone. The rest are one tap away behind the strip's
+         * last button, which opens every inbox — queues, channels, colleagues
+         * and email — and behind the title, as before.
          */
         fun chips(
             entitlements: Entitlements?,
             access: WorkspaceAccess = WorkspaceAccess.UNKNOWN,
             automated: Int? = null,
-        ): List<InboxFilter> = available(entitlements, access, automated)
+        ): List<InboxFilter> = available(entitlements, access, automated).filter { it == OPEN || it == AI }
     }
 }
 

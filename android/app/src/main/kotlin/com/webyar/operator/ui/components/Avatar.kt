@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.webyar.operator.ui.design.Size
+import androidx.compose.material3.Icon
 
 /**
  * A contact or visitor avatar, matching the web inbox exactly.
@@ -166,6 +167,67 @@ fun OperatorAvatar(
             // on its way, so nothing should look like it is.
             Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHighest))
         }
+    }
+}
+
+/**
+ * The AI assistant's face.
+ *
+ * The workspace's own logo for its assistant when one was uploaded (the one
+ * the widget shows the visitor); otherwise a face of our own rather than an
+ * empty circle — the brand's colours in a soft sweep, a top-light, and the
+ * sparkles that mark the AI everywhere else in the app. An AI turn should
+ * never look like a colleague whose photo has not loaded.
+ */
+@Composable
+fun AiAvatar(
+    imageUrl: String?,
+    size: Dp = Size.avatarMedium,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier
+            .size(size)
+            .clip(CircleShape)
+            .clearAndSetSemantics { },
+    ) {
+        RemoteImage(
+            url = imageUrl,
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+        ) { AiFace(size) }
+    }
+}
+
+@Composable
+private fun AiFace(size: Dp) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(
+                Brush.linearGradient(
+                    0f to scheme.primary,
+                    0.55f to scheme.tertiary,
+                    1f to scheme.secondary,
+                ),
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(
+                    0f to Color.White.copy(alpha = 0.30f),
+                    0.55f to Color.Transparent,
+                ),
+            ),
+        )
+        Icon(
+            Glyph.Sparkle,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(size * 0.56f),
+        )
     }
 }
 

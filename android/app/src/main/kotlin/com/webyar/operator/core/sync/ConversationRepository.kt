@@ -145,32 +145,37 @@ class ConversationRepository(
                 }
                 return@withLock
             }
-            val slice = api.conversationsByIds(scope.workspaceId, wanted, filter)
-            val whole = slice.wholeList
-            if (whole != null) {
-                // An older server ignored the narrowing and sent the whole
-                // queue: that IS a full read, so it is stored as one. The
-                // ETag is dropped because this response did not carry one.
-                store.writeConversations(scope, whole, listKey = filter.listKey, replaceList = true, now = now)
-                val key = SyncKeys.list(filter.listKey)
-                store.putSyncState(
-                    scope,
-                    (store.syncState(scope, key) ?: blank(scope, key)).copy(etag = null, fullReadAt = now, updatedAt = now),
-                )
-                diag.info(AREA, "targeted read unsupported by server; stored ${whole.size} rows as a full read")
-            } else {
-                val present = slice.rows.map { it.id }.toSet()
-                store.writeConversations(
-                    scope,
-                    slice.rows,
-                    listKey = filter.listKey,
-                    absent = wanted.filter { it !in present },
-                    now = now,
-                )
-                diag.info(
-                    AREA,
-                    "targeted read of ${wanted.size} (${slice.rows.size} in ${filter.listKey}, $reason)",
-                )
+            // A hundred at a time, the endpoint's own limit: ids beyond it used to
+            // be sent, silently not asked about, and marked absent from the list.
+            for (chunk in wanted.chunked(MAX_IDS_PER_READ)) {
+                val slice = api.conversationsByIds(scope.workspaceId, chunk, filter)
+                val whole = slice.wholeList
+                if (whole != null) {
+                    // An older server ignored the narrowing and sent the whole
+                    // queue: that IS a full read, so it is stored as one. The
+                    // ETag is dropped because this response did not carry one.
+                    store.writeConversations(scope, whole, listKey = filter.listKey, replaceList = true, now = now)
+                    val key = SyncKeys.list(filter.listKey)
+                    store.putSyncState(
+                        scope,
+                        (store.syncState(scope, key) ?: blank(scope, key)).copy(etag = null, fullReadAt = now, updatedAt = now),
+                    )
+                    diag.info(AREA, "targeted read unsupported by server; stored ${whole.size} rows as a full read")
+                } else {
+                    val present = slice.rows.map { it.id }.toSet()
+                    store.writeConversations(
+                        scope,
+                        slice.rows,
+                        listKey = filter.listKey,
+                        absent = chunk.filter { it !in present },
+                        now = now,
+                    )
+                    diag.info(
+                        AREA,
+                        "targeted read of ${chunk.size} (${slice.rows.size} in ${filter.listKey}, $reason)",
+                    )
+                }
+                if (whole != null) break
             }
         }
     }
@@ -259,3 +264,6 @@ sealed interface InboxRefresh {
     data object Unchanged : InboxRefresh
     data class Replaced(val count: Int) : InboxRefresh
 }
+
+/** `GET /api/conversations?ids=` answers for at most this many at once. */
+private const val MAX_IDS_PER_READ = 100

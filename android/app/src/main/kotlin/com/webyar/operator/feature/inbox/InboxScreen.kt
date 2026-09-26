@@ -84,6 +84,21 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import com.webyar.operator.ui.components.avatarKey
 import com.webyar.operator.ui.components.sharedElement
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.webyar.operator.ui.components.Glyph
+import com.webyar.operator.ui.components.ChannelIcon
+import com.webyar.operator.ui.components.ChannelLabel
+import com.webyar.operator.ui.components.ConversationChannel
+import com.webyar.operator.ui.components.segmentedShape
+import com.webyar.operator.i18n.StrAndroid
 
 sealed interface InboxState {
     data object Loading : InboxState
@@ -129,6 +144,8 @@ fun InboxScreen(
     onOpenColleagues: (() -> Unit)? = null,
     /** Null when the plan has no email module. */
     onOpenEmail: (() -> Unit)? = null,
+    /** Unread messages from colleagues, for the Colleagues button. */
+    colleaguesUnread: Int? = null,
     /**
      * A strip above the list. Null is the ordinary case — most workspaces
      * have no promotion, and every one of them has dismissed it eventually.
@@ -164,8 +181,36 @@ fun InboxScreen(
             if (search != null) SearchField(state = search, prompt = Str.search(language))
         }
 
-        if (chipFilters.size > 1) {
-            QueueGroup(language, chipFilters, filter, counts, selectedChannel, onSelectFilter)
+        var everyInboxOpen by remember { mutableStateOf(false) }
+        QueueGroup(
+            language = language,
+            chips = chipFilters,
+            selected = filter,
+            counts = counts,
+            selectedChannel = selectedChannel,
+            onSelect = onSelectFilter,
+            onOpenColleagues = onOpenColleagues,
+            colleaguesUnread = colleaguesUnread,
+            // Lit while the list is one the strip has no button for, so the
+            // operator can see where they are.
+            elsewhere = selectedChannel != null || filter !in chipFilters,
+            onOpenEveryInbox = { everyInboxOpen = true },
+        )
+        if (everyInboxOpen) {
+            EveryInboxSheet(
+                language = language,
+                filter = filter,
+                allFilters = allFilters,
+                counts = counts,
+                channels = channels,
+                selectedChannel = selectedChannel,
+                colleaguesUnread = colleaguesUnread,
+                onSelectFilter = onSelectFilter,
+                onSelectChannel = onSelectChannel,
+                onOpenColleagues = onOpenColleagues,
+                onOpenEmail = onOpenEmail,
+                onDismiss = { everyInboxOpen = false },
+            )
         }
 
         // Above the list and below the chrome: an operator scrolling the
@@ -402,9 +447,15 @@ private fun MenuRow(
 }
 
 /**
- * The queues switched between all day, as a connected button group. The
- * selected one is filled and round; a channel laid over the queues leaves
- * none of them selected, because none of them is what the list shows.
+ * The inboxes worked in all day, as a row of buttons: Open, the AI's queue,
+ * the colleagues' chat — and last, three lines that open every inbox there
+ * is.
+ *
+ * "Needs me" and "Awaiting customer" used to sit here too, and with them the
+ * two that matter scrolled off a Persian phone. They are behind the last
+ * button with the channels, Resolved, Spam and email, where a place visited
+ * now and then belongs. A channel laid over the queues leaves none of them
+ * selected, because none of them is what the list shows.
  */
 @Composable
 private fun QueueGroup(
@@ -414,6 +465,10 @@ private fun QueueGroup(
     counts: InboxCounts,
     selectedChannel: String?,
     onSelect: (InboxFilter) -> Unit,
+    onOpenColleagues: (() -> Unit)?,
+    colleaguesUnread: Int?,
+    elsewhere: Boolean,
+    onOpenEveryInbox: () -> Unit,
 ) {
     Row(
         Modifier
@@ -422,6 +477,7 @@ private fun QueueGroup(
             .selectableGroup()
             .padding(horizontal = Space.screenInset, vertical = Space.sm),
         horizontalArrangement = Arrangement.spacedBy(Space.xs),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         chips.forEach { option ->
             ChoiceButton(
@@ -430,9 +486,228 @@ private fun QueueGroup(
                 selected = option == selected && selectedChannel == null,
                 language = language,
                 onClick = { onSelect(option) },
+                modifier = Modifier.testTag(A11y.inboxChip(option.wire)),
             )
         }
+        if (onOpenColleagues != null) {
+            // Somewhere else rather than a queue, so never "selected": it
+            // opens the team chat, and Back comes home.
+            ChoiceButton(
+                label = Str.colleagues(language),
+                count = colleaguesUnread,
+                selected = false,
+                language = language,
+                onClick = onOpenColleagues,
+                modifier = Modifier.testTag(A11y.INBOX_COLLEAGUES_CHIP),
+            )
+        }
+        EveryInboxButton(language, lit = elsewhere, onClick = onOpenEveryInbox)
     }
+}
+
+/** The strip's last button: three lines, which open every inbox. */
+@Composable
+private fun EveryInboxButton(language: Language, lit: Boolean, onClick: () -> Unit) {
+    val label = StrAndroid.everyInbox(language)
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(Radius.lg),
+        color = if (lit) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = if (lit) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .size(width = 52.dp, height = 40.dp)
+            .semantics { contentDescription = label }
+            .testTag(A11y.INBOX_EVERY_INBOX),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(Glyph.Menu, contentDescription = null, modifier = Modifier.size(22.dp))
+        }
+    }
+}
+
+/**
+ * Every inbox, in one sheet: the queues with their counts, the channel
+ * inboxes, and the two places that are not queues at all — the colleagues'
+ * chat and the mailbox.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EveryInboxSheet(
+    language: Language,
+    filter: InboxFilter,
+    allFilters: List<InboxFilter>,
+    counts: InboxCounts,
+    channels: List<ChannelInbox>,
+    selectedChannel: String?,
+    colleaguesUnread: Int?,
+    onSelectFilter: (InboxFilter) -> Unit,
+    onSelectChannel: (String?) -> Unit,
+    onOpenColleagues: (() -> Unit)?,
+    onOpenEmail: (() -> Unit)?,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = Space.xl)
+                .testTag(A11y.INBOX_EVERY_INBOX_SHEET),
+        ) {
+            Text(
+                StrAndroid.everyInbox(language),
+                style = WebyarType.titleLargeEmphasized,
+                modifier = Modifier.padding(horizontal = Space.xl, vertical = Space.sm),
+            )
+
+            SheetSection(Str.tabInbox(language))
+            SheetGroup {
+                allFilters.forEachIndexed { index, option ->
+                    SheetRow(
+                        index = index,
+                        count = allFilters.size,
+                        icon = option.icon(),
+                        label = option.title(language),
+                        selected = option == filter && selectedChannel == null,
+                        badge = counts.count(option)?.takeIf { it > 0 },
+                        language = language,
+                        modifier = Modifier.testTag(A11y.everyInboxRow(option.wire)),
+                    ) { onDismiss(); onSelectFilter(option) }
+                }
+            }
+
+            if (channels.isNotEmpty()) {
+                SheetSection(Str.otherInboxes(language))
+                SheetGroup {
+                    channels.forEachIndexed { index, option ->
+                        SheetRow(
+                            index = index,
+                            count = channels.size,
+                            iconContent = { ChannelIcon(option.key, 22.dp) },
+                            label = option.title(language),
+                            selected = option.key == selectedChannel,
+                            language = language,
+                        ) { onDismiss(); onSelectChannel(option.key) }
+                    }
+                }
+            }
+
+            val elsewhere = listOfNotNull(
+                onOpenColleagues?.let { Triple(Str.colleagues(language), Icons.Filled.Person, it) },
+                onOpenEmail?.let { Triple(Str.emailInbox(language), Icons.Filled.Email, it) },
+            )
+            if (elsewhere.isNotEmpty()) {
+                SheetSection(StrAndroid.teamAndMail(language))
+                SheetGroup {
+                    elsewhere.forEachIndexed { index, (label, icon, open) ->
+                        SheetRow(
+                            index = index,
+                            count = elsewhere.size,
+                            icon = icon,
+                            label = label,
+                            selected = false,
+                            badge = if (icon == Icons.Filled.Person) colleaguesUnread?.takeIf { it > 0 } else null,
+                            language = language,
+                        ) { onDismiss(); open() }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SheetSection(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = Space.xl, end = Space.xl, top = Space.lg, bottom = Space.xs),
+    )
+}
+
+@Composable
+private fun SheetGroup(content: @Composable () -> Unit) {
+    Column(
+        Modifier.padding(horizontal = Space.lg),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) { content() }
+}
+
+/**
+ * One inbox in the sheet: a tonal row in the settings' segmented style, its
+ * mark in a circle, its count as a badge, and a tick when it is the one open.
+ */
+@Composable
+private fun SheetRow(
+    index: Int,
+    count: Int,
+    label: String,
+    selected: Boolean,
+    language: Language,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    iconContent: (@Composable () -> Unit)? = null,
+    badge: Int? = null,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = segmentedShape(index, count),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier
+                .heightIn(min = 56.dp)
+                .padding(horizontal = Space.lg, vertical = Space.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                contentAlignment = Alignment.Center,
+            ) {
+                when {
+                    iconContent != null -> iconContent()
+                    icon != null -> Icon(
+                        icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+            Text(
+                label,
+                style = if (selected) WebyarType.titleMediumEmphasized else MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(horizontal = Space.lg),
+            )
+            if (badge != null) UnreadBadge(badge, language, Modifier.padding(end = Space.sm))
+            if (selected) {
+                Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+    }
+}
+
+/** Each queue's mark in the sheet. */
+private fun InboxFilter.icon(): ImageVector = when (this) {
+    InboxFilter.OPEN -> Icons.Filled.Email
+    InboxFilter.NEEDS_HUMAN -> Icons.Filled.Person
+    InboxFilter.PENDING -> Glyph.Schedule
+    InboxFilter.AI -> Glyph.Sparkle
+    InboxFilter.RESOLVED -> Icons.Filled.CheckCircle
+    InboxFilter.SPAM -> Icons.Filled.Warning
 }
 
 /** Why the list may be out of date, as a tonal strip rather than an alarm. */
@@ -522,6 +797,14 @@ private fun ConversationRow(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
+                    // Where they are writing from, beside who they are — the
+                    // console's badge, on every row, the website's included.
+                    ChannelLabel(
+                        key = remember(conversation.metadata, conversation.contact) { ConversationChannel.of(conversation) },
+                        language = language,
+                        compact = true,
+                        modifier = Modifier.padding(start = Space.sm),
+                    )
                     if (conversation.status == ConversationStatus.RESOLVED) {
                         StatusPill(
                             Str.filterResolved(language),
@@ -604,7 +887,7 @@ private fun InboxFilter.title(language: Language): String = when (this) {
     InboxFilter.OPEN -> Str.filterOpen(language)
     InboxFilter.NEEDS_HUMAN -> Str.filterNeedsHuman(language)
     InboxFilter.PENDING -> Str.filterPending(language)
-    InboxFilter.AI -> Str.filterAI(language)
+    InboxFilter.AI -> StrAndroid.filterAI(language)
     InboxFilter.RESOLVED -> Str.filterResolved(language)
     InboxFilter.SPAM -> Str.filterSpam(language)
 }

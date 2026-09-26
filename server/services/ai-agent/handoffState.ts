@@ -193,18 +193,50 @@ async function patchMeta(
   return !updErr;
 }
 
-/** Mark a conversation as managed by AI (placed into the Automated inbox). */
+/**
+ * Mark a conversation as managed by AI (placed into the Automated inbox).
+ *
+ * Announced when it is a MOVE — the thread was not the AI's a moment ago —
+ * so an operator's list and an open chat see it leave the human queue and
+ * its composer change. This runs after the AI's reply has already been
+ * published, so without the event a client that re-read on that reply could
+ * read the old state and keep it. Not announced on every reply to a thread
+ * the AI already holds: that is no news, and it is most of the calls.
+ */
 export async function markAiManaged(
   config: ServerConfig,
   args: { workspaceId: string; conversationId: string },
 ): Promise<void> {
-  await patchMeta(config, args.conversationId, {
+  let wasManaged = false;
+  try {
+    const { data } = await getServiceClient(config)
+      .from('conversations')
+      .select('metadata')
+      .eq('id', args.conversationId)
+      .maybeSingle();
+    wasManaged = ((data as { metadata?: Record<string, unknown> } | null)?.metadata?.ai_state) === 'ai_managed';
+  } catch {
+    // Unknown: announce it; a spare event costs one read.
+  }
+  const ok = await patchMeta(config, args.conversationId, {
     ai_state: 'ai_managed',
     managed_by_ai: true,
     ai_managed_by_ai: true,
     ai_handoff_requested: false,
     last_ai_reply_at: new Date().toISOString(),
   }, args.workspaceId);
+  if (!ok || wasManaged) return;
+  try {
+    await publishOperatorEvent(config, {
+      kind: 'conversation_updated',
+      conversation_id: args.conversationId,
+      workspace_id: args.workspaceId,
+      actor_id: null,
+      reason: 'ai_managed',
+    });
+  } catch {
+    // Advisory: the thread is the AI's either way; the next read shows it.
+  }
 }
 
 export interface HandoffCommit {

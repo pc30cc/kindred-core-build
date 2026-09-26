@@ -234,9 +234,8 @@ class InboxViewModelTest {
             listOf(InboxFilter.OPEN, InboxFilter.PENDING, InboxFilter.RESOLVED, InboxFilter.SPAM),
             available,
         )
-        // The strip is the same list, so a queue the plan includes is never
-        // reachable only by knowing that the screen's title is a menu.
-        assertEquals(available, InboxFilter.chips(bare))
+        // The strip is Open; the rest are behind its last button.
+        assertEquals(listOf(InboxFilter.OPEN), InboxFilter.chips(bare))
     }
 
     /**
@@ -247,18 +246,19 @@ class InboxViewModelTest {
     fun `an unresolved plan offers only the core queues`() {
         assertFalse(InboxFilter.available(null).contains(InboxFilter.AI))
         assertFalse(InboxFilter.available(null).contains(InboxFilter.NEEDS_HUMAN))
-        assertEquals(InboxFilter.available(null), InboxFilter.chips(null))
+        assertEquals(listOf(InboxFilter.OPEN), InboxFilter.chips(null))
     }
 
     /**
-     * The strip and the menu are one list, not two.
+     * The strip carries the two queues worked in all day — Open and the AI's.
      *
-     * They used to differ: the strip carried Open and the AI queue, the menu
-     * carried all six, and four of the six were reachable only by discovering
-     * that the title was a menu. Nobody discovered it.
+     * "Needs me" and "Awaiting customer" came off it at the owner's request:
+     * with every queue on it the two that matter scrolled off a Persian
+     * phone. They are still in the plan's list, and one tap away behind the
+     * strip's last button, which opens every inbox.
      */
     @Test
-    fun `every queue the plan includes is on the strip`() {
+    fun `the strip carries Open and the AI queue, the rest are one tap away`() {
         val full = Entitlements(
             workspaceId = "ws-1",
             features = mapOf(
@@ -268,7 +268,8 @@ class InboxViewModelTest {
         )
         // The AI queue also needs the AI switched on, shown to customers and answering.
         val ai = WorkspaceAccess(role = "agent", aiAgentEnabled = true, aiCustomerVisible = true, aiAutoAnswer = true)
-        assertEquals(InboxFilter.available(full, ai), InboxFilter.chips(full, ai))
+        assertEquals(listOf(InboxFilter.OPEN, InboxFilter.AI), InboxFilter.chips(full, ai))
+        // Nothing the plan includes is lost: all six are still available.
         assertEquals(
             listOf(
                 InboxFilter.OPEN,
@@ -278,7 +279,7 @@ class InboxViewModelTest {
                 InboxFilter.RESOLVED,
                 InboxFilter.SPAM,
             ),
-            InboxFilter.chips(full, ai),
+            InboxFilter.available(full, ai),
         )
     }
 }

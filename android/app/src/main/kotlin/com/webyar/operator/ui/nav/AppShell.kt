@@ -79,6 +79,7 @@ import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import com.webyar.operator.ui.design.ExpressiveShapes
 import com.webyar.operator.ui.design.Motion
 import com.webyar.operator.ui.design.Space
+import com.webyar.operator.feature.email.EmailReplyMode
 
 /**
  * The signed-in shell.
@@ -161,6 +162,7 @@ fun AppShell(
                     onOpenEmail = { navigator.open(EmailKey) },
                     promotions = promotions,
                     bottomInset = 0.dp,
+                    api = api,
                 )
             }
         }
@@ -233,6 +235,7 @@ fun AppShell(
                 email = email,
                 language = language,
                 onOpenThread = { navigator.open(EmailThreadKey(it)) },
+                onCompose = { navigator.open(EmailComposeKey()) },
                 onBack = { navigator.back() },
             )
         }
@@ -244,6 +247,18 @@ fun AppShell(
                 email = email,
                 language = language,
                 onBack = { navigator.back() },
+                onReply = { mode -> navigator.open(EmailComposeKey(key.threadId, mode.name)) },
+            )
+        }
+        entry<EmailComposeKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = EmailKey) + tabOf(AppTab.INBOX)) { key ->
+            EmailComposeRoute(
+                sourceThreadId = key.sourceThreadId,
+                mode = key.mode?.let { raw -> EmailReplyMode.entries.firstOrNull { it.name == raw } },
+                appState = appState,
+                api = api,
+                email = email,
+                language = language,
+                onClose = { navigator.back() },
             )
         }
         entry<ContactsKey>(

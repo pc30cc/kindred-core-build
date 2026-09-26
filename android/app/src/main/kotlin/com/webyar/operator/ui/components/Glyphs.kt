@@ -180,6 +180,64 @@ object Glyph {
     }
 
     /**
+     * Three sparkles — the AI. Its queue, and the face of an assistant whose
+     * workspace has not given it one.
+     */
+    val Sparkle: ImageVector by lazy {
+        vector(
+            "Sparkle",
+            "M19 9l-1.25-2.75L15 5l2.75-1.25L19 1l1.25 2.75L23 5l-2.75 1.25Zm0 14-1.25-2.75L15 19l2.75-1.25L19 15" +
+                "l1.25 2.75L23 19l-2.75 1.25ZM9 20l-2.5-5.5L1 12l5.5-2.5L9 4l2.5 5.5L17 12l-5.5 2.5Z",
+        )
+    }
+
+    /** The delete key, on the emoji panel. */
+    val Backspace: ImageVector by lazy {
+        vector(
+            "Backspace",
+            "M9 19l-7-7 7-7h12q.83 0 1.41.59T23 7v10q0 .83-.59 1.41T21 19H9Zm.83-2H21V7H9.83l-5 5 5 5Z" +
+                "M13.4 16l2.6-2.6 2.6 2.6 1.4-1.4-2.6-2.6 2.6-2.6L18.6 8 16 10.6 13.4 8 12 9.4l2.6 2.6L12 14.6l1.4 1.4Z",
+        )
+    }
+
+    /** A keyboard: back from the emoji panel to typing. */
+    val Keyboard: ImageVector by lazy {
+        vector(
+            "Keyboard",
+            "M4 19q-.83 0-1.41-.59T2 17V7q0-.83.59-1.41T4 5h16q.83 0 1.41.59T22 7v10q0 .83-.59 1.41T20 19H4Zm0-2h16V7H4v10Z" +
+                "M8 16h8v-2H8v2Zm-3-3h2v-2H5v2Zm3 0h2v-2H8v2Zm3 0h2v-2h-2v2Zm3 0h2v-2h-2v2Zm3 0h2v-2h-2v2Z" +
+                "M5 10h2V8H5v2Zm3 0h2V8H8v2Zm3 0h2V8h-2v2Zm3 0h2V8h-2v2Zm3 0h2V8h-2v2Z",
+        )
+    }
+
+    /** An empty star: a mail not starred. */
+    val StarOutline: ImageVector by lazy {
+        vector(
+            "StarOutline",
+            "m8.85 16.83 3.15-1.9 3.15 1.93-.83-3.6 2.78-2.4-3.65-.33L12 7.13l-1.45 3.4-3.65.32 2.78 2.43-.83 3.55Z" +
+                "M5.83 21l1.62-7.03L2 9.24l7.2-.63L12 2l2.8 6.63 7.2.63-5.45 4.73L18.18 21 12 17.27 5.83 21Z" +
+                "M12 12.25Z",
+        )
+    }
+
+    /** Three lines: every inbox. */
+    val Menu: ImageVector by lazy {
+        vector("Menu", "M3 18v-2h18v2H3Zm0-5v-2h18v2H3Zm0-5V6h18v2H3Z")
+    }
+
+    /** A clock face: waiting on the customer. */
+    val Schedule: ImageVector by lazy {
+        vector(
+            "Schedule",
+            "m15.3 16.7 1.4-1.4-3.7-3.7V7h-2v5.4ZM12 22q-2.08 0-3.9-.79-1.83-.79-3.18-2.14-1.35-1.35-2.14-3.18" +
+                "Q2 14.07 2 12t.79-3.9q.79-1.82 2.14-3.18Q6.28 3.57 8.1 2.79 9.92 2 12 2q2.08 0 3.9.79 1.82.79 3.18 " +
+                "2.14 1.35 1.35 2.14 3.18Q22 9.92 22 12t-.79 3.9q-.79 1.83-2.14 3.18-1.35 1.35-3.18 2.14Q14.08 22 12 " +
+                "22Zm0-2q3.33 0 5.67-2.33Q20 15.33 20 12t-2.33-5.67Q15.33 4 12 4T6.33 6.33Q4 8.67 4 12t2.33 5.67Q8.67 " +
+                "20 12 20Z",
+        )
+    }
+
+    /**
      * Turns SVG path data into an icon.
      *
      * `defaultWidth`/`Height` in dp and a 24-unit viewport is what every

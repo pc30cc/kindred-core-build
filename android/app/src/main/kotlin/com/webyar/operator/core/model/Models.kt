@@ -84,6 +84,11 @@ data class ConversationContact(
     val email: String? = null,
     @SerialName("avatar_url") val avatarUrl: String? = null,
     @SerialName("visitor_code") val visitorCode: String? = null,
+    /**
+     * Read for `channel` only (where the visitor writes from). Not cached:
+     * the conversation carries the same key, and that one is.
+     */
+    val metadata: JsonElement? = null,
 )
 
 /**

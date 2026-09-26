@@ -52,6 +52,14 @@ sealed interface Screen : NavKey {
 }
 
 /**
+ * The mail composer. With a thread and a mode it is a reply, a reply to all
+ * or a forward of that thread; with neither, a new mail.
+ */
+@Serializable data class EmailComposeKey(val sourceThreadId: String? = null, val mode: String? = null) : Screen {
+    override val tab get() = AppTab.INBOX
+}
+
+/**
  * The visitor of an open chat, as a contact — opened from the face or the
  * name in the chat, and kept on the inbox's stack so Back returns to the
  * chat rather than to the address book.

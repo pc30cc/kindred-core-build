@@ -35,14 +35,18 @@ import java.time.ZoneId
 import androidx.compose.ui.Alignment
 import com.webyar.operator.ui.components.LoadingIndicator
 import com.webyar.operator.core.model.MessageAttachment
+import com.webyar.operator.ui.components.OperatorAvatar
+import com.webyar.operator.ui.design.Size
 
 /**
  * A thread with one colleague.
  *
  * The same transcript as the visitor chat — us on the right, them on the left,
- * in every language — because it is the same [MessageBubble]. What it does not
- * have is the visitor chat's apparatus: no status, no priority, no transfer,
- * no saved replies, no AI. Two people and what they said.
+ * in every language — because it is the same [MessageBubble], faces included:
+ * each run ends with the photo of whoever wrote it, theirs on their side and
+ * ours on ours. What it does not have is the visitor chat's apparatus: no
+ * status, no priority, no transfer, no saved replies, no AI. Two people and
+ * what they said.
  */
 @Composable
 fun TeamThreadScreen(
@@ -55,6 +59,10 @@ fun TeamThreadScreen(
     onRetry: () -> Unit = {},
     /** The scoped, on-demand source; wins over [loadAttachment]. */
     attachments: AttachmentSource? = null,
+    /** The colleague's photo, beside their messages. */
+    peerAvatarUrl: String? = null,
+    /** The operator's own, beside theirs. */
+    myAvatarUrl: String? = null,
     composer: @Composable () -> Unit = {},
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -86,6 +94,8 @@ fun TeamThreadScreen(
                     language = language,
                     contentPadding = contentPadding,
                     source = source,
+                    peerAvatarUrl = peerAvatarUrl,
+                    myAvatarUrl = myAvatarUrl,
                 )
             }
         }
@@ -102,6 +112,8 @@ private fun Transcript(
     language: Language,
     contentPadding: PaddingValues,
     source: AttachmentSource?,
+    peerAvatarUrl: String?,
+    myAvatarUrl: String?,
 ) {
     val listState = rememberLazyListState()
     val rows = remember(messages, me) { layout(messages, me) }
@@ -123,10 +135,14 @@ private fun Transcript(
                 startsRun = row.startsRun,
                 time = row.message.createdAt,
                 language = language,
-                // No face: every incoming message in a two-party thread is
-                // the same person, and a column of identical avatars beside
-                // their own name in the title bar says nothing twice.
-                avatar = null,
+                // A face at the foot of each run, as in the visitor chat —
+                // the skeleton circle while a photo loads, never initials.
+                avatar = {
+                    OperatorAvatar(
+                        imageUrl = if (row.outgoing) myAvatarUrl else peerAvatarUrl,
+                        size = Size.avatarSmall,
+                    )
+                },
                 bare = row.message.body.isNullOrBlank() &&
                     row.message.attachment?.resolvedKind == MessageAttachment.Kind.IMAGE,
             ) {

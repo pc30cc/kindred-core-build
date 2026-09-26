@@ -73,6 +73,23 @@ import com.webyar.operator.i18n.StrManual
 import com.webyar.operator.ui.components.VoiceTransport
 import com.webyar.operator.ui.components.rememberPressShape
 import com.webyar.operator.ui.components.rememberVoiceNotePlayer
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.activity.compose.BackHandler
+import com.webyar.operator.ui.components.EmojiPanel
+import com.webyar.operator.ui.components.deleteBefore
 
 /**
  * The one place a message is written.
@@ -88,6 +105,7 @@ import com.webyar.operator.ui.components.rememberVoiceNotePlayer
  * Which controls appear is [ComposerCapabilities]' decision, and it says no
  * while the AI owns the thread — see its note.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun Composer(
     language: Language,
@@ -117,7 +135,66 @@ fun Composer(
 ) {
     val isSayNow = sayNowVoice != null
     val canSend = draft.isNotBlank() && !sending
+
+    // The field's own state, so the caret is known: an emoji goes where the
+    // caret is, not always at the end. The draft stays the caller's — when
+    // it changes from outside (sent, a saved reply dropped in) the caret goes
+    // to the end of the new text.
+    var field by remember { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
+    val value = if (field.text == draft) field else TextFieldValue(draft, TextRange(draft.length))
+    val setValue: (TextFieldValue) -> Unit = { next ->
+        field = next
+        if (next.text != draft) onDraftChange(next.text)
+    }
+
+    // The emoji panel takes the keyboard's place — and its height, so the
+    // field does not move when one replaces the other.
     var emojiOpen by remember { mutableStateOf(false) }
+    // True while the keyboard is closing to make way for the panel, so its
+    // going does not read as "the operator dismissed the panel".
+    var switching by remember { mutableStateOf(false) }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = remember { FocusRequester() }
+    val density = LocalDensity.current
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    val navBottom = WindowInsets.navigationBars.getBottom(density)
+    val imeVisible = WindowInsets.isImeVisible
+    var keyboardPx by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(imeBottom) { if (imeBottom > keyboardPx) keyboardPx = imeBottom }
+    LaunchedEffect(imeVisible) {
+        // The keyboard came back — the field was tapped: the panel gives way.
+        if (imeVisible && emojiOpen && !switching) emojiOpen = false
+        if (!imeVisible) switching = false
+    }
+    val openEmoji = {
+        switching = imeVisible
+        emojiOpen = true
+        keyboard?.hide()
+    }
+    val openKeyboard = {
+        emojiOpen = false
+        runCatching { focus.requestFocus() }
+        keyboard?.show()
+    }
+    // Back closes the panel before it leaves the chat, as it would close the
+    // keyboard. Composed only while open: a preview has no back dispatcher.
+    if (emojiOpen) BackHandler { emojiOpen = false }
+    val insertEmoji: (String) -> Unit = { emoji ->
+        val start = minOf(value.selection.start, value.selection.end)
+        val end = maxOf(value.selection.start, value.selection.end)
+        val text = value.text.replaceRange(start, end, emoji)
+        setValue(TextFieldValue(text, TextRange(start + emoji.length)))
+    }
+    val backspace: () -> Unit = {
+        val selection = value.selection
+        if (!selection.collapsed) {
+            val start = minOf(selection.start, selection.end)
+            setValue(TextFieldValue(value.text.removeRange(start, maxOf(selection.start, selection.end)), TextRange(start)))
+        } else {
+            val (text, caret) = deleteBefore(value.text, selection.start)
+            setValue(TextFieldValue(text, TextRange(caret)))
+        }
+    }
 
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -133,27 +210,12 @@ fun Composer(
         }
 
         Column {
-        if (emojiOpen && capabilities.canUseEmoji) {
-            EmojiStrip { onDraftChange(draft + it) }
-        }
-
         Row(
             Modifier.padding(horizontal = Space.sm, vertical = Space.sm),
             verticalAlignment = Alignment.Bottom,
         ) {
             if (capabilities.canAttach) {
                 AttachButton(language, onAttachPhoto, onAttachFile)
-            }
-            // `canUseEmoji` was computed by ComposerCapabilities and read by
-            // nothing: the plan said yes, the capability said yes, and no
-            // button was ever drawn. iOS has had the strip since it shipped.
-            if (capabilities.canUseEmoji) {
-                ComposerGlyph(
-                    icon = Glyph.Mood,
-                    label = Str.emoji(language),
-                    tag = A11y.COMPOSER_EMOJI,
-                    onClick = { emojiOpen = !emojiOpen },
-                )
             }
             if (canUseShortcuts && !isSayNow) {
                 ComposerGlyph(
@@ -175,13 +237,41 @@ fun Composer(
                 Row(
                     Modifier
                         .heightIn(min = Size.minTouchTarget)
-                        .padding(horizontal = Space.lg, vertical = Space.sm),
+                        .padding(
+                            start = if (capabilities.canUseEmoji) Space.xs else Space.lg,
+                            end = Space.lg,
+                            top = Space.xs,
+                            bottom = Space.xs,
+                        ),
                     verticalAlignment = Alignment.Bottom,
                 ) {
-                    Box(Modifier.weight(1f).padding(vertical = Space.xs)) {
+                    // Inside the field, at its start, as every messenger has
+                    // it: the smiley opens the panel in the keyboard's place,
+                    // and becomes a keyboard that goes back.
+                    if (capabilities.canUseEmoji) {
+                        IconButton(
+                            onClick = { if (emojiOpen) openKeyboard() else openEmoji() },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .testTag(A11y.COMPOSER_EMOJI),
+                        ) {
+                            Icon(
+                                if (emojiOpen) Glyph.Keyboard else Glyph.Mood,
+                                contentDescription = if (emojiOpen) StrAndroid.keyboard(language) else Str.emoji(language),
+                                tint = if (emojiOpen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                    }
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .padding(vertical = Space.sm)
+                            .align(Alignment.CenterVertically),
+                    ) {
                         BasicTextField(
-                            value = draft,
-                            onValueChange = onDraftChange,
+                            value = value,
+                            onValueChange = setValue,
                             textStyle = MaterialTheme.typography.bodyLarge.copy(
                                 color = MaterialTheme.colorScheme.onSurface
                             ),
@@ -199,6 +289,7 @@ fun Composer(
                             maxLines = 6,
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .focusRequester(focus)
                                 .testTag(A11y.COMPOSER_FIELD),
                         )
                         if (draft.isEmpty()) {
@@ -243,46 +334,21 @@ fun Composer(
                 )
             }
         }
-        }
-    }
-}
 
-/**
- * A compact row of the emoji an operator actually reaches for.
- *
- * A full picker is a screen of its own, and the system keyboard already has
- * one; this covers the handful that appear in support replies without taking
- * the operator out of the composer. The same twelve as iOS, in the same
- * order, so a reply written on one platform looks like a reply written on the
- * other.
- */
-@Composable
-private fun EmojiStrip(onPick: (String) -> Unit) {
-    val emoji = remember {
-        listOf("\uD83D\uDC4D", "\uD83D\uDE4F", "\uD83D\uDE0A", "\uD83C\uDF89", "\u2705", "\u2764\uFE0F",
-               "\uD83D\uDE05", "\uD83D\uDD25", "\uD83D\uDC4C", "\uD83D\uDE4C", "\uD83D\uDE14", "\u23F3")
-    }
-    // Emoji are not mirrored, and neither is the order they are offered in —
-    // so the strip stays left-to-right even in a Persian thread.
-    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = Space.sm, vertical = Space.xs),
-            horizontalArrangement = Arrangement.spacedBy(Space.xs),
-        ) {
-            emoji.forEach { character ->
-                Box(
-                    Modifier
-                        .size(Size.minTouchTarget)
-                        .clip(CircleShape)
-                        .clickable { onPick(character) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(character, fontSize = 24.sp)
-                }
-            }
+        if (emojiOpen && capabilities.canUseEmoji) {
+            // The keyboard's height as last measured (a first opening before
+            // the keyboard was ever shown gets a keyboard-like default), less
+            // whatever of the keyboard is still on screen while it closes —
+            // so the two together never move the field.
+            val target = if (keyboardPx > navBottom) keyboardPx else with(density) { 300.dp.roundToPx() } + navBottom
+            val panelPx = (target - maxOf(imeBottom, navBottom)).coerceAtLeast(0)
+            EmojiPanel(
+                language = language,
+                height = with(density) { panelPx.toDp() },
+                onPick = insertEmoji,
+                onBackspace = backspace,
+            )
+        }
         }
     }
 }

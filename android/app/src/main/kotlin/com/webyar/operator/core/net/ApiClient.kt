@@ -99,6 +99,10 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import java.io.File
 import java.io.IOException
+import com.webyar.operator.core.model.EmailFolder
+import com.webyar.operator.core.model.EmailDraft
+import com.webyar.operator.core.model.StagedEmailAttachment
+import io.ktor.http.content.ByteArrayContent
 
 /**
  * Talks to the same REST API the web client uses.
@@ -988,6 +992,83 @@ class ApiClient(
             body = EmailSendBody(threadId, to, subject, body),
         ).orThrow()
     }
+
+    override suspend fun emailThreadsPage(
+        workspaceId: String,
+        folder: EmailFolder,
+        search: String?,
+        before: String?,
+    ): EmailThreadsResponse {
+        val query = buildList {
+            add("limit" to "30")
+            addAll(folder.query)
+            before?.let { add("before" to it) }
+            search?.takeIf { it.isNotBlank() }?.let { add("q" to it.trim()) }
+        }
+        return build(HttpMethod.Get, "/api/email-inbox/${workspaceId.urlPath()}/threads", query).decode()
+    }
+
+    @Serializable
+    private data class EmailDraftBody(
+        val thread_id: String?,
+        val to: List<String>,
+        val cc: List<String>? = null,
+        val bcc: List<String>? = null,
+        val subject: String,
+        val text_body: String,
+        val attachments: List<StagedEmailAttachment>? = null,
+    )
+
+    override suspend fun sendEmailDraft(workspaceId: String, draft: EmailDraft) {
+        build(
+            HttpMethod.Post,
+            "/api/email-inbox/${workspaceId.urlPath()}/send",
+            body = EmailDraftBody(
+                thread_id = draft.threadId,
+                to = draft.to,
+                cc = draft.cc.takeIf { it.isNotEmpty() },
+                bcc = draft.bcc.takeIf { it.isNotEmpty() },
+                subject = draft.subject,
+                text_body = draft.body,
+                attachments = draft.attachments.takeIf { it.isNotEmpty() },
+            ),
+        ).orThrow()
+    }
+
+    /**
+     * Raw bytes, not the JSON-and-base64 the chat's upload uses: the email
+     * route takes the file as the request body (`express.raw`, 25 MB), and
+     * base64 would add a third to every attachment on a phone connection.
+     */
+    override suspend fun stageEmailAttachment(
+        workspaceId: String,
+        bytes: ByteArray,
+        filename: String,
+        contentType: String,
+    ): StagedEmailAttachment {
+        val url = url(
+            "/api/email-inbox/${workspaceId.urlPath()}/attachments",
+            listOf("filename" to filename, "content_type" to contentType),
+        )
+        val response = try {
+            http.request(url) {
+                method = HttpMethod.Post
+                header("Accept", "application/json")
+                header("X-Client-Platform", "android")
+                currentTokenHeader(this)
+                setBody(ByteArrayContent(bytes, runCatching { ContentType.parse(contentType) }.getOrDefault(ContentType.Application.OctetStream)))
+            }
+        } catch (t: Throwable) {
+            if (t is kotlinx.coroutines.CancellationException) throw t
+            throw ApiError.Transport(t)
+        }
+        return response.decode()
+    }
+
+    override suspend fun emailAttachmentData(workspaceId: String, attachmentId: String): ByteArray =
+        build(HttpMethod.Get, "/api/email-inbox/${workspaceId.urlPath()}/attachments/${attachmentId.urlPath()}/file")
+            .orThrow()
+            .readRawBytes()
 
     override suspend fun gmailConnection(workspaceId: String): GmailConnection? =
         build(HttpMethod.Get, "/api/plugins/gmail/connection", listOf("workspace_id" to workspaceId))

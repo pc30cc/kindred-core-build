@@ -33,6 +33,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import com.webyar.operator.core.model.SenderType
 
 /**
  * One open conversation: its transcript, its draft, and everything the header
@@ -130,6 +132,7 @@ class ChatViewModel(
         _draft.value = ""
         _notes.value = emptyList()
         usedShortcuts.clear()
+        sync.coordinator.ensureFocus(scope)
         sync.coordinator.openThread(conversationId)
 
         jobs = listOf(
@@ -152,6 +155,7 @@ class ChatViewModel(
                 sync.messages.observeThread(scope, conversationId).collect {
                     rows = it
                     publish()
+                    markSeenIfNew(it)
                 }
             },
             viewModelScope.launch { refresh("open") },
@@ -159,7 +163,38 @@ class ChatViewModel(
         loadNotes()
     }
 
+    /** The newest visitor message already seen on this screen. */
+    private var lastVisitorKey: String? = null
+    private var seenJob: Job? = null
+
+    /**
+     * A visitor message that arrives while the chat is open has been read —
+     * the operator is looking at it. Marked seen shortly after it lands
+     * (several in a row are one request), or the thread on screen shows an
+     * unread badge in the list and on the operator's other devices.
+     *
+     * The first emission is what was already there; opening the chat marks
+     * that seen itself.
+     */
+    private fun markSeenIfNew(list: List<Message>) {
+        val latest = list.lastOrNull { it.senderType == SenderType.CONTACT } ?: return
+        val key = latest.stableKey
+        val previous = lastVisitorKey
+        lastVisitorKey = key
+        if (previous == null || previous == key) return
+        seenJob?.cancel()
+        seenJob = viewModelScope.launch {
+            delay(SEEN_DEBOUNCE_MS)
+            val scope = scope ?: return@launch
+            val id = conversationId ?: return@launch
+            runCatchingUnlessCancelled { api.markSeen(id) }
+                .onSuccess { sync.conversations.clearUnread(scope, id) }
+        }
+    }
+
     private fun close() {
+        seenJob?.cancel()
+        lastVisitorKey = null
         jobs.forEach { it.cancel() }
         jobs = emptyList()
         conversationId?.let { sync.coordinator.closeThread(it) }
@@ -388,6 +423,9 @@ class ChatViewModel(
                 .onSuccess {
                     _draft.value = ""
                     refresh("say now")
+                    // Say-now hands the thread back to the AI: its row has
+                    // to move to the AI's queue and its composer change.
+                    sync.coordinator.onLocalChange(id, "say now", thread = false)
                 }
                 .onFailure { _notice.value = it.displayText(language()) }
             _sending.value = false
@@ -482,3 +520,6 @@ class ChatViewModel(
 
     private fun requireWorkspace(): String = workspaceId.orEmpty()
 }
+
+/** Several visitor messages in a burst are one "seen". */
+private const val SEEN_DEBOUNCE_MS = 700L

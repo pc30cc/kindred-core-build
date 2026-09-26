@@ -95,8 +95,17 @@ async function readCounterColumn(
     | 'email_sent_count'
     | 'call_minutes_used',
 ): Promise<number> {
+  return (await readCounterColumnRow(config, workspaceId, column, currentMonthPeriod())) ?? 0;
+}
+
+/** One period's value of a counter column; null when that period has no row. */
+async function readCounterColumnRow(
+  config: ServerConfig,
+  workspaceId: string,
+  column: Parameters<typeof readCounterColumn>[2],
+  period: string,
+): Promise<number | null> {
   const sb = makeClient(config);
-  const period = currentMonthPeriod();
   const { data, error } = await sb
     .from('workspace_usage_counters')
     .select(column)
@@ -104,7 +113,8 @@ async function readCounterColumn(
     .eq('period', period)
     .maybeSingle();
   if (error) throw new Error(`counter_read_failed:${column}:${error.message}`);
-  const v = (data as Record<string, unknown> | null)?.[column];
+  if (!data) return null;
+  const v = (data as Record<string, unknown>)[column];
   return typeof v === 'number' && Number.isFinite(v) ? v : 0;
 }
 
@@ -144,6 +154,36 @@ async function resolveMaxVisitors(
 }
 
 /**
+ * Storage occupancy is cumulative, not monthly, so the newest counter row
+ * holds it. The current month's row is read first, exactly as before; when
+ * there is none yet — no counter has written this month — the newest earlier
+ * month is used instead of 0, which let a workspace upload past its limit at
+ * the start of every month. New month rows are seeded with the prior
+ * occupancy when created (migration 220). If that fallback read fails the
+ * result is the old 0.
+ */
+async function readStorageBytes(config: ServerConfig, workspaceId: string): Promise<number> {
+  const period = currentMonthPeriod();
+  const current = await readCounterColumnRow(config, workspaceId, 'storage_bytes', period);
+  if (current !== null) return current;
+  try {
+    const { data, error } = await makeClient(config)
+      .from('workspace_usage_counters')
+      .select('storage_bytes')
+      .eq('workspace_id', workspaceId)
+      .lt('period', period)
+      .order('period', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) return 0;
+    const v = (data as { storage_bytes?: unknown } | null)?.storage_bytes;
+    return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * `storage_gb` limit is in GB but the underlying counter is bytes.
  * Return value in GB (rounded down to 4 decimals) so it can be compared
  * directly against `limits.storage_gb`.
@@ -152,7 +192,7 @@ async function resolveStorageGb(
   config: ServerConfig,
   workspaceId: string,
 ): Promise<UsageResolution> {
-  const bytes = await readCounterColumn(config, workspaceId, 'storage_bytes');
+  const bytes = await readStorageBytes(config, workspaceId);
   const gb = bytes / (1024 * 1024 * 1024);
   return {
     value: Math.round(gb * 10_000) / 10_000,
@@ -554,7 +594,7 @@ export async function resolveUsage(
   }
   try {
     return await fn(config, workspaceId);
-  } catch (err: any) {
+  } catch (err) {
     return {
       value: 0,
       period: currentMonthPeriod(),
@@ -600,7 +640,7 @@ export function listUsageSupport(): Array<{
  */
 export function usageFnForLimit(limitKey: string) {
   return async (req: Request, workspaceId: string): Promise<number> => {
-    const config = (req as any).serverConfig as ServerConfig | undefined;
+    const config = (req as Request & { serverConfig?: ServerConfig }).serverConfig;
     if (!config) throw new Error('serverConfig_missing');
     const r = await resolveUsage(config, workspaceId, limitKey);
     if (!r.supported) {

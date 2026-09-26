@@ -5,14 +5,14 @@ _Status: **canonical producer installed.** `requireLimit('storage_gb', ...)` rol
 ## Locked semantics
 
 - Unit of truth: `workspace_usage_counters.storage_bytes` (bigint, bytes).
-- Resolver: `resolveStorageGb` (`server/services/billing/usageResolvers.ts`) reads bytes for the workspace's current-month row and converts to GB.
-- Cap kind: **cumulative current occupancy.** A stored byte keeps consuming the cap until the file is deleted. Period rollover does **not** zero the counter — the producer carries the prior period's value forward when it first writes the new monthly row.
+- Resolver: `resolveStorageGb` (`server/services/billing/usageResolvers.ts`) reads bytes for the workspace's current-month row — or, when no counter has written this month yet, the newest earlier month's row — and converts to GB.
+- Cap kind: **cumulative current occupancy.** A stored byte keeps consuming the cap until the file is deleted. Period rollover does **not** zero the counter — every new monthly row is seeded with the prior period's value when it is created, by whichever counter creates it (migration 220).
 - What counts: every byte persisted via `uploadFile()` in `server/services/storage/index.ts`. That includes operator uploads, conversation attachments, and widget visitor attachments — all upload paths funnel through the same service.
 - What does **not** count: external URLs, third-party-managed buckets the platform did not write, database rows, log tables.
 
 ## Canonical producer
 
-**Single writer:** Postgres trigger `trg_storage_usage_logs_apply` invoking `public.apply_storage_usage_log()` on `AFTER INSERT` of `storage_usage_logs`.
+**Single writer of changes:** Postgres trigger `trg_storage_usage_logs_apply` invoking `public.apply_storage_usage_log()` on `AFTER INSERT` of `storage_usage_logs`. (The seeding trigger on `workspace_usage_counters` only copies the prior month's value into a new row; it never changes occupancy.)
 
 Behavior:
 
@@ -22,7 +22,7 @@ Behavior:
 | `delete`  | `true`  | `> 0`     | `-= file_size` (clamped at 0) |
 | anything else, or `success=false`, or null/zero `file_size` | — | — | **no-op** |
 
-New monthly rows are seeded by carrying forward the most recent prior period's `storage_bytes` value, so cumulative occupancy survives rollover while the resolver continues to read the current-month row unchanged.
+New monthly rows are seeded by carrying forward the most recent prior period's `storage_bytes` value. Since migration 220 that seeding is done by the `BEFORE INSERT` trigger `trg_workspace_usage_counters_seed_storage` for **every** new row, and the producer inserts only its delta. Before, only the producer seeded — and only when its own insert created the month's row. The message, conversation, visitor, AI and call-minute counters write the same row and usually created it first with `storage_bytes = 0`, so an active workspace's occupancy fell back to one month's uploads every month.
 
 ## Authoritative write/delete points
 
@@ -41,7 +41,9 @@ No route handler writes the counter directly. There is no inline counter math an
 
 ## Backfill
 
-**Intentionally skipped.** The producer is forward-correct only:
+**Carry-forward losses were restored by migration 220.** Nothing counted storage before the producer existed, so a workspace's first month with `storage_bytes > 0` is correct as stored; from the following month on the producer applied exactly the sized, successful upload/delete rows of `storage_usage_logs`. That first month plus the net of those rows is what the counter would hold had no seed been lost, and the migration adds the missing difference to the newest row (idempotently — rerunning it finds nothing to add). To check a database by hand, compare that sum with the newest row's `storage_bytes`.
+
+A full backfill of storage from before the producer existed remains **intentionally skipped**:
 
 - Historical `storage_usage_logs` delete rows do not carry `file_size`, so a backfill from logs would systematically over-count storage by ignoring deletes whose sizes are unknown.
 - Re-deriving from current blob inventories would require provider round-trips that the self-host architecture does not have a generic primitive for.
@@ -51,7 +53,7 @@ If, later, a workspace needs an exact recompute we can ship a per-workspace inve
 
 ## Resolver alignment
 
-`resolveStorageGb` reads `storage_bytes` for `currentMonthPeriod()`. The producer always writes (or upserts) the current-month row keyed by `to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM')`, which is exactly the same string `currentMonthPeriod()` produces. Carry-forward seeding ensures rollover preserves cumulative occupancy. No resolver change was needed.
+`resolveStorageGb` reads `storage_bytes` for `currentMonthPeriod()`, falling back to the newest earlier month when this month has no row yet (otherwise usage read 0 at the start of every month until some counter created the row). The producer always writes (or upserts) the current-month row keyed by `to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM')`, which is exactly the same string `currentMonthPeriod()` produces.
 
 ## Rollout status
 

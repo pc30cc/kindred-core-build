@@ -42,7 +42,9 @@
    - Permissions → **Contents: Read and write**
    - وقتی توکن منقضی شد، همین را تمدید یا دوباره بسازید. بدون آن، مرحله‌ی «Publish release» با خطای
      `DESKTOP_RELEASES_TOKEN is not set` متوقف می‌شود.
-2. در سوپر ادمین آپدیت خودکار روشن باشد و آدرس فید یکی از این دو باشد:
+2. **مخزن `webyar-desktop-releases` حداقل یک commit داشته باشد** (مثلاً یک `README.md`).
+   در مخزن خالی GitHub نمی‌تواند تگ بسازد، پس ریلیز به‌صورت **draft** می‌ماند. اپ‌های نصب‌شده draft را نمی‌بینند.
+3. در سوپر ادمین آپدیت خودکار روشن باشد و آدرس فید یکی از این دو باشد:
    `https://github.com/pc30cc/webyar-desktop-releases` یا
    `https://github.com/pc30cc/webyar-desktop-releases/releases/latest/download`.
 
@@ -76,6 +78,7 @@
 | مرحله‌ی «Version»: `Tag X does not match <Version> Y` | تگ و `<Version>` یکی نیستند. تگ را روی کامیتی بزنید که همان نسخه را دارد. |
 | مرحله‌ی «Test Core» شکست خورد | باگ را رفع کنید و نسخه را یک پله بالا ببرید (مثلاً ۲.۴.۲ → ۲.۴.۳). تگ قبلی را دوباره استفاده نکنید. |
 | `DESKTOP_RELEASES_TOKEN is not set` یا خطای دسترسی | توکن را بسازید یا تمدید کنید (بخش ۲). بعد در صفحه‌ی همان اجرا «Re-run failed jobs» را بزنید؛ تگ جدید لازم نیست. |
+| ریلیز در `webyar-desktop-releases` به‌صورت **Draft** مانده (آدرسش `untagged-…` است)، یا مرحله‌ی «Publish release» با `The release is still a draft` متوقف شد | مخزن ریلیزها commit ندارد. یک `README.md` به آن اضافه کنید، بعد draft را باز کنید و «Publish release» را بزنید. نسخه و تگ جدید لازم نیست. |
 | jobها در چند ثانیه fail شدند و runner نگرفتند | مشکل GitHub است؛ یک بار «Re-run» بزنید. |
 | اپ آپدیت نمی‌شود | ۱) نسخه‌ی منتشرشده از نسخه‌ی نصب‌شده بزرگ‌تر باشد؛ ۲) در سوپر ادمین آپدیت خودکار روشن و فید درست باشد؛ ۳) اپ با `Webyar-Setup.exe` نصب شده باشد، نه کپی دستی یا portable. |
 

@@ -12,7 +12,8 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { redactSecrets } from '../../lib/redactSecrets.js';
 import { getOrCreateSettings } from '../../services/ai-agent/settings.js';
-import { retrieveHybridSources } from '../../services/ai-agent/retrievalHybrid.js';
+import { retrieveHybridSources, type HybridRetrievalResult } from '../../services/ai-agent/retrievalHybrid.js';
+import type { RetrievedSource } from '../../services/ai-agent/retrieval.js';
 import {
   beginAiRunGuarded as e7_beginAiRunGuarded,
   settleAiRun as e7_settleAiRun,
@@ -107,9 +108,9 @@ async function e7PersistAssistRun(
     tone: string | null;
     suggestion: string | null;
     confidence: number | null;
-    selectedSources: any[];
-    retrievalDebug: any;
-    answerStrategy: any;
+    selectedSources: unknown[];
+    retrievalDebug: unknown;
+    answerStrategy: unknown;
     safetyNotes: string[];
     provider: string | null;
     model: string | null;
@@ -168,11 +169,11 @@ async function e7PersistAssistRun(
           safety_notes: payload.safetyNotes?.slice(0, 10) || [],
         },
       });
-    } catch (mirrorErr: any) {
+    } catch (mirrorErr) {
       console.warn('[ai-agent.e7] assist run mirror failed:', mirrorErr?.message);
     }
     return assistRunId;
-  } catch (err: any) {
+  } catch (err) {
     console.error('[ai-agent.e7] persist assist run failed:', err?.message);
     return null;
   }
@@ -180,7 +181,7 @@ async function e7PersistAssistRun(
 
 
 operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as Request & { serverConfig: ServerConfig }).serverConfig;
   const parsed = suggestReplySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
   const { workspaceId, conversationId, locale, tone, instruction } = parsed.data;
@@ -316,7 +317,7 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
         ? { promptChars: inputMessage.length + tailContext.length, provider: assistAiCfg.provider, model: assistAiCfg.model }
         : { promptChars: inputMessage.length + tailContext.length },
     });
-  } catch (err: any) {
+  } catch (err) {
     // beginAiRunGuarded already applied mode-aware semantics: it only ever
     // throws here for ai_allowance_exhausted (always) or, under ENFORCED,
     // a real billing configuration problem — never for a routine METER_ONLY
@@ -341,7 +342,7 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
       if (failure) await e7_failAiRun(config, assistRunCtx, failure);
       else if (assistRunCtx.stepSeq > 0) await e7_settleAiRun(config, assistRunCtx);
       else await e7_failAiRun(config, assistRunCtx, 'no_billable_usage');
-    } catch (closeErr: any) {
+    } catch (closeErr) {
       console.error(
         '[ai-billing] operator assist run not closed:',
         assistRunCtx.runId,
@@ -350,7 +351,7 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
     }
   };
 
-  let hybrid: any;
+  let hybrid: HybridRetrievalResult;
 
   try {
     hybrid = await retrieveHybridSources(config, {
@@ -363,7 +364,7 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
       inputLanguage: responseLocale,
       limit: 8,
     });
-  } catch (err: any) {
+  } catch (err) {
     await e7PersistAssistRun(config, {
       workspaceId, conversationId, requestedBy: auth.userId,
       status: 'failed', inputMessage, instruction: instruction ?? null, tone: tone ?? null,
@@ -376,7 +377,7 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
   }
 
   const sources = hybrid.sources || [];
-  const selectedSources = sources.map((s: any) => ({
+  const selectedSources = sources.map((s) => ({
     id: s.source_id,
     source_id: s.source_id,
     source_type: s.source_type,
@@ -389,11 +390,11 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
   if (sources.length === 0) safetyNotes.push('no_eligible_knowledge_sources');
 
   // Excluded summary for the UI debug modal (counts of sources filtered out).
-  const excludedSummary: Record<string, number> = (hybrid.retrievalDebug?.excluded_summary)
-    || (hybrid.retrievalDebug?.excluded as any)
-    || {};
+  const excludedSummary = (hybrid.retrievalDebug?.excluded_summary
+    || hybrid.retrievalDebug?.excluded
+    || {}) as Record<string, number>;
 
-  const enginePromptSources = sources.map((s: any) => ({
+  const enginePromptSources = sources.map((s) => ({
     kind: s.kind === 'qna' ? 'qna' : 'kb_article',
     id: s.source_id,
     title: s.title,
@@ -405,7 +406,7 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
     source_type: s.source_type,
     source_url: s.source_type === 'file' ? null : (s.source_url ?? null),
     url_boost: s.url_boost,
-  } as any));
+  } as RetrievedSource));
 
   const strategy = e7_decideStrategy({
     settings,
@@ -532,23 +533,13 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
         : settings.answer_guidance === 'balanced' ? 0.4 : 0.25,
     }, assistRunCtx ?? undefined);
     const suggestion = (result.text || '').trim() || null;
-    // Increment usage only after a non-empty successful suggestion.
-    if (suggestion) {
-      try {
-        const { error: usageErr } = await sb.rpc('increment_usage_counter', {
-          _workspace_id: workspaceId,
-          _counter_name: 'ai_operator_suggestions',
-          _amount: 1,
-        });
-        if (usageErr) {
-          console.error('[ai-agent.e7] usage increment failed:', usageErr.message);
-          safetyNotes.push('usage_increment_failed');
-        }
-      } catch (uerr: any) {
-        console.error('[ai-agent.e7] usage increment exception:', uerr?.message);
-        safetyNotes.push('usage_increment_failed');
-      }
-    }
+    // No usage-counter bump here. It incremented `ai_operator_suggestions`,
+    // a workspace_usage_counters column that exists in neither migration
+    // chain, so the RPC failed on every successful suggestion and each one
+    // carried a false "usage counter was not updated" note to the operator.
+    // Nothing reads such a counter; the suggestion's cost is metered by AI
+    // billing through assistRunCtx. A plan limit on suggestions would need
+    // that column added first.
 
     const out = {
       ...baseResponse,
@@ -572,7 +563,7 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
     // audit trail showed no charge. closeAssistRun logs instead of swallowing.
     await closeAssistRun();
     return res.json(out);
-  } catch (err: any) {
+  } catch (err) {
     const notes = [`llm_error:${err?.message || 'unknown'}`, ...safetyNotes];
     await e7PersistAssistRun(config, {
       workspaceId, conversationId, requestedBy: auth.userId,
@@ -612,7 +603,7 @@ const e8FeedbackSchema = z.object({
 });
 
 operatorAssistRouter.post('/operator-assist/:runId/feedback', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as Request & { serverConfig: ServerConfig }).serverConfig;
   const runId = String(req.params.runId || '');
   if (!/^[0-9a-f-]{36}$/i.test(runId)) {
     return res.status(400).json({ error: 'invalid_run_id' });
@@ -687,7 +678,7 @@ function e8RangeToDays(range: string | undefined): number {
 }
 
 operatorAssistRouter.get('/operator-assist/analytics', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as Request & { serverConfig: ServerConfig }).serverConfig;
   const workspaceId = String(req.query.workspaceId || '');
   if (!/^[0-9a-f-]{36}$/i.test(workspaceId)) {
     return res.status(400).json({ error: 'invalid_workspace' });
@@ -727,7 +718,7 @@ operatorAssistRouter.get('/operator-assist/analytics', async (req: Request, res:
   const by_reason_map: Record<string, number> = {};
   const by_action_map: Record<string, number> = {};
   const ACCEPT_ACTIONS = new Set(['inserted','replaced','appended','copied','sent_after_edit','sent_as_is']);
-  let acceptedRuns = new Set<string>();
+  const acceptedRuns = new Set<string>();
   for (const f of feedback) {
     if (f.rating === 'positive') positive++;
     else if (f.rating === 'negative') negative++;
@@ -752,7 +743,7 @@ operatorAssistRouter.get('/operator-assist/analytics', async (req: Request, res:
       sourceTypeAgg['no_source'] = { runs: (sourceTypeAgg['no_source']?.runs || 0) + 1 };
     }
     if (notes.includes('usage_increment_failed')) usage_increment_failed_count++;
-    const sources: any[] = Array.isArray(r.selected_sources) ? r.selected_sources : [];
+    const sources: Array<{ source_type?: unknown } | null> = Array.isArray(r.selected_sources) ? r.selected_sources : [];
     const seen = new Set<string>();
     for (const s of sources) {
       const t = String(s?.source_type || 'unknown');
@@ -798,7 +789,7 @@ operatorAssistRouter.get('/operator-assist/analytics', async (req: Request, res:
     .slice(0, 25)
     .map((r) => {
       const notes: string[] = Array.isArray(r.safety_notes) ? r.safety_notes : [];
-      const sources: any[] = Array.isArray(r.selected_sources) ? r.selected_sources : [];
+      const sources: Array<{ source_type?: unknown } | null> = Array.isArray(r.selected_sources) ? r.selected_sources : [];
       const fb = negFeedbackByRun.get(r.id);
       return {
         run_id: r.id,

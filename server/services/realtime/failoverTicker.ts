@@ -62,7 +62,7 @@ export async function runFailoverTickOnce(config: ServerConfig): Promise<void> {
         rememberFailoverState(decision.next);
         return;
       }
-    } catch (err: any) {
+    } catch (err) {
       emitLog(config, 'warn', 'realtime_failover_tick_failed', {
         error: err?.message || 'unknown',
       });
@@ -83,7 +83,7 @@ async function commitUnderLease(config: ServerConfig, health: HealthSnapshot): P
   let leased = false;
   try {
     leased = await acquireTickerLease(config, LEASE_NAME);
-  } catch (err: any) {
+  } catch (err) {
     emitLog(config, 'warn', 'failover_ticker_lease_unavailable', { error: err?.message || 'unknown' });
     return; // fail-closed: skip this cycle rather than risk conflicting failover decisions across replicas
   }
@@ -124,7 +124,7 @@ async function commitUnderLease(config: ServerConfig, health: HealthSnapshot): P
           result: 'success',
           ip_address: null,
         });
-      } catch (err: any) {
+      } catch (err) {
         emitLog(config, 'warn', 'realtime_failover_audit_write_failed', {
           error: err?.message || 'unknown',
         });
@@ -140,7 +140,7 @@ async function commitUnderLease(config: ServerConfig, health: HealthSnapshot): P
         reason: t.reason,
       });
     }
-  } catch (err: any) {
+  } catch (err) {
     emitLog(config, 'warn', 'realtime_failover_tick_failed', {
       error: err?.message || 'unknown',
     });
@@ -155,7 +155,7 @@ export function startFailoverTicker(config: ServerConfig): void {
   // and immediately classify everything as 'unknown'.
   setTimeout(() => void runFailoverTickOnce(config), 10_000);
   timer = setInterval(() => void runFailoverTickOnce(config), TICK_MS);
-  if (typeof (timer as any)?.unref === 'function') (timer as any).unref();
+  (timer as { unref?: () => void }).unref?.();
 }
 
 export function __stopFailoverTickerForTests(): void {

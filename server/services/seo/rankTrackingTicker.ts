@@ -35,7 +35,7 @@ export function startRankTrackingTicker(config: ServerConfig): void {
   if (timer) return;
   setTimeout(() => runOnce(config), 60_000);
   timer = setInterval(() => runOnce(config), TICK_MS);
-  if (typeof (timer as any)?.unref === 'function') (timer as any).unref();
+  (timer as { unref?: () => void }).unref?.();
 }
 
 export function __stopRankTrackingTickerForTests(): void {
@@ -76,7 +76,7 @@ async function hasWorkToDo(config: ServerConfig): Promise<boolean> {
 async function runOnce(config: ServerConfig): Promise<void> {
   try {
     if (!(await hasWorkToDo(config))) return;
-  } catch (err: any) {
+  } catch (err) {
     emitLog(config, 'warn', 'seo_rank_ticker_cycle_threw', { error: err?.message || 'unknown' });
     return;
   }
@@ -84,7 +84,7 @@ async function runOnce(config: ServerConfig): Promise<void> {
   let leased = false;
   try {
     leased = await acquireTickerLease(config, LEASE_NAME);
-  } catch (err: any) {
+  } catch (err) {
     emitLog(config, 'warn', 'seo_rank_ticker_lease_unavailable', { error: err?.message || 'unknown' });
     return;
   }
@@ -116,7 +116,7 @@ async function runOnce(config: ServerConfig): Promise<void> {
       try {
         await checkOneKeyword(config, row);
         checked++;
-      } catch (err: any) {
+      } catch (err) {
         failed++;
         emitLog(config, 'warn', 'seo_rank_check_failed', { trackedKeywordId: row.id, error: err?.message || 'unknown' });
         await sb
@@ -128,7 +128,7 @@ async function runOnce(config: ServerConfig): Promise<void> {
     if (checked > 0 || failed > 0) {
       emitLog(config, 'info', 'seo_rank_ticker_cycle', { checked, failed, batchSize: rows.length });
     }
-  } catch (err: any) {
+  } catch (err) {
     emitLog(config, 'warn', 'seo_rank_ticker_cycle_threw', { error: err?.message || 'unknown' });
   } finally {
     await releaseTickerLease(config, LEASE_NAME);

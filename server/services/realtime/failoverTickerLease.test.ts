@@ -13,10 +13,19 @@
  * database; only the lease, the health probe and the policy are stubbed.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { ServerConfig } from '../../config.js';
+
+/** The realtime_failover_state row as the fake database stores it. */
+interface StoredRow {
+  effective_provider?: string;
+  last_health?: Record<string, { status?: string }>;
+  last_evaluated_at?: string | null;
+  [column: string]: unknown;
+}
 
 interface FakeDb {
-  row: any;
-  upserts: any[];
+  row: StoredRow | null;
+  upserts: StoredRow[];
 }
 
 const db: FakeDb = { row: null, upserts: [] };
@@ -29,7 +38,7 @@ vi.mock('../../supabase.js', () => ({
           maybeSingle: async () => ({ data: db.row, error: null }),
         }),
       }),
-      upsert: async (payload: any) => {
+      upsert: async (payload: StoredRow) => {
         db.upserts.push(payload);
         db.row = { ...payload };
         return { error: null };
@@ -52,15 +61,15 @@ vi.mock('./providerAudit.js', () => ({ recordRealtimeProviderAudit: () => audit(
 vi.mock('./resolvePublisher.js', () => ({ invalidatePublisherCache: () => undefined }));
 vi.mock('../observability/metrics.js', () => ({ emitLog: () => undefined }));
 
-let policy: any;
+let policy: Record<string, unknown>;
 vi.mock('./controlPlane.js', () => ({ loadControlPlane: async () => policy }));
 
-let providers: Record<string, any>;
+let providers: Record<string, unknown>;
 vi.mock('./failoverHealth.js', () => ({
   evaluateProviderHealth: async () => ({ window_seconds: 300, evaluated_at: Date.now(), providers }),
 }));
 
-const cfg = {} as any;
+const cfg = {} as ServerConfig;
 
 function signal(status: string) {
   return { status, error_rate: 0.001, p95_latency_ms: 12, sample_size: 20, reason: null, checked_at: Date.now() };

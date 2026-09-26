@@ -10,6 +10,7 @@
  * probe that cannot answer fails open: the pass runs exactly as before.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { ServerConfig } from '../../../server/config';
 
 /** Rows each probed table returns; a table named in `failing` errors instead. */
 let rows: Record<string, unknown[]> = {};
@@ -17,7 +18,7 @@ let failing = new Set<string>();
 const rpcCalls: string[] = [];
 
 function queryFor(table: string) {
-  const q: any = {};
+  const q: Record<string, unknown> = {};
   for (const m of ['select', 'eq', 'lt', 'lte', 'gt', 'in', 'not', 'limit', 'update', 'order']) {
     q[m] = () => q;
   }
@@ -40,7 +41,7 @@ vi.mock('../../../server/supabase', () => ({
 
 vi.mock('../../../server/services/ai-billing/runContext', () => ({ billingCycleId: () => '2026-01' }));
 
-const config = {} as any;
+const config = {} as ServerConfig;
 
 beforeEach(() => {
   vi.resetModules();

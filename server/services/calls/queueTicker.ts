@@ -75,12 +75,12 @@ async function autoAssignAllWorkspaces(config: ServerConfig): Promise<number> {
     .eq('state', 'queued')
     .limit(200);
   if (!data || data.length === 0) return 0;
-  const workspaces = Array.from(new Set(data.map((d) => (d as any).workspace_id as string)));
+  const workspaces = Array.from(new Set(data.map((d) => (d as { workspace_id: string }).workspace_id)));
   let total = 0;
   for (const ws of workspaces) {
     try {
       total += await autoAssignWorkspace(config, ws);
-    } catch (err: any) {
+    } catch (err) {
       console.warn('[callQueue] auto-assign failed for ws', ws, err?.message || err);
     }
   }
@@ -124,13 +124,13 @@ export function startCallQueueTicker(config: ServerConfig): void {
     passRunning = true;
     try {
       if (!(await hasActiveEntries(config))) return;
-      try { await expireStaleEntries(config); } catch (err: any) {
+      try { await expireStaleEntries(config); } catch (err) {
         console.warn('[callQueue] expiry sweep failed:', err?.message || err);
       }
-      try { await reapStaleOffers(config); } catch (err: any) {
+      try { await reapStaleOffers(config); } catch (err) {
         console.warn('[callQueue] reap stale offers failed:', err?.message || err);
       }
-      try { await autoAssignAllWorkspaces(config); } catch (err: any) {
+      try { await autoAssignAllWorkspaces(config); } catch (err) {
         console.warn('[callQueue] auto-assign failed:', err?.message || err);
       }
     } finally {

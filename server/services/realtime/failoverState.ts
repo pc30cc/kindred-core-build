@@ -46,7 +46,21 @@ function isProvider(v: unknown): v is RealtimeProviderId {
   return v === 'centrifugo' || v === 'supabase_realtime' || v === 'polling_builtin';
 }
 
-function normalize(row: any): FailoverState {
+/** The `realtime_failover_state` row as PostgREST returns it. */
+interface FailoverStateRow {
+  effective_provider?: unknown;
+  last_failover_at?: string | null;
+  last_failover_reason?: string | null;
+  candidate_recovery_provider?: unknown;
+  candidate_recovery_since?: string | null;
+  failback_eligible_at?: string | null;
+  cooldown_until?: string | null;
+  last_health?: unknown;
+  last_evaluated_at?: string | null;
+  updated_at?: string | null;
+}
+
+function normalize(row: FailoverStateRow | null): FailoverState {
   if (!row) return { ...FALLBACK_STATE };
   const ep = isProvider(row.effective_provider) ? row.effective_provider : 'centrifugo';
   const cand = isProvider(row.candidate_recovery_provider)
@@ -60,7 +74,9 @@ function normalize(row: any): FailoverState {
     candidate_recovery_since: row.candidate_recovery_since ?? null,
     failback_eligible_at: row.failback_eligible_at ?? null,
     cooldown_until: row.cooldown_until ?? null,
-    last_health: (row.last_health && typeof row.last_health === 'object') ? row.last_health : {},
+    last_health: (row.last_health && typeof row.last_health === 'object')
+      ? (row.last_health as Record<string, unknown>)
+      : {},
     last_evaluated_at: row.last_evaluated_at ?? null,
     updated_at: row.updated_at ?? new Date().toISOString(),
   };
@@ -79,7 +95,7 @@ export async function loadFailoverState(
   }
   try {
     const sb = getServiceClient(config);
-    const { data, error } = await (sb.from as any)('realtime_failover_state')
+    const { data, error } = await sb.from('realtime_failover_state')
       .select('*')
       .eq('id', 'singleton')
       .maybeSingle();
@@ -91,7 +107,7 @@ export async function loadFailoverState(
     const value = normalize(data);
     cache = { value, loadedAt: Date.now() };
     return value;
-  } catch (err: any) {
+  } catch (err) {
     console.warn('[realtime/failoverState] load threw:', err?.message);
     cache = { value: { ...FALLBACK_STATE }, loadedAt: Date.now() };
     return cache.value;
@@ -125,14 +141,15 @@ let lastPersistedSignature: string | null = null;
  * and did not persist. Accept both shapes.
  */
 function healthStatusSignature(health: Record<string, unknown>): string {
-  const nested = (health as any)?.providers;
-  const providers =
-    nested && typeof nested === 'object' && !Array.isArray(nested) ? nested : health;
+  const nested = (health as { providers?: unknown } | null)?.providers;
+  const providers = (
+    nested && typeof nested === 'object' && !Array.isArray(nested) ? nested : health
+  ) as Record<string, { status?: unknown } | null | undefined>;
   if (!providers || typeof providers !== 'object') return '';
   return Object.keys(providers)
     .sort()
     .filter((k) => providers[k] && typeof providers[k] === 'object')
-    .map((k) => `${k}=${(providers as any)[k]?.status ?? 'unknown'}`)
+    .map((k) => `${k}=${providers[k]?.status ?? 'unknown'}`)
     .join(',');
 }
 
@@ -203,7 +220,7 @@ export async function saveFailoverState(
   }
 
   const sb = getServiceClient(config);
-  const { error } = await (sb.from as any)('realtime_failover_state').upsert(
+  const { error } = await sb.from('realtime_failover_state').upsert(
     {
       id: 'singleton',
       effective_provider: merged.effective_provider,

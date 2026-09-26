@@ -18,7 +18,7 @@ export function startAlertingTicker(config: ServerConfig): void {
   // First run shortly after boot (gives the rollup ticker a head start).
   setTimeout(() => runOnce(config), 45_000);
   timer = setInterval(() => runOnce(config), TICK_MS);
-  if (typeof (timer as any)?.unref === 'function') (timer as any).unref();
+  (timer as { unref?: () => void }).unref?.();
 }
 
 async function runOnce(config: ServerConfig): Promise<void> {
@@ -33,7 +33,7 @@ async function runOnce(config: ServerConfig): Promise<void> {
   let leased = false;
   try {
     leased = await acquireTickerLease(config, LEASE_NAME);
-  } catch (err: any) {
+  } catch (err) {
     emitLog(config, 'warn', 'alert_ticker_lease_unavailable', { error: err?.message || 'unknown' });
     return; // fail-closed: skip this cycle rather than risk double-evaluating across replicas
   }
@@ -47,7 +47,7 @@ async function runOnce(config: ServerConfig): Promise<void> {
         state_changes: r.state_changes,
       });
     }
-  } catch (err: any) {
+  } catch (err) {
     emitLog(config, 'warn', 'alert_cycle_threw', { error: err?.message || 'unknown' });
   } finally {
     await releaseTickerLease(config, LEASE_NAME);

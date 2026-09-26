@@ -75,7 +75,7 @@ export function startNodeHealthRefresher(config: ServerConfig): void {
   const loop = async () => {
     try {
       await refreshNodeHealthOnce(config);
-    } catch (err: any) {
+    } catch (err) {
       console.warn('[realtime/healthRefresher]', err?.message || err);
     }
     if (!running) return;

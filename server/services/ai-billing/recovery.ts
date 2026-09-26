@@ -137,6 +137,12 @@ export async function runAiBillingRecoveryLeased(
   }
 }
 
+/** Row shapes the recovery pass reads (numerics may arrive as strings). */
+interface IdRow { id: string }
+interface PendingRunRow { id: string; sell_multiplier: string | number | null }
+interface UsageCostRow { provider_cost_usd: string | number; internal_cost_irr: string | number }
+interface OrphanRunRow { id: string; reservation_id: string | null }
+
 export async function runAiBillingRecovery(config: ServerConfig): Promise<RecoveryReport> {
   const sb = getServiceClient(config);
   const report: RecoveryReport = {
@@ -154,9 +160,9 @@ export async function runAiBillingRecovery(config: ServerConfig): Promise<Recove
     .eq('state', 'ACTIVE')
     .lt('expires_at', new Date().toISOString())
     .limit(BATCH);
-  for (const r of stale || []) {
-    await ledger.releaseReservation(config, (r as any).id).catch(() => undefined);
-    await sb.from('workspace_ai_reservations').update({ state: 'EXPIRED' }).eq('id', (r as any).id);
+  for (const r of (stale || []) as IdRow[]) {
+    await ledger.releaseReservation(config, r.id).catch(() => undefined);
+    await sb.from('workspace_ai_reservations').update({ state: 'EXPIRED' }).eq('id', r.id);
     report.releasedReservations += 1;
   }
 
@@ -169,31 +175,31 @@ export async function runAiBillingRecovery(config: ServerConfig): Promise<Recove
     .lt('updated_at', cutoff)
     .limit(BATCH);
 
-  for (const run of pending || []) {
+  for (const run of (pending || []) as PendingRunRow[]) {
     const { data: events } = await sb
       .from('ai_usage_events')
       .select('provider_cost_usd, internal_cost_irr')
-      .eq('run_id', (run as any).id);
+      .eq('run_id', run.id);
     let usd = 0n;
     let irr = 0n;
-    for (const e of events || []) {
-      usd = D.add(usd, D.fromString(String((e as any).provider_cost_usd)));
-      irr = D.add(irr, D.fromString(String((e as any).internal_cost_irr)));
+    for (const e of (events || []) as UsageCostRow[]) {
+      usd = D.add(usd, D.fromString(String(e.provider_cost_usd)));
+      irr = D.add(irr, D.fromString(String(e.internal_cost_irr)));
     }
-    const charge = D.mul(irr, D.fromString(String((run as any).sell_multiplier ?? '1')));
+    const charge = D.mul(irr, D.fromString(String(run.sell_multiplier ?? '1')));
     try {
       await ledger.settleRun(config, {
-        runId: (run as any).id,
-        commandKey: `settle:${(run as any).id}`,
+        runId: run.id,
+        commandKey: `settle:${run.id}`,
         providerCostUsd: D.toString(usd),
         internalCostIrr: D.toStoredIrr(irr),
         customerChargeIrr: D.toStoredIrr(charge),
         billingCycleId: billingCycleId(),
       });
       report.settledRuns += 1;
-    } catch (err: any) {
+    } catch (err) {
       // Leaving this silent hid unbilled runs indefinitely.
-      console.error('[ai-billing] recovery settle failed:', (run as any).id, err?.message || err);
+      console.error('[ai-billing] recovery settle failed:', run.id, err?.message || err);
     }
   }
 
@@ -204,14 +210,14 @@ export async function runAiBillingRecovery(config: ServerConfig): Promise<Recove
     .eq('status', 'RUNNING')
     .lt('started_at', cutoff)
     .limit(BATCH);
-  for (const run of orphans || []) {
-    if ((run as any).reservation_id) {
-      await ledger.releaseReservation(config, (run as any).reservation_id).catch(() => undefined);
+  for (const run of (orphans || []) as OrphanRunRow[]) {
+    if (run.reservation_id) {
+      await ledger.releaseReservation(config, run.reservation_id).catch(() => undefined);
     }
     await sb
       .from('ai_runs')
       .update({ status: 'CANCELLED', unresolved_reason: 'orphaned_run', finished_at: new Date().toISOString() })
-      .eq('id', (run as any).id);
+      .eq('id', run.id);
     report.closedRuns += 1;
   }
 
@@ -225,21 +231,21 @@ export async function runAiBillingRecovery(config: ServerConfig): Promise<Recove
     .in('billing_quality', ['ESTIMATED', 'UNRESOLVED'])
     .eq('status', 'SETTLED')
     .limit(BATCH);
-  for (const run of unresolved || []) {
+  for (const run of (unresolved || []) as IdRow[]) {
     const { data: authoritative } = await sb
       .from('ai_usage_events')
       .select('id, raw_usage_json, provider_cost_usd')
-      .eq('run_id', (run as any).id)
+      .eq('run_id', run.id)
       .not('raw_usage_json', 'is', null)
       .limit(1);
     const { count: conflicts } = await sb
       .from('ai_usage_event_conflicts')
       .select('id', { count: 'exact', head: true })
-      .eq('run_id', (run as any).id)
+      .eq('run_id', run.id)
       .eq('resolved', false);
     // No authoritative usage, or an open ingestion conflict → stays UNRESOLVED.
     if (!authoritative?.length || (conflicts ?? 0) > 0) continue;
-    await sb.from('ai_runs').update({ billing_quality: 'RECONCILED' }).eq('id', (run as any).id);
+    await sb.from('ai_runs').update({ billing_quality: 'RECONCILED' }).eq('id', run.id);
     report.reconciled += 1;
   }
 

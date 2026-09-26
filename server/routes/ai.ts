@@ -6,7 +6,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
-import { executeAICompletion, resolveAIConfig } from '../services/ai/index.js';
+import { executeAICompletion, resolveAIConfig, wasRequestCounted } from '../services/ai/index.js';
 import { runtimeTestConnection, AiRuntimeError } from '../services/ai/runtimeClient.js';
 import { logSecurityEvent } from '../middleware/security.js';
 import { checkModuleAccess, deductAICredits, incrementUsage } from '../middleware/featureGating.js';
@@ -133,8 +133,15 @@ aiRouter.post('/complete', async (req, res) => {
       billing: { entryPoint: 'api_ai_complete' },
     });
 
-    // Track usage
-    incrementUsage(config.supabaseUrl, config.supabaseServiceRoleKey, parsed.data.workspaceId, 'ai_requests_count');
+    // Count the request exactly once. Where the database has the hosted
+    // chain's ai_usage_logs trigger, the usage row written by the completion
+    // already counted it; self-host databases have neither table nor trigger,
+    // and PRODUCT_ANALYTICS_LOGGING=off skips the row, so this route counts
+    // only when that did not happen. deductAICredits() above moves credits
+    // only (supabase/migrations/20260926100500).
+    if (!wasRequestCounted(result)) {
+      incrementUsage(config.supabaseUrl, config.supabaseServiceRoleKey, parsed.data.workspaceId, 'ai_requests_count');
+    }
 
     return res.json({
       text: result.text,

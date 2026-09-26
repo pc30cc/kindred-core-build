@@ -193,6 +193,10 @@ teamChatRouter.get('/thread', async (req, res) => {
     const workspaceId = String(req.query.workspace_id || '');
     const peerId = String(req.query.peer_id || '');
     if (!workspaceId || !peerId) return res.status(400).json({ error: 'workspace_id and peer_id required' });
+    // peer_id is spliced into the PostgREST `or` filter below, so it must be a
+    // bare uuid: a value such as `x),sender_id.neq.x,and(sender_id.eq.x` would
+    // otherwise widen the filter to every conversation in the workspace.
+    if (!z.string().uuid().safeParse(peerId).success) return res.status(400).json({ error: 'invalid peer_id' });
     const auth = await authorizeMember(req, res, config, workspaceId);
     if (!auth) return;
 

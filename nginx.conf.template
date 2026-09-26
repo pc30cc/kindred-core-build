@@ -108,7 +108,8 @@ server {
     # widget-manifest.json / runtime JS and customers load a broken widget.
     # ─────────────────────────────────────────────────────────────────────
 
-    # Widget loader — never cache so widget config/domain changes apply immediately
+    # Widget loader — never served stale, so widget config/domain changes apply
+    # on the very next page view.
     location = /widget/loader.js {
         root /usr/share/nginx/html;
         # Explicit script content-type so Firefox ORB / Chrome CORB do not
@@ -118,7 +119,13 @@ server {
         # "OpaqueResponseBlocking" failure where the script never runs.
         types { } default_type application/javascript;
         expires -1;
-        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        # `no-cache` (not `no-store`): the browser may keep a copy but must
+        # revalidate it on EVERY use, so freshness is exactly what `no-store`
+        # gave. The difference is cost: an unchanged loader now answers the
+        # revalidation (ETag / Last-Modified) with a bodiless 304 instead of
+        # the full ~150 KB file on every page view of every embedding site.
+        # A new deploy changes the ETag, so the next page view gets a 200.
+        add_header Cache-Control "no-cache, must-revalidate" always;
         add_header Pragma "no-cache" always;
         add_header X-Widget-Asset "loader" always;
         add_header Access-Control-Allow-Origin "*" always;
@@ -127,8 +134,9 @@ server {
         add_header Cross-Origin-Resource-Policy "cross-origin" always;
         add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
         # Force Cloudflare (and any CDN that honors these headers) to bypass
-        # cache. Without this, even with `no-store` in Cache-Control, CF can
-        # still cache based on its own Cache Rules / default policy.
+        # cache. Without this, CF can still cache based on its own Cache
+        # Rules / default policy. These apply to shared caches only; the
+        # browser still keeps its revalidated copy per the line above.
         add_header CDN-Cache-Control "no-store" always;
         add_header Cloudflare-CDN-Cache-Control "no-store" always;
         try_files /widget/loader.js =404;

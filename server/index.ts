@@ -1,6 +1,7 @@
 // MUST stay first: patches Express so a rejected promise from an async
 // handler reaches the error middleware instead of crashing the process.
 import { installProcessErrorHandlers } from './lib/asyncErrors.js';
+import { STATUS_CODES } from 'node:http';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -356,6 +357,14 @@ app.use((req, res, next) => {
 });
 app.use(cookieParser()); // Parse signed visitor cookies (HttpOnly dvsid)
 
+// Health (no rate limit), ahead of the IP block on purpose: it is the
+// container's liveness probe, and the IP block does a database lookup that
+// fails closed. Behind it, a database blip turned every probe into a 503, so
+// an orchestrator marked a perfectly live API unhealthy and stopped routing
+// to it — an outage of everything instead of only the database-backed parts.
+// Nothing under /api/health reads data or discloses configuration.
+app.use('/api/health', healthRouter);
+
 // Global: IP blocking check
 app.use('/api/', ipBlockMiddleware());
 
@@ -363,9 +372,6 @@ app.use('/api/', ipBlockMiddleware());
 app.use('/api/', abuseDetectionMiddleware());
 
 // ─── Routes with per-endpoint rate limiting ──────────────────────
-
-// Health (no rate limit)
-app.use('/api/health', healthRouter);
 
 // Host-side backup agent reporting. Token-authenticated inside the router and
 // disabled entirely unless BACKUP_AGENT_TOKEN is configured. Read/write of
@@ -645,10 +651,19 @@ app.use((_req, res) => {
 // (forwarded by ./lib/asyncErrors.js). Never leaks err.message to the client.
 // If the response has already started, delegate to Express's default handler,
 // which aborts the connection (a JSON body can no longer be sent).
-app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
+//
+// Errors that carry their own client status — body-parser's 400 for
+// malformed JSON and 413 for an oversized body — keep it. Answering those
+// with 500 blamed the server for a client's mistake, logged each one as a
+// server error, and told clients that retry on 5xx to resend the same bad
+// request.
+app.use((err: Error & { status?: number; statusCode?: number }, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const status = Number(err.status ?? err.statusCode);
+  const clientError = status >= 400 && status < 500;
   // req.path, not originalUrl: query strings can carry one-time tokens.
-  console.error(`Server error: ${req.method} ${req.path}:`, err);
+  if (!clientError) console.error(`Server error: ${req.method} ${req.path}:`, err);
   if (res.headersSent) return next(err);
+  if (clientError) return res.status(status).json({ error: STATUS_CODES[status] || 'Bad Request' });
   res.status(500).json({ error: 'Internal server error' });
 });
 
@@ -881,7 +896,8 @@ app.listen(config.port, () => {
     startEnforcementTicker(config);
   }
 
-  // Phase 8C — Call queue expiry sweeper (every 30s). Best-effort.
+  // Phase 8C — Call queue expiry sweeper (every 10s). Best-effort. An empty
+  // queue costs one index-only read per tick (see queueTicker.ts).
   startCallQueueTicker(config);
 
   // MaxMind GeoLite2 auto-update ticker. No-ops unless Map & Geo has

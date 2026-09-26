@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { shouldRetryQuery } from "@/lib/queryRetry";
 import { BrowserRouter, Route, Routes, Navigate, useParams, useLocation } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
 import { UiPreferencesProvider } from "@/features/ui-preferences/UiPreferencesContext";
@@ -163,7 +164,9 @@ import HelpCategoryPage from "@/pages/public/kb/HelpCategoryPage";
 import HelpArticlePage from "@/pages/public/kb/HelpArticlePage";
 import HelpSearchPage from "@/pages/public/kb/HelpSearchPage";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: shouldRetryQuery } },
+});
 
 /**
  * Legacy URL shape `/app/w/<slug>/<rest>` → short URL `/<slug>/<rest>`.

@@ -2508,6 +2508,16 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 // ═══════════════════════════════════════════════
 // POST /track — Visitor tracking event
 // ═══════════════════════════════════════════════
+/**
+ * How recently a session / presence row must have been written for an
+ * UNCHANGED /track repeat (same URL, same network identity and device) to
+ * skip rewriting it. Deliberately short: well inside the 45s realtime handoff
+ * window (presenceSource.ts), so a reload can never make a visitor read as
+ * offline while their socket reconnects, and far inside the 240s database
+ * liveness window. A changed URL or column always writes, whatever the age.
+ */
+const TRACK_REWRITE_MS = 15_000;
+
 widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
@@ -2569,7 +2579,11 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
       const { data: existing } = await supabase
         // ip_hash is fetched so a mid-session network change (VPN / mobile
         // handover) forces a geo re-resolve instead of keeping the old country.
-        .from('visitor_sessions').select('id, ip_hash')
+        // current_page detects a URL change BEFORE it is overwritten, and the
+        // remaining columns let an unchanged repeat skip its writes (below).
+        // (Only columns every chain has: ip_raw is hosted-only, so it is read
+        // separately below and a failure there just means "write".)
+        .from('visitor_sessions').select('id, ip_hash, current_page, browser, device, os, last_seen_at')
         .eq('workspace_id', workspaceId).eq('visitor_id', visitor_id || '')
         .gte('last_seen_at', thirtyMinAgo)
         .order('last_seen_at', { ascending: false }).limit(1).maybeSingle();
@@ -2578,31 +2592,73 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
       if (existing) {
         activeSessionId = existing.id;
         previousIpHash = (existing.ip_hash as string | null) ?? null;
-        // Detect URL change BEFORE we overwrite current_page so we can log it.
-        const { data: prevRow } = await supabase.from('visitor_sessions')
-          .select('current_page').eq('id', existing.id).maybeSingle();
-        const prevPage = prevRow?.current_page ?? null;
-        await supabase.from('visitor_sessions')
-          .update({
-            current_page: normalizedPageUrl,
-            browser: browser || undefined,
-            device: device || undefined,
-            os: os || undefined,
-            last_seen_at: new Date().toISOString(),
-            // Sync network identity on every page_view / heartbeat. Sessions
-            // created by another surface (call widget / identity bootstrap)
-            // start with ip_hash = null, and the raw-IP privacy toggle must
-            // take effect on the very next request in both directions:
-            //   store_raw_ip = true  → persist the raw IP
-            //   store_raw_ip = false → clear any previously stored raw IP
-            ...(ipHash ? { ip_hash: ipHash } : {}),
-            ip_raw: ipRawForStorage,
-          })
-          .eq('id', existing.id);
+        const prevPage = (existing.current_page as string | null) ?? null;
+        const nowMs = Date.now();
 
-        await supabase.from('visitor_presence')
-          .update({ status: 'online', current_page: normalizedPageUrl, updated_at: new Date().toISOString() })
-          .eq('visitor_session_id', existing.id);
+        // An unchanged repeat — same URL (a reload, a redirect back, a
+        // duplicate track call), same network identity and device, within
+        // TRACK_REWRITE_MS of the last write — would rewrite the row with
+        // what it already holds. Every column the UPDATE below sets is
+        // compared exactly as that UPDATE would set it.
+        const lastSeenMs = existing.last_seen_at ? Date.parse(existing.last_seen_at as string) : NaN;
+        let sessionUnchanged =
+          (normalizedPageUrl ?? null) === prevPage &&
+          (!browser || browser === existing.browser) &&
+          (!device || device === existing.device) &&
+          (!os || os === existing.os) &&
+          (!ipHash || ipHash === existing.ip_hash) &&
+          Number.isFinite(lastSeenMs) &&
+          nowMs - lastSeenMs < TRACK_REWRITE_MS;
+        if (sessionUnchanged) {
+          // ip_raw must match too, or the privacy toggle would not take effect
+          // on this request. Anything but a clean read of an equal value
+          // (including a chain without the column) means the write runs.
+          const { data: rawRow, error: rawErr } = await supabase.from('visitor_sessions')
+            .select('ip_raw').eq('id', existing.id).maybeSingle();
+          sessionUnchanged =
+            !rawErr && !!rawRow && (ipRawForStorage ?? null) === ((rawRow.ip_raw as string | null) ?? null);
+        }
+
+        let presenceFresh = false;
+        if (sessionUnchanged) {
+          // The presence row is normally written together with the session,
+          // but it is checked on its own: another path may have marked it
+          // offline since. More than one row (a creation race) reads as
+          // "not fresh", so it gets the unconditional update, as before.
+          const { data: presence } = await supabase.from('visitor_presence')
+            .select('status, current_page, updated_at').eq('visitor_session_id', existing.id).maybeSingle();
+          const presenceMs = presence?.updated_at ? Date.parse(presence.updated_at as string) : NaN;
+          presenceFresh =
+            !!presence &&
+            presence.status === 'online' &&
+            ((presence.current_page as string | null) ?? null) === (normalizedPageUrl ?? null) &&
+            Number.isFinite(presenceMs) &&
+            nowMs - presenceMs < TRACK_REWRITE_MS;
+        } else {
+          await supabase.from('visitor_sessions')
+            .update({
+              current_page: normalizedPageUrl,
+              browser: browser || undefined,
+              device: device || undefined,
+              os: os || undefined,
+              last_seen_at: new Date().toISOString(),
+              // Sync network identity on every page_view / heartbeat. Sessions
+              // created by another surface (call widget / identity bootstrap)
+              // start with ip_hash = null, and the raw-IP privacy toggle must
+              // take effect on the very next request in both directions:
+              //   store_raw_ip = true  → persist the raw IP
+              //   store_raw_ip = false → clear any previously stored raw IP
+              ...(ipHash ? { ip_hash: ipHash } : {}),
+              ip_raw: ipRawForStorage,
+            })
+            .eq('id', existing.id);
+        }
+
+        if (!presenceFresh) {
+          await supabase.from('visitor_presence')
+            .update({ status: 'online', current_page: normalizedPageUrl, updated_at: new Date().toISOString() })
+            .eq('visitor_session_id', existing.id);
+        }
 
         // Append a page-view row when the URL is new for this session.
         // First page_view of an existing session also counts (prevPage may

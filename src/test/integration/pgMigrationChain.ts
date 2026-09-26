@@ -53,6 +53,40 @@ export interface PgQueryable {
 }
 
 
+/**
+ * Statements PostgreSQL refuses inside a transaction block. `psql -f` — how
+ * scripts/migrate-database.sh and the CI replay jobs apply the self-host
+ * chain — autocommits every statement, so a migration may use them; a file
+ * sent as ONE query runs as one implicit transaction instead, where they fail
+ * with "cannot run inside a transaction block". An index statement holds no
+ * semicolon of its own, so the first one ends it.
+ */
+const NON_TRANSACTIONAL_STATEMENT = /^[ \t]*(?:create[ \t]+(?:unique[ \t]+)?|drop[ \t]+)index[ \t]+concurrently\b[^;]*;/gim;
+
+/** True when `sql` holds nothing but whitespace and comments. */
+function isBlankSql(sql: string): boolean {
+  return sql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '').trim() === '';
+}
+
+/**
+ * Applies one migration file's SQL as `psql -f` would, as far as the chain
+ * depends on it: each non-transactional statement (above) is sent on its own,
+ * and the SQL around it as one query, exactly as before, in file order.
+ */
+export async function applyMigrationSql(db: PgQueryable, sql: string): Promise<void> {
+  const parts: string[] = [];
+  let rest = 0;
+  for (const match of sql.matchAll(NON_TRANSACTIONAL_STATEMENT)) {
+    const at = match.index ?? 0;
+    parts.push(sql.slice(rest, at), match[0]);
+    rest = at + match[0].length;
+  }
+  parts.push(sql.slice(rest));
+  for (const part of parts) {
+    if (!isBlankSql(part)) await db.query(part);
+  }
+}
+
 /** Applies files in exact order WITHOUT resetting anything first. */
 export async function applyChainClean(db: PgQueryable, files = CLEAN_INSTALL_CHAIN): Promise<void> {
   for (const file of files) {

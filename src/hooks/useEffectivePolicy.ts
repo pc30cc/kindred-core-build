@@ -5,7 +5,7 @@
  * realtime cache so the next subscribe re-negotiates with the new
  * vendor / token. Never throws.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   SAFE_DEFAULT_POLICY,
   type EffectivePolicySnapshot,
@@ -39,7 +39,11 @@ async function fetchPolicy(workspaceId: string): Promise<EffectivePolicySnapshot
 
 export function useEffectivePolicy(workspaceId: string | undefined): EffectivePolicySnapshot {
   const [policy, setPolicy] = useState<EffectivePolicySnapshot>(SAFE_DEFAULT_POLICY);
-  const [lastEpoch, setLastEpoch] = useState<string>('');
+  // A ref, not state: the epoch only steers the cache invalidation below and
+  // is never rendered. As a dependency of the effect, the first answer's
+  // epoch change restarted the effect, which polled again at once — two
+  // operator-connect requests on every mount instead of one.
+  const lastEpochRef = useRef<string>('');
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -54,11 +58,11 @@ export function useEffectivePolicy(workspaceId: string | undefined): EffectivePo
       // (Centrifugo reconnect scheduler, typing emit guard) can read
       // the latest policy without a hook.
       setEffectivePolicySnapshot(p);
-      if (p.failover_epoch !== lastEpoch) {
+      if (p.failover_epoch !== lastEpochRef.current) {
         // Transport-affecting change — drop cached provider so the next
         // subscribe re-negotiates and binds to the new vendor.
         invalidateClientRealtimeCache(workspaceId);
-        setLastEpoch(p.failover_epoch);
+        lastEpochRef.current = p.failover_epoch;
       }
     };
 
@@ -68,7 +72,7 @@ export function useEffectivePolicy(workspaceId: string | undefined): EffectivePo
       cancelled = true;
       if (timer) clearInterval(timer);
     };
-  }, [workspaceId, lastEpoch]);
+  }, [workspaceId]);
 
   return policy;
 }

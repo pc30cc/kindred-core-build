@@ -12,7 +12,7 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ROLE_BOOTSTRAP, type PgQueryable } from './pgMigrationChain';
+import { ROLE_BOOTSTRAP, applyMigrationSql, type PgQueryable } from './pgMigrationChain';
 
 export async function applyAuthSchemaStub(db: PgQueryable): Promise<void> {
   await db.query(`
@@ -123,13 +123,15 @@ export async function ensureAuthChainInstalled(db: PgQueryable): Promise<void> {
   const authFiles = allFiles.filter((f) => Number(f.slice(0, 3)) >= 24);
 
   if (!baseAlreadyInstalled) {
-    await db.query(readFileSync(resolve(process.cwd(), ROLE_BOOTSTRAP), 'utf8'));
+    await applyMigrationSql(db, readFileSync(resolve(process.cwd(), ROLE_BOOTSTRAP), 'utf8'));
     for (const file of baseFiles.filter((f) => `database/migrations/${f}` !== ROLE_BOOTSTRAP)) {
-      await db.query(readFileSync(resolve(dir, file), 'utf8'));
+      await applyMigrationSql(db, readFileSync(resolve(dir, file), 'utf8'));
     }
   }
 
+  // Through applyMigrationSql, like psql: a migration may build an index
+  // CONCURRENTLY, which one multi-statement query cannot run.
   for (const file of authFiles) {
-    await db.query(readFileSync(resolve(dir, file), 'utf8'));
+    await applyMigrationSql(db, readFileSync(resolve(dir, file), 'utf8'));
   }
 }

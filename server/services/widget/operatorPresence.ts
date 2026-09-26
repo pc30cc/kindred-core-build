@@ -115,7 +115,7 @@ export async function recordOperatorPresenceBeat(
   workspaceId: string,
   userId: string,
   now: Date = new Date(),
-): Promise<void> {
+): Promise<boolean> {
   const sb = getServiceClient(config);
   const iso = now.toISOString();
   const { error } = await sb
@@ -125,6 +125,7 @@ export async function recordOperatorPresenceBeat(
       { onConflict: 'workspace_id,user_id' },
     );
   if (error) console.warn('[presence] fallback lease write failed:', error.message);
+  return !error;
 }
 
 export async function listWorkspacePresence(

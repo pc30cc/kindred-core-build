@@ -141,3 +141,52 @@ export class IntervalGate {
     return true;
   }
 }
+
+/**
+ * IdleBackoff for a worker that must keep firing on a fixed interval.
+ *
+ * Several workers drive their poll from setInterval on purpose: a job runs
+ * for minutes inside one cycle while the next interval still claims the next
+ * queued job, so a self-rescheduling timeout (which waits for the cycle to
+ * finish) would serialise them. This keeps the interval and skips it
+ * instead: after consecutive empty cycles, the next few intervals do nothing,
+ * so an idle queue is asked every IdleBackoff delay rather than every
+ * interval, and the first cycle that finds work resets it.
+ */
+export class IdleIntervalSkipper {
+  private skipsLeft = 0;
+
+  constructor(
+    private readonly intervalMs: number,
+    private readonly backoff: IdleBackoff,
+  ) {
+    if (!(intervalMs > 0)) throw new Error('idleIntervalSkipper: intervalMs must be > 0');
+  }
+
+  /** Call at the start of every interval: true means "do nothing this time". */
+  skip(): boolean {
+    if (this.skipsLeft <= 0) return false;
+    this.skipsLeft -= 1;
+    return true;
+  }
+
+  /** Records a finished cycle's outcome. */
+  record(foundWork: boolean): void {
+    const delay = this.backoff.next(foundWork);
+    this.skipsLeft = foundWork ? 0 : Math.max(0, Math.round(delay / this.intervalMs) - 1);
+  }
+}
+
+/**
+ * Reads an integer (a poll interval, a lease length) from the environment,
+ * clamped to a sane range.
+ *
+ * A bare parseInt reads "5s" as 5 and anything unparseable as NaN, and a
+ * timer handed NaN fires every millisecond: one typo in a worker's env turned
+ * its poll into a flood of database requests.
+ */
+export function intFromEnv(value: string | undefined, fallback: number, min: number, max: number): number {
+  const n = parseInt(value || '', 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}

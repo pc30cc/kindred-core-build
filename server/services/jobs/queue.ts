@@ -50,7 +50,12 @@ export async function enqueueJob(
  *   - status='queued', or
  *   - status='running'/'processing' AND lock_expires_at < now (crashed worker)
  * The candidate lookup and the conditional UPDATE race on (id, current
- * status), so two workers polling concurrently can never claim the same row.
+ * status, attempts), so two workers polling concurrently can never claim the
+ * same row. `status` alone is not enough for a reclaim: an expired lease is
+ * `running` before the claim and `running` after it, so a second worker that
+ * read the same candidate would match too and run the job twice (for the SEO
+ * worker, a second paid vendor call). Every claim bumps `attempts`, so it
+ * doubles as the row's version.
  */
 export async function claimNextJob(
   config: ServerConfig,
@@ -97,6 +102,7 @@ export async function claimNextJob(
     })
     .eq('id', candRow.id)
     .eq('status', candRow.status)
+    .eq('attempts', candRow.attempts)
     .select('*')
     .maybeSingle();
   return (claimed as BackgroundJob) || null;

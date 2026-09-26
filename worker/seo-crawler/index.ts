@@ -51,9 +51,13 @@ import { processExplorerBacklinkScan, classifyExplorerBacklinkScanError } from '
 import { processExplorerKeywordScan, classifyExplorerKeywordScanError } from '../seo-explorer/processKeywordScan.js';
 import { processExplorerCompetitorScan, classifyExplorerCompetitorScanError } from '../seo-explorer/processCompetitorScan.js';
 import type { SeoExplorerBacklinkScanRow, SeoExplorerKeywordScanRow, SeoExplorerCompetitorScanRow } from '../../server/services/seo/siteExplorerService.js';
+import { IdleBackoff, IdleIntervalSkipper, intFromEnv } from '../../server/services/jobs/idleBackoff.js';
 
-const POLL_INTERVAL_MS = parseInt(process.env.SEO_WORKER_INTERVAL_MS || process.env.WORKER_INTERVAL_MS || '5000', 10);
-const LOCK_TTL_SECONDS = parseInt(process.env.SEO_WORKER_LOCK_TTL_SECONDS || '120', 10);
+const POLL_INTERVAL_MS = intFromEnv(process.env.SEO_WORKER_INTERVAL_MS || process.env.WORKER_INTERVAL_MS, 5000, 1000, 60_000);
+/** Ceiling for the idle poll: how long a new job may wait after a quiet spell. */
+const MAX_IDLE_POLL_MS = intFromEnv(process.env.SEO_WORKER_MAX_IDLE_POLL_MS, 30_000, POLL_INTERVAL_MS, 300_000);
+// NaN here made every claim's lock expiry an Invalid Date, which throws.
+const LOCK_TTL_SECONDS = intFromEnv(process.env.SEO_WORKER_LOCK_TTL_SECONDS, 120, 30, 3600);
 const WORKER_ID = process.env.WORKER_ID || `seo-crawler-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 const JOB_TYPES = [
   'seo_crawl', 'seo_backlink_scan', 'seo_keyword_research', 'seo_performance_audit',
@@ -290,10 +294,11 @@ async function tickExplorerCompetitorScan(config: ReturnType<typeof loadConfig>,
   }
 }
 
-async function tick(config: ReturnType<typeof loadConfig>): Promise<void> {
-  if (shuttingDown) return;
+/** One poll of the SEO queue. Resolves true when a job was claimed. */
+async function tick(config: ReturnType<typeof loadConfig>): Promise<boolean> {
+  if (shuttingDown) return false;
   const job = await claimNextJob(config, { jobTypes: JOB_TYPES, workerId: WORKER_ID, lockTtlSeconds: LOCK_TTL_SECONDS });
-  if (!job) return;
+  if (!job) return false;
 
   inFlight++;
   const sb = getServiceClient(config);
@@ -308,6 +313,7 @@ async function tick(config: ReturnType<typeof loadConfig>): Promise<void> {
   } finally {
     inFlight--;
   }
+  return true;
 }
 
 let started = false;
@@ -317,9 +323,25 @@ export function startSeoCrawlerWorker(): void {
   if (started) return;
   started = true;
   const config = loadConfig();
-  log('started', { workerId: WORKER_ID, pollIntervalMs: POLL_INTERVAL_MS });
+  log('started', { workerId: WORKER_ID, pollIntervalMs: POLL_INTERVAL_MS, maxIdlePollMs: MAX_IDLE_POLL_MS });
 
-  const run = () => tick(config).catch((e) => log('tick error', { error: (e as Error)?.message }));
+  // setInterval, not a self-rescheduling timeout: a crawl runs for minutes
+  // inside tick() while the next interval still claims the next queued job.
+  // Only an idle queue eases off, skipping a growing number of intervals up
+  // to MAX_IDLE_POLL_MS; any claimed job resets it.
+  const idle = new IdleIntervalSkipper(
+    POLL_INTERVAL_MS,
+    new IdleBackoff({ busyMs: POLL_INTERVAL_MS, idleMs: POLL_INTERVAL_MS, maxIdleMs: MAX_IDLE_POLL_MS }),
+  );
+  const run = () => {
+    if (idle.skip()) return;
+    void tick(config)
+      .catch((e) => {
+        log('tick error', { error: (e as Error)?.message });
+        return false;
+      })
+      .then((found) => idle.record(found));
+  };
   run();
   timer = setInterval(run, POLL_INTERVAL_MS);
 

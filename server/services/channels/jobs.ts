@@ -128,6 +128,54 @@ export async function enqueueChannelJob(
   return (data as { id: string }).id;
 }
 
+/** Job types that form a poll loop: every run asks Core to enqueue the next. */
+export type PollLoopJobType = Extract<ChannelJobType, 'x_poll_dm_events' | 'yahoo_poll_inbox'>;
+
+type PollLoopJobInput = Parameters<typeof enqueueChannelJob>[1] & { jobType: PollLoopJobType; integrationId: string };
+
+/**
+ * Enqueues the next run of a poll loop, unless a run is already waiting.
+ *
+ * X DMs and Yahoo IMAP have no push, so each poll run asks Core for the next
+ * one — and nothing stopped two runs from each getting one. A worker that died
+ * after enqueueing its successor but before completing its own job ran that
+ * job again, and the loop forked. Each fork polled the provider and wrote job
+ * rows forever, and on X they shared one DM rate limit. A fork now finds the
+ * other loop's waiting run and ends there, so forks merge back into one.
+ *
+ * Fails open: if the check cannot be read, the run is enqueued as before.
+ */
+export async function enqueueNextPoll(sb: SupabaseClient, input: PollLoopJobInput): Promise<{ enqueued: boolean }> {
+  const { data, error } = await sb
+    .from('channel_jobs')
+    .select('id')
+    .eq('integration_id', input.integrationId)
+    .eq('job_type', input.jobType)
+    .eq('status', 'pending')
+    .limit(1);
+  if (!error && (data ?? []).length > 0) return { enqueued: false };
+  await enqueueChannelJob(sb, input);
+  return { enqueued: true };
+}
+
+/**
+ * Starts a poll loop afresh for a (re)connected integration: runs still
+ * waiting from an earlier connection are cancelled, then the first run is
+ * seeded. A reconnect used to seed a second loop beside the old one, which
+ * kept polling forever with the previous account's address or bot id in its
+ * payload. An old run that is mid-flight right now finds the new seed waiting
+ * when it asks for its successor (enqueueNextPoll), and ends.
+ */
+export async function seedPollLoop(sb: SupabaseClient, input: PollLoopJobInput): Promise<string> {
+  await sb
+    .from('channel_jobs')
+    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+    .eq('integration_id', input.integrationId)
+    .eq('job_type', input.jobType)
+    .eq('status', 'pending');
+  return enqueueChannelJob(sb, input);
+}
+
 export async function claimChannelJobs(
   sb: SupabaseClient,
   workerId: string,
@@ -294,7 +342,7 @@ export async function queueMetrics(sb: SupabaseClient): Promise<ChannelQueueMetr
     running: map.running,
     failed: map.failed,
     oldestPendingAgeSeconds: oldest
-      ? Math.round((Date.now() - new Date((oldest as any).created_at).getTime()) / 1000)
+      ? Math.round((Date.now() - new Date((oldest as { created_at: string }).created_at).getTime()) / 1000)
       : null,
   };
 }

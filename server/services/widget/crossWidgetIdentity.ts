@@ -27,7 +27,6 @@ import { enrichVisitorSessionGeo } from '../geo/index.js';
 import { getClientCountry, getClientIp, hashIp } from '../../utils/clientIp.js';
 import {
   createSignedContactContinuityToken,
-  persistContinuityToken,
   readContinuityCookie,
   resolveContinuityToken,
   setContinuityCookie,
@@ -133,6 +132,16 @@ export interface EnsureSessionOptions {
   config?: ServerConfig;
   /** Mark the visitor online so they appear in the Visitors list. */
   touchPresence?: boolean;
+  /**
+   * `pageUrl` is only a fallback — the call widget knows the site's origin,
+   * not the page the visitor is on. Use it for a NEW session / presence row,
+   * but never overwrite an existing current_page with it: doing so on every
+   * call-widget load rewrote a real URL (set by the chat widget's /track)
+   * with the bare origin, so the next /track saw a "navigation" and recorded
+   * a duplicate page view plus an extra update pair on every reload of a
+   * site running both widgets.
+   */
+  pageUrlOnlyOnCreate?: boolean;
 }
 
 export async function ensureVisitorSessionRow(
@@ -146,6 +155,7 @@ export async function ensureVisitorSessionRow(
 ): Promise<string | null> {
   let sessionId: string | null = null;
   let previousIpHash: string | null = null;
+  let isNewSession = false;
   try {
     const { data: existing } = await sb
       .from('visitor_sessions')
@@ -161,12 +171,13 @@ export async function ensureVisitorSessionRow(
         .from('visitor_sessions')
         .update({
           last_seen_at: new Date().toISOString(),
-          ...(pageUrl ? { current_page: pageUrl } : {}),
+          ...(pageUrl && !opts.pageUrlOnlyOnCreate ? { current_page: pageUrl } : {}),
           ...networkPatch(net),
         })
         .eq('id', existing.id);
       sessionId = existing.id;
     } else {
+      isNewSession = true;
       const { data: created } = await sb
         .from('visitor_sessions')
         .insert({
@@ -186,20 +197,43 @@ export async function ensureVisitorSessionRow(
   if (!sessionId) return null;
 
   if (opts.touchPresence) {
-    await upsertVisitorPresence(sb, workspaceId, sessionId, pageUrl);
+    await upsertVisitorPresence(sb, workspaceId, sessionId, pageUrl, {
+      keepExistingPage: !!opts.pageUrlOnlyOnCreate,
+    });
   }
 
   // Same canonical geo pipeline as the chat widget's /track — shared code, not
-  // a second implementation. Fire-and-forget so no widget request waits on it.
+  // a second implementation — and now the same rule for WHEN it runs: a new
+  // session, a changed network identity, or geo not yet resolved. It used to
+  // run on every call, i.e. a geo lookup plus a visitor_sessions UPDATE on
+  // every call-widget page load for a visitor whose location was long known.
+  // Fire-and-forget so no widget request waits on it; a failed read of
+  // geo_resolved_at (or a database without the column) means "enrich", as
+  // before.
   if (opts.config && net) {
-    void enrichVisitorSessionGeo(opts.config, {
-      sessionId,
-      workspaceId,
-      ipHash: net.ipHash,
-      rawIp: net.rawIp,
-      country: net.cfCountry,
-      previousIpHash,
-    });
+    const geoConfig = opts.config;
+    const resolvedSessionId = sessionId;
+    const ipChanged = !!previousIpHash && !!net.ipHash && previousIpHash !== net.ipHash;
+    void (async () => {
+      try {
+        if (!isNewSession && !ipChanged) {
+          const { data: row, error } = await sb
+            .from('visitor_sessions')
+            .select('geo_resolved_at')
+            .eq('id', resolvedSessionId)
+            .maybeSingle();
+          if (!error && row?.geo_resolved_at) return;
+        }
+        await enrichVisitorSessionGeo(geoConfig, {
+          sessionId: resolvedSessionId,
+          workspaceId,
+          ipHash: net.ipHash,
+          rawIp: net.rawIp,
+          country: net.cfCountry,
+          previousIpHash,
+        });
+      } catch { /* best effort */ }
+    })();
   }
   return sessionId;
 }
@@ -210,6 +244,8 @@ export async function upsertVisitorPresence(
   workspaceId: string,
   sessionId: string,
   pageUrl: string | null,
+  /** Leave an existing row's current_page as it is (see pageUrlOnlyOnCreate). */
+  options: { keepExistingPage?: boolean } = {},
 ): Promise<void> {
   try {
     const { data: existingPresence } = await sb
@@ -220,7 +256,7 @@ export async function upsertVisitorPresence(
     if (existingPresence?.id) {
       await sb.from('visitor_presence').update({
         status: 'online',
-        current_page: pageUrl,
+        ...(options.keepExistingPage ? {} : { current_page: pageUrl }),
         updated_at: new Date().toISOString(),
       }).eq('id', existingPresence.id);
     } else {
@@ -284,27 +320,29 @@ export async function findContactForVisitor(
   return (byMeta as WidgetContact) || null;
 }
 
-/** Refresh (and, first time, persist) the contact continuity cookie. */
+/**
+ * Refresh the contact continuity cookie.
+ *
+ * The cookie is a signed, database-independent token
+ * (createSignedContactContinuityToken), verified by resolveContinuityToken()
+ * without a lookup. This used to ALSO insert a user_continuity_tokens row for
+ * a freshly generated random token whenever the cookie was missing — a token
+ * that was never returned to anyone, so the row could never be presented,
+ * used or revoked: one dead INSERT per identified visitor per browser (per
+ * visit where third-party cookies are dropped), in a table whose cleanup
+ * only removes revoked rows. The one-time continuity LINK
+ * (widgetIdentity.ts) still persists its token, because it hands it out.
+ * `sb` and `source` are kept so callers stay unchanged.
+ */
 export async function issueContinuityCookieForContact(
-  sb: SupabaseClient,
+  _sb: SupabaseClient,
   req: Request,
   res: Response,
   workspaceId: string,
   contactId: string,
-  source: IdentitySource,
+  _source: IdentitySource,
 ): Promise<void> {
   try {
-    if (!readContinuityCookie(req)) {
-      await persistContinuityToken(sb, {
-        workspaceId,
-        contactId,
-        deviceInfo: {
-          source,
-          ua: req.headers['user-agent'] || null,
-          origin: (req.headers.origin as string) || null,
-        },
-      });
-    }
     setContinuityCookie(res, createSignedContactContinuityToken(workspaceId, contactId), req);
   } catch { /* best effort */ }
 }

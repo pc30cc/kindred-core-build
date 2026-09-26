@@ -4,7 +4,7 @@
 // ============================================
 
 import { Request, Response, NextFunction } from 'express';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { ServerConfig } from '../config.js';
 import {
   parseEntitlementResponse,
@@ -119,10 +119,30 @@ function gateWorkspaceIdOrRespond(req: Request, res: Response, missingMessage: s
   return r.workspaceId;
 }
 
+/**
+ * One service client per (url, key), reused.
+ *
+ * createClient() builds a fresh auth client and realtime client every time,
+ * and these helpers run on gated requests — the module and channel checks
+ * are not cached at all — so a busy API built and discarded a client per
+ * request, each for a single RPC. The options match getServiceClient(): a
+ * server-side client never holds a user session.
+ */
+const serviceClients = new Map<string, SupabaseClient>();
+function serviceClientFor(supabaseUrl: string, serviceRoleKey: string): SupabaseClient {
+  const id = `${supabaseUrl}\u0000${serviceRoleKey}`;
+  let client = serviceClients.get(id);
+  if (!client) {
+    client = createClient(supabaseUrl, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } });
+    serviceClients.set(id, client);
+  }
+  return client;
+}
+
 function getSupabaseClient(req: Request) {
   const config = (req as GatedRequest).serverConfig;
   if (!config?.supabaseUrl || !config?.supabaseServiceRoleKey) return null;
-  return { client: createClient(config.supabaseUrl, config.supabaseServiceRoleKey), config };
+  return { client: serviceClientFor(config.supabaseUrl, config.supabaseServiceRoleKey), config };
 }
 
 function errorMessage(err: unknown): string {
@@ -166,7 +186,7 @@ export async function checkEntitlementFromDB(
   if (cached && cached.expiresAt > Date.now()) return cached.result;
 
   try {
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
     const { data, error } = await supabase.rpc('check_workspace_entitlement', {
       _workspace_id: workspaceId,
       _feature: feature,
@@ -281,7 +301,7 @@ export async function checkModuleAccess(
     if (unlimited) return unlimited;
   }
   try {
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
     const { data, error } = await supabase.rpc('check_module_access', {
       _workspace_id: workspaceId,
       _module_key: moduleKey,
@@ -314,7 +334,7 @@ export async function checkChannelAccess(
     if (unlimited) return unlimited;
   }
   try {
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
     const { data, error } = await supabase.rpc('check_channel_access', {
       _workspace_id: workspaceId,
       _channel_key: channelKey,
@@ -346,7 +366,7 @@ export async function deductAICredits(
   credits: number = 1
 ): Promise<{ success: boolean; credits_used?: number; credits_limit?: number; credits_remaining?: number; reason?: string }> {
   try {
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
     const { data, error } = await supabase.rpc('deduct_ai_credits', {
       _workspace_id: workspaceId,
       _credits: credits,
@@ -370,7 +390,7 @@ export async function incrementUsage(
   amount: number = 1
 ): Promise<void> {
   try {
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
     await supabase.rpc('increment_usage_counter', {
       _workspace_id: workspaceId,
       _counter_name: counter,
@@ -638,7 +658,7 @@ export async function getWorkspacePlanInfo(
   serviceRoleKey: string,
   workspaceId: string
 ): Promise<WorkspacePlanInfo> {
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
 
   const [{ data: subRow, error: subError }, { data: overrideRows, error: overrideError }] = await Promise.all([
     supabase.from('workspace_subscriptions').select('*').eq('workspace_id', workspaceId).maybeSingle(),

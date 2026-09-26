@@ -10,9 +10,28 @@ import { getServiceClient } from '../supabase.js';
 import { verifySessionToken, verifyTokenForRefresh } from '../services/widget/security.js';
 import { verifyWidgetSession } from '../services/callCenter/widgetSession.js';
 
+/**
+ * What earlier middleware — and express-rate-limit — attach to a request,
+ * read through one typed view instead of `any`. Every field is optional:
+ * none of them is guaranteed at every layer.
+ */
+interface SecurityRequestView {
+  originalUrl?: string;
+  path?: string;
+  serverConfig?: ServerConfig;
+  rateLimit?: { used?: number; current?: number; limit?: number };
+  _rateLimitWorkspaceId?: string;
+  _widgetWorkspaceId?: unknown;
+  _widgetRateLimitTrust?: unknown;
+}
+
+function view(req: Request): SecurityRequestView {
+  return req as unknown as SecurityRequestView;
+}
+
 /** Request path without query string (mount prefix included). */
 function requestPath(req: Request): string {
-  const raw = (req as any).originalUrl || req.url || (req as any).path || '';
+  const raw = view(req).originalUrl || req.url || view(req).path || '';
   return String(raw).split('?')[0];
 }
 
@@ -28,7 +47,7 @@ const IP_CACHE_TTL = 60_000; // 1 min
 export function ipBlockMiddleware() {
   return async (req: Request, res: Response, next: NextFunction) => {
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    const config: ServerConfig = (req as any).serverConfig;
+    const config = view(req).serverConfig;
     if (!config) return next();
 
     const cached = blockedIPCache.get(ip);
@@ -69,20 +88,34 @@ export const authRateLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => ipBucket(req),
   handler: async (req, res) => {
-    await logSecurityEvent(req, 'rate_limited', 'warn', { endpoint: req.originalUrl, limit: '5/min' });
+    logRateLimited(req, 'warn', { endpoint: req.originalUrl, limit: '5/min' });
     res.status(429).json({ error: 'Too many attempts. Please try again later.', retryAfter: 60 });
   },
 });
 
-// Email: 10 per minute per workspace
+/**
+ * Bucket for emailRateLimiter: the workspace on /api/email, the IP elsewhere.
+ *
+ * The workspace key is only honest where the route then proves access to
+ * that workspace (/api/email). On the unauthenticated /api/auth-email routes
+ * it let a caller pick a fresh bucket per request just by sending any
+ * `workspaceId`: unlimited reset and verification emails, and token or code
+ * guesses, from a single IP.
+ */
+export function emailRateLimitKey(req: Request): string {
+  const workspaceId = req.baseUrl === '/api/email' ? req.body?.workspaceId : undefined;
+  return `email:${workspaceId || ipBucket(req)}`;
+}
+
+// Email: 10 per minute per workspace on /api/email, per IP everywhere else.
 export const emailRateLimiter = rateLimit({
   windowMs: 60_000,
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => `email:${req.body?.workspaceId || ipBucket(req)}`,
+  keyGenerator: emailRateLimitKey,
   handler: async (req, res) => {
-    await logSecurityEvent(req, 'rate_limited', 'warn', { endpoint: '/api/email', limit: '10/min' });
+    logRateLimited(req, 'warn', { endpoint: '/api/email', limit: '10/min' });
     res.status(429).json({ error: 'Email rate limit exceeded.' });
   },
 });
@@ -95,7 +128,7 @@ export const widgetRateLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => ipBucket(req),
   handler: async (req, res) => {
-    await logSecurityEvent(req, 'rate_limited', 'info', { endpoint: '/api/widget', limit: '300/min' });
+    logRateLimited(req, 'info', { endpoint: '/api/widget', limit: '300/min' });
     res.status(429).json({ error: 'Widget rate limit exceeded.' });
   },
 });
@@ -162,17 +195,17 @@ export function resolveRateLimitWorkspaceKey(req: Request): string {
  * silently regain trust that the token never earned.
  */
 export function resolveTrustedRateLimitWorkspaceId(req: Request): string | null {
-  const cached = (req as any)._rateLimitWorkspaceId;
+  const cached = view(req)._rateLimitWorkspaceId;
   if (typeof cached === 'string') return cached || null;
 
   const resolved = computeTrustedRateLimitWorkspaceId(req);
-  try { (req as any)._rateLimitWorkspaceId = resolved || ''; } catch { /* frozen req in tests */ }
+  try { view(req)._rateLimitWorkspaceId = resolved || ''; } catch { /* frozen req in tests */ }
   return resolved;
 }
 
 function computeTrustedRateLimitWorkspaceId(req: Request): string | null {
-  const already = (req as any)._widgetWorkspaceId;
-  const alreadyTrust = (req as any)._widgetRateLimitTrust;
+  const already = view(req)._widgetWorkspaceId;
+  const alreadyTrust = view(req)._widgetRateLimitTrust;
   if (typeof already === 'string' && already.trim() && alreadyTrust === 'workspace') {
     return already.trim();
   }
@@ -204,12 +237,12 @@ function computeTrustedRateLimitWorkspaceId(req: Request): string | null {
 
   const ccToken = req.headers?.['x-cc-session'];
   const ccTokenStr = Array.isArray(ccToken) ? ccToken[0] : ccToken;
-  const config = (req as any).serverConfig as ServerConfig | undefined;
+  const config = view(req).serverConfig;
   if (typeof ccTokenStr === 'string' && ccTokenStr) {
     if (config) {
       try {
         const payload = verifyWidgetSession(config, ccTokenStr);
-        if (payload?.workspace_id && (payload as any).rl === 'workspace') return payload.workspace_id;
+        if (payload?.workspace_id && (payload as unknown as { rl?: unknown }).rl === 'workspace') return payload.workspace_id;
       } catch { /* ignore */ }
     }
     return null;
@@ -230,7 +263,7 @@ export const widgetWorkspaceRateLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: resolveRateLimitWorkspaceKey,
   handler: async (req, res) => {
-    await logSecurityEvent(req, 'rate_limited', 'warn', {
+    logRateLimited(req, 'warn', {
       endpoint: req.originalUrl,
       limit: '1200/min/workspace',
       workspaceId: resolveRateLimitWorkspaceKey(req).startsWith('ws:')
@@ -285,7 +318,7 @@ export const widgetSessionRateLimiter = rateLimit({
   skip: (req) => req.method === 'OPTIONS' || resolveWidgetSessionNonceKey(req) === null,
   keyGenerator: (req) => `widget-session:${resolveWidgetSessionNonceKey(req)}`,
   handler: async (req, res) => {
-    await logSecurityEvent(req, 'rate_limited', 'info', {
+    logRateLimited(req, 'info', {
       endpoint: req.originalUrl,
       limit: '300/min/session',
     });
@@ -307,7 +340,7 @@ export const widgetSessionRateLimiter = rateLimit({
 function resolveCcSessionNonceKey(req: Request): string | null {
   const ccToken = req.headers?.['x-cc-session'];
   const ccTokenStr = Array.isArray(ccToken) ? ccToken[0] : ccToken;
-  const config = (req as any).serverConfig as ServerConfig | undefined;
+  const config = view(req).serverConfig;
   if (typeof ccTokenStr !== 'string' || !ccTokenStr || !config) return null;
   try {
     const payload = verifyWidgetSession(config, ccTokenStr);
@@ -324,7 +357,7 @@ export const callWidgetSessionRateLimiter = rateLimit({
   skip: (req) => req.method === 'OPTIONS' || resolveCcSessionNonceKey(req) === null,
   keyGenerator: (req) => `cc-session:${resolveCcSessionNonceKey(req)}`,
   handler: async (req, res) => {
-    await logSecurityEvent(req, 'rate_limited', 'info', {
+    logRateLimited(req, 'info', {
       endpoint: req.originalUrl,
       limit: '120/min/session',
     });
@@ -340,7 +373,7 @@ export const visitorRateLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => ipBucket(req),
   handler: async (req, res) => {
-    await logSecurityEvent(req, 'rate_limited', 'info', { endpoint: '/api/visitors', limit: '200/min' });
+    logRateLimited(req, 'info', { endpoint: '/api/visitors', limit: '200/min' });
     res.status(429).json({ error: 'Visitor tracking rate limit exceeded.' });
   },
 });
@@ -385,7 +418,7 @@ function preAuthLimiter(scope: string, max: number) {
     skip: (req) => req.method === 'OPTIONS',
     keyGenerator: (req) => `${scope}:${ipBucket(req)}`,
     handler: async (req, res) => {
-      await logSecurityEvent(req, 'rate_limited', 'info', { endpoint: req.originalUrl, limit: `${max}/min/ip`, scope });
+      logRateLimited(req, 'info', { endpoint: req.originalUrl, limit: `${max}/min/ip`, scope });
       res.status(429).json({ error: 'Too many requests. Please retry shortly.', code: 'PREAUTH_RATE_LIMITED' });
     },
   });
@@ -414,7 +447,7 @@ export const adminRateLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => ipBucket(req),
   handler: async (req, res) => {
-    await logSecurityEvent(req, 'rate_limited', 'warn', { endpoint: '/admin', limit: '30/min' });
+    logRateLimited(req, 'warn', { endpoint: '/admin', limit: '30/min' });
     res.status(429).json({ error: 'Admin rate limit exceeded.' });
   },
 });
@@ -525,11 +558,19 @@ export async function verifyCaptcha(
 
 // ─── Abuse Detection ────────────────────────────────────────────
 
-const requestCounters = new Map<string, { count: number; windowStart: number }>();
+const requestCounters = new Map<string, { count: number; windowStart: number; reported?: boolean }>();
 const ABUSE_WINDOW = 5 * 60_000; // 5 min
 const ABUSE_THRESHOLD = 500; // requests per 5 min from single IP
 
-export function checkAbusePattern(req: Request): { suspicious: boolean; reason?: string } {
+/**
+ * `report` is true only for the request that first crosses the threshold in
+ * a window. Every request past it is still `suspicious`, but logging each one
+ * meant an awaited security_events INSERT per request for the rest of the
+ * window — hundreds of identical rows per busy IP (an office behind one NAT,
+ * a CDN edge when trust proxy is not configured), which grew the table and
+ * slowed every one of those requests down.
+ */
+export function checkAbusePattern(req: Request): { suspicious: boolean; report: boolean; reason?: string } {
   const ip = req.ip || 'unknown';
   const now = Date.now();
 
@@ -537,17 +578,23 @@ export function checkAbusePattern(req: Request): { suspicious: boolean; reason?:
   if (counter) {
     if (now - counter.windowStart > ABUSE_WINDOW) {
       requestCounters.set(ip, { count: 1, windowStart: now });
-      return { suspicious: false };
+      return { suspicious: false, report: false };
     }
     counter.count++;
     if (counter.count > ABUSE_THRESHOLD) {
-      return { suspicious: true, reason: `${counter.count} requests in ${Math.ceil((now - counter.windowStart) / 1000)}s` };
+      const report = !counter.reported;
+      counter.reported = true;
+      return {
+        suspicious: true,
+        report,
+        reason: `${counter.count} requests in ${Math.ceil((now - counter.windowStart) / 1000)}s`,
+      };
     }
   } else {
     requestCounters.set(ip, { count: 1, windowStart: now });
   }
 
-  return { suspicious: false };
+  return { suspicious: false, report: false };
 }
 
 // ─── Request Logging / Security Event Logger ────────────────────
@@ -556,10 +603,10 @@ export async function logSecurityEvent(
   req: Request,
   eventType: string,
   severity: 'info' | 'warn' | 'error' | 'critical',
-  metadata: Record<string, any> = {}
+  metadata: Record<string, unknown> = {}
 ) {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config = view(req).serverConfig;
     if (!config) return;
     // COMPLIANCE_AUDIT_LOGGING — the single helper behind all 24 callers and
     // therefore the only writer of security_events. With it off there is no
@@ -583,6 +630,35 @@ export async function logSecurityEvent(
   }
 }
 
+/**
+ * A 429 is logged once per limiter key per window — the FIRST rejection —
+ * not once per rejected request.
+ *
+ * Every 429 used to be an awaited INSERT into security_events, so the harder
+ * a client hammered after being refused (a retry loop, a misbehaving widget
+ * behind a shared IP, an attacker), the more it wrote to the database: the
+ * limiter was a write amplifier for exactly the traffic it exists to shed.
+ * The first rejection still records who was limited, where and at what cap;
+ * the rest are identical copies.
+ *
+ * express-rate-limit exposes the window's hit count as `req.rateLimit.used`
+ * (`current` on older versions); the first rejected hit is limit + 1. If that
+ * information is ever missing the event is logged, as before. Not awaited:
+ * logSecurityEvent() never rejects, and a refused client should not wait on
+ * a database round trip to be told so.
+ */
+function logRateLimited(
+  req: Request,
+  severity: 'info' | 'warn' | 'error' | 'critical',
+  metadata: Record<string, unknown>,
+): void {
+  const info = view(req).rateLimit;
+  const used = info?.used ?? info?.current;
+  const limit = info?.limit;
+  if (typeof used === 'number' && typeof limit === 'number' && used > limit + 1) return;
+  void logSecurityEvent(req, 'rate_limited', severity, metadata);
+}
+
 // ─── Input Validation Middleware ─────────────────────────────────
 
 export function validateJsonBody(maxSize: number = 1024 * 100) {
@@ -600,13 +676,15 @@ export function validateJsonBody(maxSize: number = 1024 * 100) {
 export function abuseDetectionMiddleware() {
   return async (req: Request, res: Response, next: NextFunction) => {
     const abuse = checkAbusePattern(req);
-    if (abuse.suspicious) {
-      await logSecurityEvent(req, 'abuse_detected', 'error', {
+    if (abuse.report) {
+      // Once per IP per window, and not awaited: logSecurityEvent() never
+      // rejects, and the request it describes should not wait on it.
+      void logSecurityEvent(req, 'abuse_detected', 'error', {
         reason: abuse.reason,
         userAgent: req.headers['user-agent'],
       });
-      // Don't block yet — just log and flag. Block after repeated abuse.
     }
+    // Don't block yet — just log and flag. Block after repeated abuse.
     next();
   };
 }

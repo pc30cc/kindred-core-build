@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { IdleBackoff, IntervalGate } from './idleBackoff.js';
+import { IdleBackoff, IntervalGate, IdleIntervalSkipper, intFromEnv } from './idleBackoff.js';
 
 /** No jitter, so the growth curve itself is assertable. */
 const plain = (over: Partial<ConstructorParameters<typeof IdleBackoff>[0]> = {}) =>
@@ -107,5 +107,62 @@ describe('IntervalGate', () => {
 
   it('rejects a non-positive interval', () => {
     expect(() => new IntervalGate(0)).toThrow(/everyMs/);
+  });
+});
+
+describe('IdleIntervalSkipper', () => {
+  const skipper = () => new IdleIntervalSkipper(5_000, plain({ busyMs: 5_000, idleMs: 5_000, maxIdleMs: 30_000 }));
+
+  /** Runs `intervals` ticks, reporting `found` for every cycle that runs; returns how many ran. */
+  function drive(s: IdleIntervalSkipper, intervals: number, found = false): number {
+    let ran = 0;
+    for (let i = 0; i < intervals; i++) {
+      if (s.skip()) continue;
+      ran += 1;
+      s.record(found);
+    }
+    return ran;
+  }
+
+  it('the first idle cycle still runs on the very next interval', () => {
+    const s = skipper();
+    s.record(false);
+    expect(s.skip()).toBe(false);
+  });
+
+  it('an idle queue eases off to one cycle per ceiling', () => {
+    const s = skipper();
+    // Runs at intervals 1, 2, 4, 8, then every 6th (30s / 5s).
+    expect(drive(s, 8)).toBe(4);
+    expect(drive(s, 60)).toBe(10);
+  });
+
+  it('a busy queue never skips an interval', () => {
+    const s = skipper();
+    expect(drive(s, 50, true)).toBe(50);
+  });
+
+  it('finding work cancels the pending skips at once', () => {
+    const s = skipper();
+    drive(s, 30);
+    s.record(true);
+    expect(s.skip()).toBe(false);
+  });
+});
+
+describe('intFromEnv', () => {
+  it('reads a plain integer', () => {
+    expect(intFromEnv('7000', 5000, 1000, 60_000)).toBe(7000);
+  });
+
+  it('falls back on anything unparseable instead of producing NaN', () => {
+    expect(intFromEnv(undefined, 5000, 1000, 60_000)).toBe(5000);
+    expect(intFromEnv('', 5000, 1000, 60_000)).toBe(5000);
+    expect(intFromEnv('fast', 5000, 1000, 60_000)).toBe(5000);
+  });
+
+  it('clamps a unit typo instead of polling every few milliseconds', () => {
+    expect(intFromEnv('5s', 5000, 1000, 60_000)).toBe(1000);
+    expect(intFromEnv('9999999', 5000, 1000, 60_000)).toBe(60_000);
   });
 });

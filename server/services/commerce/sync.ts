@@ -18,6 +18,8 @@ import { catalogExportPaths } from './catalogPaths.js';
 
 const MAX_PAGES_PER_RUN = 20; // bounds one worker tick to <= 1000 products
 const MAX_ATTEMPTS = 5;
+const RETRY_BASE_DELAY_MS = 30_000;
+const RETRY_MAX_DELAY_MS = 15 * 60_000;
 
 export interface SyncJobRow {
   id: string;
@@ -228,10 +230,15 @@ export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Pro
           .in('external_id', seen);
       }
 
-      await sb.from('commerce_sync_cursors').upsert(
-        { connection_id: job.connection_id, cursor_type: cursorType, page: page + 1, modified_after: modifiedAfter, after_cursor: walkStartedAt, ...(sweepSupported ? { sweep_epoch: sweepEpoch } : {}), updated_at: new Date().toISOString() },
-        { onConflict: 'connection_id,cursor_type' },
-      );
+      // The last page needs no checkpoint of its own: completion rewrites the
+      // cursor just below. A pass that finds nothing new — most periodic
+      // reconciliations — saves a write this way.
+      if (more) {
+        await sb.from('commerce_sync_cursors').upsert(
+          { connection_id: job.connection_id, cursor_type: cursorType, page: page + 1, modified_after: modifiedAfter, after_cursor: walkStartedAt, ...(sweepSupported ? { sweep_epoch: sweepEpoch } : {}), updated_at: new Date().toISOString() },
+          { onConflict: 'connection_id,cursor_type' },
+        );
+      }
 
       hasMore = more;
       page += 1;
@@ -240,8 +247,11 @@ export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Pro
 
     if (hasMore) {
       // Bounded run limit reached but more pages remain — re-queue rather
-      // than blocking this worker tick indefinitely.
-      await sb.from('commerce_sync_jobs').update({ status: 'queued' }).eq('id', job.id);
+      // than blocking this worker tick indefinitely. A run that used its
+      // whole page budget made progress, so it is not a failed attempt: every
+      // claim counts one, and without the reset a catalogue of more than
+      // MAX_ATTEMPTS runs dead-lettered on its first transient error.
+      await sb.from('commerce_sync_jobs').update({ status: 'queued', attempts: 0 }).eq('id', job.id);
       return;
     }
 
@@ -314,16 +324,85 @@ async function sweepUnseenProducts(
   if (count) console.log('[commerce.sync] removed products absent from store', { connectionId, count });
 }
 
+/** Wait before retrying a transiently failed sync: 30s, 1m, 2m, 4m, ... */
+export function syncRetryDelayMs(attempts: number): number {
+  return Math.min(RETRY_MAX_DELAY_MS, RETRY_BASE_DELAY_MS * 2 ** Math.max(0, attempts - 1));
+}
+
 async function failJob(config: ServerConfig, job: SyncJobRow, code: string, permanent: boolean): Promise<void> {
   const sb = getServiceClient(config);
+  const now = Date.now();
   // 401/403/invalid-installation-shaped errors and exhausted retries go to
-  // dead_letter; anything else is requeued for the next worker tick.
+  // dead_letter; anything else is retried after a backoff.
   const isPermanentCode = code === 'commerce_permission_denied' || code === 'commerce_not_connected' || code === 'protocol_mismatch';
-  const status = permanent || isPermanentCode ? 'dead_letter' : 'queued';
+  if (permanent || isPermanentCode) {
+    await sb
+      .from('commerce_sync_jobs')
+      .update({ status: 'dead_letter', last_error_code: code, last_error_at: new Date(now).toISOString() })
+      .eq('id', job.id);
+    return;
+  }
+  // Re-queued at once, a failed job was claimed again on the worker's very
+  // next poll (50ms later), so all MAX_ATTEMPTS ran within a couple of
+  // seconds: a store that was down for one minute dead-lettered its sync. The
+  // job instead keeps a lease that nobody holds until the retry is due, and
+  // commerce_claim_sync_job reclaims an expired lease exactly as it does a
+  // crashed worker's, so this needs no schema change.
   await sb
     .from('commerce_sync_jobs')
-    .update({ status, last_error_code: code, last_error_at: new Date().toISOString() })
+    .update({
+      status: 'running',
+      leased_by: null,
+      leased_until: new Date(now + syncRetryDelayMs(job.attempts)).toISOString(),
+      last_error_code: code,
+      last_error_at: new Date(now).toISOString(),
+    })
     .eq('id', job.id);
+}
+
+const SUCCEEDED_JOB_KEEP_MS = 7 * 24 * 60 * 60_000;
+const DEAD_LETTER_JOB_KEEP_MS = 30 * 24 * 60 * 60_000;
+const PRUNE_BATCH = 500;
+const MAX_PRUNE_BATCHES = 10;
+
+/**
+ * Deletes finished sync jobs that have outlived their use, and returns how
+ * many went.
+ *
+ * Every reconciliation pass enqueues a job per connected store — 96 a day
+ * each — and nothing ever removed one, so the table only grew. Succeeded
+ * jobs are kept a week; dead-lettered ones a month, since the admin
+ * diagnostics list them for retrying. Queued and running jobs are never
+ * touched. `updated_at` is set by every claim, so for a finished job it is
+ * when its last run started. Bounded per call: at most
+ * MAX_PRUNE_BATCHES × PRUNE_BATCH rows per status, and any error just stops
+ * this pass.
+ */
+export async function pruneFinishedSyncJobs(config: ServerConfig, now: number = Date.now()): Promise<number> {
+  const sb = getServiceClient(config);
+  let removed = 0;
+  const rules: Array<[status: string, keepMs: number]> = [
+    ['succeeded', SUCCEEDED_JOB_KEEP_MS],
+    ['dead_letter', DEAD_LETTER_JOB_KEEP_MS],
+  ];
+  for (const [status, keepMs] of rules) {
+    const cutoff = new Date(now - keepMs).toISOString();
+    for (let batch = 0; batch < MAX_PRUNE_BATCHES; batch++) {
+      const { data, error } = await sb
+        .from('commerce_sync_jobs')
+        .select('id')
+        .eq('status', status)
+        .lt('updated_at', cutoff)
+        .limit(PRUNE_BATCH);
+      if (error || !data?.length) break;
+      const ids = (data as Array<{ id: string }>).map((row) => row.id);
+      const { error: deleteError } = await sb.from('commerce_sync_jobs').delete().in('id', ids).eq('status', status);
+      if (deleteError) break;
+      removed += ids.length;
+      if (ids.length < PRUNE_BATCH) break;
+    }
+  }
+  return removed;
 }
 
 /** Admin diagnostics — failed jobs without PII/secrets (spec §17). */

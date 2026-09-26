@@ -20,6 +20,7 @@ import type {
   OperatorEventPayload,
 } from '@/realtime/types';
 import { rtDebug, rtWarn } from '@/realtime/debug';
+import { invalidateThrottled } from '@/realtime/invalidationThrottle';
 
 interface ConversationCacheRow {
   id: string;
@@ -31,6 +32,14 @@ interface ConversationCacheRow {
   [k: string]: unknown;
 }
 
+/** The `changes` diff a conversation_updated event carries. */
+interface ConversationChanges {
+  status?: { to?: string };
+  priority?: { to?: string };
+  assigned_to?: { to?: string | null };
+  tags?: { added?: string[]; removed?: string[] };
+}
+
 function patchConversationInCache(
   rows: ConversationCacheRow[] | undefined,
   payload: OperatorEventPayload,
@@ -39,7 +48,7 @@ function patchConversationInCache(
   const idx = rows.findIndex((r) => r.id === payload.conversation_id);
   if (idx < 0) return { patched: rows, matched: false };
 
-  const changes = (payload as any).changes as Record<string, any> | undefined;
+  const changes = payload.changes as ConversationChanges | undefined;
   if (!changes || typeof changes !== 'object') {
     return { patched: rows, matched: false }; // schema mismatch → caller invalidates
   }
@@ -56,8 +65,8 @@ function patchConversationInCache(
     next.tags = [...set];
     touched = true;
   }
-  if ((payload as any).updated_at) {
-    next.updated_at = String((payload as any).updated_at);
+  if (payload.updated_at) {
+    next.updated_at = String(payload.updated_at);
   }
   if (!touched) return { patched: rows, matched: false };
 
@@ -89,13 +98,14 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
             // conversation in this workspace. We don't know which list
             // filter it belongs to without re-reading the row, so just
             // invalidate every cached `['conversations', workspaceId, …]`
-            // query. Cheap because the list endpoint is already paged and
-            // React Query dedupes concurrent refetches.
+            // query — throttled, because invalidateQueries() does NOT dedupe:
+            // it restarts the fetch, so a busy inbox sent one full list
+            // request per message from every open dashboard.
             const convId = (payload as { conversation_id?: string })?.conversation_id;
             const senderType = (payload as { sender_type?: string })?.sender_type;
             rtDebug('inbox-list', 'event:message', { conv: convId, sender_type: senderType });
-            qc.invalidateQueries({ queryKey: ['conversations', workspaceId] });
-            qc.invalidateQueries({ queryKey: ['inbox-counts', workspaceId] });
+            invalidateThrottled(qc, ['conversations', workspaceId]);
+            invalidateThrottled(qc, ['inbox-counts', workspaceId]);
             // Surface to subscribers (e.g. notification chime).
             try {
               window.dispatchEvent(new CustomEvent('inbox:new-message', {
@@ -132,15 +142,16 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
               kind === 'ai_managed' ||
               kind === 'spam_changed'
             ) {
-              qc.invalidateQueries({ queryKey: ['conversations', workspaceId] });
-              qc.invalidateQueries({ queryKey: ['conversation', payload.conversation_id] });
-              qc.invalidateQueries({ queryKey: ['inbox-counts', workspaceId] });
+              invalidateThrottled(qc, ['conversations', workspaceId]);
+              invalidateThrottled(qc, ['conversation', payload.conversation_id]);
+              invalidateThrottled(qc, ['inbox-counts', workspaceId]);
               return;
             }
 
             // A permanently failed outbound delivery changes DERIVED state
             // (needs_reply) that the client cannot recompute from the patch
             // payload, so the list must be re-fetched rather than patched.
+            // Rare (a permanent delivery failure), so not throttled.
             if ((payload as { reason?: string }).reason === 'outbound_delivery_failed') {
               qc.invalidateQueries({ queryKey: ['conversations', workspaceId] });
               qc.invalidateQueries({ queryKey: ['conversation', payload.conversation_id] });
@@ -161,11 +172,11 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
               else allMatched = false;
             }
             if (!allMatched) {
-              qc.invalidateQueries({ queryKey: ['conversations', workspaceId] });
+              invalidateThrottled(qc, ['conversations', workspaceId]);
             }
             // Always refresh the per-conversation cache key if present.
-            qc.invalidateQueries({ queryKey: ['conversation', payload.conversation_id] });
-            qc.invalidateQueries({ queryKey: ['inbox-counts', workspaceId] });
+            invalidateThrottled(qc, ['conversation', payload.conversation_id]);
+            invalidateThrottled(qc, ['inbox-counts', workspaceId]);
           },
           onStatus: (status, info) => {
             if (status === 'error') rtWarn('inbox-list', 'status=error', { reason: info?.reason });
@@ -174,7 +185,7 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
         if (cancelled) { subscription.unsubscribe(); return; }
         sub = subscription;
       } catch (err) {
-        rtWarn('inbox-list', 'subscribe failed, polling continues', { error: (err as any)?.message });
+        rtWarn('inbox-list', 'subscribe failed, polling continues', { error: (err as Error | undefined)?.message });
       }
     })();
 

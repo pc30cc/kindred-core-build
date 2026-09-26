@@ -24,21 +24,6 @@ const WS = 'ws-1';
 
 type Row = Record<string, unknown>;
 interface FakeProduct { externalId: string; [key: string]: unknown }
-interface FakeBuilder {
-  _patch: Row | null;
-  _in: string[] | null;
-  _selecting: boolean;
-  _cols?: string;
-  select: (cols?: string) => FakeBuilder;
-  eq: () => FakeBuilder;
-  is: () => FakeBuilder;
-  in: (_col: string, vals: string[]) => FakeBuilder;
-  or: () => FakeBuilder;
-  update: (patch: Row) => FakeBuilder;
-  upsert: (row: Row) => Promise<{ data: null; error: null }>;
-  maybeSingle: () => Promise<{ data: Row | null; error: { code: string; message: string } | null }>;
-  then: (resolve: (v: { data: unknown; error: null }) => unknown) => unknown;
-}
 
 /** What the fake store returns, one entry per page. */
 let storePages: Array<{ products: FakeProduct[]; has_more: boolean }> = [];
@@ -48,6 +33,8 @@ let cursorRow: Row | null = null;
 let connectionRow: Row | null = null;
 /** Simulates a database that has not had migration 198 applied yet. */
 let sweepColumnMissing = false;
+/** The store answers every catalogue request with a 503. */
+let storeDown = false;
 
 const seen = {
   upserted: [] as string[],
@@ -60,9 +47,26 @@ const seen = {
   requestedPaths: [] as string[],
 };
 
+/** The slice of the supabase-js query builder that sync.ts uses. */
+interface FakeQuery {
+  _patch: Row | null;
+  _in: string[] | null;
+  _selecting: boolean;
+  _cols?: string;
+  select: (cols?: string) => FakeQuery;
+  eq: () => FakeQuery;
+  is: () => FakeQuery;
+  in: (col: string, vals: string[]) => FakeQuery;
+  or: () => FakeQuery;
+  update: (patch: Row) => FakeQuery;
+  upsert: (row: Row) => Promise<{ data: null; error: null }>;
+  maybeSingle: () => Promise<{ data: Row | null; error: { code: string; message: string } | null }>;
+  then: (resolve: (result: { data: unknown; error: null }) => unknown) => unknown;
+}
+
 function fakeClient() {
   const make = (table: string) => {
-    const b: FakeBuilder = {
+    const b: FakeQuery = {
       _patch: null,
       _in: null,
       _selecting: false,
@@ -122,15 +126,16 @@ vi.mock('../../../server/services/commerce/httpClient.js', () => ({
     seen.requestedPaths.push(url);
     const page = Number(new URL(url).searchParams.get('page') ?? '1');
     const body = storePages[page - 1] ?? { products: [], has_more: false };
-    return { status: 200, json: body };
+    return { status: storeDown ? 503 : 200, json: body };
   },
 }));
 
-const { runSyncJobOnce } = await import('../../../server/services/commerce/sync.js');
+const { runSyncJobOnce, syncRetryDelayMs } = await import('../../../server/services/commerce/sync.js');
 
+type SyncJob = Parameters<typeof runSyncJobOnce>[1];
 const CONFIG = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' } as unknown as Parameters<typeof runSyncJobOnce>[0];
 const product = (id: string) => ({ externalId: id, sku: `SKU-${id}`, title: `P${id}`, variants: [] });
-const job = (o: Partial<Row> = {}): Parameters<typeof runSyncJobOnce>[1] => ({
+const job = (o: Partial<SyncJob> = {}): SyncJob => ({
   id: 'job-1', workspace_id: WS, connection_id: CONN, job_type: 'manual_resync',
   status: 'running', attempts: 0, max_attempts: 5, ...o,
 });
@@ -140,6 +145,7 @@ beforeEach(() => {
   sweptCount = 0;
   cursorRow = null;
   sweepColumnMissing = false;
+  storeDown = false;
   connectionRow = { id: CONN, workspace_id: WS, installation_id: 'inst-1', approved_origin: 'https://shop.example.com', revoked_at: null };
   for (const k of Object.keys(seen) as Array<keyof typeof seen>) seen[k].length = 0;
 });
@@ -194,7 +200,11 @@ describe('a full sync sweeps what the store no longer has', () => {
     // If each tick minted a new epoch, the final one would tombstone
     // everything the earlier ticks had already stamped.
     cursorRow = { page: 2, modified_after: null, sweep_epoch: '2026-09-20T20:00:00.000Z' };
-    storePages = [{ products: [], has_more: false }, { products: [product('9')], has_more: false }];
+    storePages = [
+      { products: [], has_more: false },
+      { products: [product('9')], has_more: true },
+      { products: [product('10')], has_more: false },
+    ];
 
     await runSyncJobOnce(CONFIG, job());
 
@@ -294,7 +304,7 @@ describe('incremental and reconciliation syncs resume their cursor', () => {
 
       await runSyncJobOnce(CONFIG, job({ job_type }));
       expect(seen.requestedPaths.map(pageOf)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
-      expect(seen.jobUpdates).toContainEqual({ status: 'queued' });
+      expect(seen.jobUpdates).toContainEqual({ status: 'queued', attempts: 0 });
       const checkpoint = seen.cursorWrites[seen.cursorWrites.length - 1];
       expect(checkpoint.page).toBe(21);
       expect(checkpoint.modified_after).toBe(WATERMARK); // same watermark for the whole walk
@@ -353,3 +363,68 @@ describe('incremental and reconciliation syncs resume their cursor', () => {
   });
 });
 
+describe('a walk longer than one run is not a failed attempt, and a failing store is retried after a pause', () => {
+  const pagesOf = (count: number) =>
+    Array.from({ length: count }, (_, i) => ({ products: [product(String(i + 1))], has_more: i + 1 < count }));
+  const requestedPages = () => seen.requestedPaths.map((u) => Number(new URL(u).searchParams.get('page')));
+
+  it('a reconciliation bigger than one run finishes on the next run instead of re-reading its first pages forever', async () => {
+    // Its window is the cursor's modified_after — here null, the first
+    // reconciliation of a store: a full walk of 25 pages against a budget of
+    // 20 per run. It used to restart at page 1 on every run and never end.
+    storePages = pagesOf(25);
+
+    await runSyncJobOnce(CONFIG, job({ job_type: 'reconciliation', attempts: 1 }));
+    expect(requestedPages()).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+    expect(seen.jobUpdates).toContainEqual({ status: 'queued', attempts: 0 });
+
+    cursorRow = seen.cursorWrites[seen.cursorWrites.length - 1];
+    seen.requestedPaths.length = 0;
+    seen.jobUpdates.length = 0;
+
+    await runSyncJobOnce(CONFIG, job({ job_type: 'reconciliation', attempts: 1 }));
+    expect(requestedPages()).toEqual([21, 22, 23, 24, 25]);
+    expect(seen.jobUpdates).toContainEqual({ status: 'succeeded' });
+    // One walk, one epoch: the sweep uses the epoch the first run started.
+    const sweeps = seen.rpcCalls.filter((c) => c.fn === 'commerce_sweep_absent_products');
+    expect(sweeps).toHaveLength(1);
+    expect(sweeps[0].args.p_sweep_epoch).toBe(seen.cursorWrites[0].sweep_epoch);
+  });
+
+  it('the last page writes no checkpoint of its own — completion writes the cursor', async () => {
+    await runSyncJobOnce(CONFIG, job());
+
+    expect(seen.cursorWrites).toHaveLength(1);
+    expect(seen.cursorWrites[0].page).toBe(1);
+  });
+
+  it('a transient failure keeps the job leased until its retry is due instead of re-queueing it at once', async () => {
+    storeDown = true;
+    const before = Date.now();
+
+    await runSyncJobOnce(CONFIG, job({ attempts: 1 }));
+
+    expect(seen.jobUpdates).toHaveLength(1);
+    const update = seen.jobUpdates[0];
+    expect(update.status).toBe('running');
+    expect(update.leased_by).toBeNull();
+    expect(update.last_error_code).toBe('commerce_live_unavailable');
+    const due = Date.parse(String(update.leased_until)) - before;
+    expect(due).toBeGreaterThanOrEqual(30_000);
+    expect(due).toBeLessThan(31_000);
+  });
+
+  it('the last attempt still dead-letters', async () => {
+    storeDown = true;
+
+    await runSyncJobOnce(CONFIG, job({ attempts: 5, max_attempts: 5 }));
+
+    expect(seen.jobUpdates).toHaveLength(1);
+    expect(seen.jobUpdates[0].status).toBe('dead_letter');
+  });
+
+  it('the retry delay doubles per attempt, to a ceiling', () => {
+    expect([1, 2, 3, 4].map(syncRetryDelayMs)).toEqual([30_000, 60_000, 120_000, 240_000]);
+    expect(syncRetryDelayMs(20)).toBe(15 * 60_000);
+  });
+});

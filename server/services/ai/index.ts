@@ -203,9 +203,27 @@ async function recordAiUsageLog(
   serverConfig: ServerConfig,
   sb: ServiceClient,
   row: Record<string, unknown>,
-): Promise<void> {
-  if (serverConfig.productAnalyticsLoggingEnabled === false) return;
-  await sb.from('ai_usage_logs').insert(row);
+): Promise<boolean> {
+  if (serverConfig.productAnalyticsLoggingEnabled === false) return false;
+  const { error } = await sb.from('ai_usage_logs').insert(row);
+  return !error;
+}
+
+/** Responses whose success row reached ai_usage_logs — see wasRequestCounted(). */
+const requestCountedByUsageLog = new WeakSet<AIResponse>();
+
+/**
+ * True when this completion's usage row was written to ai_usage_logs. On a
+ * database with the hosted migration chain, that insert's trigger
+ * (tg_ai_usage_logs_count_request) already counts the request in
+ * `ai_requests_count`, so a caller that meters requests itself must count
+ * only when this is false. It is false when PRODUCT_ANALYTICS_LOGGING=off
+ * skipped the row, and on self-host databases, which have neither the table
+ * nor the trigger. Counting unconditionally counted /api/ai/complete twice
+ * wherever the trigger exists.
+ */
+export function wasRequestCounted(response: AIResponse): boolean {
+  return requestCountedByUsageLog.has(response);
 }
 
 /**
@@ -304,7 +322,7 @@ async function runOneCompletion(
     raw: { finishReason: response.finishReason },
   });
 
-  await recordAiUsageLog(serverConfig, sb, {
+  const usageLogged = await recordAiUsageLog(serverConfig, sb, {
     workspace_id: request.workspaceId,
     provider_name: usage.provider,
     model: usage.actualModel,
@@ -315,6 +333,9 @@ async function runOneCompletion(
     success: true,
     endpoint: 'complete',
   });
+  // Replays of the same requestId get this same object, so they read the
+  // same answer (withAiIdempotency).
+  if (usageLogged) requestCountedByUsageLog.add(response);
 
   if (ctx) {
     try {

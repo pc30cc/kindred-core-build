@@ -28,9 +28,20 @@ async function autoAssignWorkspace(config: ServerConfig, workspaceId: string): P
     .limit(20);
   if (!data || data.length === 0) return 0;
 
-  // Track operators we've already offered in THIS tick so we don't
-  // double-assign someone if multiple entries happen to be queued.
-  const offeredInThisTick = new Set<string>();
+  // Track operators who already hold an offer so we don't double-assign
+  // someone if multiple entries happen to be queued. That includes offers
+  // made on EARLIER ticks that are still pending: an offer lives longer than
+  // one 10s tick, and remembering only this tick's offers let one operator
+  // ring for two calls at once while a free colleague got none.
+  const { data: liveOffers } = await sb
+    .from('call_queue_entries')
+    .select('offered_to_user_id')
+    .eq('workspace_id', workspaceId)
+    .eq('state', 'offered')
+    .not('offered_to_user_id', 'is', null);
+  const offeredInThisTick = new Set<string>(
+    (liveOffers || []).map((o) => (o as { offered_to_user_id: string }).offered_to_user_id),
+  );
   let assignments = 0;
 
   // Group by channel to keep offers symmetrical per type.
@@ -64,28 +75,66 @@ async function autoAssignAllWorkspaces(config: ServerConfig): Promise<number> {
     .eq('state', 'queued')
     .limit(200);
   if (!data || data.length === 0) return 0;
-  const workspaces = Array.from(new Set(data.map((d) => (d as any).workspace_id as string)));
+  const workspaces = Array.from(new Set(data.map((d) => (d as { workspace_id: string }).workspace_id)));
   let total = 0;
   for (const ws of workspaces) {
     try {
       total += await autoAssignWorkspace(config, ws);
-    } catch (err: any) {
+    } catch (err) {
       console.warn('[callQueue] auto-assign failed for ws', ws, err?.message || err);
     }
   }
   return total;
 }
 
+/**
+ * Whether any entry is 'queued' or 'offered'. Every step of a pass acts only
+ * on those two states, so when this is false the pass would change nothing.
+ * One index-only read (call_queue_has_active_entries() over
+ * idx_call_queue_active, migration 219) instead of an UPDATE and two SELECTs
+ * every 10s against a table that only grows — ~29k statements a day on an
+ * install where nobody is calling.
+ *
+ * The RPC rather than a `.in('state', …)` filter: PostgREST binds filter
+ * values as parameters, and once Postgres moves that statement to a generic
+ * plan the partial index is unusable and the probe reads the whole table
+ * (measured: 1,870 buffers vs 1). A database without migration 219 falls
+ * back to the filter; a read that fails outright says "true", so the pass
+ * runs exactly as before.
+ */
+async function hasActiveEntries(config: ServerConfig): Promise<boolean> {
+  const sb = getServiceClient(config);
+  const probe = await sb.rpc('call_queue_has_active_entries');
+  if (!probe.error) return probe.data === true;
+  const { data, error } = await sb
+    .from('call_queue_entries')
+    .select('id')
+    .in('state', ['queued', 'offered'])
+    .limit(1);
+  return !!error || (data || []).length > 0;
+}
+
+let passRunning = false;
+
 export function startCallQueueTicker(config: ServerConfig): void {
   setInterval(async () => {
-    try { await expireStaleEntries(config); } catch (err: any) {
-      console.warn('[callQueue] expiry sweep failed:', err?.message || err);
-    }
-    try { await reapStaleOffers(config); } catch (err: any) {
-      console.warn('[callQueue] reap stale offers failed:', err?.message || err);
-    }
-    try { await autoAssignAllWorkspaces(config); } catch (err: any) {
-      console.warn('[callQueue] auto-assign failed:', err?.message || err);
+    // A pass slower than the interval (a slow database, many workspaces)
+    // must not have the next one stacked on top of it.
+    if (passRunning) return;
+    passRunning = true;
+    try {
+      if (!(await hasActiveEntries(config))) return;
+      try { await expireStaleEntries(config); } catch (err) {
+        console.warn('[callQueue] expiry sweep failed:', err?.message || err);
+      }
+      try { await reapStaleOffers(config); } catch (err) {
+        console.warn('[callQueue] reap stale offers failed:', err?.message || err);
+      }
+      try { await autoAssignAllWorkspaces(config); } catch (err) {
+        console.warn('[callQueue] auto-assign failed:', err?.message || err);
+      }
+    } finally {
+      passRunning = false;
     }
   }, INTERVAL_MS).unref();
 }

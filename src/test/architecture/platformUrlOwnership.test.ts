@@ -215,10 +215,17 @@ describe('native iOS API bootstrap defers to the platform', () => {
 
 describe('no active configuration points at the legacy domain', () => {
   it('the build-time API base does not', () => {
-    const env = read('.env');
-    const line = env.split('\n').find((l) => l.startsWith('VITE_API_BASE_URL='));
-    expect(line).toBeDefined();
-    expect(line!.toLowerCase()).not.toContain(LEGACY);
+    // `.env` is untracked (src/test/ci/noTrackedEnvFiles.test.ts): a build
+    // takes VITE_API_BASE_URL from its environment, documented by the tracked
+    // templates and defaulted by docker-compose, so those are what is checked.
+    for (const template of ['.env.example', '.env.docker.example']) {
+      const line = read(template).split('\n').find((l) => l.startsWith('VITE_API_BASE_URL='));
+      expect(line, template).toBeDefined();
+      expect(line!.toLowerCase()).not.toContain(LEGACY);
+    }
+    const composeDefault = read('docker-compose.yml').split('\n').find((l) => l.trim().startsWith('VITE_API_BASE_URL:'));
+    expect(composeDefault).toBeDefined();
+    expect(composeDefault!.toLowerCase()).not.toContain(LEGACY);
   });
 
   it('the native bootstrap does not', () => {

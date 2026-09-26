@@ -10,14 +10,16 @@
  *   PLUGIN_SECRETS_MASTER_KEY                 required (installation secrets)
  *   WORKER_ID                                 optional
  *   COMMERCE_WORKER_POLL_MS                   optional, default 5000
+ *   COMMERCE_WORKER_MAX_IDLE_POLL_MS          optional, default 30000
  *   COMMERCE_WORKER_RECONCILE_MS              optional, default 900000 (15m)
  */
 import os from 'node:os';
 import { envFlagEnabled, type ServerConfig } from '../../server/config.js';
-import { claimNextSyncJob, runSyncJobOnce, enqueueSyncJob } from '../../server/services/commerce/sync.js';
+import { claimNextSyncJob, runSyncJobOnce, enqueueSyncJob, pruneFinishedSyncJobs } from '../../server/services/commerce/sync.js';
 import { runCapabilityHandshake } from '../../server/services/commerce/pairing.js';
 import { catalogIndexedProviders } from '../../server/services/commerce/connectors/registry.js';
 import { getServiceClient } from '../../server/supabase.js';
+import { IdleBackoff, IntervalGate } from '../../server/services/jobs/idleBackoff.js';
 
 function clampInt(v: string | undefined, def: number, min: number, max: number): number {
   const n = parseInt(v || '', 10);
@@ -53,6 +55,13 @@ function buildConfig(): ServerConfig {
   };
 }
 
+const LONG_OFFLINE_MS = 60 * 60_000;
+
+function succeededWithin(lastSuccessAt: string | null | undefined, ms: number): boolean {
+  const at = lastSuccessAt ? Date.parse(lastSuccessAt) : NaN;
+  return Number.isFinite(at) && Date.now() - at < ms;
+}
+
 let started = false;
 let stopping = false;
 let pollTimer: NodeJS.Timeout | null = null;
@@ -65,25 +74,33 @@ export function startCommerceSyncWorker(): void {
   const config = buildConfig();
   const workerId = process.env.WORKER_ID || `commerce-sync-${os.hostname()}-${process.pid}`;
   const pollMs = clampInt(process.env.COMMERCE_WORKER_POLL_MS, 5_000, 1_000, 60_000);
+  const maxIdlePollMs = clampInt(process.env.COMMERCE_WORKER_MAX_IDLE_POLL_MS, 30_000, pollMs, 300_000);
   const reconcileMs = clampInt(process.env.COMMERCE_WORKER_RECONCILE_MS, 900_000, 60_000, 3_600_000);
 
-  console.log('[commerce-sync worker] starting', { workerId, pollMs, reconcileMs });
+  console.log('[commerce-sync worker] starting', { workerId, pollMs, maxIdlePollMs, reconcileMs });
+
+  // The first idle poll still waits pollMs; only a queue that stays empty
+  // eases off, to maxIdlePollMs, and any claimed job resets it. An empty
+  // queue used to be asked every 5s around the clock (17,280 claims a day)
+  // although jobs arrive a few times an hour.
+  const backoff = new IdleBackoff({ busyMs: 50, idleMs: pollMs, maxIdleMs: maxIdlePollMs });
 
   const tick = async () => {
     if (stopping) return;
+    let claimed = false;
     try {
       const job = await claimNextSyncJob(config, workerId);
       if (job) {
+        claimed = true;
         await runSyncJobOnce(config, job);
         // A job may have re-queued itself (bounded page budget) — poll again
         // immediately rather than waiting a full interval.
-        pollTimer = setTimeout(tick, 50);
-        return;
       }
     } catch (err) {
       console.error('[commerce-sync worker] tick failed:', err instanceof Error ? err.message : err);
     }
-    pollTimer = setTimeout(tick, pollMs);
+    if (stopping) return;
+    pollTimer = setTimeout(tick, backoff.next(claimed));
   };
 
   /**
@@ -95,8 +112,16 @@ export function startCommerceSyncWorker(): void {
    * the capability handshake so a plugin update / recovered store is
    * noticed without waiting on the next admin-initiated "Test connection".
    */
+  // Old finished jobs are pruned hourly, piggybacking on the reconcile timer:
+  // this worker is what creates them, and the retention worker is optional.
+  const pruneGate = new IntervalGate(60 * 60_000);
+
   const reconcile = async () => {
     if (stopping) return;
+    if (pruneGate.due()) {
+      const removed = await pruneFinishedSyncJobs(config).catch(() => 0);
+      if (removed > 0) console.log('[commerce-sync worker] pruned finished sync jobs', { removed });
+    }
     try {
       const sb = getServiceClient(config);
       // Catalogue-indexed providers only. A live-queried billing connection
@@ -115,6 +140,19 @@ export function startCommerceSyncWorker(): void {
         .in('provider_type', catalogIndexedProviders());
       for (const conn of connections ?? []) {
         await runCapabilityHandshake(config, conn.id).catch(() => {});
+        // A store that has been unreachable for over an hour — typically one
+        // that went away without disconnecting — would only fail the job
+        // through every retry and leave a dead-letter row behind: a dozen
+        // writes each pass, forever. A shorter outage still gets its job,
+        // whose retries may well outlast it. The handshake above runs every
+        // pass either way, so a store that comes back is synced on the pass
+        // that notices.
+        const { data: after } = await sb
+          .from('commerce_connections')
+          .select('health, last_success_at')
+          .eq('id', conn.id)
+          .maybeSingle();
+        if (after?.health === 'offline' && !succeededWithin(after.last_success_at, LONG_OFFLINE_MS)) continue;
         await enqueueSyncJob(config, conn.workspace_id, conn.id, 'reconciliation').catch(() => {});
       }
     } catch (err) {

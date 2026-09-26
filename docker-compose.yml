@@ -32,6 +32,9 @@ services:
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
+      # Empty (the default) keeps the in-process invitation worker on; 0
+      # leaves delivery to the invitations-worker container below.
+      - INVITATION_WORKER_INPROC=${INVITATION_WORKER_INPROC:-}
       - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-60000}
       - RATE_LIMIT_MAX=${RATE_LIMIT_MAX:-100}
       - RESEND_API_KEY=${RESEND_API_KEY:-}
@@ -189,6 +192,14 @@ services:
 
   # Durable workspace-invitation email/SMS outbox. Keep this separate from
   # Express so provider calls never run in request transactions.
+  #
+  # It boots through the same loadConfig() as the backend, which requires
+  # SUPABASE_ANON_KEY: without it this container exited at startup and
+  # restarted forever. CORS_ORIGINS is the invitation-link base when Super
+  # Admin → Domains has no app URL; without it links pointed at localhost.
+  # Claims are leased (FOR UPDATE SKIP LOCKED), so running alongside the
+  # backend's in-process worker is safe; INVITATION_WORKER_INPROC=0 (as in
+  # .env.docker.example) leaves this container as the only one.
   invitations-worker:
     build:
       context: .
@@ -196,7 +207,9 @@ services:
     environment:
       - WORKER_KIND=invitations
       - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
       - INVITATION_LINK_SECRET=${INVITATION_LINK_SECRET}
       - INVITATION_LINK_SECRET_RING=${INVITATION_LINK_SECRET_RING:-}
       - INVITATION_LINK_KEY_VERSION=${INVITATION_LINK_KEY_VERSION:-1}

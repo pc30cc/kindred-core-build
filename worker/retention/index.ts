@@ -14,8 +14,11 @@
 import { loadConfig } from '../../server/config.js';
 import { runAllPolicies } from '../../server/services/retention/retentionService.js';
 import { ensureFuturePartitions, validatePartitionLayout } from '../../server/services/retention/partitionService.js';
+import { intFromEnv } from '../../server/services/jobs/idleBackoff.js';
 
-const INTERVAL_MS = parseInt(process.env.RETENTION_INTERVAL_MS || String(6 * 60 * 60 * 1000), 10);
+// Clamped: a bare parseInt read "6h" as 6ms, and NaN as a 1ms timer — a
+// retention sweep running back to back forever.
+const INTERVAL_MS = intFromEnv(process.env.RETENTION_INTERVAL_MS, 6 * 60 * 60 * 1000, 60_000, 7 * 24 * 60 * 60 * 1000);
 const DRY_RUN = process.env.RETENTION_DRY_RUN === '1' || process.env.RETENTION_DRY_RUN === 'true';
 
 function log(event: string, data: Record<string, unknown> = {}) {

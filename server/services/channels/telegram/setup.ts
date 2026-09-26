@@ -56,7 +56,7 @@ import {
   requestProviderOperation,
   type ProviderOperation,
 } from '../operations.js';
-import { enqueueChannelJob } from '../jobs.js';
+import { seedPollLoop } from '../jobs.js';
 
 /**
  * Credential slot names for a provider. Telegram and Bale keep SEPARATE
@@ -86,7 +86,7 @@ type ConnectSnapshot = {
 };
 
 function snapshotOf(operation: ProviderOperation): ConnectSnapshot {
-  const snapshot = (operation.request as any)?.snapshot ?? {};
+  const snapshot: Partial<ConnectSnapshot> = (operation.request as { snapshot?: Partial<ConnectSnapshot> } | null)?.snapshot ?? {};
   return {
     previous_account_id: snapshot.previous_account_id ?? null,
     previous_status: snapshot.previous_status ?? 'pending',
@@ -340,8 +340,9 @@ export async function applyConnectSuccess(
   // integration needs its inbox kept fresh by the Worker's self-rescheduling
   // poll loop (see `worker/channels/index.ts`, job type `x_poll_dm_events`)
   // — seed the first tick here, once, right after the credential is live.
+  // A reconnect replaces the loop rather than starting a second one beside it.
   if (findBotProvider(integration.provider)?.supportsPolling) {
-    await enqueueChannelJob(getServiceClient(config), {
+    await seedPollLoop(getServiceClient(config), {
       provider: integration.provider,
       jobType: 'x_poll_dm_events',
       workspaceId: integration.workspace_id,
@@ -415,9 +416,17 @@ export async function applyConnectFailure(
   });
 }
 
+/** What a finished connect operation stores in `result` (see completeOperation above). */
+type ConnectOperationResult = {
+  bot?: { id: number; username?: string | null; name?: string | null };
+  webhook_url?: unknown;
+  verified_at?: unknown;
+  replaced_previous_token?: unknown;
+};
+
 /** Shapes a finished connect operation for the HTTP layer. */
 export function connectResultOf(operation: ProviderOperation): TelegramConnectResult | null {
-  const result = operation.result as any;
+  const result = operation.result as ConnectOperationResult | null;
   if (operation.status !== 'succeeded' || !result?.bot) return null;
   return {
     bot: { id: result.bot.id, username: result.bot.username ?? null, name: result.bot.name ?? null },
@@ -613,6 +622,14 @@ export async function applyDiagnosticsResult(
   });
 }
 
+/** What a finished webhook-probe operation stores in `result` (see above). */
+type WebhookProbeResult = {
+  webhook_url?: string | null;
+  pending_update_count?: number;
+  last_error_message?: string | null;
+  last_error_at?: string | null;
+};
+
 /** Core-side half of a diagnostics answer: never needs the provider. */
 export async function telegramDiagnosticsView(
   config: ServerConfig,
@@ -628,7 +645,7 @@ export async function telegramDiagnosticsView(
   const expectedUrl = config.publicChannelsBaseUrl
     ? buildWebhookUrl(config, integration.provider, integration.public_integration_id)
     : null;
-  const probe = (operation?.status === 'succeeded' ? (operation.result as any) : null) ?? null;
+  const probe = (operation?.status === 'succeeded' ? (operation.result as WebhookProbeResult | null) : null) ?? null;
 
   return {
     connected: integration.status === 'connected',

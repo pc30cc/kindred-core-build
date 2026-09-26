@@ -33,6 +33,9 @@ interface SloDefinition {
   enabled: boolean;
 }
 
+/** The rollup columns read for a sample; which metric column is present depends on the SLO. */
+type RollupSampleRow = Record<string, unknown> & { scope_type?: SloScope; scope_key?: string; workspace_id?: string; bucket_hour?: string };
+
 interface ObservedSample {
   scope_type: SloScope;
   scope_key: string;
@@ -41,6 +44,19 @@ interface ObservedSample {
 }
 
 const MIN_CONSECUTIVE_BREACHES_TO_OPEN = 3;
+
+/**
+ * At most one bump of an open breach per evaluation cycle, cluster-wide.
+ *
+ * Every replica runs this evaluator every 60s. Counting each pass made
+ * `consecutive_breaches` climb replica-count times a minute, so an
+ * enforcement rule gated on `min_consecutive_breaches` fired N times sooner
+ * with N replicas, and the row was rewritten N times a minute for as long as
+ * the breach stayed open. ~85% of the tick, like the ticker lease gates, so
+ * ordinary timer jitter never skips a legitimate cycle. A single replica
+ * counts exactly as before.
+ */
+export const BREACH_BUMP_MIN_INTERVAL_MS = 51_000;
 
 /**
  * How old the newest rollup bucket may be before this evaluator treats the
@@ -119,14 +135,14 @@ export async function runSloEvaluation(
             if (closed) result.resolved += 1;
           }
         }
-      } catch (err: any) {
+      } catch (err) {
         emitLog(config, 'warn', 'slo_evaluator_def_threw', {
           slug: def.slug,
           error: err?.message || 'unknown',
         });
       }
     }
-  } catch (err: any) {
+  } catch (err) {
     emitLog(config, 'warn', 'slo_evaluator_threw', { error: err?.message || 'unknown' });
   }
 
@@ -221,7 +237,7 @@ async function loadSamplesForSlo(
     // Take latest bucket per scope_key.
     const seen = new Set<string>();
     const out: ObservedSample[] = [];
-    for (const row of (data || []) as any[]) {
+    for (const row of (data || []) as unknown as RollupSampleRow[]) {
       const k = `${row.scope_type}::${row.scope_key}`;
       if (seen.has(k)) continue;
       seen.add(k);
@@ -268,7 +284,7 @@ async function loadSamplesForSlo(
 
     const seen = new Set<string>();
     const out: ObservedSample[] = [];
-    for (const row of (data || []) as any[]) {
+    for (const row of (data || []) as unknown as RollupSampleRow[]) {
       if (seen.has(row.workspace_id)) continue;
       seen.add(row.workspace_id);
       out.push({
@@ -293,7 +309,7 @@ async function bumpOrOpenBreach(
 
   const { data: existing } = await sb
     .from('slo_breach_events')
-    .select('id, consecutive_breaches, state')
+    .select('id, consecutive_breaches, state, last_breach_at')
     .eq('slo_id', def.id)
     .eq('scope_type', sample.scope_type)
     .eq('scope_key', sample.scope_key)
@@ -301,7 +317,13 @@ async function bumpOrOpenBreach(
     .maybeSingle();
 
   if (existing) {
+    const lastBreachAt = existing.last_breach_at ? Date.parse(existing.last_breach_at) : NaN;
+    if (Number.isFinite(lastBreachAt) && Date.now() - lastBreachAt < BREACH_BUMP_MIN_INTERVAL_MS) {
+      return 'noop'; // already counted this cycle (another replica, or this one)
+    }
     const next = (existing.consecutive_breaches || 1) + 1;
+    // Conditioned on the count it read, so two replicas that passed the gate
+    // together cannot both bump.
     await sb
       .from('slo_breach_events')
       .update({
@@ -309,7 +331,8 @@ async function bumpOrOpenBreach(
         last_breach_at: new Date().toISOString(),
         observed_value: sample.observed,
       })
-      .eq('id', existing.id);
+      .eq('id', existing.id)
+      .eq('consecutive_breaches', existing.consecutive_breaches);
     return 'bumped';
   }
 
@@ -359,7 +382,7 @@ async function bumpOrOpenBreach(
   });
   if (error) {
     // Unique-violation = a concurrent insert won; treat as bumped.
-    if ((error as any).code === '23505') return 'bumped';
+    if ((error as { code?: string }).code === '23505') return 'bumped';
     emitLog(config, 'warn', 'slo_breach_insert_failed', {
       slug: def.slug,
       error: error.message,

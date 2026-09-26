@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 
@@ -11,9 +12,15 @@ vi.mock('../../../server/supabase.js', () => ({
     auth: {
       getUser: async () => ({ data: { user: authUser }, error: authUser ? null : new Error('bad') }),
     },
-    rpc: async (_fn: string, args: any) => ({ data: Boolean(memberOf[args._workspace_id]), error: null }),
+    rpc: async (_fn: string, args: { _workspace_id: string }) => ({ data: Boolean(memberOf[args._workspace_id]), error: null }),
     from: () => {
-      const b: any = {
+      interface MemberQuery {
+        _ws?: string;
+        select: () => MemberQuery;
+        eq: (column: string, value: string) => MemberQuery;
+        maybeSingle: () => Promise<{ data: { role: string } | null; error: null }>;
+      }
+      const b: MemberQuery = {
         select: () => b,
         eq: (_c: string, v: string) => {
           if (!b._ws) b._ws = v;
@@ -46,34 +53,35 @@ vi.mock('../../../server/services/auth/sessions.js', () => ({
 
 const calls: string[] = [];
 let moduleAllowed = true;
-let creditsResult: any = { success: true, credits_used: 1, credits_limit: 100 };
+interface CreditsResult { success: boolean; credits_used?: number; credits_limit?: number; reason?: string }
+let creditsResult: CreditsResult = { success: true, credits_used: 1, credits_limit: 100 };
 
-const checkModuleAccess = vi.fn(async () => {
+const checkModuleAccess = vi.fn(async (..._args: unknown[]) => {
   calls.push('module');
   return moduleAllowed ? { allowed: true } : { allowed: false, plan: 'free' };
 });
-const deductAICredits = vi.fn(async () => {
+const deductAICredits = vi.fn(async (..._args: unknown[]) => {
   calls.push('credits');
   return creditsResult;
 });
-const incrementUsage = vi.fn(() => {
+const incrementUsage = vi.fn((..._args: unknown[]) => {
   calls.push('usage');
 });
 
 vi.mock('../../../server/middleware/featureGating.js', () => ({
-  checkModuleAccess: (...a: any[]) => (checkModuleAccess as any)(...a),
-  deductAICredits: (...a: any[]) => (deductAICredits as any)(...a),
-  incrementUsage: (...a: any[]) => (incrementUsage as any)(...a),
+  checkModuleAccess: (...a: unknown[]) => checkModuleAccess(...a),
+  deductAICredits: (...a: unknown[]) => deductAICredits(...a),
+  incrementUsage: (...a: unknown[]) => incrementUsage(...a),
 }));
 
-const logSecurityEvent = vi.fn(async () => {
+const logSecurityEvent = vi.fn(async (..._args: unknown[]) => {
   calls.push('securitylog');
 });
 vi.mock('../../../server/middleware/security.js', () => ({
-  logSecurityEvent: (...a: any[]) => (logSecurityEvent as any)(...a),
+  logSecurityEvent: (...a: unknown[]) => logSecurityEvent(...a),
 }));
 
-const executeAICompletion = vi.fn(async () => {
+const executeAICompletion = vi.fn(async (..._args: unknown[]) => {
   calls.push('provider');
   return {
     text: 'ok',
@@ -86,17 +94,20 @@ const executeAICompletion = vi.fn(async () => {
   };
 });
 vi.mock('../../../server/services/ai/index.js', () => ({
-  executeAICompletion: (...a: any[]) => (executeAICompletion as any)(...a),
-  executeAICompletionWithConfig: (_c: any, _cfg: any, req: any) => (executeAICompletion as any)(_c, req),
+  executeAICompletion: (...a: unknown[]) => executeAICompletion(...a),
+  executeAICompletionWithConfig: (_c: unknown, _cfg: unknown, req: unknown) => executeAICompletion(_c, req),
   testAIConnection: async () => ({ success: true, latencyMs: 1, model: 'm' }),
   resolveAIConfig: async () => null,
+  // No usage row is written here, so the route counts the request itself:
+  // that is the 'usage' step in the gate order below.
+  wasRequestCounted: () => false,
 }));
 
 const { aiRouter } = await import('../../../server/routes/ai.js');
 
 const app = express();
 app.use((req, _res, next) => {
-  (req as any).serverConfig = {
+  (req as express.Request & { serverConfig?: unknown }).serverConfig = {
     supabaseUrl: 'https://example.supabase.co',
     supabaseAnonKey: 'ANON_KEY',
     supabaseServiceRoleKey: 'SERVICE_KEY',
@@ -108,7 +119,7 @@ app.use(express.json());
 app.use('/api/ai', aiRouter);
 
 const server = http.createServer(app).listen(0);
-const port = () => (server.address() as any).port;
+const port = () => (server.address() as AddressInfo).port;
 
 function post(path: string, body: unknown, headers: Record<string, string> = {}) {
   const payload = JSON.stringify(body);

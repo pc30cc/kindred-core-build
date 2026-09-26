@@ -1,7 +1,16 @@
 package com.webyar.operator.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Icon
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -40,16 +49,42 @@ fun DetailRow(
     value: String,
     modifier: Modifier = Modifier,
     latin: Boolean = false,
+    icon: ImageVector? = null,
 ) {
-    Column(
+    Row(
         modifier
             .fillMaxWidth()
             // A minimum rather than a height, so the row still grows when the
             // font scale does.
-            .heightIn(min = Size.minTouchTarget + 8.dp)
-            .padding(horizontal = Space.screenInset, vertical = Space.sm),
-        verticalArrangement = Arrangement.spacedBy(Space.xxs),
+            .heightIn(min = Size.minTouchTarget + 16.dp)
+            .padding(horizontal = Space.lg, vertical = Space.md),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (icon != null) {
+            // What kind of fact, at a glance: the tonal circle Android 16's
+            // settings rows wear, so a column of facts scans by its icons.
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Spacer(Modifier.size(Space.lg))
+        }
+        DetailText(label, value, latin, Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun DetailText(label: String, value: String, latin: Boolean, modifier: Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(Space.xxs)) {
         Text(
             label,
             style = MaterialTheme.typography.labelMedium,

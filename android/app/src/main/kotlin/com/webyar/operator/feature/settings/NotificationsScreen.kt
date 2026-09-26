@@ -37,11 +37,17 @@ import com.webyar.operator.i18n.Str
 import com.webyar.operator.i18n.StrManual
 import com.webyar.operator.ui.A11y
 import com.webyar.operator.ui.components.QuietRow
-import com.webyar.operator.ui.components.RowDivider
 import com.webyar.operator.ui.components.SkeletonList
 import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
 import java.util.TimeZone
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Notifications
+import com.webyar.operator.ui.components.SegmentGap
+import com.webyar.operator.ui.components.segmentedShape
+import com.webyar.operator.ui.design.Radius
+import com.webyar.operator.ui.design.WebyarType
 
 /**
  * How an operator wants to be told that something happened.
@@ -96,6 +102,7 @@ fun NotificationsScreen(
             .fillMaxWidth()
             .testTag(A11y.NOTIFICATIONS_LIST),
         contentPadding = contentPadding,
+        verticalArrangement = Arrangement.spacedBy(SegmentGap),
     ) {
         systemPermission?.takeIf { !it.granted }?.let { permission ->
             item { PermissionBanner(language, permission) }
@@ -118,6 +125,8 @@ fun NotificationsScreen(
         prefs.disableAll?.let { disabled ->
             item {
                 SwitchRow(
+                    index = 0,
+                    count = 1,
                     title = Str.pushMuteAll(language),
                     hint = Str.pushMuteAllFooter(language),
                     checked = disabled,
@@ -147,6 +156,18 @@ fun NotificationsScreen(
             }
         }
 
+        // The switches of the push group, in the order they are drawn, so
+        // each knows where it sits in the group — the ends are rounded, the
+        // joins are not.
+        val pushSwitches = listOfNotNull(
+            prefs.pushWhenOnline?.let { "online" },
+            prefs.pushWhenOffline?.let { "offline" },
+            prefs.pushInternalNotes?.let { "notes" },
+            prefs.pushPreview?.let { "preview" },
+            prefs.playSound?.let { "sound" },
+        )
+        fun at(key: String) = pushSwitches.indexOf(key)
+
         prefs.scope?.let { scope ->
             item {
                 ScopeChoice(
@@ -166,6 +187,8 @@ fun NotificationsScreen(
         prefs.pushWhenOnline?.let { on ->
             item {
                 SwitchRow(
+                    index = at("online"),
+                    count = pushSwitches.size,
                     title = Str.pushWhenOnline(language),
                     checked = on,
                     enabled = live,
@@ -181,6 +204,8 @@ fun NotificationsScreen(
         prefs.pushWhenOffline?.let { on ->
             item {
                 SwitchRow(
+                    index = at("offline"),
+                    count = pushSwitches.size,
                     title = Str.pushWhenOffline(language),
                     checked = on,
                     enabled = live,
@@ -196,6 +221,8 @@ fun NotificationsScreen(
         prefs.pushInternalNotes?.let { on ->
             item {
                 SwitchRow(
+                    index = at("notes"),
+                    count = pushSwitches.size,
                     title = Str.pushInternalNotes(language),
                     checked = on,
                     enabled = live,
@@ -211,6 +238,8 @@ fun NotificationsScreen(
         prefs.pushPreview?.let { on ->
             item {
                 SwitchRow(
+                    index = at("preview"),
+                    count = pushSwitches.size,
                     title = Str.pushShowPreview(language),
                     hint = Str.pushShowPreviewFooter(language),
                     checked = on,
@@ -228,6 +257,8 @@ fun NotificationsScreen(
         prefs.playSound?.let { on ->
             item {
                 SwitchRow(
+                    index = at("sound"),
+                    count = pushSwitches.size,
                     title = Str.pushSound(language),
                     checked = on,
                     enabled = live,
@@ -249,6 +280,8 @@ fun NotificationsScreen(
             }
             item {
                 SwitchRow(
+                    index = 0,
+                    count = if (quiet) 2 else 1,
                     title = StrManual.notificationsQuietEnable(language),
                     checked = quiet,
                     enabled = live,
@@ -273,6 +306,8 @@ fun NotificationsScreen(
             if (quiet) {
                 item {
                     QuietWindow(
+                        index = 1,
+                        count = 2,
                         language = language,
                         start = prefs.quietHoursStart ?: DEFAULT_QUIET_START,
                         end = prefs.quietHoursEnd ?: DEFAULT_QUIET_END,
@@ -311,53 +346,66 @@ private fun ScopeChoice(
     enabled: Boolean,
     onSelect: (NotificationPrefs.Scope) -> Unit,
 ) {
-    Column {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = Space.lg, vertical = Space.sm),
+        verticalArrangement = Arrangement.spacedBy(SegmentGap),
+    ) {
         Text(
             Str.pushScopeTitle(language),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(
-                start = Space.screenInset,
-                end = Space.screenInset,
-                top = Space.sm,
-            ),
+            modifier = Modifier.padding(horizontal = Space.lg, vertical = Space.xs),
         )
-        NotificationPrefs.Scope.entries.forEach { option ->
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = Size.rowMinHeight)
-                    .clickable(enabled = enabled) { onSelect(option) }
-                    .padding(horizontal = Space.screenInset, vertical = Space.sm)
-                    .testTag(A11y.notificationsScope(option.wire)),
-                verticalAlignment = Alignment.CenterVertically,
+        val options = NotificationPrefs.Scope.entries
+        options.forEachIndexed { index, option ->
+            Surface(
+                color = if (option == selected) {
+                    MaterialTheme.colorScheme.secondaryContainer
+                } else {
+                    groupColor()
+                },
+                shape = segmentedShape(index, options.size),
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(
-                    when (option) {
-                        NotificationPrefs.Scope.ALL -> Str.pushScopeAll(language)
-                        NotificationPrefs.Scope.ASSIGNED -> Str.pushScopeAssigned(language)
-                        NotificationPrefs.Scope.MENTIONS -> Str.pushScopeMentions(language)
-                        NotificationPrefs.Scope.NONE -> Str.pushScopeNone(language)
-                    },
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (enabled) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                if (option == selected) {
-                    Icon(
-                        Icons.Filled.Check,
-                        // The row already carries the Selected trait, so a
-                        // second spoken "selected" here would be a repeat.
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = enabled) { onSelect(option) }
+                        .heightIn(min = Size.rowMinHeight)
+                        .padding(horizontal = Space.lg, vertical = Space.sm)
+                        .testTag(A11y.notificationsScope(option.wire)),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        when (option) {
+                            NotificationPrefs.Scope.ALL -> Str.pushScopeAll(language)
+                            NotificationPrefs.Scope.ASSIGNED -> Str.pushScopeAssigned(language)
+                            NotificationPrefs.Scope.MENTIONS -> Str.pushScopeMentions(language)
+                            NotificationPrefs.Scope.NONE -> Str.pushScopeNone(language)
+                        },
+                        style = if (option == selected) {
+                            WebyarType.bodyLargeEmphasized
+                        } else {
+                            MaterialTheme.typography.bodyLarge
+                        },
+                        color = if (enabled) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.weight(1f),
                     )
+                    if (option == selected) {
+                        Icon(
+                            Icons.Filled.Check,
+                            // The row already carries the Selected trait, so a
+                            // second spoken "selected" here would be a repeat.
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
             }
-            RowDivider()
         }
     }
 }
@@ -389,15 +437,22 @@ private fun PermissionBanner(language: Language, permission: SystemNotificationP
         contentColor = MaterialTheme.colorScheme.onErrorContainer,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = Space.screenInset, vertical = Space.md)
+            .padding(horizontal = Space.lg, vertical = Space.md)
             .testTag(A11y.NOTIFICATIONS_PERMISSION),
-        shape = MaterialTheme.shapes.medium,
+        shape = RoundedCornerShape(Radius.xl),
     ) {
         Column(
             Modifier.padding(Space.lg),
             verticalArrangement = Arrangement.spacedBy(Space.xs),
         ) {
-            Text(Str.pushDeniedTitle(language), style = MaterialTheme.typography.titleSmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.Notifications,
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = Space.sm),
+                )
+                Text(Str.pushDeniedTitle(language), style = WebyarType.titleMediumEmphasized)
+            }
             Text(
                 Str.pushDeniedBody(language),
                 style = MaterialTheme.typography.bodySmall,
@@ -423,13 +478,14 @@ private fun PermissionBanner(language: Language, permission: SystemNotificationP
 private fun GroupHeader(title: String, hint: String) {
     Column(
         Modifier.padding(
-            start = Space.screenInset,
-            end = Space.screenInset,
+            start = Space.xxl,
+            end = Space.xxl,
             top = Space.xl,
-            bottom = Space.xs,
+            bottom = Space.sm,
         ),
+        verticalArrangement = Arrangement.spacedBy(Space.xxs),
     ) {
-        Text(title, style = MaterialTheme.typography.titleSmall)
+        Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         Text(
             hint,
             style = MaterialTheme.typography.bodySmall,
@@ -440,6 +496,8 @@ private fun GroupHeader(title: String, hint: String) {
 
 @Composable
 private fun SwitchRow(
+    index: Int,
+    count: Int,
     title: String,
     checked: Boolean,
     onChange: (Boolean) -> Unit,
@@ -447,16 +505,28 @@ private fun SwitchRow(
     enabled: Boolean = true,
     tag: String? = null,
 ) {
-    Column {
+    Surface(
+        color = groupColor(),
+        shape = segmentedShape(index, count),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg),
+    ) {
         Row(
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = Size.rowMinHeight)
-                .padding(horizontal = Space.screenInset, vertical = Space.sm),
+                .padding(horizontal = Space.lg, vertical = Space.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f).padding(end = Space.md)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (enabled) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    },
+                )
                 if (hint != null) {
                     Text(
                         hint,
@@ -474,10 +544,14 @@ private fun SwitchRow(
                 checked = checked,
                 onCheckedChange = onChange,
                 enabled = enabled,
+                thumbContent = if (checked) {
+                    { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                } else {
+                    null
+                },
                 modifier = if (tag != null) Modifier.testTag(tag) else Modifier,
             )
         }
-        RowDivider()
     }
 }
 
@@ -490,6 +564,8 @@ private fun SwitchRow(
  */
 @Composable
 private fun QuietWindow(
+    index: Int,
+    count: Int,
     language: Language,
     start: String,
     end: String,
@@ -497,10 +573,15 @@ private fun QuietWindow(
     onStart: (String) -> Unit,
     onEnd: (String) -> Unit,
 ) {
+    Surface(
+        color = groupColor(),
+        shape = segmentedShape(index, count),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg),
+    ) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = Space.screenInset, vertical = Space.sm),
+            .padding(horizontal = Space.lg, vertical = Space.md),
         horizontalArrangement = Arrangement.spacedBy(Space.md),
     ) {
         TimeField(
@@ -521,6 +602,7 @@ private fun QuietWindow(
             onPick = onEnd,
             modifier = Modifier.weight(1f),
         )
+    }
     }
 }
 
@@ -544,7 +626,7 @@ private fun TimeField(
         )
         Surface(
             color = MaterialTheme.colorScheme.surfaceContainerHighest,
-            shape = MaterialTheme.shapes.small,
+            shape = RoundedCornerShape(Radius.lg),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = Space.xxs)
@@ -553,7 +635,7 @@ private fun TimeField(
         ) {
             Text(
                 Format.clockLabel(value, language),
-                style = MaterialTheme.typography.bodyLarge,
+                style = WebyarType.titleLargeEmphasized,
                 color = if (enabled) {
                     MaterialTheme.colorScheme.onSurface
                 } else {

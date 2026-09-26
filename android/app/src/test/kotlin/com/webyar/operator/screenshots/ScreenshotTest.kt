@@ -20,6 +20,17 @@ import com.webyar.operator.feature.inbox.InboxState
 import com.webyar.operator.feature.settings.AccountHeader
 import com.webyar.operator.feature.settings.AvailabilityState
 import com.webyar.operator.feature.settings.SettingsScreen
+import com.webyar.operator.feature.settings.NotificationsScreen
+import com.webyar.operator.feature.settings.NotificationsState
+import com.webyar.operator.feature.settings.ProfileScreen
+import com.webyar.operator.feature.settings.SecurityScreen
+import com.webyar.operator.feature.contacts.ContactDetailScreen
+import com.webyar.operator.feature.team.ColleaguesScreen
+import com.webyar.operator.feature.team.ColleaguesState
+import com.webyar.operator.feature.email.EmailInboxScreen
+import com.webyar.operator.feature.email.EmailInboxState
+import com.webyar.operator.core.model.VisitorProfile
+import java.time.Instant
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.ui.design.WebyarTheme
 import kotlinx.coroutines.runBlocking
@@ -100,14 +111,13 @@ class ScreenshotTest {
         }
     }
 
-    @Test
-    fun settingsFaLight() {
+    private fun settings(name: String, language: Language, dark: Boolean) {
         val account = runBlocking { api.account() }
         val workspaces = runBlocking { api.workspaces() }
         val availability = runBlocking { api.availability() }
-        shot("settings_fa_light", Language.FA, dark = false) {
+        shot(name, language, dark) {
             SettingsScreen(
-                language = Language.FA,
+                language = language,
                 appearance = Appearance.SYSTEM,
                 account = AccountHeader(account.profile?.fullName ?: "", account.email, null),
                 workspaces = workspaces,
@@ -126,8 +136,107 @@ class ScreenshotTest {
                 onSetAvailableWhenUsingApp = {},
                 onSetScheduleEnabled = {},
                 onSignOut = {},
+                dynamicColor = false,
             )
         }
+    }
+
+    @Test fun settingsFaLight() = settings("settings_fa_light", Language.FA, dark = false)
+    @Test fun settingsEnDark() = settings("settings_en_dark", Language.EN, dark = true)
+
+    @Test
+    fun contactDetailEnLight() {
+        val contact = runBlocking { api.contacts("ws-1") }.first { it.id == "p-3" }
+        shot("contact_detail_en_light", Language.EN, dark = false) {
+            ContactDetailScreen(
+                contact,
+                Language.EN,
+                profile = VisitorProfile(
+                    geo = VisitorProfile.Geo(countryCode = "DE", city = "Berlin"),
+                    device = VisitorProfile.Device(browser = "Safari", os = "macOS"),
+                    lastSeenAt = Instant.parse("2025-03-02T09:12:00Z"),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun colleaguesFaDark() {
+        val team = runBlocking { api.colleagues("ws-1") }.colleagues
+        shot("colleagues_fa_dark", Language.FA, dark = true) {
+            ColleaguesScreen(ColleaguesState.Loaded(team), Language.FA, onOpen = {})
+        }
+    }
+
+    @Test
+    fun emailInboxEnLight() {
+        val threads = runBlocking { api.emailThreads("ws-1", null) }
+        shot("email_inbox_en_light", Language.EN, dark = false) {
+            EmailInboxScreen(EmailInboxState.Loaded(threads), Language.EN, onOpen = {})
+        }
+    }
+
+    @Test
+    fun profileFaLight() = shot("profile_fa_light", Language.FA, dark = false) {
+        ProfileScreen(
+            language = Language.FA,
+            firstName = "Sara",
+            lastName = "Karimi",
+            email = "operator@webyar.app",
+            phone = "+989121234567",
+            avatarUrl = null,
+            busy = false,
+            error = null,
+            onFirstNameChange = {},
+            onLastNameChange = {},
+            onPhoneChange = {},
+            onPickAvatar = {},
+            onRemoveAvatar = {},
+            onSave = {},
+        )
+    }
+
+    @Test
+    fun securityEnDark() {
+        val sessions = runBlocking { api.sessions() }
+        shot("security_en_dark", Language.EN, dark = true) {
+            SecurityScreen(
+                language = Language.EN,
+                currentPassword = "",
+                newPassword = "",
+                sessions = sessions.sessions,
+                currentSessionId = sessions.currentSessionId,
+                busy = false,
+                message = null,
+                isError = false,
+                onCurrentPasswordChange = {},
+                onNewPasswordChange = {},
+                onChangePassword = {},
+                onRevoke = {},
+                onRevokeOthers = {},
+            )
+        }
+    }
+
+    @Test
+    fun notificationsFaLight() {
+        val prefs = runBlocking { api.notificationPrefs() }
+        shot("notifications_fa_light", Language.FA, dark = false) {
+            NotificationsScreen(
+                language = Language.FA,
+                state = NotificationsState(prefs = prefs, loading = false),
+                systemPermission = null,
+                onSet = { _, _ -> },
+                onRetry = {},
+            )
+        }
+    }
+
+    /** The sign-in form on a tablet: a column in the middle, not fields a foot wide. */
+    @Test
+    @Config(qualifiers = RobolectricDeviceQualifiers.MediumTablet)
+    fun loginTabletFaLight() = shot("login_tablet_fa_light", Language.FA, dark = false) {
+        LoginScreen(Language.FA, onSubmit = { _, _ -> Result.success(Unit) })
     }
 
     @Test

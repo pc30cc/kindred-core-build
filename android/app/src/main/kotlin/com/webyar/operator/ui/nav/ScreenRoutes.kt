@@ -70,6 +70,8 @@ import com.webyar.operator.feature.team.TeamThreadViewModel
 import com.webyar.operator.feature.chat.Composer
 import com.webyar.operator.ui.components.SearchState
 import com.webyar.operator.ui.components.DetailTopBar
+import androidx.compose.ui.graphics.Color
+import com.webyar.operator.feature.settings.settingsPageColor
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.TextButton
 import com.webyar.operator.feature.email.EmailInboxScreen
@@ -1187,7 +1189,9 @@ fun ProfileRoute(
     }
 
     Scaffold(
-        topBar = { BackBar(Str.profile(language), language, onBack) },
+        // The settings page's tone, so its cards read as they do there.
+        containerColor = settingsPageColor(),
+        topBar = { BackBar(Str.profile(language), language, onBack, settingsPageColor()) },
     ) { padding ->
         ProfileScreen(
             language = language,
@@ -1256,7 +1260,9 @@ fun NotificationsRoute(
     }
 
     Scaffold(
-        topBar = { BackBar(Str.notifications(language), language, onBack) },
+        // The settings page's tone, so its cards read as they do there.
+        containerColor = settingsPageColor(),
+        topBar = { BackBar(Str.notifications(language), language, onBack, settingsPageColor()) },
     ) { padding ->
         NotificationsScreen(
             language = language,
@@ -1311,7 +1317,9 @@ fun SecurityRoute(
     val form by model.security.collectAsStateWithLifecycle()
 
     Scaffold(
-        topBar = { BackBar(Str.security(language), language, onBack) },
+        // The settings page's tone, so its cards read as they do there.
+        containerColor = settingsPageColor(),
+        topBar = { BackBar(Str.security(language), language, onBack, settingsPageColor()) },
     ) { padding ->
         SecurityScreen(
             language = language,
@@ -1334,8 +1342,18 @@ fun SecurityRoute(
 
 /** The bar every pushed screen wears: a title and a way back. */
 @Composable
-private fun BackBar(title: String, language: Language, onBack: () -> Unit) {
-    DetailTopBar(title = title, backLabel = StrAndroid.back(language), onBack = onBack)
+private fun BackBar(
+    title: String,
+    language: Language,
+    onBack: () -> Unit,
+    containerColor: Color = MaterialTheme.colorScheme.surface,
+) {
+    DetailTopBar(
+        title = title,
+        backLabel = StrAndroid.back(language),
+        onBack = onBack,
+        containerColor = containerColor,
+    )
 }
 
 /**

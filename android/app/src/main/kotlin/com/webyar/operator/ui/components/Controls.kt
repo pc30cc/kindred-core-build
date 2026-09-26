@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -211,10 +212,16 @@ fun ChoiceButton(
         Row(
             Modifier.padding(horizontal = Space.lg, vertical = Space.sm),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Space.sm),
+            // Centred, for when the button is stretched across a row. The
+            // tick brings its own gap in with it: a gap left standing beside
+            // an invisible tick would push the label off-centre.
+            horizontalArrangement = Arrangement.Center,
         ) {
             AnimatedVisibility(visible = selected) {
-                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                Row {
+                    Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(Space.sm))
+                }
             }
             Text(
                 label,
@@ -222,6 +229,7 @@ fun ChoiceButton(
                 maxLines = 1,
             )
             if (count != null && count > 0) {
+                Spacer(Modifier.size(Space.sm))
                 Text(
                     Format.number(count, language),
                     style = MaterialTheme.typography.labelMedium,

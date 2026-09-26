@@ -41,7 +41,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -76,6 +75,7 @@ import com.webyar.operator.i18n.Str
 import com.webyar.operator.i18n.displayText
 import com.webyar.operator.ui.A11y
 import com.webyar.operator.ui.components.PrimaryButton
+import com.webyar.operator.ui.components.filledFieldColors
 import com.webyar.operator.ui.components.ShapeFrame
 import com.webyar.operator.ui.design.ExpressiveShapes
 import com.webyar.operator.ui.design.PolygonShape
@@ -205,8 +205,8 @@ fun LoginScreen(
                         label = { Text(Str.emailLabel(language)) },
                         leadingIcon = { Icon(Icons.Outlined.Email, contentDescription = null) },
                         singleLine = true,
-                        shape = FieldShape,
-                        colors = fieldColors(),
+                        shape = RoundedCornerShape(Radius.lg),
+                        colors = filledFieldColors(),
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Email,
                             imeAction = ImeAction.Next,
@@ -227,8 +227,8 @@ fun LoginScreen(
                         label = { Text(Str.passwordLabel(language)) },
                         leadingIcon = { Icon(Icons.Outlined.Lock, contentDescription = null) },
                         singleLine = true,
-                        shape = FieldShape,
-                        colors = fieldColors(),
+                        shape = RoundedCornerShape(Radius.lg),
+                        colors = filledFieldColors(),
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Password,
@@ -265,26 +265,6 @@ fun LoginScreen(
         }
     }
 }
-
-private val FieldShape = RoundedCornerShape(Radius.lg)
-
-/**
- * Filled fields with no underline: the container is the field, the way the
- * Expressive text fields sit on a surface. The focused one gains a tint of
- * the brand, which is what tells the eye where the caret is.
- */
-@Composable
-private fun fieldColors() = TextFieldDefaults.colors(
-    focusedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-    errorContainerColor = MaterialTheme.colorScheme.errorContainer,
-    focusedIndicatorColor = Color.Transparent,
-    unfocusedIndicatorColor = Color.Transparent,
-    disabledIndicatorColor = Color.Transparent,
-    errorIndicatorColor = Color.Transparent,
-    focusedLeadingIconColor = MaterialTheme.colorScheme.primary,
-)
 
 /** The app's mark in a scalloped cookie — the brand, in the theme's colours. */
 @Composable

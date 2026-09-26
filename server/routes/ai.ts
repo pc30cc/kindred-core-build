@@ -137,7 +137,8 @@ aiRouter.post('/complete', async (req, res) => {
     // chain's ai_usage_logs trigger, the usage row written by the completion
     // already counted it; self-host databases have neither table nor trigger,
     // and PRODUCT_ANALYTICS_LOGGING=off skips the row, so this route counts
-    // only when that did not happen.
+    // only when that did not happen. deductAICredits() above moves credits
+    // only (supabase/migrations/20260926100500).
     if (!wasRequestCounted(result)) {
       incrementUsage(config.supabaseUrl, config.supabaseServiceRoleKey, parsed.data.workspaceId, 'ai_requests_count');
     }

@@ -1,5 +1,5 @@
 /**
- * /api/ai/complete counts ai_requests_count exactly once.
+ * Every AI request counts ai_requests_count exactly once.
  *
  * The route bumped the counter itself, and on a database with the hosted
  * chain the ai_usage_logs insert trigger bumped it again, so every request
@@ -7,9 +7,13 @@
  * did NOT reach ai_usage_logs — PRODUCT_ANALYTICS_LOGGING=off, or a self-host
  * database with neither the table nor the trigger — which is what
  * wasRequestCounted() reports.
+ *
+ * deduct_ai_credits() counted the request a third time on /api/ai/complete
+ * (and a second time for the AI-KB builder, its other caller). The hosted
+ * chain's latest definition moves credits only.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { makeFakeSupabase } from './helpers/engineFixtures.js';
 
 let fakeSb: ReturnType<typeof makeFakeSupabase>;
@@ -103,5 +107,47 @@ describe('wasRequestCounted', () => {
     // Source-level: the unconditional bump is what double counted.
     const route = readFileSync('server/routes/ai.ts', 'utf8');
     expect(route).toMatch(/if \(!wasRequestCounted\(result\)\) \{\s*incrementUsage\([^)]*'ai_requests_count'\)/);
+  });
+});
+
+const HOSTED = 'supabase/migrations';
+
+/** The newest hosted-chain definition of public.<name>(), and its file. */
+function latestHostedDefinition(name: string): { file: string; sql: string } {
+  const defines = new RegExp(`CREATE\\s+(?:OR\\s+REPLACE\\s+)?FUNCTION\\s+public\\.${name}\\s*\\(`, 'gi');
+  const file = readdirSync(HOSTED)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+    .filter((f) => new RegExp(defines.source, 'i').test(readFileSync(`${HOSTED}/${f}`, 'utf8')))
+    .pop();
+  if (!file) throw new Error(`no hosted migration defines public.${name}()`);
+  const text = readFileSync(`${HOSTED}/${file}`, 'utf8');
+  const start = [...text.matchAll(defines)].pop()?.index ?? 0;
+  const rest = text.slice(start);
+  const open = /\bAS\s+(\$[A-Za-z_]*\$)/i.exec(rest);
+  if (!open) throw new Error(`public.${name}() in ${file} has no dollar-quoted body`);
+  const close = rest.indexOf(open[1], open.index + open[0].length);
+  return { file, sql: rest.slice(0, close + open[1].length) };
+}
+
+describe('deduct_ai_credits (hosted chain)', () => {
+  const deduct = latestHostedDefinition('deduct_ai_credits');
+
+  it('moves credits without counting the request', () => {
+    expect(deduct.sql).toMatch(/SET ai_credits_used = ai_credits_used \+ _credits,/);
+    expect(deduct.sql).not.toMatch(/ai_requests_count/);
+  });
+
+  it('stays service_role-only', () => {
+    const file = readFileSync(`${HOSTED}/${deduct.file}`, 'utf8');
+    expect(file).toContain(
+      'REVOKE ALL ON FUNCTION public.deduct_ai_credits(uuid, integer, text) FROM PUBLIC, anon, authenticated;',
+    );
+    expect(file).toContain('GRANT EXECUTE ON FUNCTION public.deduct_ai_credits(uuid, integer, text) TO service_role;');
+  });
+
+  it('leaves the count to the ai_usage_logs trigger', () => {
+    const trigger = latestHostedDefinition('tg_ai_usage_logs_count_request');
+    expect(trigger.sql).toMatch(/bump_usage_counter_for\(NEW\.workspace_id, 'ai_requests_count', 1,/);
   });
 });

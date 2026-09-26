@@ -93,6 +93,7 @@ class ScreenshotTest {
     private fun chat(name: String, language: Language, dark: Boolean) {
         val conversation = runBlocking { api.conversations("ws-1", InboxFilter.OPEN) }.first()
         val messages = runBlocking { api.messages(conversation.id) }
+        val intel = runBlocking { api.visitorIntelByConversation("ws-1", listOf(conversation.id)) }
         shot(name, language, dark) {
             ChatScreen(
                 state = ChatState.Loaded(messages),
@@ -100,6 +101,7 @@ class ScreenshotTest {
                 onSend = {},
                 onBack = {},
                 conversation = conversation,
+                visitor = intel[conversation.id],
             )
         }
     }

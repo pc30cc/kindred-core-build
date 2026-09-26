@@ -34,6 +34,7 @@ import java.time.Instant
 import java.time.ZoneId
 import androidx.compose.ui.Alignment
 import com.webyar.operator.ui.components.LoadingIndicator
+import com.webyar.operator.core.model.MessageAttachment
 
 /**
  * A thread with one colleague.
@@ -125,7 +126,9 @@ private fun Transcript(
                 // No face: every incoming message in a two-party thread is
                 // the same person, and a column of identical avatars beside
                 // their own name in the title bar says nothing twice.
-                senderName = null,
+                avatar = null,
+                bare = row.message.body.isNullOrBlank() &&
+                    row.message.attachment?.resolvedKind == MessageAttachment.Kind.IMAGE,
             ) {
                 row.message.attachment?.let { AttachmentView(attachment = it, language = language, source = source) }
                 row.message.body?.takeIf { it.isNotBlank() }?.let {

@@ -140,8 +140,13 @@ data class WebyarColors(
 )
 
 internal val WebyarLightExtras = WebyarColors(
-    bubbleOutgoing = BrandLight,
-    onBubbleOutgoing = Color.White,
+    // The tonal container, not the brand itself: Material 3 Expressive's
+    // message bubble (Google Messages, the Jetchat sample) is a soft tint of
+    // the brand with dark text on it. A saturated brand-blue slab with white
+    // text is loud on every other line of a transcript, and it is the
+    // operator's own words — the part of the thread they need least.
+    bubbleOutgoing = Color(0xFFDCE6FF),
+    onBubbleOutgoing = Color(0xFF001945),
     // Not the page background: an incoming bubble painted the same shade as
     // the transcript behind it is invisible, which is exactly what happened on
     // iOS before `bubbleIncoming` stopped being `.secondarySystemBackground`.
@@ -174,8 +179,8 @@ internal val WebyarDarkExtras = WebyarColors(
 internal fun extrasFrom(scheme: ColorScheme, dark: Boolean): WebyarColors {
     val base = if (dark) WebyarDarkExtras else WebyarLightExtras
     return base.copy(
-        bubbleOutgoing = if (dark) scheme.primaryContainer else scheme.primary,
-        onBubbleOutgoing = if (dark) scheme.onPrimaryContainer else scheme.onPrimary,
+        bubbleOutgoing = scheme.primaryContainer,
+        onBubbleOutgoing = scheme.onPrimaryContainer,
         bubbleIncoming = scheme.surfaceContainerHigh,
         onBubbleIncoming = scheme.onSurface,
         labelTertiary = scheme.outline,

@@ -73,6 +73,7 @@ import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
 import com.webyar.operator.i18n.StrManual
 import com.webyar.operator.ui.A11y
+import com.webyar.operator.ui.design.Radius
 import com.webyar.operator.ui.design.Space
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -180,7 +181,9 @@ private fun ImageAttachment(
                         .widthIn(max = IMAGE_MAX_WIDTH)
                         .heightIn(max = IMAGE_MAX_HEIGHT)
                         .aspectRatio(photo.width.toFloat() / photo.height.toFloat())
-                        .clip(RoundedCornerShape(Space.md))
+                        // The bubble's own corner: a photo is drawn without
+                        // a bubble around it, so it takes the bubble's shape.
+                        .clip(RoundedCornerShape(Radius.lgIncreased))
                         .clickable { open = true }
                         .testTag(A11y.attachmentImage(attachment.id)),
                 )
@@ -276,8 +279,8 @@ private fun PhotoPlaceholder(caption: String, onClick: (() -> Unit)? = null) {
         Modifier
             .padding(vertical = Space.xxs)
             .size(width = PHOTO_PLACEHOLDER_WIDTH, height = PHOTO_PLACEHOLDER_HEIGHT)
-            .clip(RoundedCornerShape(Space.md))
-            .background(tint.copy(alpha = 0.08f))
+            .clip(RoundedCornerShape(Radius.lgIncreased))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
@@ -364,78 +367,44 @@ private fun VoiceNote(
             player.toggle()
         }
     }
-    val tint = LocalContentColor.current
     val busy = fetch.state is VoiceFile.Fetching
 
     // Pinned around the row rather than inside it: the direction has to be
     // settled before the layout runs, and `rtl` is read above so the caption
     // can still be put on the side the language wants.
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-        Row(
-            Modifier
+        val playable = !busy && !(fetch.state is VoiceFile.Ready && player == null)
+        val caption = when {
+            player != null -> Format.voiceTime(player.displayedSeconds, language)
+            fetch.state is VoiceFile.Failed -> Str.attachmentFailed(language)
+            // The file arrived and still would not decode: the file is
+            // fine, this phone has no codec for it.
+            fetch.state is VoiceFile.Ready -> Str.playbackUnsupported(language)
+            busy -> Str.receivingFile(language)
+            // Not fetched, and not going to be until it is played: what it
+            // costs to hear is what there is to say.
+            else -> attachment.sizeBytes?.let { Format.fileSize(it.toLong(), language) }.orEmpty()
+        }
+        VoiceTransport(
+            seed = attachment.id,
+            playing = player?.isPlaying == true,
+            playable = playable,
+            progress = player?.progress ?: 0f,
+            caption = caption,
+            playLabel = StrManual.play(language),
+            pauseLabel = StrManual.pause(language),
+            onToggle = { if (player != null) player.toggle() else fetch.request() },
+            onSeek = { player?.seekTo(it) },
+            playTag = A11y.attachmentVoicePlay(attachment.id),
+            // The row is pinned left to right, so which end the caption
+            // sits under is decided physically: a Persian caption goes to
+            // the right.
+            captionAtEnd = rtl,
+            modifier = Modifier
                 .width(VOICE_NOTE_WIDTH)
                 .padding(vertical = Space.xxs)
                 .testTag(A11y.attachmentVoiceNote(attachment.id)),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Space.md),
-        ) {
-            val playable = !busy && !(fetch.state is VoiceFile.Ready && player == null)
-            Box(
-                Modifier
-                    .size(TRANSPORT_SIZE)
-                    .clip(CircleShape)
-                    .background(tint.copy(alpha = if (playable) 0.14f else 0.08f))
-                    .clickable(enabled = playable) {
-                        if (player != null) player.toggle() else fetch.request()
-                    }
-                    .semantics {
-                        contentDescription =
-                            if (player?.isPlaying == true) StrManual.pause(language) else StrManual.play(language)
-                    }
-                    .testTag(A11y.attachmentVoicePlay(attachment.id)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    if (player?.isPlaying == true) Glyph.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = null,
-                    tint = if (playable) tint else tint.copy(alpha = 0.5f),
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                VoiceTrack(
-                    progress = player?.progress ?: 0f,
-                    tint = tint,
-                    onSeek = { player?.seekTo(it) },
-                )
-                val caption = when {
-                    player != null -> Format.voiceTime(player.displayedSeconds, language)
-                    fetch.state is VoiceFile.Failed -> Str.attachmentFailed(language)
-                    // The file arrived and still would not decode: the file
-                    // is fine, this phone has no codec for it.
-                    fetch.state is VoiceFile.Ready -> Str.playbackUnsupported(language)
-                    busy -> Str.receivingFile(language)
-                    // Not fetched, and not going to be until it is played:
-                    // what it costs to hear is what there is to say.
-                    else -> attachment.sizeBytes?.let { Format.fileSize(it.toLong(), language) }.orEmpty()
-                }
-                Text(
-                    caption,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = tint.copy(alpha = 0.7f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    // Which end of the bar this sits under is decided
-                    // physically, not by an alignment constant: the row is
-                    // pinned left-to-right, so `Start` means "left" here
-                    // whatever the language, and a Persian caption has to be
-                    // told to go to the other end.
-                    textAlign = if (rtl) TextAlign.End else TextAlign.Start,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
+        )
     }
 }
 
@@ -478,40 +447,6 @@ private fun rememberVoiceFile(attachment: MessageAttachment, source: AttachmentS
         fetch.state = if (file != null) VoiceFile.Ready(file) else VoiceFile.Failed
     }
     return fetch
-}
-
-/** The bar: a track, a fill, and a drag that scrubs. */
-@Composable
-private fun VoiceTrack(progress: Float, tint: Color, onSeek: (Float) -> Unit) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(4.dp)
-            .clip(CircleShape)
-            .background(tint.copy(alpha = 0.18f))
-            // One gesture for both, because a press and a drag on a scrubber
-            // are the same intent: the press jumps, the drag follows. Two
-            // separate detectors would race for the pointer and the bar would
-            // sometimes ignore a tap.
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    if (size.width > 0) onSeek(down.position.x / size.width)
-                    drag(down.id) { change ->
-                        if (size.width > 0) onSeek(change.position.x / size.width)
-                        change.consume()
-                    }
-                }
-            },
-    ) {
-        Box(
-            Modifier
-                .fillMaxWidth(progress.coerceIn(0f, 1f))
-                .height(4.dp)
-                .clip(CircleShape)
-                .background(tint.copy(alpha = 0.85f)),
-        )
-    }
 }
 
 // MARK: - File

@@ -211,4 +211,11 @@ object StrAndroid {
         Language.FA -> "رفتن به آخرین پیام"
         Language.TR -> "Son mesaja git"
     }
+
+    /** Ends a recording and keeps it, to be heard and then sent or thrown away. */
+    fun stopRecording(l: Language): String = when (l) {
+        Language.EN -> "Stop recording"
+        Language.FA -> "پایان ضبط"
+        Language.TR -> "Kaydı durdur"
+    }
 }

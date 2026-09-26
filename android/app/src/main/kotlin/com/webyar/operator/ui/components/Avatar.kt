@@ -36,9 +36,10 @@ import com.webyar.operator.ui.design.Size
  *
  * The fallback order is the one `src/components/inbox/ContactAvatar.tsx` uses,
  * and it matters: an uploaded picture wins; failing that, a visitor whose
- * operating system we know gets that brand mark on its brand gradient; only a
- * visitor we know nothing about falls back to initials. That is what makes a
- * row recognisable at a glance — an anonymous Windows visitor looks like a
+ * operating system we know gets that brand mark on its brand gradient; a
+ * visitor we know nothing about gets a quiet, empty circle — never initials,
+ * which this app does not draw anywhere. That is what makes a row
+ * recognisable at a glance — an anonymous Windows visitor looks like a
  * Windows visitor rather than like the letter "V".
  *
  * A country flag rides in the bottom-leading corner when the IP resolved to
@@ -87,7 +88,7 @@ fun Avatar(
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
             ) {
-                if (osKind != null) OsFace(osKind, size) else InitialsFace(name, size)
+                if (osKind != null) OsFace(osKind, size) else QuietFace()
             }
         }
 
@@ -217,29 +218,18 @@ private fun OsFace(kind: OsKind, size: Dp) {
     }
 }
 
+/**
+ * No picture and nothing known about the device: a quiet circle, the
+ * skeleton's own tone and nothing in it.
+ *
+ * Not initials, anywhere in the app. Two letters on a coloured disc read as
+ * a face that is still to come, then get swapped for a photograph — the
+ * row changing its mind — and the name beside the circle already says
+ * everything the letters would.
+ */
 @Composable
-private fun InitialsFace(name: String, size: Dp) {
-    val sizePx = with(LocalDensity.current) { size.toPx() }
-    val initials = remember(name) { initialsOf(name) }
-    Box(
-        Modifier.fillMaxSize().background(initialsBrush(name, sizePx)),
-        contentAlignment = Alignment.Center,
-    ) {
-        // Initials are Latin-derived; pinning them left-to-right keeps a mixed
-        // name from rendering its two letters in the wrong order.
-        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-            Text(
-                text = initials,
-                color = Color.White,
-                fontWeight = FontWeight.SemiBold,
-                // Sized from the circle rather than from the type scale: this
-                // has to fill a fixed circle, so it is one of the very few
-                // places in the app where text does NOT scale with the
-                // reader's font setting — it would overflow the circle.
-                style = glyphStyle(size * 0.38f),
-            )
-        }
-    }
+private fun QuietFace() {
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHighest))
 }
 
 /**
@@ -268,30 +258,6 @@ internal fun initialsOf(name: String): String {
     }
     val first = parts.firstOrNull() ?: return "?"
     return first.take(if (first.length >= 2) 2 else 1).uppercase()
-}
-
-/**
- * The same twelve-hue family the web cycles through, chosen by the same djb2
- * hash of the same seed — so a given contact is the same colour in both
- * inboxes, on every device, on every launch.
- */
-private fun initialsBrush(name: String, sizePx: Float): Brush {
-    val palette = listOf(
-        212f to 92f, 262f to 78f, 192f to 78f, 152f to 62f,
-        172f to 70f, 232f to 88f, 292f to 70f, 332f to 78f,
-        16f to 86f, 36f to 90f, 142f to 64f, 202f to 88f,
-    )
-    val seed = name.lowercase().ifEmpty { "?" }
-    val (hue, sat) = palette[(djb2(seed) % palette.size.toUInt()).toInt()]
-    val saturation = sat / 100f
-    return Brush.linearGradient(
-        colors = listOf(
-            Color.hsv(hue, saturation, 0.56f),
-            Color.hsv((hue + 28f) % 360f, saturation, 0.44f),
-        ),
-        start = Offset.Zero,
-        end = Offset(sizePx, sizePx),
-    )
 }
 
 /**

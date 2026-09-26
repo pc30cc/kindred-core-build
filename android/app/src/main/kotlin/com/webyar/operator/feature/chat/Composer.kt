@@ -64,6 +64,15 @@ import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
 import com.webyar.operator.ui.design.WebyarTheme
 import com.webyar.operator.ui.components.rememberLoop
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.ripple
+import androidx.compose.ui.semantics.Role
+import com.webyar.operator.i18n.StrAndroid
+import com.webyar.operator.i18n.StrManual
+import com.webyar.operator.ui.components.VoiceTransport
+import com.webyar.operator.ui.components.rememberPressShape
+import com.webyar.operator.ui.components.rememberVoiceNotePlayer
 
 /**
  * The one place a message is written.
@@ -101,6 +110,10 @@ fun Composer(
     recordingSeconds: Int? = null,
     onDiscardRecording: () -> Unit = {},
     onFinishRecording: () -> Unit = {},
+    /** A finished recording waiting to be heard and sent, or thrown away. */
+    recorded: RecordedVoice? = null,
+    onSendRecorded: () -> Unit = {},
+    onDiscardRecorded: () -> Unit = {},
 ) {
     val isSayNow = sayNowVoice != null
     val canSend = draft.isNotBlank() && !sending
@@ -112,6 +125,10 @@ fun Composer(
     ) {
         if (recordingSeconds != null) {
             RecordingBar(language, recordingSeconds, onDiscardRecording, onFinishRecording)
+            return@Surface
+        }
+        if (recorded != null) {
+            RecordedBar(language, recorded, onDiscardRecorded, onSendRecorded)
             return@Surface
         }
 
@@ -446,10 +463,96 @@ private fun RecordingBar(
             )
         }
 
+        // Stop, not send: the recording is heard before it goes, so ending
+        // it and sending it are two decisions, not one tap.
+        StopButton(label = StrAndroid.stopRecording(language), onClick = onFinish)
+    }
+}
+
+/** The square that ends a recording: the same 48dp control as Send, in the recording's red. */
+@Composable
+private fun StopButton(label: String, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    Box(
+        Modifier
+            .size(Size.minTouchTarget)
+            .clip(rememberPressShape(interaction, restPercent = 50f, pressedPercent = 28f))
+            .background(MaterialTheme.colorScheme.errorContainer)
+            .clickable(
+                interactionSource = interaction,
+                indication = ripple(color = MaterialTheme.colorScheme.onErrorContainer),
+                role = Role.Button,
+                onClick = onClick,
+            )
+            .testTag(A11y.COMPOSER_STOP_RECORDING)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .size(14.dp)
+                .background(MaterialTheme.colorScheme.onErrorContainer, RoundedCornerShape(3.dp)),
+        )
+    }
+}
+
+/**
+ * A finished recording, in the composer's place: throw it away, listen to
+ * it, or send it. Nothing reaches the visitor until Send — a note that went
+ * the moment the recording stopped is a note nobody got to hear first.
+ */
+@Composable
+private fun RecordedBar(
+    language: Language,
+    clip: RecordedVoice,
+    onDiscard: () -> Unit,
+    onSend: () -> Unit,
+) {
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val player = rememberVoiceNotePlayer(attachmentId = clip.file.path, file = clip.file)
+
+    Row(
+        Modifier
+            .padding(horizontal = Space.sm, vertical = Space.sm)
+            .testTag(A11y.COMPOSER_RECORDED),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onDiscard) {
+            Icon(
+                Icons.Filled.Delete,
+                contentDescription = Str.discard(language),
+                tint = MaterialTheme.colorScheme.error,
+            )
+        }
+
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = RoundedCornerShape(Radius.xl),
+            modifier = Modifier.weight(1f).padding(horizontal = Space.xs),
+        ) {
+            // A timeline reads left to right in every language.
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                VoiceTransport(
+                    seed = clip.file.name,
+                    playing = player?.isPlaying == true,
+                    playable = player != null,
+                    progress = player?.progress ?: 0f,
+                    caption = player?.let { Format.voiceTime(it.displayedSeconds, language) }.orEmpty(),
+                    playLabel = StrManual.play(language),
+                    pauseLabel = StrManual.pause(language),
+                    onToggle = { player?.toggle() },
+                    onSeek = { player?.seekTo(it) },
+                    captionAtEnd = rtl,
+                    buttonSize = 40.dp,
+                    modifier = Modifier.padding(horizontal = Space.sm, vertical = Space.xs + 2.dp),
+                )
+            }
+        }
+
         SendButton(
             enabled = true,
             label = Str.send(language),
-            onClick = onFinish,
+            onClick = onSend,
         )
     }
 }

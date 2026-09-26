@@ -107,6 +107,22 @@ class VoiceRecorder(private val context: Context) {
         return bytes?.takeIf { it.size > MINIMUM_BYTES }
     }
 
+    /**
+     * Stops and keeps the recording as a file, to be listened to before it
+     * is sent. Null for a tap too short to be a message, as [finish].
+     *
+     * The file is the caller's from here: it deletes it once the note is
+     * sent or thrown away.
+     */
+    fun finishToFile(): File? {
+        val file = stopAndRelease() ?: return null
+        if (file.length() <= MINIMUM_BYTES) {
+            file.delete()
+            return null
+        }
+        return file
+    }
+
     /** Stops and throws the recording away. */
     fun cancel() {
         stopAndRelease()?.delete()
@@ -137,3 +153,9 @@ class VoiceRecorder(private val context: Context) {
         const val MINIMUM_BYTES = 12_000
     }
 }
+
+/**
+ * A finished recording waiting in the composer: heard, then sent or thrown
+ * away. The file lives in the cache directory until one of the two.
+ */
+class RecordedVoice(val file: File, val fileName: String, val mimeType: String)

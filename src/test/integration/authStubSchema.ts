@@ -44,7 +44,7 @@ export async function applyAuthSchemaStub(db: PgQueryable): Promise<void> {
 }
 
 /**
- * database/migrations/*.sql in filename order, with NO exclusions.
+ * database/migrations/*.sql in filename order, minus these.
  *
  * 017 and 018 used to be skipped here: they reference base product tables
  * (`widget_smart_rules` for 017, `call_sessions`/`call_queue_entries` for
@@ -54,12 +54,19 @@ export async function applyAuthSchemaStub(db: PgQueryable): Promise<void> {
  * (`billing_plans`, `ai_agent_settings`, `widget_prechat_settings`) — is now
  * closed by `016a_selfhost_product_parity_base_tables.sql` and
  * `084_selfhost_parity_table_policies.sql`, so the whole chain replays
- * against an empty database with ON_ERROR_STOP=1 and this set is empty.
+ * against an empty database with ON_ERROR_STOP=1.
  *
- * Keep it (rather than deleting it) so a future, genuinely unavoidable
- * exclusion has one documented place to live instead of being scattered.
+ * 223 is the one exclusion, and only because of how this helper re-applies
+ * the chain: it drops `operator_activity_samples`, which 016 creates (the
+ * base range, installed once per database) and 129 indexes (the range
+ * re-applied on every call). After one call had run 223, the next call's
+ * re-application of 129 found no table. Shipped migrations are never edited,
+ * and a real runner applies each file exactly once (the _schema_migrations
+ * ledger), so 223 is proven where that holds: the self-host full-chain CI
+ * job replays it with psql. Nothing the suites using this helper test
+ * touches the table.
  */
-export const AUTH_CHAIN_EXCLUDED_FILES = new Set<string>([]);
+export const AUTH_CHAIN_EXCLUDED_FILES = new Set<string>(['223_drop_operator_activity_samples.sql']);
 
 
 /**

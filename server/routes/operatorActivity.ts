@@ -1,40 +1,26 @@
 /**
- * OPERATOR ACTIVITY — online-time tracking & productivity stats.
+ * OPERATOR ACTIVITY — heartbeat & productivity stats.
  *
  * Self-hosted Express only (no edge functions).
  *
- * Two separate concerns share one heartbeat request:
- *   1. LIVE PRESENCE — realtime-first. While Centrifugo presence is the
- *      active source, channel membership carries liveness and this beat
- *      writes NOTHING. Only in database-fallback mode (polling/disabled/
- *      Supabase, or a tripped presence circuit breaker — shared across
- *      instances via `operator_presence_fallback_state`) does the beat
- *      UPSERT the `operator_presence_live` lease: one row per
- *      (workspace, user), no history. See
- *      server/services/widget/operatorPresenceSource.ts.
- *   2. ANALYTICS (`operator_activity_samples`) — 5-minute buckets, used only
- *      for online-time reporting. NEVER read as a liveness signal.
+ * The heartbeat carries LIVE PRESENCE — realtime-first. While Centrifugo
+ * presence is the active source, channel membership carries liveness and
+ * this beat writes NOTHING. Only in database-fallback mode (polling/disabled/
+ * Supabase, or a tripped presence circuit breaker — shared across instances
+ * via `operator_presence_fallback_state`) does the beat UPSERT the
+ * `operator_presence_live` lease: one row per (workspace, user), no history.
+ * See server/services/widget/operatorPresenceSource.ts.
  *
- * How online time is measured:
- *   The operator panel heartbeats every 2 minutes while the tab is open and
- *   visible (tab hidden => no beat => operator goes offline within the
- *   liveness window; that is the product's "available when using the app"
- *   semantics). Each heartbeat maps to a FIVE-MINUTE bucket in `operator_activity_samples`
- *   keyed by (workspace, user, bucket), storing whether the operator was
- *   *available* at that moment (derived from `user_availability_prefs`,
- *   the same logic the widget uses).
+ * The operator panel heartbeats every 2 minutes while the tab is open and
+ * visible (tab hidden => no beat => operator goes offline within the
+ * liveness window; that is the product's "available when using the app"
+ * semantics).
  *
- *   Write cost: at most one row — and, thanks to the in-process
- *   `lastWrittenBucket` guard, at most one INSERT attempt — per
- *   (workspace, user, 5-minute bucket). Repeat heartbeats inside the same
- *   bucket touch the database zero times. The UNIQUE index remains the
- *   authority across replicas/restarts (UPSERT, ignoreDuplicates).
- *
- *   Online minutes = distinct available buckets × 5. Legacy 1-minute rows
- *   collapse into their 5-minute slot, so history stays readable.
- *
- * Retention: rows older than RETENTION_DAYS are pruned at most once an hour
- * from this process, which covers the full MAX_DAYS reporting window.
+ * ONLINE TIME is no longer recorded. It came from `operator_activity_samples`
+ * (5-minute buckets), which is dropped — in production since 2026-09-17, in
+ * the migration chains by database/migrations/223 and its hosted mirror — so
+ * the stats endpoint reports zero online minutes; assignments and message
+ * counts still come from live tables.
  *
  * ─── ROUTES ────────────────────────────────────────────────────────
  *   POST /api/operator-activity/heartbeat  { workspace_id }

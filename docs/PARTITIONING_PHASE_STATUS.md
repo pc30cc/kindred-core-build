@@ -4,6 +4,12 @@
 
 PostgreSQL 17.6. Forward-only migrations 176–181. Migrations 169–175 untouched.
 
+> **Later:** `operator_activity_samples` no longer exists. Production dropped it
+> on 2026-09-17 with the online-time report it served, and
+> `database/migrations/223_drop_operator_activity_samples.sql` (hosted mirror
+> `20260926130000`) drops it in both chains. What follows about that table is
+> historical.
+
 ---
 
 ## 1. Audit

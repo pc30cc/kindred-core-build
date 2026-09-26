@@ -34,7 +34,7 @@ where schemaname = 'public'
   and tablename in ('profiles','workspaces','conversations','conversation_messages',
                     'billing_invoices','billing_payments','seo_urls',
                     'seo_crawl_observations','seo_link_edges',
-                    'workspace_health_snapshots','operator_activity_samples')
+                    'workspace_health_snapshots')
 order by tablename;
 
 -- 5. Constraints valid (no NOT VALID leftovers) -----------------------------
@@ -64,12 +64,12 @@ where n.nspname = 'public' and c.relkind = 'r'
 select 'OK policies restored: ' || count(*)::text from pg_policies where schemaname = 'public';
 
 -- 8. Partitioned tables and their children ----------------------------------
-select case when count(*) = 2 then 'OK' else 'FAIL' end
+select case when count(*) = 1 then 'OK' else 'FAIL' end
        || ' partitioned parents present: ' || coalesce(string_agg(c.relname, ', '), 'none')
 from pg_class c
 join pg_namespace n on n.oid = c.relnamespace
 where n.nspname = 'public' and c.relkind = 'p'
-  and c.relname in ('workspace_health_snapshots','operator_activity_samples');
+  and c.relname in ('workspace_health_snapshots');
 
 select case when count(*) > 0 then 'OK' else 'FAIL' end
        || ' partition children of ' || parent || ': ' || count(*)::text
@@ -80,7 +80,7 @@ from (
   join pg_class ch on ch.oid = i.inhrelid
   join pg_namespace n on n.oid = p.relnamespace
   where n.nspname = 'public'
-    and p.relname in ('workspace_health_snapshots','operator_activity_samples')
+    and p.relname in ('workspace_health_snapshots')
 ) s group by parent;
 
 -- DEFAULT partitions must be empty after restore, as they are in production.

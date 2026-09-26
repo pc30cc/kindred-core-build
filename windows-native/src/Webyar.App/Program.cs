@@ -16,6 +16,17 @@ public static class Program
         // Velopack's install, update and uninstall hooks run before anything else, then return.
         VelopackApp.Build().Run();
 
+        // Out of the install folder: the WebView2 processes (calls, maps, email) inherit this folder
+        // and outlive the app for a few seconds, and while they held the install folder an update
+        // could not replace it.
+        try
+        {
+            Environment.CurrentDirectory = Services.AppPaths.Data;
+        }
+        catch (Exception)
+        {
+        }
+
         // WebView2 keeps its profile beside the exe unless told otherwise, and
         // an install under Program Files is read-only for the user.
         if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER")))

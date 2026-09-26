@@ -1,3 +1,4 @@
+using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Velopack;
 using Velopack.Sources;
@@ -22,12 +23,16 @@ public enum UpdateStatus
 /// Velopack reads `releases.&lt;channel&gt;.json` there, downloads the new
 /// package (a delta when it can) and verifies it before anything runs; the
 /// update applies on the next restart, or at once when the operator agrees.
+/// Only feeds on the build's allow-list are used (<see cref="UpdateFeeds"/>):
+/// the feed URL comes from the server, which may be a self-hosted one, and the
+/// packages are not code-signed yet.
 /// </summary>
 public sealed partial class UpdateService : ObservableObject
 {
     private UpdateManager? _manager;
     private string? _feed;
     private string? _channel;
+    private string? _rejectedFeed;
     private UpdateInfo? _pending;
     private Timer? _timer;
     private int _busy;
@@ -52,17 +57,26 @@ public sealed partial class UpdateService : ObservableObject
     public const string DefaultFeed = "https://github.com/pc30cc/webyar-desktop-releases";
 
     /// <summary>
-    /// A GitHub repository (or any URL inside it) is read through its releases, picking the newest
-    /// one that carries a Velopack feed (the repository may hold other apps'
-    /// releases too); anything else is a plain folder of Velopack files.
+    /// Extra https feed folders this build trusts, fixed at build time:
+    /// the WebyarUpdateFeeds MSBuild property / environment variable (see Webyar.App.csproj).
     /// </summary>
-    internal static IUpdateSource SourceFor(string feed, bool prerelease)
+    private static readonly string[] ExtraFeeds =
+        (typeof(UpdateService).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(a => a.Key == "WebyarUpdateFeeds")?.Value ?? string.Empty)
+        .Split(new[] { ';', ',', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>
+    /// A trusted GitHub repository (or any URL inside it) is read through its releases, picking the newest
+    /// one that carries a Velopack feed (the repository may hold other apps'
+    /// releases too); a trusted web folder is a plain folder of Velopack files.
+    /// Null for any feed not on the allow-list.
+    /// </summary>
+    internal static IUpdateSource? SourceFor(string feed, bool prerelease)
     {
         // https://github.com/<owner>/<repo>, or any page under it such as …/releases/latest/download.
-        if (Uri.TryCreate(feed, UriKind.Absolute, out var uri) && uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
-            uri.AbsolutePath.Trim('/').Split('/') is { Length: >= 2 } parts)
-            return new GithubSource($"https://github.com/{parts[0]}/{parts[1]}", null, prerelease);
-        return new SimpleWebSource(feed);
+        if (UpdateFeeds.TrustedGithubRepo(feed) is { } repo) return new GithubSource(repo, null, prerelease);
+        if (UpdateFeeds.IsTrustedWebFeed(feed, ExtraFeeds)) return new SimpleWebSource(feed);
+        return null;
     }
 
     public string CurrentVersion => _manager?.CurrentVersion?.ToString()
@@ -75,9 +89,23 @@ public sealed partial class UpdateService : ObservableObject
         var channel = settings.Channel == "beta" ? "beta" : null; // null: Velopack's default channel
         if (feed != _feed || channel != _channel)
         {
+            if (SourceFor(feed, channel is not null) is not { } source)
+            {
+                // Not an official feed: check, download and install nothing, not even on exit.
+                if (feed != _rejectedFeed) Log.Write($"update feed {feed} is not on the allow-list; self-update is off");
+                _rejectedFeed = feed;
+                _feed = null;
+                _manager = null;
+                _pending = null;
+                _timer?.Dispose();
+                _timer = null;
+                Status = UpdateStatus.Unavailable;
+                return;
+            }
+            _rejectedFeed = null;
             _feed = feed;
             _channel = channel;
-            _manager = new UpdateManager(SourceFor(feed, channel is not null), new UpdateOptions { ExplicitChannel = channel });
+            _manager = new UpdateManager(source, new UpdateOptions { ExplicitChannel = channel });
         }
         if (!_manager.IsInstalled)
         {

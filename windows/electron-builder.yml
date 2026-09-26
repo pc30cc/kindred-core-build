@@ -16,6 +16,17 @@ win:
       arch: [x64]
   icon: build/icon.png
   artifactName: Webyar-Setup-${version}.${ext}
+  # TODO(security): builds are NOT code-signed yet. .github/workflows/desktop-release.yml
+  # has no certificate secret, so there is no publisherName here and
+  # electron-updater cannot verify the Authenticode signature of downloaded
+  # installers (it only checks the sha512 from latest.yml, which comes from the
+  # same feed). Until then the app only accepts update feeds on its built-in
+  # allow-list (src/main/updater.ts, TRUSTED_FEEDS). Once a certificate exists:
+  #   1. add CSC_LINK / CSC_KEY_PASSWORD (or Azure Trusted Signing) secrets to
+  #      the release workflow's Publish step, and
+  #   2. set `publisherName: [<exact certificate subject CN>]` here, which makes
+  #      electron-updater refuse any installer not signed by that publisher
+  #      (verifyUpdateCodeSignature stays at its default, which uses it).
 nsis:
   oneClick: false
   perMachine: false

@@ -798,15 +798,22 @@ public sealed partial class ChatView : UserControl
         return t;
     }
 
-    /// <summary>Opens a file with whatever Windows opens that kind of file with.</summary>
+    /// <summary>
+    /// Opens a viewable file (image, PDF, text, audio, video, Office without macros) with whatever
+    /// Windows opens it with; anything that could run code is offered through "Save as" instead.
+    /// </summary>
     private async void OnOpenAttachment(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is not AttachmentItem a) return;
         try
         {
-            var path = await OpenedFiles.PrepareAsync(a);
-            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
-            await Launcher.LaunchFileAsync(file);
+            if (await OpenedFiles.OpenAsync(a) == OpenedFiles.Outcome.Saved)
+            {
+                Error.Severity = InfoBarSeverity.Informational;
+                Error.Message = OpenedFiles.SavedInsteadMessage(Host.Strings);
+                Error.ActionButton = null;
+                Error.IsOpen = true;
+            }
         }
         catch (Exception ex)
         {

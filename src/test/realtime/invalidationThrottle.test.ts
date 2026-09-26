@@ -66,4 +66,13 @@ describe('invalidateThrottled', () => {
     vi.advanceTimersByTime(1_000);
     expect(calls).toHaveLength(2);
   });
+
+  it('a slow window on a shared key never holds back a fast one', () => {
+    // Geo enrichment batches the conversation list over 10s; a new message
+    // must still refresh it at once.
+    invalidateThrottled(qc, ['conversations', 'ws-1'], 10_000);
+    vi.advanceTimersByTime(2_000);
+    invalidateThrottled(qc, ['conversations', 'ws-1'], 1_000);
+    expect(calls).toHaveLength(2);
+  });
 });

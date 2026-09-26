@@ -48,7 +48,12 @@ export function AiSuggestionCard({
 }: Props) {
   const { workspace } = useActiveWorkspace();
   const { data: capabilities } = useAiAgentCapabilities(workspace?.id);
-  const { data, isLoading } = useConversationSuggestions(conversationId);
+  // With AI Agent switched off the card never renders (see below), so its
+  // 15s suggestion poll — three database reads per open conversation per
+  // operator — has nothing to show. A null id disables the query.
+  const { data, isLoading } = useConversationSuggestions(
+    capabilities?.ai_agent_enabled === false ? null : conversationId,
+  );
   const useMut = useUseSuggestion(conversationId);
   const dismissMut = useDismissSuggestion(conversationId);
   const [expanded, setExpanded] = useState(true);
@@ -108,8 +113,8 @@ export function AiSuggestionCard({
   const handleDismiss = async () => {
     try {
       await dismissMut.mutateAsync(suggestion.id);
-    } catch (e: any) {
-      toast({ title: 'Error', description: e?.message, variant: 'destructive' });
+    } catch (e) {
+      toast({ title: 'Error', description: (e as Error | undefined)?.message, variant: 'destructive' });
     }
   };
 

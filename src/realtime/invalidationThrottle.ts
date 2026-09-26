@@ -15,6 +15,10 @@
  *     invalidation when the window ends.
  * An isolated event is as fresh as ever; a sustained burst refetches at most
  * once per window, and the last event of a burst is never lost.
+ *
+ * Windows of different lengths on the same key are independent, so a slow,
+ * decorative source (geo enrichment, 10s) can never hold back a fast one (a
+ * new message, 1s) that refreshes the same list.
  */
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 
@@ -37,7 +41,7 @@ export function invalidateThrottled(
     windows = new Map();
     windowsByClient.set(qc, windows);
   }
-  const id = JSON.stringify(queryKey);
+  const id = `${windowMs}:${JSON.stringify(queryKey)}`;
   const open = windows.get(id);
   if (open) {
     open.dirty = true;

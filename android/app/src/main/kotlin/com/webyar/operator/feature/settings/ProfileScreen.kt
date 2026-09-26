@@ -35,6 +35,7 @@ import com.webyar.operator.ui.components.FilledField
 import com.webyar.operator.ui.components.ShapeFrame
 import com.webyar.operator.ui.design.ExpressiveShapes
 import com.webyar.operator.ui.design.Radius
+import com.webyar.operator.ui.components.OperatorAvatar
 
 /**
  * The operator's own name and face.
@@ -85,7 +86,7 @@ fun ProfileScreen(
                 color = MaterialTheme.colorScheme.primaryContainer,
                 modifier = Modifier.fillMaxSize(),
             )
-            Avatar(name = name, imageUrl = avatarUrl, size = 104.dp)
+            OperatorAvatar(imageUrl = avatarUrl, size = 104.dp)
         }
 
         Row(

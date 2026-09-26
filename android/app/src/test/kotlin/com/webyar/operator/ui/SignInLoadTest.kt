@@ -18,6 +18,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -175,6 +176,17 @@ class SignInLoadTest {
         assertTrue("only ${api.workspaceCalls} workspace calls", api.workspaceCalls >= 3)
     }
 
+    /**
+     * Until the launch has finished restoring. `init` reads the stored
+     * preferences from DataStore, which runs on its own IO threads rather
+     * than this test's scheduler — so `advanceUntilIdle()` can return before
+     * the read lands, and the read then overwrites whatever the test set in
+     * the meantime. The session leaves `Restoring` only after it.
+     */
+    private suspend fun AppState.restored(): AppState = also {
+        session.first { it !is Session.Restoring }
+    }
+
     /** Super Admin's switches, as `GET /api/mobile-app/config` answers them. */
     private class ConfigApi(
         var config: MobileAppConfig,
@@ -191,7 +203,7 @@ class SignInLoadTest {
     @Test
     fun `Super Admin's switches arrive with the sign-in`() = runTest(dispatcher) {
         val api = ConfigApi(MobileAppConfig(showStorage = false, profileNameEditable = true))
-        val app = state(api)
+        val app = state(api).restored()
         testScheduler.advanceUntilIdle()
 
         app.logIn("operator@webyar.app", "whatever")
@@ -209,7 +221,7 @@ class SignInLoadTest {
     @Test
     fun `wallpaper colours follow Super Admin over the operator's choice`() = runTest(dispatcher) {
         val api = ConfigApi(MobileAppConfig(allowWallpaperColors = false))
-        val app = state(api)
+        val app = state(api).restored()
         testScheduler.advanceUntilIdle()
         app.setDynamicColor(true)
 
@@ -230,7 +242,7 @@ class SignInLoadTest {
         val failing = object : WebyarApi by SampleApi() {
             override suspend fun mobileAppConfig(): MobileAppConfig = throw ApiError.Transport()
         }
-        val app = state(failing)
+        val app = state(failing).restored()
         testScheduler.advanceUntilIdle()
         // The defaults, or the last answer this phone stored.
         val before = app.appConfig.value

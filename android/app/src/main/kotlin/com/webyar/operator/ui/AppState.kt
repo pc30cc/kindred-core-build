@@ -335,7 +335,10 @@ class AppState(
             val config = runCatching { api.mobileAppConfig() }.getOrNull() ?: return@launch
             if (config != _appConfig.value) {
                 _appConfig.value = config
-                prefs.setAppConfig(config)
+                // Stored on the side, so this job ends when the answer is
+                // in hand: a write still queued on DataStore's own threads
+                // must not make the next foreground skip its ask.
+                viewModelScope.launch { prefs.setAppConfig(config) }
             }
         }
     }

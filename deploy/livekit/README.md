@@ -94,7 +94,7 @@ See `.env.livekit.example` for the canonical list. The startup wrapper hard-fail
 
 ### 2.5 Webhooks (optional)
 
-Webhooks are not enabled in the rendered config to keep the first deploy lean. To enable them later, extend the YAML heredoc in `docker-compose.livekit.yml` with a `webhook:` block and set `LIVEKIT_WEBHOOK_API_KEY`. The backend already accepts `/api/webhooks/livekit`.
+Off until `LIVEKIT_WEBHOOK_URL` is set. Set it to the backend's `https://<api host>/api/calls/livekit/webhook` and redeploy: the startup wrapper adds a `webhook:` block, signed with `LIVEKIT_WEBHOOK_API_KEY` (default `LIVEKIT_API_KEY`). The backend verifies each event with the LiveKit secret in Super Admin → Providers → Calls and learns from `participant_joined` when the visitor really joins a call (the start of its duration and billable minutes).
 
 ---
 

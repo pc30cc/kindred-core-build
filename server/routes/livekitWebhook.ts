@@ -180,20 +180,9 @@ export async function applyEvent(
 
   switch (ev.event) {
     case 'room_started': {
-      // Coverage fix for max_call_minutes_per_month activation:
-      // every path that transitions a call to 'active' MUST ensure
-      // connected_at is set, otherwise the billable-minute trigger
-      // (tg_call_sessions_bill_minutes) silently drops the call.
-      // The operator accept route already backfills connected_at; this
-      // handles the webhook-driven path (and any other producer that
-      // skips the operator accept route). Idempotent: never overwrites
-      // an existing connected_at — accept-time is the preferred
-      // earlier writer.
-      const { data: prev } = await sb
-        .from('call_sessions')
-        .select('connected_at')
-        .eq('id', session.id)
-        .maybeSingle();
+      // The room exists (the operator may be in it); the call itself starts
+      // when the visitor joins — participant_joined below, or the visitor's
+      // join token — so connected_at is not stamped here.
       const startedIso = new Date(
         (ev.room?.creationTime ?? Math.floor(Date.now() / 1000)) * 1000,
       ).toISOString();
@@ -201,9 +190,6 @@ export async function applyEvent(
         state: 'active',
         started_at: startedIso,
       };
-      if (!(prev as { connected_at?: string | null } | null)?.connected_at) {
-        patch.connected_at = startedIso;
-      }
       await mustDb(
         await sb.from('call_sessions').update(patch).eq('id', session.id),
         'call_sessions.update:room_started',
@@ -276,6 +262,14 @@ export async function applyEvent(
         });
       }
       await recordEvent('participant_joined', { identity });
+      // The visitor is in the call: it starts now (duration, billable minutes),
+      // unless their join token already stamped it. First writer wins.
+      if (ptype === 'visitor') {
+        await sb.from('call_sessions')
+          .update({ connected_at: new Date().toISOString() })
+          .eq('id', session.id)
+          .is('connected_at', null);
+      }
       // Phase 8D — when an operator actually joins media, lock them as in-call.
       if (ptype === 'operator' && pId && /^[0-9a-f-]{36}$/i.test(pId)) {
         void markInCall(config, session.workspace_id, pId, session.id).catch(() => {});

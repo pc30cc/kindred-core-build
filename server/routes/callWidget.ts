@@ -1252,6 +1252,10 @@ callWidgetRouter.post('/calls/:id/join-token', async (req, res) => {
   // LiveKit identity is `<participantType>:<participantId>` (see livekitProvider).
   const identity = `visitor:visitor:${c.id}`;
   const connect = await buildClientConnectInfo(config, c.provider, c.provider_room_id, identity);
+  // The visitor is joining the call now: this is when it starts (duration and
+  // billable minutes), not when the operator accepted. First writer wins, so a
+  // reconnect keeps the original start.
+  await markVisitorJoined(sb, c.id);
   res.json({
     token: tok.token,
     provider: c.provider,
@@ -1260,6 +1264,26 @@ callWidgetRouter.post('/calls/:id/join-token', async (req, res) => {
     connect,
   });
 });
+
+/**
+ * Stamps call_sessions.connected_at the first time the visitor joins, and
+ * records it on the call's timeline. Idempotent: guarded on connected_at IS NULL.
+ * Best-effort — a failure here never keeps the visitor out of the call.
+ */
+async function markVisitorJoined(sb: ReturnType<typeof getServiceClient>, callId: string): Promise<void> {
+  try {
+    const { data } = await sb.from('call_sessions')
+      .update({ connected_at: new Date().toISOString() })
+      .eq('id', callId)
+      .is('connected_at', null)
+      .select('id');
+    if (Array.isArray(data) && data.length > 0) {
+      await sb.from('call_events').insert({
+        call_session_id: callId, event_type: 'visitor_joined', actor_type: 'visitor', actor_id: null, payload: {},
+      });
+    }
+  } catch { /* best effort */ }
+}
 
 // ── Callback request ──────────────────────────────────────────────────────
 const callbackSchema = z.object({

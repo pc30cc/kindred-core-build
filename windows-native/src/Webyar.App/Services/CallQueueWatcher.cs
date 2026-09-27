@@ -17,7 +17,8 @@ public sealed class CallQueueWatcher : IDisposable
     private readonly HashSet<string> _known = [];
     private Poller? _poller;
     private bool _primed;
-    private bool _disabled;
+    /// <summary>Unavailable (403/404) until then: asked again a minute later, not never (a deploy, a plan or role change).</summary>
+    private DateTimeOffset _pausedUntil;
     private int _polls;
 
     public CallQueueWatcher(AppHost host, string workspaceId)
@@ -28,6 +29,9 @@ public sealed class CallQueueWatcher : IDisposable
 
     /// <summary>The waiting line, newest poll; the call center page reads it too.</summary>
     public IReadOnlyList<QueueEntry> Queue { get; private set; } = [];
+
+    /// <summary>The line has been read (or found unavailable) at least once: an empty <see cref="Queue"/> means nobody waits.</summary>
+    public bool HasPolled { get; private set; }
 
     public event Action? Changed;
 
@@ -54,7 +58,7 @@ public sealed class CallQueueWatcher : IDisposable
 
     private async Task PollAsync(CancellationToken ct)
     {
-        if (_disabled) return;
+        if (DateTimeOffset.UtcNow < _pausedUntil) return;
         // The desk is off (the plan still loading or unreadable, or the platform
         // switched calls off): nothing waits, and whatever is waiting when it
         // comes back is learnt, not rung.
@@ -62,9 +66,11 @@ public sealed class CallQueueWatcher : IDisposable
         {
             _known.Clear();
             _primed = false;
-            if (Queue.Count > 0)
+            if (Queue.Count > 0 || !HasPolled)
             {
                 Queue = [];
+                // Only once the plan is known: while it loads, the page keeps its skeleton.
+                HasPolled = _host.Plan.State != PlanState.Loading;
                 Changed?.Invoke();
             }
             return;
@@ -76,10 +82,11 @@ public sealed class CallQueueWatcher : IDisposable
         }
         catch (ApiException e) when (e.Status is 403 or 404)
         {
-            // No call center on this plan or for this role: stop asking.
-            Log.Write($"[calls] queue unavailable ({e.Status}), watcher off");
-            _disabled = true;
+            // No call center on this plan or for this role: ask again in a minute, not every 4 seconds.
+            Log.Write($"[calls] queue unavailable ({e.Status}), paused");
+            _pausedUntil = DateTimeOffset.UtcNow.AddMinutes(1);
             Queue = [];
+            HasPolled = true;
             Changed?.Invoke();
             return;
         }
@@ -100,6 +107,7 @@ public sealed class CallQueueWatcher : IDisposable
         _known.IntersectWith(queue.Select(q => q.CallSessionId));
         foreach (var q in queue) _known.Add(q.CallSessionId);
         Queue = queue;
+        HasPolled = true;
         Changed?.Invoke();
         // The first poll only learns what is already waiting, as the web desk does.
         if (_primed)

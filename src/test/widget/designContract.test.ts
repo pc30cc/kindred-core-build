@@ -17,12 +17,21 @@ const RUNTIME_JS = readFileSync('public/widget/runtime.js', 'utf8');
 const REGISTRY_SRC = readFileSync('public/widget/presentation-registry.js', 'utf8');
 const RENDERER_SRC = readFileSync('public/widget/presentation-default.js', 'utf8');
 
+type WidgetRenderer = {
+  chatFrameHtml: (viewModel: Record<string, unknown>) => string;
+  kbHtml: (viewModel: Record<string, unknown>) => string;
+  prechatFormHtml: (identity: Record<string, unknown>, config: Record<string, unknown>, locale: string) => string;
+};
+type WidgetTestWindow = Window & {
+  __gs_presentation_default: { create: (environment: Record<string, unknown>) => WidgetRenderer };
+};
+
 function renderer(cfgExtra: Record<string, unknown> = {}) {
   // eslint-disable-next-line no-new-func
   new Function(REGISTRY_SRC).call(window);
   // eslint-disable-next-line no-new-func
   new Function(RENDERER_SRC).call(window);
-  return (window as any).__gs_presentation_default.create({
+  return (window as unknown as WidgetTestWindow).__gs_presentation_default.create({
     t: (k: string) => k,
     escapeHtml: (v: unknown) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string),
@@ -42,7 +51,7 @@ function renderer(cfgExtra: Record<string, unknown> = {}) {
 function chatDom(vm: Record<string, unknown> = {}) {
   // jsdom has neither MediaRecorder nor getUserMedia; the design's mic button
   // is gated on real voice support, so stub it for the markup contract.
-  (window as any).MediaRecorder = function () {};
+  Object.defineProperty(window, 'MediaRecorder', { value: class MediaRecorderStub {}, configurable: true });
   if (!navigator.mediaDevices) {
     Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: () => {} }, configurable: true });
   }
@@ -215,7 +224,7 @@ describe('composer design contract', () => {
     expect(wrap.querySelector('.composer-actions-end')).toBeNull();
   });
 
-  it('locks composer geometry to the design values', () => {
+  it('locks base composer geometry and the scoped chat refresh', () => {
     expect(PRES_CSS).toMatch(/\.composer-zone\s*\{[^}]*background:\s*var\(--wy-surface\)/);
     expect(PRES_CSS).toMatch(/\.composer-zone\s*\{[^}]*padding:\s*8px 16px/);
     expect(PRES_CSS).toMatch(/\.input-bar\s*\{[^}]*align-items:\s*center/);
@@ -223,7 +232,11 @@ describe('composer design contract', () => {
     expect(PRES_CSS).toMatch(/\.mic-btn svg\s*\{[^}]*width:\s*18px/);
     expect(PRES_CSS).toMatch(/\.input-wrap\s*\{[^}]*border-radius:\s*7px/);
     expect(PRES_CSS).toMatch(/\.input-wrap\s*\{[^}]*padding:\s*0 8px/);
-    expect(PRES_CSS).not.toMatch(/\.input-wrap:focus-within\s*\{/);
+    expect(PRES_CSS).toMatch(/\.wy-view-chat \.input-wrap:focus-within\s*\{[^}]*box-shadow:\s*0 0 0 2px var\(--wy-accent\)/);
+    expect(PRES_CSS).toMatch(/\.wy-view-chat \.input-wrap\s*\{[^}]*border-radius:\s*16px/);
+    expect(PRES_CSS).toMatch(/\.wy-view-chat \.input\s*\{[^}]*min-height:\s*50px/);
+    expect(PRES_CSS).toMatch(/\.wy-view-chat \.input-bar\.has-draft \.send-btn\s*\{[^}]*background:\s*var\(--wy-accent\)/);
+    expect(PRES_CSS).toMatch(/\.wy-view-chat \.send-btn:focus-visible[^}]*outline:\s*2px solid var\(--wy-accent\)/);
     expect(PRES_CSS).toMatch(/\.input-wrap \.input:focus-visible\s*\{[^}]*outline:\s*none[^}]*box-shadow:\s*none/);
     expect(PRES_CSS).toMatch(/\.input\s*\{[^}]*height:\s*46px/);
     expect(PRES_CSS).toMatch(/\.input\s*\{[^}]*max-height:\s*15rem/);

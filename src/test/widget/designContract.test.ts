@@ -31,7 +31,7 @@ function renderer(cfgExtra: Record<string, unknown> = {}) {
   new Function(REGISTRY_SRC).call(window);
   // eslint-disable-next-line no-new-func
   new Function(RENDERER_SRC).call(window);
-  return (window as WidgetTestWindow).__gs_presentation_default.create({
+  return (window as unknown as WidgetTestWindow).__gs_presentation_default.create({
     t: (k: string) => k,
     escapeHtml: (v: unknown) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string),

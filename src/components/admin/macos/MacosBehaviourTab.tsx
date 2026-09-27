@@ -1,18 +1,21 @@
 /**
  * Super Admin → macOS app → Behaviour.
  *
- * How the Mac app keeps conversations current: the realtime connection and
- * the polling that covers for it. Same rules as the Windows app
+ * How the Mac app keeps conversations current (the realtime connection and
+ * the polling that covers for it), and which of its sections are on at all:
+ * a section switched off here is hidden on every Mac even where the
+ * workspace's plan includes it (the app ANDs the two). Same rules as the Windows app
  * (DesktopBehaviourTab); the Mac app reads them from
  * GET /api/platform/macos-app, so a change here needs no new build.
  */
-import { Radio } from 'lucide-react';
-import { useTranslation } from '@/i18n';
+import { LayoutGrid, Radio } from 'lucide-react';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import {
   SettingsSection, FieldGrid, TextField, SwitchField,
 } from '@/components/admin/settings/SettingsFields';
 import type { MacosAppSettings } from '@/hooks/useMacosApp';
-import { inBounds } from './macosModel';
+import { MACOS_SECTIONS, inBounds } from './macosModel';
+import { MacosNote } from './MacosNote';
 
 export function MacosBehaviourTab({
   draft,
@@ -57,6 +60,23 @@ export function MacosBehaviourTab({
             onChange={(value) => set({ poll_interval_realtime_seconds: Number(value) || 0 })}
           />
         </FieldGrid>
+      </SettingsSection>
+
+      <SettingsSection
+        icon={LayoutGrid}
+        heading={t('admin.macosApp.behaviour.sectionsTitle')}
+        caption={t('admin.macosApp.behaviour.sectionsCaption')}
+      >
+        {MACOS_SECTIONS.map(({ key, copy }) => (
+          <SwitchField
+            key={key}
+            label={t(`admin.macosApp.behaviour.${copy}` as TranslationKey)}
+            hint={t(`admin.macosApp.behaviour.${copy}Hint` as TranslationKey)}
+            checked={draft[key]}
+            onChange={(on) => set({ [key]: on } as Partial<MacosAppSettings>)}
+          />
+        ))}
+        <MacosNote>{t('admin.macosApp.behaviour.sectionsPlanNote')}</MacosNote>
       </SettingsSection>
     </div>
   );

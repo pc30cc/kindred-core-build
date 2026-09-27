@@ -9949,12 +9949,14 @@ export type Database = {
           release_notes: string | null
           status_page_url: string | null
           support_url: string | null
+          storage_settings_visible: boolean
           terms_url: string | null
           update_channel: string
           update_check_interval_minutes: number
           updated_at: string
           video_calls_enabled: boolean
           visitors_enabled: boolean
+          web_analytics_enabled: boolean
           voice_notes_enabled: boolean
         }
         Insert: {
@@ -9991,12 +9993,14 @@ export type Database = {
           release_notes?: string | null
           status_page_url?: string | null
           support_url?: string | null
+          storage_settings_visible?: boolean
           terms_url?: string | null
           update_channel?: string
           update_check_interval_minutes?: number
           updated_at?: string
           video_calls_enabled?: boolean
           visitors_enabled?: boolean
+          web_analytics_enabled?: boolean
           voice_notes_enabled?: boolean
         }
         Update: {
@@ -10033,12 +10037,14 @@ export type Database = {
           release_notes?: string | null
           status_page_url?: string | null
           support_url?: string | null
+          storage_settings_visible?: boolean
           terms_url?: string | null
           update_channel?: string
           update_check_interval_minutes?: number
           updated_at?: string
           video_calls_enabled?: boolean
           visitors_enabled?: boolean
+          web_analytics_enabled?: boolean
           voice_notes_enabled?: boolean
         }
         Relationships: []

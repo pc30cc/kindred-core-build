@@ -41,7 +41,9 @@ export interface MacosAppSettings {
   poll_interval_seconds: number;
   poll_interval_realtime_seconds: number;
 
-  // Features — ANDed with the workspace plan by the app.
+  // Features — ANDed with the workspace plan by the app. Super Admin → macOS
+  // app → Behaviour switches contacts, visitors, the call center, website
+  // analytics and the Storage section of the app's settings.
   calls_enabled: boolean;
   video_calls_enabled: boolean;
   email_enabled: boolean;
@@ -51,6 +53,8 @@ export interface MacosAppSettings {
   contacts_enabled: boolean;
   voice_notes_enabled: boolean;
   attachments_enabled: boolean;
+  web_analytics_enabled: boolean;
+  storage_settings_visible: boolean;
 
   // System integration
   menu_bar_extra_enabled: boolean;
@@ -106,6 +110,8 @@ export const MACOS_APP_DEFAULTS: MacosAppSettings = {
   contacts_enabled: true,
   voice_notes_enabled: true,
   attachments_enabled: true,
+  web_analytics_enabled: true,
+  storage_settings_visible: true,
 
   menu_bar_extra_enabled: true,
   launch_at_login_enabled: true,
@@ -149,6 +155,8 @@ export const MACOS_BOOLEAN_KEYS = [
   'contacts_enabled',
   'voice_notes_enabled',
   'attachments_enabled',
+  'web_analytics_enabled',
+  'storage_settings_visible',
   'menu_bar_extra_enabled',
   'launch_at_login_enabled',
   'dock_badge_enabled',
@@ -289,6 +297,9 @@ export interface MacosAppPublicConfig {
     contacts: boolean;
     voiceNotes: boolean;
     attachments: boolean;
+    webAnalytics: boolean;
+    /** Settings → Storage in the app (the cache itself always works). */
+    storageSettings: boolean;
   };
   system: { menuBarExtra: boolean; launchAtLogin: boolean; dockBadge: boolean; notifications: boolean };
   defaults: {
@@ -328,6 +339,8 @@ export function toPublicMacosAppConfig(s: MacosAppSettings): MacosAppPublicConfi
       contacts: s.contacts_enabled,
       voiceNotes: s.voice_notes_enabled,
       attachments: s.attachments_enabled,
+      webAnalytics: s.web_analytics_enabled,
+      storageSettings: s.storage_settings_visible,
     },
     system: {
       menuBarExtra: s.menu_bar_extra_enabled,

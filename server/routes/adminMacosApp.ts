@@ -91,6 +91,8 @@ export const macosAppSettingsSchema = z
     contacts_enabled: z.boolean(),
     voice_notes_enabled: z.boolean(),
     attachments_enabled: z.boolean(),
+    web_analytics_enabled: z.boolean(),
+    storage_settings_visible: z.boolean(),
 
     menu_bar_extra_enabled: z.boolean(),
     launch_at_login_enabled: z.boolean(),

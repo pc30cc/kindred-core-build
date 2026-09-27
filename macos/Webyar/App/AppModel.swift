@@ -56,7 +56,7 @@ final class AppModel {
     /// The workspace's plan as the server sent it.
     private(set) var workspacePlan = WorkspacePlan.loading
     /// What this operator may see: the plan, less what the platform switched off for the Mac app.
-    var plan: WorkspacePlan { workspacePlan }
+    var plan: WorkspacePlan { workspacePlan.limited(by: config.sections) }
     private(set) var presence: PresenceService?
     private(set) var callQueue: CallQueueWatcher?
     private(set) var realtimeConnected = false
@@ -76,6 +76,19 @@ final class AppModel {
     @ObservationIgnored let inboxEvents = Signal<InboxEvent>()
     /// Every nudge on the visitors channel.
     @ObservationIgnored let visitorEvents = Signal<JSONValue>()
+    /// Team chat on this operator's own channel.
+    @ObservationIgnored let teamEvents = Signal<TeamEvent>()
+    /// The operator's own realtime channel is joined: team chat is pushed, and its polling relaxes.
+    private(set) var teamRealtime = false
+    /// Unread messages from colleagues, for the Colleagues badge and the Dock.
+    private(set) var teamUnread = 0
+    /// The colleague whose thread is on screen, so a message from them is not also notified.
+    var visibleColleagueId: String?
+    /// A colleague to open once the Colleagues page shows them (from a notification).
+    var pendingColleague: String?
+    /// Raised when `pendingColleague` is set, for a Colleagues page already on screen.
+    @ObservationIgnored let colleagueRequests = Signal<String>()
+    @ObservationIgnored private var teamWatcher: TeamWatcher?
 
     // MARK: Shell state
 
@@ -143,6 +156,7 @@ final class AppModel {
             Task { @MainActor in self?.signedOut() }
         }
         notifier.onOpen = { [weak self] args in self?.open(from: args) }
+        notifier.isRightToLeft = { [weak self] in self?.strings.isRightToLeft ?? false }
     }
 
     // MARK: Launch
@@ -262,8 +276,9 @@ final class AppModel {
     var showsNotifications: Bool { config.system.notifications && settings.notifications }
 
     /// The Dock badge follows the unread count, unless the platform turned it off.
+    /// Unread visitor messages and unread messages from colleagues.
     func updateBadge() {
-        notifier.setBadge(config.system.dockBadge ? unread : 0)
+        notifier.setBadge(config.system.dockBadge ? unread + teamUnread : 0)
     }
 
     func signIn(email: String, password: String, remember: Bool) async throws {
@@ -377,6 +392,9 @@ final class AppModel {
         realtime?.stop()
         realtime = nil
         realtimeConnected = false
+        teamRealtime = false
+        visibleColleagueId = nil
+        pendingColleague = nil
         engagement.stop()
         closeLocalStore()
         UserDefaults.standard.removeObject(forKey: Self.storeOwnerKey)
@@ -468,6 +486,7 @@ final class AppModel {
         realtime?.stop()
         realtime = nil
         realtimeConnected = false
+        teamRealtime = false
         guard let ws = workspace else { return }
         let rt = InboxRealtime(api: api, workspaceId: ws.id, allowed: { [weak self] in self?.config.realtimeEnabled ?? false })
         realtimeWasUp = false
@@ -477,6 +496,8 @@ final class AppModel {
             self?.inboxEvents.send(e)
         }
         rt.onVisitorEvent = { [weak self] v in self?.visitorEvents.send(v) }
+        rt.onTeamEvent = { [weak self] e in self?.teamEvents.send(e) }
+        rt.onTeamChannelChanged = { [weak self] up in self?.teamRealtime = up }
         rt.onConnectionChanged = { [weak self] up in
             guard let self else { return }
             self.realtimeConnected = up
@@ -671,6 +692,14 @@ final class AppModel {
         }
         background = bg
         bg.start()
+        let team = TeamWatcher(app: self, workspaceId: ws.id)
+        team.onUnread = { [weak self] n in
+            guard let self, self.teamUnread != n else { return }
+            self.teamUnread = n
+            self.updateBadge()
+        }
+        teamWatcher = team
+        team.start()
         Task { await refreshNotificationPermission() }
     }
 
@@ -681,7 +710,13 @@ final class AppModel {
         planPoller = nil
         background?.stop()
         background = nil
+        teamWatcher?.stop()
+        teamWatcher = nil
+        teamUnread = 0
     }
+
+    /// Team chat changed here (a thread was read): the badge follows at once.
+    func kickTeam() { teamWatcher?.kick() }
 
     private func loadSidebar(_ workspaceId: String) async throws {
         counts = try await api.sidebarCounts(workspaceId: workspaceId)
@@ -759,6 +794,11 @@ final class AppModel {
         }
         if let conversation = args["conversation"] {
             openConversation(conversation)
+        } else if let colleague = args["colleague"] {
+            guard plan.teamChat else { return }
+            pendingColleague = colleague
+            route = .colleagues
+            colleagueRequests.send(colleague)
         } else if args["page"] == "calls", let call = args["call"] {
             openCall(call, answer: false)
         } else if let page = args["page"] {

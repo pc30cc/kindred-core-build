@@ -40,6 +40,18 @@ export const MACOS_INTEGRATIONS: ReadonlyArray<{ key: SwitchKey; copy: string }>
   { key: 'notifications_enabled', copy: 'notifications' },
 ];
 
+/**
+ * Sections Super Admin can switch off on every Mac, whatever the plan allows;
+ * `copy` names the pair under admin.macosApp.behaviour.
+ */
+export const MACOS_SECTIONS: ReadonlyArray<{ key: SwitchKey; copy: string }> = [
+  { key: 'contacts_enabled', copy: 'contacts' },
+  { key: 'visitors_enabled', copy: 'visitors' },
+  { key: 'web_analytics_enabled', copy: 'webAnalytics' },
+  { key: 'call_center_enabled', copy: 'callCenter' },
+  { key: 'storage_settings_visible', copy: 'storage' },
+];
+
 // ── Validation ───────────────────────────────────────────────────────────
 
 export interface MacosProblem {

@@ -56,13 +56,13 @@ class VisitorsTest {
             geo = VisitorGeo(country = "Iran", countryCode = "IR", region = "Razavi Khorasan", city = "Mashhad"),
             contact = VisitorContactRef("c1", visitorCode = "4ZTK"),
         )
-        assertEquals("Visitor from ⁨Razavi Khorasan⁩ · ⁨4ZTK⁩", VisitorText.name(tehran, Language.EN))
+        assertEquals("Visitor from \u2068Razavi Khorasan\u2069 · \u20684ZTK\u2069", VisitorText.name(tehran, Language.EN))
 
         val berlin = tehran.copy(geo = VisitorGeo(country = "Germany", countryCode = "DE", region = "Berlin", city = "Berlin"))
-        assertEquals("Visitor from ⁨Berlin⁩ · ⁨4ZTK⁩", VisitorText.name(berlin, Language.EN))
+        assertEquals("Visitor from \u2068Berlin\u2069 · \u20684ZTK\u2069", VisitorText.name(berlin, Language.EN))
 
         val nowhere = tehran.copy(geo = null)
-        assertEquals("Visitor · ⁨4ZTK⁩", VisitorText.name(nowhere, Language.EN))
+        assertEquals("Visitor · \u20684ZTK\u2069", VisitorText.name(nowhere, Language.EN))
     }
 
     /** The values `anonCodeFrom` in server/services/widget/anonymousContact.ts gives for the same seeds. */

@@ -41,11 +41,11 @@ object VisitorText {
         val named = v.contact?.name?.trim().orEmpty()
         if (named.isNotEmpty() && !named.equals("visitor", ignoreCase = true)) return named
         val code = v.contact?.code ?: legacyCode(v.contact?.id ?: v.id)
-        val isolated = "⁨$code⁩"
+        val isolated = "\u2068$code\u2069"
         val iran = v.geo?.countryCode?.trim()?.uppercase() == "IR"
         val place = (if (iran) v.geo?.region else v.geo?.city)?.trim().orEmpty()
         if (place.isEmpty()) return StrInsights.visitorAnonymous(language, isolated)
-        val where = "⁨$place⁩"
+        val where = "\u2068$place\u2069"
         return if (iran) {
             StrInsights.visitorAnonymousFromRegion(language, where, isolated)
         } else {

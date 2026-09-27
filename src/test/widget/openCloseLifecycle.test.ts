@@ -38,17 +38,17 @@ describe("widget open/close lifecycle contract", () => {
     expect(loader).toContain("var wasOpen = isOpen || !!(launcherEl && launcherEl.classList.contains(\"open\"))");
     expect(loader).toContain("if (wasOpen) {");
     expect(loader).toContain("playFabEntry(launcherEl)");
-    expect(loader).toContain('{ duration: 620, easing: "cubic-bezier(.33,1,.68,1)", fill: "none" }');
-    expect(css).toContain("transition: transform 0.62s cubic-bezier(0.33, 1, 0.68, 1)");
+    expect(loader).toContain('{ duration: 280, easing: "cubic-bezier(.22,1,.36,1)", fill: "none" }');
+    expect(css).toContain("transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1)");
   });
 
-  it("launcher image reveals the icon with a clip-path circle on hover", () => {
-    expect(loader).toContain(".launcher.has-image:hover .fab-img{clip-path:circle(0% at 50% 50%);}");
+  it("launcher image crossfades over the configured icon on hover", () => {
+    expect(loader).toContain(".launcher.has-image:hover .fab-img{opacity:0;transform:scale(.88);}");
   });
 
-  it("panel slides out of the bottom edge, mirroring the launcher", () => {
+  it("panel fades and moves a short distance from the launcher corner", () => {
     expect(css).toMatch(/transform-origin:\s*bottom right/);
-    expect(css).toMatch(/transform:\s*translateY\(calc\(100% \+ 40px\)\)/);
+    expect(css).toMatch(/transform:\s*translateY\(16px\) scale\(0\.97\)/);
     // Both surfaces share ONE anchored corner: the shell is the zero-size
     // fixed parent and each child is absolute at bottom:0 of that corner.
     expect(loader).toContain(".shell.pos-bottom-right{bottom:24px;right:24px;left:auto;top:auto;}");
@@ -61,8 +61,10 @@ describe("widget open/close lifecycle contract", () => {
     expect(css).not.toContain("launcher-close");
   });
 
-  it("no header close control is added by the template", () => {
+  it("close button has an X icon and retains its accessible name", () => {
     const tpl = fs.readFileSync(path.join(root, "presentation-default.js"), "utf8");
-    expect(tpl).not.toContain("data-close-panel");
+    expect(tpl).toContain('class="panel-close" data-panel-close aria-label=');
+    expect(tpl).toContain('M18 6 6 18M6 6l12 12');
+    expect(css).toMatch(/\.panel-close:focus-visible\s*\{[^}]*outline:/);
   });
 });

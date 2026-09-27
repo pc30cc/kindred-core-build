@@ -1535,7 +1535,7 @@
   // The polling driver implements message/connectionstate/reconnect for real,
   // and exposes typing/presence as no-op hooks that future drivers can fulfill.
   // ════════════════════════════════════════════════════════════════════
-  function createTransport(ctx, transportStore, fsm) {
+  function createTransport(ctx, transportStore, fsm, isPanelOpen) {
     var subs = { message: [], typing: [], presence: [], reconnect: [], connectionstate: [] };
     function on(event, fn) {
       if (!subs[event]) return function () {};
@@ -1661,6 +1661,7 @@
     var subscribedConversation = null;
     var historyLoaded = false;
     var manuallyClosed = false;
+    var connectionGeneration = 0;
 
     // ─── Realtime driver (Phase 3) — drop-in for polling ───
     // When the server resolves vendor=centrifugo, we add a real WS driver alongside.
@@ -1901,8 +1902,10 @@
     }
 
     function startPolling() {
+      if (manuallyClosed) return;
+      var generation = connectionGeneration;
       ensureChatModule(function (mod) {
-        if (!mod || !mod.startPolling) return;
+        if (manuallyClosed || generation !== connectionGeneration || !mod || !mod.startPolling) return;
         if (pollingHandle && pollingHandle.stop) pollingHandle.stop();
         pollingHandle = mod.startPolling({
           apiBase: ctx.apiBase,
@@ -1917,7 +1920,8 @@
           // Re-evaluated before every tick, so foregrounding the tab snaps
           // the very next poll back to 4s with no reconnect/re-negotiation.
           getInterval: function () {
-            return (typeof document !== 'undefined' && document.hidden) ? 15000 : 4000;
+            if (typeof document !== 'undefined' && document.hidden) return 60000;
+            return isPanelOpen && isPanelOpen() ? 4000 : 20000;
           },
           getConversationId: function () { return subscribedConversation; },
           onConversation: function (cid) {
@@ -1980,6 +1984,7 @@
     // resolver module + driver-specific runtime script. Non-driver vendors
     // ('polling_builtin', 'disabled') are handled inline.
     function resolveRealtimeAndStart(intent) {
+      var generation = connectionGeneration;
       var url = ctx.apiBase + '/api/realtime/connect';
       // Use the token-aware wrapper — realtime resolve is one of the most
       // expensive widget bootstraps and a stale token here would otherwise
@@ -1993,6 +1998,7 @@
       })
         .then(function (r) { return r.json(); })
         .then(function (resolved) {
+          if (manuallyClosed || generation !== connectionGeneration) return;
           // Phase 6C — refresh the policy snapshot from the realtime
           // negotiation BEFORE we decide which transport to start. The
           // backend may flip force_polling to true even if the lock /
@@ -2020,6 +2026,7 @@
           }
 
           function fallback(reason) {
+            if (manuallyClosed || generation !== connectionGeneration) return;
             Util.warn('[transport] realtime fallback:', reason);
             // Tear down the realtime driver — it lost; polling owns state now.
             if (rtDriver) {
@@ -2046,6 +2053,7 @@
 
           // Vendor needs a real driver module — load via resolver.
           ensureResolverModule(function (resolver) {
+            if (manuallyClosed || generation !== connectionGeneration) return;
             var isDriverVendor = !!(resolver && resolver.isDriverVendor(resolvedVendor));
 
             if (isDriverVendor) {
@@ -2060,6 +2068,7 @@
               }
 
               ensureRealtimeDriver(resolvedVendor, function (mod) {
+                if (manuallyClosed || generation !== connectionGeneration) return;
                 if (!mod || !mod.create) {
                   fallback(resolvedVendor + '_module_load_failed');
                   return;
@@ -2114,6 +2123,7 @@
           });
         })
         .catch(function (err) {
+          if (manuallyClosed || generation !== connectionGeneration) return;
           // Resolver itself failed → conservative fallback to polling.
           Util.warn('[transport] resolver error, fallback to polling:', err);
           startPolling();
@@ -2121,6 +2131,7 @@
     }
 
     function connect() {
+      connectionGeneration++;
       manuallyClosed = false;
       consecutiveFailures = 0;
       lastSuccessAt = 0;
@@ -2141,6 +2152,7 @@
       resolveRealtimeAndStart('initial');
     }
     function disconnect() {
+      connectionGeneration++;
       manuallyClosed = true;
       stopPolling();
       if (rtDriver && rtDriver.disconnect) {
@@ -2176,6 +2188,7 @@
         }
       }
       Util.log('[transport] forced reconnect');
+      connectionGeneration++;
       manuallyClosed = false;
       try {
         if (rtDriver && rtDriver.disconnect) rtDriver.disconnect();
@@ -2213,6 +2226,7 @@
       connect: connect,
       disconnect: disconnect,
       reconnect: reconnect,
+      pollNow: function () { if (pollingHandle && pollingHandle.pollNow) pollingHandle.pollNow(); },
       subscribeConversation: subscribeConversation,
       unsubscribeConversation: unsubscribeConversation,
       sendMessage: sendMessage,
@@ -6208,7 +6222,7 @@
     var fsm = createLifecycleFSM();
     ctx.lifecycle = fsm;
     fsm.transition('bootstrapping', 'init');
-    var transport = createTransport(ctx, transportStore, fsm);
+    var transport = createTransport(ctx, transportStore, fsm, function () { return !!shellStore.get().isOpen; });
     // Expose transport on ctx so the wake-up recovery hook (registered
     // earlier) can call transport.reconnect() when the tab returns from
     // background. ctx is captured by closure inside the wake handler.
@@ -6325,6 +6339,8 @@
     // Focusable as a container (never in the tab order) so open() can park
     // focus inside the panel when no better target exists.
     panel.setAttribute('tabindex', '-1');
+    panel.setAttribute('aria-hidden', 'true');
+    panel.setAttribute('inert', '');
 
     // Operator avatar stack (max 4). Each operator becomes a small circular
     // avatar overlapping the next one, falling back to their initial when no
@@ -9083,8 +9099,12 @@
             // Switch to chat tab + open. Mirrors the public open() path so
             // launcher state, focus, and unread clearing all behave normally.
             shellStore.set({ activeTab: 'chat', isOpen: true });
+            if (panel) {
+              panel.removeAttribute('inert');
+              panel.setAttribute('aria-hidden', 'false');
+              panel.classList.add('visible');
+            }
             if (launcher) launcher.classList.add('open');
-            if (panel) panel.classList.add('visible');
             notify.hideToast();
             renderBody();
           }
@@ -9381,8 +9401,11 @@
       open: function () {
         if (shellStore.get().isOpen) return true;
         shellStore.set({ isOpen: true });
+        panel.removeAttribute('inert');
+        panel.setAttribute('aria-hidden', 'false');
         if (launcher) launcher.classList.add('open');
         panel.classList.add('visible');
+        transport.pollNow();
         // Hide any pending toast — user is now looking at the panel.
         notify.hideToast();
         // Phase 4: clear unread for the ACTIVE conversation only.
@@ -9424,6 +9447,8 @@
             && panel.contains(shadowRoot.activeElement);
           if (inPanel && launcher && launcher.style.display !== 'none') launcher.focus();
         } catch (_) {}
+        panel.setAttribute('aria-hidden', 'true');
+        panel.setAttribute('inert', '');
         return false;
       },
       toggle: function () {

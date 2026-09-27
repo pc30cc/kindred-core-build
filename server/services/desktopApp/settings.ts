@@ -38,6 +38,11 @@ export interface DesktopAppSettings {
   calls_enabled: boolean;
   /// Whether the app shows its Settings → Storage section. Hidden, the cache still works.
   storage_settings_visible: boolean;
+  /// Sections Super Admin can switch off in the app, on top of each workspace's plan.
+  contacts_enabled: boolean;
+  visitors_enabled: boolean;
+  analytics_enabled: boolean;
+  call_center_enabled: boolean;
 
   updated_at?: string | null;
 }
@@ -60,6 +65,10 @@ export const DESKTOP_APP_DEFAULTS: DesktopAppSettings = {
   poll_interval_realtime_seconds: 120,
   calls_enabled: true,
   storage_settings_visible: true,
+  contacts_enabled: true,
+  visitors_enabled: true,
+  analytics_enabled: true,
+  call_center_enabled: true,
 
   updated_at: null,
 };
@@ -128,7 +137,10 @@ export function normalize(row: Record<string, unknown>): DesktopAppSettings {
   for (const key of Object.keys(DESKTOP_APP_BOUNDS) as (keyof typeof DESKTOP_APP_BOUNDS)[]) {
     out[key] = row[key] === undefined || row[key] === null ? DESKTOP_APP_DEFAULTS[key] : boundedInt(row[key], key);
   }
-  for (const key of ['auto_update_enabled', 'realtime_enabled', 'calls_enabled', 'storage_settings_visible'] as const) {
+  for (const key of [
+    'auto_update_enabled', 'realtime_enabled', 'calls_enabled', 'storage_settings_visible',
+    'contacts_enabled', 'visitors_enabled', 'analytics_enabled', 'call_center_enabled',
+  ] as const) {
     out[key] = typeof row[key] === 'boolean' ? row[key] : DESKTOP_APP_DEFAULTS[key];
   }
   out.updated_at = (row.updated_at as string | null) ?? null;
@@ -152,7 +164,14 @@ export interface DesktopAppPublicConfig {
   };
   realtime: { enabled: boolean };
   polling: { intervalSeconds: number; withRealtimeSeconds: number };
-  features: { calls: boolean; storageSettings: boolean };
+  features: {
+    calls: boolean;
+    storageSettings: boolean;
+    contacts: boolean;
+    visitors: boolean;
+    analytics: boolean;
+    callCenter: boolean;
+  };
 }
 
 export function toPublicDesktopAppConfig(s: DesktopAppSettings): DesktopAppPublicConfig {
@@ -172,6 +191,13 @@ export function toPublicDesktopAppConfig(s: DesktopAppSettings): DesktopAppPubli
       intervalSeconds: s.poll_interval_seconds,
       withRealtimeSeconds: s.poll_interval_realtime_seconds,
     },
-    features: { calls: s.calls_enabled, storageSettings: s.storage_settings_visible },
+    features: {
+      calls: s.calls_enabled,
+      storageSettings: s.storage_settings_visible,
+      contacts: s.contacts_enabled,
+      visitors: s.visitors_enabled,
+      analytics: s.analytics_enabled,
+      callCenter: s.call_center_enabled,
+    },
   };
 }

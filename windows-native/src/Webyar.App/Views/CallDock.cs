@@ -99,7 +99,7 @@ internal static class CallDock
             {
                 var holds = docked && holder is null && slot.CallKey is { } key && key == call!.DockKey && slot.IsOnScreen;
                 if (holds) holder = slot;
-                slot.Reserve(holds ? call!.DockHeight + Top + Bottom : 0);
+                slot.Reserve(holds ? PanelHeight(slot, call!.DockHeight) + Top + Bottom : 0);
             }
             if (_surface is { } surface && _layer is { } layer)
             {
@@ -107,7 +107,7 @@ internal static class CallDock
                 if (holder is not null && holder.ActualWidth > 0 && holder.XamlRoot is not null && ReferenceEquals(holder.XamlRoot, layer.XamlRoot))
                 {
                     var box = holder.TransformToVisual(layer).TransformBounds(new Rect(0, 0, holder.ActualWidth, holder.ActualHeight));
-                    Set(view, box.X + Side, box.Y + Top, Math.Max(0, box.Width - 2 * Side), call!.DockHeight);
+                    Set(view, box.X + Side, box.Y + Top, Math.Max(0, box.Width - 2 * Side), PanelHeight(holder, call!.DockHeight));
                 }
                 else if (Canvas.GetLeft(view) > -10000)
                 {
@@ -125,6 +125,21 @@ internal static class CallDock
         {
             Log.Error("call dock", e);
         }
+    }
+
+    /// <summary>
+    /// The panel's height in its page: as tall as the call wants, but never more
+    /// than 70% of the page area holding it, so the call's details stay in view
+    /// under it and nothing reaches past the page (the panel then scrolls inside).
+    /// </summary>
+    private static double PanelHeight(CallDockSlot slot, double wanted)
+    {
+        // The first area above the slot whose height is the page's, not its content's (a StackPanel grows with the panel).
+        var area = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(slot);
+        while (area is StackPanel) area = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(area);
+        if (area is FrameworkElement { ActualHeight: > 0 } page)
+            return Math.Min(wanted, Math.Max(140, page.ActualHeight * 0.7 - Top - Bottom));
+        return wanted;
     }
 
     /// <summary>Moves and sizes only when something changed: every change lays the page out again, which calls back here.</summary>

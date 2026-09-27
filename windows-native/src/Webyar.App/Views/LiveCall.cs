@@ -96,6 +96,7 @@ public sealed class LiveCall
         // Until the page measures itself: the Mac's panel heights, a video picture or a single row.
         _dockHeight = channel == "video" ? 300 : 66;
         Host.Callers.Changed += OnCallerProfiles;
+        Host.LanguageChanged += OnLanguageChanged;
     }
 
     private static AppHost Host => App.Current.Host;
@@ -587,6 +588,48 @@ public sealed class LiveCall
         }
     }
 
+    /// <summary>The page's words, in the app's language.</summary>
+    private static object StringsPayload(Webyar.Core.Localization.Strings s) => new
+        {
+            waitingVisitor = s["callWaiting"],
+            mute = s["mute"],
+            unmute = s["unmute"],
+            camera = s["camera"],
+            hangUp = s["hangUpCall"],
+            leave = s["callLeave"],
+            notes = s["callNotes"],
+            notesEmpty = s["callNotesEmpty"],
+            notePlaceholder = s["callNotePlaceholder"],
+            noteSend = s["callNoteSend"],
+            noteSending = s["callNoteSending"],
+            noteFailed = s["callNoteFailed"],
+            noteRetry = s["callNoteRetry"],
+            noteDiscard = s["callNoteDiscard"],
+            close = s["close"],
+            transfer = s["callTransfer"],
+            operators = s["callTransferOperators"],
+            departments = s["callTransferDepartments"],
+            reason = s["callTransferReason"],
+            submit = s["callTransferSubmit"],
+            cancel = s["cancel"],
+            noOperators = s["callTransferNoOperators"],
+            noDepartments = s["callTransferNoDepartments"],
+            transferHint = s["callTransferHint"],
+            fullScreen = s["callFullScreen"],
+            exitFullScreen = s["callExitFullScreen"],
+            keepOnTop = s["callKeepOnTop"],
+            popOut = s["callPopOut"],
+            dockBack = s["callDockBack"],
+        };
+
+    /// <summary>The app's language changed during the call: the page speaks it too.</summary>
+    private void OnLanguageChanged()
+    {
+        var s = Host.Strings;
+        Post(new { type = "strings", rtl = s.IsRightToLeft, persianDigits = s.Language == Webyar.Core.Localization.Language.Fa, strings = StringsPayload(s) });
+        Changed?.Invoke();
+    }
+
     private static string? Str(JsonElement e, string name) =>
         e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
@@ -620,38 +663,7 @@ public sealed class LiveCall
             persianDigits = s.Language == Webyar.Core.Localization.Language.Fa,
             canTransfer = _desk is not null,
             hasNotes = _desk is not null || _conversation is not null,
-            strings = new
-            {
-                waitingVisitor = s["callWaiting"],
-                mute = s["mute"],
-                unmute = s["unmute"],
-                camera = s["camera"],
-                hangUp = s["hangUpCall"],
-                leave = s["callLeave"],
-                notes = s["callNotes"],
-                notesEmpty = s["callNotesEmpty"],
-                notePlaceholder = s["callNotePlaceholder"],
-                noteSend = s["callNoteSend"],
-                noteSending = s["callNoteSending"],
-                noteFailed = s["callNoteFailed"],
-                noteRetry = s["callNoteRetry"],
-                noteDiscard = s["callNoteDiscard"],
-                close = s["close"],
-                transfer = s["callTransfer"],
-                operators = s["callTransferOperators"],
-                departments = s["callTransferDepartments"],
-                reason = s["callTransferReason"],
-                submit = s["callTransferSubmit"],
-                cancel = s["cancel"],
-                noOperators = s["callTransferNoOperators"],
-                noDepartments = s["callTransferNoDepartments"],
-                transferHint = s["callTransferHint"],
-                fullScreen = s["callFullScreen"],
-                exitFullScreen = s["callExitFullScreen"],
-                keepOnTop = s["callKeepOnTop"],
-                popOut = s["callPopOut"],
-                dockBack = s["callDockBack"],
-            },
+            strings = StringsPayload(s),
         });
         foreach (var w in _warnings) surface.Post(w);
         if (_transferText is { } handed) surface.Post(new { type = "transferred", text = handed });
@@ -959,6 +971,7 @@ public sealed class LiveCall
         if (_closed) return;
         _closed = true;
         Host.Callers.Changed -= OnCallerProfiles;
+        Host.LanguageChanged -= OnLanguageChanged;
         if (_surface is { } surface)
         {
             surface.Message -= OnPageMessage;

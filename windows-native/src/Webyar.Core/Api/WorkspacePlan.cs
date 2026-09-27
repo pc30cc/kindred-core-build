@@ -53,6 +53,22 @@ public sealed class WorkspacePlan
     /// <summary>/api/call-center/capabilities: workspace_call_center_visible.</summary>
     public bool? CallCenterVisible { get; init; }
 
+    /// <summary>Super Admin → Windows app: the sections switched off for the app, whatever the plan says.</summary>
+    public DesktopSections Sections { get; private init; } = DesktopSections.All;
+
+    /// <summary>The same plan with Super Admin's section switches for the app applied.</summary>
+    public WorkspacePlan WithSections(DesktopSections sections) =>
+        sections == Sections ? this : new(State, _features, _modules, _channels)
+        {
+            PlanName = PlanName,
+            Role = Role,
+            AiAgentEnabled = AiAgentEnabled,
+            AiCustomerVisible = AiCustomerVisible,
+            AiAutoAnswer = AiAutoAnswer,
+            CallCenterVisible = CallCenterVisible,
+            Sections = sections,
+        };
+
     public bool IsAdmin => Role is "owner" or "admin";
 
     public static WorkspacePlan Parse(JsonElement root)
@@ -73,6 +89,7 @@ public sealed class WorkspacePlan
             AiCustomerVisible = aiVisible ?? AiCustomerVisible,
             AiAutoAnswer = aiAuto ?? AiAutoAnswer,
             CallCenterVisible = callCenter ?? CallCenterVisible,
+            Sections = Sections,
         };
 
     // ── Kept on the PC: the last plan the server sent, for an offline or instant launch ──
@@ -122,9 +139,9 @@ public sealed class WorkspacePlan
     public bool VoiceCalls => Call("voice");
     public bool VideoCalls => Call("video");
 
-    public bool Contacts => ModuleInPlan("contacts");
-    public bool Visitors => ModuleInPlan("visitor_tracking");
-    public bool CallCenter => ModuleInPlan("call_center") && CallCenterVisible == true;
+    public bool Contacts => ModuleInPlan("contacts") && Sections.Contacts;
+    public bool Visitors => ModuleInPlan("visitor_tracking") && Sections.Visitors;
+    public bool CallCenter => ModuleInPlan("call_center") && CallCenterVisible == true && Sections.CallCenter;
     public bool TeamChat => Feature("inbox_team_chat");
     public bool NeedsHumanQueue => Feature("inbox_needs_human");
 
@@ -132,7 +149,7 @@ public sealed class WorkspacePlan
     public bool EmailInbox => IsAdmin && ModuleInPlan("email_inbox");
 
     /// <summary>Website analytics, as the web sidebar shows it: owners and admins, when the plan has the Web Analytics module.</summary>
-    public bool WebAnalytics => IsAdmin && ModuleInPlan("web_analytics");
+    public bool WebAnalytics => IsAdmin && ModuleInPlan("web_analytics") && Sections.Analytics;
 
     /// <summary>Call recordings, where the plan keeps them (the web's Recordings tab).</summary>
     public bool CallRecordings => Feature("call_recording");
@@ -183,4 +200,14 @@ public sealed class WorkspacePlan
 
     private static string? Str(JsonElement e, string name) =>
         e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+}
+
+/// <summary>
+/// Sections of the Windows app Super Admin can switch off for every installed
+/// copy (Super Admin → Desktop app → Behaviour). A section shows only when this
+/// and the workspace's plan both allow it.
+/// </summary>
+public sealed record DesktopSections(bool Contacts = true, bool Visitors = true, bool Analytics = true, bool CallCenter = true)
+{
+    public static readonly DesktopSections All = new();
 }

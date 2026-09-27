@@ -24,6 +24,8 @@ public sealed class AppHost : IAsyncDisposable
         _current = this;
         Ui = ui;
         Settings = AppSettings.Load();
+        // Super Admin's last word on the app's sections, until the platform is asked again.
+        if (Settings.Sections is { } sections) Config = Config with { Sections = sections };
         Strings = new Strings(Settings.ResolvedLanguage);
         var origin = Settings.ApiOrigin is { } o && Uri.TryCreate(o, UriKind.Absolute, out var u) ? u : null;
         Client = new ApiClient(new DpapiSessionStore(), origin, appVersion: typeof(AppHost).Assembly.GetName().Version?.ToString(3));
@@ -337,7 +339,7 @@ public sealed class AppHost : IAsyncDisposable
         RunOnUi(() =>
         {
             if (Workspace?.Id != ws.Id) return;
-            Plan = next;
+            Plan = next.WithSections(Config.Sections);
             PlanChanged?.Invoke();
         });
     }
@@ -352,7 +354,7 @@ public sealed class AppHost : IAsyncDisposable
         if (Workspace is not { } ws) return;
         var cached = await CachedPlanAsync(Local, ws.Id);
         if (cached is null || Workspace?.Id != ws.Id || Plan.State != PlanState.Loading) return;
-        Plan = cached;
+        Plan = cached.WithSections(Config.Sections);
         PlanChanged?.Invoke();
     }
 
@@ -444,6 +446,17 @@ public sealed class AppHost : IAsyncDisposable
                 Settings.StorageSettingsVisible = Config.StorageSettingsVisible;
                 Settings.Save();
                 PlatformChanged?.Invoke();
+            }
+            // Super Admin switched a section on or off: the rail, the shortcuts and the call desk follow now.
+            if (Settings.Sections != Config.Sections)
+            {
+                Settings.Sections = Config.Sections;
+                Settings.Save();
+            }
+            if (Plan.Sections != Config.Sections)
+            {
+                Plan = Plan.WithSections(Config.Sections);
+                PlanChanged?.Invoke();
             }
         });
     }

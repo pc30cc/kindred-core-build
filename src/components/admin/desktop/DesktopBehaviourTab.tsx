@@ -3,7 +3,7 @@
  * it, and feature switches. Read by the app from GET /api/platform/desktop-app
  * on launch, so a change here needs no new build.
  */
-import { Radio, PhoneCall } from 'lucide-react';
+import { Radio, PhoneCall, LayoutGrid } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import {
   SettingsSection, FieldGrid, TextField, SwitchField,
@@ -71,6 +71,37 @@ export function DesktopBehaviourTab({
           hint={t('admin.desktopApp.behaviour.storageSettingsHint')}
           checked={draft.storage_settings_visible}
           onChange={(storage_settings_visible) => set({ storage_settings_visible })}
+        />
+      </SettingsSection>
+
+      <SettingsSection
+        icon={LayoutGrid}
+        heading={t('admin.desktopApp.behaviour.sectionsTitle')}
+        caption={t('admin.desktopApp.behaviour.sectionsCaption')}
+      >
+        <SwitchField
+          label={t('admin.desktopApp.behaviour.contacts')}
+          hint={t('admin.desktopApp.behaviour.contactsHint')}
+          checked={draft.contacts_enabled}
+          onChange={(contacts_enabled) => set({ contacts_enabled })}
+        />
+        <SwitchField
+          label={t('admin.desktopApp.behaviour.visitors')}
+          hint={t('admin.desktopApp.behaviour.visitorsHint')}
+          checked={draft.visitors_enabled}
+          onChange={(visitors_enabled) => set({ visitors_enabled })}
+        />
+        <SwitchField
+          label={t('admin.desktopApp.behaviour.analytics')}
+          hint={t('admin.desktopApp.behaviour.analyticsHint')}
+          checked={draft.analytics_enabled}
+          onChange={(analytics_enabled) => set({ analytics_enabled })}
+        />
+        <SwitchField
+          label={t('admin.desktopApp.behaviour.callCenter')}
+          hint={t('admin.desktopApp.behaviour.callCenterHint')}
+          checked={draft.call_center_enabled}
+          onChange={(call_center_enabled) => set({ call_center_enabled })}
         />
       </SettingsSection>
     </div>

@@ -54,6 +54,9 @@ public sealed partial class CallCenterPage : Page
     private bool _addingNote;
     private bool _visible;
     private bool _accepting;
+    private bool _rejecting;
+    /// <summary>The language the log's rows and the earlier calls were drawn in.</summary>
+    private Language? _historyLanguage, _previousLanguage;
     /// <summary>The window is too narrow for both panes: the line or the call picked, one at a time.</summary>
     private bool _narrow;
     /// <summary>In one-pane mode, the call picked is on show rather than the line.</summary>
@@ -98,6 +101,8 @@ public sealed partial class CallCenterPage : Page
             StartDetailPolling(id);
         }
         if (_showHistory) _ = ReloadHistoryAsync();
+        // The language changed while away: the earlier calls are drawn again in it.
+        if (_selectedId is not null && _previousLanguage is { } drawn && drawn != Host.Strings.Language) _ = LoadPreviousAsync(ShownCall());
         // A desk call that ended while the page was away (hung up from the shell or its window).
         if (_mediaCallId is { } media && LiveCall.DeskCallId != media) OnDeskCallEnded(media);
         _ = LoadAvailabilityAsync();
@@ -178,6 +183,12 @@ public sealed partial class CallCenterPage : Page
         ShowWaitingBadge();
         QueueList.Visibility = _showHistory ? Visibility.Collapsed : Visibility.Visible;
         HistoryList.Visibility = _showHistory ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OnRefreshKey(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        OnRefresh(RefreshButton, new RoutedEventArgs());
     }
 
     /// <summary>Refresh (Ctrl+R, F5): the line, the numbers and the call picked, now.</summary>
@@ -413,6 +424,12 @@ public sealed partial class CallCenterPage : Page
     {
         var s = Host.Strings;
         var q = Search.Text?.Trim() ?? string.Empty;
+        // Another language: every row is drawn again (a row only redraws when its call changed).
+        if (_historyLanguage != s.Language)
+        {
+            _history.Clear();
+            _historyLanguage = s.Language;
+        }
         var wanted = _recent.Where(c => q.Length == 0 || new[] { c.VisitorName, c.VisitorEmail, c.VisitorPhone }.Any(t => t?.Contains(q, StringComparison.OrdinalIgnoreCase) == true))
                             .Where(c => _channel == "all" || (_channel == "video") == c.IsVideo).ToList();
         // Changed in place, row by row, as the line is: a refresh every few seconds keeps the scroll and the row picked.
@@ -488,6 +505,7 @@ public sealed partial class CallCenterPage : Page
             if (LiveCall.DeskCallId == callId)
             {
                 if (_selectedId != callId) Open(callId, LiveCall.DeskSession ?? new CallSession(callId), waiting: false);
+                ShowDetail();
                 return true;
             }
             ShowDeskError(Host.Strings["callTakenElsewhere"], InfoBarSeverity.Informational);
@@ -499,9 +517,10 @@ public sealed partial class CallCenterPage : Page
             Search.Text = string.Empty;
             OnChannel(AllFilter, new RoutedEventArgs());
         }
-        if (ReferenceEquals(QueueList.SelectedItem, item)) OnSelectQueue(QueueList, null!);
-        else QueueList.SelectedItem = item;
+        if (!ReferenceEquals(QueueList.SelectedItem, item)) QueueList.SelectedItem = item;
+        if (_selectedId != item.Id) Open(item.Id, item.Entry.CallSession, waiting: true, item);
         QueueList.ScrollIntoView(item);
+        ShowDetail();
         return true;
     }
 
@@ -516,6 +535,8 @@ public sealed partial class CallCenterPage : Page
     private void OnSelectQueue(object sender, SelectionChangedEventArgs e)
     {
         if (QueueList.SelectedItem is not QueueItem item) return;
+        // The row picked again after a search, sort or filter moved it: the same call, nothing to open again.
+        if (item.Id == _selectedId && _detailPoller is not null) return;
         // One call picked across both lists, so going back to a row picked earlier opens it again.
         HistoryList.SelectedItem = null;
         Open(item.Id, item.Entry.CallSession, waiting: true, item);
@@ -548,8 +569,6 @@ public sealed partial class CallCenterPage : Page
             _shownKey = _timelineKey = _notesKey = null;
         }
         _selectedId = id;
-        _detailOpen = true;
-        ApplyPanes();
         _selectedCall = call;
         // The call answered on this desk docks over the call it belongs to.
         DockSlot.CallKey = $"desk:{id}";
@@ -625,7 +644,7 @@ public sealed partial class CallCenterPage : Page
         var canAnswer = waiting && _onCallId != c.Id;
         AcceptButton.Visibility = canAnswer ? Visibility.Visible : Visibility.Collapsed;
         RejectButton.Visibility = canAnswer ? Visibility.Visible : Visibility.Collapsed;
-        AcceptButton.IsEnabled = RejectButton.IsEnabled = !_accepting;
+        AcceptButton.IsEnabled = RejectButton.IsEnabled = !_accepting && !_rejecting;
         EndButton.Visibility = onCall ? Visibility.Visible : Visibility.Collapsed;
         EndButton.IsEnabled = !_ending;
         AcceptGlyph.Glyph = video ? "" : "";
@@ -734,6 +753,7 @@ public sealed partial class CallCenterPage : Page
     private async Task LoadPreviousAsync(CallSession? call)
     {
         var s = Host.Strings;
+        _previousLanguage = s.Language;
         PreviousRows.Children.Clear();
         if (call is null || Host.Workspace is not { } ws)
         {
@@ -842,6 +862,7 @@ public sealed partial class CallCenterPage : Page
     {
         if (_selectedId != item.Id) Open(item.Id, item.Entry.CallSession, waiting: true, item);
         if (!ReferenceEquals(QueueList.SelectedItem, item)) QueueList.SelectedItem = item;
+        ShowDetail();
     }
 
     // ── Actions ──
@@ -849,7 +870,7 @@ public sealed partial class CallCenterPage : Page
     private async void OnAccept(object sender, RoutedEventArgs e)
     {
         // One answer at a time, from the button, the banner or the right-click menu alike.
-        if (_accepting || _selectedId is not { } id || Host.Workspace is not { } ws || !_byId.TryGetValue(id, out var item) || _onCallId == id) return;
+        if (_accepting || _rejecting || _selectedId is not { } id || Host.Workspace is not { } ws || !_byId.TryGetValue(id, out var item) || _onCallId == id) return;
         var s = Host.Strings;
         if (LiveCall.IsBusy)
         {
@@ -901,8 +922,9 @@ public sealed partial class CallCenterPage : Page
 
     private async void OnReject(object sender, RoutedEventArgs e)
     {
-        if (_accepting || _selectedId is not { } id || Host.Workspace is not { } ws) return;
+        if (_accepting || _rejecting || _selectedId is not { } id || Host.Workspace is not { } ws) return;
         var s = Host.Strings;
+        _rejecting = true;
         RejectButton.IsEnabled = AcceptButton.IsEnabled = false;
         try
         {
@@ -916,6 +938,7 @@ public sealed partial class CallCenterPage : Page
         }
         finally
         {
+            _rejecting = false;
             RejectButton.IsEnabled = AcceptButton.IsEnabled = true;
         }
     }
@@ -1062,15 +1085,25 @@ public sealed partial class CallCenterPage : Page
     {
         _detailOpen = false;
         ApplyPanes();
+        // The keyboard goes back to the line, not nowhere.
+        if (_narrow) (_showHistory ? (Control)HistoryList : QueueList).Focus(FocusState.Programmatic);
+    }
+
+    /// <summary>The call picked comes into view: in one-pane mode the detail takes the page, focus on Back.</summary>
+    private void ShowDetail()
+    {
+        if (_detailOpen && !_narrow) return;
+        var was = _detailOpen;
+        _detailOpen = true;
+        ApplyPanes();
+        if (_narrow && !was) BackButton.Focus(FocusState.Programmatic);
     }
 
     /// <summary>One pane at a time: the row already picked opens its call again (no selection change to say so).</summary>
     private void OnRowClick(object sender, ItemClickEventArgs e)
     {
-        var id = e.ClickedItem switch { QueueItem q => q.Id, CallHistoryItem h => h.Call.Id, _ => null };
-        if (!_narrow || id is null || id != _selectedId) return;
-        _detailOpen = true;
-        ApplyPanes();
+        // A click or Enter opens the call; the arrow keys only move through the line.
+        if (_narrow && e.ClickedItem is QueueItem or CallHistoryItem) ShowDetail();
     }
 
     /// <summary>The detail's paired sections go one under the other when the column is narrow.</summary>

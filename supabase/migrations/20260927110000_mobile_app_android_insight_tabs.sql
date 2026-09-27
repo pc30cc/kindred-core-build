@@ -1,7 +1,7 @@
 -- ============================================================
--- 226 — THE ANDROID APP'S VISITORS AND WEBSITE ANALYTICS TABS
+-- THE ANDROID APP'S VISITORS AND WEBSITE ANALYTICS TABS
 --
--- Hosted mirror: supabase/migrations/20260927090000_mobile_app_android_insight_tabs.sql
+-- Self-host mirror: database/migrations/227_mobile_app_android_insight_tabs.sql
 -- (functionally identical; registered in
 -- src/test/integration/migrationMirrorParity.test.ts).
 --

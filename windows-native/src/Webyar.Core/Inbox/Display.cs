@@ -120,6 +120,8 @@ public static class ErrorText
                 400 or 422 => s["errorInvalidInput"],
                 404 => s["errorNotFound"],
                 409 => s["errorConflict"],
+                413 => s["fileTooLarge"],
+                415 => s["fileTypeNotAllowed"],
                 429 => s["errorTooManyRequests"],
                 >= 400 and < 500 => s["errorNotAllowed"],
                 _ => s["errorServerProblem"],

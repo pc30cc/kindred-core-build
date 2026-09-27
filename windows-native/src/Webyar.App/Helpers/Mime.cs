@@ -30,6 +30,30 @@ public static class Mime
         [".mov"] = "video/quicktime",
     };
 
+    /// <summary>
+    /// What the server takes as a chat attachment (conversationAttachments.ts
+    /// GLOBAL_ALLOWED_MIMES): pictures, PDF, plain text and sound. Anything else
+    /// is refused with 415, so it is not offered, and said plainly when dropped.
+    /// </summary>
+    private static readonly HashSet<string> Sendable = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/png", "image/jpeg", "image/webp", "image/gif",
+        "application/pdf", "text/plain",
+        "audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav",
+    };
+
+    /// <summary>The file picker's filter: the extensions of the types the server takes.</summary>
+    public static readonly string[] SendableExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf", ".txt", ".mp3", ".m4a", ".ogg", ".wav"];
+
+    public static bool CanSend(string mimeType) => Sendable.Contains(mimeType);
+
+    /// <summary>The type to send a picked file as: by its extension, else what Windows says it is.</summary>
+    public static string ForUpload(string fileName, string? contentType)
+    {
+        var byName = Of(fileName);
+        return CanSend(byName) || string.IsNullOrEmpty(contentType) ? byName : contentType;
+    }
+
     public static string Of(string fileName) =>
         Types.TryGetValue(Path.GetExtension(fileName), out var t) ? t : "application/octet-stream";
 

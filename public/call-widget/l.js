@@ -119,6 +119,7 @@
               activeSessionKey: activeSessionKey,
               pageTitle: document.title,
               bootstrap: bootstrap,
+              loadLiveKitSdk: ensureLiveKitSdk,
             });
           }
         });
@@ -136,29 +137,26 @@
         });
       }
 
+      // Media is only needed after a visitor enters a call. Keep the 159 KiB
+      // SDK out of the host page's initial load and share concurrent requests.
       function ensureLiveKitSdk(cb) {
-        if (window.LivekitClient || window.LiveKit) return cb();
-        // Idempotent: avoid double-injection if another widget instance is loading.
+        if (window.LivekitClient || window.LiveKit) { cb(true); return; }
         var existing = document.querySelector('script[data-cc-livekit-sdk]');
         if (existing) {
-          existing.addEventListener('load', cb);
-          existing.addEventListener('error', cb); // runtime will surface media_client_missing
+          existing.addEventListener('load', function () { cb(!!(window.LivekitClient || window.LiveKit)); }, { once: true });
+          existing.addEventListener('error', function () { cb(false); }, { once: true });
           return;
         }
         var lk = document.createElement('script');
         lk.async = true;
         lk.setAttribute('data-cc-livekit-sdk', '1');
-        // Local asset only — never an external CDN.
-        // Self-hosted SDK. Prefer the standalone call-widget vendor path
-        // (served by both the frontend image and the API server). Falls
-        // back is unnecessary — both origins serve this file.
         lk.src = origin + '/call-widget/vendor/livekit-client.umd.min.js';
-        lk.onload = cb;
-        lk.onerror = cb; // runtime will detect missing window.LivekitClient and show media_client_missing
+        lk.onload = function () { cb(!!(window.LivekitClient || window.LiveKit)); };
+        lk.onerror = function () { lk.remove(); cb(false); };
         document.head.appendChild(lk);
       }
 
-      ensureLiveKitSdk(loadPresentation);
+      loadPresentation();
     })
     .catch(function (err) {
       dwarn('[call-widget] bootstrap error', err);

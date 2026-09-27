@@ -6,7 +6,6 @@ type PollHandle = { pollNow: () => void; stop: () => void };
 type ChatModule = { startPolling: (options: Record<string, unknown>) => PollHandle };
 
 function chatModule(): ChatModule {
-  // eslint-disable-next-line no-new-func
   new Function(readFileSync('public/widget/runtime-chat.js', 'utf8')).call(window);
   return (window as unknown as { __gs_mod_chat: ChatModule }).__gs_mod_chat;
 }

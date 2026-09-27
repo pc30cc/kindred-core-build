@@ -17,12 +17,21 @@ const RUNTIME_JS = readFileSync('public/widget/runtime.js', 'utf8');
 const REGISTRY_SRC = readFileSync('public/widget/presentation-registry.js', 'utf8');
 const RENDERER_SRC = readFileSync('public/widget/presentation-default.js', 'utf8');
 
+type WidgetRenderer = {
+  chatFrameHtml: (viewModel: Record<string, unknown>) => string;
+  kbHtml: (viewModel: Record<string, unknown>) => string;
+  prechatFormHtml: (identity: Record<string, unknown>, config: Record<string, unknown>, locale: string) => string;
+};
+type WidgetTestWindow = Window & {
+  __gs_presentation_default: { create: (environment: Record<string, unknown>) => WidgetRenderer };
+};
+
 function renderer(cfgExtra: Record<string, unknown> = {}) {
   // eslint-disable-next-line no-new-func
   new Function(REGISTRY_SRC).call(window);
   // eslint-disable-next-line no-new-func
   new Function(RENDERER_SRC).call(window);
-  return (window as any).__gs_presentation_default.create({
+  return (window as WidgetTestWindow).__gs_presentation_default.create({
     t: (k: string) => k,
     escapeHtml: (v: unknown) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string),
@@ -42,7 +51,7 @@ function renderer(cfgExtra: Record<string, unknown> = {}) {
 function chatDom(vm: Record<string, unknown> = {}) {
   // jsdom has neither MediaRecorder nor getUserMedia; the design's mic button
   // is gated on real voice support, so stub it for the markup contract.
-  (window as any).MediaRecorder = function () {};
+  Object.defineProperty(window, 'MediaRecorder', { value: class MediaRecorderStub {}, configurable: true });
   if (!navigator.mediaDevices) {
     Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: () => {} }, configurable: true });
   }

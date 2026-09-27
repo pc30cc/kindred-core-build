@@ -179,9 +179,13 @@ services:
         # the secret of the key named here, which the backend verifies
         # against the LiveKit secret in Super Admin -> Providers -> Calls.
         if [ -n "$${LIVEKIT_WEBHOOK_URL:-}" ]; then
+          # LiveKit also reads LIVEKIT_WEBHOOK_API_KEY from the environment, and
+          # an empty one there overrides the file ("api_key is required to use
+          # webhooks"): give the variable the key the file names.
+          export LIVEKIT_WEBHOOK_API_KEY="$${LIVEKIT_WEBHOOK_API_KEY:-$${LIVEKIT_API_KEY}}"
           {
             echo "webhook:"
-            echo "  api_key: $${LIVEKIT_WEBHOOK_API_KEY:-$${LIVEKIT_API_KEY}}"
+            echo "  api_key: $${LIVEKIT_WEBHOOK_API_KEY}"
             echo "  urls:"
             echo "    - $${LIVEKIT_WEBHOOK_URL}"
           } >> /tmp/livekit.yaml

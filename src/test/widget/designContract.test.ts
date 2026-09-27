@@ -112,6 +112,9 @@ describe('typography ownership', () => {
     expect(loader).not.toContain('IRANSans');
     expect(loader).not.toContain('/widget/fonts.css');
     expect(loader).toContain('presentationFontsUrl');
+    // The large inlined font stylesheet loads only for an opened panel or a visible nudge.
+    expect(loader).not.toContain('injectPresentationFonts(config.presentationFontsUrl');
+    expect(loader).toContain('injectPresentationFonts(configData.presentationFontsUrl');
     // Call widget consumes a server-provided asset URL, not the chat path.
     // The consumption sits in the presentation module now, not the runtime —
     // which is what the rule above asks for, so the runtime is checked for

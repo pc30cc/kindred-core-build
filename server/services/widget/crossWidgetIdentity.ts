@@ -155,11 +155,15 @@ export async function ensureVisitorSessionRow(
 ): Promise<string | null> {
   let sessionId: string | null = null;
   let previousIpHash: string | null = null;
+  // Keep call-widget reloads from rewriting the same session and presence.
+  // Well below the 240-second database liveness window.
+  const now = Date.now();
+  const SESSION_TOUCH_MS = 60_000;
   let isNewSession = false;
   try {
     const { data: existing } = await sb
       .from('visitor_sessions')
-      .select('id, ip_hash')
+      .select('id, ip_hash, ip_raw, current_page, last_seen_at')
       .eq('workspace_id', workspaceId)
       .eq('visitor_id', visitorId)
       .order('last_seen_at', { ascending: false })
@@ -167,14 +171,23 @@ export async function ensureVisitorSessionRow(
       .maybeSingle();
     if (existing?.id) {
       previousIpHash = (existing.ip_hash as string | null) ?? null;
-      await sb
-        .from('visitor_sessions')
-        .update({
-          last_seen_at: new Date().toISOString(),
-          ...(pageUrl && !opts.pageUrlOnlyOnCreate ? { current_page: pageUrl } : {}),
-          ...networkPatch(net),
-        })
-        .eq('id', existing.id);
+      const lastSeenMs = Date.parse(existing.last_seen_at || '');
+      const networkChanged = !!net && (
+        (net.ipHash && net.ipHash !== existing.ip_hash) ||
+        net.ipRaw !== existing.ip_raw
+      );
+      const pageChanged = !!pageUrl && !opts.pageUrlOnlyOnCreate && pageUrl !== existing.current_page;
+      if (!Number.isFinite(lastSeenMs) || now - lastSeenMs >= SESSION_TOUCH_MS ||
+          networkChanged || pageChanged) {
+        await sb
+          .from('visitor_sessions')
+          .update({
+            last_seen_at: new Date(now).toISOString(),
+            ...(pageUrl && !opts.pageUrlOnlyOnCreate ? { current_page: pageUrl } : {}),
+            ...networkPatch(net),
+          })
+          .eq('id', existing.id);
+      }
       sessionId = existing.id;
     } else {
       isNewSession = true;
@@ -250,15 +263,20 @@ export async function upsertVisitorPresence(
   try {
     const { data: existingPresence } = await sb
       .from('visitor_presence')
-      .select('id')
+      .select('id, status, current_page, updated_at')
       .eq('visitor_session_id', sessionId)
       .maybeSingle();
     if (existingPresence?.id) {
-      await sb.from('visitor_presence').update({
-        status: 'online',
-        ...(options.keepExistingPage ? {} : { current_page: pageUrl }),
-        updated_at: new Date().toISOString(),
-      }).eq('id', existingPresence.id);
+      const lastTouchMs = Date.parse(existingPresence.updated_at || '');
+      if (existingPresence.status !== 'online' ||
+          !Number.isFinite(lastTouchMs) || Date.now() - lastTouchMs >= 60_000 ||
+          (!options.keepExistingPage && existingPresence.current_page !== pageUrl)) {
+        await sb.from('visitor_presence').update({
+          status: 'online',
+          ...(options.keepExistingPage ? {} : { current_page: pageUrl }),
+          updated_at: new Date().toISOString(),
+        }).eq('id', existingPresence.id);
+      }
     } else {
       await sb.from('visitor_presence').insert({
         workspace_id: workspaceId,

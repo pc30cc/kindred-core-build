@@ -602,6 +602,7 @@
     this.runtimeAssetSuffix = opts.runtimeAssetSuffix || (this.assetsVersion ? ('?v=' + encodeURIComponent(String(this.assetsVersion).slice(0, 16))) : '');
     this.activeSessionKey = opts.activeSessionKey || '';
     this.bootstrap = opts.bootstrap;
+    this.loadLiveKitSdk = opts.loadLiveKitSdk || null;
     this.preview = opts.preview === true;
     this.pageTitle = opts.pageTitle || '';
     this.session = opts.bootstrap && opts.bootstrap.session;
@@ -1013,6 +1014,23 @@
     self.connectStatus = 'loading_media_client';
     self.render();
     var LK = window.LivekitClient || window.LiveKit || null;
+    if (!LK && this.loadLiveKitSdk) {
+      if (this._mediaLoadPending) return;
+      this._mediaLoadPending = true;
+      var pendingCallId = this.callId;
+      var pendingJoinInfo = this.joinInfo;
+      var pendingGeneration = this._mediaLoadGeneration || 0;
+      this.loadLiveKitSdk(function (ready) {
+        self._mediaLoadPending = false;
+        // A cancelled call must never connect after the SDK arrives.
+        if (self.callId !== pendingCallId || self.joinInfo !== pendingJoinInfo ||
+            (self._mediaLoadGeneration || 0) !== pendingGeneration) return;
+        if (ready) { self.connectMedia(); return; }
+        self.connectStatus = 'media_client_missing';
+        self.render();
+      });
+      return;
+    }
     if (!LK) {
       self.connectStatus = 'media_client_missing';
       self.render();
@@ -1313,6 +1331,7 @@
 
   CallCenterWidgetCtor.prototype.cancelCall = function () {
     var self = this;
+    this._mediaLoadGeneration = (this._mediaLoadGeneration || 0) + 1;
     this.disconnectRoom();
     try { Ringback.stop(); } catch (_) {}
     if (!this.callId) { this.reset(); return; }
@@ -1334,6 +1353,7 @@
   };
 
   CallCenterWidgetCtor.prototype.reset = function () {
+    this._mediaLoadGeneration = (this._mediaLoadGeneration || 0) + 1;
     this.disconnectRoom();
     try { Ringback.stop(); } catch (_) {}
     this.clearActiveSession();

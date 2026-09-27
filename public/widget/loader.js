@@ -944,7 +944,7 @@
       '<svg class="chat-icon" viewBox="0 0 24 24">' + icon + '</svg>' +
       '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
       (imageUrl
-        ? '<img class="fab-img" alt="" aria-hidden="true" src="' + imageUrl.replace(/"/g, "&quot;") + '">'
+        ? '<img class="fab-img" alt="" aria-hidden="true" decoding="async" fetchpriority="low" src="' + imageUrl.replace(/"/g, "&quot;") + '">'
         : '');
 
 
@@ -1199,7 +1199,6 @@
         configData._loaderVersion = LOADER_VERSION;
         if (config.debugMode) DEBUG = true;
 
-        injectPresentationFonts(config.presentationFontsUrl || "");
         applyConfigToShell(config);
         attachLauncherClick({ launcherOnly: false });
 
@@ -1480,6 +1479,7 @@
   function loadRuntimeAssets() {
     if (runtimeLoaded || runtimeLoading) return;
     runtimeLoading = true;
+    injectPresentationFonts(configData.presentationFontsUrl || "");
 
     var assetBase = configData._assetBase;
     // ─────────────────────────────────────────────────────────────
@@ -2537,6 +2537,7 @@
 
     function showNudge(rule, content) {
       if (!shellContentEl) return false;
+      injectPresentationFonts(configData.presentationFontsUrl || "");
       var posClass = configData.position === "bottom-left" ? "bottom-left" : "bottom-right";
       var el = document.createElement("div");
       el.className = "smart-nudge entering " + posClass;

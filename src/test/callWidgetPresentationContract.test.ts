@@ -64,10 +64,20 @@ describe('Call Widget presentation contract', () => {
     }
   });
 
+  it('loads the media SDK only when a call needs it and ignores cancelled calls', () => {
+    const loader = read('public/call-widget/l.js');
+    const runtime = read('public/call-widget/runtime.js');
+    expect(loader).toContain('loadPresentation();');
+    expect(loader).not.toContain('ensureLiveKitSdk(loadPresentation)');
+    expect(loader).toContain('loadLiveKitSdk: ensureLiveKitSdk');
+    expect(runtime).toContain('this.loadLiveKitSdk(function (ready)');
+    expect(runtime).toContain('(self._mediaLoadGeneration || 0) !== pendingGeneration');
+  });
+
   it('keeps every declared UI state renderable by the default presentation path', () => {
     const runtime = read('public/call-widget/runtime.js');
     const presentation = read('public/call-widget/presentation-default.js');
-    const stateBlock = runtime.match(/var STATES = \{([\s\S]*?)\n  \};/)?.[1] || '';
+    const stateBlock = runtime.match(/var STATES = \{([\s\S]*?)\n {2}\};/)?.[1] || '';
     const states = [...stateBlock.matchAll(/^\s+([A-Z_]+): '[a-z_]+'[,]?$/gm)].map((match) => match[1]);
     expect(states).toEqual([
       'LOADING', 'ONLINE', 'OFFLINE', 'PRE_CALL', 'QUEUE',

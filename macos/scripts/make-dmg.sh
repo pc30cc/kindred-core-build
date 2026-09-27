@@ -40,11 +40,14 @@ swift scripts/dmg/background.swift "$OUT"
 tiffutil -cathidpicheck "$OUT/background.png" "$OUT/background@2x.png" -out "$OUT/background.tiff" >/dev/null
 
 # 3. The DMG (dmgbuild writes the window layout without driving Finder).
-python3 -c "import dmgbuild" 2>/dev/null || python3 -m pip install --user --quiet dmgbuild
+# In a venv of its own under build/: nothing is installed into the Mac's Python.
+PY="build/dmgenv/bin/python3"
+[[ -x "$PY" ]] || python3 -m venv build/dmgenv
+"$PY" -c "import dmgbuild" 2>/dev/null || "$PY" -m pip install --quiet dmgbuild
 DMG="$OUT/Webyar-$VERSION.dmg"
 ICON=()
 [[ -f "$APP/Contents/Resources/AppIcon.icns" ]] && ICON=(-D icon="$APP/Contents/Resources/AppIcon.icns")
-python3 -m dmgbuild -s scripts/dmg/settings.py \
+"$PY" -m dmgbuild -s scripts/dmg/settings.py \
   -D app="$APP" -D background="$OUT/background.tiff" "${ICON[@]}" \
   "Webyar $VERSION" "$DMG"
 

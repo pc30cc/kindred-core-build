@@ -76,6 +76,9 @@ extension TestAPIBase {
     func notificationPrefs() async throws -> NotificationPrefs { throw APIError.transport }
     func updateNotificationPrefs(_ prefs: NotificationPrefs) async throws -> NotificationPrefs { throw APIError.transport }
     func mobileAppConfig() async throws -> MobileAppConfig { throw APIError.transport }
+    /// Nothing known about the role or the AI and call-center switches, as when
+    /// every read behind it failed.
+    func workspaceAccess(workspaceID: String) async -> WorkspaceAccess { .unknown }
     func liveVisitors(workspaceID: String, includeOffline: Bool) async throws -> [LiveVisitor] { throw APIError.transport }
     func visitorPageHistory(workspaceID: String, sessionID: String) async throws -> VisitorPageHistory { throw APIError.transport }
     func visitorMap(workspaceID: String) async throws -> VisitorMap { throw APIError.transport }

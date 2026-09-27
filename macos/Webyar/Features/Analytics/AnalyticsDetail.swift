@@ -109,7 +109,7 @@ private struct AnalyticsOverviewView: View {
                         value: o.map { AnalyticsFormat.duration($0.avgVisitDurationSeconds ?? 0, s) },
                         change: change(o?.avgVisitDurationSeconds, p?.avgVisitDurationSeconds), changeHelp: vs)
             }
-            TrendCard(overview: o, loading: model.isLoading("overview"))
+            TrendCard(overview: o, bounds: model.range.bounds, loading: model.isLoading("overview"))
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: 16) { channels(o); pages(o) }
                 VStack(spacing: 16) { channels(o); pages(o) }
@@ -202,6 +202,8 @@ private struct KPITile: View {
 /// Visits or page views, day by day, with the day under the pointer called out.
 private struct TrendCard: View {
     let overview: WebAnalyticsOverview?
+    /// The range's first and last day (UTC, YYYY-MM-DD), as the report was asked for.
+    let bounds: (start: String, end: String)
     let loading: Bool
     @Environment(AppModel.self) private var app
     @State private var showViews = false
@@ -214,9 +216,24 @@ private struct TrendCard: View {
     }
 
     private var points: [Point] {
-        (overview?.trend ?? []).compactMap { d in
-            AnalyticsFormat.day(d.date).map { Point(date: $0, value: (showViews ? d.pageviews : d.sessions) ?? 0) }
+        var byDay: [Date: Int] = [:]
+        for d in overview?.trend ?? [] {
+            if let day = AnalyticsFormat.day(d.date) { byDay[day] = (showViews ? d.pageviews : d.sessions) ?? 0 }
         }
+        // The server lists only days with visits: every day of the range is drawn, a quiet one at zero.
+        guard let first = AnalyticsFormat.day(bounds.start), let last = AnalyticsFormat.day(bounds.end), first <= last else {
+            return byDay.map { Point(date: $0.key, value: $0.value) }.sorted { $0.date < $1.date }
+        }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        var out: [Point] = []
+        var day = first
+        while day <= last {
+            out.append(Point(date: day, value: byDay[day] ?? 0))
+            guard let next = cal.date(byAdding: .day, value: 1, to: day) else { break }
+            day = next
+        }
+        return out
     }
 
     var body: some View {
@@ -273,6 +290,8 @@ private struct TrendCard: View {
                     }
                 }
                 .chartXSelection(value: $selected)
+                // The whole range, through the end of its last day (a mark sits inside its day).
+                .chartXScale(domain: pts[0].date...pts[pts.count - 1].date.addingTimeInterval(86_400))
                 .chartYAxis {
                     AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) { value in
                         AxisGridLine().foregroundStyle(Palette.line)

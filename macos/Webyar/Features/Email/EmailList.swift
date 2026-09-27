@@ -60,6 +60,7 @@ struct EmailList: View {
             }
         }
         .onAppear { model.start() }
+        .onDisappear { if app.route != .email { model.stop() } }
     }
 
     private func folderTitle(_ f: EmailFolder) -> String {

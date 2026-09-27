@@ -86,13 +86,17 @@ enum EmailHTML {
             html += "<div class=\"sub snip\" dir=\"auto\">\(escape(snippet))</div></div>"
             html += "<div class=\"when\">\(escape(when))</div></summary>"
             html += "<div class=\"body\" dir=\"auto\">"
+            var placed = Set<String>()
             if let h = m.htmlBody, !h.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                html += "<div class=\"paper\">\(inline(h, m.attachments ?? []))</div>"
+                let inlined = inline(h, m.attachments ?? [])
+                placed = inlined.placed
+                html += "<div class=\"paper\">\(inlined.html)</div>"
             } else {
                 html += "<pre dir=\"auto\">\(linkify(escape(m.textBody ?? m.snippet ?? "")))</pre>"
             }
             html += "</div>"
-            let files = (m.attachments ?? []).filter { !($0.contentId != nil && (m.htmlBody ?? "").contains("cid:\($0.contentId ?? "")")) }
+            // A file the body names but that could not be shown in place stays reachable as a chip.
+            let files = (m.attachments ?? []).filter { !placed.contains($0.id) }
             if !files.isEmpty {
                 html += "<div class=\"atts\">"
                 for a in files {
@@ -109,15 +113,19 @@ enum EmailHTML {
         return html
     }
 
-    /// Inline images (`cid:`) pointed at their stored copies.
-    private static func inline(_ html: String, _ attachments: [EmailAttachmentView]) -> String {
+    /// Inline images (`cid:`) pointed at their stored copies, and the ids of the attachments so placed.
+    private static func inline(_ html: String, _ attachments: [EmailAttachmentView]) -> (html: String, placed: Set<String>) {
         var out = html
+        var placed = Set<String>()
         for a in attachments {
             guard let cid = a.contentId?.trimmingCharacters(in: CharacterSet(charactersIn: "<> ")), !cid.isEmpty,
                   let url = a.url, url.hasPrefix("https://") else { continue }
-            out = out.replacingOccurrences(of: "cid:\(cid)", with: url)
+            let ref = "cid:\(cid)"
+            guard out.contains(ref) else { continue }
+            out = out.replacingOccurrences(of: ref, with: url)
+            placed.insert(a.id)
         }
-        return out
+        return (out, placed)
     }
 
     /// Plain-text links made clickable.

@@ -33,7 +33,7 @@ struct InboxView: View {
     var body: some View {
         @Bindable var model = model
 
-        content
+        list
             // The screen's name sits on the leading edge rather than centred —
             // right in Persian, left in English, which is where the console
             // puts it — and it is also the button that opens the list of every
@@ -194,7 +194,7 @@ struct InboxView: View {
     }
 
     @ViewBuilder
-    private var content: some View {
+    private var list: some View {
         // One list across every state, with the queue filter as its first real
         // row and the search field above that, out of sight until the list is
         // pulled down.

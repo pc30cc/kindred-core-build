@@ -326,7 +326,8 @@
                     </StackPanel>
                 </Button>
                 <!-- The call answered on this desk slides in here, over the call it belongs to. -->
-                <controls:CallDockSlot x:Name="DockSlot" Grid.Row="1" MaxWidth="760" />
+                <!-- Lined up with the details under it: the call's panel is exactly as wide as their cards (see OnDetailSize). -->
+                <controls:CallDockSlot x:Name="DockSlot" Grid.Row="1" MaxWidth="728" Margin="16,0" />
                 <StackPanel x:Name="Placeholder" Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" MaxWidth="380">
                     <Border Width="76" Height="76" CornerRadius="21" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
                         <FontIcon FontSize="30" Foreground="{ThemeResource BrandBrush}" Glyph="&#xE77B;" />
@@ -335,7 +336,9 @@
                     <TextBlock x:Name="PlaceholderBody" HorizontalAlignment="Center" TextAlignment="Center" Style="{StaticResource MutedText}" />
                 </StackPanel>
                 <ScrollViewer x:Name="DetailScroll" Grid.Row="2" Visibility="Collapsed" SizeChanged="OnDetailSize">
-                    <StackPanel x:Name="DetailStack" Padding="28,24" Spacing="18" MaxWidth="760">
+                    <!-- A Grid as wide as the view, so the details are centred under the call, not to one side. -->
+                    <Grid>
+                    <StackPanel x:Name="DetailStack" Padding="28,24" Spacing="18" MaxWidth="760" HorizontalAlignment="Stretch">
                         <!-- Caller and the big buttons; the buttons go under the caller when the column is narrow -->
                         <Border x:Name="CallerCard" Style="{StaticResource CardBorder}" CornerRadius="16" Padding="20" SizeChanged="OnCallerCardSize">
                             <Grid x:Name="CallerGrid" ColumnSpacing="18">
@@ -461,6 +464,7 @@
                             </Border>
                         </StackPanel>
                     </StackPanel>
+                    </Grid>
                 </ScrollViewer>
             </Grid>
         </Border>

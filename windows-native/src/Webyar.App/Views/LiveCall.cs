@@ -56,6 +56,7 @@ public sealed class LiveCall
     private CallInvitation? _invitation;
     private string? _sessionId;
     private bool _ended;
+    private bool _expanded;
     private bool _closed;
     private Phase _phase = Phase.Waiting;
     private string _outcome = "hungUp";
@@ -256,6 +257,7 @@ public sealed class LiveCall
     public void PopOut(bool fullScreen = false)
     {
         if (_ended || Shown == Presentation.Window) return;
+        SetExpanded(false);
         Shown = Presentation.Window;
         var surface = new CallSurface(docked: false);
         _window = new CallWindow(this, surface, IsVideo, _name, _onTop);
@@ -279,11 +281,33 @@ public sealed class LiveCall
         ShowCallPage();
     }
 
-    /// <summary>Full screen and back: from the page, the call goes to its own window first.</summary>
+    /// <summary>
+    /// Full screen and back. In its page, the same page grows over the whole
+    /// window (and the window goes full screen), so the call is never left and
+    /// joined again; in its own window, that window goes full screen.
+    /// </summary>
     public void ToggleFullScreen()
     {
-        if (Shown == Presentation.Docked) PopOut(fullScreen: true);
+        if (Shown == Presentation.Docked) SetExpanded(!_expanded);
         else _window?.SetFullScreen(!(_window?.IsFullScreen ?? false));
+    }
+
+    /// <summary>Enlarged over the whole app window, still the page's own view of the call.</summary>
+    public bool IsExpanded => _expanded && Shown == Presentation.Docked && !_closed;
+
+    /// <summary>Raised when a call is enlarged over the window or put back (the shell hides its sidebar).</summary>
+    public static event Action? ExpandedChanged;
+
+    private void SetExpanded(bool on)
+    {
+        if (_expanded == on) return;
+        _expanded = on;
+        App.Current.Window?.SetFullScreen(on);
+        Post(new { type = "expanded", on });
+        CallDock.Place();
+        PostWindowState();
+        ExpandedChanged?.Invoke();
+        Changed?.Invoke();
     }
 
     /// <summary>The call's window closed by its close button: the call goes back into its page, as on the Mac.</summary>
@@ -558,6 +582,7 @@ public sealed class LiveCall
                 break;
             case "exitFullScreen":
                 if (_window?.IsFullScreen == true) _window.SetFullScreen(false);
+                else SetExpanded(false);
                 break;
             case "keepOnTop":
                 _onTop = !_onTop;
@@ -888,7 +913,7 @@ public sealed class LiveCall
     }
 
     internal void PostWindowState() =>
-        Post(new { type = "window", fullScreen = _window?.IsFullScreen == true, onTop = _onTop, docked = Shown == Presentation.Docked });
+        Post(new { type = "window", fullScreen = Shown == Presentation.Docked ? _expanded : _window?.IsFullScreen == true, onTop = _onTop, docked = Shown == Presentation.Docked });
 
     // ── Ending ──
 
@@ -969,6 +994,7 @@ public sealed class LiveCall
     private void Close()
     {
         if (_closed) return;
+        SetExpanded(false);
         _closed = true;
         Host.Callers.Changed -= OnCallerProfiles;
         Host.LanguageChanged -= OnLanguageChanged;

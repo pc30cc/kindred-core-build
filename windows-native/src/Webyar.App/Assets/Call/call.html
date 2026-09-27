@@ -709,13 +709,20 @@
       applyStrings();
       if (connected && !answered && !ended) setStatus(S.waitingVisitor || '', 'waiting');
       syncControls();
+    } else if (msg.type === 'expanded') {
+      // Enlarged over the whole window: the full call layout, in this same page (the call is not left).
+      const on = !!msg.on;
+      document.documentElement.classList.toggle('docked', !on);
+      document.body.classList.toggle('docked', !on);
+      document.body.classList.toggle('expanded', on);
+      syncControls();
     } else if (msg.type === 'face') {
       renderFace(msg.face);
     } else if (msg.type === 'status') {
       setStatus(msg.text, msg.ended ? 'ended' : (msg.waiting ? 'waiting' : (connected ? 'connected' : null)));
       if (msg.ended) { ended = true; syncControls(); }
     }
-    if (msg.type === 'init' || msg.type === 'strings' || msg.type === 'face' || msg.type === 'status') return;
+    if (msg.type === 'init' || msg.type === 'strings' || msg.type === 'expanded' || msg.type === 'face' || msg.type === 'status') return;
     handle(msg);
   });
 
@@ -785,6 +792,8 @@
   if (docked && window.ResizeObserver) {
     let last = 0;
     new ResizeObserver(() => {
+      // Enlarged, the app sizes the view to the window; the panel's height is the docked one.
+      if (document.body.classList.contains('expanded')) return;
       const h = Math.ceil($('card').getBoundingClientRect().height);
       if (h !== last) { last = h; post({ type: 'height', h }); }
     }).observe($('card'));

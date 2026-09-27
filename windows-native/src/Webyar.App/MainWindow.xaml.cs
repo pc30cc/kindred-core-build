@@ -458,6 +458,32 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>The window as it was before a call went full screen, so it comes back exactly so (size limits, maximised).</summary>
+    private AppWindowPresenter? _beforeFullScreen;
+
+    /// <summary>Full screen for a call enlarged in its page: the same page, so the call is never interrupted.</summary>
+    public void SetFullScreen(bool on)
+    {
+        try
+        {
+            if (on && AppWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen)
+            {
+                _beforeFullScreen = AppWindow.Presenter;
+                AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+            }
+            else if (!on && AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen)
+            {
+                if (_beforeFullScreen is { } before) AppWindow.SetPresenter(before);
+                else AppWindow.SetPresenter(AppWindowPresenterKind.Overlapped);
+                _beforeFullScreen = null;
+            }
+        }
+        catch (Exception e)
+        {
+            Log.Error("full screen", e);
+        }
+    }
+
     private void OnClosing(AppWindow sender, AppWindowClosingEventArgs e)
     {
         SaveBounds();

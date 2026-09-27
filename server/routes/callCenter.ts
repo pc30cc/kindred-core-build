@@ -633,8 +633,16 @@ callCenterRouter.get('/calls/:id', async (req, res) => {
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
-  res.json({ call, events: events || [], rating: rating || null });
+  // The call's story for operators: not the server's own bookkeeping (LiveKit's room and
+  // participant events, stored as lk.*, and the assignment every accept also records).
+  const timeline = (events || []).filter((e) => !isInternalCallEvent((e as { event_type?: string | null }).event_type));
+  res.json({ call, events: timeline, rating: rating || null });
 });
+
+/** Events the server records for itself and operators never need to read. */
+export function isInternalCallEvent(type: string | null | undefined): boolean {
+  return !type || type.startsWith('lk.') || type === 'call_assigned_on_accept';
+}
 
 // ── Live queue ────────────────────────────────────────────────────────────
 callCenterRouter.get('/queue', async (req, res) => {

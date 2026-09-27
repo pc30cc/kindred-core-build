@@ -91,6 +91,18 @@ $ANDROID_HOME/build-tools/*/apksigner verify --print-certs \
 An unsigned artifact says so here. Finding that out from Play's rejection
 email is the slow way.
 
+## The APK on the website
+
+Until the app is on Play, operators install it from
+`https://app.webyar.ai/downloads/Webyar-Android.apk`: the **universal** release
+APK (`app-universal-release.apk`, every ABI in one file, so nobody has to know
+which one their phone needs), signed with the release key. How it is hosted and
+how a new version is published: `deploy/windows-downloads/README.md`.
+
+A release built on a machine with no `WEBYAR_FIREBASE_*` values has no push
+notifications: it works while open and is silent when closed. Set them before
+building one for operators to rely on.
+
 ## Before you press publish
 
 | | |

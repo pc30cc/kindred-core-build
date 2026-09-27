@@ -304,7 +304,7 @@ public sealed partial class ShellPage
             ActiveCallMute.ClearValue(Control.BackgroundProperty);
             ActiveCallMute.ClearValue(Control.ForegroundProperty);
         }
-        ActiveCallMute.IsEnabled = call.IsConnected && call.IsLive;
+        ActiveCallMute.IsEnabled = call.IsInRoom && call.IsLive;
         ToolTipService.SetToolTip(ActiveCallMute, s[call.IsMuted ? "unmute" : "mute"]);
         ToolTipService.SetToolTip(ActiveCallBack, s["callBackToCall"]);
         ToolTipService.SetToolTip(ActiveCallReturn, s["callBackToCall"]);

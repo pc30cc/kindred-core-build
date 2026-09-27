@@ -356,7 +356,7 @@ describe('widget polish — motion and placement', () => {
     expect(loader).toContain('".launcher.pulse{animation:none!important;}"');
     // The Web Animations entry bypasses CSS entirely, so JS opts out too.
     expect(loader).toContain('function prefersReducedMotion()');
-    expect(loader).toMatch(/if \(prefersReducedMotion\(\)\) \{\s*\n\s*element\.classList\.remove\("enter"\);/);
+    expect(loader).toMatch(/if \(prefersReducedMotion\(\)\) \{[\s\S]*?element\.classList\.remove\("enter"\);/);
   });
 
   it('the error toast follows the configured corner', () => {

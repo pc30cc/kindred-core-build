@@ -297,4 +297,11 @@ object StrAndroid {
         Language.FA -> "یک بازدیدکننده را انتخاب کنید تا ببینید کیست و کجاها رفته"
         Language.TR -> "Kim olduğunu ve nerelerde gezindiğini görmek için bir ziyaretçi seçin"
     }
+
+    /** Hours beside Website analytics' «دقیقه» and «ثانیه», for a long average visit. */
+    fun waHours(l: Language): String = when (l) {
+        Language.EN -> "h"
+        Language.FA -> "ساعت"
+        Language.TR -> "sa"
+    }
 }

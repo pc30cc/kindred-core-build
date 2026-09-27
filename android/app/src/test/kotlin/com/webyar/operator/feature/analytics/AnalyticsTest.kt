@@ -1,5 +1,6 @@
 package com.webyar.operator.feature.analytics
 
+import com.webyar.operator.core.model.AnalyticsDay
 import com.webyar.operator.core.model.AnalyticsEvents
 import com.webyar.operator.core.model.AnalyticsOverview
 import com.webyar.operator.core.net.ApiError
@@ -155,6 +156,8 @@ class AnalyticsTest {
         assertEquals("38%", AnalyticsFormat.percent(0.38, Language.EN))
         assertEquals("2 m 14 s", AnalyticsFormat.duration(134.0, Language.EN))
         assertEquals("38 s", AnalyticsFormat.duration(38.0, Language.EN))
+        // From an hour up the seconds go, as they would not fit a phone's tile.
+        assertEquals("4 h 0 m", AnalyticsFormat.duration(14_448.0, Language.EN))
         assertEquals("Direct", AnalyticsFormat.channel("direct", Language.EN))
         assertEquals("brand_new", AnalyticsFormat.channel("brand_new", Language.EN))
         assertEquals("Unknown", AnalyticsFormat.unknown("(unknown)", Language.EN))
@@ -163,6 +166,19 @@ class AnalyticsTest {
         assertNull(AnalyticsFormat.day("not a day"))
         assertEquals(0.5, AnalyticsFormat.change(150.0, 100.0)!!, 1e-9)
         assertNull(AnalyticsFormat.change(150.0, 0.0))
+    }
+
+    /** The chart spans the range's days, not only the days something happened. */
+    @Test
+    fun `the trend fills the days the server has no row for`() {
+        val filled = AnalyticsFormat.fillDays(
+            listOf(AnalyticsDay("2026-09-23", 5, 9), AnalyticsDay("2026-09-26", 2, 3)),
+            "2026-09-21",
+            "2026-09-27",
+        )
+        assertEquals(7, filled.size)
+        assertEquals("2026-09-21", filled.first().date)
+        assertEquals(listOf(0, 0, 5, 0, 0, 2, 0), filled.map { it.sessions })
     }
 
     /** Records the overview's ranges; can hold the first answer back, or fail the period before. */

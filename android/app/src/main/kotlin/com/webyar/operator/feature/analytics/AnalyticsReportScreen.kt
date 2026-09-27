@@ -213,7 +213,7 @@ private fun Overview(state: AnalyticsState, language: Language) {
             }
         }
     }
-    TrendCard(o, state.isLoading("overview"), language)
+    TrendCard(o, state.range, state.isLoading("overview"), language)
     val sources = AnalyticsSection.SOURCES.tint()
     AnalyticsCard(StrInsights.waTopChannels(language), InsightGlyph.Split, sources) {
         BarList(
@@ -264,7 +264,9 @@ private fun KpiTile(k: Kpi, language: Language, changeHelp: String, modifier: Mo
             }
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 if (k.value != null) {
-                    Text(k.value, style = WebyarType.titleLargeEmphasized.copy(fontSize = 22.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    // A duration is the longest value a tile holds; it steps down a size rather than being cut.
+                    val size = if (k.value.length > 9) 18.sp else 22.sp
+                    Text(k.value, style = WebyarType.titleLargeEmphasized.copy(fontSize = size), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 } else {
                     Box(Modifier.width(72.dp).height(26.dp).background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(6.dp)))
                 }
@@ -309,12 +311,13 @@ private fun ChangeChip(change: Double, higherIsBetter: Boolean, language: Langua
 
 /** Visits or page views, day by day; touching the chart calls out the day under the finger. */
 @Composable
-private fun TrendCard(overview: AnalyticsOverview?, loading: Boolean, language: Language) {
+private fun TrendCard(overview: AnalyticsOverview?, range: AnalyticsRange, loading: Boolean, language: Language) {
     var showViews by rememberSaveable { mutableStateOf(false) }
     var selected by remember(overview) { mutableStateOf<Int?>(null) }
     val tint = MaterialTheme.colorScheme.primary
-    val points = remember(overview, showViews) {
-        overview?.trend.orEmpty().mapNotNull { d ->
+    val points = remember(overview, range, showViews) {
+        val (start, end) = range.bounds()
+        AnalyticsFormat.fillDays(overview?.trend.orEmpty(), start, end).mapNotNull { d ->
             AnalyticsFormat.day(d.date)?.let { it to ((if (showViews) d.pageviews else d.sessions) ?: 0) }
         }
     }

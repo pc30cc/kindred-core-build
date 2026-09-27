@@ -4,7 +4,9 @@ import android.icu.text.DateFormat
 import android.icu.text.NumberFormat
 import android.icu.util.TimeZone
 import android.icu.util.ULocale
+import com.webyar.operator.core.model.AnalyticsDay
 import com.webyar.operator.i18n.Language
+import com.webyar.operator.i18n.StrAndroid
 import com.webyar.operator.i18n.StrInsights
 import com.webyar.operator.ui.components.countryMarkOf
 import java.time.LocalDate
@@ -52,13 +54,37 @@ object AnalyticsFormat {
         return f.format(fraction)
     }
 
-    /** "2 min 14 sec", or "38 sec" under a minute. */
+    /**
+     * "2 m 14 s", "38 s" under a minute, and "4 h 0 m" from an hour up — the
+     * seconds dropped where they no longer say anything and would not fit a
+     * phone's half-width tile.
+     */
     fun duration(seconds: Double, l: Language): String {
         val total = maxOf(0, Math.round(seconds).toInt())
-        val m = total / 60
+        val h = total / 3600
+        val m = total % 3600 / 60
         val s = total % 60
-        if (m == 0) return count(s, l) + " " + StrInsights.waSeconds(l)
-        return count(m, l) + " " + StrInsights.waMinutes(l) + " " + count(s, l) + " " + StrInsights.waSeconds(l)
+        return when {
+            h > 0 -> count(h, l) + " " + StrAndroid.waHours(l) + " " + count(m, l) + " " + StrInsights.waMinutes(l)
+            m > 0 -> count(m, l) + " " + StrInsights.waMinutes(l) + " " + count(s, l) + " " + StrInsights.waSeconds(l)
+            else -> count(s, l) + " " + StrInsights.waSeconds(l)
+        }
+    }
+
+    /**
+     * Every day from [start] to [end], the days the server has no row for at
+     * zero — so the chart's days are the range's days, spaced as the calendar
+     * spaces them, rather than only the days something happened.
+     */
+    fun fillDays(trend: List<AnalyticsDay>, start: String, end: String): List<AnalyticsDay> {
+        val from = day(start) ?: return trend
+        val to = day(end) ?: return trend
+        if (to.isBefore(from)) return trend
+        val known = trend.associateBy { it.date }
+        return generateSequence(from) { it.plusDays(1) }
+            .takeWhile { !it.isAfter(to) }
+            .map { d -> known[d.toString()] ?: AnalyticsDay(d.toString(), 0, 0) }
+            .toList()
     }
 
     /** The server's YYYY-MM-DD, a UTC day. */

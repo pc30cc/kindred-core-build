@@ -111,6 +111,8 @@ final class NotePlayer: NSObject, AVAudioPlayerDelegate {
                 p.prepareToPlay()
                 player = p
                 duration = p.duration
+                // An earlier try failed (offline, say): this one worked.
+                failed = false
             } catch {
                 Log.write("[audio] cannot play \(a.mimeType): \(error)")
                 failed = true

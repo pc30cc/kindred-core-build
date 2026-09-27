@@ -35,10 +35,6 @@ struct ComposerView: View {
                 }
                 .padding(.horizontal, 16)
                 .frame(minHeight: 46)
-                .onChange(of: Int(chat.recorder.elapsed)) { _, secs in
-                    // Voice notes are short; stop well before the upload cap.
-                    if secs >= 300 { chat.stopRecording(keep: true) }
-                }
             } else {
                 TextField(s[ai ? "sayNowPlaceholder" : "composerPlaceholder"], text: $chat.draft, axis: .vertical)
                     .textFieldStyle(.plain)

@@ -164,6 +164,14 @@ final class AttachmentStore {
         aliases[local] = server
     }
 
+    /// A file that will not be sent after all: its bytes, held since they are nowhere else, are let go.
+    func forget(_ id: String) {
+        guard id.hasPrefix("local:") else { return }
+        localBytes[id] = nil
+        localImages[id] = nil
+        aliases[id] = nil
+    }
+
     /// Forgets the in-memory copies too, after the disk cache is cleared (files still being
     /// sent are kept: they are nowhere else).
     func clearMemory() {

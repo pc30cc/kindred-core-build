@@ -34,6 +34,8 @@ enum SendableFile {
     /// A file from disk, as it goes to the server: its type from its extension first (what the
     /// server's list is written in), then what macOS knows of it; a picture of another kind as JPEG.
     static func prepare(name: String, type: UTType?, data: Data, maxBytes: Int = maxBytes) -> Outcome {
+        // An empty file: the server wants a size above zero, and would refuse it on every retry.
+        guard !data.isEmpty else { return .notAllowed }
         let type = type ?? UTType(filenameExtension: (name as NSString).pathExtension)
         let byName = Mime.of(name)
         let out: (name: String, mime: String, data: Data)
@@ -54,7 +56,7 @@ enum SendableFile {
 
     /// Something already made in the app (a pasted picture, a voice note): only the checks.
     static func check(name: String, mime: String, data: Data, maxBytes: Int = maxBytes) -> Outcome {
-        guard canSend(mime) else { return .notAllowed }
+        guard canSend(mime), !data.isEmpty else { return .notAllowed }
         return data.count > maxBytes ? .tooLarge : .ready(name: name, mime: mime.lowercased(), data: data)
     }
 

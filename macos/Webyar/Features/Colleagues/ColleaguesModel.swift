@@ -25,6 +25,14 @@ final class ColleaguesModel {
     @ObservationIgnored private var requests: Signal<String>.Token?
     /// Messages still on their way stay at the end until the server has them.
     @ObservationIgnored private var outbox: [ChatRow] = []
+    /// Sent messages stay on show until a read brings them: per row, the number of sends when it went
+    /// and the newest message the thread had before it.
+    @ObservationIgnored private var sentOn: [String: (count: Int, after: Date?)] = [:]
+    @ObservationIgnored private var sends = 0
+    /// The newest message the server has sent for the open thread.
+    @ObservationIgnored private var newestServerAt: Date?
+    /// Each colleague's last delivery: the next waits for it, so messages arrive in the order they were sent.
+    @ObservationIgnored private var sending: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var me: String?
     @ObservationIgnored private var workspaceId: String?
 
@@ -48,10 +56,14 @@ final class ColleaguesModel {
     /// Unsent text per colleague, kept while switching between them.
     @ObservationIgnored private var drafts: [String: String] = [:]
     var pendingFile: (name: String, mime: String, data: Data)?
+    /// The file waiting in each other colleague's box, kept like their text.
+    @ObservationIgnored private var files: [String: (name: String, mime: String, data: Data)] = [:]
     let recorder = VoiceRecorder()
 
     init(app: AppModel) {
         self.app = app
+        // At the length cap the note goes into the card, whatever the view is doing.
+        recorder.onLimit = { [weak self] in self?.stopRecording(keep: true) }
     }
 
     // MARK: Lifecycle
@@ -134,9 +146,12 @@ final class ColleaguesModel {
         peer = nil
         rows = []
         outbox = []
+        sentOn = [:]
+        newestServerAt = nil
         notice = nil
         draft = ""
         pendingFile = nil
+        files = [:]
         me = nil
     }
 
@@ -210,13 +225,16 @@ final class ColleaguesModel {
         if let old = peer?.userId {
             let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
             drafts[old] = text.isEmpty ? nil : draft
+            files[old] = pendingFile
         }
         peer = c
         app.visibleColleagueId = id
         notice = nil
         rows = []
         outbox = []
-        pendingFile = nil
+        sentOn = [:]
+        newestServerAt = nil
+        pendingFile = files.removeValue(forKey: id)
         draft = drafts[id] ?? ""
         if recorder.isRecording { recorder.cancel() }
         startThread(id)
@@ -241,6 +259,7 @@ final class ColleaguesModel {
     private func loadThread(_ id: String) async throws {
         guard let ws = app.workspace else { return }
         defer { if id == peer?.userId { threadLoading = false } }
+        let mark = sends
         let t = try await app.api.teamThread(workspaceId: ws.id, peerId: id)
         guard id == peer?.userId else { return }
         let mine = t.me ?? me ?? app.user?.id
@@ -249,6 +268,8 @@ final class ColleaguesModel {
         var wanted: [ChatRow] = []
         var day: Date?
         let sorted = (t.messages ?? []).sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
+        settleOutbox(sorted, me: mine, readBegan: mark)
+        newestServerAt = sorted.last?.createdAt ?? newestServerAt
         for m in sorted {
             let at = m.createdAt ?? Date()
             if day.map({ !cal.isDate($0, inSameDayAs: at) }) ?? true {
@@ -262,6 +283,9 @@ final class ColleaguesModel {
         wanted.append(contentsOf: outbox)
         if wanted != rows { rows = wanted }
 
+        // Read only while the thread is really in front of the operator: the page stays loaded behind
+        // other pages and other apps, and "Seen" there would be untrue (and silence the notification).
+        guard app.isForeground, app.route == .colleagues, app.visibleColleagueId == id else { return }
         if let i = colleagues.firstIndex(where: { $0.userId == id }), (colleagues[i].unread ?? 0) > 0 {
             do {
                 try await app.api.markTeamRead(workspaceId: ws.id, peerId: id)
@@ -273,6 +297,28 @@ final class ColleaguesModel {
                 Log.error("team read", error)
             }
         }
+    }
+
+    /// Lets go of sent messages the server has: sent before this read began, or found in it — mine,
+    /// the same text and file, and newer than anything the thread had when it went.
+    private func settleOutbox(_ messages: [TeamMessage], me: String?, readBegan mark: Int) {
+        guard !sentOn.isEmpty else { return }
+        var unclaimed = messages.filter { me != nil && $0.senderId == me }
+        var gone: Set<String> = []
+        for r in outbox {
+            guard let sent = sentOn[r.id] else { continue }
+            if sent.count <= mark {
+                gone.insert(r.id)
+            } else if let after = sent.after, let i = unclaimed.firstIndex(where: { m in
+                (m.createdAt ?? .distantPast) > after && (m.body ?? "") == r.body && (m.attachment != nil) == !r.attachments.isEmpty
+            }) {
+                unclaimed.remove(at: i)
+                gone.insert(r.id)
+            }
+        }
+        guard !gone.isEmpty else { return }
+        outbox.removeAll { gone.contains($0.id) }
+        for id in gone { sentOn[id] = nil }
     }
 
     private static func row(_ m: TeamMessage, me: String?, _ s: Strings) -> ChatRow {
@@ -308,11 +354,18 @@ final class ColleaguesModel {
         outbox.append(row)
         rows.append(row)
         let sent = row
+        let after = newestServerAt
         let workspaceId = ws.id
-        Task { await deliver(sent, to: to, workspaceId: workspaceId, body: body, file: file) }
+        // One at a time per colleague: a line typed after a big file does not arrive first.
+        let previous = sending[to]
+        sending[to] = Task { [self] in
+            await previous?.value
+            await deliver(sent, to: to, workspaceId: workspaceId, body: body, file: file, after: after)
+        }
     }
 
-    private func deliver(_ row: ChatRow, to peerId: String, workspaceId: String, body: String, file: (name: String, mime: String, data: Data)?) async {
+    private func deliver(_ row: ChatRow, to peerId: String, workspaceId: String, body: String, file: (name: String, mime: String, data: Data)?,
+                         after: Date?) async {
         do {
             var attachmentId: String?
             if let file {
@@ -321,24 +374,38 @@ final class ColleaguesModel {
                 if let local = row.attachments.first?.id { AttachmentStore.shared.alias(local, server) }
             }
             try await app.api.sendTeamMessage(workspaceId: workspaceId, recipientId: peerId, body: body, attachmentId: attachmentId)
-            outbox.removeAll { $0.id == row.id }
+            // Kept on show, no longer pending, until a read brings the server's copy: it never blinks out.
+            if let i = outbox.firstIndex(where: { $0.id == row.id }) {
+                outbox[i].pending = false
+                outbox[i].time = Display.clockTime(row.createdAt ?? Date(), app.strings.language)
+                sends += 1
+                sentOn[row.id] = (count: sends, after: after)
+                if let j = rows.firstIndex(where: { $0.id == row.id }) { rows[j] = outbox[i] }
+            }
             threadPoller?.kick()
             listPoller?.kick()
         } catch {
             Log.error("team send", error)
             outbox.removeAll { $0.id == row.id }
             rows.removeAll { $0.id == row.id }
+            // The bubble is gone; its bytes are in `file`, back in the box below.
+            for a in row.attachments { AttachmentStore.shared.forget(a.id) }
             // The text and the file go back into the box to try again — only that colleague's box,
             // and never over something already being typed.
             let s = app.strings
+            var message = "\(s["sendFailed"]) — \(ErrorText.of(error, s))"
             if peer?.userId == peerId {
                 if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { draft = body } else if !body.isEmpty { draft = body + "\n" + draft }
-                if let file, pendingFile == nil { pendingFile = file }
-                notice = Notice(message: "\(s["sendFailed"]) — \(ErrorText.of(error, s))")
+                if let file {
+                    if pendingFile == nil { pendingFile = file } else { message += " " + s.get("sendFailedFileNotKept", "name", file.name) }
+                }
             } else {
                 drafts[peerId] = [body, drafts[peerId]].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
-                notice = Notice(message: "\(s["sendFailed"]) — \(ErrorText.of(error, s))")
+                if let file {
+                    if files[peerId] == nil { files[peerId] = file } else { message += " " + s.get("sendFailedFileNotKept", "name", file.name) }
+                }
             }
+            notice = Notice(message: message)
         }
     }
 

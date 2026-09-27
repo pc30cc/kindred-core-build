@@ -78,7 +78,9 @@
   "loginDisabled": "This account has been disabled. Ask your workspace admin.",
   "switchWorkspaceOnCallTitle": "End the call and switch?",
   "switchWorkspaceOnCallBody": "A call belongs to the workspace it started in, so switching ends the call you are on.",
-  "switchWorkspaceOnCallConfirm": "End call and switch"
+  "switchWorkspaceOnCallConfirm": "End call and switch",
+  "discardUnsent": "Discard",
+  "sendFailedFileNotKept": "{name} was not put back in the box, which already holds another file: attach it again to send it."
  },
  "fa": {
   "jumpToLatest": "رفتن به آخرین پیام",
@@ -159,7 +161,9 @@
   "loginDisabled": "این حساب غیرفعال شده است. با مدیر فضای کاری تماس بگیرید.",
   "switchWorkspaceOnCallTitle": "تماس قطع شود و فضای کاری عوض شود؟",
   "switchWorkspaceOnCallBody": "هر تماس مال همان فضای کاری است که در آن شروع شده؛ با عوض کردن فضای کاری، تماسی که در آن هستید قطع می‌شود.",
-  "switchWorkspaceOnCallConfirm": "قطع تماس و تغییر"
+  "switchWorkspaceOnCallConfirm": "قطع تماس و تغییر",
+  "discardUnsent": "حذف",
+  "sendFailedFileNotKept": "«{name}» به کادر پیام برنگشت، چون فایل دیگری در آن است؛ برای فرستادنش، دوباره آن را پیوست کنید."
  },
  "tr": {
   "jumpToLatest": "En son mesaja git",
@@ -240,6 +244,8 @@
   "loginDisabled": "Bu hesap devre dışı bırakıldı. Çalışma alanı yöneticinize başvurun.",
   "switchWorkspaceOnCallTitle": "Görüşme bitirilip geçilsin mi?",
   "switchWorkspaceOnCallBody": "Bir görüşme başladığı çalışma alanına aittir; çalışma alanını değiştirmek sürmekte olan görüşmeyi bitirir.",
-  "switchWorkspaceOnCallConfirm": "Görüşmeyi bitir ve geç"
+  "switchWorkspaceOnCallConfirm": "Görüşmeyi bitir ve geç",
+  "discardUnsent": "Sil",
+  "sendFailedFileNotKept": "Kutuda zaten başka bir dosya olduğu için {name} geri konmadı; göndermek için yeniden ekleyin."
  }
 }

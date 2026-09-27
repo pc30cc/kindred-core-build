@@ -47,6 +47,10 @@ struct TeamThreadView: View {
             .overlay { dropOverlay }
             .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in drop(providers) }
             .animation(.smooth(duration: 0.2), value: model.notice)
+            // Back in front of the operator: read the thread now, so what came meanwhile is marked read.
+            .onChange(of: app.isForeground) { _, on in
+                if on { model.refresh() }
+            }
     }
 
     /// Who, and how to reach them: a glass bar over the thread, like the visitor thread's.
@@ -260,7 +264,8 @@ struct TeamMessageRow: View {
             .appFont(13.5)
             .lineSpacing(3)
             .textSelection(.enabled)
-            .multilineTextAlignment(rtl ? .trailing : .leading)
+            // Leading is the reading side in either direction: right for Persian, left otherwise.
+            .multilineTextAlignment(.leading)
             .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight)
             .foregroundStyle(outgoing ? Color.white : Palette.text)
             .padding(.horizontal, 14)
@@ -360,10 +365,6 @@ struct TeamComposer: View {
         }
         .padding(.horizontal, 16)
         .frame(minHeight: 46)
-        .onChange(of: Int(elapsed)) { _, secs in
-            // Voice notes are short: five minutes at most.
-            if secs >= 300 { model.stopRecording(keep: true) }
-        }
     }
 
     private var tools: some View {

@@ -49,6 +49,8 @@ internal sealed class CallSurface
         core.Settings.AreDevToolsEnabled = false;
         core.Settings.AreDefaultContextMenusEnabled = false;
         core.Settings.IsStatusBarEnabled = false;
+        // No browser keys: F5 or Ctrl+R would reload the page mid-call (the page's own Ctrl+Shift keys still work).
+        core.Settings.AreBrowserAcceleratorKeysEnabled = false;
         // A real https origin: getUserMedia needs a secure context.
         core.SetVirtualHostNameToFolderMapping("webyar.app", Path.Combine(AppContext.BaseDirectory, "Assets"), CoreWebView2HostResourceAccessKind.Allow);
         core.PermissionRequested += (_, e) =>

@@ -530,7 +530,7 @@
     document.body.classList.toggle('notes-open', notesOpen);
     syncControls();
     post({ type: 'notesOpen', open: notesOpen });
-    if (notesOpen) setTimeout(() => $('noteBox').focus(), 0);
+    if (notesOpen) setTimeout(() => { $('noteBox').focus(); if (docked) $('notes').scrollIntoView({ block: 'nearest' }); }, 0);
   }
   function renderNotes(msg) {
     const list = $('noteList');
@@ -594,6 +594,8 @@
     $('transferPanel').hidden = false;
     renderTransfer();
     syncControls();
+    // Docked and cut to fit its page, the panel scrolls: bring the list and its buttons into view.
+    if (docked) setTimeout(() => $('transferPanel').scrollIntoView({ block: 'nearest' }), 0);
     post({ type: 'openTransfer' });
   }
   function closeTransfer() {
@@ -694,6 +696,30 @@
       hasNotes = !!msg.hasNotes;
       $('name').textContent = msg.name;
       renderFace(msg.face);
+      applyStrings();
+      // A page that opens after the call ended (moved just as it was hung up) shows how it ended.
+      if (msg.ended) ended = true;
+      setStatus(msg.status, msg.ended ? 'ended' : (msg.waiting ? 'waiting' : null));
+      syncControls();
+    } else if (msg.type === 'strings') {
+      // The app's language changed during the call.
+      document.documentElement.dir = msg.rtl ? 'rtl' : 'ltr';
+      persianDigits = !!msg.persianDigits;
+      S = msg.strings || S;
+      applyStrings();
+      if (connected && !answered && !ended) setStatus(S.waitingVisitor || '', 'waiting');
+      syncControls();
+    } else if (msg.type === 'face') {
+      renderFace(msg.face);
+    } else if (msg.type === 'status') {
+      setStatus(msg.text, msg.ended ? 'ended' : (msg.waiting ? 'waiting' : (connected ? 'connected' : null)));
+      if (msg.ended) { ended = true; syncControls(); }
+    }
+    if (msg.type === 'init' || msg.type === 'strings' || msg.type === 'face' || msg.type === 'status') return;
+    handle(msg);
+  });
+
+  function applyStrings() {
       $('cam').title = S.camera || '';
       $('notesBtn').title = S.notes || '';
       $('transferBtn').title = S.transfer || '';
@@ -712,16 +738,10 @@
       $('tHint').textContent = S.transferHint || '';
       $('tCancel').textContent = S.cancel || '';
       $('tSubmit').textContent = S.submit || '';
-      // A page that opens after the call ended (moved just as it was hung up) shows how it ended.
-      if (msg.ended) ended = true;
-      setStatus(msg.status, msg.ended ? 'ended' : (msg.waiting ? 'waiting' : null));
-      syncControls();
-    } else if (msg.type === 'face') {
-      renderFace(msg.face);
-    } else if (msg.type === 'status') {
-      setStatus(msg.text, msg.ended ? 'ended' : (msg.waiting ? 'waiting' : (connected ? 'connected' : null)));
-      if (msg.ended) { ended = true; syncControls(); }
-    } else if (msg.type === 'warn') {
+  }
+
+  function handle(msg) {
+    if (msg.type === 'warn') {
       $('warn').textContent = msg.text; $('warn').hidden = false;
     } else if (msg.type === 'permission') {
       $('permText').textContent = msg.text;
@@ -760,7 +780,7 @@
       $('topBtn').classList.toggle('on', !!msg.onTop);
       syncControls();
     }
-  });
+  }
   // Docked, the app sizes the view to the card: tell it the card's height whenever that changes.
   if (docked && window.ResizeObserver) {
     let last = 0;

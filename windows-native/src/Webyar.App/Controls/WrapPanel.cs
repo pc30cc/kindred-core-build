@@ -14,6 +14,8 @@ public sealed partial class WrapPanel : Panel
         double x = 0, y = 0, row = 0, width = 0;
         foreach (var child in Children)
         {
+            // A collapsed child takes no place and no gap.
+            if (child.Visibility == Visibility.Collapsed) continue;
             child.Measure(new Size(available.Width, double.PositiveInfinity));
             var d = child.DesiredSize;
             if (x > 0 && x + d.Width > available.Width)
@@ -34,6 +36,11 @@ public sealed partial class WrapPanel : Panel
         double x = 0, y = 0, row = 0;
         foreach (var child in Children)
         {
+            if (child.Visibility == Visibility.Collapsed)
+            {
+                child.Arrange(default);
+                continue;
+            }
             var d = child.DesiredSize;
             if (x > 0 && x + d.Width > final.Width)
             {

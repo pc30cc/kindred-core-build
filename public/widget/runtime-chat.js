@@ -370,14 +370,37 @@
 
       var stopped = false;
       var timer = null;
+      var inFlight = false;
 
       function scheduleNext() {
         if (stopped) return;
         timer = setTimeout(tick, Math.max(1000, getInterval() || 5000));
       }
 
+      // A deliberate open or return to the foreground needs one fresh read;
+      // coalesce repeated events and never overlap an in-flight request.
+      function pollNow() {
+        if (stopped || inFlight) return;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(tick, 0);
+      }
+      function onVisibilityChange() {
+        if (document.visibilityState === 'visible') {
+          pollNow();
+        } else if (timer) {
+          clearTimeout(timer);
+          timer = null;
+          scheduleNext();
+        }
+      }
+      if (typeof document !== 'undefined' && document.addEventListener) {
+        document.addEventListener('visibilitychange', onVisibilityChange);
+      }
+
       function tick() {
         timer = null;
+        if (stopped || inFlight) return;
+        inFlight = true;
         var cid = typeof getConversationId === 'function' ? getConversationId() : null;
         var url = buildUrl(apiBase, '/api/widget/poll', {
           workspace_id: workspaceId,
@@ -386,6 +409,7 @@
 
         fetchWith(url, {})
           .then(function (r) {
+            if (stopped) return null;
             if (!r.ok) {
               // Stale conversation id (closed/deleted/foreign) → drop it so
               // the next tick re-resolves via cookie identity. Prevents
@@ -398,6 +422,7 @@
             return r.json();
           })
           .then(function (data) {
+            if (stopped || !data) return;
             if (data.conversation_id && onConversation) {
               onConversation(data.conversation_id);
             }
@@ -418,13 +443,22 @@
             }
             if (onTick) onTick(true);
           })
-          .catch(function () { if (onTick) onTick(false); })
-          .then(scheduleNext);
+          .catch(function () { if (!stopped && onTick) onTick(false); })
+          .then(function () { inFlight = false; scheduleNext(); });
       }
 
       scheduleNext();
 
-      return { stop: function () { stopped = true; if (timer) { clearTimeout(timer); timer = null; } } };
+      return {
+        pollNow: pollNow,
+        stop: function () {
+          stopped = true;
+          if (timer) { clearTimeout(timer); timer = null; }
+          if (typeof document !== 'undefined' && document.removeEventListener) {
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+          }
+        },
+      };
     },
   };
 })();

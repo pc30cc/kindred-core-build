@@ -20,7 +20,21 @@ describe('Android in-app config', () => {
       profileNameEditable: false,
       profilePhoneEditable: false,
       profilePhotoEditable: true,
+      showVisitors: true,
+      showWebAnalytics: true,
     });
+  });
+
+  it('keeps the Visitors and Website analytics tabs on for rows written before migration 226', () => {
+    const settings = normalize({ android_app_show_storage: true });
+    expect(settings.android_app_show_visitors).toBe(true);
+    expect(settings.android_app_show_web_analytics).toBe(true);
+  });
+
+  it('hides a tab Super Admin turned off', () => {
+    const config = toAndroidAppConfig(normalize({ android_app_show_visitors: false, android_app_show_web_analytics: false }));
+    expect(config.showVisitors).toBe(false);
+    expect(config.showWebAnalytics).toBe(false);
   });
 
   it('fills a row from before the Android columns with the defaults', () => {

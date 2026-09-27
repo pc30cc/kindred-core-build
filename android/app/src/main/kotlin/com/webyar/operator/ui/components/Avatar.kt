@@ -386,6 +386,9 @@ internal fun countryMark(countryCode: String?): String? {
     return if (deviceDrawsFlags(flag)) flag else code
 }
 
+/** [countryMark] for the screens that show a country beside its name: the flag where the device draws it, else the two letters. */
+fun countryMarkOf(countryCode: String?): String? = countryMark(countryCode)
+
 private val flagSupport = java.util.concurrent.atomic.AtomicReference<Boolean?>(null)
 
 private fun deviceDrawsFlags(sample: String): Boolean =

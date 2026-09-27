@@ -1,5 +1,24 @@
 package com.webyar.operator.core.net
 
+import com.webyar.operator.core.model.AnalyticsDay
+import com.webyar.operator.core.model.AnalyticsEvent
+import com.webyar.operator.core.model.AnalyticsEvents
+import com.webyar.operator.core.model.AnalyticsOverview
+import com.webyar.operator.core.model.AnalyticsPage
+import com.webyar.operator.core.model.AnalyticsPages
+import com.webyar.operator.core.model.AnalyticsRow
+import com.webyar.operator.core.model.AnalyticsRows
+import com.webyar.operator.core.model.LiveVisitor
+import com.webyar.operator.core.model.StartChatResult
+import com.webyar.operator.core.model.VisitorContactRef
+import com.webyar.operator.core.model.VisitorConversationRef
+import com.webyar.operator.core.model.VisitorGeo
+import com.webyar.operator.core.model.VisitorMapConfig
+import com.webyar.operator.core.model.VisitorMapResponse
+import com.webyar.operator.core.model.VisitorMarker
+import com.webyar.operator.core.model.VisitorPageEntry
+import com.webyar.operator.core.model.VisitorPageHistory
+import com.webyar.operator.core.model.VisitorPageView
 import com.webyar.operator.core.model.NotificationPrefs
 import com.webyar.operator.core.model.NotificationPrefsUpdate
 import com.webyar.operator.core.model.Account
@@ -455,6 +474,136 @@ class SampleApi : WebyarApi {
 
     override suspend fun revokeSession(id: String) {}
 
+    // MARK: - Visitors and Website analytics
+
+    override suspend fun liveVisitors(workspaceId: String, includeOffline: Boolean): List<LiveVisitor> =
+        if (includeOffline) LIVE_VISITORS else LIVE_VISITORS.filter { it.status != "offline" }
+
+    override suspend fun visitorPageHistory(workspaceId: String, sessionId: String): VisitorPageHistory {
+        val now = Instant.now()
+        return VisitorPageHistory(
+            entry = VisitorPageEntry(
+                landingUrl = "https://webyar.app/",
+                landingTitle = "Webyar — live chat for your site",
+                landedAt = now.minusSeconds(14 * 60),
+            ),
+            items = listOf(
+                VisitorPageView(3, "https://webyar.app/pricing", "Pricing", now.minusSeconds(60)),
+                VisitorPageView(2, "https://webyar.app/features/ai", "AI agent", now.minusSeconds(6 * 60)),
+                VisitorPageView(1, "https://webyar.app/", "Webyar — live chat for your site", now.minusSeconds(14 * 60)),
+            ),
+            current = VisitorPageView(4, "https://webyar.app/pricing#business", "Pricing — Business", now.minusSeconds(20)),
+        )
+    }
+
+    override suspend fun startChatWithVisitor(workspaceId: String, sessionId: String): StartChatResult =
+        StartChatResult(ok = true, conversationId = "c-1", created = false)
+
+    override suspend fun visitorMapConfig(workspaceId: String): VisitorMapConfig = VisitorMapConfig(enabled = true)
+
+    override suspend fun visitorMap(workspaceId: String): VisitorMapResponse = VisitorMapResponse(
+        LIVE_VISITORS.mapNotNull { v ->
+            val geo = v.geo ?: return@mapNotNull null
+            VisitorMarker(v.id, v.status, geo.latitude, geo.longitude, geo.country, geo.countryCode, geo.city, v.currentPage)
+        },
+    )
+
+    override suspend fun analyticsOverview(workspaceId: String, start: String, end: String): AnalyticsOverview {
+        val from = java.time.LocalDate.parse(start)
+        val to = java.time.LocalDate.parse(end)
+        val days = generateSequence(from) { it.plusDays(1) }.takeWhile { !it.isAfter(to) }.toList()
+        // A week's rhythm over a slow climb, the same for the same day whatever the range.
+        val trend = days.map { d ->
+            val base = 60 + (d.toEpochDay() % 97).toInt() / 3
+            val weekday = if (d.dayOfWeek.value >= 6) -18 else 0
+            val sessions = maxOf(4, base + weekday + (d.toEpochDay() % 7).toInt() * 3)
+            AnalyticsDay(d.toString(), sessions, sessions * 3 - (d.toEpochDay() % 5).toInt())
+        }
+        val sessions = trend.sumOf { it.sessions ?: 0 }
+        val views = trend.sumOf { it.pageviews ?: 0 }
+        return AnalyticsOverview(
+            sessions = sessions,
+            pageviews = views,
+            avgPagesPerSession = views.toDouble() / maxOf(1, sessions),
+            uniqueVisitors = sessions * 7 / 10,
+            bounceRate = 38.0 + (from.toEpochDay() % 9),
+            avgVisitDurationSeconds = 134.0 + (from.toEpochDay() % 40),
+            trend = trend,
+            topChannels = SAMPLE_CHANNELS.map { (k, share) -> AnalyticsRow(k, sessions = sessions * share / 100) },
+            topPages = SAMPLE_PAGES.map { (path, share) -> AnalyticsPage(path, views * share / 100) },
+        )
+    }
+
+    override suspend fun analyticsLiveVisitors(workspaceId: String): Int = LIVE_VISITORS.count { it.status == "online" }
+
+    override suspend fun analyticsTrafficSources(workspaceId: String, dimension: String, start: String, end: String): AnalyticsRows =
+        AnalyticsRows(
+            when (dimension) {
+                "source" -> listOf(
+                    AnalyticsRow("google", "google", 812, 2440), AnalyticsRow("(direct)", "(direct)", 530, 1302),
+                    AnalyticsRow("instagram.com", "instagram.com", 214, 505), AnalyticsRow("t.me", "t.me", 120, 288),
+                    AnalyticsRow("bing", "bing", 41, 99),
+                )
+                "campaign" -> listOf(
+                    AnalyticsRow("spring_sale", "spring_sale", 244, 720), AnalyticsRow("newsletter_03", "newsletter_03", 96, 301),
+                    AnalyticsRow("(unknown)", "(unknown)", 1377, 3613),
+                )
+                else -> SAMPLE_CHANNELS.map { (k, share) -> AnalyticsRow(k, sessions = 1717 * share / 100, pageviews = 4600 * share / 100) }
+            },
+        )
+
+    override suspend fun analyticsGeography(workspaceId: String, dimension: String, start: String, end: String): AnalyticsRows =
+        AnalyticsRows(
+            when (dimension) {
+                "city" -> listOf(
+                    AnalyticsRow("Tehran", "Tehran", 690), AnalyticsRow("Mashhad", "Mashhad", 212), AnalyticsRow("Isfahan", "Isfahan", 188),
+                    AnalyticsRow("Istanbul", "Istanbul", 141), AnalyticsRow("Berlin", "Berlin", 66), AnalyticsRow("(unknown)", "(unknown)", 40),
+                )
+                "language" -> listOf(
+                    AnalyticsRow("fa-IR", "fa-IR", 1180), AnalyticsRow("en-US", "en-US", 290), AnalyticsRow("tr-TR", "tr-TR", 170),
+                    AnalyticsRow("de-DE", "de-DE", 77),
+                )
+                else -> listOf(
+                    AnalyticsRow("Iran", "Iran", 1203), AnalyticsRow("Turkey", "Turkey", 188), AnalyticsRow("Germany", "Germany", 121),
+                    AnalyticsRow("United States", "United States", 98), AnalyticsRow("Canada", "Canada", 55), AnalyticsRow("(unknown)", "(unknown)", 52),
+                )
+            },
+        )
+
+    override suspend fun analyticsTechnology(workspaceId: String, dimension: String, start: String, end: String): AnalyticsRows =
+        AnalyticsRows(
+            when (dimension) {
+                "os" -> listOf(
+                    AnalyticsRow("Android", "Android", 820), AnalyticsRow("Windows", "Windows", 505), AnalyticsRow("iOS", "iOS", 250),
+                    AnalyticsRow("macOS", "macOS", 104), AnalyticsRow("Linux", "Linux", 38),
+                )
+                "browser" -> listOf(
+                    AnalyticsRow("Chrome", "Chrome", 1102), AnalyticsRow("Safari", "Safari", 301), AnalyticsRow("Firefox", "Firefox", 160),
+                    AnalyticsRow("Edge", "Edge", 120), AnalyticsRow("Samsung Internet", "Samsung Internet", 34),
+                )
+                else -> listOf(AnalyticsRow("mobile", "mobile", 1044), AnalyticsRow("desktop", "desktop", 611), AnalyticsRow("tablet", "tablet", 62))
+            },
+        )
+
+    override suspend fun analyticsPages(workspaceId: String, kind: String, start: String, end: String): AnalyticsPages =
+        AnalyticsPages(
+            when (kind) {
+                "entry" -> listOf(AnalyticsPage("/", 902), AnalyticsPage("/blog/live-chat-tips", 311), AnalyticsPage("/pricing", 240))
+                "exit" -> listOf(AnalyticsPage("/pricing", 512), AnalyticsPage("/", 388), AnalyticsPage("/signup", 190))
+                else -> SAMPLE_PAGES.map { (path, share) -> AnalyticsPage(path, 4600 * share / 100) }
+            },
+        )
+
+    override suspend fun analyticsEvents(workspaceId: String, start: String, end: String): AnalyticsEvents =
+        AnalyticsEvents(
+            listOf(
+                AnalyticsEvent("chat_started", 402, 377, 0.22),
+                AnalyticsEvent("signup_click", 188, 170, 0.099),
+                AnalyticsEvent("pricing_view", 944, 610, 0.355),
+                AnalyticsEvent("file_download", 51, 44, 0.026),
+            ),
+        )
+
     override suspend fun revokeOtherSessions(): Int = 0
 
     override suspend fun changePassword(current: String, new: String) {}
@@ -510,6 +659,51 @@ class SampleApi : WebyarApi {
         TEAM_THREADS.mapValues { it.value.toMutableList() }.toMutableMap()
 
     private companion object {
+        val SAMPLE_CHANNELS = listOf(
+            "organic_search" to 46, "direct" to 28, "organic_social" to 12, "referral" to 8, "paid_search" to 4, "email" to 2,
+        )
+        val SAMPLE_PAGES = listOf(
+            "/" to 31, "/pricing" to 18, "/features/ai" to 11, "/blog/live-chat-tips" to 9, "/signup" to 6, "/fa/درباره-ما" to 3,
+        )
+
+        val LIVE_VISITORS: List<LiveVisitor>
+            get() {
+                val now = Instant.now()
+                fun geo(country: String, code: String, region: String?, city: String, lat: Double, lng: Double) =
+                    VisitorGeo(country, code, region, city, lat, lng)
+                return listOf(
+                    LiveVisitor(
+                        id = "vs-1", status = "online", currentPage = "https://webyar.app/pricing#business",
+                        lastActivityAt = now.minusSeconds(20), browser = "Chrome 131", device = "mobile", os = "Android 15",
+                        referrer = "https://www.google.com/", geo = geo("Iran", "IR", "Tehran", "Tehran", 35.69, 51.39),
+                        ipDisplay = "5.160.•••.•••",
+                        contact = VisitorContactRef("ct-1", name = "Sara Ahmadi", email = "sara@example.com"),
+                        conversation = VisitorConversationRef("c-1", "open"),
+                    ),
+                    LiveVisitor(
+                        id = "vs-2", status = "online", currentPage = "https://webyar.app/features/ai",
+                        lastActivityAt = now.minusSeconds(95), browser = "Safari 18", device = "desktop", os = "macOS 15",
+                        geo = geo("Turkey", "TR", "Istanbul", "Istanbul", 41.01, 28.97), ipDisplay = "88.230.•••.•••",
+                        contact = VisitorContactRef("ct-9", visitorCode = "4ZTK"),
+                    ),
+                    LiveVisitor(
+                        id = "vs-3", status = "idle", currentPage = "https://webyar.app/blog/live-chat-tips",
+                        lastActivityAt = now.minusSeconds(7 * 60), browser = "Firefox 133", device = "desktop", os = "Windows 11",
+                        referrer = "https://t.me/", geo = geo("Iran", "IR", "Razavi Khorasan", "Mashhad", 36.30, 59.60),
+                    ),
+                    LiveVisitor(
+                        id = "vs-4", status = "online", currentPage = "https://webyar.app/",
+                        lastActivityAt = now.minusSeconds(40), browser = "Chrome 131", device = "desktop", os = "Linux",
+                        geo = geo("Germany", "DE", "Berlin", "Berlin", 52.52, 13.40),
+                    ),
+                    LiveVisitor(
+                        id = "vs-5", status = "offline", currentPage = "https://webyar.app/signup",
+                        lastActivityAt = now.minusSeconds(2 * 3600), browser = "Safari 18", device = "tablet", os = "iPadOS 18",
+                        geo = geo("Canada", "CA", "Ontario", "Toronto", 43.65, -79.38),
+                    ),
+                )
+            }
+
         val OPERATOR = User(
             id = "u-1",
             email = "operator@webyar.app",
@@ -538,7 +732,7 @@ class SampleApi : WebyarApi {
          */
         val ON = listOf(
             "contacts", "email", "team_chat", "voice_video", "canned_responses",
-            "email_inbox", "visitor_tracking", "call_center", "ai_assistant",
+            "email_inbox", "visitor_tracking", "call_center", "ai_assistant", "web_analytics",
         )
 
         /** The keys a single control inside a screen asks about. */

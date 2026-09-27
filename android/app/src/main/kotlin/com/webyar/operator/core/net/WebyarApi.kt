@@ -47,6 +47,15 @@ import com.webyar.operator.core.model.EmailFolder
 import com.webyar.operator.core.model.EmailThreadsResponse
 import com.webyar.operator.core.model.EmailDraft
 import com.webyar.operator.core.model.StagedEmailAttachment
+import com.webyar.operator.core.model.LiveVisitor
+import com.webyar.operator.core.model.VisitorPageHistory
+import com.webyar.operator.core.model.StartChatResult
+import com.webyar.operator.core.model.VisitorMapResponse
+import com.webyar.operator.core.model.VisitorMapConfig
+import com.webyar.operator.core.model.AnalyticsOverview
+import com.webyar.operator.core.model.AnalyticsRows
+import com.webyar.operator.core.model.AnalyticsPages
+import com.webyar.operator.core.model.AnalyticsEvents
 
 /**
  * What the app needs from a backend.
@@ -193,6 +202,42 @@ interface WebyarApi {
      */
     suspend fun realtimeUserSubscribe(workspaceId: String): RealtimeSubscribe =
         RealtimeSubscribe(vendor = "disabled")
+
+    // MARK: - Visitors (`/api/visitor-intel`, plan module `visitor_tracking`)
+
+    /** Who is on the site, newest activity first as the server sorts it; offline ones only when asked. */
+    suspend fun liveVisitors(workspaceId: String, includeOffline: Boolean): List<LiveVisitor> = emptyList()
+
+    suspend fun visitorPageHistory(workspaceId: String, sessionId: String): VisitorPageHistory = VisitorPageHistory()
+
+    /** Opens a conversation with the visitor, reusing their open one when there is one. */
+    suspend fun startChatWithVisitor(workspaceId: String, sessionId: String): StartChatResult = StartChatResult()
+
+    suspend fun visitorMap(workspaceId: String): VisitorMapResponse = VisitorMapResponse()
+
+    suspend fun visitorMapConfig(workspaceId: String): VisitorMapConfig = VisitorMapConfig(enabled = false)
+
+    // MARK: - Website analytics (`/api/web-analytics`, plan module `web_analytics`)
+    //
+    // Dates are YYYY-MM-DD, inclusive, in UTC as the server counts days.
+
+    suspend fun analyticsOverview(workspaceId: String, start: String, end: String): AnalyticsOverview = AnalyticsOverview()
+
+    suspend fun analyticsLiveVisitors(workspaceId: String): Int = 0
+
+    /** [dimension]: channel | source | campaign. */
+    suspend fun analyticsTrafficSources(workspaceId: String, dimension: String, start: String, end: String): AnalyticsRows = AnalyticsRows()
+
+    /** [dimension]: country | city | language. */
+    suspend fun analyticsGeography(workspaceId: String, dimension: String, start: String, end: String): AnalyticsRows = AnalyticsRows()
+
+    /** [dimension]: device | os | browser. */
+    suspend fun analyticsTechnology(workspaceId: String, dimension: String, start: String, end: String): AnalyticsRows = AnalyticsRows()
+
+    /** [kind]: top | entry | exit. */
+    suspend fun analyticsPages(workspaceId: String, kind: String, start: String, end: String): AnalyticsPages = AnalyticsPages()
+
+    suspend fun analyticsEvents(workspaceId: String, start: String, end: String): AnalyticsEvents = AnalyticsEvents()
 
     // MARK: - Push devices
 

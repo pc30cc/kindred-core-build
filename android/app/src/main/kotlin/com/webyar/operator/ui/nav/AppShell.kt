@@ -20,9 +20,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
@@ -61,7 +63,12 @@ import androidx.navigation3.scene.Scene
 import androidx.navigation3.ui.NavDisplay
 import com.webyar.operator.core.model.CallChannel
 import com.webyar.operator.core.net.WebyarApi
+import com.webyar.operator.feature.analytics.AnalyticsSection
+import com.webyar.operator.feature.analytics.AnalyticsViewModel
 import com.webyar.operator.feature.contacts.ContactsViewModel
+import com.webyar.operator.feature.visitors.VisitorsViewModel
+import com.webyar.operator.ui.components.InsightGlyph
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.webyar.operator.feature.email.EmailInboxViewModel
 import com.webyar.operator.feature.inbox.InboxViewModel
 import com.webyar.operator.feature.promo.PromoFullScreen
@@ -111,6 +118,12 @@ fun AppShell(
     promotions: PromotionCenter,
     language: Language,
     modifier: Modifier = Modifier,
+    // The language read when it is needed rather than captured: these outlive
+    // a language change, which rebuilds the shell around them.
+    visitors: VisitorsViewModel = viewModel { VisitorsViewModel(api) { appState.language.value } },
+    analytics: AnalyticsViewModel = viewModel {
+        AnalyticsViewModel(api, { appState.language.value }, onLocked = appState::refreshPlan)
+    },
 ) {
     val tabs by appState.tabs.collectAsStateWithLifecycle()
     val selectedTab by appState.selectedTab.collectAsStateWithLifecycle()
@@ -279,6 +292,65 @@ fun AppShell(
             ContactDetailRoute(
                 contactId = key.contactId,
                 contacts = contacts,
+                language = language,
+                onBack = { navigator.back() },
+            )
+        }
+        entry<VisitorsKey>(
+            metadata = ListDetailSceneStrategy.listPane(
+                sceneKey = VisitorsKey,
+                detailPlaceholder = { DetailPlaceholder(StrAndroid.pickVisitor(language)) },
+            ) + tabOf(AppTab.VISITORS),
+        ) {
+            VisitorsRoute(
+                appState = appState,
+                visitors = visitors,
+                language = language,
+                selectedId = (navigator.stack(AppTab.VISITORS).lastOrNull() as? LiveVisitorKey)?.sessionId,
+                onOpenVisitor = { navigator.open(LiveVisitorKey(it)) },
+            )
+        }
+        entry<LiveVisitorKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = VisitorsKey) + tabOf(AppTab.VISITORS)) { key ->
+            LiveVisitorRoute(
+                sessionId = key.sessionId,
+                visitors = visitors,
+                language = language,
+                onBack = { navigator.back() },
+                onOpenChat = { navigator.open(VisitorChatKey(it)) },
+            )
+        }
+        entry<VisitorChatKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = VisitorsKey) + tabOf(AppTab.VISITORS)) { key ->
+            WithEntryScope {
+                ChatRoute(
+                    conversationId = key.conversationId,
+                    appState = appState,
+                    api = api,
+                    conversations = conversations,
+                    language = language,
+                    onBack = { navigator.back() },
+                    onStartCall = { channel -> navigator.open(CallKey(key.conversationId, channel.wire)) },
+                    onOpenVisitor = { navigator.open(it) },
+                )
+            }
+        }
+        entry<AnalyticsKey>(
+            metadata = ListDetailSceneStrategy.listPane(
+                sceneKey = AnalyticsKey,
+                detailPlaceholder = { DetailPlaceholder(StrAndroid.pickReport(language)) },
+            ) + tabOf(AppTab.ANALYTICS),
+        ) {
+            AnalyticsRoute(
+                appState = appState,
+                analytics = analytics,
+                language = language,
+                selected = (navigator.stack(AppTab.ANALYTICS).lastOrNull() as? AnalyticsSectionKey)?.let { AnalyticsSection.from(it.section) },
+                onOpenSection = { navigator.open(AnalyticsSectionKey(it.wire)) },
+            )
+        }
+        entry<AnalyticsSectionKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = AnalyticsKey) + tabOf(AppTab.ANALYTICS)) { key ->
+            AnalyticsSectionRoute(
+                section = AnalyticsSection.from(key.section),
+                analytics = analytics,
                 language = language,
                 onBack = { navigator.back() },
             )
@@ -475,6 +547,8 @@ private data class TabItem(val title: String, val icon: ImageVector, val selecte
 private fun AppTab.item(language: Language): TabItem = when (this) {
     AppTab.INBOX -> TabItem(Str.tabInbox(language), Icons.Outlined.Email, Icons.Filled.Email)
     AppTab.CONTACTS -> TabItem(Str.tabContacts(language), Icons.Outlined.Person, Icons.Filled.Person)
+    AppTab.VISITORS -> TabItem(StrAndroid.tabVisitors(language), Icons.Outlined.LocationOn, Icons.Filled.LocationOn)
+    AppTab.ANALYTICS -> TabItem(StrAndroid.tabAnalytics(language), InsightGlyph.BarChart, InsightGlyph.BarChart)
     AppTab.SETTINGS -> TabItem(Str.tabSettings(language), Icons.Outlined.Settings, Icons.Filled.Settings)
 }
 

@@ -29,6 +29,16 @@ data class MobileAppConfig(
     val profileNameEditable: Boolean = false,
     val profilePhoneEditable: Boolean = false,
     val profilePhotoEditable: Boolean = true,
+    /**
+     * The Visitors tab. Can only take the tab away: a plan without
+     * `visitor_tracking` never has it, whatever this says.
+     */
+    val showVisitors: Boolean = true,
+    /**
+     * The Website analytics tab. Can only take it away: it is still only for
+     * owners and admins on plans with `web_analytics`.
+     */
+    val showWebAnalytics: Boolean = true,
 ) {
     companion object {
         val DEFAULT = MobileAppConfig()

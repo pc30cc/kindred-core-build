@@ -302,6 +302,7 @@ dependencies {
     implementation(libs.coil.network.okhttp)
 
     implementation(libs.livekit.android)
+    implementation(libs.osmdroid.android)
 
     // Installs the generated profile at first run. Already on the classpath
     // transitively through Compose — named here because the app now ships a

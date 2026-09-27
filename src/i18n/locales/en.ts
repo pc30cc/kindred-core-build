@@ -4474,6 +4474,12 @@ const en = {
           profilePhoneEditableHint: 'A number on file is always shown; this decides whether it can be changed. Without a number the row is hidden unless this is on.',
           profilePhotoEditable: 'Profile photo editable',
           profilePhotoEditableHint: 'The buttons to take, choose or remove a photo.',
+          tabsHeading: 'App tabs',
+          tabsCaption: 'Tabs in the app\'s bottom bar. A switch can only hide a tab: a workspace whose plan lacks the feature never sees it, whatever is set here.',
+          showVisitors: 'Show "Visitors"',
+          showVisitorsHint: 'Who is on the site now, on a map, with their page history and a button to start a chat. Plans with visitor tracking only.',
+          showWebAnalytics: 'Show "Website analytics"',
+          showWebAnalyticsHint: 'Visits, sources, pages, geography, devices and events. Owners and admins on plans with web analytics only.',
         },
         identity: {
           heading: 'App identity',

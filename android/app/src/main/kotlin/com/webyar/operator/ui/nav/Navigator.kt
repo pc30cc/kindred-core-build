@@ -99,10 +99,18 @@ class Navigator internal constructor(
 fun rememberNavigator(currentTab: () -> AppTab, selectTab: (AppTab) -> Unit): Navigator {
     val inbox = rememberNavBackStack(InboxKey)
     val contacts = rememberNavBackStack(ContactsKey)
+    val visitors = rememberNavBackStack(VisitorsKey)
+    val analytics = rememberNavBackStack(AnalyticsKey)
     val settings = rememberNavBackStack(SettingsKey)
-    return remember(inbox, contacts, settings) {
+    return remember(inbox, contacts, visitors, analytics, settings) {
         Navigator(
-            stacks = mapOf(AppTab.INBOX to inbox, AppTab.CONTACTS to contacts, AppTab.SETTINGS to settings),
+            stacks = mapOf(
+                AppTab.INBOX to inbox,
+                AppTab.CONTACTS to contacts,
+                AppTab.VISITORS to visitors,
+                AppTab.ANALYTICS to analytics,
+                AppTab.SETTINGS to settings,
+            ),
             currentTab = currentTab,
             selectTab = selectTab,
         )

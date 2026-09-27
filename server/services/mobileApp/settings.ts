@@ -152,6 +152,10 @@ export interface MobileAppSettings {
   android_app_profile_name_editable: boolean;
   android_app_profile_phone_editable: boolean;
   android_app_profile_photo_editable: boolean;
+  // Tabs. A switch only takes a tab away: the workspace's plan still decides
+  // whether it has the tab at all.
+  android_app_show_visitors: boolean;
+  android_app_show_web_analytics: boolean;
 
   checklist: Record<string, { done: boolean; at?: string; by?: string }>;
   updated_at?: string | null;
@@ -267,6 +271,8 @@ export const MOBILE_APP_DEFAULTS: MobileAppSettings = {
   android_app_profile_name_editable: false,
   android_app_profile_phone_editable: false,
   android_app_profile_photo_editable: true,
+  android_app_show_visitors: true,
+  android_app_show_web_analytics: true,
 
   checklist: {},
   updated_at: null,
@@ -342,6 +348,10 @@ export interface AndroidAppConfig {
   profileNameEditable: boolean;
   profilePhoneEditable: boolean;
   profilePhotoEditable: boolean;
+  /** The Visitors tab — still only on plans with `visitor_tracking`. */
+  showVisitors: boolean;
+  /** The Website analytics tab — still only for owners and admins on plans with `web_analytics`. */
+  showWebAnalytics: boolean;
 }
 
 export function toAndroidAppConfig(settings: MobileAppSettings): AndroidAppConfig {
@@ -354,5 +364,7 @@ export function toAndroidAppConfig(settings: MobileAppSettings): AndroidAppConfi
     profileNameEditable: settings.android_app_profile_name_editable,
     profilePhoneEditable: settings.android_app_profile_phone_editable,
     profilePhotoEditable: settings.android_app_profile_photo_editable,
+    showVisitors: settings.android_app_show_visitors,
+    showWebAnalytics: settings.android_app_show_web_analytics,
   };
 }

@@ -6,6 +6,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import io.livekit.android.renderer.TextureViewRenderer
 import io.livekit.android.room.track.VideoTrack
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 
 /**
  * One video track, drawn.
@@ -35,20 +38,24 @@ fun VideoView(
     // would leave the renderer bound to a track nobody is sending on any more,
     // showing a frozen last frame.
     key(track) {
-        AndroidView(
-            modifier = modifier,
-            factory = { context ->
-                TextureViewRenderer(context).apply {
-                    room.initRenderer(this)
-                    setMirror(mirror)
-                    track.addRenderer(this)
-                }
-            },
-            update = { view -> view.setMirror(mirror) },
-            onRelease = { view ->
-                track.removeRenderer(view)
-                view.release()
-            },
-        )
+        // Left to right whatever the app's direction, so a Persian screen
+        // never adds a second flip to the one [mirror] asks for.
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            AndroidView(
+                modifier = modifier,
+                factory = { context ->
+                    TextureViewRenderer(context).apply {
+                        room.initRenderer(this)
+                        setMirror(mirror)
+                        track.addRenderer(this)
+                    }
+                },
+                update = { view -> view.setMirror(mirror) },
+                onRelease = { view ->
+                    track.removeRenderer(view)
+                    view.release()
+                },
+            )
+        }
     }
 }

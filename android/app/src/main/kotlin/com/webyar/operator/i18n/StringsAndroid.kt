@@ -271,4 +271,30 @@ object StrAndroid {
         Language.FA -> "هوش مصنوعی"
         Language.TR -> "Yapay zekâ"
     }
+
+    /** The Visitors tab in the bar: the Mac's "Online visitors", short enough for a phone's bar. */
+    fun tabVisitors(l: Language): String = when (l) {
+        Language.EN -> "Visitors"
+        Language.FA -> "بازدیدکنندگان"
+        Language.TR -> "Ziyaretçiler"
+    }
+
+    /** The Website analytics tab in the bar. */
+    fun tabAnalytics(l: Language): String = when (l) {
+        Language.EN -> "Analytics"
+        Language.FA -> "تحلیل سایت"
+        Language.TR -> "Analitik"
+    }
+
+    fun pickReport(l: Language): String = when (l) {
+        Language.EN -> "Pick a report to see it"
+        Language.FA -> "یک گزارش را انتخاب کنید"
+        Language.TR -> "Görmek için bir rapor seçin"
+    }
+
+    fun pickVisitor(l: Language): String = when (l) {
+        Language.EN -> "Pick a visitor to see who they are and where they have been"
+        Language.FA -> "یک بازدیدکننده را انتخاب کنید تا ببینید کیست و کجاها رفته"
+        Language.TR -> "Kim olduğunu ve nerelerde gezindiğini görmek için bir ziyaretçi seçin"
+    }
 }

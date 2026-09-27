@@ -6,6 +6,7 @@ struct RootView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.controlActiveState) private var active
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         let maintenance = app.config.maintenance.enabled
@@ -46,6 +47,7 @@ struct RootView: View {
         .onAppear {
             Typeface.persian = app.strings.language == .fa
             app.showSettings = { openSettings() }
+            app.reopenMainWindow = { openWindow(id: "main") }
         }
         .onChange(of: app.strings.language) { _, l in Typeface.persian = l == .fa }
         .onContinuousHover { _ in app.noteInteraction() }

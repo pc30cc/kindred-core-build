@@ -52,7 +52,6 @@ struct ShellView: View {
         }
         .onChange(of: "\(app.phase == .signedIn)|\(sessionKey)", initial: true) { _, _ in rebuildPages() }
         .onDisappear { pages?.stop() }
-        .onChange(of: app.callQueue?.queue.map(\.callSessionId) ?? []) { _, _ in app.syncRinging() }
     }
 
     /// Fresh pages for whoever is signed in now; none while signed out.
@@ -276,7 +275,7 @@ struct WorkspaceHeader: View {
             Section(s["switchWorkspace"]) {
                 ForEach(app.workspaces) { w in
                     Button {
-                        Task { await app.switchWorkspace(w) }
+                        Task { await app.requestSwitchWorkspace(w) }
                     } label: {
                         if w.id == app.workspace?.id {
                             Label(w.name.isEmpty ? (w.slug ?? w.id) : w.name, systemImage: "checkmark")
@@ -445,7 +444,7 @@ private struct AccountMenu: View {
                     AccountMenuRow(title: w.name.isEmpty ? (w.slug ?? w.id) : w.name, icon: "building.2", tint: Palette.text2,
                                    checked: w.id == app.workspace?.id) {
                         close()
-                        Task { await app.switchWorkspace(w) }
+                        Task { await app.requestSwitchWorkspace(w) }
                     }
                 }
                 Divider().padding(.vertical, 4)

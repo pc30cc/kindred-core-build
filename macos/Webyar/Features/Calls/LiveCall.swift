@@ -133,8 +133,13 @@ final class LiveCall {
     @ObservationIgnored private var invitation: CallInvitation?
     @ObservationIgnored private var runTask: Task<Void, Never>?
     @ObservationIgnored private var leftTask: Task<Void, Never>?
+    /// In the room with nobody to talk to: hang up if the visitor never comes (Windows' NO_SHOW_MS).
+    @ObservationIgnored private var noShowTask: Task<Void, Never>?
+    static let noShowSeconds: UInt64 = 60
     @ObservationIgnored private var accessTask: Task<MediaAccess, Never>?
     @ObservationIgnored private var ended = false
+    /// Telling the server the call is over (ending, hanging up, or withdrawing the invitation).
+    @ObservationIgnored private var serverTold: Task<Void, Never>?
 
     var isVideo: Bool { channel == "video" }
     var isEnded: Bool { ended }
@@ -315,10 +320,36 @@ final class LiveCall {
             finish(.visitorLeft, nil)
             return
         }
+        // In the room, with the controls live; the call itself (and its clock) starts when the visitor
+        // is here too. A visitor who closed the tab before the answer never arrives, and never
+        // "leaves" either: without this wait the call would run on, microphone open, with nobody there.
         phase = .connected
+        Log.write("[call] in room \(sessionId ?? "")")
+        if Self.visitorIn(room) {
+            visitorArrived()
+        } else {
+            noShowTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: Self.noShowSeconds * 1_000_000_000)
+                guard !Task.isCancelled, let self, !self.ended, self.connectedAt == nil else { return }
+                Log.write("[call] nobody came \(self.sessionId ?? "")")
+                self.finish(.expired, nil)
+            }
+        }
+        syncTracks()
+    }
+
+    /// The visitor is in the room: the call has begun.
+    private func visitorArrived() {
+        noShowTask?.cancel()
+        noShowTask = nil
+        guard connectedAt == nil, !ended else { return }
         connectedAt = Date()
         Log.write("[call] connected \(sessionId ?? "")")
-        syncTracks()
+    }
+
+    /// Anyone in the room who is not an operator is the visitor.
+    private static func visitorIn(_ room: Room) -> Bool {
+        room.remoteParticipants.values.contains { !isOperator($0) }
     }
 
     // MARK: Controls
@@ -342,7 +373,15 @@ final class LiveCall {
         guard let room, isVideo, phase == .connected else { return }
         let next = !isCameraOn
         isCameraOn = next
-        Task { _ = try? await room.localParticipant.setCamera(enabled: next) }
+        Task { [weak self] in
+            do {
+                _ = try await room.localParticipant.setCamera(enabled: next)
+            } catch {
+                // Turning it on failed (no camera access): say off, not "on" with nothing sent.
+                Log.error("call camera", error)
+                if next { self?.isCameraOn = false; self?.warningKey = "callNoCamera" }
+            }
+        }
     }
 
     func hangUp() {
@@ -358,7 +397,9 @@ final class LiveCall {
         leftTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             guard !Task.isCancelled, let self, let room = self.room else { return }
-            if room.connectionState == .connected && room.remoteParticipants.isEmpty {
+            // Only a call the visitor was in can be left; before that, the no-show wait decides.
+            // Another operator still in the room (a colleague taking it over) is not the visitor.
+            if room.connectionState == .connected && self.connectedAt != nil && !Self.visitorIn(room) {
                 self.finish(.visitorLeft, nil)
             }
         }
@@ -380,6 +421,7 @@ final class LiveCall {
         // Only the visitor's camera, in a fixed order: an operator in the room (a colleague taking a
         // handed-over call, or this operator's own web console) is not who the call shows, and picking
         // among participants in the dictionary's changing order made the picture come and go.
+        if phase == .connected, connectedAt == nil, Self.visitorIn(room) { visitorArrived() }
         let visitors = room.remoteParticipants.values
             .filter { !Self.isOperator($0) }
             .sorted { ($0.identity?.stringValue ?? "") < ($1.identity?.stringValue ?? "") }
@@ -446,10 +488,11 @@ final class LiveCall {
         transferError = nil
         defer { transferring = false }
         do {
-            try await app.api.transferCall(workspaceId: workspaceId, callId: callId, toAgentId: agentId,
-                                           toDepartmentId: departmentId, reason: reason)
+            let assigned = try await app.api.transferCall(workspaceId: workspaceId, callId: callId, toAgentId: agentId,
+                                                          toDepartmentId: departmentId, reason: reason)
             Log.write("[call] transferred \(callId) to \(agentId ?? departmentId ?? "?")")
-            transferTargetId = agentId
+            // Whoever the server gave it to — not just any other operator who happens to be in the room.
+            transferTargetId = assigned
             transferredTo = name
             checkHandover()
             return true
@@ -568,6 +611,7 @@ final class LiveCall {
         ended = true
         runTask?.cancel()
         leftTask?.cancel()
+        noShowTask?.cancel()
         handoverTask?.cancel()
         notesTask?.cancel()
         remoteVideoGone?.cancel()
@@ -585,7 +629,27 @@ final class LiveCall {
                 await room.disconnect()
             }
         }
-        Task { await self.tellServer(outcome) }
+        let told = Task { await self.tellServer(outcome) }
+        serverTold = told
+        Task {
+            await told.value
+            // An ended call says why for a moment, then gets out of the way.
+            let pause: UInt64 = outcome == .failed ? 4_000_000_000 : 1_800_000_000
+            try? await Task.sleep(nanoseconds: pause)
+            self.onFinished?()
+        }
+    }
+
+    /// Waits (a short while at most) until the server has heard the call ended: signing out
+    /// must not take the session the hang-up needs before it has gone.
+    func waitUntilServerTold(seconds: UInt64 = 3) async {
+        guard let told = serverTold else { return }
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await told.value }
+            group.addTask { try? await Task.sleep(nanoseconds: seconds * 1_000_000_000) }
+            await group.next()
+            group.cancelAll()
+        }
     }
 
     private func tellServer(_ outcome: CallOutcome) async {
@@ -605,10 +669,6 @@ final class LiveCall {
         } catch {
             Log.error("call hang up", error)
         }
-        // An ended call says why for a moment, then gets out of the way.
-        let pause: UInt64 = outcome == .failed ? 4_000_000_000 : 1_800_000_000
-        try? await Task.sleep(nanoseconds: pause)
-        onFinished?()
     }
 
     // MARK: Helpers

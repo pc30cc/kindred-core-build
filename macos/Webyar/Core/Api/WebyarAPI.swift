@@ -397,12 +397,17 @@ final class WebyarAPI {
 
     /// Hands a live call to another operator or to a department. The call stays up: the new
     /// operator joins the same room, and the one handing it on leaves without ending it.
-    func transferCall(workspaceId: String, callId: String, toAgentId: String?, toDepartmentId: String?, reason: String?) async throws {
+    private struct TransferResult: Decodable { var assignedAgentId: String? }
+
+    /// Returns the colleague the call went to: the server picks one when handed to a department.
+    @discardableResult
+    func transferCall(workspaceId: String, callId: String, toAgentId: String?, toDepartmentId: String?, reason: String?) async throws -> String? {
         var body: [String: Any?] = ["workspaceId": workspaceId]
         if let toAgentId { body["to_agent_id"] = toAgentId }
         if let toDepartmentId { body["to_department_id"] = toDepartmentId }
         if let reason, !reason.isEmpty { body["reason"] = reason }
-        try await client.call("POST", "/api/call-center/calls/\(Self.e(callId))/transfer", body: body, query: [("workspaceId", workspaceId)])
+        let r: TransferResult = try await client.post("/api/call-center/calls/\(Self.e(callId))/transfer", body: body, query: [("workspaceId", workspaceId)])
+        return r.assignedAgentId ?? toAgentId
     }
 
     // MARK: People and notes

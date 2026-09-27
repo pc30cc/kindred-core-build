@@ -254,6 +254,11 @@ final class WebyarAPI {
         try await client.post("/api/realtime/operator-presence-subscribe", body: ["workspace_id": workspaceId])
     }
 
+    /// This operator's own channel (`ws:<workspace>:user:<id>`): team chat, as ids only. Older servers answer 404.
+    func realtimeUserSubscribe(workspaceId: String) async throws -> RealtimeSubscribe {
+        try await client.post("/api/realtime/operator-user-subscribe", body: ["workspace_id": workspaceId])
+    }
+
     func realtimeVisitorsSubscribe(workspaceId: String) async throws -> RealtimeSubscribe {
         try await client.post("/api/realtime/operator-visitors-subscribe", body: ["workspace_id": workspaceId])
     }

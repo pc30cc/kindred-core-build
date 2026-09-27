@@ -24,6 +24,8 @@ struct WorkspacePlan: Sendable, Equatable {
     var aiAutoAnswer: Bool?
     /// /api/call-center/capabilities: workspace_call_center_visible.
     var callCenterVisible: Bool?
+    /// Super Admin → macOS app → Behaviour: sections off on every Mac, whatever the plan says.
+    var platform = MacAppConfig.Sections()
 
     private var features: [String: Bool?] = [:]
     private var modules: [String: Bool?] = [:]
@@ -42,6 +44,13 @@ struct WorkspacePlan: Sendable, Equatable {
         p.modules = flags(root["modules"])
         p.channels = flags(root["channels"])
         if let plan = root["plan"], plan.object != nil { p.planName = plan["name"]?.string ?? plan["slug"]?.string }
+        return p
+    }
+
+    /// The plan less what the platform switched off for the Mac app: a switch only ever takes away.
+    func limited(by sections: MacAppConfig.Sections) -> WorkspacePlan {
+        var p = self
+        p.platform = sections
         return p
     }
 
@@ -85,16 +94,16 @@ struct WorkspacePlan: Sendable, Equatable {
     /// Files on outgoing mail go with the mailbox itself.
     var emailAttachments: Bool { emailInbox }
 
-    var contacts: Bool { moduleInPlan("contacts") }
-    var visitors: Bool { moduleInPlan("visitor_tracking") }
+    var contacts: Bool { platform.contacts && moduleInPlan("contacts") }
+    var visitors: Bool { platform.visitors && moduleInPlan("visitor_tracking") }
     /// The call center: in the plan and switched on for this workspace (unknown is off).
-    var callCenter: Bool { moduleInPlan("call_center") && callCenterVisible == true }
+    var callCenter: Bool { platform.callCenter && moduleInPlan("call_center") && callCenterVisible == true }
     /// Recordings of calls, where the plan keeps them.
     var callRecordings: Bool { feature("call_recording") }
     /// The colleagues queue (the web's colleaguesQueueVisible).
     var teamChat: Bool { feature("inbox_team_chat") }
     /// Website analytics, as the web sidebar shows it: owners and admins, when the plan has the module.
-    var webAnalytics: Bool { isAdmin && moduleInPlan("web_analytics") }
+    var webAnalytics: Bool { platform.webAnalytics && isAdmin && moduleInPlan("web_analytics") }
     /// The mailbox, as the web sidebar shows it: owners and admins, when the plan has it.
     var emailInbox: Bool { isAdmin && moduleInPlan("email_inbox") }
 

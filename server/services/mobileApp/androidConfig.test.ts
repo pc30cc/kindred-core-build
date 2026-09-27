@@ -25,7 +25,7 @@ describe('Android in-app config', () => {
     });
   });
 
-  it('keeps the Visitors and Website analytics tabs on for rows written before migration 227', () => {
+  it('keeps the Visitors and Website analytics tabs on for rows written before migration 228', () => {
     const settings = normalize({ android_app_show_storage: true });
     expect(settings.android_app_show_visitors).toBe(true);
     expect(settings.android_app_show_web_analytics).toBe(true);

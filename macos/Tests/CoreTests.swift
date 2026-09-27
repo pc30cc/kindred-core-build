@@ -209,10 +209,12 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(c.update.requirement(for: "0.9.0"), .belowMinimum)
     }
 
-    func testThePlanAloneDecides() throws {
-        // Old servers still send the Mac app's feature switches; they no longer take anything away.
+    func testOnlyTheBehaviourSectionSwitchesTakeAnythingAway() throws {
+        // Calls, email and attachments are the plan's alone; contacts is one of Super Admin's section switches.
         let c = config(#"{ "features": { "calls": false, "contacts": false, "email": false, "attachments": false } }"#)
-        XCTAssertEqual(c, MacAppConfig.defaults)
+        var expected = MacAppConfig.defaults
+        expected.sections.contacts = false
+        XCTAssertEqual(c, expected)
         let root = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"modules":{"contacts":true,"call_center":true,"email_inbox":true,"voice_video":true},"channels":{"voice":true,"video":true,"telegram":true,"whatsapp":false},"features":{"call_recording":false}}"#.utf8))
         let plan = WorkspacePlan.parse(root).with(role: "owner", aiAgent: nil, aiAuto: nil, callCenter: true)
         XCTAssertTrue(plan.contacts && plan.callCenter && plan.emailInbox && plan.voiceCalls && plan.videoCalls)

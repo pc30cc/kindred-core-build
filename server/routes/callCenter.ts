@@ -812,16 +812,16 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
       canPublish: true, canSubscribe: true, canPublishData: true,
       ttlSeconds: 60 * 60,
     });
-    // Build accept patch — keep connected_at if already set (idempotent).
+    // Build accept patch. connected_at is NOT set here: the call is answered,
+    // but it starts when the visitor is in it — the visitor's join token
+    // (call-widget /calls/:id/join-token) or LiveKit's participant_joined
+    // stamps it. Duration and billable minutes run from then, not from accept.
     const acceptPatch: Record<string, unknown> = {
       state: 'active',
       provider: providerId,
       provider_room_id: providerRoomId,
       assigned_agent_id: ctx.userId,
     };
-    if (!call.connected_at) {
-      acceptPatch.connected_at = new Date().toISOString();
-    }
     await transitionCall(ctx.config, wid, req.params.id, acceptPatch, 'call_accepted', ctx.userId);
 
     // Keep queue + session assignment consistent.
@@ -1001,8 +1001,10 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
       if (sendOwnershipError(res, e)) return;
       throw e;
     }
-    const startedAt = call.connected_at || call.started_at || call.created_at;
-    const duration = startedAt ? Math.max(0, Math.round((Date.now() - new Date(startedAt).getTime()) / 1000)) : 0;
+    // The call's time runs from when the visitor was in it; a call the visitor never joined lasted nothing.
+    const duration = call.connected_at
+      ? Math.max(0, Math.round((Date.now() - new Date(call.connected_at).getTime()) / 1000))
+      : 0;
     if (call.provider && call.provider_room_id) {
       try {
         const { provider } = await resolveEffectiveCallProvider(ctx.config, wid);

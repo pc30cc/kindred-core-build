@@ -315,9 +315,14 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     hosted: 'supabase/migrations/20260927100000_desktop_app_section_switches.sql',
   },
   {
-    label: '227 — mobile_app_settings: the Android Visitors and Website analytics tab switches',
-    selfHost: 'database/migrations/227_mobile_app_android_insight_tabs.sql',
-    hosted: 'supabase/migrations/20260927110000_mobile_app_android_insight_tabs.sql',
+    label: '227 — macos_app_settings.web_analytics_enabled, storage_settings_visible',
+    selfHost: 'database/migrations/227_macos_app_section_switches.sql',
+    hosted: 'supabase/migrations/20260927110000_macos_app_section_switches.sql',
+  },
+  {
+    label: '228 — mobile_app_settings: the Android Visitors and Website analytics tab switches',
+    selfHost: 'database/migrations/228_mobile_app_android_insight_tabs.sql',
+    hosted: 'supabase/migrations/20260927120000_mobile_app_android_insight_tabs.sql',
   },
 
   // intentionally asymmetric, not a drift bug.

@@ -53,6 +53,32 @@ struct NotificationRules {
     }
 }
 
+/// Which colleagues have written since the last look — the team-chat counterpart of
+/// NotificationRules.fresh: their newest message is theirs (not mine), newer than before,
+/// and still unread. The first call only sets the baseline.
+struct TeamNotificationRules {
+    private var seen: [String: Date]?
+
+    mutating func fresh(_ colleagues: [Colleague]) -> [Colleague] {
+        guard var seen else {
+            seen = Dictionary(colleagues.map { ($0.userId, Self.stamp($0)) }, uniquingKeysWith: { a, _ in a })
+            return []
+        }
+        let fresh = colleagues.filter { c in
+            Self.stamp(c) > (seen[c.userId] ?? .distantPast)
+                && c.lastMessage?.outgoing != true
+                && (c.unread ?? 0) > 0
+        }
+        for c in colleagues { seen[c.userId] = Self.stamp(c) }
+        self.seen = seen
+        return fresh
+    }
+
+    mutating func reset() { seen = nil }
+
+    private static func stamp(_ c: Colleague) -> Date { c.lastMessage?.createdAt ?? .distantPast }
+}
+
 /// A system notice rebuilt in the operator's language from its metadata, since
 /// the stored body is an English sentence frozen when it was written.
 enum SystemText {

@@ -1,5 +1,5 @@
 -- ============================================================
--- 227 — THE ANDROID APP'S VISITORS AND WEBSITE ANALYTICS TABS
+-- 228 — THE ANDROID APP'S VISITORS AND WEBSITE ANALYTICS TABS
 --
 -- Hosted mirror: supabase/migrations/20260927090000_mobile_app_android_insight_tabs.sql
 -- (functionally identical; registered in

@@ -48,6 +48,8 @@ export interface MacosAppSettings {
   contacts_enabled: boolean;
   voice_notes_enabled: boolean;
   attachments_enabled: boolean;
+  web_analytics_enabled: boolean;
+  storage_settings_visible: boolean;
 
   // System integration
   menu_bar_extra_enabled: boolean;

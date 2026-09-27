@@ -8,6 +8,10 @@ import UserNotifications
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     /// Called with the arguments the notification was created with.
     var onOpen: (([String: String]) -> Void)?
+    /// The app speaks a right-to-left language: each line starts with a right-to-left mark, so
+    /// Persian reads from the right with its punctuation in place. Where macOS draws the app's
+    /// icon, and the banner's own layout, follow the Mac's system language and are not the app's.
+    var isRightToLeft: () -> Bool = { false }
 
     private(set) var authorized: Bool?
     /// macOS has been asked for permission this run.
@@ -34,13 +38,17 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         return ok
     }
 
-    func show(title: String, body: String, silent: Bool, arguments: [String: String]) {
+    func show(title: String, subtitle: String? = nil, body: String, silent: Bool, arguments: [String: String]) {
         let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
+        let rtl = isRightToLeft()
+        func line(_ text: String) -> String { rtl && !text.isEmpty ? "\u{200F}" + text : text }
+        content.title = line(title)
+        if let subtitle { content.subtitle = line(subtitle) }
+        content.body = line(body)
         content.userInfo = arguments
         if !silent { content.sound = .default }
         if let conversation = arguments["conversation"] { content.threadIdentifier = conversation }
+        if let colleague = arguments["colleague"] { content.threadIdentifier = "colleague:" + colleague }
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request) { error in
             if let error { Log.error("show notification", error) }

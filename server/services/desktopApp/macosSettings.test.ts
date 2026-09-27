@@ -102,6 +102,26 @@ describe('macOS app settings — admin schema', () => {
 });
 
 describe('macOS app settings — public projection', () => {
+  it('passes the Behaviour tab\'s section switches to the app', () => {
+    const s = normalizeMacos({
+      contacts_enabled: false,
+      visitors_enabled: false,
+      web_analytics_enabled: false,
+      call_center_enabled: false,
+      storage_settings_visible: false,
+    });
+    const features = toPublicMacosAppConfig(s).features;
+    expect(features.contacts).toBe(false);
+    expect(features.visitors).toBe(false);
+    expect(features.webAnalytics).toBe(false);
+    expect(features.callCenter).toBe(false);
+    expect(features.storageSettings).toBe(false);
+    // A row from before migration 227 keeps both new sections on.
+    const old = toPublicMacosAppConfig(normalizeMacos({})).features;
+    expect(old.webAnalytics).toBe(true);
+    expect(old.storageSettings).toBe(true);
+  });
+
   it('answers the defaults in the documented shape', () => {
     expect(toPublicMacosAppConfig(MACOS_APP_DEFAULTS)).toEqual({
       update: {
@@ -128,6 +148,8 @@ describe('macOS app settings — public projection', () => {
         contacts: true,
         voiceNotes: true,
         attachments: true,
+        webAnalytics: true,
+        storageSettings: true,
       },
       system: { menuBarExtra: true, launchAtLogin: true, dockBadge: true, notifications: true },
       defaults: { language: 'system', appearance: 'system', closeToMenuBar: true, launchAtLogin: false },

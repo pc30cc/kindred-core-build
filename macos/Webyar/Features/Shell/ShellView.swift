@@ -168,7 +168,7 @@ struct SidebarView: View {
                     heading(s["tabInbox"], "tray.full.fill", tint: Palette.brand, badge: inboxOpen ? 0 : app.unread, open: $inboxOpen)
                 }
                 if plan.teamChat {
-                    section(.colleagues, s["navColleagues"], "person.2.fill", tint: Color(hex: 0x0EA5A4), badge: 0, color: Palette.brand)
+                    section(.colleagues, s["navColleagues"], "person.2.fill", tint: Color(hex: 0x0EA5A4), badge: app.teamUnread, color: Palette.brand)
                 }
             }
             Section {

@@ -20,12 +20,14 @@ final class MediaTests: XCTestCase {
         }
         let data = try XCTUnwrap(big.jpegData(compressionQuality: 0.8))
 
-        let preview = try XCTUnwrap(await AttachmentPreviews.decode(data, maxPixel: CachePolicy.attachmentPreviewPixels))
+        let decodedPreview = await AttachmentPreviews.decode(data, maxPixel: CachePolicy.attachmentPreviewPixels)
+        let preview = try XCTUnwrap(decodedPreview)
         let pixels = try XCTUnwrap(preview.cgImage)
         XCTAssertLessThanOrEqual(max(pixels.width, pixels.height), CachePolicy.attachmentPreviewPixels)
         XCTAssertEqual(Double(pixels.width) / Double(pixels.height), 4.0 / 3.0, accuracy: 0.02, "proportions kept")
 
-        let viewer = try XCTUnwrap(await AttachmentPreviews.decode(data, maxPixel: CachePolicy.attachmentViewerPixels))
+        let decodedViewer = await AttachmentPreviews.decode(data, maxPixel: CachePolicy.attachmentViewerPixels)
+        let viewer = try XCTUnwrap(decodedViewer)
         XCTAssertLessThanOrEqual(max(viewer.cgImage?.width ?? 0, viewer.cgImage?.height ?? 0), CachePolicy.attachmentViewerPixels)
     }
 

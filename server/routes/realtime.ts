@@ -53,6 +53,7 @@ import {
   isVisitorsChannel,
   isOperatorPresenceChannel,
   buildOperatorPresenceChannelName,
+  buildOperatorUserChannelName,
   buildVisitorPresenceChannelName,
   buildVisitorPresenceSubject,
   isVisitorPresenceChannel,
@@ -1004,6 +1005,48 @@ realtimeRouter.post('/operator-presence-subscribe', async (req, res) => {
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err) {
     console.error('[realtime/operator-presence-subscribe]', err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────
+//  OPERATOR (own channel): /api/realtime/operator-user-subscribe
+//
+//  Mints a subscription token for the calling operator's private channel
+//  `ws:<workspace_id>:user:<user_id>`, which carries team-chat activity for
+//  that operator alone (ids only — the text is read over REST).
+//
+//  Auth: session + workspace membership. The user id is the session's; the
+//  body cannot name one (the schema has no such field), so this endpoint can
+//  only ever hand an operator their own channel.
+// ─────────────────────────────────────────────────────────────────────
+const operatorUserSubscribeSchema = z.object({
+  workspace_id: z.string().uuid(),
+  transport: transportHintSchema,
+});
+
+realtimeRouter.post('/operator-user-subscribe', async (req, res) => {
+  const config: ServerConfig = serverConfigOf(req);
+  try {
+    const parsed = operatorUserSubscribeSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+    const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
+    if (!user) return;
+
+    const channel = buildOperatorUserChannelName(parsed.data.workspace_id, user.id);
+    if (parsed.data.transport === 'supabase') return sendSupabaseTopic(res, channel, 'operator');
+    const driver = await getCentrifugoDriver(config);
+    if (!driver) return res.json({ vendor: 'polling_builtin' });
+    const platform = await loadWidgetPlatformRuntimeSettings(config);
+    const tk = driver.issueSubscriptionToken({
+      sub: `op_${user.id}`,
+      channel,
+      workspaceId: parsed.data.workspace_id,
+      expiresInSeconds: platform.realtime.tokenTtlSeconds,
+    });
+    return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
+  } catch (err) {
+    console.error('[realtime/operator-user-subscribe]', err);
     return res.status(500).json({ error: 'Internal error' });
   }
 });

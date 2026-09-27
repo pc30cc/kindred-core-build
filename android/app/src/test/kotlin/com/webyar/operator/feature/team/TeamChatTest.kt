@@ -25,6 +25,14 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import com.webyar.operator.core.model.ColleaguesResponse
+import com.webyar.operator.core.model.TeamMessage
+import com.webyar.operator.core.model.TeamThreadResponse
+import com.webyar.operator.core.net.WebyarApi
+import com.webyar.operator.core.sync.TeamSignal
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.launch
+import java.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -172,6 +180,88 @@ class TeamChatTest {
         assertTrue(team.state.value is TeamThreadState.Loaded)
         testScheduler.advanceUntilIdle()
         assertTrue(team.state.value is TeamThreadState.Loaded)
+    }
+
+    // MARK: - Realtime
+
+    /** The sample server, counting what it is asked — and with a message on its way when told. */
+    private class CountingApi(private val real: SampleApi = SampleApi()) : WebyarApi by real {
+        var threadReads = 0
+        var listReads = 0
+        var readMarks = 0
+        var incoming: TeamMessage? = null
+
+        override suspend fun teamThread(workspaceId: String, peerId: String): TeamThreadResponse {
+            threadReads++
+            val base = real.teamThread(workspaceId, peerId)
+            return incoming?.let { base.copy(messages = base.messages + it) } ?: base
+        }
+
+        override suspend fun colleagues(workspaceId: String): ColleaguesResponse {
+            listReads++
+            return real.colleagues(workspaceId)
+        }
+
+        override suspend fun markTeamThreadRead(workspaceId: String, peerId: String) {
+            readMarks++
+        }
+    }
+
+    @Test
+    fun `a message in the open thread is shown at once, not at the next poll, and is marked read`() = runTest(dispatcher) {
+        val api = CountingApi()
+        val team = TeamThreadViewModel(api) { Language.FA }
+        team.open("ws-1", "u-2")
+        testScheduler.advanceUntilIdle()
+        val readsBefore = api.threadReads
+        val marksBefore = api.readMarks
+
+        val signals = MutableSharedFlow<TeamSignal>(extraBufferCapacity = 4)
+        val poll = backgroundScope.launch { team.pollWhileVisible(signals) }
+        testScheduler.runCurrent()
+
+        api.incoming = TeamMessage(id = "tm-new", senderId = "u-2", recipientId = "u-1", body = "هستی؟", createdAt = Instant.now())
+        // News from another thread is not this one's.
+        signals.emit(TeamSignal("ws-1", "team_message", senderId = "u-9", recipientId = "u-1"))
+        testScheduler.advanceTimeBy(1_000)
+        testScheduler.runCurrent()
+        assertEquals(readsBefore, api.threadReads)
+
+        signals.emit(TeamSignal("ws-1", "team_message", senderId = "u-2", recipientId = "u-1"))
+        testScheduler.advanceTimeBy(1_000)
+        testScheduler.runCurrent()
+        // Nine seconds before the poll would have.
+        assertEquals(readsBefore + 1, api.threadReads)
+        assertEquals("هستی؟", (team.state.value as TeamThreadState.Loaded).messages.last().body)
+        assertTrue("what came in while on screen was left unread", api.readMarks > marksBefore)
+        poll.cancel()
+    }
+
+    @Test
+    fun `the colleague list follows the team channel, and polls when it hears nothing`() = runTest(dispatcher) {
+        val api = CountingApi()
+        val list = ColleaguesViewModel(api) { Language.FA }
+        list.bind("ws-1")
+        testScheduler.advanceUntilIdle()
+        val before = api.listReads
+
+        val signals = MutableSharedFlow<TeamSignal>(extraBufferCapacity = 4)
+        val follow = backgroundScope.launch { list.followWhileVisible("ws-1", signals) }
+        testScheduler.runCurrent()
+        // As it comes on screen.
+        assertEquals(before + 1, api.listReads)
+
+        signals.emit(TeamSignal("ws-1", "team_message", senderId = "u-2", recipientId = "u-1"))
+        testScheduler.advanceTimeBy(1_000)
+        testScheduler.runCurrent()
+        assertEquals(before + 2, api.listReads)
+        assertTrue("a quiet re-read never blanks the list", list.state.value is ColleaguesState.Loaded)
+
+        // A server with no realtime: the console's twenty seconds.
+        testScheduler.advanceTimeBy(TEAM_LIST_POLL_MS)
+        testScheduler.runCurrent()
+        assertEquals(before + 3, api.listReads)
+        follow.cancel()
     }
 
     // MARK: - The screens

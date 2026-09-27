@@ -234,6 +234,8 @@ open class ScriptedApi(base: WebyarApi = SampleApi()) : WebyarApi by base {
     )
     var inboxAnswer = RealtimeSubscribe(vendor = "centrifugo", channel = "ws:ws-1:inbox", token = "inbox-token")
     var presenceAnswer = RealtimeSubscribe(vendor = "centrifugo", channel = "ws:ws-1:operators", token = "presence-token")
+    /** None by default: a server that predates the operator's own channel. */
+    var userAnswer = RealtimeSubscribe(vendor = "disabled")
     val connectIntents = mutableListOf<String>()
     var failConnect: Throwable? = null
 
@@ -246,6 +248,8 @@ open class ScriptedApi(base: WebyarApi = SampleApi()) : WebyarApi by base {
     override suspend fun realtimeInboxSubscribe(workspaceId: String): RealtimeSubscribe = inboxAnswer
 
     override suspend fun realtimePresenceSubscribe(workspaceId: String): RealtimeSubscribe = presenceAnswer
+
+    override suspend fun realtimeUserSubscribe(workspaceId: String): RealtimeSubscribe = userAnswer
 
     // MARK: - Push devices
 

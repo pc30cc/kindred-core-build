@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.webyar.operator.ui.design.Size
 import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Person
 
 /**
  * A contact or visitor avatar, matching the web inbox exactly.
@@ -38,10 +40,11 @@ import androidx.compose.material3.Icon
  * The fallback order is the one `src/components/inbox/ContactAvatar.tsx` uses,
  * and it matters: an uploaded picture wins; failing that, a visitor whose
  * operating system we know gets that brand mark on its brand gradient; a
- * visitor we know nothing about gets a quiet, empty circle — never initials,
- * which this app does not draw anywhere. That is what makes a row
- * recognisable at a glance — an anonymous Windows visitor looks like a
- * Windows visitor rather than like the letter "V".
+ * visitor we know nothing about — one writing from Telegram, WhatsApp or any
+ * channel that sends no photo and no device — gets a quiet circle with a
+ * figure in it. Never initials, which this app does not draw anywhere. That
+ * is what makes a row recognisable at a glance — an anonymous Windows
+ * visitor looks like a Windows visitor rather than like the letter "V".
  *
  * A country flag rides in the bottom-leading corner when the IP resolved to
  * one, so an operator can see where a thread comes from without opening it.
@@ -57,6 +60,8 @@ fun Avatar(
     device: String? = null,
     /** ISO-3166 alpha-2 country code; anything else is ignored. */
     countryCode: String? = null,
+    /** False for what is not a person — a workspace — whose empty circle stays empty. */
+    person: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     // An uploaded picture always wins, so the OS is not even resolved.
@@ -89,7 +94,7 @@ fun Avatar(
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
             ) {
-                if (osKind != null) OsFace(osKind, size) else QuietFace()
+                if (osKind != null) OsFace(osKind, size) else QuietFace(size, figure = person)
             }
         }
 
@@ -136,7 +141,7 @@ fun Avatar(
  *
  * Never initials. While the photo loads the circle is a skeleton, and it is
  * replaced by the photo that came; with no photo, or one that would not
- * load, it stays that same quiet circle rather than turning into letters.
+ * load, it is the quiet circle with a figure in it rather than letters.
  * A face that shows «SK» and then swaps it for a photograph reads as the row
  * changing its mind, and the letters say nothing a name beside them does
  * not already say.
@@ -165,7 +170,7 @@ fun OperatorAvatar(
         ) {
             // No photo, or one that failed: still, not pulsing — nothing is
             // on its way, so nothing should look like it is.
-            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHighest))
+            QuietFace(size)
         }
     }
 }
@@ -281,8 +286,10 @@ private fun OsFace(kind: OsKind, size: Dp) {
 }
 
 /**
- * No picture and nothing known about the device: a quiet circle, the
- * skeleton's own tone and nothing in it.
+ * No picture and nothing known about the device: a quiet circle in the
+ * skeleton's own tone, with a figure in it — a visitor from a channel that
+ * sends no photo is still a person, and an empty disc read as a picture that
+ * never loaded.
  *
  * Not initials, anywhere in the app. Two letters on a coloured disc read as
  * a face that is still to come, then get swapped for a photograph — the
@@ -290,8 +297,20 @@ private fun OsFace(kind: OsKind, size: Dp) {
  * everything the letters would.
  */
 @Composable
-private fun QuietFace() {
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHighest))
+private fun QuietFace(size: Dp, figure: Boolean = true) {
+    // Standing still — nothing is on its way — and the same figure the
+    // mailbox draws for a sender.
+    Box(
+        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHighest),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (figure) Icon(
+            Icons.Filled.Person,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            modifier = Modifier.size(size * 0.58f),
+        )
+    }
 }
 
 /**

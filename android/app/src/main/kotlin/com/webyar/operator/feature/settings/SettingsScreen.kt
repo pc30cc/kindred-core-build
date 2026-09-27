@@ -166,7 +166,7 @@ fun SettingsScreen(
                             // operator with a second workspace could miss it
                             // entirely — a name on its own is not how anyone
                             // recognises their own company.
-                            Avatar(name = workspace.name, imageUrl = workspace.logoUrl, size = 40.dp)
+                            Avatar(name = workspace.name, imageUrl = workspace.logoUrl, size = 40.dp, person = false)
                             Text(
                                 workspace.name,
                                 style = MaterialTheme.typography.bodyLarge,

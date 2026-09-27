@@ -1187,6 +1187,13 @@ class ApiClient(
             body = RealtimeWorkspaceBody(workspaceId),
         ).decode()
 
+    override suspend fun realtimeUserSubscribe(workspaceId: String): RealtimeSubscribe =
+        build(
+            HttpMethod.Post,
+            "/api/realtime/operator-user-subscribe",
+            body = RealtimeWorkspaceBody(workspaceId),
+        ).decode()
+
     // MARK: - Push devices
 
     override suspend fun registerPushDevice(registration: PushDeviceRegistration): PushDeviceResponse =

@@ -38,7 +38,7 @@ data class RealtimePolicy(
     @SerialName("reconnect_backoff_multiplier") val reconnectBackoffMultiplier: Double? = null,
 )
 
-/** `POST /api/realtime/operator-{inbox,presence}-subscribe`. */
+/** `POST /api/realtime/operator-{inbox,presence,user}-subscribe`. */
 @Serializable
 data class RealtimeSubscribe(
     val vendor: String? = null,
@@ -79,4 +79,8 @@ data class RealtimeEventPayload(
     /** Set on `outbound_delivery_failed`: which message's status moved. */
     @SerialName("message_id") val messageId: String? = null,
     val reason: String? = null,
+    /** Team chat (`team_message`, `team_read`): who the thread is between. */
+    @SerialName("sender_id") val senderId: String? = null,
+    @SerialName("recipient_id") val recipientId: String? = null,
+    @SerialName("peer_id") val peerId: String? = null,
 )

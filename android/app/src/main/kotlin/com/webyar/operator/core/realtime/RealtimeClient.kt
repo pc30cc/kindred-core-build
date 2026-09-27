@@ -40,9 +40,10 @@ interface RealtimeSink {
  * The protocol is the platform's own, exactly as the Mac speaks it
  * (`Realtime.swift`): ask the API for a connection token and the node's
  * `ws_url` (`operator-connect`), for the inbox channel's subscription token
- * (`operator-inbox-subscribe`) and the presence channel's
- * (`operator-presence-subscribe`), open the socket, `connect`, `subscribe`,
- * answer every `{}`. Nothing here is specific to Android except what a phone
+ * (`operator-inbox-subscribe`), the presence channel's
+ * (`operator-presence-subscribe`) and the operator's own channel's
+ * (`operator-user-subscribe`, team chat), open the socket, `connect`,
+ * `subscribe`, answer every `{}`. Nothing here is specific to Android except what a phone
  * adds on top:
  *
  *  - **Backoff with jitter** between attempts — 1, 2, 4, 8, 15, 30 s, times
@@ -194,6 +195,13 @@ class RealtimeClient(
                     diag.warn(AREA, "presence subscribe refused")
                 }
             }
+            // So is the operator's own channel: without it the team chat
+            // falls back to its poll, and the inbox does not notice.
+            tokens.user?.let { user ->
+                if (subscribe(socket, 4, user, positions, workspaceId) == null) {
+                    diag.warn(AREA, "own channel subscribe refused")
+                }
+            }
 
             connected()
             sink.onHealth(RealtimeHealth.CONNECTED)
@@ -231,9 +239,14 @@ class RealtimeClient(
         return now + (lifetime - policy.rotateBeforeExpiryMs).coerceAtLeast(policy.minSessionMs)
     }
 
-    private class Tokens(val connect: RealtimeConnect, val inbox: RealtimeSubscribe, val presence: RealtimeSubscribe?) {
+    private class Tokens(
+        val connect: RealtimeConnect,
+        val inbox: RealtimeSubscribe,
+        val presence: RealtimeSubscribe?,
+        val user: RealtimeSubscribe?,
+    ) {
         fun earliestExpiry(): Long? =
-            listOfNotNull(connect.expiresAt, inbox.expiresAt, presence?.expiresAt).minOrNull()
+            listOfNotNull(connect.expiresAt, inbox.expiresAt, presence?.expiresAt, user?.expiresAt).minOrNull()
     }
 
     /** Fresh tokens for every attempt, as the desktop clients mint them. Null when there is no socket to be had. */
@@ -242,15 +255,22 @@ class RealtimeClient(
         if (!connect.isCentrifugo) return null
         val inbox = api.realtimeInboxSubscribe(workspaceId)
         if (!inbox.isUsable) return null
-        val presence = try {
-            api.realtimePresenceSubscribe(workspaceId).takeIf { it.isUsable }
+        val presence = optionalGrant { api.realtimePresenceSubscribe(workspaceId) }
+        // A server that predates the operator's own channel answers 404:
+        // no grant, and the team chat keeps to its poll.
+        val user = optionalGrant { api.realtimeUserSubscribe(workspaceId) }
+        return Tokens(connect, inbox, presence, user)
+    }
+
+    /** A grant the session can do without: any failure is no grant. */
+    private suspend fun optionalGrant(ask: suspend () -> RealtimeSubscribe): RealtimeSubscribe? =
+        try {
+            ask().takeIf { it.isUsable }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
             null
         }
-        return Tokens(connect, inbox, presence)
-    }
 
     /**
      * Subscribes, resuming from the channel's last position when there is
@@ -358,8 +378,8 @@ class RealtimeClient(
     /**
      * One publication: its position noted, then — unless it was already
      * delivered — decoded and handed to the sink. Only the inbox channel's
-     * publications carry anything the app reads; presence joins and leaves
-     * are the server's business.
+     * and the operator's own channel's publications carry anything the app
+     * reads; presence joins and leaves are the server's business.
      */
     private fun deliver(
         workspaceId: String,
@@ -370,7 +390,7 @@ class RealtimeClient(
         if (positions != null && publication.offset != null) {
             positions[channel]?.let { positions[channel] = it.copy(offset = publication.offset) }
         }
-        if (!channel.endsWith(":inbox") && channel.isNotEmpty()) return
+        if (channel.isNotEmpty() && !channel.endsWith(":inbox") && !channel.contains(":user:")) return
         val data = publication.data ?: return
         val envelope = runCatching { json.decodeFromJsonElement(RealtimeEnvelope.serializer(), data) }.getOrNull() ?: return
         val payload = envelope.payload ?: return

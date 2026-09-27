@@ -186,6 +186,14 @@ interface WebyarApi {
     suspend fun realtimePresenceSubscribe(workspaceId: String): RealtimeSubscribe =
         RealtimeSubscribe(vendor = "disabled")
 
+    /**
+     * This operator's own channel (`ws:<workspace>:user:<id>`): team-chat
+     * activity meant for them alone. A server that predates it answers 404,
+     * and the app keeps polling the team chat as before.
+     */
+    suspend fun realtimeUserSubscribe(workspaceId: String): RealtimeSubscribe =
+        RealtimeSubscribe(vendor = "disabled")
+
     // MARK: - Push devices
 
     suspend fun registerPushDevice(registration: PushDeviceRegistration): PushDeviceResponse =

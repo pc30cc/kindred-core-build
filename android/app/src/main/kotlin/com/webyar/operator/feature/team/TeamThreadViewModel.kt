@@ -6,13 +6,12 @@ import com.webyar.operator.core.model.TeamMessage
 import com.webyar.operator.core.net.WebyarApi
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.displayText
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import com.webyar.operator.core.sync.TeamSignal
+import kotlinx.coroutines.flow.Flow
 
 sealed interface TeamThreadState {
     data object Loading : TeamThreadState
@@ -128,14 +127,19 @@ class TeamThreadViewModel(
         runCatching { api.teamThread(workspace, peer) }.onSuccess {
             _me.value = it.me
             _state.value = TeamThreadState.Loaded(it.messages)
+            // New from them, and on screen: read. Otherwise the colleagues'
+            // count went on counting what the operator was looking at.
+            if (it.messages.any { m -> m.senderId == peer && m.readAt == null }) {
+                runCatching { api.markTeamThreadRead(workspace, peer) }
+            }
         }
         // A failure here means only the refresh failed; the message went. The
         // ten-second poll will pick it up.
     }
 
     /**
-     * Re-reads the thread every ten seconds, for as long as somebody is
-     * looking at it.
+     * Re-reads the thread every ten seconds, and whenever the server says a
+     * message moved in it, for as long as somebody is looking at it.
      *
      * A suspend function the screen runs rather than a job this model starts,
      * and the difference is not cosmetic. A view model sits in the navigation
@@ -148,9 +152,15 @@ class TeamThreadViewModel(
      * `viewModelScope` never lets a test scheduler go idle, which is a hang
      * rather than a failure — the worst kind to debug.
      */
-    suspend fun pollWhileVisible() {
-        while (currentCoroutineContext().isActive) {
-            delay(POLL_MILLIS)
+    suspend fun pollWhileVisible(signals: Flow<TeamSignal>? = null) {
+        // [signals] is the operator's own realtime channel: a message in this
+        // thread re-reads it at once rather than at the next tick.
+        followTeam(
+            signals = signals,
+            pollMs = POLL_MILLIS,
+            wanted = { signal -> peerId?.let(signal::involves) == true },
+            immediately = false,
+        ) {
             // Not while a send is in flight: the reload that follows the send
             // is the authoritative one, and a poll landing in between puts the
             // pre-send transcript back for a moment.

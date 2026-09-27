@@ -99,6 +99,7 @@ import com.webyar.operator.ui.components.ChannelLabel
 import com.webyar.operator.ui.components.ConversationChannel
 import com.webyar.operator.ui.components.segmentedShape
 import com.webyar.operator.i18n.StrAndroid
+import com.webyar.operator.core.model.ConversationPriority
 
 sealed interface InboxState {
     data object Loading : InboxState
@@ -838,10 +839,49 @@ private fun ConversationRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                // Urgent or high closes the line, beside the unread count.
+                conversation.priority?.takeIf { it.isElevated }?.let { priority ->
+                    PriorityTag(priority, language, Modifier.padding(start = Space.sm))
+                }
                 if (emphasis) {
                     UnreadBadge(unread, language, Modifier.padding(start = Space.sm))
                 }
             }
+        }
+    }
+}
+
+/**
+ * A thread marked urgent or high, tagged at the end of its row's message line
+ * as the console tags it — red for urgent, amber for high. Low and normal are the ordinary case and
+ * say nothing: a tag on every row is a tag nobody reads.
+ */
+@Composable
+private fun PriorityTag(priority: ConversationPriority, language: Language, modifier: Modifier = Modifier) {
+    val urgent = priority == ConversationPriority.URGENT
+    val tint = if (urgent) MaterialTheme.colorScheme.error else WebyarTheme.colors.warning
+    Surface(
+        color = tint.copy(alpha = 0.14f),
+        contentColor = tint,
+        shape = RoundedCornerShape(50),
+        modifier = modifier.testTag(A11y.priorityTag(priority.wire)),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Icon(
+                if (urgent) Glyph.PriorityHigh else Glyph.ArrowUp,
+                contentDescription = null,
+                modifier = Modifier.size(11.dp),
+            )
+            Text(
+                if (urgent) Str.priorityUrgent(language) else Str.priorityHigh(language),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
         }
     }
 }

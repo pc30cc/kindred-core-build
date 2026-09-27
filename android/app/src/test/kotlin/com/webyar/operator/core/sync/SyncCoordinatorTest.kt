@@ -9,6 +9,7 @@ import com.webyar.operator.testing.ScriptedApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -53,6 +54,31 @@ class SyncCoordinatorTest {
 
         assertEquals(listOf(listOf("c-1", "c-2", "c-3")), api.idReads)
         // Never the queue: a realtime event is not a reason to read it all.
+        assertTrue(api.listReads.isEmpty())
+    }
+
+    @Test
+    fun `team chat news goes to the team screens and costs the inbox nothing`() = runTest {
+        val sync = coordinator()
+        sync.focusInbox(scope, InboxFilter.OPEN)
+        val heard = mutableListOf<TeamSignal>()
+        backgroundScope.launch { sync.team.collect { heard += it } }
+        runCurrent()
+
+        sync.onRealtimeEvent(
+            "ws-1",
+            RealtimeEventPayload(kind = "team_message", workspaceId = "ws-1", senderId = "u-2", recipientId = "user-a", messageId = "tm-1"),
+        )
+        sync.onRealtimeEvent("ws-1", RealtimeEventPayload(kind = "team_read", workspaceId = "ws-1", peerId = "u-3"))
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(listOf("team_message", "team_read"), heard.map { it.kind })
+        assertTrue(heard[0].involves("u-2"))
+        assertTrue(heard[1].involves("u-3"))
+        assertTrue(!heard[1].involves("u-2"))
+        // Not a conversation: nothing to re-read in the inbox.
+        assertTrue(api.idReads.isEmpty())
         assertTrue(api.listReads.isEmpty())
     }
 

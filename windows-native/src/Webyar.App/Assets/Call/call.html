@@ -244,10 +244,13 @@
     document.body.classList.remove('waiting', 'connected', 'ended');
     if (cls) document.body.classList.add(cls);
   }
+  // In the app's own digits, as the sidebar's clock is (Persian: ۰۳:۱۲).
+  let persianDigits = false;
   function clock(sec) {
     const s = Math.max(0, Math.floor(sec)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), r = s % 60;
     const p = (n) => String(n).padStart(2, '0');
-    return (h ? p(h) + ':' : '') + p(m) + ':' + p(r);
+    const t = (h ? p(h) + ':' : '') + p(m) + ':' + p(r);
+    return persianDigits ? t.replace(/\d/g, d => '۰۱۲۳۴۵۶۷۸۹'[d]) : t;
   }
   const isColor = (c) => typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c);
 
@@ -308,7 +311,7 @@
     $('notesBtn').classList.toggle('on', notesOpen);
     // Only a call-center call can be handed on; once it is, hanging up would end it for the colleague too.
     $('transferBtn').hidden = !canTransfer || transferred;
-    $('transferBtn').disabled = !connected || ended;
+    $('transferBtn').disabled = !answered || ended;
     $('transferBtn').classList.toggle('on', transferOpen);
     $('hang').disabled = ended;
     $('hang').classList.toggle('hang', !transferred);
@@ -332,7 +335,7 @@
   function syncVideo() {
     if (!room) return;
     const visitors = [...room.remoteParticipants.values()]
-      .filter(p => !String(p.identity || '').startsWith('operator:'))
+      .filter(p => String(p.identity || '').startsWith('visitor:'))
       .sort((a, b) => String(a.identity || '').localeCompare(String(b.identity || '')));
     const remote = visitors.flatMap(p => [...p.videoTrackPublications.values()]).find(p => p.isSubscribed && !p.isMuted && p.track);
     const rv = $('remote');
@@ -361,8 +364,8 @@
   function syncLayout() {
     document.body.classList.toggle('video-live', video && (connected || !!shownTrack || localShown));
   }
-  // Someone in the room other than operators: the visitor (a colleague who took over is 'operator:…').
-  const visitorIn = (r) => [...r.remoteParticipants.values()].some(p => !String(p.identity || '').startsWith('operator:'));
+  // The visitor is in the room: the server names them 'visitor:…' (colleagues are 'operator:…').
+  const visitorIn = (r) => [...r.remoteParticipants.values()].some(p => String(p.identity || '').startsWith('visitor:'));
 
   // The visitor is in the call: from now on it is a call, and its time runs.
   function visitorArrived(sinceMs) {
@@ -448,7 +451,7 @@
     // A reconnect drops and re-adds everyone, so an empty room only means "the visitor left" after a grace period.
     const checkLeft = () => {
       clearTimeout(leftTimer);
-      leftTimer = setTimeout(() => { if (room === r && answered && r.state === L.ConnectionState.Connected && r.remoteParticipants.size === 0) finish('visitorLeft'); }, 4000);
+      leftTimer = setTimeout(() => { if (room === r && answered && r.state === L.ConnectionState.Connected && !visitorIn(r)) finish('visitorLeft'); }, 4000);
     };
     r.on(L.RoomEvent.ParticipantDisconnected, () => { syncVideo(); reportRoom(); checkLeft(); });
     r.on(L.RoomEvent.Reconnected, checkLeft);
@@ -475,7 +478,9 @@
     } else {
       setStatus(S.waitingVisitor || '', 'waiting');
       // Nobody came: not a call, and not left open with nobody on the other end.
-      noShowTimer = setTimeout(() => { if (room === r && !answered && !ended) finish('noAnswer'); }, NO_SHOW_MS);
+      // Counted from when the first page reached the room, so moving the call does not restart the wait.
+      const waited = Number(msg.inRoomAt) > 0 ? Date.now() - Number(msg.inRoomAt) : 0;
+      noShowTimer = setTimeout(() => { if (room === r && !answered && !ended) finish('noAnswer'); }, Math.max(1000, NO_SHOW_MS - waited));
     }
     post({ type: 'mute', on: muted });
     post({ type: 'camera', on: camOn });
@@ -668,6 +673,7 @@
     const msg = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
     if (msg.type === 'init') {
       document.documentElement.dir = msg.rtl ? 'rtl' : 'ltr';
+      persianDigits = !!msg.persianDigits;
       S = msg.strings || {};
       video = msg.channel === 'video';
       document.body.classList.toggle('video', video);
@@ -693,7 +699,9 @@
       $('tHint').textContent = S.transferHint || '';
       $('tCancel').textContent = S.cancel || '';
       $('tSubmit').textContent = S.submit || '';
-      setStatus(msg.status, msg.waiting ? 'waiting' : null);
+      // A page that opens after the call ended (moved just as it was hung up) shows how it ended.
+      if (msg.ended) ended = true;
+      setStatus(msg.status, msg.ended ? 'ended' : (msg.waiting ? 'waiting' : null));
       syncControls();
     } else if (msg.type === 'face') {
       renderFace(msg.face);
@@ -728,6 +736,7 @@
       if (msg.done) closeTransfer(); else if (transferOpen) renderTransfer();
     } else if (msg.type === 'transferred') {
       transferred = true;
+      clearTimeout(noShowTimer);
       $('handover').textContent = msg.text;
       $('handover').hidden = false;
       syncControls();

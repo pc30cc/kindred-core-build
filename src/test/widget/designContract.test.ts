@@ -215,7 +215,7 @@ describe('composer design contract', () => {
     expect(wrap.querySelector('.composer-actions-end')).toBeNull();
   });
 
-  it('locks composer geometry to the design values', () => {
+  it('locks base composer geometry and the scoped chat refresh', () => {
     expect(PRES_CSS).toMatch(/\.composer-zone\s*\{[^}]*background:\s*var\(--wy-surface\)/);
     expect(PRES_CSS).toMatch(/\.composer-zone\s*\{[^}]*padding:\s*8px 16px/);
     expect(PRES_CSS).toMatch(/\.input-bar\s*\{[^}]*align-items:\s*center/);
@@ -223,7 +223,11 @@ describe('composer design contract', () => {
     expect(PRES_CSS).toMatch(/\.mic-btn svg\s*\{[^}]*width:\s*18px/);
     expect(PRES_CSS).toMatch(/\.input-wrap\s*\{[^}]*border-radius:\s*7px/);
     expect(PRES_CSS).toMatch(/\.input-wrap\s*\{[^}]*padding:\s*0 8px/);
-    expect(PRES_CSS).not.toMatch(/\.input-wrap:focus-within\s*\{/);
+    expect(PRES_CSS).toMatch(/\.wy-view-chat \.input-wrap:focus-within\s*\{[^}]*box-shadow:\s*0 0 0 2px var\(--wy-accent\)/);
+    expect(PRES_CSS).toMatch(/\.wy-view-chat \.input-wrap\s*\{[^}]*border-radius:\s*16px/);
+    expect(PRES_CSS).toMatch(/\.wy-view-chat \.input\s*\{[^}]*min-height:\s*50px/);
+    expect(PRES_CSS).toMatch(/\.wy-view-chat \.input-bar\.has-draft \.send-btn\s*\{[^}]*background:\s*var\(--wy-accent\)/);
+    expect(PRES_CSS).toMatch(/\.wy-view-chat \.send-btn:focus-visible[^}]*outline:\s*2px solid var\(--wy-accent\)/);
     expect(PRES_CSS).toMatch(/\.input-wrap \.input:focus-visible\s*\{[^}]*outline:\s*none[^}]*box-shadow:\s*none/);
     expect(PRES_CSS).toMatch(/\.input\s*\{[^}]*height:\s*46px/);
     expect(PRES_CSS).toMatch(/\.input\s*\{[^}]*max-height:\s*15rem/);

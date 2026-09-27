@@ -43,20 +43,32 @@
     </Page.Resources>
 
     <!-- Two panes side by side; below a page width the Mac's window never reaches, one at a time (see OnRootSize). -->
+    <!-- Refresh from anywhere on the page, whichever pane is on show. -->
+    <Page.KeyboardAccelerators>
+        <KeyboardAccelerator Modifiers="Control" Key="R" Invoked="OnRefreshKey" />
+        <KeyboardAccelerator Key="F5" Invoked="OnRefreshKey" />
+    </Page.KeyboardAccelerators>
+
     <Grid x:Name="Root" Padding="10" ColumnSpacing="10" SizeChanged="OnRootSize">
         <Grid.ColumnDefinitions>
             <ColumnDefinition x:Name="ListCol" Width="340" />
             <ColumnDefinition x:Name="DetailCol" Width="*" />
         </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <!-- The desk's notices, over both panes: seen whichever one is on show. -->
+        <InfoBar x:Name="DeskError" Grid.ColumnSpan="2" Margin="0,0,0,10" Severity="Error" IsClosable="True" />
 
         <!-- The list column, as on the Mac: masthead, the numbers, the list's controls, the line or the log -->
-        <Border x:Name="ListPane" Style="{StaticResource PanelBorder}">
+        <Border x:Name="ListPane" Grid.Row="1" Style="{StaticResource PanelBorder}">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <!-- Masthead: title, service state, my availability, and the two views -->
@@ -91,10 +103,6 @@
                             <TextBlock x:Name="LiveText" FontSize="12" Foreground="{ThemeResource Text2Brush}" TextTrimming="CharacterEllipsis" />
                         </StackPanel>
                         <Button x:Name="RefreshButton" Grid.Column="2" Style="{StaticResource IconButton}" VerticalAlignment="Center" Click="OnRefresh">
-                            <Button.KeyboardAccelerators>
-                                <KeyboardAccelerator Modifiers="Control" Key="R" />
-                                <KeyboardAccelerator Key="F5" />
-                            </Button.KeyboardAccelerators>
                             <FontIcon Glyph="&#xE72C;" FontSize="14" />
                         </Button>
                     </Grid>
@@ -132,7 +140,8 @@
                 </StackPanel>
 
                 <!-- The numbers, as on the web desk: three across, two down -->
-                <Grid Grid.Row="1" Padding="12,10,12,0" ColumnSpacing="8" RowSpacing="8">
+                <!-- The numbers, under the line: the calls waiting come first. -->
+                <Grid Grid.Row="3" Padding="12,10,12,12" ColumnSpacing="8" RowSpacing="8" BorderBrush="{ThemeResource LineBrush}" BorderThickness="0,1,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
@@ -151,7 +160,7 @@
                 </Grid>
 
                 <!-- The list's title (with the waiting count), sort, search and channel -->
-                <StackPanel Grid.Row="2" Padding="12,10,12,10" Spacing="8">
+                <StackPanel Grid.Row="1" Padding="12,10,12,10" Spacing="8">
                     <Grid Margin="4,0" ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -190,7 +199,7 @@
                     </Border>
                 </StackPanel>
 
-                <Grid Grid.Row="3" BorderBrush="{ThemeResource LineBrush}" BorderThickness="0,1,0,0">
+                <Grid Grid.Row="2" BorderBrush="{ThemeResource LineBrush}" BorderThickness="0,1,0,0">
                     <ListView x:Name="QueueList" Padding="6,4" SelectionMode="Single" IsItemClickEnabled="True" ItemClick="OnRowClick" SelectionChanged="OnSelectQueue" ContextRequested="OnQueueContext" ContainerContentChanging="OnQueueRow">
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
@@ -302,10 +311,9 @@
         </Border>
 
         <!-- Right: the call picked. The notice sits above it, then the call answered here, docked, then the call's details. -->
-        <Border x:Name="DetailPane" Grid.Column="1" Style="{StaticResource PanelBorder}">
+        <Border x:Name="DetailPane" Grid.Row="1" Grid.Column="1" Style="{StaticResource PanelBorder}">
             <Grid>
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -317,17 +325,16 @@
                         <TextBlock x:Name="BackText" FontSize="13" FontWeight="SemiBold" />
                     </StackPanel>
                 </Button>
-                <InfoBar x:Name="DeskError" Grid.Row="1" Margin="14,8,14,0" Severity="Error" IsClosable="True" />
                 <!-- The call answered on this desk slides in here, over the call it belongs to. -->
-                <controls:CallDockSlot x:Name="DockSlot" Grid.Row="2" MaxWidth="760" />
-                <StackPanel x:Name="Placeholder" Grid.Row="3" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" MaxWidth="380">
+                <controls:CallDockSlot x:Name="DockSlot" Grid.Row="1" MaxWidth="760" />
+                <StackPanel x:Name="Placeholder" Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" MaxWidth="380">
                     <Border Width="76" Height="76" CornerRadius="21" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
                         <FontIcon FontSize="30" Foreground="{ThemeResource BrandBrush}" Glyph="&#xE77B;" />
                     </Border>
                     <TextBlock x:Name="PlaceholderTitle" HorizontalAlignment="Center" FontSize="16" FontWeight="SemiBold" />
                     <TextBlock x:Name="PlaceholderBody" HorizontalAlignment="Center" TextAlignment="Center" Style="{StaticResource MutedText}" />
                 </StackPanel>
-                <ScrollViewer x:Name="DetailScroll" Grid.Row="3" Visibility="Collapsed" SizeChanged="OnDetailSize">
+                <ScrollViewer x:Name="DetailScroll" Grid.Row="2" Visibility="Collapsed" SizeChanged="OnDetailSize">
                     <StackPanel x:Name="DetailStack" Padding="28,24" Spacing="18" MaxWidth="760">
                         <!-- Caller and the big buttons; the buttons go under the caller when the column is narrow -->
                         <Border x:Name="CallerCard" Style="{StaticResource CardBorder}" CornerRadius="16" Padding="20" SizeChanged="OnCallerCardSize">

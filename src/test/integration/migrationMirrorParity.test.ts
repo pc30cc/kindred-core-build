@@ -310,9 +310,14 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     hosted: 'supabase/migrations/20260926150000_desktop_app_storage_settings_visible.sql',
   },
   {
-    label: '226 — macos_app_settings.web_analytics_enabled, storage_settings_visible',
-    selfHost: 'database/migrations/226_macos_app_section_switches.sql',
-    hosted: 'supabase/migrations/20260927100000_macos_app_section_switches.sql',
+    label: '226 — desktop_app_settings section switches',
+    selfHost: 'database/migrations/226_desktop_app_section_switches.sql',
+    hosted: 'supabase/migrations/20260927100000_desktop_app_section_switches.sql',
+  },
+  {
+    label: '227 — macos_app_settings.web_analytics_enabled, storage_settings_visible',
+    selfHost: 'database/migrations/227_macos_app_section_switches.sql',
+    hosted: 'supabase/migrations/20260927110000_macos_app_section_switches.sql',
   },
 
   // intentionally asymmetric, not a drift bug.

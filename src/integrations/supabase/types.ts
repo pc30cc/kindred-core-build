@@ -8775,8 +8775,11 @@ export type Database = {
       }
       desktop_app_settings: {
         Row: {
+          analytics_enabled: boolean
           auto_update_enabled: boolean
+          call_center_enabled: boolean
           calls_enabled: boolean
+          contacts_enabled: boolean
           created_at: string
           download_url: string | null
           id: string
@@ -8791,10 +8794,14 @@ export type Database = {
           update_check_interval_minutes: number
           update_feed_url: string | null
           updated_at: string
+          visitors_enabled: boolean
         }
         Insert: {
+          analytics_enabled?: boolean
           auto_update_enabled?: boolean
+          call_center_enabled?: boolean
           calls_enabled?: boolean
+          contacts_enabled?: boolean
           created_at?: string
           download_url?: string | null
           id?: string
@@ -8809,10 +8816,14 @@ export type Database = {
           update_check_interval_minutes?: number
           update_feed_url?: string | null
           updated_at?: string
+          visitors_enabled?: boolean
         }
         Update: {
+          analytics_enabled?: boolean
           auto_update_enabled?: boolean
+          call_center_enabled?: boolean
           calls_enabled?: boolean
+          contacts_enabled?: boolean
           created_at?: string
           download_url?: string | null
           id?: string
@@ -8827,6 +8838,7 @@ export type Database = {
           update_check_interval_minutes?: number
           update_feed_url?: string | null
           updated_at?: string
+          visitors_enabled?: boolean
         }
         Relationships: []
       }

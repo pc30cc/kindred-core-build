@@ -15,7 +15,8 @@ public sealed record DesktopConfig(
     int PollIntervalSeconds,
     int PollWithRealtimeSeconds,
     bool CallsEnabled,
-    bool StorageSettingsVisible)
+    bool StorageSettingsVisible,
+    DesktopSections Sections)
 {
     public static readonly DesktopConfig Defaults = new(
         new UpdateSettings(
@@ -31,7 +32,8 @@ public sealed record DesktopConfig(
         PollIntervalSeconds: 15,
         PollWithRealtimeSeconds: 120,
         CallsEnabled: true,
-        StorageSettingsVisible: true);
+        StorageSettingsVisible: true,
+        Sections: DesktopSections.All);
 
     /// <summary>
     /// Reads whatever the server sent defensively: a missing or out-of-range
@@ -58,7 +60,12 @@ public sealed record DesktopConfig(
             PollIntervalSeconds: Clamp(Int(polling, "intervalSeconds"), 5, 300, d.PollIntervalSeconds),
             PollWithRealtimeSeconds: Clamp(Int(polling, "withRealtimeSeconds"), 15, 900, d.PollWithRealtimeSeconds),
             CallsEnabled: Bool(features, "calls") ?? d.CallsEnabled,
-            StorageSettingsVisible: Bool(features, "storageSettings") ?? d.StorageSettingsVisible);
+            StorageSettingsVisible: Bool(features, "storageSettings") ?? d.StorageSettingsVisible,
+            Sections: new DesktopSections(
+                Contacts: Bool(features, "contacts") ?? true,
+                Visitors: Bool(features, "visitors") ?? true,
+                Analytics: Bool(features, "analytics") ?? true,
+                CallCenter: Bool(features, "callCenter") ?? true));
     }
 
     /// <summary>The platform's settings, or null when it could not be asked.</summary>

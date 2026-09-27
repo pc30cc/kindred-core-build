@@ -1,7 +1,7 @@
 -- ============================================================
 -- macos_app_settings.web_analytics_enabled, storage_settings_visible
 --
--- Self-host mirror: database/migrations/226_macos_app_section_switches.sql
+-- Self-host mirror: database/migrations/227_macos_app_section_switches.sql
 -- (functionally identical; registered in
 -- src/test/integration/migrationMirrorParity.test.ts).
 --

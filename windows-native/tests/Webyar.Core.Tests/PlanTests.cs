@@ -46,6 +46,21 @@ public class PlanTests
         })));
 
     [Fact]
+    public void Super_admin_switches_hide_sections_the_plan_allows()
+    {
+        var plan = Loaded(Effective(modules: new() { ["contacts"] = true, ["visitor_tracking"] = true, ["call_center"] = true, ["web_analytics"] = true }));
+        Assert.True(plan.Contacts && plan.Visitors && plan.CallCenter && plan.WebAnalytics);
+        var off = plan.WithSections(new DesktopSections(Contacts: false, Visitors: true, Analytics: false, CallCenter: false));
+        Assert.False(off.Contacts);
+        Assert.True(off.Visitors);
+        Assert.False(off.WebAnalytics);
+        Assert.False(off.CallCenter);
+        // Switched on again, the plan decides; the role and other answers are kept through With().
+        Assert.True(off.With(role: null, aiAgent: null, aiAuto: null, callCenter: null).WithSections(DesktopSections.All).CallCenter);
+        Assert.False(off.With(role: "agent", aiAgent: null, aiAuto: null, callCenter: null).Contacts);
+    }
+
+    [Fact]
     public async Task Sections_follow_the_plan_modules_exactly()
     {
         var api = Api(

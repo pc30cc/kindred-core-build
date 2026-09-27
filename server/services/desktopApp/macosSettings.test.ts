@@ -116,7 +116,7 @@ describe('macOS app settings — public projection', () => {
     expect(features.webAnalytics).toBe(false);
     expect(features.callCenter).toBe(false);
     expect(features.storageSettings).toBe(false);
-    // A row from before migration 226 keeps both new sections on.
+    // A row from before migration 227 keeps both new sections on.
     const old = toPublicMacosAppConfig(normalizeMacos({})).features;
     expect(old.webAnalytics).toBe(true);
     expect(old.storageSettings).toBe(true);

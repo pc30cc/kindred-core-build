@@ -43,6 +43,9 @@ public sealed class AppSettings
     /// </summary>
     public bool StorageSettingsVisible { get; set; } = true;
 
+    /// <summary>Super Admin's last answer on the app's sections (contacts, visitors, analytics, call center).</summary>
+    public Webyar.Core.Api.DesktopSections? Sections { get; set; }
+
     [System.Text.Json.Serialization.JsonIgnore]
     public Language ResolvedLanguage =>
         Strings.Parse(Language) ?? Core.Localization.Language.Fa;

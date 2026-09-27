@@ -1,7 +1,7 @@
 -- ============================================================
--- 226: macos_app_settings.web_analytics_enabled, storage_settings_visible
+-- 227: macos_app_settings.web_analytics_enabled, storage_settings_visible
 --
--- Hosted mirror: supabase/migrations/20260927100000_macos_app_section_switches.sql
+-- Hosted mirror: supabase/migrations/20260927110000_macos_app_section_switches.sql
 -- (functionally identical; registered in
 -- src/test/integration/migrationMirrorParity.test.ts).
 --

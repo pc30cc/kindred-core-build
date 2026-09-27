@@ -304,4 +304,29 @@ object StrAndroid {
         Language.FA -> "ساعت"
         Language.TR -> "sa"
     }
+
+    /** The operator's own camera, floating over a video call. */
+    fun callSelfView(l: Language): String = when (l) {
+        Language.EN -> "Your camera — drag to a corner, pinch to resize"
+        Language.FA -> "تصویر شما — برای جابه‌جایی بکشید، برای تغییر اندازه دو انگشتی بزرگ یا کوچک کنید"
+        Language.TR -> "Kameranız — köşeye sürükleyin, boyut için iki parmakla sıkıştırın"
+    }
+
+    fun callSelfViewMove(l: Language): String = when (l) {
+        Language.EN -> "Move to the next corner"
+        Language.FA -> "انتقال به گوشهٔ بعدی"
+        Language.TR -> "Sonraki köşeye taşı"
+    }
+
+    fun callSelfViewSmaller(l: Language): String = when (l) {
+        Language.EN -> "Smaller"
+        Language.FA -> "کوچک‌تر"
+        Language.TR -> "Küçült"
+    }
+
+    fun callSelfViewLarger(l: Language): String = when (l) {
+        Language.EN -> "Larger"
+        Language.FA -> "بزرگ‌تر"
+        Language.TR -> "Büyüt"
+    }
 }

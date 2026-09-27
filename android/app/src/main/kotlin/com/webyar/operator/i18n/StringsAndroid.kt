@@ -339,4 +339,36 @@ object StrAndroid {
         Language.FA -> "بزرگ‌تر"
         Language.TR -> "Büyüt"
     }
+
+    /** A picked photo that could not be read or turned into one the server takes. */
+    fun photoUnreadable(l: Language): String = when (l) {
+        Language.EN -> "That photo could not be read. Try another one."
+        Language.FA -> "این عکس خوانده نشد. عکس دیگری را امتحان کنید."
+        Language.TR -> "Bu fotoğraf okunamadı. Başka bir tane deneyin."
+    }
+
+    /** A team message over the server's length limit, said before it is sent. */
+    fun messageTooLong(l: Language, limit: Int): String = when (l) {
+        Language.EN -> "This message is too long — ${Format.number(limit, l)} characters at most."
+        Language.FA -> "این پیام خیلی طولانی است — حداکثر ${Format.number(limit, l)} نویسه."
+        Language.TR -> "Bu mesaj çok uzun — en fazla ${Format.number(limit, l)} karakter."
+    }
+
+    /**
+     * Sign-in refused because the account has never had a password —
+     * migrated, or invited and never finished. The reset link chooses the
+     * first one.
+     */
+    fun passwordSetupRequired(l: Language): String = when (l) {
+        Language.EN -> "This account doesn't have a password yet. Choose one with “Forgot password?” or on the web, then sign in here."
+        Language.FA -> "این حساب هنوز رمز عبور ندارد. با «رمز عبور را فراموش کرده‌اید؟» یا از نسخهٔ وب یکی انتخاب کنید و سپس اینجا وارد شوید."
+        Language.TR -> "Bu hesabın henüz bir parolası yok. “Parolanızı mı unuttunuz?” ile ya da web'den bir parola seçin, sonra buradan giriş yapın."
+    }
+
+    /** Sign-in refused until a captcha is solved, which this app cannot show. */
+    fun captchaRequired(l: Language): String = when (l) {
+        Language.EN -> "Too many attempts to sign in. Wait a few minutes and try again, or sign in on the web."
+        Language.FA -> "تلاش‌های ورود بیش از حد بوده است. چند دقیقه صبر کنید و دوباره امتحان کنید، یا از نسخهٔ وب وارد شوید."
+        Language.TR -> "Çok fazla giriş denemesi yapıldı. Birkaç dakika bekleyip tekrar deneyin ya da web'den giriş yapın."
+    }
 }

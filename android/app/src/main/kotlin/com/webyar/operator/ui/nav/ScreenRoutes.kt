@@ -128,6 +128,7 @@ import com.webyar.operator.ui.components.bidiContent
 import com.webyar.operator.ui.components.rememberSearchState
 import com.webyar.operator.LocalAppGraph
 import kotlinx.coroutines.launch
+import androidx.lifecycle.compose.LifecycleStartEffect
 import com.webyar.operator.core.cache.CacheScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -336,8 +337,16 @@ fun ChatRoute(
     val chatModel: ChatViewModel =
         viewModel(factory = viewModelFactory {
             val sync = graph?.syncGraph()
-            if (sync != null) ChatViewModel(api, sync, currentLanguage) else ChatViewModel(api, language = currentLanguage)
+            if (sync != null) ChatViewModel(api, sync, currentLanguage, outlive = graph.appScope)
+            else ChatViewModel(api, language = currentLanguage)
         })
+    // Read only while it is in front: under another screen, in a tab left
+    // behind or with the app away, nothing is marked seen and notifications
+    // for it are shown again.
+    LifecycleStartEffect(chatModel) {
+        chatModel.setVisible(true)
+        onStopOrDispose { chatModel.setVisible(false) }
+    }
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
     val session by appState.session.collectAsStateWithLifecycle()
     val plan by appState.entitlements.collectAsStateWithLifecycle()
@@ -876,11 +885,14 @@ fun TeamThreadRoute(
         }
     }
 
+    val pickScope = rememberCoroutineScope()
     val sendPicked: (android.net.Uri) -> Unit = { uri ->
-        when (val picked = readPickedFile(context, uri)) {
-            is PickedFile.Ready ->
-                thread.sendAttachment(picked.bytes, picked.fileName, picked.mimeType)
-            else -> picked.problemText(language)?.let(thread::report)
+        pickScope.launch {
+            when (val picked = readPickedFileOffMain(context, uri)) {
+                is PickedFile.Ready ->
+                    thread.sendAttachment(picked.bytes, picked.fileName, picked.mimeType)
+                else -> picked.problemText(language)?.let(thread::report)
+            }
         }
     }
     val photoPicker = rememberLauncherForActivityResult(
@@ -1166,8 +1178,11 @@ fun EmailThreadRoute(
                                 },
                                 onClick = {
                                     menuOpen = false
-                                    model.markUnread()
-                                    email.markUnreadLocally(threadId)
+                                    // Sent by the mailbox's model, which
+                                    // outlives this screen: the thread's own
+                                    // scope ends with the onBack() below and
+                                    // would cancel the request on its way.
+                                    email.setRead(threadId, read = false)
                                     // And back out, because the thread you
                                     // just marked unread is one you are done
                                     // with — staying on it would mark it read
@@ -1246,11 +1261,14 @@ fun EmailComposeRoute(
         }
     }
 
+    val pickScope = rememberCoroutineScope()
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
-        when (val picked = readPickedFile(context, uri)) {
-            is PickedFile.Ready -> model.attach(picked.bytes, picked.fileName, picked.mimeType)
-            else -> picked.problemText(language)?.let(model::report)
+        pickScope.launch {
+            when (val picked = readPickedFileOffMain(context, uri)) {
+                is PickedFile.Ready -> model.attach(picked.bytes, picked.fileName, picked.mimeType)
+                else -> picked.problemText(language)?.let(model::report)
+            }
         }
     }
     val close = { if (form.touched && !form.sent) confirmDiscard = true else onClose() }
@@ -1587,11 +1605,9 @@ fun ProfileRoute(
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         val resolver = context.contentResolver
-        val type = resolver.getType(uri) ?: "image/jpeg"
-        val bytes = runCatching {
-            resolver.openInputStream(uri)?.use { it.readBytes() }
-        }.getOrNull()
-        if (bytes != null) model.uploadAvatar(bytes, type, null)
+        // Read, shrunk and re-encoded off the main thread — a camera's HEIC
+        // is refused by the server, and its JPEG is far larger than an avatar.
+        model.uploadAvatar { com.webyar.operator.feature.settings.AvatarPhoto.prepare(resolver, uri) }
     }
 
     Scaffold(

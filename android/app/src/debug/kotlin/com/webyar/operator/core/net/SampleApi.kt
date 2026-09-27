@@ -452,6 +452,8 @@ class SampleApi : WebyarApi {
 
     override suspend fun hangUp(callSessionId: String) {}
 
+    override suspend fun endCall(callSessionId: String, reason: String) {}
+
     // MARK: - Account
 
     override suspend fun updateProfile(

@@ -53,6 +53,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import com.webyar.operator.ui.components.PullIndicator
 import com.webyar.operator.ui.design.Radius
 import com.webyar.operator.core.model.EmailFolder
@@ -71,7 +72,6 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.IconButton
@@ -387,7 +387,10 @@ private fun EmailThreadRow(
 @Composable
 internal fun MailAvatar(address: String, size: Dp = Size.avatarSmall) {
     val hue = remember(address) { (address.lowercase().hashCode().toLong() and 0xFFFFFFFFL) % 360L }
-    val dark = isSystemInDarkTheme()
+    // The app's theme, not the phone's: Settings can pin light or dark
+    // whatever the system says, and a pastel circle meant for a white page
+    // glares on a dark one.
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val container = Color.hsl(hue.toFloat(), if (dark) 0.35f else 0.55f, if (dark) 0.30f else 0.88f)
     val content = Color.hsl(hue.toFloat(), if (dark) 0.60f else 0.55f, if (dark) 0.82f else 0.32f)
     Box(

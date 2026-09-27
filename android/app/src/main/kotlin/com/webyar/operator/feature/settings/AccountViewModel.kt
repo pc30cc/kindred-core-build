@@ -6,6 +6,7 @@ import com.webyar.operator.core.model.AccountSession
 import com.webyar.operator.core.net.WebyarApi
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
+import com.webyar.operator.i18n.StrAndroid
 import com.webyar.operator.i18n.displayText
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -175,9 +176,27 @@ class AccountViewModel(
         }
     }
 
+    /**
+     * A photo from the picker: made ready first — read, shrunk and written
+     * as a JPEG off the main thread, see [AvatarPhoto] — then uploaded. The
+     * form is busy from the moment it is picked, so a second tap does not
+     * start a second one while the first is still being decoded.
+     */
+    fun uploadAvatar(prepare: suspend () -> AvatarUpload?) {
+        _profile.update { it.copy(busy = true, error = null) }
+        viewModelScope.launch {
+            val ready = runCatching { prepare() }.getOrNull()
+            if (ready == null) {
+                _profile.update { it.copy(busy = false, error = StrAndroid.photoUnreadable(language())) }
+                return@launch
+            }
+            uploadAvatar(ready.bytes, ready.contentType, null)
+        }
+    }
+
     fun uploadAvatar(bytes: ByteArray, contentType: String, fileName: String?) {
         if (bytes.size > MAX_AVATAR_BYTES) {
-            _profile.update { it.copy(error = Str.photoTooLarge(language())) }
+            _profile.update { it.copy(busy = false, error = Str.photoTooLarge(language())) }
             return
         }
         _profile.update { it.copy(busy = true, error = null) }
@@ -297,12 +316,14 @@ class AccountViewModel(
 
     private companion object {
         /**
-         * The server's own avatar cap.
+         * The server's own avatar cap (10 MB, server/routes/account.ts).
          *
          * Checked here so a phone on a slow connection is not asked to upload
-         * four megabytes before being told no — which on a metered connection
-         * is somebody's money.
+         * ten megabytes before being told no — which on a metered connection
+         * is somebody's money. A photo from the picker is shrunk well under
+         * it before it gets here (see [AvatarPhoto]); this is the backstop for
+         * the GIFs and the files that could not be.
          */
-        const val MAX_AVATAR_BYTES = 2 * 1024 * 1024
+        const val MAX_AVATAR_BYTES = 10 * 1024 * 1024
     }
 }

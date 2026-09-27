@@ -78,6 +78,10 @@ class EmailInboxViewModel(
         this.workspaceId = workspaceId
         _query.value = ""
         _mailbox.value = null
+        // The last workspace's setup state and pages are not this one's.
+        _notConnected.value = false
+        loaded = emptyList()
+        nextBefore = null
         load()
     }
 
@@ -137,8 +141,27 @@ class EmailInboxViewModel(
         }
     }
 
-    /** Marked unread from inside the thread: the row says so at once. */
-    fun markUnreadLocally(threadId: String) = update(threadId) { it.copy(isRead = false) }
+    /**
+     * Read or unread, said to the server from here rather than from the
+     * thread's own model.
+     *
+     * "Mark unread" is chosen inside a thread that closes at the same
+     * moment, and a request launched in the thread's scope would be
+     * cancelled as the screen goes. This model lives as long as the
+     * activity, so the request finishes. The row changes at once, and
+     * changes back if the server refuses.
+     */
+    fun setRead(threadId: String, read: Boolean) {
+        val workspace = workspaceId ?: return
+        val before = loaded.firstOrNull { it.id == threadId }?.isRead
+        update(threadId) { it.copy(isRead = read) }
+        viewModelScope.launch {
+            runCatching { api.setEmailThreadRead(workspace, threadId, read) }
+                .onFailure {
+                    if (workspace == workspaceId && before != null) update(threadId) { it.copy(isRead = before) }
+                }
+        }
+    }
 
     /** The thread's star changed inside it: the row follows. */
     fun setStarredLocally(threadId: String, starred: Boolean) = update(threadId) { it.copy(isStarred = starred) }
@@ -154,6 +177,9 @@ class EmailInboxViewModel(
     }
 
     fun refresh() {
+        // Nothing to refresh before a workspace is bound — and a spinner
+        // raised here would have nothing to lower it.
+        if (workspaceId == null) return
         _refreshing.value = true
         load(showSkeleton = false)
     }
@@ -176,19 +202,25 @@ class EmailInboxViewModel(
                     publish()
                 }
                 .onFailure { error ->
+                    // The same rule as success: a newer load — another
+                    // folder, another workspace — has the say.
+                    if (mine != generation) return@onFailure
                     if (error.isNotConnected) {
                         // 409 is the server saying the mailbox has never been
                         // connected. Not a failure — a setup step.
                         _notConnected.value = true
                         loaded = emptyList()
+                        nextBefore = null
                         publish()
                     } else if (showSkeleton || loaded.isEmpty()) {
                         _state.value = EmailInboxState.Failed(error.displayText(language()))
                     }
                 }
+            // A newer load lowers the spinner itself, when it lands.
+            if (mine != generation) return@launch
             _refreshing.value = false
             runCatching { api.gmailConnection(workspace) }
-                .onSuccess { _mailbox.value = it?.emailAddress }
+                .onSuccess { if (mine == generation) _mailbox.value = it?.emailAddress }
         }
     }
 

@@ -11,7 +11,10 @@ import com.webyar.operator.core.runCatchingUnlessCancelled
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -68,6 +71,13 @@ enum class RealtimeHealth {
  *  - While realtime is healthy, a **safety** reconcile runs every
  *    [SyncPolicy.safetyIntervalMs] — a conditional read that is a 304 unless
  *    realtime missed something.
+ *  - A targeted read that fails is **tried again**, backing off; one that
+ *    keeps failing is owed to the next reconcile, which runs when the
+ *    network or the socket comes back rather than at the next poll.
+ *
+ * Everything it starts runs under one job of its own, a child of the app's,
+ * so that signing out stops all of it — and [clearAndJoin] can wait until
+ * nothing of the old account's is left to write.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SyncCoordinator(
@@ -106,17 +116,60 @@ class SyncCoordinator(
     private val _counts = MutableStateFlow<CountsSnapshot?>(null)
     val counts: StateFlow<CountsSnapshot?> = _counts.asStateFlow()
 
+    /**
+     * An id queued for a read, with the scope it was heard in. A flush reads
+     * only what belongs to the scope in focus when it runs: an id heard for
+     * one workspace and flushed after a switch must not be read — and
+     * written — under the other.
+     */
+    private data class Pending(val scope: CacheScope, val id: String)
+
+    /**
+     * Guards the batches and, with them, [focus] and [openThreads] — so a
+     * reconcile reads the scope and the threads open in it as one pair.
+     */
     private val batchLock = Any()
-    private val pendingConversations = LinkedHashSet<String>()
+    private val pendingConversations = LinkedHashSet<Pending>()
     private val pendingReasons = LinkedHashSet<String>()
     private var conversationFlush: Job? = null
-    private val pendingThreads = LinkedHashSet<String>()
+    private var conversationFailures = 0
+    private val pendingThreads = LinkedHashSet<Pending>()
+    private val pendingThreadReasons = LinkedHashSet<String>()
     private var threadFlush: Job? = null
+    private var threadFailures = 0
+
+    /** Scopes focused since sign-in; each one's outbox is resumed on a return to the foreground. */
+    private val visitedScopes = LinkedHashSet<CacheScope>()
+
+    /** One resume at a time: two at once would both find the same PENDING rows. */
+    private val outboxLock = Mutex()
+
+    /**
+     * A read failed past its retries (or a reconcile failed), so the cache
+     * may be behind in ways no event will report. The next reconcile — on
+     * the network or the socket coming back, or in the foreground — pays it.
+     */
+    @Volatile private var dirty = false
+
+    /** The job every coroutine this coordinator starts runs under; replaced on sign-out. */
+    @Volatile private var work: Job = newWork()
 
     init {
-        // The fallback poll and the safety net: one loop, whose cadence
-        // follows whether realtime is carrying the app.
-        appScope.launch {
+        startLoop(work)
+    }
+
+    private fun newWork(): Job = SupervisorJob(appScope.coroutineContext[Job])
+
+    private fun launchWork(block: suspend CoroutineScope.() -> Unit): Job =
+        CoroutineScope(appScope.coroutineContext + work).launch(block = block)
+
+    /**
+     * The fallback poll and the safety net: one loop, whose cadence follows
+     * whether realtime is carrying the app. It lives in [job], so sign-out
+     * stops it with everything else and a new one starts for whoever is next.
+     */
+    private fun startLoop(job: Job) {
+        CoroutineScope(appScope.coroutineContext + job).launch {
             combine(foreground, _realtime, focus) { fg, rt, f -> Triple(fg, rt, f) }
                 .distinctUntilChanged()
                 .collectLatest { (fg, rt, f) ->
@@ -129,23 +182,34 @@ class SyncCoordinator(
     // MARK: - What is on screen
 
     fun focusInbox(scope: CacheScope, filter: InboxFilter) {
-        val previous = focus.value
-        if (previous != null && previous.scope != scope) {
-            // A different workspace or account: whatever was queued for the
-            // old one is the old one's, and a late answer for it could only
-            // write rows nobody is looking at.
-            synchronized(batchLock) {
+        val previous: Focus?
+        synchronized(batchLock) {
+            previous = focus.value
+            if (previous != null && previous.scope != scope) {
+                // A different workspace or account: whatever was queued for the
+                // old one is the old one's, and a late answer for it could only
+                // write rows nobody is looking at.
                 pendingConversations.clear()
+                pendingReasons.clear()
                 pendingThreads.clear()
+                pendingThreadReasons.clear()
                 conversationFlush?.cancel()
                 threadFlush?.cancel()
                 conversationFlush = null
                 threadFlush = null
+                conversationFailures = 0
+                threadFailures = 0
+                openThreads.value = emptySet()
             }
-            openThreads.value = emptySet()
-            diag.info(AREA, "focus moved to ${scope.tag}; old scope's work dropped")
+            focus.value = Focus(scope, filter)
+            visitedScopes += scope
         }
-        focus.value = Focus(scope, filter)
+        if (previous?.scope == scope) return
+        if (previous != null) diag.info(AREA, "focus moved to ${scope.tag}; old scope's work dropped")
+        // A scope coming on screen has its outbox resumed. At a cold start
+        // this is the only place it can be: the return to the foreground
+        // comes first, before anything is in focus, and finds no scope.
+        launchWork { resumeOutbox(scope) }
     }
 
     /**
@@ -161,7 +225,7 @@ class SyncCoordinator(
     }
 
     fun openThread(conversationId: String) {
-        openThreads.update { it + conversationId }
+        synchronized(batchLock) { openThreads.update { it + conversationId } }
         messages.watch(conversationId)
     }
 
@@ -173,25 +237,59 @@ class SyncCoordinator(
         messages.unwatch(conversationId)
     }
 
-    /** Signed out: nothing is in focus and nothing may be written for anyone. */
+    /**
+     * Signed out: nothing is in focus and nothing may be written for anyone.
+     *
+     * Everything this coordinator started is cancelled — a batch still in
+     * its window, a flush already waiting on the network, a resume, the
+     * poll. Cancelled is not finished, though: a read whose answer is being
+     * written goes on until the write ends. Before the account's rows are
+     * purged, use [clearAndJoin], which returns only once all of it has.
+     */
     fun clear() {
-        synchronized(batchLock) {
-            pendingConversations.clear()
-            pendingThreads.clear()
-            conversationFlush?.cancel()
-            threadFlush?.cancel()
-        }
-        focus.value = null
-        openThreads.value = emptySet()
+        stop()
+    }
+
+    /** [clear], and returns once nothing the old account started can still write. */
+    suspend fun clearAndJoin() {
+        stop().join()
+        // A read that was finishing as it was cancelled may have set these.
         _counts.value = null
         _failure.value = null
+    }
+
+    /** Stops the current job and starts the next one; returns the old job, to wait on. */
+    private fun stop(): Job {
+        val old: Job
+        val next = newWork()
+        synchronized(batchLock) {
+            pendingConversations.clear()
+            pendingReasons.clear()
+            pendingThreads.clear()
+            pendingThreadReasons.clear()
+            conversationFlush = null
+            threadFlush = null
+            conversationFailures = 0
+            threadFailures = 0
+            visitedScopes.clear()
+            focus.value = null
+            openThreads.value = emptySet()
+            old = work
+            work = next
+        }
+        dirty = false
+        old.cancel()
+        startLoop(next)
+        _counts.value = null
+        _failure.value = null
+        return old
     }
 
     fun setForeground(value: Boolean) {
         if (foreground.value == value) return
         foreground.value = value
         diag.info(AREA, if (value) "foreground" else "background: polling stops, push takes over")
-        if (value) appScope.launch { onForeground() }
+        if (value) launchWork { onForeground() }
     }
 
     fun setRealtime(health: RealtimeHealth) {
@@ -223,18 +321,27 @@ class SyncCoordinator(
     fun onRealtimeMessage(workspaceId: String, message: Message) {
         val f = focus.value ?: return
         if (f.scope.workspaceId != workspaceId) return
-        appScope.launch {
-            val wrote = runCatchingUnlessCancelled { messages.applyRealtime(f.scope, message) }.getOrDefault(false)
-            if (wrote) diag.info(AREA, "realtime message applied to ${Diag.id(message.conversationId)}")
+        val conversationId = message.conversationId
+        launchWork {
+            val applied = runCatchingUnlessCancelled { messages.applyRealtime(f.scope, message) }
+            if (applied.getOrDefault(false)) diag.info(AREA, "realtime message applied to ${Diag.id(conversationId)}")
+            val error = applied.exceptionOrNull() ?: return@launchWork
+            // The row was not written. A thread this phone keeps would stay
+            // without it until something else moved it, so its delta is
+            // asked for instead — the delta carries the same row.
+            diag.warn(AREA, "realtime message not applied: ${error.javaClass.simpleName}")
+            if (conversationId in openThreads.value || messages.isCached(f.scope, conversationId)) {
+                queueThread(f.scope, conversationId, "realtime retry")
+            }
         }
-        queueConversation(message.conversationId, "realtime message")
+        queueConversation(f.scope, conversationId, "realtime message")
         // The envelope a visitor's photo arrives in names the attachment in
         // its metadata but carries no `attachments` list, so the row it
         // writes is an empty bubble. For a thread on screen, such a message
         // brings a delta, which carries the attachment; a complete one needs
         // nothing more.
-        if (message.conversationId in openThreads.value && message.namesMissingAttachment()) {
-            queueThread(message.conversationId, "realtime attachment")
+        if (conversationId in openThreads.value && message.namesMissingAttachment()) {
+            queueThread(f.scope, conversationId, "realtime attachment")
         }
     }
 
@@ -257,28 +364,50 @@ class SyncCoordinator(
         val conversationId = event.conversationId?.takeIf { it.isNotBlank() }
         if (conversationId == null) {
             val contact = event.contactId ?: return
-            appScope.launch {
+            launchWork {
                 val ids = conversations.idsForContact(f.scope, contact)
-                ids.forEach { queueConversation(it, kind) }
+                ids.forEach { queueConversation(f.scope, it, kind) }
             }
             return
         }
-        queueConversation(conversationId, kind)
-        if (conversationId in openThreads.value) queueThread(conversationId, kind)
+        queueConversation(f.scope, conversationId, kind)
+        if (conversationId in openThreads.value) queueThread(f.scope, conversationId, kind)
+    }
+
+    /**
+     * The first session of a realtime run is up. Nothing was heard before
+     * it, so whatever changed between the screens' last reads and this
+     * subscribe — a message in the second it took to connect, everything
+     * since the last foreground — is found only by reading: one reconcile.
+     */
+    fun onRealtimeConnected() {
+        focus.value ?: return
+        launchWork { reconcile("connect") }
     }
 
     /**
      * Back from a disconnect. When Centrifugo replayed what was missed
      * ([recovered]) the publications have already come through the handlers
-     * above and there is nothing to do; otherwise nothing is assumed and the
-     * queue and the open thread are reconciled from their cursors.
+     * above and there is nothing to do — unless a read failed meanwhile;
+     * otherwise nothing is assumed and the queue and the open thread are
+     * reconciled from their cursors.
      */
     fun onRealtimeReconnected(recovered: Boolean) {
-        if (recovered) {
+        if (recovered && !dirty) {
             diag.info(AREA, "realtime recovered every missed publication; no reconcile needed")
             return
         }
-        appScope.launch { reconcile("reconnect") }
+        launchWork { reconcile("reconnect") }
+    }
+
+    /**
+     * The network came back. A read this phone still owes is made now, not
+     * at the next poll — in the foreground only: in the background push
+     * carries the app, and the return to the front reconciles anyway.
+     */
+    fun onNetworkAvailable() {
+        if (!dirty || !foreground.value || focus.value == null) return
+        launchWork { reconcile("network") }
     }
 
     /**
@@ -289,10 +418,10 @@ class SyncCoordinator(
     fun onPush(workspaceId: String, conversationId: String?) {
         val f = focus.value ?: return
         if (f.scope.workspaceId != workspaceId || conversationId.isNullOrBlank()) return
-        queueConversation(conversationId, "push")
-        appScope.launch {
+        queueConversation(f.scope, conversationId, "push")
+        launchWork {
             if (conversationId in openThreads.value || messages.isCached(f.scope, conversationId)) {
-                queueThread(conversationId, "push")
+                queueThread(f.scope, conversationId, "push")
             }
         }
     }
@@ -303,18 +432,19 @@ class SyncCoordinator(
      * holds the change (a send, confirmed by its own echo).
      */
     fun onLocalChange(conversationId: String, reason: String, thread: Boolean = true) {
-        queueConversation(conversationId, reason)
-        if (thread && conversationId in openThreads.value) queueThread(conversationId, reason)
+        val f = focus.value ?: return
+        queueConversation(f.scope, conversationId, reason)
+        if (thread && conversationId in openThreads.value) queueThread(f.scope, conversationId, reason)
     }
 
     // MARK: - Batching
 
-    private fun queueConversation(conversationId: String, reason: String) {
+    private fun queueConversation(scope: CacheScope, conversationId: String, reason: String) {
         synchronized(batchLock) {
-            pendingConversations += conversationId
+            pendingConversations += Pending(scope, conversationId)
             pendingReasons += reason
             if (conversationFlush?.isActive == true) return
-            conversationFlush = appScope.launch {
+            conversationFlush = launchWork {
                 delay(policy.batchWindowMs)
                 flushConversations()
             }
@@ -322,85 +452,179 @@ class SyncCoordinator(
     }
 
     private suspend fun flushConversations() {
-        val f = focus.value ?: return
-        val (ids, reasons) = synchronized(batchLock) {
-            val ids = pendingConversations.toList()
+        // The ids, the scope they are read in and the threads open in it, as
+        // one snapshot. Ids heard for another scope are that scope's, and
+        // dropped with it.
+        val (f, ids, reasons, openNow) = synchronized(batchLock) {
+            val f = focus.value
+            val ids = pendingConversations.filter { it.scope == f?.scope }.map { it.id }
             val reasons = pendingReasons.joinToString(",")
             pendingConversations.clear()
             pendingReasons.clear()
             conversationFlush = null
-            ids to reasons
+            Snapshot(f, ids, reasons, openThreads.value)
         }
-        if (ids.isEmpty()) return
+        if (f == null || ids.isEmpty()) return
+        val failed = LinkedHashSet<String>()
         runCatchingUnlessCancelled { conversations.refreshConversations(f.scope, ids, f.filter, reasons) }
-            .onFailure { diag.warn(AREA, "targeted read failed ($reasons): ${it.javaClass.simpleName}") }
+            .onFailure {
+                failed += ids
+                diag.warn(AREA, "targeted read failed ($reasons): ${it.javaClass.simpleName}")
+            }
         // A thread on screen is read by itself too, whatever queue it is in
         // now. The focused read only answers for its own queue — a chat
         // opened from the AI's that the AI has just handed over (or that the
         // operator took over, resolved, reassigned) left it, and only the
         // queue's absence was recorded: the header and the composer kept the
         // old state. By id, the row is rewritten wherever it went.
-        val open = ids.filter { it in openThreads.value }
+        val open = ids.filter { it in openNow }
         if (open.isNotEmpty()) {
             runCatchingUnlessCancelled {
                 conversations.refreshConversations(f.scope, open, filter = null, reason = reasons, removeMissing = false)
             }
-                .onFailure { diag.warn(AREA, "open-thread read failed ($reasons): ${it.javaClass.simpleName}") }
+                .onFailure {
+                    failed += open
+                    diag.warn(AREA, "open-thread read failed ($reasons): ${it.javaClass.simpleName}")
+                }
         }
         runCatchingUnlessCancelled { refreshCounts(f.scope, f.filter.queue) }
-    }
-
-    private fun queueThread(conversationId: String, reason: String) {
         synchronized(batchLock) {
-            pendingThreads += conversationId
-            if (threadFlush?.isActive == true) return
-            threadFlush = appScope.launch {
-                delay(policy.batchWindowMs)
-                flushThreads(reason)
+            if (failed.isEmpty()) {
+                conversationFailures = 0
+                return
+            }
+            // Tried again, later and later; past the limit the reconcile owes it.
+            if (focus.value?.scope != f.scope) return
+            conversationFailures++
+            if (conversationFailures > policy.retryLimit) {
+                conversationFailures = 0
+                giveUp("targeted read")
+                return
+            }
+            pendingConversations += failed.map { Pending(f.scope, it) }
+            pendingReasons += "retry"
+            // A batch already waiting (news arrived meanwhile) takes them along.
+            if (conversationFlush?.isActive == true) return
+            val wait = retryDelay(conversationFailures)
+            conversationFlush = launchWork {
+                delay(wait)
+                flushConversations()
             }
         }
     }
 
-    private suspend fun flushThreads(reason: String) {
-        val f = focus.value ?: return
-        val ids = synchronized(batchLock) {
-            val ids = pendingThreads.toList()
+    private fun queueThread(scope: CacheScope, conversationId: String, reason: String) {
+        synchronized(batchLock) {
+            pendingThreads += Pending(scope, conversationId)
+            pendingThreadReasons += reason
+            if (threadFlush?.isActive == true) return
+            threadFlush = launchWork {
+                delay(policy.batchWindowMs)
+                flushThreads()
+            }
+        }
+    }
+
+    private suspend fun flushThreads() {
+        val (f, ids, reason) = synchronized(batchLock) {
+            val f = focus.value
+            val ids = pendingThreads.filter { it.scope == f?.scope }.map { it.id }
+            val reason = pendingThreadReasons.joinToString(",")
             pendingThreads.clear()
+            pendingThreadReasons.clear()
             threadFlush = null
-            ids
+            Snapshot(f, ids, reason, emptySet())
         }
+        if (f == null || ids.isEmpty()) return
+        val failed = LinkedHashSet<String>()
         for (id in ids) {
+            // Moved on to another scope: the rest is the old one's.
+            if (focus.value?.scope != f.scope) return
             runCatchingUnlessCancelled { messages.sync(f.scope, id, reason) }
-                .onFailure { diag.warn(AREA, "thread delta failed ($reason): ${it.javaClass.simpleName}") }
+                .onFailure {
+                    failed += id
+                    diag.warn(AREA, "thread delta failed ($reason): ${it.javaClass.simpleName}")
+                }
         }
+        synchronized(batchLock) {
+            if (failed.isEmpty()) {
+                threadFailures = 0
+                return
+            }
+            if (focus.value?.scope != f.scope) return
+            threadFailures++
+            if (threadFailures > policy.retryLimit) {
+                threadFailures = 0
+                giveUp("thread delta")
+                return
+            }
+            pendingThreads += failed.map { Pending(f.scope, it) }
+            pendingThreadReasons += "retry"
+            if (threadFlush?.isActive == true) return
+            val wait = retryDelay(threadFailures)
+            threadFlush = launchWork {
+                delay(wait)
+                flushThreads()
+            }
+        }
+    }
+
+    /** One flush's input, read under [batchLock]. */
+    private data class Snapshot(val focus: Focus?, val ids: List<String>, val reasons: String, val open: Set<String>)
+
+    private fun retryDelay(attempt: Int): Long =
+        (policy.retryBaseMs shl (attempt - 1).coerceIn(0, 16)).coerceAtMost(policy.retryMaxMs)
+
+    private fun giveUp(what: String) {
+        dirty = true
+        diag.warn(AREA, "$what still failing after ${policy.retryLimit} retries; the next reconcile catches up")
     }
 
     // MARK: - Reconciling
 
     private suspend fun onForeground() {
-        val f = focus.value ?: return
+        focus.value ?: return
         reconcile("foreground")
-        resumeOutbox(f.scope)
+        // Every scope visited since sign-in, not only the one on screen: a
+        // send left PENDING in another workspace is as much in flight.
+        val scopes = synchronized(batchLock) { visitedScopes.toList() }
+        for (scope in scopes) resumeOutbox(scope)
     }
 
     /** Re-sends what was in flight when the process stopped; see [MessageRepository.resumeOutbox]. */
     suspend fun resumeOutbox(scope: CacheScope) {
-        val ids = messages.resumeOutbox(scope)
-        for (id in ids) runCatchingUnlessCancelled { messages.deliver(scope, id) }
+        outboxLock.withLock {
+            val ids = runCatchingUnlessCancelled { messages.resumeOutbox(scope) }
+                .onFailure { diag.warn(AREA, "outbox resume failed: ${it.javaClass.simpleName}") }
+                .getOrDefault(emptyList())
+            for (id in ids) runCatchingUnlessCancelled { messages.deliver(scope, id) }
+        }
     }
 
     /** "Has anything changed?" for the queue on screen and every open thread. */
     suspend fun reconcile(reason: String): Boolean {
-        val f = focus.value ?: return false
+        // The scope and the threads open in it, read together: a workspace
+        // switch between two separate reads would pair one scope with the
+        // other's threads, and write them under it.
+        val (f, open) = synchronized(batchLock) { focus.value to openThreads.value }
+        if (f == null) return false
+        // What is owed up to now is covered by this read; a failure owes it again.
+        dirty = false
         val inbox = refreshInbox(f.scope, f.filter, force = false, reason = reason)
         var changed = inbox.getOrNull() is InboxRefresh.Replaced
-        for (id in openThreads.value) {
+        var failed = inbox.isFailure
+        for (id in open) {
+            if (focus.value?.scope != f.scope) break
             val thread = runCatchingUnlessCancelled { messages.sync(f.scope, id, reason) }
             val result = thread.getOrNull()
             if (result is ThreadSync.Delta && result.count > 0 || result is ThreadSync.Full) changed = true
-            thread.exceptionOrNull()?.let { diag.warn(AREA, "thread read failed ($reason): ${it.javaClass.simpleName}") }
+            thread.exceptionOrNull()?.let {
+                failed = true
+                diag.warn(AREA, "thread read failed ($reason): ${it.javaClass.simpleName}")
+            }
         }
         runCatchingUnlessCancelled { refreshCounts(f.scope, f.filter.queue) }
+        if (failed && focus.value?.scope == f.scope) dirty = true
         return changed && inbox.isSuccess
     }
 
@@ -465,6 +689,8 @@ data class CountsSnapshot(val scope: CacheScope, val queue: String, val counts: 
  * The poll starts at 30 s — twice the Mac's 15 s, because a phone's radio
  * is woken by every request and a desk's is not — and stretches to 2 min
  * while nothing changes; the safety check under a healthy socket is 10 min.
+ * A failed targeted read is tried again after 2, 4, 8 and 16 s — about half
+ * a minute, then it is left to the next reconcile.
  */
 data class SyncPolicy(
     val batchWindowMs: Long = 400,
@@ -472,6 +698,9 @@ data class SyncPolicy(
     val pollMaxMs: Long = 120_000,
     val pollFailureMaxMs: Long = 300_000,
     val safetyIntervalMs: Long = 600_000,
+    val retryBaseMs: Long = 2_000,
+    val retryMaxMs: Long = 30_000,
+    val retryLimit: Int = 4,
 )
 
 /** For the repositories' error handling: a failure the operator should hear about as "offline". */

@@ -180,9 +180,10 @@ class ContactsTest {
                 search = search,
             )
         }
-        // After composition, not during it: `rememberSearchState` clears the
-        // terms on its first pass, and writing state from inside a composable
-        // is how you get a value that is read once and then thrown away.
+        // After composition, not during it: writing state from inside a
+        // composable is how you get a value that is read once and then thrown
+        // away. (`rememberSearchState` no longer clears on its first pass —
+        // only when its key changes — but the write belongs out here anyway.)
         compose.runOnIdle { search.text = "zzzz" }
 
         compose.onNodeWithText(Str.noResults(Language.FA)).assertIsDisplayed()

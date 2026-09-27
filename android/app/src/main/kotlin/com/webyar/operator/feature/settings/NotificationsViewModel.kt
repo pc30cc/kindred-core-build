@@ -51,16 +51,37 @@ class NotificationsViewModel(
     private val _state = MutableStateFlow(NotificationsState())
     val state: StateFlow<NotificationsState> = _state.asStateFlow()
 
+    /**
+     * Every request that answers with the whole row, numbered in the order
+     * it was sent. Only the newest one's answer replaces the row.
+     *
+     * Two switches flipped in quick succession are two requests, and their
+     * answers can come back in either order. The first one's answer is a
+     * snapshot from before the second change reached the server; taking it
+     * after the second's would flip the second switch back on screen while
+     * the server has it right. An older answer is dropped: the switches
+     * already show what was asked for, and the newest answer brings the rest.
+     * Touched only on the main thread, like the state itself.
+     */
+    private var latestRequest = 0
+
     init {
         load()
     }
 
     fun load() {
         _state.update { it.copy(loading = true, loadError = null) }
+        val mine = ++latestRequest
         viewModelScope.launch {
             runCatching { api.notificationPrefs() }
                 .onSuccess { prefs ->
-                    _state.update { it.copy(prefs = prefs, loading = false, loadError = null) }
+                    _state.update {
+                        it.copy(
+                            prefs = if (mine == latestRequest || it.prefs == null) prefs else it.prefs,
+                            loading = false,
+                            loadError = null,
+                        )
+                    }
                 }
                 .onFailure { error ->
                     _state.update {
@@ -96,6 +117,7 @@ class NotificationsViewModel(
         if (after == before) return
 
         _state.update { it.copy(prefs = after, saving = it.saving + 1, saveError = null) }
+        val mine = ++latestRequest
         viewModelScope.launch {
             runCatching { api.updateNotificationPrefs(field) }
                 .onSuccess { fresh ->
@@ -103,8 +125,9 @@ class NotificationsViewModel(
                         it.copy(
                             // The server's answer wins: it carries any field
                             // this build does not know about, and any value
-                            // it decided to normalise.
-                            prefs = fresh,
+                            // it decided to normalise. The newest answer,
+                            // that is — see [latestRequest].
+                            prefs = if (mine == latestRequest) fresh else it.prefs,
                             saving = (it.saving - 1).coerceAtLeast(0),
                             saveError = null,
                         )

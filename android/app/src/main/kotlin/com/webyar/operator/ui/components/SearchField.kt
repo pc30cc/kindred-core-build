@@ -91,7 +91,20 @@ fun rememberSearchState(resetOn: Any? = Unit): SearchState {
     val open = rememberSaveable { mutableStateOf(false) }
     val text = rememberSaveable { mutableStateOf("") }
     val state = remember { SearchState(open, text) }
-    LaunchedEffect(resetOn) { state.close() }
+    // The [resetOn] the terms belong to, saved beside them. Closing on every
+    // first composition — what a bare LaunchedEffect(resetOn) does — also
+    // closed it on the way BACK to a list: Back from a thread recomposes the
+    // list from its saved state, and the query restored with it was wiped a
+    // frame later. Only a key that actually changed is a new question. Kept
+    // as text so that any key — an id, an enum — can be saved.
+    val key = resetOn.toString()
+    val belongsTo = rememberSaveable { mutableStateOf(key) }
+    LaunchedEffect(key) {
+        if (belongsTo.value != key) {
+            belongsTo.value = key
+            state.close()
+        }
+    }
     return state
 }
 

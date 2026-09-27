@@ -256,12 +256,18 @@ private fun EmailMessageCard(
                     }
                     if (expanded) {
                         recipientsLine(message, mailbox, language)?.let { line ->
-                            LatinText(
+                            // Not LatinText: the line is a sentence in the
+                            // operator's language ("به من، …") with addresses
+                            // in it, and forcing it left to right scrambled
+                            // the Persian words around them. The sentence
+                            // takes its direction from its first word; each
+                            // address is isolated left to right inside it.
+                            Text(
                                 line,
-                                style = MaterialTheme.typography.labelMedium,
+                                style = MaterialTheme.typography.labelMedium.bidiContent(),
                                 color = WebyarTheme.colors.labelTertiary,
                                 maxLines = 2,
-                                align = rowTextAlign(),
+                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -385,10 +391,22 @@ private fun fullTime(message: EmailMessageView, language: Language): String {
     return "${Format.dayHeader(at, language)} ${Format.bubbleTime(at, language)}"
 }
 
-/** "to me, sara@x.com · Cc ali@y.com" — the mailbox named as "me". */
-private fun recipientsLine(message: EmailMessageView, mailbox: String?, language: Language): String? {
+/**
+ * "to me, sara@x.com · Cc ali@y.com" — the mailbox named as "me".
+ *
+ * Each address is wrapped in a left-to-right isolate (U+2066 … U+2069,
+ * written as escapes: the characters are invisible, and lint refuses them
+ * literally). Inside a Persian sentence an address is otherwise reordered
+ * with its neighbours — the domain ends up first, and the commas between
+ * addresses wander to the wrong ends.
+ */
+internal fun recipientsLine(message: EmailMessageView, mailbox: String?, language: Language): String? {
     fun name(address: String) =
-        if (mailbox != null && address.equals(mailbox, ignoreCase = true)) StrEmail.me(language) else address
+        if (mailbox != null && EmailComposeViewModel.sameAddress(address, mailbox)) {
+            StrEmail.me(language)
+        } else {
+            "\u2066$address\u2069"
+        }
     val to = message.toAddresses.orEmpty().map { name(it.email) }
     val cc = message.ccAddresses.orEmpty().map { name(it.email) }
     if (to.isEmpty() && cc.isEmpty()) return null

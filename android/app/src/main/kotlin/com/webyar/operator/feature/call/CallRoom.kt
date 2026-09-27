@@ -37,13 +37,25 @@ interface CallRoom {
 
     val events: Flow<Event>
 
+    /**
+     * Joins the room. Cancelling the caller cancels the join, and is never
+     * reported as a [Result.Failed]: a call the operator hung up while it
+     * connected ended because they hung up, not because it failed.
+     */
     suspend fun connect(url: String, credentials: CallToken, wantsVideo: Boolean): Result
-    suspend fun setMicrophone(enabled: Boolean)
-    suspend fun setCamera(enabled: Boolean)
+
+    /**
+     * Whether the change actually happened. A microphone another app has
+     * taken, or a camera that will not start, says no — and a button that
+     * went on claiming otherwise would be lying about the call.
+     */
+    suspend fun setMicrophone(enabled: Boolean): Boolean
+    suspend fun setCamera(enabled: Boolean): Boolean
 
     /** Earpiece or loudspeaker. Not suspending: the route changes at once. */
     fun setSpeaker(on: Boolean)
 
+    /** Leaves the room. Not suspending in practice, and safe to call twice. */
     suspend fun disconnect()
 
     /** Hands the microphone and camera back. Safe to call twice. */

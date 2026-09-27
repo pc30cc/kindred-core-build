@@ -30,14 +30,30 @@ class SettingsViewModel(private val api: WebyarApi) : ViewModel() {
     private val _saveFailed = MutableStateFlow(false)
     val saveFailed: StateFlow<Boolean> = _saveFailed.asStateFlow()
 
+    /**
+     * Requests numbered as they are sent, and the newest whose answer is on
+     * screen. Two toggles in quick succession can be answered in either
+     * order, and the first one's answer — a snapshot from before the second
+     * change — landing last would show the second switch back where it was.
+     * An answer older than the one on screen is dropped. Touched only on the
+     * main thread.
+     */
+    private var sent = 0
+    private var shown = 0
+
     init {
         load()
     }
 
     fun load() {
+        val mine = ++sent
         viewModelScope.launch {
-            _availability.value = runCatching { api.availability() }
+            val next = runCatching { api.availability() }
                 .fold({ AvailabilityState.Loaded(it) }, { AvailabilityState.Failed })
+            if (mine > shown) {
+                shown = mine
+                _availability.value = next
+            }
         }
     }
 
@@ -58,10 +74,14 @@ class SettingsViewModel(private val api: WebyarApi) : ViewModel() {
     }
 
     private fun patch(update: AvailabilityUpdate) {
+        val mine = ++sent
         viewModelScope.launch {
             runCatching { api.updateAvailability(update) }
                 .onSuccess {
-                    _availability.value = AvailabilityState.Loaded(it)
+                    if (mine > shown) {
+                        shown = mine
+                        _availability.value = AvailabilityState.Loaded(it)
+                    }
                     _saveFailed.value = false
                 }
                 // The switch stays where the server last said it was rather

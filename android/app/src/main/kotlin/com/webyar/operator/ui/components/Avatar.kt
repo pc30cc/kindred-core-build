@@ -389,9 +389,16 @@ internal fun countryMark(countryCode: String?): String? {
 /** [countryMark] for the screens that show a country beside its name: the flag where the device draws it, else the two letters. */
 fun countryMarkOf(countryCode: String?): String? = countryMark(countryCode)
 
-private val flagSupport = java.util.concurrent.atomic.AtomicReference<Boolean?>(null)
+/**
+ * Per flag, not once for the first one asked about. Support is not
+ * all-or-nothing: an older emoji font carries the flags that existed when
+ * it was made and not the ones added since, so the answer for Iran says
+ * nothing about the answer for somewhere else. At most a few hundred
+ * entries, one per country ever shown.
+ */
+private val flagSupport = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 
 private fun deviceDrawsFlags(sample: String): Boolean =
-    flagSupport.get() ?: runCatching { android.graphics.Paint().hasGlyph(sample) }
-        .getOrDefault(false)
-        .also { flagSupport.set(it) }
+    flagSupport.getOrPut(sample) {
+        runCatching { android.graphics.Paint().hasGlyph(sample) }.getOrDefault(false)
+    }

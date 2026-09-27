@@ -27,6 +27,7 @@ import com.webyar.operator.i18n.Str
 import com.webyar.operator.i18n.StrAndroid
 import com.webyar.operator.i18n.displayText
 import com.webyar.operator.ui.components.AttachmentCache
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,7 +59,16 @@ class ChatViewModel(
     /** Last-but-one so `ChatViewModel(api) { language }` still reads as it always did. */
     private val sync: SyncGraph = SyncGraph.inMemory(api),
     private val language: () -> Language,
+    /**
+     * Where a send and an upload run: the app's scope when there is one.
+     * In this model's own they were cancelled the moment the operator left
+     * the chat — the bubble stayed "sending" with no Retry until the app
+     * next came to the front.
+     */
+    private val outlive: CoroutineScope? = null,
 ) : ViewModel() {
+
+    private val work: CoroutineScope get() = outlive ?: viewModelScope
 
     private val _chat = MutableStateFlow<ChatState>(ChatState.Loading)
     val chat: StateFlow<ChatState> = _chat.asStateFlow()
@@ -132,8 +142,9 @@ class ChatViewModel(
         _draft.value = ""
         _notes.value = emptyList()
         usedShortcuts.clear()
+        seenUpTo = null
         sync.coordinator.ensureFocus(scope)
-        sync.coordinator.openThread(conversationId)
+        if (visible) sync.coordinator.openThread(conversationId)
 
         jobs = listOf(
             viewModelScope.launch {
@@ -155,7 +166,7 @@ class ChatViewModel(
                 sync.messages.observeThread(scope, conversationId).collect {
                     rows = it
                     publish()
-                    markSeenIfNew(it)
+                    markSeenIfUnseen()
                 }
             },
             viewModelScope.launch { refresh("open") },
@@ -163,41 +174,64 @@ class ChatViewModel(
         loadNotes()
     }
 
-    /** The newest visitor message already seen on this screen. */
-    private var lastVisitorKey: String? = null
+    /** The newest visitor message marked seen from this screen. */
+    private var seenUpTo: String? = null
     private var seenJob: Job? = null
 
+    /** Whether the chat is on screen, with the app in front. The route says when it is not. */
+    private var visible = true
+
     /**
-     * A visitor message that arrives while the chat is open has been read —
-     * the operator is looking at it. Marked seen shortly after it lands
-     * (several in a row are one request), or the thread on screen shows an
-     * unread badge in the list and on the operator's other devices.
-     *
-     * The first emission is what was already there; opening the chat marks
-     * that seen itself.
+     * On screen or not — from the route, which knows. A chat under another
+     * screen, or in a tab the operator has left, is not being read: it must
+     * not mark messages seen, nor keep their notifications away.
      */
-    private fun markSeenIfNew(list: List<Message>) {
-        val latest = list.lastOrNull { it.senderType == SenderType.CONTACT } ?: return
+    fun setVisible(value: Boolean) {
+        if (visible == value) return
+        visible = value
+        val id = conversationId ?: return
+        if (value) {
+            sync.coordinator.openThread(id)
+            markSeenIfUnseen()
+        } else {
+            seenJob?.cancel()
+            sync.coordinator.closeThread(id)
+        }
+    }
+
+    /**
+     * The visitor's newest message, if the operator has it in front of them
+     * and it is not yet marked seen. Several in a row are one request.
+     *
+     * Decided from what the cache shows rather than after a read: on a first
+     * open the thread arrives from the cache a moment after the read that
+     * fetched it, and deciding then ("nothing on screen yet") left every
+     * freshly opened thread unread.
+     */
+    private fun markSeenIfUnseen() {
+        if (!visible) return
+        val latest = rows?.lastOrNull { it.senderType == SenderType.CONTACT } ?: return
         val key = latest.stableKey
-        val previous = lastVisitorKey
-        lastVisitorKey = key
-        if (previous == null || previous == key) return
+        if (key == seenUpTo) return
         seenJob?.cancel()
         seenJob = viewModelScope.launch {
             delay(SEEN_DEBOUNCE_MS)
             val scope = scope ?: return@launch
             val id = conversationId ?: return@launch
             runCatchingUnlessCancelled { api.markSeen(id) }
-                .onSuccess { sync.conversations.clearUnread(scope, id) }
+                .onSuccess {
+                    seenUpTo = key
+                    sync.conversations.clearUnread(scope, id)
+                }
         }
     }
 
     private fun close() {
         seenJob?.cancel()
-        lastVisitorKey = null
+        seenUpTo = null
         jobs.forEach { it.cancel() }
         jobs = emptyList()
-        conversationId?.let { sync.coordinator.closeThread(it) }
+        if (visible) conversationId?.let { sync.coordinator.closeThread(it) }
     }
 
     override fun onCleared() {
@@ -227,12 +261,7 @@ class ChatViewModel(
                 if (!rows.isNullOrEmpty() && error.isOffline) _notice.value = StrAndroid.showingSaved(language())
             }
         publish()
-        if (!rows.isNullOrEmpty()) {
-            // Advisory: failing to mark a thread seen must never stop it being
-            // read.
-            runCatchingUnlessCancelled { api.markSeen(id) }
-                .onSuccess { sync.conversations.clearUnread(scope, id) }
-        }
+        markSeenIfUnseen()
     }
 
     private fun publish() {
@@ -267,9 +296,10 @@ class ChatViewModel(
         if (body.isEmpty() || _sending.value) return
 
         _sending.value = true
+        val typed = _draft.value
         val shortcutsUsed = usedShortcuts.toList()
         usedShortcuts.clear()
-        viewModelScope.launch {
+        work.launch {
             val localId = runCatchingUnlessCancelled {
                 sync.messages.enqueue(scope, id, body, sync.sender())
             }.getOrElse {
@@ -277,7 +307,8 @@ class ChatViewModel(
                 _sending.value = false
                 return@launch
             }
-            _draft.value = ""
+            // Only what was sent: anything typed since stays.
+            _draft.compareAndSet(typed, "")
             _sending.value = false
             deliver(scope, localId, shortcutsUsed)
         }
@@ -288,7 +319,7 @@ class ChatViewModel(
         val scope = scope ?: return
         val localId = message.localId ?: return
         if (message.delivery != Message.Delivery.FAILED) return
-        viewModelScope.launch { deliver(scope, localId, emptyList()) }
+        work.launch { deliver(scope, localId, emptyList()) }
     }
 
     /** Takes a message that never reached the server out of the thread. */
@@ -326,7 +357,11 @@ class ChatViewModel(
         val scope = scope ?: return
         val id = conversationId ?: return
         _sending.value = true
-        viewModelScope.launch {
+        // The caption is what was in the box when the file was picked, not
+        // whatever has been typed by the time the upload finishes.
+        val typed = _draft.value
+        val caption = typed.trim()
+        work.launch {
             val attachmentId = runCatchingUnlessCancelled {
                 api.uploadAttachment(
                     conversationId = id,
@@ -349,13 +384,13 @@ class ChatViewModel(
                 kind = AttachmentRules.kindOf(mimeType),
             )
             val localId = runCatchingUnlessCancelled {
-                sync.messages.enqueue(scope, id, _draft.value.trim(), sync.sender(), attachment)
+                sync.messages.enqueue(scope, id, caption, sync.sender(), attachment)
             }.getOrElse {
                 _notice.value = Str.attachmentFailed(language())
                 _sending.value = false
                 return@launch
             }
-            _draft.value = ""
+            _draft.compareAndSet(typed, "")
             _sending.value = false
             deliver(scope, localId, emptyList())
         }
@@ -418,10 +453,11 @@ class ChatViewModel(
         val body = _draft.value.trim()
         if (body.isEmpty() || _sending.value) return
         _sending.value = true
+        val typed = _draft.value
         viewModelScope.launch {
-            runCatching { api.aiSayNow(id, body, _sayNowVoice.value) }
+            runCatchingUnlessCancelled { api.aiSayNow(id, body, _sayNowVoice.value) }
                 .onSuccess {
-                    _draft.value = ""
+                    _draft.compareAndSet(typed, "")
                     refresh("say now")
                     // Say-now hands the thread back to the AI: its row has
                     // to move to the AI's queue and its composer change.

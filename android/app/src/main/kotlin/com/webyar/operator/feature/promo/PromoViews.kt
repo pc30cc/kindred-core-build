@@ -1,18 +1,22 @@
 package com.webyar.operator.feature.promo
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -157,11 +161,24 @@ fun PromoFullScreen(
 ) {
     val uriHandler = LocalUriHandler.current
 
+    // Back closes it, as it closes anything else that covers the screen.
+    // Composed over the navigation, this handler is the newest and so the
+    // one that answers — without it Back went to the screen underneath and
+    // navigated out from under a card that stayed up.
+    BackHandler(onBack = onDismiss)
+
     Surface(
         color = MaterialTheme.colorScheme.background,
         modifier = modifier.fillMaxSize().testTag(A11y.PROMO_FULLSCREEN),
     ) {
-        Box(Modifier.fillMaxSize()) {
+        // The background runs edge to edge; what is on it stays clear of the
+        // status bar, the camera cutout and the gesture bar — a close button
+        // under the clock is a close button nobody can press.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing),
+        ) {
             Column(
                 Modifier
                     .fillMaxSize()

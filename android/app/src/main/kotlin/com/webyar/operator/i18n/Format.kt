@@ -265,8 +265,15 @@ object Format {
     private val decimalCache = ConcurrentHashMap<String, NumberFormat>()
 
     private fun pattern(instant: Instant, template: String, locale: ULocale): String {
-        val format = patternCache.getOrPut("$template|$locale") {
-            DateFormat.getPatternInstance(template, locale)
+        // The zone is part of the key: a formatter takes the device's zone
+        // when it is built and keeps it, so an operator who lands in another
+        // city would otherwise read every time in the one they left. Asked
+        // for fresh on each call — the calendar arithmetic above already is.
+        val zone = java.util.TimeZone.getDefault().id
+        val format = patternCache.getOrPut("$template|$locale|$zone") {
+            DateFormat.getPatternInstance(template, locale).apply {
+                timeZone = android.icu.util.TimeZone.getTimeZone(zone)
+            }
         }
         // `Date(millis)` rather than `Date.from(instant)`: the latter is an
         // API 26 static, and core-library desugaring covers `java.time` — not

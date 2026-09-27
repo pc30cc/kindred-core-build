@@ -453,6 +453,20 @@ interface WebyarApi {
     suspend fun callToken(callSessionId: String, displayName: String?): CallToken
     suspend fun hangUp(callSessionId: String)
 
+    /**
+     * Ends a call for a reason other than the operator hanging up —
+     * `system_ended` when the visitor left or the room was lost, `failed`
+     * when the operator never got in. `POST /api/calls/:id/end`.
+     *
+     * [hangUp] records `operator_ended`, and saying that about a call the
+     * visitor walked out of puts the wrong name in the conversation's
+     * timeline. Idempotent on the server: the first end wins, so a visitor's
+     * own `visitor_ended` is never overwritten by this.
+     *
+     * Defaulted to [hangUp], so a fake with no opinion still ends the call.
+     */
+    suspend fun endCall(callSessionId: String, reason: String) = hangUp(callSessionId)
+
     // MARK: - Account
 
     /**

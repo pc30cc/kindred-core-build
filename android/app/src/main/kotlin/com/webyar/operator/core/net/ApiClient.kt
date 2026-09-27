@@ -1240,6 +1240,17 @@ class ApiClient(
         build(HttpMethod.Post, "/api/calls/${callSessionId.urlPath()}/hangup").orThrow()
     }
 
+    @Serializable
+    private data class EndCallBody(val reason: String)
+
+    override suspend fun endCall(callSessionId: String, reason: String) {
+        build(
+            HttpMethod.Post,
+            "/api/calls/${callSessionId.urlPath()}/end",
+            body = EndCallBody(reason),
+        ).orThrow()
+    }
+
     // MARK: - Realtime
 
     @Serializable

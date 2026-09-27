@@ -69,8 +69,8 @@ class CallSessionTest {
             return result
         }
 
-        override suspend fun setMicrophone(enabled: Boolean) { micEnabled = enabled }
-        override suspend fun setCamera(enabled: Boolean) { cameraEnabled = enabled }
+        override suspend fun setMicrophone(enabled: Boolean): Boolean { micEnabled = enabled; return true }
+        override suspend fun setCamera(enabled: Boolean): Boolean { cameraEnabled = enabled; return true }
         override fun setSpeaker(on: Boolean) { speaker = on }
         override suspend fun disconnect() { disconnected = true }
         override fun release() { released = true }

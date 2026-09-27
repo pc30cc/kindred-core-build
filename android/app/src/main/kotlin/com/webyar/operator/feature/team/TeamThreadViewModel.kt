@@ -3,8 +3,10 @@ package com.webyar.operator.feature.team
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.webyar.operator.core.model.TeamMessage
+import com.webyar.operator.core.net.ApiError
 import com.webyar.operator.core.net.WebyarApi
 import com.webyar.operator.i18n.Language
+import com.webyar.operator.i18n.StrAndroid
 import com.webyar.operator.i18n.displayText
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -169,21 +171,48 @@ class TeamThreadViewModel(
     }
 
     fun send() {
-        val body = _draft.value.trim()
+        val typed = _draft.value
+        val body = typed.trim()
         val workspace = workspaceId ?: return
         val peer = peerId ?: return
         if (body.isEmpty() || _sending.value) return
+        if (body.length > MAX_BODY_CHARS) {
+            // Said now, beside the words, rather than after a round trip
+            // that comes back as a bare 400.
+            _notice.value = StrAndroid.messageTooLong(language(), MAX_BODY_CHARS)
+            return
+        }
 
         _sending.value = true
         _sendFailed.value = false
         viewModelScope.launch {
             runCatching { api.sendTeamMessage(workspace, peer, body, attachmentId = null) }
                 .onSuccess {
-                    _draft.value = ""
+                    // Cleared only if it is still what went: the composer
+                    // stays live during the send, and words typed while it
+                    // was on its way are the next message, not this one.
+                    _draft.compareAndSet(typed, "")
                     reload()
                 }
-                .onFailure { _sendFailed.value = true }
+                .onFailure(::failed)
             _sending.value = false
+        }
+    }
+
+    /**
+     * Where a failed send is said.
+     *
+     * A connection that never reached the server is [sendFailed]'s one
+     * sentence about the network. A server that answered and refused — the
+     * file it will not take, a colleague no longer in the workspace — says
+     * why in [notice], because "you are offline" over a refusal sends the
+     * operator to check a connection that demonstrably works.
+     */
+    private fun failed(error: Throwable) {
+        if (error is ApiError && error !is ApiError.Transport) {
+            _notice.value = error.displayText(language())
+        } else {
+            _sendFailed.value = true
         }
     }
 
@@ -214,7 +243,7 @@ class TeamThreadViewModel(
                 api.sendTeamMessage(workspace, peer, body = "", attachmentId = attachmentId)
             }
                 .onSuccess { reload() }
-                .onFailure { _sendFailed.value = true }
+                .onFailure(::failed)
             _sending.value = false
         }
     }
@@ -222,8 +251,11 @@ class TeamThreadViewModel(
     suspend fun attachment(id: String): ByteArray? =
         runCatching { api.attachmentData(id) }.getOrNull()
 
-    private companion object {
+    companion object {
         /** What the console polls at. */
-        const val POLL_MILLIS = 10_000L
+        private const val POLL_MILLIS = 10_000L
+
+        /** The server's own limit on a message (`body` in server/routes/teamChat.ts). */
+        const val MAX_BODY_CHARS = 5000
     }
 }

@@ -4463,6 +4463,12 @@ const tr: TranslationKeys = {
           profilePhoneEditableHint: 'Kayıtlı bir numara her zaman gösterilir; bu seçenek değiştirilip değiştirilemeyeceğini belirler. Numara yoksa bu açık değilse satır gizlenir.',
           profilePhotoEditable: 'Profil fotoğrafı düzenlenebilir',
           profilePhotoEditableHint: 'Fotoğraf çekme, seçme veya kaldırma düğmeleri.',
+          tabsHeading: 'Uygulama sekmeleri',
+          tabsCaption: 'Uygulamanın alt çubuğundaki sekmeler. Bir anahtar yalnızca sekmeyi gizleyebilir: planında bu özellik olmayan bir çalışma alanı, burada ne ayarlanmış olursa olsun onu asla görmez.',
+          showVisitors: '"Ziyaretçiler" sekmesini göster',
+          showVisitorsHint: 'Şu anda sitede kimlerin olduğu, harita üzerinde, sayfa geçmişi ve sohbet başlatma düğmesiyle. Yalnızca ziyaretçi takibi olan planlar.',
+          showWebAnalytics: '"Web sitesi analitiği" sekmesini göster',
+          showWebAnalyticsHint: 'Ziyaretler, kaynaklar, sayfalar, coğrafya, cihazlar ve olaylar. Yalnızca web analitiği olan planlarda sahipler ve yöneticiler.',
         },
         identity: {
           heading: 'Uygulama kimliği',

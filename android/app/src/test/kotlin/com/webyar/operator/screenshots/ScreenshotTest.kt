@@ -30,6 +30,16 @@ import com.webyar.operator.feature.team.ColleaguesScreen
 import com.webyar.operator.feature.team.ColleaguesState
 import com.webyar.operator.feature.email.EmailInboxScreen
 import com.webyar.operator.feature.email.EmailInboxState
+import com.webyar.operator.feature.analytics.AnalyticsRange
+import com.webyar.operator.feature.analytics.AnalyticsReportScreen
+import com.webyar.operator.feature.analytics.AnalyticsScreen
+import com.webyar.operator.feature.analytics.AnalyticsSection
+import com.webyar.operator.feature.analytics.AnalyticsState
+import com.webyar.operator.feature.visitors.VisitorDetailScreen
+import com.webyar.operator.feature.visitors.VisitorHistoryState
+import com.webyar.operator.feature.visitors.VisitorText
+import com.webyar.operator.feature.visitors.VisitorsScreen
+import com.webyar.operator.feature.visitors.VisitorsState
 import com.webyar.operator.core.model.VisitorProfile
 import java.time.Instant
 import com.webyar.operator.i18n.Language
@@ -148,6 +158,80 @@ class ScreenshotTest {
             )
         }
     }
+
+    private fun visitors(name: String, language: Language, dark: Boolean) {
+        val list = runBlocking { api.liveVisitors("ws-1", includeOffline = true) }
+            .sortedByDescending { it.lastActivityAt }
+        shot(name, language, dark) {
+            VisitorsScreen(
+                state = VisitorsState(visitors = list, loading = false),
+                language = language,
+                onOpen = {},
+                onOpenPin = {},
+                onRefresh = {},
+                onOnlineOnly = {},
+                onChatOnly = {},
+                onCountry = {},
+                onIncludeOffline = {},
+                onClearFilters = {},
+            )
+        }
+    }
+
+    @Test fun visitorsFaLight() = visitors("visitors_fa_light", Language.FA, dark = false)
+    @Test fun visitorsEnDark() = visitors("visitors_en_dark", Language.EN, dark = true)
+
+    @Test
+    fun visitorDetailFaLight() {
+        val visitor = runBlocking { api.liveVisitors("ws-1", includeOffline = false) }.first()
+        val history = runBlocking { api.visitorPageHistory("ws-1", visitor.id) }
+        shot("visitor_detail_fa_light", Language.FA, dark = false) {
+            VisitorDetailScreen(
+                visitor = visitor,
+                now = Instant.now(),
+                history = VisitorHistoryState(visitor.id, VisitorText.steps(history, Language.FA), loading = false),
+                chatBusy = false,
+                language = Language.FA,
+                onChat = {},
+            )
+        }
+    }
+
+    private fun analyticsState(): AnalyticsState {
+        val (a, b) = AnalyticsRange.MONTH.bounds()
+        val (pa, pb) = AnalyticsRange.MONTH.previousBounds()
+        return AnalyticsState(
+            overview = runBlocking { api.analyticsOverview("ws-1", a, b) },
+            previous = runBlocking { api.analyticsOverview("ws-1", pa, pb) },
+            breakdowns = mapOf("geo.country" to runBlocking { api.analyticsGeography("ws-1", "country", a, b) }),
+            live = 3,
+        )
+    }
+
+    @Test
+    fun analyticsFaLight() = shot("analytics_fa_light", Language.FA, dark = false) {
+        AnalyticsScreen(analyticsState(), Language.FA, selected = null, onOpen = {}, onRange = {}, onRefresh = {})
+    }
+
+    private fun report(name: String, section: AnalyticsSection, language: Language, dark: Boolean) {
+        val state = analyticsState()
+        shot(name, language, dark) {
+            AnalyticsReportScreen(
+                section = section,
+                state = state,
+                language = language,
+                onRange = {},
+                onSourceDimension = {},
+                onPagesKind = {},
+                onGeoDimension = {},
+                onRetry = {},
+            )
+        }
+    }
+
+    @Test fun analyticsOverviewFaLight() = report("analytics_overview_fa_light", AnalyticsSection.OVERVIEW, Language.FA, dark = false)
+    @Test fun analyticsOverviewEnDark() = report("analytics_overview_en_dark", AnalyticsSection.OVERVIEW, Language.EN, dark = true)
+    @Test fun analyticsGeographyFaLight() = report("analytics_geography_fa_light", AnalyticsSection.GEOGRAPHY, Language.FA, dark = false)
 
     @Test fun settingsFaLight() = settings("settings_fa_light", Language.FA, dark = false)
     @Test fun settingsEnDark() = settings("settings_en_dark", Language.EN, dark = true)

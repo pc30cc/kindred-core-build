@@ -23,7 +23,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.CancellationException
@@ -126,24 +125,10 @@ class AppState(
     val selectedTab: StateFlow<AppTab> = _selectedTab.asStateFlow()
 
     /**
-     * The tabs this account actually has.
-     *
-     * Inbox and Settings are core and always present. Contacts is plan-gated,
-     * and **while the plan is still resolving it is left out** — a tab that
-     * appears a few seconds after launch and then vanishes reads as a bug, and
-     * the plan resolves long enough after a cold start for the operator to be
-     * reading something when it lands.
+     * The tabs this account actually has — [appTabsFor] over the plan, the
+     * operator's role and Super Admin's switches for the Android app.
      */
-    val tabs: StateFlow<List<AppTab>> = entitlements
-        .map { plan ->
-            buildList {
-                add(AppTab.INBOX)
-                if (plan.isResolved && plan.value?.moduleInPlan("contacts") == true) {
-                    add(AppTab.CONTACTS)
-                }
-                add(AppTab.SETTINGS)
-            }
-        }
+    val tabs: StateFlow<List<AppTab>> = combine(entitlements, access, appConfig, ::appTabsFor)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), listOf(AppTab.INBOX, AppTab.SETTINGS))
 
     fun selectTab(tab: AppTab) {
@@ -482,6 +467,15 @@ class AppState(
     }
 
     /**
+     * Asks for the plan now, whatever its age: a screen was just told by the
+     * server that the plan no longer carries it.
+     */
+    fun refreshPlan() {
+        if (_selectedWorkspace.value == null) return
+        loadEntitlements()
+    }
+
+    /**
      * The plan, with the operator's role and the AI and call-center switches
      * read alongside it (a side request that fails leaves its value unknown,
      * and never fails the plan).
@@ -535,5 +529,36 @@ class AppState(
         const val RETRY_FIRST_MS = 1_000L
         const val RETRY_MAX_MS = 30_000L
         const val RETRY_ATTEMPTS = 12
+    }
+}
+
+/**
+ * The tabs this account has.
+ *
+ * Inbox and Settings are core and always present. The rest follow the web
+ * console's `planAccess.ts`:
+ *
+ * - **Contacts** — the plan's `contacts` module.
+ * - **Visitors** — the plan's `visitor_tracking` module, any role.
+ * - **Website analytics** — the plan's `web_analytics` module, owners and
+ *   admins only (the web's `ADMIN_ONLY`), so it waits for the role as well.
+ *
+ * Super Admin's switches for the Android app (`showVisitors`,
+ * `showWebAnalytics`) can only take a tab away: a switch left on never shows
+ * what the plan does not carry.
+ *
+ * **While the plan is still resolving the gated tabs are left out** — a tab
+ * that appears a few seconds after launch and then vanishes reads as a bug,
+ * and the plan resolves long enough after a cold start for the operator to be
+ * reading something when it lands.
+ */
+internal fun appTabsFor(plan: EntitlementsState, access: WorkspaceAccess, config: MobileAppConfig): List<AppTab> {
+    val resolved = plan.value.takeIf { plan.isResolved }
+    return buildList {
+        add(AppTab.INBOX)
+        if (resolved?.moduleInPlan("contacts") == true) add(AppTab.CONTACTS)
+        if (config.showVisitors && resolved?.moduleInPlan("visitor_tracking") == true) add(AppTab.VISITORS)
+        if (config.showWebAnalytics && access.isAdmin && resolved?.moduleInPlan("web_analytics") == true) add(AppTab.ANALYTICS)
+        add(AppTab.SETTINGS)
     }
 }

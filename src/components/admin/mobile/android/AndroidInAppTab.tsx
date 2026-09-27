@@ -7,7 +7,7 @@
  * the value the app already behaved with, except the name on the profile,
  * which is read-only unless allowed here.
  */
-import { Settings2, UserRound } from 'lucide-react';
+import { LayoutGrid, Settings2, UserRound } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { SettingsSection, FieldGrid, SwitchField } from '@/components/admin/settings/SettingsFields';
 import type { MobileAppSettings } from '@/hooks/useMobileApp';
@@ -52,6 +52,27 @@ export function AndroidInAppTab({
             hint={t('admin.mobileApp.android.inApp.allowWallpaperColorsHint')}
             checked={draft.android_app_allow_wallpaper_colors}
             onChange={(android_app_allow_wallpaper_colors) => set({ android_app_allow_wallpaper_colors })}
+          />
+        </FieldGrid>
+      </SettingsSection>
+
+      <SettingsSection
+        icon={LayoutGrid}
+        heading={t('admin.mobileApp.android.inApp.tabsHeading')}
+        caption={t('admin.mobileApp.android.inApp.tabsCaption')}
+      >
+        <FieldGrid>
+          <SwitchField
+            label={t('admin.mobileApp.android.inApp.showVisitors')}
+            hint={t('admin.mobileApp.android.inApp.showVisitorsHint')}
+            checked={draft.android_app_show_visitors}
+            onChange={(android_app_show_visitors) => set({ android_app_show_visitors })}
+          />
+          <SwitchField
+            label={t('admin.mobileApp.android.inApp.showWebAnalytics')}
+            hint={t('admin.mobileApp.android.inApp.showWebAnalyticsHint')}
+            checked={draft.android_app_show_web_analytics}
+            onChange={(android_app_show_web_analytics) => set({ android_app_show_web_analytics })}
           />
         </FieldGrid>
       </SettingsSection>

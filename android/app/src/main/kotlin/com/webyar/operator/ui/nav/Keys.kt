@@ -85,6 +85,30 @@ sealed interface Screen : NavKey {
     override val tab get() = AppTab.CONTACTS
 }
 
+/** Who is on the site now: the list, or the map. */
+@Serializable data object VisitorsKey : Screen { override val tab get() = AppTab.VISITORS }
+
+/** One live visitor, by their session id. */
+@Serializable data class LiveVisitorKey(val sessionId: String) : Screen {
+    override val tab get() = AppTab.VISITORS
+}
+
+/**
+ * A chat opened from the Visitors tab. On that tab's stack, so Back returns
+ * to the visitor rather than to the inbox.
+ */
+@Serializable data class VisitorChatKey(val conversationId: String) : Screen {
+    override val tab get() = AppTab.VISITORS
+}
+
+/** Website analytics: the range and the reports to pick from. */
+@Serializable data object AnalyticsKey : Screen { override val tab get() = AppTab.ANALYTICS }
+
+/** One report, by its section's wire name. */
+@Serializable data class AnalyticsSectionKey(val section: String) : Screen {
+    override val tab get() = AppTab.ANALYTICS
+}
+
 @Serializable data object SettingsKey : Screen { override val tab get() = AppTab.SETTINGS }
 
 @Serializable data object ProfileKey : Screen { override val tab get() = AppTab.SETTINGS }
@@ -98,6 +122,8 @@ val AppTab.root: Screen
     get() = when (this) {
         AppTab.INBOX -> InboxKey
         AppTab.CONTACTS -> ContactsKey
+        AppTab.VISITORS -> VisitorsKey
+        AppTab.ANALYTICS -> AnalyticsKey
         AppTab.SETTINGS -> SettingsKey
     }
 

@@ -37,6 +37,8 @@ export function AndroidOverviewTab({
     { key: 'profileNameEditable', on: settings.android_app_profile_name_editable, standard: false },
     { key: 'profilePhoneEditable', on: settings.android_app_profile_phone_editable, standard: false },
     { key: 'profilePhotoEditable', on: settings.android_app_profile_photo_editable, standard: true },
+    { key: 'showVisitors', on: settings.android_app_show_visitors, standard: true },
+    { key: 'showWebAnalytics', on: settings.android_app_show_web_analytics, standard: true },
   ] as const;
 
   return (

@@ -109,7 +109,11 @@ fun CallScreen(
     ) {
         Box(Modifier.fillMaxSize()) {
             if (remoteVideo != null && room != null) {
-                VideoView(remoteVideo, room, Modifier.fillMaxSize())
+                // Flipped once, as the console (src/index.css, "Call video
+                // orientation") and the Mac app flip every call video: the
+                // visitor's camera arrives mirrored, and unflipped they were
+                // shown to the operator the wrong way round.
+                VideoView(remoteVideo, room, Modifier.fillMaxSize(), mirror = true)
             }
 
             Column(

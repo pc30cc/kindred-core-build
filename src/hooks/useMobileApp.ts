@@ -151,6 +151,8 @@ export interface MobileAppSettings {
   android_app_profile_name_editable: boolean;
   android_app_profile_phone_editable: boolean;
   android_app_profile_photo_editable: boolean;
+  android_app_show_visitors: boolean;
+  android_app_show_web_analytics: boolean;
 
   checklist: Record<string, { done: boolean; at?: string; by?: string }>;
   updated_at?: string | null;

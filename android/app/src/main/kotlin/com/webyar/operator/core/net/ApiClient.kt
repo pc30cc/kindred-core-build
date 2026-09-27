@@ -103,6 +103,17 @@ import com.webyar.operator.core.model.EmailFolder
 import com.webyar.operator.core.model.EmailDraft
 import com.webyar.operator.core.model.StagedEmailAttachment
 import io.ktor.http.content.ByteArrayContent
+import com.webyar.operator.core.model.LiveVisitor
+import com.webyar.operator.core.model.LiveVisitorsResponse
+import com.webyar.operator.core.model.VisitorPageHistory
+import com.webyar.operator.core.model.StartChatResult
+import com.webyar.operator.core.model.VisitorMapResponse
+import com.webyar.operator.core.model.VisitorMapConfig
+import com.webyar.operator.core.model.AnalyticsOverview
+import com.webyar.operator.core.model.AnalyticsRows
+import com.webyar.operator.core.model.AnalyticsPages
+import com.webyar.operator.core.model.AnalyticsEvents
+import com.webyar.operator.core.model.AnalyticsLiveCount
 
 /**
  * Talks to the same REST API the web client uses.
@@ -1193,6 +1204,63 @@ class ApiClient(
             "/api/realtime/operator-user-subscribe",
             body = RealtimeWorkspaceBody(workspaceId),
         ).decode()
+
+    // MARK: - Visitors
+
+    override suspend fun liveVisitors(workspaceId: String, includeOffline: Boolean): List<LiveVisitor> {
+        val query = buildList {
+            add("workspace_id" to workspaceId)
+            add("limit" to "200")
+            if (includeOffline) add("include_offline" to "1")
+        }
+        return build(HttpMethod.Get, "/api/visitor-intel/live", query).decode<LiveVisitorsResponse>().items
+    }
+
+    override suspend fun visitorPageHistory(workspaceId: String, sessionId: String): VisitorPageHistory =
+        build(
+            HttpMethod.Get,
+            "/api/visitor-intel/${sessionId.urlPath()}/page-history",
+            listOf("workspace_id" to workspaceId, "limit" to "20"),
+        ).decode()
+
+    @Serializable
+    private data class StartChatBody(val workspace_id: String, val visitor_session_id: String)
+
+    override suspend fun startChatWithVisitor(workspaceId: String, sessionId: String): StartChatResult =
+        build(HttpMethod.Post, "/api/conversations/start-from-visitor", body = StartChatBody(workspaceId, sessionId)).decode()
+
+    override suspend fun visitorMap(workspaceId: String): VisitorMapResponse =
+        build(HttpMethod.Get, "/api/visitor-intel/map", listOf("workspace_id" to workspaceId)).decode()
+
+    override suspend fun visitorMapConfig(workspaceId: String): VisitorMapConfig =
+        build(HttpMethod.Get, "/api/visitor-intel/map-config", listOf("workspace_id" to workspaceId)).decode()
+
+    // MARK: - Website analytics
+
+    private fun analytics(workspaceId: String, tail: String) = "/api/web-analytics/${workspaceId.urlPath()}/$tail"
+
+    private fun range(start: String, end: String) = listOf("startDate" to start, "endDate" to end)
+
+    override suspend fun analyticsOverview(workspaceId: String, start: String, end: String): AnalyticsOverview =
+        build(HttpMethod.Get, analytics(workspaceId, "overview"), range(start, end)).decode()
+
+    override suspend fun analyticsLiveVisitors(workspaceId: String): Int =
+        build(HttpMethod.Get, analytics(workspaceId, "live-visitors")).decode<AnalyticsLiveCount>().count ?: 0
+
+    override suspend fun analyticsTrafficSources(workspaceId: String, dimension: String, start: String, end: String): AnalyticsRows =
+        build(HttpMethod.Get, analytics(workspaceId, "traffic-sources"), listOf("dimension" to dimension) + range(start, end)).decode()
+
+    override suspend fun analyticsGeography(workspaceId: String, dimension: String, start: String, end: String): AnalyticsRows =
+        build(HttpMethod.Get, analytics(workspaceId, "geography"), listOf("dimension" to dimension) + range(start, end)).decode()
+
+    override suspend fun analyticsTechnology(workspaceId: String, dimension: String, start: String, end: String): AnalyticsRows =
+        build(HttpMethod.Get, analytics(workspaceId, "browsers-systems"), listOf("dimension" to dimension) + range(start, end)).decode()
+
+    override suspend fun analyticsPages(workspaceId: String, kind: String, start: String, end: String): AnalyticsPages =
+        build(HttpMethod.Get, analytics(workspaceId, "pages"), listOf("kind" to kind) + range(start, end)).decode()
+
+    override suspend fun analyticsEvents(workspaceId: String, start: String, end: String): AnalyticsEvents =
+        build(HttpMethod.Get, analytics(workspaceId, "events"), range(start, end)).decode()
 
     // MARK: - Push devices
 

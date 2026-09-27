@@ -267,6 +267,8 @@ public sealed partial class ShellPage
 
     private void RenderActiveCall()
     {
+        // A call enlarged over the window has the whole of it: no sidebar beside it.
+        Nav.IsPaneVisible = LiveCall.Running?.IsExpanded != true;
         // As on the Mac: only for a call in its page, and only while that page is not the one on show.
         if (LiveCall.Running is not { } call || call.Shown != LiveCall.Presentation.Docked || CallDock.IsOnScreen)
         {

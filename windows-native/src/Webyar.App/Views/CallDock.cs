@@ -104,7 +104,13 @@ internal static class CallDock
             if (_surface is { } surface && _layer is { } layer)
             {
                 var view = surface.View;
-                if (holder is not null && holder.ActualWidth > 0 && holder.XamlRoot is not null && ReferenceEquals(holder.XamlRoot, layer.XamlRoot))
+                if (docked && call!.IsExpanded && layer.ActualWidth > 0)
+                {
+                    // Enlarged: the same view over the whole window, so the call goes on untouched.
+                    Set(view, 0, 0, layer.ActualWidth, layer.ActualHeight);
+                    holder ??= Slots.FirstOrDefault(s => s.CallKey == call.DockKey);
+                }
+                else if (holder is not null && holder.ActualWidth > 0 && holder.XamlRoot is not null && ReferenceEquals(holder.XamlRoot, layer.XamlRoot))
                 {
                     var box = holder.TransformToVisual(layer).TransformBounds(new Rect(0, 0, holder.ActualWidth, holder.ActualHeight));
                     Set(view, box.X + Side, box.Y + Top, Math.Max(0, box.Width - 2 * Side), PanelHeight(holder, call!.DockHeight));

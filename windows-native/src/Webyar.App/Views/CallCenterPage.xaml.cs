@@ -686,7 +686,8 @@ public sealed partial class CallCenterPage : Page
         if (callId != _selectedId) return;
         _selectedCall = detail.Call;
         if (!_byId.ContainsKey(callId)) ShowCall(detail.Call, waiting: false);
-        ShowTimeline(detail.Events ?? []);
+        // The server's own bookkeeping (LiveKit's room events, the assignment an accept makes) is not the call's story.
+        ShowTimeline((detail.Events ?? []).Where(e => !CallText.IsInternal(e.EventType)).ToList());
         var notes = await Host.Api.CallNotesAsync(ws.Id, callId, ct);
         if (callId == _selectedId) ShowNotes(notes);
     }
@@ -1110,7 +1111,11 @@ public sealed partial class CallCenterPage : Page
     private void OnDetailSize(object sender, SizeChangedEventArgs e)
     {
         var single = e.NewSize.Width < 620;
+        var pad = single ? 16 : 28;
         DetailStack.Padding = single ? new Thickness(16, 16, 16, 20) : new Thickness(28, 24, 28, 24);
+        // The docked call as wide as the cards under it, and centred like them (the panel has 12 at its sides).
+        DockSlot.MaxWidth = 760 - 2 * pad + 24;
+        DockSlot.Margin = new Thickness(pad - 12, 0, pad - 12, 0);
         foreach (var grid in new[] { ContextGrid, HistoryGrid })
         {
             grid.ColumnDefinitions[1].Width = single ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
@@ -1228,6 +1233,10 @@ public static class CallText
         };
         return key is null ? (type ?? string.Empty).Replace('_', ' ') : s[key];
     }
+
+    /// <summary>Events the server records for itself: LiveKit's (lk.*) and the assignment an accept makes.</summary>
+    public static bool IsInternal(string? type) =>
+        type is null || type.StartsWith("lk.", StringComparison.Ordinal) || type is "call_assigned_on_accept";
 
     public static string EventColor(string? type) => type switch
     {

@@ -348,7 +348,8 @@ public sealed partial class ColleaguesPage : Page
         try
         {
             var picker = new Windows.Storage.Pickers.FileOpenPicker();
-            picker.FileTypeFilter.Add("*");
+            // Only the kinds of file the server accepts, so nothing is picked just to be refused.
+            foreach (var ext in Mime.SendableExtensions) picker.FileTypeFilter.Add(ext);
             WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(App.Current.Window!));
             var file = await picker.PickSingleFileAsync();
             if (file is null) return;
@@ -361,7 +362,7 @@ public sealed partial class ColleaguesPage : Page
             var buffer = await Windows.Storage.FileIO.ReadBufferAsync(file);
             var data = new byte[buffer.Length];
             using (var reader = Windows.Storage.Streams.DataReader.FromBuffer(buffer)) reader.ReadBytes(data);
-            await SetPendingAsync(file.Name, string.IsNullOrEmpty(file.ContentType) ? Mime.Of(file.Name) : file.ContentType, data);
+            await SetPendingAsync(file.Name, Mime.ForUpload(file.Name, file.ContentType), data);
             Composer.Focus(FocusState.Programmatic);
         }
         catch (Exception ex)
@@ -384,6 +385,12 @@ public sealed partial class ColleaguesPage : Page
 
     private async Task SetPendingAsync(string name, string mime, byte[] data)
     {
+        // A file the server would refuse (415): said now, in plain words, not "you don't have access" after the upload.
+        if (!Mime.CanSend(mime))
+        {
+            ShowError(Host.Strings["fileTypeNotAllowed"]);
+            return;
+        }
         _pendingFile = (name, mime, data);
         PendingFileName.Text = name;
         PendingFileSize.Text = AttachmentItem.FormatSize(data.LongLength, Host.Strings);

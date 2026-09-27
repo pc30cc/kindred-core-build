@@ -1,32 +1,21 @@
-# Desktop installer downloads (Windows and macOS)
+# App downloads (Windows installer, Android APK, Mac DMG)
 
-Served from the production host, not from the frontend image: large binaries do
-not belong in git or in every frontend build, and the files must survive
-redeploys.
-
-| | Latest | A given version |
-|---|---|---|
-| Windows | `https://app.webyar.ai/downloads/Webyar-Setup.exe` | `…/Webyar-Setup-<version>.exe` |
-| macOS | `https://app.webyar.ai/downloads/Webyar-Mac.dmg` | `…/Webyar-Mac-<version>.dmg` |
+`https://app.webyar.ai/downloads/Webyar-Setup.exe` (latest) and
+`https://app.webyar.ai/downloads/Webyar-Setup-<version>.exe` are served from the
+production host, not from the frontend image: an ~90 MB binary does not belong
+in git or in every frontend build, and the file must survive redeploys.
 
 On the host (analyticsme.site):
 
-- Files: `/data/webyar-downloads/files/`. `Webyar-Setup.exe` and
-  `Webyar-Mac.dmg` are symlinks to the current `Webyar-Setup-<version>.exe` and
-  `Webyar-Mac-<version>.dmg`.
+- Files: `/data/webyar-downloads/files/`. `Webyar-Setup.exe` is a symlink to
+  the current `Webyar-Setup-<version>.exe`.
 - Server: container `webyar-downloads` (`nginx:alpine`, network `coolify`,
   restart `unless-stopped`) with `nginx.conf` from this folder mounted as
   `/etc/nginx/conf.d/default.conf` and the files directory at `/data` (read-only).
 - Routing: `traefik-webyar-downloads.yaml` from this folder lives at
   `/data/coolify/proxy/dynamic/webyar-downloads.yaml`. It matches only
-  `/downloads/Webyar-Setup*.exe` and `/downloads/Webyar-Mac*.dmg`; everything
-  else under `/downloads/` (the WooCommerce plugin) still reaches the frontend.
-- After changing `nginx.conf`, restart the container (`docker restart
-  webyar-downloads`): the file is bind-mounted, and a container keeps the file
-  it started with once the path is rewritten, so `nginx -s reload` alone can
-  keep serving the old rules.
-- Cloudflare caches a 404 for a few minutes: a new file name requested before
-  its file is in place answers 404 for a short while afterwards.
+  `/downloads/Webyar-Setup*.exe`; everything else under `/downloads/` (the
+  WooCommerce plugin) still reaches the frontend.
 
 Recreate the container:
 
@@ -36,11 +25,48 @@ Recreate the container:
       -v /data/webyar-downloads/nginx.conf:/etc/nginx/conf.d/default.conf:ro \
       nginx:alpine
 
-Publish a new version:
+Publish a new version: copy `Webyar-Setup.exe` from `windows-native/releases/`
+to `/data/webyar-downloads/files/Webyar-Setup-<version>.exe`, then
+`ln -sf Webyar-Setup-<version>.exe /data/webyar-downloads/files/Webyar-Setup.exe`.
 
-- Windows: copy `Webyar-Setup.exe` from `windows-native/releases/` to
-  `/data/webyar-downloads/files/Webyar-Setup-<version>.exe`, then
-  `ln -sf Webyar-Setup-<version>.exe /data/webyar-downloads/files/Webyar-Setup.exe`.
-- macOS: build the DMG on a Mac (`macos/scripts/make-dmg.sh <version> <build>`),
-  copy it to `/data/webyar-downloads/files/Webyar-Mac-<version>.dmg`, then
-  `ln -sf Webyar-Mac-<version>.dmg /data/webyar-downloads/files/Webyar-Mac.dmg`.
+## The Android app
+
+`https://app.webyar.ai/downloads/Webyar-Android.apk` (latest) and
+`https://app.webyar.ai/downloads/Webyar-Android-<version>.apk` come from the same
+container and folder. `nginx.conf` and the Traefik rule above already carry the
+`Webyar-Android*.apk` route; after updating either on the host:
+`docker exec webyar-downloads nginx -s reload` (Traefik rereads its dynamic
+folder by itself).
+
+The APK is the universal release build (every ABI), signed with the release
+key — see `docs/ANDROID_RELEASE.md`. Publish a new version:
+
+    v=1.0.0
+    scp Webyar-Android-$v.apk root@analyticsme.site:/data/webyar-downloads/files/
+    ssh root@analyticsme.site "cd /data/webyar-downloads/files && ln -sf Webyar-Android-$v.apk Webyar-Android.apk"
+
+The site's download page (webyar.ai → admin → «برنامه‌ها و دانلود» → Android)
+points at `https://app.webyar.ai/downloads/Webyar-Android.apk`, so a new
+version needs only the symlink moved.
+
+## The Mac app
+
+`https://app.webyar.ai/downloads/Webyar-Mac.dmg` (latest) and
+`https://app.webyar.ai/downloads/Webyar-Mac-<version>.dmg` come from the same
+container and folder; `nginx.conf` and the Traefik rule above carry the
+`Webyar-Mac*.dmg` route. The DMG is one Universal app (Apple Silicon and Intel,
+macOS 14+), built on a Mac with `macos/scripts/make-dmg.sh <version> <build>`.
+Publish it:
+
+    v=1.0.2
+    scp Webyar-Mac-$v.dmg root@analyticsme.site:/data/webyar-downloads/files/
+    ssh root@analyticsme.site "cd /data/webyar-downloads/files && ln -sf Webyar-Mac-$v.dmg Webyar-Mac.dmg"
+
+Two things learnt putting it up:
+
+- After changing `nginx.conf`, restart the container (`docker restart
+  webyar-downloads`): the file is bind-mounted, and a container keeps the copy
+  it started with once the file is rewritten in place of the old one, so
+  `nginx -s reload` alone can keep serving the old rules.
+- Cloudflare caches a 404 for a few minutes: a new file name asked for before
+  its route is in place answers 404 for a short while afterwards.

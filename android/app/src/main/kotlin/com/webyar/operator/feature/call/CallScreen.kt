@@ -10,14 +10,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -28,12 +27,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
@@ -107,7 +109,12 @@ fun CallScreen(
         contentColor = Color.White,
         modifier = modifier.fillMaxSize().testTag(A11y.CALL_SCREEN),
     ) {
-        Box(Modifier.fillMaxSize()) {
+        // Where the name and the timer end and the buttons begin, from the top
+        // of the screen: the operator's own picture floats between the two.
+        var screenTop by remember { mutableFloatStateOf(0f) }
+        var headerBottom by remember { mutableFloatStateOf(0f) }
+        var controlsTop by remember { mutableFloatStateOf(Float.MAX_VALUE) }
+        Box(Modifier.fillMaxSize().onGloballyPositioned { screenTop = it.boundsInRoot().top }) {
             if (remoteVideo != null && room != null) {
                 // Flipped once, as the console (src/index.css, "Call video
                 // orientation") and the Mac app flip every call video: the
@@ -124,53 +131,57 @@ fun CallScreen(
                     .padding(horizontal = Space.screenInset),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Identity(
-                    phase = phase,
-                    contactName = contactName,
-                    contactAvatarUrl = contactAvatarUrl,
-                    visitor = visitor,
-                    connectedAt = connectedAt,
-                    language = language,
-                    // The face is redundant once their picture is on screen,
-                    // and a circle over a video window is just something in
-                    // the way.
-                    compact = remoteVideo != null,
-                )
+                Column(
+                    Modifier.onGloballyPositioned { headerBottom = it.boundsInRoot().bottom },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Identity(
+                        phase = phase,
+                        contactName = contactName,
+                        contactAvatarUrl = contactAvatarUrl,
+                        visitor = visitor,
+                        connectedAt = connectedAt,
+                        language = language,
+                        // The face is redundant once their picture is on screen,
+                        // and a circle over a video window is just something in
+                        // the way.
+                        compact = remoteVideo != null,
+                    )
 
-                if (relayWarning) Notice(Str.callRelayWarning(language))
-                degraded?.let { Notice(it.title(language)) }
-
-                Box(Modifier.weight(1f), contentAlignment = Alignment.BottomEnd) {
-                    if (localVideo != null && room != null && cameraOn) {
-                        // Our own picture, in a card over theirs. Mirrored,
-                        // because a front camera that is not reads as somebody
-                        // else's face doing the wrong thing.
-                        Surface(
-                            shape = RoundedCornerShape(Radius.lg),
-                            color = Color.Black,
-                            modifier = Modifier
-                                .padding(bottom = Space.lg)
-                                .width(110.dp)
-                                .aspectRatio(3f / 4f)
-                                .clip(RoundedCornerShape(Radius.lg)),
-                        ) {
-                            VideoView(localVideo, room, Modifier.fillMaxSize(), mirror = true)
-                        }
-                    }
+                    if (relayWarning) Notice(Str.callRelayWarning(language))
+                    degraded?.let { Notice(it.title(language)) }
                 }
 
-                Controls(
-                    phase = phase,
-                    channel = channel,
+                Spacer(Modifier.weight(1f))
+
+                Box(Modifier.onGloballyPositioned { controlsTop = it.boundsInRoot().top }) {
+                    Controls(
+                        phase = phase,
+                        channel = channel,
+                        language = language,
+                        muted = muted,
+                        cameraOn = cameraOn,
+                        speakerOn = speakerOn,
+                        onToggleMute = onToggleMute,
+                        onToggleCamera = onToggleCamera,
+                        onToggleSpeaker = onToggleSpeaker,
+                        onHangUp = onHangUp,
+                        onDone = onDone,
+                    )
+                }
+            }
+
+            // Only once the name and the buttons have been measured, so it
+            // appears in its corner rather than sliding there from the top.
+            if (localVideo != null && room != null && cameraOn && controlsTop != Float.MAX_VALUE) {
+                // Over everything but where the buttons are: drag it to any
+                // corner, pinch or double-tap to size it.
+                SelfView(
+                    track = localVideo,
+                    room = room,
+                    areaTop = headerBottom - screenTop,
+                    areaBottom = controlsTop - screenTop,
                     language = language,
-                    muted = muted,
-                    cameraOn = cameraOn,
-                    speakerOn = speakerOn,
-                    onToggleMute = onToggleMute,
-                    onToggleCamera = onToggleCamera,
-                    onToggleSpeaker = onToggleSpeaker,
-                    onHangUp = onHangUp,
-                    onDone = onDone,
                 )
             }
         }

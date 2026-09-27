@@ -528,7 +528,7 @@
     "--gs-fab-exit:calc(var(--gs-fab-size,56px) + 56px);",
     "width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:50%;border:none;cursor:pointer;",
     "box-shadow:0 3px 12px -4px var(--gs-shadow,rgba(0,0,0,.16)),0 0 0 1px rgba(0,0,0,.03);",
-    "transition:transform .62s cubic-bezier(.33,1,.68,1),box-shadow .2s ease;",
+    "transition:transform .28s cubic-bezier(.22,1,.36,1),box-shadow .18s ease;",
     "background:var(--gs-primary,transparent);color:#fff;font-family:inherit;",
     "opacity:1;}",
     /* First paint: the FAB starts fully outside the browser edge and slides
@@ -539,21 +539,21 @@
     ".launcher.pending{opacity:0;pointer-events:none;visibility:hidden;}",
     /* Reveal animation once config arrives. */
     ".launcher.revealed{opacity:1;pointer-events:auto;visibility:visible;}",
-    ".launcher:hover{transform:translateY(-2px) scale(1.06);box-shadow:0 5px 16px -4px var(--gs-shadow,rgba(0,0,0,.22));transition:transform .3s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease;}",
-    ".launcher:active{transform:scale(.96);}",
+    ".launcher:hover{transform:translateY(-2px) scale(1.04);box-shadow:0 5px 16px -4px var(--gs-shadow,rgba(0,0,0,.22));transition:transform .18s ease-out,box-shadow .18s ease;}",
+    ".launcher:active{transform:translateY(0) scale(.92);}",
     ".launcher.bottom-right{right:0;left:auto;}",
     ".launcher.bottom-left{left:0;right:auto;}",
     ".launcher.square{border-radius:16px;}",
-    ".launcher.pulse{animation:gs-fab-pulse 2s ease-in-out infinite;}",
+    ".launcher.pulse:not(.open):not(.enter){animation:gs-fab-pulse 2.4s ease-in-out 2;}",
     "@keyframes gs-fab-pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.07);}}",
     /* ── Custom launcher image with a circle-reveal hover ──
        The uploaded image covers the button and, on hover, its clip-path
        circle collapses to the centre revealing the configured icon that
        sits underneath. No crossfade — a real reveal. */
     ".launcher .fab-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;",
-    "border-radius:inherit;pointer-events:none;clip-path:circle(75% at 50% 50%);",
-    "transition:clip-path .55s cubic-bezier(.22,1,.36,1);}",
-    ".launcher.has-image:hover .fab-img{clip-path:circle(0% at 50% 50%);}",
+    "border-radius:inherit;pointer-events:none;opacity:1;transform:scale(1);",
+    "transition:opacity .2s ease,transform .2s ease;}",
+    ".launcher.has-image:hover .fab-img{opacity:0;transform:scale(.88);}",
     /* ── FAB ⇄ panel shared origin ──
        Opening the panel drops the FAB out of view (down + shrink) and
        closing brings it back, so the panel visually grows out of the very
@@ -884,6 +884,10 @@
     // reduced-motion opt-out has to be honoured here too. The element still
     // ends up in its resting position — it just gets there instantly.
     if (prefersReducedMotion()) {
+      if (element.__gsFabEntryAnimation) {
+        try { element.__gsFabEntryAnimation.cancel(); } catch (_) {}
+        element.__gsFabEntryAnimation = null;
+      }
       element.classList.remove("enter");
       return;
     }
@@ -891,15 +895,23 @@
     // Use a real keyframe animation rather than relying only on a class
     // transition. The launcher is hidden while config loads, so some browsers
     // otherwise coalesce the hidden and revealed paints and skip the movement.
+    if (element.__gsFabEntryAnimation) {
+      try { element.__gsFabEntryAnimation.cancel(); } catch (_) {}
+      element.__gsFabEntryAnimation = null;
+    }
     if (typeof element.animate === "function") {
       element.classList.remove("enter");
-      element.animate(
+      var animation = element.animate(
         [
           { transform: "translateY(" + distance + ")" },
           { transform: "translateY(0)" },
         ],
-        { duration: 620, easing: "cubic-bezier(.33,1,.68,1)", fill: "none" }
+        { duration: 280, easing: "cubic-bezier(.22,1,.36,1)", fill: "none" }
       );
+      if (animation) {
+        element.__gsFabEntryAnimation = animation;
+        animation.onfinish = function () { if (element.__gsFabEntryAnimation === animation) element.__gsFabEntryAnimation = null; };
+      }
       return;
     }
     element.classList.add("enter");
@@ -1280,6 +1292,10 @@
       try { isOpen = !!inst.isOpen(); } catch (_) { /* keep last known */ }
     } else {
       isOpen = false;
+    }
+    if (launcherEl && isOpen && launcherEl.__gsFabEntryAnimation) {
+      try { launcherEl.__gsFabEntryAnimation.cancel(); } catch (_) {}
+      launcherEl.__gsFabEntryAnimation = null;
     }
     if (launcherEl) launcherEl.classList.toggle("open", !!isOpen);
     if (fabLabelEl) fabLabelEl.classList.toggle("open", !!isOpen);

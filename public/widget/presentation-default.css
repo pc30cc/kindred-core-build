@@ -91,9 +91,9 @@
   opacity: 0;
   /* Shared origin with the launcher: both live in the same zero-size anchor
      and are pinned to the SAME corner, so the panel grows out of the FAB. */
-  transform: translateY(calc(100% + 40px));
+  transform: translateY(16px) scale(0.97);
   pointer-events: none;
-  transition: transform 0.62s cubic-bezier(0.33, 1, 0.68, 1), opacity 0.24s ease;
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease;
 }
 /* Same corner as the launcher — the anchor already owns the 24px edge. */
 .panel.bottom-right {
@@ -142,11 +142,11 @@
   }
   .panel.bottom-right { right: 0; left: auto; }
   .panel.bottom-left { left: 0; right: auto; }
-  .shell.gs-mobile-open .panel-close { top: calc(env(safe-area-inset-top, 0px) + 10px); }
+  .shell.gs-mobile-open .panel-close { top: calc(env(safe-area-inset-top, 0px) + 12px); }
 }
 
 
-/* ─── Launcher (the ONLY open/close control) ────────────────────────── */
+/* ─── Launcher ────────────────────────────────────────────────────── */
 .launcher {
   width: var(--gs-fab-size, 56px);
   height: var(--gs-fab-size, 56px);
@@ -159,13 +159,13 @@
   justify-content: center;
   box-shadow: 0 4px 14px -4px var(--gs-shadow, rgba(31, 147, 255, 0.22));
   cursor: pointer;
-  transition: transform 0.62s cubic-bezier(0.33, 1, 0.68, 1), box-shadow 0.22s var(--wy-ease);
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.18s ease;
 }
 .launcher:hover {
   transform: translateY(-2px) scale(1.04);
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.22s var(--wy-ease);
+  transition: transform 0.18s ease-out, box-shadow 0.18s ease;
 }
-.launcher:active { transform: scale(0.96); }
+.launcher:active { transform: translateY(0) scale(0.92); }
 
 /* While the panel is open the FAB slides down out of view; closing returns it. */
 .launcher.open,
@@ -1808,27 +1808,115 @@ a.wy-powered:hover { color: var(--wy-text); }
 }
 
 
-/* ─── Panel close control ───────────────────────────────────────────
-   The launcher hides while the panel is open, so the panel carries its
-   own close affordance in the top corner. */
+/* The close action belongs to the panel shell, not the chat view. */
 .panel-close {
   position: absolute;
-  top: 10px;
-  inset-inline-end: 10px;
+  top: 12px;
+  inset-inline-end: 12px;
   z-index: 20;
-  width: 30px;
-  height: 30px;
-  border: 0;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.7);
-  color: var(--wy-text);
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--wy-border);
+  border-radius: 12px;
+  background: var(--wy-card, #fff);
+  color: var(--wy-muted);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  backdrop-filter: blur(6px);
-  box-shadow: 0 2px 8px -3px rgba(2, 6, 23, 0.28);
-  transition: transform 0.18s var(--wy-ease), background 0.18s var(--wy-ease);
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.08);
+  transition: color 0.16s ease, background-color 0.16s ease, transform 0.16s ease;
 }
-.panel-close:hover { transform: scale(1.08); background: rgba(255, 255, 255, 0.95); }
-.panel-close svg { width: 16px; height: 16px; }
+.panel-close:hover { color: var(--wy-text); background: var(--wy-hover-2); }
+.panel-close:active { transform: scale(0.92); }
+.panel-close:focus-visible { outline: 2px solid var(--wy-accent); outline-offset: 2px; }
+.panel-close svg { width: 18px; height: 18px; pointer-events: none; }
+
+/* Composer surface refresh — visual-only: Core's data hooks and DOM order stay intact.
+   Scoped to the chat view so home, knowledge and call surfaces keep their layout. */
+.wy-view-chat .composer-zone {
+  padding-block: 10px 8px;
+}
+.wy-view-chat .input-wrap {
+  border-radius: 16px;
+  padding-inline: 8px;
+  background: var(--wy-card, #fff);
+  box-shadow: 0 0 0 1px var(--wy-border-strong, #d5d7dd), 0 3px 12px rgba(16, 24, 40, 0.06);
+  transition: box-shadow 0.18s ease, background-color 0.18s ease;
+}
+.wy-view-chat .input-wrap:focus-within {
+  box-shadow: 0 0 0 2px var(--wy-accent), 0 5px 18px rgba(16, 24, 40, 0.10);
+}
+.wy-view-chat .input {
+  min-height: 50px;
+  height: 50px;
+  padding-block: 15px;
+  line-height: 20px;
+  font-size: 14px;
+}
+.wy-view-chat .input::placeholder { color: var(--wy-faint); opacity: 1; }
+.wy-view-chat .composer-actions { padding-inline-start: 4px; }
+.wy-view-chat .composer-actions-start { gap: 2px; }
+.wy-view-chat .mic-btn,
+.wy-view-chat .send-btn,
+.wy-view-chat .attach-btn,
+.wy-view-chat .emoji-btn {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  box-sizing: border-box;
+  border-radius: 11px;
+  color: var(--wy-muted);
+  transition: color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+.wy-view-chat .mic-btn { margin-inline-end: 4px; }
+.wy-view-chat .mic-btn svg,
+.wy-view-chat .send-btn svg,
+.wy-view-chat .attach-btn svg,
+.wy-view-chat .emoji-btn svg {
+  width: 18px;
+  height: 18px;
+  transform: none;
+}
+.wy-view-chat .mic-btn:hover,
+.wy-view-chat .attach-btn:hover,
+.wy-view-chat .emoji-btn:hover { color: var(--wy-text); background: var(--wy-hover-2); }
+.wy-view-chat .emoji-btn[aria-expanded='true'] {
+  color: var(--wy-accent);
+  background: var(--wy-hover-2);
+}
+.wy-view-chat .send-btn {
+  color: var(--wy-accent);
+  background: var(--wy-hover-2);
+}
+.wy-view-chat .input-bar.has-draft .send-btn {
+  color: #fff;
+  background: var(--wy-accent);
+  box-shadow: 0 2px 6px rgba(16, 24, 40, 0.14);
+}
+.wy-view-chat .input-bar.has-draft .send-btn:hover { filter: brightness(1.08); }
+.wy-view-chat .input-bar:not(.has-draft) .send-btn { opacity: 0.55; }
+.wy-view-chat .mic-btn:focus-visible,
+.wy-view-chat .send-btn:focus-visible,
+.wy-view-chat .attach-btn:focus-visible,
+.wy-view-chat .emoji-btn:focus-visible,
+.wy-view-chat .wy-back:focus-visible {
+  outline: 2px solid var(--wy-accent);
+  outline-offset: 2px;
+}
+.wy-view-chat .wy-back {
+  width: 34px;
+  height: 34px;
+  margin-inline-end: 0;
+  border-radius: 10px;
+  background: var(--wy-hover-2);
+}
+.wy-view-chat .wy-back:hover { background: var(--wy-hover); }
+@media (prefers-reduced-motion: reduce) {
+  .wy-view-chat .input-wrap,
+  .wy-view-chat .mic-btn,
+  .wy-view-chat .send-btn,
+  .wy-view-chat .attach-btn,
+  .wy-view-chat .emoji-btn { transition: none; }
+}

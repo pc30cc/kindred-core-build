@@ -32,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.navigation.BackNavigationBehavior
 import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy
 import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteItem
@@ -44,6 +45,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -147,14 +151,31 @@ fun AppShell(
         if (selectedTab !in tabs) appState.selectTab(AppTab.INBOX)
     }
 
+    // Another workspace is another set of conversations, contacts and
+    // visitors: every tab goes back to its root, so nothing opened in the
+    // last one stays on a stack to be read under the new one. Saved with the
+    // stacks, so a process that died in one workspace and comes back in
+    // another (it was left meanwhile) is cleared the same way.
+    val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
+    var knownWorkspace by rememberSaveable { mutableStateOf<String?>(null) }
+    fun enterWorkspace(id: String?) {
+        if (id == null) return
+        val before = knownWorkspace
+        knownWorkspace = id
+        if (before != null && before != id) AppTab.entries.forEach(navigator::popToRoot)
+    }
+    LaunchedEffect(workspace?.id) { enterWorkspace(workspace?.id) }
+
     // A notification tap: once the session and the workspaces are known, and
     // the workspace it names is checked to be this operator's, the Inbox tab
-    // opens the conversation — by id, from the cache.
+    // opens the conversation — by id, from the cache. A tap that switches
+    // workspace clears the stacks first, and not after the chat is open.
     val pendingLink by appState.pendingLink.collectAsStateWithLifecycle()
     val workspaces by appState.workspaces.collectAsStateWithLifecycle()
     LaunchedEffect(pendingLink, workspaces) {
         val link = appState.resolvePendingLink() ?: return@LaunchedEffect
         val id = link.conversationId ?: return@LaunchedEffect
+        enterWorkspace(appState.selectedWorkspace.value?.id)
         navigator.open(ChatKey(id))
     }
 
@@ -419,7 +440,13 @@ fun AppShell(
         if (showSuite) suiteState.show() else suiteState.hide()
     }
 
-    val listDetail = rememberListDetailSceneStrategy<NavKey>()
+    // One screen per Back, as on a phone. Material's default pops until the
+    // panes change, and on a wide window a list with a placeholder beside it
+    // looks the same as a list with a contact beside it — so Back from a
+    // contact popped the contact AND the Contacts list, and left the tab.
+    val listDetail = rememberListDetailSceneStrategy<NavKey>(
+        backNavigationBehavior = BackNavigationBehavior.PopLatest,
+    )
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
 
     Box(modifier.fillMaxSize()) {

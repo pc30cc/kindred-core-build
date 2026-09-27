@@ -26,7 +26,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Whether anyone is signed in, and who.
@@ -168,6 +170,11 @@ class AppState(
     }
 
     init {
+        // A session revoked elsewhere — the web's "sign out everywhere", an
+        // admin removing this operator — reaches here as the first 401. It
+        // used to reach nothing: every screen showed its own error, the
+        // socket kept retrying, and the operator had to find Sign out.
+        viewModelScope.launch { api.sessionLost.collect { onSessionLost() } }
         viewModelScope.launch {
             // Before restore(), so the login screen is already in the right
             // language and the right way round rather than flipping once the
@@ -220,6 +227,13 @@ class AppState(
      * moment a request comes back 401. Only an actual 401 signs anyone out.
      */
     private suspend fun restore() {
+        // A sign-out the process did not live to finish.
+        prefs.pendingSignOut()?.let { pending ->
+            withContext(NonCancellable) {
+                runCatching { hooks.signedOut(pending.ifEmpty { null }) }
+                prefs.setPendingSignOut(null)
+            }
+        }
         runCatching { api.refreshOrigin() }
         if (!api.hasToken()) {
             _session.value = Session.SignedOut
@@ -236,11 +250,9 @@ class AppState(
             if (e.isAuthFailure) {
                 val stale = cache.read()
                 api.discardSession()
-                cache.clear()
                 // The session was revoked elsewhere: whatever this phone
                 // cached for it goes, exactly as at a sign-out.
-                runCatching { hooks.signedOut(stale?.id) }
-                _session.value = Session.SignedOut
+                withContext(NonCancellable) { endSession(stale?.id) }
             } else {
                 val cached = cache.read()
                 // Offline at launch: the cached operator stands in, and so
@@ -290,33 +302,74 @@ class AppState(
      * socket, token, cached rows and files, notifications, in-memory state —
      * before the login screen appears. Nothing of theirs is left for whoever
      * signs in next.
+     *
+     * Not cancellable once begun: this model's scope ends with the activity,
+     * and a sign-out cut off half-way — Back pressed while it ran — left the
+     * token deleted and the last operator's notifications and push token in
+     * place.
      */
     fun logOut() {
         val user = (_session.value as? Session.SignedIn)?.user
-        viewModelScope.launch {
-            user?.let { runCatching { hooks.beforeSignOut(it) } }
-            runCatching { api.logOut() }
-                .onSuccess {
-                    cache.clear()
-                    runCatching { hooks.signedOut(user?.id) }
-                    // A different operator is a different set of workspaces:
-                    // nothing selected here may carry across to them — and
-                    // no retry still in flight may bring the last one's back.
-                    workspacesJob?.cancel()
-                    _workspaces.value = emptyList()
-                    _selectedWorkspace.value = null
-                    entitlementsRetry?.cancel()
-                    _entitlements.value = EntitlementsState.Loading
-                    _access.value = WorkspaceAccess.UNKNOWN
-                    planLoadedAt = null
-                    _avatarUrl.value = null
-                    _pendingLink.value = null
-                    _selectedTab.value = AppTab.INBOX
-                    _session.value = Session.SignedOut
+        if (signOutJob?.isActive == true) return
+        signOutJob = viewModelScope.launch {
+            withContext(NonCancellable) {
+                user?.let { runCatching { hooks.beforeSignOut(it) } }
+                val result = runCatching { api.logOut() }
+                // A 401 is the server saying the session is already gone,
+                // which is what was asked for.
+                if (result.isSuccess || result.exceptionOrNull() == ApiError.Unauthorized) {
+                    api.discardSession()
+                    endSession(user?.id)
+                } else {
+                    // A failure here proves nothing about the server's view
+                    // of the session, so the operator stays signed in and can
+                    // try again — with this device registered for pushes
+                    // again, which [SessionHooks.beforeSignOut] undid.
+                    user?.let { runCatching { hooks.signOutFailed(it) } }
                 }
-            // A failure here proves nothing about the server's view of the
-            // session, so the operator stays signed in and can try again.
+            }
         }
+    }
+
+    private var signOutJob: Job? = null
+
+    /** The server said 401 to the token in hand: signed out here too, as at a sign-out. */
+    private fun onSessionLost() {
+        val user = (_session.value as? Session.SignedIn)?.user ?: return
+        // A sign-out on its way handles its own 401.
+        if (signOutJob?.isActive == true) return
+        signOutJob = viewModelScope.launch {
+            withContext(NonCancellable) {
+                api.discardSession()
+                endSession(user.id)
+            }
+        }
+    }
+
+    /**
+     * Everything this phone holds for [accountId] goes, then the login
+     * screen. Marked as pending first, so a process that dies half-way
+     * finishes it at the next launch ([restore]).
+     */
+    private suspend fun endSession(accountId: String?) {
+        runCatching { prefs.setPendingSignOut(accountId.orEmpty()) }
+        cache.clear()
+        runCatching { hooks.signedOut(accountId) }
+        runCatching { prefs.setPendingSignOut(null) }
+        // A different operator is a different set of workspaces: nothing
+        // selected here may carry across to them — and no retry still in
+        // flight may bring the last one's back.
+        workspacesJob?.cancel()
+        _workspaces.value = emptyList()
+        _selectedWorkspace.value = null
+        entitlementsRetry?.cancel()
+        _entitlements.value = EntitlementsState.Loading
+        _access.value = WorkspaceAccess.UNKNOWN
+        planLoadedAt = null
+        _avatarUrl.value = null
+        _pendingLink.value = null
+        _selectedTab.value = AppTab.INBOX
+        _session.value = Session.SignedOut
     }
 
     private var appConfigJob: Job? = null
@@ -374,10 +427,17 @@ class AppState(
                 if (_session.value !is Session.SignedIn) return@let
                 _workspaces.value = list
                 loadAvatar()
-                if (_selectedWorkspace.value == null) {
-                    _selectedWorkspace.value = list.firstOrNull()
-                    announceWorkspace()
-                    loadEntitlements()
+                val current = _selectedWorkspace.value
+                if (current == null || list.none { it.id == current.id }) {
+                    // Where this operator last was, while they still have it.
+                    val userId = (_session.value as? Session.SignedIn)?.user?.id
+                    val remembered = userId?.let { runCatching { prefs.workspace(it) }.getOrNull() }
+                    val chosen = list.firstOrNull { it.id == remembered } ?: list.firstOrNull()
+                    chosen?.let(::selectWorkspace)
+                } else {
+                    // The same workspace, with a name or a logo that may
+                    // have changed since it was picked.
+                    list.firstOrNull { it.id == current.id }?.let { _selectedWorkspace.value = it }
                 }
             }
         }
@@ -427,6 +487,9 @@ class AppState(
     fun selectWorkspace(workspace: Workspace) {
         if (workspace.id == _selectedWorkspace.value?.id) return
         _selectedWorkspace.value = workspace
+        (_session.value as? Session.SignedIn)?.user?.id?.let { userId ->
+            viewModelScope.launch { runCatching { prefs.setWorkspace(userId, workspace.id) } }
+        }
         announceWorkspace()
         // A different workspace is a different plan, so the old answer is
         // wrong rather than merely stale. Back to Loading, which is what keeps
@@ -504,7 +567,9 @@ class AppState(
                 if (_selectedWorkspace.value?.id != workspaceId) return@launch
                 if (next is EntitlementsState.Loaded) {
                     _entitlements.value = next
-                    _access.value = nextAccess
+                    // Same workspace (a switch resets it to unknown), so a
+                    // side answer that did not come keeps the last one.
+                    _access.value = nextAccess.filledFrom(_access.value)
                     planLoadedAt = System.nanoTime()
                     return@launch
                 }
@@ -513,7 +578,7 @@ class AppState(
                 // query does; the next foreground asks again.
                 if (_entitlements.value is EntitlementsState.Loaded) return@launch
                 _entitlements.value = next
-                _access.value = nextAccess
+                _access.value = nextAccess.filledFrom(_access.value)
                 // Nothing gated shows while the plan cannot be read (the web's
                 // rule), so ask again soon rather than at the next workspace switch.
                 delay(PLAN_RETRY_MS)

@@ -36,6 +36,7 @@ import com.webyar.operator.core.model.VisitorProfile
 import com.webyar.operator.i18n.Format
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
+import com.webyar.operator.i18n.StrAndroid
 import com.webyar.operator.ui.A11y
 import com.webyar.operator.ui.components.Avatar
 import com.webyar.operator.ui.components.EmptyState
@@ -112,7 +113,7 @@ fun ContactsScreen(
                 )
 
                 is ContactsState.Failed -> ErrorState(
-                    title = Str.offlineTitle(language),
+                    title = if (state.offline) Str.offlineTitle(language) else StrAndroid.loadFailedTitle(language),
                     body = state.message,
                     retryLabel = Str.retry(language),
                     onRetry = onRetry,

@@ -7,7 +7,7 @@ import com.webyar.operator.i18n.Language
 /** What the router needs to know about the app at the moment a push arrives. */
 data class PushContext(
     val accountId: String,
-    /** The operator's workspaces, when known. Empty means "not loaded yet", not "none". */
+    /** The operator's workspaces, when known. Empty means "not loaded yet" — and nothing is shown. */
     val workspaceIds: Set<String>,
     val language: Language,
     val foreground: Boolean,
@@ -32,7 +32,10 @@ data class PushContext(
  *
  * A push for a workspace this operator does not belong to is dropped — it
  * can only be a message for whoever held this phone's token before, and
- * showing it would be showing one operator's customers to another.
+ * showing it would be showing one operator's customers to another. So is one
+ * that arrives before the workspaces are known, or names none: there is then
+ * nothing to check it against, and "not yet known" must not read as "fine".
+ * With the app in front, the inbox shows the message anyway.
  */
 class PushRouter(
     private val sync: SyncCoordinator,
@@ -46,14 +49,16 @@ class PushRouter(
             return
         }
         val workspace = payload.workspaceId
-        if (workspace != null && now.workspaceIds.isNotEmpty() && workspace !in now.workspaceIds) {
-            diag.warn(AREA, "push dropped: workspace ${Diag.id(workspace)} is not this operator's")
+        if (workspace == null || workspace !in now.workspaceIds) {
+            diag.warn(
+                AREA,
+                if (now.workspaceIds.isEmpty()) "push dropped: workspaces not known yet"
+                else "push dropped: workspace ${Diag.id(workspace)} is not this operator's",
+            )
             return
         }
-        if (workspace != null) {
-            diag.info(AREA, "push-triggered sync (${payload.type ?: "?"}) for ${Diag.id(payload.conversationId)}")
-            sync.onPush(workspace, payload.conversationId)
-        }
+        diag.info(AREA, "push-triggered sync (${payload.type ?: "?"}) for ${Diag.id(payload.conversationId)}")
+        sync.onPush(workspace, payload.conversationId)
         if (now.foreground && payload.conversationId != null && payload.conversationId in now.openConversationIds) {
             // The message is arriving on the screen the operator is reading.
             return

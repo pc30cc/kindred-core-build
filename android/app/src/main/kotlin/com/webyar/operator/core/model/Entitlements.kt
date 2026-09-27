@@ -10,8 +10,14 @@ import kotlinx.serialization.json.booleanOrNull
 @Serializable
 data class EffectiveBool(val value: Boolean? = null, val source: String? = null, val note: String? = null)
 
+/**
+ * A numeric limit. Read as a [Double] although most are whole numbers: the
+ * snapshot also carries `storage_gb` (which a plan may set to 0.5) and byte
+ * counts past [Int.MAX_VALUE], and one value an `Int` cannot hold failed the
+ * WHOLE snapshot — every feature then read as not in the plan.
+ */
 @Serializable
-data class EffectiveInt(val value: Int? = null, val source: String? = null, val note: String? = null)
+data class EffectiveInt(val value: Double? = null, val source: String? = null, val note: String? = null)
 
 /**
  * The plan snapshot for a workspace: what this account is actually entitled to.
@@ -51,7 +57,9 @@ data class Entitlements(
 
     fun channelEnabled(key: String): Boolean = channels?.get(key)?.value == true
 
-    fun limit(key: String): Int? = limits?.get(key)?.value
+    /** A whole-number limit, capped to what an [Int] holds. */
+    fun limit(key: String): Int? =
+        limits?.get(key)?.value?.takeIf { !it.isNaN() }?.coerceIn(Int.MIN_VALUE.toDouble(), Int.MAX_VALUE.toDouble())?.toInt()
 
     companion object {
         /**
@@ -114,6 +122,20 @@ data class WorkspaceAccess(
 ) {
     /** Owners and admins: the web's admin-only sections (the mailbox, the other inboxes…). */
     val isAdmin: Boolean get() = role == "owner" || role == "admin"
+
+    /**
+     * This answer, with whatever it could not read taken from [earlier] — the
+     * same workspace's last one. A side request that failed says nothing
+     * new; taken as "unknown" it hid an owner's Analytics tab until the next
+     * refresh that happened to get through.
+     */
+    fun filledFrom(earlier: WorkspaceAccess): WorkspaceAccess = WorkspaceAccess(
+        role = role ?: earlier.role,
+        aiAgentEnabled = aiAgentEnabled ?: earlier.aiAgentEnabled,
+        aiCustomerVisible = aiCustomerVisible ?: earlier.aiCustomerVisible,
+        aiAutoAnswer = aiAutoAnswer ?: earlier.aiAutoAnswer,
+        callCenterVisible = callCenterVisible ?: earlier.callCenterVisible,
+    )
 
     /**
      * The web's `aiQueueVisible`, given whether the plan carries

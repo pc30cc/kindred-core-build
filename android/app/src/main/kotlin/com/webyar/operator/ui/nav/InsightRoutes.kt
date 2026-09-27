@@ -101,16 +101,13 @@ fun LiveVisitorRoute(
 ) {
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
     // A visitor belongs to the workspace they were opened in: on a switch the
-    // page closes rather than showing — or starting a chat with — a visitor
-    // of the workspace the operator just left.
+    // page is not re-read — or used to start a chat — under the workspace
+    // the operator moved to. The shell takes the tab back to its root.
     var openedIn by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
     LaunchedEffect(workspace?.id) {
         val ws = workspace?.id ?: return@LaunchedEffect
         val bound = openedIn
-        if (bound != null && bound != ws) {
-            onBack()
-            return@LaunchedEffect
-        }
+        if (bound != null && bound != ws) return@LaunchedEffect
         openedIn = ws
         // Bound here as well as by the list: on a phone the list is not
         // composed under this page, and after the process was away nothing

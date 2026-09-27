@@ -26,10 +26,15 @@ import java.time.format.DateTimeFormatterBuilder
  * going through the API's own JSON encoder.
  */
 object DateParsing {
+    /**
+     * Postgres's own text form: a space or a `T`, and an offset that is often
+     * hours alone — `+00`, `+03:30`. `+HH:MM` insisted on the minutes, so the
+     * commonest value Postgres writes, `…+00`, parsed as no date at all.
+     */
     private val postgres: DateTimeFormatter = DateTimeFormatterBuilder()
-        .appendPattern("yyyy-MM-dd HH:mm:ss")
+        .appendPattern("yyyy-MM-dd['T'][' ']HH:mm:ss")
         .appendFraction(java.time.temporal.ChronoField.NANO_OF_SECOND, 0, 9, true)
-        .appendOffset("+HH:MM", "Z")
+        .appendOffset("+HH:mm", "Z")
         .toFormatter()
 
     fun parse(raw: String): Instant? {

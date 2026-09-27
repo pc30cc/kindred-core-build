@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.webyar.operator.core.model.Contact
 import com.webyar.operator.core.model.VisitorProfile
+import com.webyar.operator.core.net.ApiError
 import com.webyar.operator.core.net.WebyarApi
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.displayText
@@ -17,7 +18,8 @@ import kotlinx.coroutines.launch
 sealed interface ContactsState {
     data object Loading : ContactsState
     data class Loaded(val contacts: List<Contact>) : ContactsState
-    data class Failed(val message: String) : ContactsState
+    /** [offline]: no answer came back at all, rather than a refusal. */
+    data class Failed(val message: String, val offline: Boolean = false) : ContactsState
 }
 
 /**
@@ -97,7 +99,7 @@ class ContactsViewModel(
                 // A refresh that fails keeps the list it has; only a first
                 // load has nothing to fall back on.
                 if (workspaceId == workspace && (showSkeleton || loaded.isEmpty())) {
-                    _state.value = ContactsState.Failed(e.displayText(language()))
+                    _state.value = ContactsState.Failed(e.displayText(language()), offline = e is ApiError.Transport)
                 }
             } finally {
                 if (workspaceId == workspace) _refreshing.value = false

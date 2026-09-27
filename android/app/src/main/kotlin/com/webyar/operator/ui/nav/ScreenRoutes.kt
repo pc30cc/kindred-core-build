@@ -121,6 +121,7 @@ import com.webyar.operator.feature.settings.SettingsScreen
 import com.webyar.operator.feature.settings.SettingsViewModel
 import com.webyar.operator.ui.Session
 import com.webyar.operator.ui.AppState
+import com.webyar.operator.ui.liveLanguage
 import com.webyar.operator.feature.inbox.InboxViewModel
 import com.webyar.operator.ui.components.EmptyState
 import com.webyar.operator.ui.components.bidiContent
@@ -194,8 +195,9 @@ fun InboxRoute(
 
     // Closing the field on a queue change is the same rule the view model
     // applies to the terms: a search box left open over a list it no longer
-    // describes is worse than no search box.
-    val search = rememberSearchState(resetOn = filter)
+    // describes is worse than no search box. Another workspace is another
+    // list, too — and its model's terms are cleared by `bind`.
+    val search = rememberSearchState(resetOn = "${filter.name}|${workspace?.id}")
     // snapshotFlow rather than reading `search.text` here: a keystroke should
     // recompose the field and the list, not this whole route.
     LaunchedEffect(search) {
@@ -330,10 +332,11 @@ fun ChatRoute(
     onOpenVisitor: (VisitorKey) -> Unit = {},
 ) {
     val graph = LocalAppGraph.current
+    val currentLanguage = liveLanguage(language)
     val chatModel: ChatViewModel =
         viewModel(factory = viewModelFactory {
             val sync = graph?.syncGraph()
-            if (sync != null) ChatViewModel(api, sync) { language } else ChatViewModel(api) { language }
+            if (sync != null) ChatViewModel(api, sync, currentLanguage) else ChatViewModel(api, language = currentLanguage)
         })
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
     val session by appState.session.collectAsStateWithLifecycle()
@@ -360,16 +363,15 @@ fun ChatRoute(
     val conversation = cachedConversation ?: listed
 
     // A chat belongs to the workspace it was opened in. If the operator
-    // switches workspace while it is on the stack, it is closed rather than
-    // re-read under a workspace it is not part of.
+    // switches workspace while it is on the stack it is not re-read under a
+    // workspace it is not part of — and not popped from here either: the
+    // shell takes every tab back to its root on a switch, and a pop from
+    // here took whatever was on top, which need not be this chat.
     var openedIn by rememberSaveable(conversationId) { mutableStateOf<String?>(null) }
     LaunchedEffect(conversationId, workspace?.id) {
         val ws = workspace?.id ?: return@LaunchedEffect
         val bound = openedIn
-        if (bound != null && bound != ws) {
-            onBack()
-            return@LaunchedEffect
-        }
+        if (bound != null && bound != ws) return@LaunchedEffect
         openedIn = ws
         chatModel.open(conversationId, ws, listed)
     }
@@ -399,13 +401,17 @@ fun ChatRoute(
 
     // Reading the bytes stays here rather than in the view model: a Uri is a
     // permission grant to one Activity, and a model that outlives the screen
-    // would be holding a handle it is no longer allowed to open.
+    // would be holding a handle it is no longer allowed to open. Off the main
+    // thread: a 10 MB file from a cloud provider froze the chat while it came.
+    val routeScope = rememberCoroutineScope()
     val send: (android.net.Uri) -> Unit = { uri ->
-        when (val picked = readPickedFile(context, uri)) {
-            is PickedFile.Ready -> chatModel.sendAttachment(
-                bytes = picked.bytes, fileName = picked.fileName, mimeType = picked.mimeType,
-            )
-            else -> picked.problemText(language)?.let(chatModel::report)
+        routeScope.launch {
+            when (val picked = readPickedFileOffMain(context, uri)) {
+                is PickedFile.Ready -> chatModel.sendAttachment(
+                    bytes = picked.bytes, fileName = picked.fileName, mimeType = picked.mimeType,
+                )
+                else -> picked.problemText(language)?.let(chatModel::report)
+            }
         }
     }
     val photoPicker = rememberLauncherForActivityResult(
@@ -835,7 +841,7 @@ fun TeamThreadRoute(
     onBack: () -> Unit,
 ) {
     val thread: TeamThreadViewModel =
-        viewModel(factory = viewModelFactory { TeamThreadViewModel(api) { language } })
+        viewModel(factory = liveLanguage(language).let { l -> viewModelFactory { TeamThreadViewModel(api, l) } })
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
     val state by thread.state.collectAsStateWithLifecycle()
     val me by thread.me.collectAsStateWithLifecycle()
@@ -1068,7 +1074,7 @@ fun EmailThreadRoute(
     onReply: ((EmailReplyMode) -> Unit)? = null,
 ) {
     val model: EmailThreadViewModel =
-        viewModel(factory = viewModelFactory { EmailThreadViewModel(api) { language } })
+        viewModel(factory = liveLanguage(language).let { l -> viewModelFactory { EmailThreadViewModel(api, l) } })
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
     val state by model.state.collectAsStateWithLifecycle()
     val thread by model.thread.collectAsStateWithLifecycle()
@@ -1222,7 +1228,7 @@ fun EmailComposeRoute(
     onClose: () -> Unit,
 ) {
     val model: EmailComposeViewModel =
-        viewModel(factory = viewModelFactory { EmailComposeViewModel(api) { language } })
+        viewModel(factory = liveLanguage(language).let { l -> viewModelFactory { EmailComposeViewModel(api, l) } })
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
     val mailbox by email.mailbox.collectAsStateWithLifecycle()
     val form by model.form.collectAsStateWithLifecycle()
@@ -1568,7 +1574,7 @@ fun ProfileRoute(
     config: MobileAppConfig = MobileAppConfig.DEFAULT,
 ) {
     val model: AccountViewModel =
-        viewModel(factory = viewModelFactory { AccountViewModel(api) { language } })
+        viewModel(factory = liveLanguage(language).let { l -> viewModelFactory { AccountViewModel(api, l) } })
     val form by model.profile.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
@@ -1640,7 +1646,7 @@ fun NotificationsRoute(
     onBack: () -> Unit,
 ) {
     val model: NotificationsViewModel =
-        viewModel(factory = viewModelFactory { NotificationsViewModel(api) { language } })
+        viewModel(factory = liveLanguage(language).let { l -> viewModelFactory { NotificationsViewModel(api, l) } })
     val state by model.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -1721,7 +1727,7 @@ fun SecurityRoute(
     onBack: () -> Unit,
 ) {
     val model: AccountViewModel =
-        viewModel(factory = viewModelFactory { AccountViewModel(api) { language } })
+        viewModel(factory = liveLanguage(language).let { l -> viewModelFactory { AccountViewModel(api, l) } })
     val form by model.security.collectAsStateWithLifecycle()
 
     Scaffold(
@@ -1796,6 +1802,11 @@ internal sealed interface PickedFile {
  * costs the operator the wait and tells them nothing they can act on; iOS has
  * refused both before the upload since it shipped (`Composer.swift`).
  */
+internal suspend fun readPickedFileOffMain(
+    context: android.content.Context,
+    uri: android.net.Uri,
+): PickedFile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { readPickedFile(context, uri) }
+
 internal fun readPickedFile(
     context: android.content.Context,
     uri: android.net.Uri,

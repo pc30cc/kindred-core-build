@@ -31,7 +31,10 @@ enum class InboxFilter(val wire: String) {
             // The main queue narrowed to threads the customer owes us a reply
             // on — the same `status=pending` the console's tab sends.
             PENDING -> "pending"
-            RESOLVED -> "resolved"
+            // Both finished states, as the console's Resolved tab asks for
+            // them: a thread the server auto-closed is as done as one an
+            // operator resolved, and used to vanish from every queue here.
+            RESOLVED -> "resolved,closed"
             AI, SPAM -> null
         }
 

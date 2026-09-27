@@ -81,6 +81,25 @@ class PushRouterTest {
     }
 
     @Test
+    fun `a push before the workspaces are known is dropped, not shown`() = runTest {
+        val (router, _) = router()
+        context = context!!.copy(workspaceIds = emptySet())
+        router.onMessage(push, "x", "y")
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertTrue(shown.isEmpty())
+        assertTrue(api.idReads.isEmpty())
+    }
+
+    @Test
+    fun `a push naming no workspace is dropped`() = runTest {
+        val (router, _) = router()
+        router.onMessage(push.copy(workspaceId = null), "x", "y")
+        assertTrue(shown.isEmpty())
+    }
+
+    @Test
     fun `a push with nobody signed in is dropped`() = runTest {
         val (router, _) = router()
         context = null

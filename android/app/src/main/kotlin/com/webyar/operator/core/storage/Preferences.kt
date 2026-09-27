@@ -6,18 +6,23 @@ import com.webyar.operator.i18n.Language
 import kotlinx.serialization.json.Json
 
 /**
- * The two choices that must survive a restart, and one that must not.
+ * The choices that must survive a restart.
  *
- * Language and appearance are the operator's, so they are stored. The chosen
- * WORKSPACE is not: it is re-derived from what the server says the account
- * belongs to, because a workspace can be left, renamed or suspended between
- * launches and a remembered id would then point at nothing.
+ * Language and appearance are the operator's, so they are stored. So is the
+ * workspace they were in — as a preference, never as the truth: it is kept
+ * only while the server's list still has it (a workspace can be left,
+ * renamed or suspended between launches), and only for the operator who
+ * chose it. Without it, Android ending the app in the background put an
+ * operator of two workspaces back in the first, under the screens they had
+ * open in the second.
  */
 class Preferences(private val store: SecureStore) {
     private val languageKey = stringPreferencesKey("prefs.language")
     private val appearanceKey = stringPreferencesKey("prefs.appearance")
     private val dynamicColorKey = stringPreferencesKey("prefs.dynamicColor")
     private val appConfigKey = stringPreferencesKey("prefs.appConfig")
+    private val workspaceKey = stringPreferencesKey("prefs.workspace")
+    private val pendingSignOutKey = stringPreferencesKey("session.pendingSignOut")
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
@@ -68,6 +73,27 @@ class Preferences(private val store: SecureStore) {
 
     suspend fun setAppConfig(config: MobileAppConfig) {
         store.write(appConfigKey, json.encodeToString(MobileAppConfig.serializer(), config))
+    }
+
+    /** The workspace [accountId] was last in; null for anyone else. */
+    suspend fun workspace(accountId: String): String? =
+        store.read(workspaceKey)?.split('|', limit = 2)?.takeIf { it.size == 2 && it[0] == accountId }?.get(1)
+
+    suspend fun setWorkspace(accountId: String, workspaceId: String?) {
+        if (workspaceId == null) store.remove(workspaceKey) else store.write(workspaceKey, "$accountId|$workspaceId")
+    }
+
+    /**
+     * A sign-out whose clean-up has not finished: the account it was for
+     * (empty when unknown). Written before the clean-up starts and removed
+     * when it is done, so the process ending half-way — the operator swiping
+     * the app away on the login screen's way in — is finished at the next
+     * launch rather than leaving their notifications and push token behind.
+     */
+    suspend fun pendingSignOut(): String? = store.read(pendingSignOutKey)
+
+    suspend fun setPendingSignOut(accountId: String?) {
+        if (accountId == null) store.remove(pendingSignOutKey) else store.write(pendingSignOutKey, accountId)
     }
 }
 

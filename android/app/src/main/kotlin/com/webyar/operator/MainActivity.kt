@@ -1,9 +1,20 @@
 package com.webyar.operator
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import android.os.Build
 import android.os.Bundle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import android.content.Intent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.lifecycle.ViewModelStore
@@ -46,6 +57,7 @@ import com.webyar.operator.feature.email.EmailInboxViewModel
 import com.webyar.operator.feature.promo.PromoCounters
 import com.webyar.operator.feature.promo.PromotionCenter
 import com.webyar.operator.feature.team.ColleaguesViewModel
+import com.webyar.operator.ui.LocalLanguageSource
 import com.webyar.operator.ui.Session
 import com.webyar.operator.ui.nav.AppShell
 import com.webyar.operator.ui.design.WebyarTheme
@@ -96,7 +108,8 @@ class MainActivity : ComponentActivity() {
                 },
                 dynamicColor = dynamicColor,
             ) {
-                CompositionLocalProvider(LocalAppGraph provides graph) {
+                val languageSource = remember(appState) { { appState.language.value } }
+                CompositionLocalProvider(LocalAppGraph provides graph, LocalLanguageSource provides languageSource) {
                     Surface(Modifier.fillMaxSize()) {
                         RootScreen(appState, api, language)
                     }
@@ -159,8 +172,13 @@ private fun RootScreen(appState: AppState, api: WebyarApi, language: Language) {
                     override val viewModelStore: ViewModelStore = stores.storeFor(current.user.id)
                 }
             }
-            CompositionLocalProvider(LocalViewModelStoreOwner provides owner) {
-                SignedInScreen(appState, api, language)
+            // Keyed by the operator: the stacks and scroll positions are
+            // saved state, and a process restored to the login screen must
+            // not hand the last operator's open chats to the next one.
+            key(current.user.id) {
+                CompositionLocalProvider(LocalViewModelStoreOwner provides owner) {
+                    SignedInScreen(appState, api, language)
+                }
             }
         }
     }
@@ -201,22 +219,28 @@ private fun SignedInScreen(appState: AppState, api: WebyarApi, language: Languag
     // Held here rather than inside a route: the inbox and the chat are two
     // views of the same thing, and a view model per route would make the chat
     // re-fetch a list the inbox already has.
+    // The language read when it is needed, not captured: these models
+    // outlive a language change, and a captured one kept every later error
+    // in the language the session started in.
+    val currentLanguage = { appState.language.value }
     val conversations: InboxViewModel =
         viewModel(factory = factory {
-            if (sync != null) InboxViewModel(api, sync) { language } else InboxViewModel(api) { language }
+            if (sync != null) InboxViewModel(api, sync, currentLanguage) else InboxViewModel(api, language = currentLanguage)
         })
     // Held here rather than in the contacts route for the same reason: the
     // detail screen reads the row out of the list the list already fetched,
     // and a model scoped to the route would drop it on the way in.
     val contacts: ContactsViewModel =
-        viewModel(factory = factory { ContactsViewModel(api) { language } })
+        viewModel(factory = factory { ContactsViewModel(api, currentLanguage) })
     val colleagues: ColleaguesViewModel =
-        viewModel(factory = factory { ColleaguesViewModel(api) { language } })
+        viewModel(factory = factory { ColleaguesViewModel(api, currentLanguage) })
     val email: EmailInboxViewModel =
-        viewModel(factory = factory { EmailInboxViewModel(api) { language } })
+        viewModel(factory = factory { EmailInboxViewModel(api, currentLanguage) })
     val context = LocalContext.current
     val promotions: PromotionCenter =
         viewModel(factory = factory { PromotionCenter(api, PromoCounters(context)) })
+
+    AskForNotificationsOnce(appState)
 
     AppShell(
         appState = appState,
@@ -228,6 +252,32 @@ private fun SignedInScreen(appState: AppState, api: WebyarApi, language: Languag
         promotions = promotions,
         language = language,
     )
+}
+
+/**
+ * Android 13 and later deliver no notification until the app is allowed to,
+ * and nothing asked outside Settings → Notifications — so a fresh install
+ * signed in and never heard a customer write. Asked once per sign-in, when
+ * the app is in front and not yet allowed; the system itself stops asking
+ * after the operator has said no twice, and Settings keeps the way back.
+ */
+@Composable
+private fun AskForNotificationsOnce(appState: AppState) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+    val context = LocalContext.current
+    val graph = LocalAppGraph.current
+    val userId = (appState.session.collectAsState().value as? Session.SignedIn)?.user?.id ?: return
+    var asked by rememberSaveable(userId) { mutableStateOf(false) }
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
+        graph?.let { g -> g.appScope.launch { g.push.sync("permission ${if (allowed) "granted" else "denied"}") } }
+    }
+    LaunchedEffect(userId) {
+        if (asked) return@LaunchedEffect
+        asked = true
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!granted) ask.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
 }
 
 /**

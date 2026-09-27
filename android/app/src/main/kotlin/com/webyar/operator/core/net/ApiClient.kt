@@ -5,7 +5,6 @@ import com.webyar.operator.core.model.NotificationPrefs
 import com.webyar.operator.core.model.NotificationPrefsResponse
 import com.webyar.operator.core.model.NotificationPrefsUpdate
 import com.webyar.operator.core.model.Account
-import com.webyar.operator.core.model.AccountAvatarResponse
 import com.webyar.operator.core.model.AccountProfile
 import com.webyar.operator.core.model.AccountSessionsResponse
 import com.webyar.operator.core.model.AvailabilityResponse
@@ -63,12 +62,15 @@ import com.webyar.operator.core.model.RealtimeConnect
 import com.webyar.operator.core.model.RealtimeSubscribe
 import com.webyar.operator.core.model.SendMessageResponse
 import com.webyar.operator.core.model.SentMessage
+import com.webyar.operator.core.storage.GeneratedConfig
 import com.webyar.operator.core.storage.PlatformOrigin
 import com.webyar.operator.core.storage.SecureStore
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.HttpTimeoutConfig
+import io.ktor.client.plugins.timeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logger
@@ -82,6 +84,7 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.client.statement.readRawBytes
+import io.ktor.client.statement.request
 import io.ktor.utils.io.jvm.javaio.copyTo
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -90,6 +93,10 @@ import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -97,6 +104,8 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
 import java.io.IOException
 import com.webyar.operator.core.model.EmailFolder
@@ -185,9 +194,13 @@ class ApiClient(
                 // reason: those bodies ARE tokens — Centrifugo connection and
                 // subscription tokens and the call token coming back, the FCM
                 // token going out.
+                // A URL is logged whole, so a search typed into the canned
+                // replies or the mailbox — a customer's name, an order
+                // number — would sit in logcat as plainly as a body would.
                 filter { request ->
                     val url = request.url.buildString()
-                    UNLOGGED_PATHS.none { url.contains(it) }
+                    UNLOGGED_PATHS.none { url.contains(it) } &&
+                        UNLOGGED_PARAMS.none { request.url.parameters.contains(it) }
                 }
             }
         }
@@ -226,6 +239,20 @@ class ApiClient(
 
     override suspend fun hasToken(): Boolean = currentToken() != null
 
+    private val _sessionLost = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    override val sessionLost: Flow<Unit> = _sessionLost.asSharedFlow()
+
+    /**
+     * A 401 to the token still in hand. One sent with a token since replaced
+     * — a request from before a sign-out and a new sign-in — says nothing
+     * about the session there is now.
+     */
+    private suspend fun reportIfCurrent(response: HttpResponse) {
+        val sent = response.request.headers[HttpHeaders.Authorization] ?: return
+        val now = currentToken() ?: return
+        if (sent == "Bearer $now") _sessionLost.tryEmit(Unit)
+    }
+
     private suspend fun origin(): String = lock.withLock {
         baseUrl ?: origins.current().also { baseUrl = it }
     }
@@ -254,17 +281,22 @@ class ApiClient(
      *
      * The retry is the important part. If the origin we remembered has gone
      * dark — a domain typed wrong in Super Admin, a certificate that lapsed —
-     * we forget it and ask the value compiled into the build instead. Without
-     * that, one bad edit would brick every installed copy until the store
-     * shipped a new one.
+     * we ask the value compiled into the build instead, and move back to it
+     * once IT answers. Without that, one bad edit would brick every installed
+     * copy until the store shipped a new one.
+     *
+     * Forgotten only once the fallback has answered. A phone in a lift cannot
+     * reach either host, and used to forget a perfectly good origin on every
+     * cold start without signal — then sign in against the compiled one.
      */
     override suspend fun refreshOrigin() {
         askOrigins(origin())?.let { return adopt(it) }
         if (!origins.isStored()) return
+        val fallback = GeneratedConfig.API_BASE_URL
+        val found = askOrigins(fallback) ?: return
         origins.forget()
-        val fallback = origins.current()
         lock.withLock { baseUrl = fallback }
-        askOrigins(fallback)?.let { adopt(it) }
+        adopt(found)
     }
 
     private suspend fun adopt(found: PlatformOrigins) {
@@ -276,19 +308,23 @@ class ApiClient(
     }
 
     /**
-     * Deliberately its own request rather than going through [perform]: it runs
+     * Deliberately its own request rather than going through [build]: it runs
      * before there is a session, it must not be treated as a failure worth
      * showing, and it has to be able to ask a host we are about to stop
-     * trusting.
+     * trusting. Null is "no answer", whatever the reason; a screen going away
+     * is not one of those and goes on up.
      */
-    private suspend fun askOrigins(at: String): PlatformOrigins? = runCatching {
+    private suspend fun askOrigins(at: String): PlatformOrigins? = try {
         val response = http.request("$at/api/platform/origins") {
             method = HttpMethod.Get
             header("Accept", "application/json")
         }
-        if (!response.status.isSuccess()) return null
-        json.decodeFromString<PlatformOrigins>(response.bodyAsText())
-    }.getOrNull()
+        if (response.status.isSuccess()) json.decodeFromString<PlatformOrigins>(response.bodyAsText()) else null
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (_: Throwable) {
+        null
+    }
 
     // MARK: - Request plumbing
 
@@ -305,8 +341,10 @@ class ApiClient(
         method: HttpMethod,
         body: Any?,
         headers: Map<String, String>,
+        transfer: Boolean = false,
     ) {
         this.method = method
+        if (transfer) longTransfer()
         header("Accept", "application/json")
         // The same thing `LoginBody.client` says, said again where a
         // serializer cannot drop it. `server/routes/auth.ts` accepts
@@ -328,16 +366,28 @@ class ApiClient(
         query: List<Pair<String, String>> = emptyList(),
         body: Any? = null,
         headers: Map<String, String> = emptyMap(),
+        transfer: Boolean = false,
     ): HttpResponse {
         val url = url(path, query)
         return try {
-            http.request(url) { standard(method, body, headers) }
+            http.request(url) { standard(method, body, headers, transfer) }
         } catch (t: Throwable) {
             // Cancellation is the caller going away, not the network failing
             // — wrapping it would turn a closed screen into an error message.
             if (t is kotlinx.coroutines.CancellationException) throw t
             throw ApiError.Transport(t)
         }
+    }
+
+    /**
+     * A file going up or coming down: no cap on the whole request, only on
+     * silence. The 20 seconds that suit a JSON call cut a 10 MB video off
+     * half-way on a phone connection — every time, with the same error, so
+     * a retry could never succeed. A stalled socket still fails after the
+     * minute [HttpTimeout] gives it.
+     */
+    private fun HttpRequestBuilder.longTransfer() {
+        timeout { requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS }
     }
 
     private suspend fun currentTokenHeader(builder: HttpRequestBuilder) {
@@ -350,7 +400,10 @@ class ApiClient(
         // fine and this particular thing is not allowed — treating the two the
         // same signed an operator out of the whole app because one endpoint
         // refused them.
-        if (status.value == 401) throw ApiError.Unauthorized
+        if (status.value == 401) {
+            reportIfCurrent(this)
+            throw ApiError.Unauthorized
+        }
         val message = runCatching { json.decodeFromString<ErrorResponse>(bodyAsText()).error }.getOrNull()
         throw ApiError.Server(status.value, message)
     }
@@ -644,8 +697,10 @@ class ApiClient(
         } catch (e: ApiError.Server) {
             // The endpoint moved and both spellings are live on different
             // deployments. A client that knows only the new one breaks on an
-            // older server for no reason the operator could understand.
-            if (e.status != 404) throw e
+            // older server for no reason the operator could understand. The
+            // route's own "no such conversation" is an answer, not a sign of
+            // an older server; asking again elsewhere would only hide it.
+            if (e.status != 404 || e.serverMessage == "conversation_not_found") throw e
             build(HttpMethod.Post, "/api/ai-agent/conversations/$id/take-over", body = body).orThrow()
         }
     }
@@ -680,7 +735,13 @@ class ApiClient(
         val workspace_id: String,
         val status: String? = null,
         val priority: String? = null,
-        val assigned_to: String? = null,
+        /**
+         * A [JsonElement], not a `String?`, because "nobody" and "unchanged"
+         * are different requests and a Kotlin null can only say one of them:
+         * with `explicitNulls` off a null field is left out, which the server
+         * reads as "leave the assignee alone". Unassign sends [JsonNull].
+         */
+        val assigned_to: JsonElement? = null,
         val tags: List<String>? = null,
     )
 
@@ -700,11 +761,13 @@ class ApiClient(
                 status = status?.wire,
                 priority = priority?.wire,
                 assigned_to = when (assignedTo) {
-                    is Assignee.To -> assignedTo.userId
-                    // Explicitly null, and omitted when the caller passed
-                    // nothing — which the encoder does for us because the
-                    // default is null and `explicitNulls` is off.
-                    Assignee.Nobody -> null
+                    is Assignee.To -> JsonPrimitive(assignedTo.userId)
+                    // A literal `null` on the wire: unassign. This used to be
+                    // a Kotlin null, which the encoder drops with the other
+                    // unset fields — so "Unassign" sent nothing and the
+                    // conversation stayed with whoever had it.
+                    Assignee.Nobody -> JsonNull
+                    // Omitted: the caller is not changing the assignee.
                     null -> null
                 },
                 tags = tags,
@@ -758,12 +821,13 @@ class ApiClient(
                 workspace_id = workspaceId,
                 data = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP),
             ),
+            transfer = true,
         ).orThrow()
         return attachmentId
     }
 
     override suspend fun attachmentData(id: String): ByteArray =
-        build(HttpMethod.Get, "/api/conversation-attachments/${id.urlPath()}/file")
+        build(HttpMethod.Get, "/api/conversation-attachments/${id.urlPath()}/file", transfer = true)
             .orThrow()
             .readRawBytes()
 
@@ -776,7 +840,7 @@ class ApiClient(
     override suspend fun downloadAttachment(id: String, target: File) {
         val url = url("/api/conversation-attachments/${id.urlPath()}/file", emptyList())
         try {
-            http.prepareRequest(url) { standard(HttpMethod.Get, null, emptyMap()) }.execute { response ->
+            http.prepareRequest(url) { standard(HttpMethod.Get, null, emptyMap(), transfer = true) }.execute { response ->
                 response.orThrow()
                 target.outputStream().use { out -> response.bodyAsChannel().copyTo(out) }
             }
@@ -1067,6 +1131,7 @@ class ApiClient(
         val response = try {
             http.request(url) {
                 method = HttpMethod.Post
+                longTransfer()
                 header("Accept", "application/json")
                 header("X-Client-Platform", "android")
                 currentTokenHeader(this)
@@ -1080,8 +1145,11 @@ class ApiClient(
     }
 
     override suspend fun emailAttachmentData(workspaceId: String, attachmentId: String): ByteArray =
-        build(HttpMethod.Get, "/api/email-inbox/${workspaceId.urlPath()}/attachments/${attachmentId.urlPath()}/file")
-            .orThrow()
+        build(
+            HttpMethod.Get,
+            "/api/email-inbox/${workspaceId.urlPath()}/attachments/${attachmentId.urlPath()}/file",
+            transfer = true,
+        ).orThrow()
             .readRawBytes()
 
     override suspend fun gmailConnection(workspaceId: String): GmailConnection? =
@@ -1310,11 +1378,17 @@ class ApiClient(
     @Serializable
     private data class AvatarBody(val data: String, val contentType: String, val fileName: String?)
 
+    /**
+     * The profile as stored after the upload, read back rather than taken
+     * from the answer: the route replies `{success, url, fileKey}` and no
+     * profile, so decoding one gave null every time — and the screen kept
+     * showing the old picture as if the upload had not happened.
+     */
     override suspend fun uploadAvatar(
         bytes: ByteArray,
         contentType: String,
         fileName: String?,
-    ): AccountProfile? =
+    ): AccountProfile? {
         build(
             HttpMethod.Post,
             "/api/account/avatar",
@@ -1323,7 +1397,10 @@ class ApiClient(
                 contentType = contentType,
                 fileName = fileName,
             ),
-        ).decode<AccountAvatarResponse>().profile
+            transfer = true,
+        ).orThrow()
+        return account().profile
+    }
 
     override suspend fun deleteAvatar() {
         build(HttpMethod.Delete, "/api/account/avatar").orThrow()
@@ -1378,7 +1455,10 @@ class ApiClient(
          * Never in that log, not even in debug: a password, or a body that
          * is itself a credential (realtime, push and call tokens).
          */
-        val UNLOGGED_PATHS = listOf("/api/auth", "/api/realtime/", "/api/push/", "/token")
+        val UNLOGGED_PATHS = listOf("/api/auth", "/api/realtime/", "/api/push/", "/token", "/api/account/change-password")
+
+        /** Query parameters that carry what somebody typed, or a file's name. */
+        val UNLOGGED_PARAMS = listOf("q", "filename")
     }
 
 }

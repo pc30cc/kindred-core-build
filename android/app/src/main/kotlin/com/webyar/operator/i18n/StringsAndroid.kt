@@ -272,6 +272,16 @@ object StrAndroid {
         Language.TR -> "Yapay zekâ"
     }
 
+    /**
+     * A list the server answered with a failure: not "can't reach the
+     * server", which is for a request that never got an answer.
+     */
+    fun loadFailedTitle(l: Language): String = when (l) {
+        Language.EN -> "Couldn't load this"
+        Language.FA -> "بارگذاری ناموفق بود"
+        Language.TR -> "Yüklenemedi"
+    }
+
     /** The Visitors tab in the bar: the Mac's "Online visitors", short enough for a phone's bar. */
     fun tabVisitors(l: Language): String = when (l) {
         Language.EN -> "Visitors"

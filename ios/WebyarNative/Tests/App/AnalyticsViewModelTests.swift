@@ -135,6 +135,24 @@ final class AnalyticsViewModelTests: XCTestCase {
         XCTAssertEqual(vm.overview?.sessions, 2, "the 28-day answer arrived late and was not shown under 90 days")
     }
 
+    /// The screen's `.task` restarts whenever its key changes — the first
+    /// workspace arriving does it. The report it had asked for must still
+    /// land, and the restarted task must not ask for it a second time.
+    func testARestartedScreenTaskStillGetsTheReportAlreadyOut() async {
+        await api.setDelay(150_000_000)
+        let vm = model()
+        let first = Task { await vm.load(workspaceID: "w1", appState: appState) }
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        first.cancel()
+        await vm.load(workspaceID: "w1", appState: appState)
+        await first.value
+        XCTAssertEqual(vm.overview?.sessions, 100)
+        XCTAssertNotNil(vm.previous)
+        let asked = await api.requests
+        XCTAssertEqual(asked.filter { $0.hasPrefix("overview 2026-08-31") }.count, 1, "joined, not asked twice")
+        XCTAssertTrue(vm.loading.isEmpty)
+    }
+
     func testAnotherWorkspaceKeepsNothing() async {
         let vm = model()
         await vm.load(workspaceID: "w1", appState: appState)

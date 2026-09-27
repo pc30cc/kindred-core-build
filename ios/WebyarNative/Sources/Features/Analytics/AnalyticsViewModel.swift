@@ -86,6 +86,8 @@ final class AnalyticsViewModel {
     @ObservationIgnored private let api: any WebyarAPI
     @ObservationIgnored private let clock: @Sendable () -> Date
     @ObservationIgnored private var workspaceID: String?
+    /// The request out for each report, so a second ask joins it.
+    @ObservationIgnored private var inflight: [String: Task<Void, Never>] = [:]
     /// Observed, because the loading `.task` is keyed on it.
     private(set) var generation = 0
 
@@ -125,6 +127,7 @@ final class AnalyticsViewModel {
         // Answers still out belong to the old generation and will be dropped,
         // so they must not keep the new ones from being asked for.
         loading = []
+        inflight = [:]
         failed = false
         overview = nil
         previous = nil
@@ -202,37 +205,62 @@ final class AnalyticsViewModel {
     /// One report for the range on screen. Its answer is kept only if nothing
     /// has been invalidated since it was asked for. A `quiet` report is an
     /// extra: when it fails the page simply shows without it.
+    ///
+    /// The request is the model's, not the screen's: it is not a child of the
+    /// `.task` that asked, so that task restarting — which it does whenever
+    /// its key changes, the first workspace arriving included — cannot cancel
+    /// a report the screen still needs. A second ask for a report already out
+    /// waits for that one instead of giving up on it.
     private func fetch<Value: Sendable>(
         _ key: String,
         quiet: Bool = false,
         workspaceID: String,
         appState: AppState,
-        _ request: (any WebyarAPI) async throws -> Value,
-        apply: (Value) -> Void
+        _ request: @escaping @Sendable (any WebyarAPI) async throws -> Value,
+        apply: @escaping @MainActor (Value) -> Void
     ) async {
-        guard !loading.contains(key) else { return }
+        if let running = inflight[key] {
+            await running.value
+            return
+        }
         let generation = generation
         loading.insert(key)
         if !quiet { failed = false }
-        defer { if generation == self.generation { loading.remove(key) } }
-        do {
-            let value = try await request(api)
-            guard generation == self.generation, !Task.isCancelled else { return }
-            apply(value)
-        } catch APIError.unauthorized {
-            await appState.handleUnauthorized()
-        } catch APIError.server(let status, _) where status == 403 {
-            guard generation == self.generation, !quiet else { return }
-            // The plan no longer carries it. Say so here, and have the gates
-            // look again so the tab itself goes the way of the plan.
-            locked = true
-            await appState.loadPlan()
-        } catch {
-            // A report abandoned because the operator moved on is not a
-            // failure worth a banner.
-            guard generation == self.generation, !quiet, !Task.isCancelled else { return }
-            failed = true
+        let api = api
+        let running = Task { @MainActor [weak self] in
+            do {
+                let value = try await request(api)
+                guard let self, generation == self.generation else { return }
+                apply(value)
+                self.settle(key, generation)
+            } catch APIError.unauthorized {
+                self?.settle(key, generation)
+                await appState.handleUnauthorized()
+            } catch APIError.server(let status, _) where status == 403 {
+                guard let self, generation == self.generation else { return }
+                self.settle(key, generation)
+                guard !quiet else { return }
+                // The plan no longer carries it. Say so here, and have the
+                // gates look again so the tab itself goes the way of the plan.
+                self.locked = true
+                await appState.loadPlan()
+            } catch {
+                guard let self, generation == self.generation else { return }
+                self.settle(key, generation)
+                if !quiet { self.failed = true }
+            }
         }
+        inflight[key] = running
+        await running.value
+    }
+
+    /// A report's request is over: another may be asked for. Nothing to do
+    /// for one that belongs to an older generation — `discard` already let go
+    /// of it.
+    private func settle(_ key: String, _ generation: Int) {
+        guard generation == self.generation else { return }
+        inflight[key] = nil
+        loading.remove(key)
     }
 
     // MARK: - Live count

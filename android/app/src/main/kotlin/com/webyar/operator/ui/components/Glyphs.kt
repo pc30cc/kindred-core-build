@@ -225,6 +225,16 @@ object Glyph {
         vector("Menu", "M3 18v-2h18v2H3Zm0-5v-2h18v2H3Zm0-5V6h18v2H3Z")
     }
 
+    /** An exclamation mark: a thread marked urgent. */
+    val PriorityHigh: ImageVector by lazy {
+        vector("PriorityHigh", "M10 3h4v12h-4ZM12 17a2 2 0 1 1 0 4 2 2 0 1 1 0-4Z")
+    }
+
+    /** An arrow up: a thread marked high. */
+    val ArrowUp: ImageVector by lazy {
+        vector("ArrowUp", "M11 20V7.83l-5.6 5.6L4 12l8-8 8 8-1.4 1.43-5.6-5.6V20h-2Z")
+    }
+
     /** A clock face: waiting on the customer. */
     val Schedule: ImageVector by lazy {
         vector(

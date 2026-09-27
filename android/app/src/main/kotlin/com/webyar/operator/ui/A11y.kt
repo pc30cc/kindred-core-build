@@ -73,6 +73,7 @@ object A11y {
     const val CALL_HANG_UP = "call.hangUp"
 
     fun conversationRow(id: String) = "conversation.$id"
+    fun priorityTag(wire: String) = "priority.$wire"
     fun contactRow(id: String) = "contact.$id"
     fun colleagueRow(id: String) = "colleague.$id"
     fun emailFolder(name: String) = "email.folder.$name"

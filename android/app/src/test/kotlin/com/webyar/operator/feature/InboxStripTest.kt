@@ -26,6 +26,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import com.webyar.operator.core.model.ConversationContact
+import com.webyar.operator.core.model.ConversationPriority
 
 /**
  * The strip above the inbox — Open, AI, Colleagues, and the button that
@@ -111,6 +112,24 @@ class InboxStripTest {
         ).assertIsDisplayed()
         // The rest came from the site's own chat, and say so.
         assertTrue(compose.onAllNodesWithTag("channel.${ConversationChannel.WEB}", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
+    }
+
+    @Test
+    fun `urgent and high are tagged on their rows, low and normal are not`() {
+        val base = runBlocking { SampleApi().conversations("ws-1", InboxFilter.OPEN) }.take(4)
+        val marked = base.zip(
+            listOf(ConversationPriority.URGENT, ConversationPriority.HIGH, ConversationPriority.LOW, ConversationPriority.NORMAL),
+        ) { conversation, priority -> conversation.copy(priority = priority) }
+        screen(conversations = marked)
+
+        fun tagOn(row: String, wire: String) = compose.onNode(
+            hasTestTag(A11y.priorityTag(wire)) and hasAnyAncestor(hasTestTag(A11y.conversationRow(row))),
+            useUnmergedTree = true,
+        )
+        tagOn(marked[0].id, "urgent").assertIsDisplayed()
+        tagOn(marked[1].id, "high").assertIsDisplayed()
+        compose.onNodeWithTag(A11y.priorityTag("low"), useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag(A11y.priorityTag("normal"), useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test

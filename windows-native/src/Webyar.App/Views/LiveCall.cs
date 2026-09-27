@@ -28,7 +28,8 @@ public sealed class LiveCall
 {
     public enum Presentation { Docked, Window }
 
-    private enum Phase { Waiting, Connecting, Connected, Ended }
+    /// <summary>InRoom: this operator is in the call's room, the visitor not yet — the clock waits for them.</summary>
+    private enum Phase { Waiting, Connecting, InRoom, Connected, Ended }
 
     /// <summary>A call answered on the desk (or joined after a hand-over): the room already exists.</summary>
     private sealed record DeskCall(string CallId, CallAccept Accept, CallSession? Session);
@@ -59,6 +60,8 @@ public sealed class LiveCall
     private Phase _phase = Phase.Waiting;
     private string _outcome = "hungUp";
     private DateTimeOffset? _connectedAt;
+    /// <summary>When a page first reached the room: the visitor's 60 seconds to come are counted from here, across moves.</summary>
+    private DateTimeOffset? _inRoomAt;
     private bool _muted;
     private bool _cameraOn;
     private Poller? _notesPoller;
@@ -174,7 +177,10 @@ public sealed class LiveCall
     public string Name => _name;
     public bool IsVideo => _channel == "video";
     public bool IsLive => !_ended;
+    /// <summary>The visitor is in the call and its time runs.</summary>
     public bool IsConnected => _phase == Phase.Connected;
+    /// <summary>This operator is in the call's room (the controls work), the visitor there or not yet.</summary>
+    public bool IsInRoom => _phase is Phase.InRoom or Phase.Connected;
     public bool IsMuted => _muted;
     public bool IsTransferred => _transferredTo is not null;
     public Presentation Shown { get; private set; } = Presentation.Docked;
@@ -198,6 +204,7 @@ public sealed class LiveCall
             {
                 Phase.Waiting => s[_desk is null ? "callWaiting" : "connectingCall"],
                 Phase.Connecting => s["connectingCall"],
+                Phase.InRoom => s["callWaiting"],
                 Phase.Connected => CallRules.Clock(DateTimeOffset.Now - (_connectedAt ?? DateTimeOffset.Now), s.Language),
                 _ => OutcomeText(_outcome),
             };
@@ -236,7 +243,7 @@ public sealed class LiveCall
     /// <summary>Mutes or unmutes from outside the page; the page answers with the new state.</summary>
     public void ToggleMute()
     {
-        if (_phase == Phase.Connected) Post(new { type = "setMute", on = !_muted });
+        if (_phase is Phase.InRoom or Phase.Connected) Post(new { type = "setMute", on = !_muted });
     }
 
     /// <summary>Hangs up — or, once handed on, leaves: hanging up then would end the call for the colleague too.</summary>
@@ -326,6 +333,8 @@ public sealed class LiveCall
             Log.Error("call webview", e);
             if (!ReferenceEquals(surface, _surface)) return;
             _window?.ShowFatal(Host.Strings["callFailed"]);
+            // Docked, the blank page would hide the sidebar's call bar, which says why it failed.
+            if (surface.Docked) CallDock.Remove(surface);
             await FinishAsync("failed", "webview");
         }
     }
@@ -463,6 +472,7 @@ public sealed class LiveCall
             muted = _muted,
             camOn = _cameraOn,
             since = _connectedAt?.ToUnixTimeMilliseconds(),
+            inRoomAt = _inRoomAt?.ToUnixTimeMilliseconds(),
         });
     }
 
@@ -482,6 +492,11 @@ public sealed class LiveCall
             case "ready":
                 SendState(surface);
                 if (_join is not null) _ = JoinWhenFreeAsync(surface);
+                break;
+            case "inRoom":
+                // In the room; the page says "connected" once the visitor is there too.
+                _inRoomAt ??= DateTimeOffset.Now;
+                if (_phase != Phase.Connected) SetPhase(Phase.InRoom);
                 break;
             case "connected":
                 Log.Write($"[call] connected {_sessionId}");
@@ -597,13 +612,17 @@ public sealed class LiveCall
             status = _phase switch
             {
                 Phase.Waiting => s[_desk is null ? "callWaiting" : "connectingCall"],
+                Phase.Ended => OutcomeText(_outcome),
                 _ => s["connectingCall"],
             },
             waiting = _phase == Phase.Waiting,
+            ended = _phase == Phase.Ended,
+            persianDigits = s.Language == Webyar.Core.Localization.Language.Fa,
             canTransfer = _desk is not null,
             hasNotes = _desk is not null || _conversation is not null,
             strings = new
             {
+                waitingVisitor = s["callWaiting"],
                 mute = s["mute"],
                 unmute = s["unmute"],
                 camera = s["camera"],
@@ -867,8 +886,9 @@ public sealed class LiveCall
         return outcome switch
         {
             "declined" => s["callDeclined"],
-            "expired" => s["callNoAnswer"],
+            "expired" or "noAnswer" => s["callNoAnswer"],
             "failed" => s["callFailed"],
+            "endFailed" => s["callEndFailed"],
             "transferred" => s["callTransferredOut"],
             _ => s["callEnded"],
         };
@@ -890,13 +910,8 @@ public sealed class LiveCall
         // Ending is idempotent server-side, so a race with the visitor's own hang-up is harmless.
         try
         {
-            if (outcome == "transferred")
-            {
-                // Handed on: the call is the colleague's now, and it goes on without this operator.
-            }
-            else if (_desk is { } desk) await Host.Api.EndCallAsync(_workspaceId, desk.CallId);
-            else if (_sessionId is not null) await Host.Api.HangUpAsync(_sessionId);
-            else if (_invitation is not null) await Host.Api.CancelInvitationAsync(_invitation.Id);
+            // Handed on (whatever ended this page): the call is the colleague's now, and it goes on without this operator.
+            if (outcome != "transferred" && _transferredTo is null) await TellServerEndedAsync();
         }
         catch (ApiException e) when (e.ServerMessage is "call_not_active" || e.Body?.Contains("call_not_active") == true)
         {
@@ -904,15 +919,38 @@ public sealed class LiveCall
         }
         catch (Exception e)
         {
+            // Still open on the server (this operator would stay busy): say so rather than a calm "Call ended".
             Log.Error("call hang up", e);
+            _outcome = outcome = "endFailed";
+            Post(new { type = "status", text = OutcomeText(outcome), ended = true });
+            Changed?.Invoke();
         }
         finally
         {
             _told.TrySetResult();
         }
         // An ended call says why for a moment, then gets out of the way.
-        await Task.Delay(outcome == "failed" ? 4000 : 1800);
+        await Task.Delay(outcome is "failed" or "endFailed" ? 4000 : 1800);
         Close();
+    }
+
+    /// <summary>Ends the call on the server, trying again through a short network blip.</summary>
+    private async Task TellServerEndedAsync()
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                if (_desk is { } desk) await Host.Api.EndCallAsync(_workspaceId, desk.CallId);
+                else if (_sessionId is not null) await Host.Api.HangUpAsync(_sessionId);
+                else if (_invitation is not null) await Host.Api.CancelInvitationAsync(_invitation.Id);
+                return;
+            }
+            catch (Exception e) when (attempt < 3 && CallRules.IsTransient(e))
+            {
+                await Task.Delay(1500 * attempt);
+            }
+        }
     }
 
     /// <summary>The ended call has shown why for a moment: its panel goes, its window closes.</summary>

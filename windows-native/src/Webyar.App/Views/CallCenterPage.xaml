@@ -42,14 +42,15 @@
         </Style>
     </Page.Resources>
 
-    <Grid Padding="10" ColumnSpacing="10">
+    <!-- Two panes side by side; below a page width the Mac's window never reaches, one at a time (see OnRootSize). -->
+    <Grid x:Name="Root" Padding="10" ColumnSpacing="10" SizeChanged="OnRootSize">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="340" MinWidth="280" />
-            <ColumnDefinition Width="*" />
+            <ColumnDefinition x:Name="ListCol" Width="340" />
+            <ColumnDefinition x:Name="DetailCol" Width="*" />
         </Grid.ColumnDefinitions>
 
         <!-- The list column, as on the Mac: masthead, the numbers, the list's controls, the line or the log -->
-        <Border Style="{StaticResource PanelBorder}">
+        <Border x:Name="ListPane" Style="{StaticResource PanelBorder}">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -70,15 +71,23 @@
                             <FontIcon Glyph="&#xE717;" FontSize="17" Foreground="{ThemeResource BrandBrush}" />
                         </Border>
                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
                                 <TextBlock x:Name="HeaderText" FontSize="18" FontWeight="Bold" Foreground="{ThemeResource TextBrush}" TextTrimming="CharacterEllipsis" />
-                                <Border x:Name="ServiceChip" CornerRadius="10" Padding="8,2.5" VerticalAlignment="Center" Visibility="Collapsed">
-                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                <Border x:Name="ServiceChip" Grid.Column="1" HorizontalAlignment="Left" CornerRadius="10" Padding="8,2.5" VerticalAlignment="Center" Visibility="Collapsed">
+                                    <Grid ColumnSpacing="5">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
                                         <Ellipse x:Name="ServiceDot" Width="7" Height="7" VerticalAlignment="Center" />
-                                        <TextBlock x:Name="ServiceText" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                    </StackPanel>
+                                        <TextBlock x:Name="ServiceText" Grid.Column="1" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                    </Grid>
                                 </Border>
-                            </StackPanel>
+                            </Grid>
                             <TextBlock x:Name="LiveText" FontSize="12" Foreground="{ThemeResource Text2Brush}" TextTrimming="CharacterEllipsis" />
                         </StackPanel>
                         <Button x:Name="RefreshButton" Grid.Column="2" Style="{StaticResource IconButton}" VerticalAlignment="Center" Click="OnRefresh">
@@ -182,7 +191,7 @@
                 </StackPanel>
 
                 <Grid Grid.Row="3" BorderBrush="{ThemeResource LineBrush}" BorderThickness="0,1,0,0">
-                    <ListView x:Name="QueueList" Padding="6,4" SelectionMode="Single" SelectionChanged="OnSelectQueue" ContextRequested="OnQueueContext" ContainerContentChanging="OnQueueRow">
+                    <ListView x:Name="QueueList" Padding="6,4" SelectionMode="Single" IsItemClickEnabled="True" ItemClick="OnRowClick" SelectionChanged="OnSelectQueue" ContextRequested="OnQueueContext" ContainerContentChanging="OnQueueRow">
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
                                 <Setter Property="CornerRadius" Value="10" />
@@ -205,13 +214,19 @@
                                         </Border>
                                     </Grid>
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <!-- A Grid, not a StackPanel: a long name is cut with "…" and the priority stays in view. -->
+                                        <Grid ColumnSpacing="6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
                                             <TextBlock FontSize="11.5" FontWeight="Bold" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind RankText, Mode=OneWay}" VerticalAlignment="Center" />
-                                            <TextBlock FontSize="13.5" FontWeight="SemiBold" Text="{x:Bind Name, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
-                                            <Border CornerRadius="9" Padding="8,2.5" VerticalAlignment="Center" Background="{ThemeResource DangerSoftBrush}" Visibility="{x:Bind PriorityVisibility, Mode=OneWay}">
+                                            <TextBlock Grid.Column="1" FontSize="13.5" FontWeight="SemiBold" Text="{x:Bind Name, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
+                                            <Border Grid.Column="2" CornerRadius="9" Padding="8,2.5" VerticalAlignment="Center" Background="{ThemeResource DangerSoftBrush}" Visibility="{x:Bind PriorityVisibility, Mode=OneWay}">
                                                 <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource DangerBrush}" Text="{x:Bind PriorityText, Mode=OneWay}" />
                                             </Border>
-                                        </StackPanel>
+                                        </Grid>
                                         <TextBlock FontSize="12" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind Detail, Mode=OneWay}" TextTrimming="CharacterEllipsis" Visibility="{x:Bind DetailVisibility, Mode=OneWay}" />
                                     </StackPanel>
                                     <Border Grid.Column="2" CornerRadius="8" Padding="9,3" VerticalAlignment="Center" Background="{x:Bind WaitBack, Mode=OneWay}">
@@ -224,7 +239,7 @@
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
-                    <ListView x:Name="HistoryList" Padding="6,4" SelectionMode="Single" Visibility="Collapsed" SelectionChanged="OnSelectHistory">
+                    <ListView x:Name="HistoryList" Padding="6,4" SelectionMode="Single" IsItemClickEnabled="True" ItemClick="OnRowClick" Visibility="Collapsed" SelectionChanged="OnSelectHistory">
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
                                 <Setter Property="CornerRadius" Value="10" />
@@ -249,13 +264,17 @@
                                     </Grid>
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
                                         <TextBlock FontSize="13" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Grid ColumnSpacing="6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
                                             <TextBlock FontSize="12" Foreground="{x:Bind StateBrush}" Text="{x:Bind StateText}" TextTrimming="CharacterEllipsis" />
-                                            <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Visibility="{x:Bind SpamVisibility}">
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Visibility="{x:Bind SpamVisibility}">
                                                 <FontIcon Glyph="&#xE74D;" FontSize="10" Foreground="{ThemeResource DangerBrush}" />
                                                 <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource DangerBrush}" Text="{x:Bind SpamText}" />
                                             </StackPanel>
-                                        </StackPanel>
+                                        </Grid>
                                     </StackPanel>
                                     <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" Spacing="1">
                                         <TextBlock FontSize="12" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind WhenText}" HorizontalAlignment="Right" />
@@ -272,31 +291,44 @@
                         <TextBlock x:Name="EmptyTitle" HorizontalAlignment="Center" TextAlignment="Center" FontWeight="SemiBold" TextWrapping="Wrap" />
                         <TextBlock x:Name="EmptyBody" HorizontalAlignment="Center" TextAlignment="Center" Style="{StaticResource MutedText}" />
                     </StackPanel>
-                    <ProgressRing x:Name="Loading" IsActive="True" Width="28" Height="28" />
+                    <!-- Loading: rows in the shape of the calls to come, never a spinner. -->
+                    <StackPanel x:Name="Loading" Padding="10,8" Spacing="14" VerticalAlignment="Top">
+                        <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><controls:Avatar Size="42" IsPending="True" /><StackPanel Grid.Column="1" Spacing="7" VerticalAlignment="Center"><Rectangle Height="11" Width="140" HorizontalAlignment="Left" RadiusX="5" RadiusY="5" Fill="{ThemeResource ElevatedBrush}" /><Rectangle Height="9" Width="96" HorizontalAlignment="Left" RadiusX="4" RadiusY="4" Fill="{ThemeResource ElevatedBrush}" /></StackPanel></Grid>
+                        <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><controls:Avatar Size="42" IsPending="True" /><StackPanel Grid.Column="1" Spacing="7" VerticalAlignment="Center"><Rectangle Height="11" Width="120" HorizontalAlignment="Left" RadiusX="5" RadiusY="5" Fill="{ThemeResource ElevatedBrush}" /><Rectangle Height="9" Width="80" HorizontalAlignment="Left" RadiusX="4" RadiusY="4" Fill="{ThemeResource ElevatedBrush}" /></StackPanel></Grid>
+                        <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><controls:Avatar Size="42" IsPending="True" /><StackPanel Grid.Column="1" Spacing="7" VerticalAlignment="Center"><Rectangle Height="11" Width="150" HorizontalAlignment="Left" RadiusX="5" RadiusY="5" Fill="{ThemeResource ElevatedBrush}" /><Rectangle Height="9" Width="104" HorizontalAlignment="Left" RadiusX="4" RadiusY="4" Fill="{ThemeResource ElevatedBrush}" /></StackPanel></Grid>
+                    </StackPanel>
                 </Grid>
             </Grid>
         </Border>
 
         <!-- Right: the call picked. The notice sits above it, then the call answered here, docked, then the call's details. -->
-        <Border Grid.Column="1" Style="{StaticResource PanelBorder}">
+        <Border x:Name="DetailPane" Grid.Column="1" Style="{StaticResource PanelBorder}">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-                <InfoBar x:Name="DeskError" Margin="14,8,14,0" Severity="Error" IsClosable="True" />
+                <!-- One pane at a time (a narrow window): back to the line. -->
+                <Button x:Name="BackButton" Margin="10,8,10,0" Padding="8,5" Background="Transparent" BorderThickness="0" Visibility="Collapsed" Click="OnBack">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE72B;" FontSize="13" MirroredWhenRightToLeft="True" />
+                        <TextBlock x:Name="BackText" FontSize="13" FontWeight="SemiBold" />
+                    </StackPanel>
+                </Button>
+                <InfoBar x:Name="DeskError" Grid.Row="1" Margin="14,8,14,0" Severity="Error" IsClosable="True" />
                 <!-- The call answered on this desk slides in here, over the call it belongs to. -->
-                <controls:CallDockSlot x:Name="DockSlot" Grid.Row="1" MaxWidth="760" />
-                <StackPanel x:Name="Placeholder" Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" MaxWidth="380">
+                <controls:CallDockSlot x:Name="DockSlot" Grid.Row="2" MaxWidth="760" />
+                <StackPanel x:Name="Placeholder" Grid.Row="3" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" MaxWidth="380">
                     <Border Width="76" Height="76" CornerRadius="21" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
                         <FontIcon FontSize="30" Foreground="{ThemeResource BrandBrush}" Glyph="&#xE77B;" />
                     </Border>
                     <TextBlock x:Name="PlaceholderTitle" HorizontalAlignment="Center" FontSize="16" FontWeight="SemiBold" />
                     <TextBlock x:Name="PlaceholderBody" HorizontalAlignment="Center" TextAlignment="Center" Style="{StaticResource MutedText}" />
                 </StackPanel>
-                <ScrollViewer x:Name="DetailScroll" Grid.Row="2" Visibility="Collapsed">
-                    <StackPanel Padding="28,24" Spacing="18" MaxWidth="760">
+                <ScrollViewer x:Name="DetailScroll" Grid.Row="3" Visibility="Collapsed" SizeChanged="OnDetailSize">
+                    <StackPanel x:Name="DetailStack" Padding="28,24" Spacing="18" MaxWidth="760">
                         <!-- Caller and the big buttons; the buttons go under the caller when the column is narrow -->
                         <Border x:Name="CallerCard" Style="{StaticResource CardBorder}" CornerRadius="16" Padding="20" SizeChanged="OnCallerCardSize">
                             <Grid x:Name="CallerGrid" ColumnSpacing="18">
@@ -331,7 +363,8 @@
                                     </StackPanel>
                                     <TextBlock x:Name="WaitLine" FontSize="12.5" Foreground="{ThemeResource Text2Brush}" TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
-                                <StackPanel x:Name="CallerButtons" Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                <!-- Side by side; under the caller in a narrow column, where they wrap rather than run off the card. -->
+                                <controls:WrapPanel x:Name="CallerButtons" Grid.Column="2" Spacing="10" VerticalAlignment="Center">
                                     <Button x:Name="SpamButton" Width="44" Height="44" Padding="0" CornerRadius="22" BorderThickness="0" Background="{ThemeResource ElevatedBrush}" Click="OnSpam">
                                         <FontIcon x:Name="SpamGlyph" Glyph="&#xE74D;" FontSize="15" Foreground="{ThemeResource DangerBrush}" />
                                     </Button>
@@ -345,7 +378,7 @@
                                         <StackPanel Orientation="Horizontal" Spacing="8">
                                             <FontIcon x:Name="AcceptGlyph" Glyph="&#xE717;" FontSize="15" />
                                             <TextBlock x:Name="AcceptText" FontWeight="SemiBold" />
-                                            <ProgressRing x:Name="AcceptRing" Width="16" Height="16" IsActive="False" Foreground="White" />
+                                            <ProgressRing x:Name="AcceptRing" Width="16" Height="16" IsActive="False" Foreground="White" Visibility="Collapsed" />
                                         </StackPanel>
                                     </Button>
                                     <Button x:Name="EndButton" MinHeight="44" Padding="20,0" CornerRadius="10" Background="{ThemeResource DangerBrush}" Foreground="White" BorderThickness="0" Visibility="Collapsed" Click="OnEnd">
@@ -354,15 +387,19 @@
                                             <TextBlock x:Name="EndText" FontWeight="SemiBold" />
                                         </StackPanel>
                                     </Button>
-                                </StackPanel>
+                                </controls:WrapPanel>
                             </Grid>
                         </Border>
 
-                        <Grid ColumnSpacing="14">
+                        <Grid x:Name="ContextGrid" ColumnSpacing="14">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
                             <StackPanel Spacing="8">
                                 <TextBlock x:Name="ContactTitle" Style="{StaticResource SectionLabel}" />
                                 <Border Style="{StaticResource CardBorder}">
@@ -377,11 +414,15 @@
                             </StackPanel>
                         </Grid>
 
-                        <Grid ColumnSpacing="14">
+                        <Grid x:Name="HistoryGrid" ColumnSpacing="14">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
                             <StackPanel Spacing="8">
                                 <TextBlock x:Name="TimelineTitle" Style="{StaticResource SectionLabel}" />
                                 <Border Style="{StaticResource CardBorder}">

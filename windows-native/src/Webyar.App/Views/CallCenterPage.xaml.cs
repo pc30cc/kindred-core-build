@@ -53,6 +53,13 @@ public sealed partial class CallCenterPage : Page
     private bool _markingSpam;
     private bool _addingNote;
     private bool _visible;
+    private bool _accepting;
+    /// <summary>The window is too narrow for both panes: the line or the call picked, one at a time.</summary>
+    private bool _narrow;
+    /// <summary>In one-pane mode, the call picked is on show rather than the line.</summary>
+    private bool _detailOpen;
+    /// <summary>What the detail last drew, so a poll that changes nothing leaves a text selection alone.</summary>
+    private string? _shownKey, _timelineKey, _notesKey;
 
     public CallCenterPage()
     {
@@ -121,6 +128,7 @@ public sealed partial class CallCenterPage : Page
     {
         var s = Host.Strings;
         HeaderText.Text = s["navCallCenter"];
+        BackText.Text = s["back"];
         LiveText.Text = s["ccLiveDesk"];
         DeskTab.Content = s["ccLiveDesk"];
         HistoryTab.Content = s["ccHistory"];
@@ -194,7 +202,9 @@ public sealed partial class CallCenterPage : Page
     {
         var s = Host.Strings;
         var entries = Host.CallQueue?.Queue ?? [];
-        _queueShown = true;
+        // Until the line has been read, the skeleton rather than "No calls waiting".
+        _queueShown = Host.CallQueue?.HasPolled ?? true;
+        var wasWaiting = _selectedId is { } before && _byId.ContainsKey(before);
         var ordered = entries.OrderByDescending(q => q.Priority ?? 0).ThenBy(q => q.CreatedAt ?? DateTimeOffset.MaxValue).ToList();
         var seen = new HashSet<string>();
         for (var i = 0; i < ordered.Count; i++)
@@ -207,6 +217,12 @@ public sealed partial class CallCenterPage : Page
         foreach (var gone in _byId.Keys.Where(k => !seen.Contains(k)).ToList()) _byId.Remove(gone);
         Filter();
         if (_selectedId is { } id && _byId.TryGetValue(id, out var open)) ShowQueueDetail(open);
+        else if (wasWaiting && _selectedId is { } left)
+        {
+            // Answered by a colleague, or the caller hung up: no more Accept on a call that is not waiting.
+            ShowCall(_selectedCall is { } c && c.Id == left ? c : new CallSession(left), waiting: false);
+            _detailPoller?.Kick();
+        }
     }
 
     private void Filter()
@@ -233,7 +249,6 @@ public sealed partial class CallCenterPage : Page
         var s = Host.Strings;
         // The log shows its spinner until the first answer (and while it reloads empty); the line until the watcher's first poll.
         var loading = _showHistory ? _history.Count == 0 && (_historyLoading || !_historyLoaded) : !_queueShown;
-        Loading.IsActive = loading;
         Loading.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
         var none = _showHistory ? _history.Count == 0 : _queue.Count == 0;
         Empty.Visibility = none && !loading ? Visibility.Visible : Visibility.Collapsed;
@@ -263,7 +278,8 @@ public sealed partial class CallCenterPage : Page
         var s = Host.Strings;
         var now = DateTimeOffset.Now;
         foreach (var item in _byId.Values) item.Tick(s, now);
-        var longest = _byId.Values.Select(i => now - i.Since).DefaultIfEmpty(TimeSpan.Zero).Max();
+        // A clock a little ahead of the server's never makes a negative wait.
+        var longest = _byId.Values.Select(i => now - i.Since < TimeSpan.Zero ? TimeSpan.Zero : now - i.Since).DefaultIfEmpty(TimeSpan.Zero).Max();
         LongestValue.Text = Digits.Localize($"{(int)longest.TotalMinutes}:{longest.Seconds:00}", s.Language);
         SlaValue.Text = N(_byId.Values.Count(i => (now - i.Since).TotalSeconds > 180));
         WaitingValue.Text = N(_byId.Count);
@@ -397,14 +413,32 @@ public sealed partial class CallCenterPage : Page
     {
         var s = Host.Strings;
         var q = Search.Text?.Trim() ?? string.Empty;
-        var keep = (HistoryList.SelectedItem as CallHistoryItem)?.Call.Id ?? _selectedId;
-        _history.Clear();
-        foreach (var c in _recent.Where(c => q.Length == 0 || new[] { c.VisitorName, c.VisitorEmail, c.VisitorPhone }.Any(t => t?.Contains(q, StringComparison.OrdinalIgnoreCase) == true))
-                                 .Where(c => _channel == "all" || (_channel == "video") == c.IsVideo))
-            _history.Add(new CallHistoryItem(c, s));
-        if (keep is not null && _history.FirstOrDefault(h => h.Call.Id == keep) is { } again) HistoryList.SelectedItem = again;
+        var wanted = _recent.Where(c => q.Length == 0 || new[] { c.VisitorName, c.VisitorEmail, c.VisitorPhone }.Any(t => t?.Contains(q, StringComparison.OrdinalIgnoreCase) == true))
+                            .Where(c => _channel == "all" || (_channel == "video") == c.IsVideo).ToList();
+        // Changed in place, row by row, as the line is: a refresh every few seconds keeps the scroll and the row picked.
+        var ids = wanted.Select(c => c.Id).ToHashSet();
+        for (var i = _history.Count - 1; i >= 0; i--) if (!ids.Contains(_history[i].Call.Id)) _history.RemoveAt(i);
+        for (var i = 0; i < wanted.Count; i++)
+        {
+            var c = wanted[i];
+            var at = -1;
+            for (var j = i; j < _history.Count; j++) if (_history[j].Call.Id == c.Id) { at = j; break; }
+            if (at < 0) _history.Insert(i, new CallHistoryItem(c, s));
+            else
+            {
+                if (at != i) _history.Move(at, i);
+                if (!SameRow(_history[i].Call, c)) _history[i] = new CallHistoryItem(c, s);
+            }
+        }
+        if (_selectedId is { } keep && _history.FirstOrDefault(h => h.Call.Id == keep) is { } again && !ReferenceEquals(HistoryList.SelectedItem, again))
+            HistoryList.SelectedItem = again;
         ShowEmpty();
     }
+
+    /// <summary>What a log row shows is unchanged.</summary>
+    private static bool SameRow(CallSession a, CallSession b) =>
+        a.State == b.State && a.DurationSeconds == b.DurationSeconds && a.VisitorName == b.VisitorName && a.VisitorEmail == b.VisitorEmail
+        && a.IsSpam == b.IsSpam && a.IsVideo == b.IsVideo && a.CreatedAt == b.CreatedAt;
 
     private void OnChannel(object sender, RoutedEventArgs e)
     {
@@ -482,6 +516,8 @@ public sealed partial class CallCenterPage : Page
     private void OnSelectQueue(object sender, SelectionChangedEventArgs e)
     {
         if (QueueList.SelectedItem is not QueueItem item) return;
+        // One call picked across both lists, so going back to a row picked earlier opens it again.
+        HistoryList.SelectedItem = null;
         Open(item.Id, item.Entry.CallSession, waiting: true, item);
     }
 
@@ -494,6 +530,7 @@ public sealed partial class CallCenterPage : Page
             _selectedCall ??= item.Call;
             return;
         }
+        QueueList.SelectedItem = null;
         Open(item.Call.Id, item.Call, waiting: false);
     }
 
@@ -505,11 +542,14 @@ public sealed partial class CallCenterPage : Page
             DeskError.IsOpen = false;
             NoteBox.Text = string.Empty;
             NoteRows.Children.Clear();
-            // A spinner until the call's timeline arrives, as on the Mac.
+            // Skeleton lines until the call's timeline arrives.
             TimelineRows.Children.Clear();
-            TimelineRows.Children.Add(new ProgressRing { IsActive = true, Width = 18, Height = 18, HorizontalAlignment = HorizontalAlignment.Left });
+            TimelineRows.Children.Add(SkeletonLines(3));
+            _shownKey = _timelineKey = _notesKey = null;
         }
         _selectedId = id;
+        _detailOpen = true;
+        ApplyPanes();
         _selectedCall = call;
         // The call answered on this desk docks over the call it belongs to.
         DockSlot.CallKey = $"desk:{id}";
@@ -581,8 +621,11 @@ public sealed partial class CallCenterPage : Page
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SpamButton, s[c.IsSpam ? "notSpam" : "markSpam"]);
         SpamButton.IsEnabled = !_markingSpam;
         var onCall = _onCallId == c.Id || (c.State is "active" && c.AssignedAgentId is { } agent && agent == Host.User?.Id);
-        AcceptButton.Visibility = waiting ? Visibility.Visible : Visibility.Collapsed;
-        RejectButton.Visibility = waiting ? Visibility.Visible : Visibility.Collapsed;
+        // Answered here and the line not caught up yet: End only, never Accept a second time.
+        var canAnswer = waiting && _onCallId != c.Id;
+        AcceptButton.Visibility = canAnswer ? Visibility.Visible : Visibility.Collapsed;
+        RejectButton.Visibility = canAnswer ? Visibility.Visible : Visibility.Collapsed;
+        AcceptButton.IsEnabled = RejectButton.IsEnabled = !_accepting;
         EndButton.Visibility = onCall ? Visibility.Visible : Visibility.Collapsed;
         EndButton.IsEnabled = !_ending;
         AcceptGlyph.Glyph = video ? "" : "";
@@ -590,6 +633,12 @@ public sealed partial class CallCenterPage : Page
             : onCall ? s.Get("ccOnCallWith", "name", name)
             : c.CreatedAt is { } at ? $"{s["ccStartedAt"]} {Display.ListStamp(at, DateTimeOffset.Now, s)}" : string.Empty;
 
+        LayOutCallerCard();
+
+        // Rows rebuilt only when what they say changed: the poll every few seconds keeps a selection being copied.
+        var key = string.Join("\u001f", c.Id, c.VisitorName, name, c.VisitorEmail, c.VisitorPhone, c.Subject, c.PageTitle, c.PageUrl, s.Language);
+        if (key == _shownKey) return;
+        _shownKey = key;
         ContactRows.Children.Clear();
         InfoRow(ContactRows, "", s["ccName"], c.VisitorName ?? name);
         if (c.VisitorEmail is { Length: > 0 } email) InfoRow(ContactRows, "", s["ccEmail"], email, ltr: true);
@@ -626,6 +675,9 @@ public sealed partial class CallCenterPage : Page
     private void ShowTimeline(IReadOnlyList<CallEvent> events)
     {
         var s = Host.Strings;
+        var key = string.Join("|", events.Select(e => $"{e.Id}:{e.EventType}:{e.CreatedAt?.ToUnixTimeSeconds()}")) + s.Language;
+        if (key == _timelineKey) return;
+        _timelineKey = key;
         TimelineRows.Children.Clear();
         if (events.Count == 0)
         {
@@ -655,6 +707,9 @@ public sealed partial class CallCenterPage : Page
     private void ShowNotes(IReadOnlyList<CallNote> notes)
     {
         var s = Host.Strings;
+        var key = string.Join("|", notes.Select(n => $"{n.Id}:{n.Note.Length}:{n.Note.GetHashCode()}")) + s.Language;
+        if (key == _notesKey) return;
+        _notesKey = key;
         NoteRows.Children.Clear();
         foreach (var n in notes.OrderBy(n => n.CreatedAt ?? DateTimeOffset.MinValue))
         {
@@ -685,7 +740,7 @@ public sealed partial class CallCenterPage : Page
             PreviousRows.Children.Add(Muted("—"));
             return;
         }
-        PreviousRows.Children.Add(new ProgressRing { IsActive = true, Width = 18, Height = 18, HorizontalAlignment = HorizontalAlignment.Left });
+        PreviousRows.Children.Add(SkeletonLines(2));
         try
         {
             if (_recent.Count == 0) _recent = await Host.Api.CallHistoryAsync(ws.Id, 100);
@@ -710,7 +765,7 @@ public sealed partial class CallCenterPage : Page
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 row.Children.Add(new FontIcon { Glyph = item.IconGlyph, FontSize = 13, Foreground = item.StateBrush });
-                var state = new TextBlock { Text = item.StateText, FontSize = 12.5, Foreground = item.StateBrush };
+                var state = new TextBlock { Text = item.StateText, FontSize = 12.5, Foreground = item.StateBrush, TextTrimming = TextTrimming.CharacterEllipsis };
                 Grid.SetColumn(state, 1);
                 row.Children.Add(state);
                 var when = new TextBlock { Text = $"{item.WhenText} · {item.DurationText}", FontSize = 12, Foreground = Palette.Resource("Text3Brush") };
@@ -793,16 +848,19 @@ public sealed partial class CallCenterPage : Page
 
     private async void OnAccept(object sender, RoutedEventArgs e)
     {
-        if (_selectedId is not { } id || Host.Workspace is not { } ws || !_byId.TryGetValue(id, out var item)) return;
+        // One answer at a time, from the button, the banner or the right-click menu alike.
+        if (_accepting || _selectedId is not { } id || Host.Workspace is not { } ws || !_byId.TryGetValue(id, out var item) || _onCallId == id) return;
         var s = Host.Strings;
         if (LiveCall.IsBusy)
         {
             ShowDeskError(s["ccOnCall"]);
             return;
         }
+        _accepting = true;
         AcceptButton.IsEnabled = RejectButton.IsEnabled = false;
         AcceptText.Text = s["ccAnswering"];
         AcceptRing.IsActive = true;
+        AcceptRing.Visibility = Visibility.Visible;
         try
         {
             var accept = await Host.Api.AcceptCallAsync(ws.Id, id);
@@ -831,15 +889,19 @@ public sealed partial class CallCenterPage : Page
         }
         finally
         {
+            _accepting = false;
             AcceptButton.IsEnabled = RejectButton.IsEnabled = true;
             AcceptText.Text = s["ccAcceptNow"];
             AcceptRing.IsActive = false;
+            AcceptRing.Visibility = Visibility.Collapsed;
+            // Answered: the card shows End now, not Accept again until the line catches up.
+            if (_selectedId == id && ShownCall() is { } shown) ShowCall(shown, waiting: _byId.ContainsKey(id), fallbackName: item.Name, isVideo: item.Entry.IsVideo);
         }
     }
 
     private async void OnReject(object sender, RoutedEventArgs e)
     {
-        if (_selectedId is not { } id || Host.Workspace is not { } ws) return;
+        if (_accepting || _selectedId is not { } id || Host.Workspace is not { } ws) return;
         var s = Host.Strings;
         RejectButton.IsEnabled = AcceptButton.IsEnabled = false;
         try
@@ -949,16 +1011,99 @@ public sealed partial class CallCenterPage : Page
     private void ShowNoteButton() => AddNoteButton.IsEnabled = !_addingNote && NoteBox.Text.Trim().Length > 0;
 
     /// <summary>The caller's card: the buttons beside the caller when there is room, under them when the column is narrow.</summary>
-    private void OnCallerCardSize(object sender, SizeChangedEventArgs e)
+    private void OnCallerCardSize(object sender, SizeChangedEventArgs e) => LayOutCallerCard();
+
+    /// <summary>Also after the buttons change (Accept and Reject, or End), not only when the card's size does.</summary>
+    private void LayOutCallerCard()
     {
+        var width = CallerCard.ActualWidth;
+        if (width <= 0) return;
         CallerButtons.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
         // The avatar (64), the gaps (2 × 18), a name worth reading (200) and the card's padding (40).
-        var stacked = e.NewSize.Width < 64 + 36 + 200 + 40 + CallerButtons.DesiredSize.Width;
+        var stacked = width < 64 + 36 + 200 + 40 + CallerButtons.DesiredSize.Width;
         Grid.SetRow(CallerButtons, stacked ? 1 : 0);
         Grid.SetColumn(CallerButtons, stacked ? 0 : 2);
         Grid.SetColumnSpan(CallerButtons, stacked ? 3 : 1);
         CallerButtons.HorizontalAlignment = stacked ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
         CallerButtons.Margin = stacked ? new Thickness(0, 14, 0, 0) : new Thickness(0);
+    }
+
+    // ── Width ──
+
+    /// <summary>
+    /// Below this page width (the window not maximised, the sidebar open) the
+    /// line and the call picked take turns, as a phone-width Mac window would.
+    /// </summary>
+    private const double OnePaneWidth = 900;
+
+    private void OnRootSize(object sender, SizeChangedEventArgs e)
+    {
+        var narrow = e.NewSize.Width < OnePaneWidth;
+        // A little less room for the line on a middling window, so the call keeps a readable width.
+        ListCol.Width = narrow ? new GridLength(1, GridUnitType.Star) : new GridLength(e.NewSize.Width < 1060 ? 300 : 340);
+        if (narrow == _narrow) return;
+        _narrow = narrow;
+        ApplyPanes();
+    }
+
+    private void ApplyPanes()
+    {
+        DetailCol.Width = _narrow ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+        Root.ColumnSpacing = _narrow ? 0 : 10;
+        Grid.SetColumn(DetailPane, _narrow ? 0 : 1);
+        ListPane.Visibility = !_narrow || !_detailOpen ? Visibility.Visible : Visibility.Collapsed;
+        DetailPane.Visibility = !_narrow || _detailOpen ? Visibility.Visible : Visibility.Collapsed;
+        BackButton.Visibility = _narrow ? Visibility.Visible : Visibility.Collapsed;
+        // The docked call follows its slot on or off screen.
+        CallDock.Place();
+    }
+
+    private void OnBack(object sender, RoutedEventArgs e)
+    {
+        _detailOpen = false;
+        ApplyPanes();
+    }
+
+    /// <summary>One pane at a time: the row already picked opens its call again (no selection change to say so).</summary>
+    private void OnRowClick(object sender, ItemClickEventArgs e)
+    {
+        var id = e.ClickedItem switch { QueueItem q => q.Id, CallHistoryItem h => h.Call.Id, _ => null };
+        if (!_narrow || id is null || id != _selectedId) return;
+        _detailOpen = true;
+        ApplyPanes();
+    }
+
+    /// <summary>The detail's paired sections go one under the other when the column is narrow.</summary>
+    private void OnDetailSize(object sender, SizeChangedEventArgs e)
+    {
+        var single = e.NewSize.Width < 620;
+        DetailStack.Padding = single ? new Thickness(16, 16, 16, 20) : new Thickness(28, 24, 28, 24);
+        foreach (var grid in new[] { ContextGrid, HistoryGrid })
+        {
+            grid.ColumnDefinitions[1].Width = single ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+            grid.ColumnSpacing = single ? 0 : 14;
+            grid.RowSpacing = single ? 18 : 0;
+            var second = (FrameworkElement)grid.Children[1];
+            Grid.SetColumn(second, single ? 0 : 1);
+            Grid.SetRow(second, single ? 1 : 0);
+        }
+    }
+
+    /// <summary>Grey bars in the shape of the lines to come, while a section loads.</summary>
+    private static StackPanel SkeletonLines(int count)
+    {
+        var panel = new StackPanel { Spacing = 8 };
+        for (var i = 0; i < count; i++)
+            panel.Children.Add(new Microsoft.UI.Xaml.Shapes.Rectangle
+            {
+                Height = 10,
+                Width = i % 2 == 0 ? 160 : 110,
+                RadiusX = 4,
+                RadiusY = 4,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Fill = Palette.Resource("ElevatedBrush"),
+            });
+        return panel;
     }
 
     /// <summary>Ctrl+Enter adds the note; Enter alone starts a new line.</summary>

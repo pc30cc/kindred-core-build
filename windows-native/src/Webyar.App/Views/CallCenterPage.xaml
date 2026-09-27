@@ -55,8 +55,8 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <!-- Masthead: title, service state, my availability, and the two views -->
@@ -132,7 +132,8 @@
                 </StackPanel>
 
                 <!-- The numbers, as on the web desk: three across, two down -->
-                <Grid Grid.Row="1" Padding="12,10,12,0" ColumnSpacing="8" RowSpacing="8">
+                <!-- The numbers, under the line: the calls waiting come first. -->
+                <Grid Grid.Row="3" Padding="12,10,12,12" ColumnSpacing="8" RowSpacing="8" BorderBrush="{ThemeResource LineBrush}" BorderThickness="0,1,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
@@ -151,7 +152,7 @@
                 </Grid>
 
                 <!-- The list's title (with the waiting count), sort, search and channel -->
-                <StackPanel Grid.Row="2" Padding="12,10,12,10" Spacing="8">
+                <StackPanel Grid.Row="1" Padding="12,10,12,10" Spacing="8">
                     <Grid Margin="4,0" ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -190,7 +191,7 @@
                     </Border>
                 </StackPanel>
 
-                <Grid Grid.Row="3" BorderBrush="{ThemeResource LineBrush}" BorderThickness="0,1,0,0">
+                <Grid Grid.Row="2" BorderBrush="{ThemeResource LineBrush}" BorderThickness="0,1,0,0">
                     <ListView x:Name="QueueList" Padding="6,4" SelectionMode="Single" IsItemClickEnabled="True" ItemClick="OnRowClick" SelectionChanged="OnSelectQueue" ContextRequested="OnQueueContext" ContainerContentChanging="OnQueueRow">
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">

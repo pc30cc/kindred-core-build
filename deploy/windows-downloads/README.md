@@ -1,4 +1,4 @@
-# Windows installer downloads
+# App downloads (Windows installer, Android APK)
 
 `https://app.webyar.ai/downloads/Webyar-Setup.exe` (latest) and
 `https://app.webyar.ai/downloads/Webyar-Setup-<version>.exe` are served from the
@@ -28,3 +28,23 @@ Recreate the container:
 Publish a new version: copy `Webyar-Setup.exe` from `windows-native/releases/`
 to `/data/webyar-downloads/files/Webyar-Setup-<version>.exe`, then
 `ln -sf Webyar-Setup-<version>.exe /data/webyar-downloads/files/Webyar-Setup.exe`.
+
+## The Android app
+
+`https://app.webyar.ai/downloads/Webyar-Android.apk` (latest) and
+`https://app.webyar.ai/downloads/Webyar-Android-<version>.apk` come from the same
+container and folder. `nginx.conf` and the Traefik rule above already carry the
+`Webyar-Android*.apk` route; after updating either on the host:
+`docker exec webyar-downloads nginx -s reload` (Traefik rereads its dynamic
+folder by itself).
+
+The APK is the universal release build (every ABI), signed with the release
+key — see `docs/ANDROID_RELEASE.md`. Publish a new version:
+
+    v=1.0.0
+    scp Webyar-Android-$v.apk root@analyticsme.site:/data/webyar-downloads/files/
+    ssh root@analyticsme.site "cd /data/webyar-downloads/files && ln -sf Webyar-Android-$v.apk Webyar-Android.apk"
+
+The site's download page (webyar.ai → admin → «برنامه‌ها و دانلود» → Android)
+points at `https://app.webyar.ai/downloads/Webyar-Android.apk`, so a new
+version needs only the symlink moved.

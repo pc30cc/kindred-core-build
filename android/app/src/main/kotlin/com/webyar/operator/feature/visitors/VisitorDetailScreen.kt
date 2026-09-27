@@ -31,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -90,6 +91,7 @@ fun VisitorDetailScreen(
     onChat: () -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(),
+    onRetryHistory: () -> Unit = {},
 ) {
     if (visitor == null) {
         // Reachable: a visitor opened from a map dot the list has not loaded
@@ -114,7 +116,7 @@ fun VisitorDetailScreen(
         Identity(v, language)
         Actions(v, chatBusy, language, onChat)
         Facts(v, now, language)
-        History(history, now, language)
+        History(history, now, language, onRetryHistory)
     }
 }
 
@@ -267,7 +269,7 @@ private fun deviceGlyph(raw: String): ImageVector = when (raw.trim().lowercase()
 
 /** The visit on a line: where they came in, where they went, where they are. */
 @Composable
-private fun History(history: VisitorHistoryState?, now: Instant, language: Language) {
+private fun History(history: VisitorHistoryState?, now: Instant, language: Language, onRetry: () -> Unit) {
     GroupHeader(StrInsights.visitorPageHistory(language), Modifier.padding(top = Space.sm))
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -283,6 +285,18 @@ private fun History(history: VisitorHistoryState?, now: Instant, language: Langu
                 Modifier.fillMaxWidth().padding(Space.xl),
                 contentAlignment = Alignment.Center,
             ) { LoadingIndicator(size = 36.dp) }
+            history.failed -> Row(
+                Modifier.fillMaxWidth().padding(start = Space.lg, end = Space.sm, top = Space.xs, bottom = Space.xs),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    StrInsights.visitorsErrorTitle(language),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onRetry) { Text(StrInsights.visitorsRetry(language)) }
+            }
             steps.isNullOrEmpty() -> Text(
                 StrInsights.visitorPageHistoryEmpty(language),
                 style = MaterialTheme.typography.bodyMedium,

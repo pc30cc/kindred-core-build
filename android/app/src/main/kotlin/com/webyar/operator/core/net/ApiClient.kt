@@ -359,6 +359,9 @@ class ApiClient(
         orThrow()
         return try {
             body<T>()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // A screen that went away is not an answer the app failed to read.
+            throw e
         } catch (t: Throwable) {
             throw ApiError.Decoding(t)
         }

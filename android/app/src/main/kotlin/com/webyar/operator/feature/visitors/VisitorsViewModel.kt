@@ -10,6 +10,7 @@ import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.displayText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -62,7 +63,7 @@ data class VisitorMapSetup(
         fun from(c: VisitorMapConfig): VisitorMapSetup = VisitorMapSetup(
             enabled = c.enabled != false,
             tileUrl = c.tileUrl?.takeIf { it.isNotBlank() } ?: OSM,
-            attribution = c.attribution?.takeIf { it.isNotBlank() } ?: "© OpenStreetMap contributors",
+            attribution = c.attribution?.let(::plainAttribution)?.takeIf { it.isNotBlank() } ?: "© OpenStreetMap contributors",
             minZoom = c.minZoom ?: 0,
             maxZoom = (c.maxZoom ?: 19).coerceIn(1, 22),
             centerLat = c.defaultCenter?.lat,
@@ -70,6 +71,22 @@ data class VisitorMapSetup(
             zoom = c.defaultCenter?.zoom ?: 3.0,
         )
     }
+}
+
+/**
+ * The tiles' credit as text. Providers write it for Leaflet, as HTML —
+ * `&copy; <a href="…">OpenStreetMap</a> contributors` — and a Text shows the
+ * markup itself.
+ */
+internal fun plainAttribution(html: String): String {
+    val noTags = html.replace(Regex("<[^>]*>"), "")
+    val named = mapOf("&copy;" to "©", "&amp;" to "&", "&lt;" to "<", "&gt;" to ">", "&quot;" to "\"", "&#39;" to "'", "&apos;" to "'", "&nbsp;" to " ")
+    var out = named.entries.fold(noTags) { acc, (k, v) -> acc.replace(k, v, ignoreCase = true) }
+    out = Regex("&#(x?)([0-9a-fA-F]+);").replace(out) { m ->
+        val code = m.groupValues[2].toIntOrNull(if (m.groupValues[1].isEmpty()) 10 else 16)
+        code?.takeIf { it in 1..0x10FFFF }?.let { String(Character.toChars(it)) } ?: m.value
+    }
+    return out.replace(Regex("\\s+"), " ").trim()
 }
 
 data class VisitorsState(
@@ -125,6 +142,8 @@ data class VisitorHistoryState(
     val sessionId: String,
     val steps: List<VisitStep>? = null,
     val loading: Boolean = true,
+    /** The last ask failed and there is nothing earlier to show. */
+    val failed: Boolean = false,
 )
 
 /**
@@ -156,6 +175,8 @@ class VisitorsViewModel(
     private val listKick = Channel<Unit>(Channel.CONFLATED)
     private val mapKick = Channel<Unit>(Channel.CONFLATED)
     private var historyJob: Job? = null
+    private var followers = 0
+    private var followJob: Job? = null
 
     fun bind(workspaceId: String) {
         if (this.workspaceId == workspaceId) return
@@ -167,11 +188,34 @@ class VisitorsViewModel(
     }
 
     /**
-     * Keeps the list and the map current while the screen is up: the list
-     * every [listMs], the map every [mapMs], and at once on [refresh] or a
-     * filter that needs the server (include offline).
+     * Keeps the list and the map current while a Visitors screen is up: the
+     * list every [listMs], the map every [mapMs], and at once on [refresh] or
+     * a filter that needs the server (include offline).
+     *
+     * The list and a visitor's page each call this while they are resumed —
+     * on a phone only one of them is composed, on a tablet both — and one
+     * loop serves however many are showing: it starts with the first and
+     * stops with the last. Called on the main thread, as composition runs.
      */
-    suspend fun followWhileVisible(listMs: Long = LIST_MS, mapMs: Long = MAP_MS) = coroutineScope {
+    suspend fun followWhileVisible(listMs: Long = LIST_MS, mapMs: Long = MAP_MS) {
+        followers++
+        if (followers == 1) followJob = viewModelScope.launch { followLoop(listMs, mapMs) }
+        try {
+            awaitCancellation()
+        } finally {
+            followers--
+            if (followers == 0) {
+                followJob?.cancel()
+                followJob = null
+            }
+        }
+    }
+
+    private suspend fun followLoop(listMs: Long, mapMs: Long) = coroutineScope {
+        // Asked for now in any case: a kick left over from bind() would only
+        // ask the same thing twice.
+        listKick.tryReceive()
+        mapKick.tryReceive()
         launch {
             while (currentCoroutineContext().isActive) {
                 loadMap()
@@ -247,18 +291,28 @@ class VisitorsViewModel(
 
     fun visitor(sessionId: String): LiveVisitor? = _state.value.visitors.firstOrNull { it.id == sessionId }
 
-    /** The page history of [sessionId], unless it is already here. */
+    /**
+     * The page history of [sessionId], asked for again on every open — the
+     * visit goes on while nobody is looking — with what was already here
+     * kept on screen meanwhile.
+     */
     fun openHistory(sessionId: String) {
         val ws = workspaceId ?: return
-        if (_history.value?.sessionId == sessionId && _history.value?.loading == false) return
-        _history.value = VisitorHistoryState(sessionId)
+        val before = _history.value?.takeIf { it.sessionId == sessionId }?.steps
+        _history.value = VisitorHistoryState(sessionId, before, loading = true)
         historyJob?.cancel()
         historyJob = viewModelScope.launch {
-            val steps = runCatching { api.visitorPageHistory(ws, sessionId) }
-                .map { VisitorText.steps(it, language()) }
-                .getOrNull()
-            if (_history.value?.sessionId == sessionId) {
-                _history.value = VisitorHistoryState(sessionId, steps ?: emptyList(), loading = false)
+            try {
+                val steps = VisitorText.steps(api.visitorPageHistory(ws, sessionId), language())
+                if (workspaceId == ws && _history.value?.sessionId == sessionId) {
+                    _history.value = VisitorHistoryState(sessionId, steps, loading = false)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                if (workspaceId == ws && _history.value?.sessionId == sessionId) {
+                    _history.value = VisitorHistoryState(sessionId, before, loading = false, failed = before == null)
+                }
             }
         }
     }
@@ -270,26 +324,32 @@ class VisitorsViewModel(
     fun chat(visitor: LiveVisitor, open: (String) -> Unit) {
         val ws = workspaceId ?: return
         if (_chatBusy.value) return
-        visitor.conversation?.id?.let { open(it); return }
+        // The live list carries the session's latest conversation whatever
+        // its state; only one still going is the chat to open. A resolved one
+        // is history, and the server starts a new thread for it, as the web does.
+        visitor.conversation?.takeIf { it.status == null || it.status in LIVE_STATUSES }?.let { open(it.id); return }
         _chatBusy.value = true
         viewModelScope.launch {
-            runCatching { api.startChatWithVisitor(ws, visitor.id) }
-                .onSuccess { result ->
-                    val id = result.conversationId
-                    if (id != null) {
-                        open(id)
-                        // Carry it on the row at once rather than at the next poll.
-                        _state.update { s ->
-                            s.copy(
-                                visitors = s.visitors.map {
-                                    if (it.id == visitor.id) it.copy(conversation = VisitorConversationRef(id)) else it
-                                },
-                            )
-                        }
+            try {
+                val id = api.startChatWithVisitor(ws, visitor.id).conversationId
+                if (id != null && workspaceId == ws) {
+                    open(id)
+                    // Carry it on the row at once rather than at the next poll.
+                    _state.update { s ->
+                        s.copy(
+                            visitors = s.visitors.map {
+                                if (it.id == visitor.id) it.copy(conversation = VisitorConversationRef(id, status = "open")) else it
+                            },
+                        )
                     }
                 }
-                .onFailure { _notice.value = it.displayText(language()) }
-            _chatBusy.value = false
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                _notice.value = e.displayText(language())
+            } finally {
+                _chatBusy.value = false
+            }
         }
     }
 
@@ -301,5 +361,8 @@ class VisitorsViewModel(
         /** The web's `live_refresh_ms`. */
         const val LIST_MS = 5_000L
         const val MAP_MS = 10_000L
+
+        /** The conversation states `start-from-visitor` reuses rather than replaces. */
+        private val LIVE_STATUSES = setOf("open", "pending")
     }
 }

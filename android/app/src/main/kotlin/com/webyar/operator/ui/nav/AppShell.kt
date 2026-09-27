@@ -312,6 +312,7 @@ fun AppShell(
         }
         entry<LiveVisitorKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = VisitorsKey) + tabOf(AppTab.VISITORS)) { key ->
             LiveVisitorRoute(
+                appState = appState,
                 sessionId = key.sessionId,
                 visitors = visitors,
                 language = language,
@@ -349,6 +350,7 @@ fun AppShell(
         }
         entry<AnalyticsSectionKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = AnalyticsKey) + tabOf(AppTab.ANALYTICS)) { key ->
             AnalyticsSectionRoute(
+                appState = appState,
                 section = AnalyticsSection.from(key.section),
                 analytics = analytics,
                 language = language,

@@ -25,7 +25,12 @@ function proxiedReq(ip = PUBLIC_CLIENT): Request {
 }
 
 /** Minimal chainable Supabase stub. Records every insert/update payload. */
-function fakeSb(opts: { storeRawIp: boolean; existingSessionId?: string | null }) {
+function fakeSb(opts: {
+  storeRawIp: boolean;
+  existingSessionId?: string | null;
+  existingSession?: Record<string, unknown>;
+  existingPresence?: Record<string, unknown>;
+}) {
   const writes: Array<{ table: string; op: 'insert' | 'update'; payload: any }> = [];
   const sb: any = {
     from(table: string) {
@@ -43,8 +48,9 @@ function fakeSb(opts: { storeRawIp: boolean; existingSessionId?: string | null }
           if (table === 'widget_settings') return { data: { store_raw_ip: opts.storeRawIp } };
           if (table === 'visitor_sessions') {
             if (chain._payload) return { data: { id: 'new-session' } };
-            return { data: opts.existingSessionId ? { id: opts.existingSessionId } : null };
+            return { data: opts.existingSession || (opts.existingSessionId ? { id: opts.existingSessionId } : null) };
           }
+          if (table === 'visitor_presence') return { data: opts.existingPresence || null };
           return { data: null };
         },
       };
@@ -104,6 +110,43 @@ describe('ensureVisitorSessionRow', () => {
     expect(update!.payload.ip_hash).toBe(net.ipHash);
     expect(update!.payload.ip_raw).toBe(PUBLIC_CLIENT);
     expect(update!.payload.last_seen_at).toBeTruthy();
+  });
+
+  it('does not rewrite fresh unchanged session and presence on a repeated call-widget bootstrap', async () => {
+    const recent = new Date(Date.now() - 10_000).toISOString();
+    const { sb, writes } = fakeSb({
+      storeRawIp: false,
+      existingSession: { id: 'sess-1', ip_hash: 'same', ip_raw: null, current_page: '/real', last_seen_at: recent },
+      existingPresence: { id: 'presence-1', status: 'online', current_page: '/real', updated_at: recent },
+    });
+    await ensureVisitorSessionRow(sb, WS, VISITOR, 'https://shop.example', 'call_widget',
+      { ipHash: 'same', ipRaw: null, rawIp: null, cfCountry: null },
+      { touchPresence: true, pageUrlOnlyOnCreate: true });
+    expect(writes).toEqual([]);
+  });
+
+  it('immediately restores offline presence without rewriting a fresh session', async () => {
+    const recent = new Date(Date.now() - 10_000).toISOString();
+    const { sb, writes } = fakeSb({
+      storeRawIp: false,
+      existingSession: { id: 'sess-1', ip_hash: null, ip_raw: null, current_page: '/real', last_seen_at: recent },
+      existingPresence: { id: 'presence-1', status: 'offline', current_page: '/real', updated_at: recent },
+    });
+    await ensureVisitorSessionRow(sb, WS, VISITOR, 'https://shop.example', 'call_widget', null,
+      { touchPresence: true, pageUrlOnlyOnCreate: true });
+    expect(writes.map((w) => w.table)).toEqual(['visitor_presence']);
+  });
+
+  it('refreshes both liveness rows after the coalescing window', async () => {
+    const stale = new Date(Date.now() - 61_000).toISOString();
+    const { sb, writes } = fakeSb({
+      storeRawIp: false,
+      existingSession: { id: 'sess-1', ip_hash: null, ip_raw: null, current_page: '/real', last_seen_at: stale },
+      existingPresence: { id: 'presence-1', status: 'online', current_page: '/real', updated_at: stale },
+    });
+    await ensureVisitorSessionRow(sb, WS, VISITOR, 'https://shop.example', 'call_widget', null,
+      { touchPresence: true, pageUrlOnlyOnCreate: true });
+    expect(writes.map((w) => w.table)).toEqual(['visitor_sessions', 'visitor_presence']);
   });
 
   it('clears a previously stored raw IP once store_raw_ip is turned off', async () => {

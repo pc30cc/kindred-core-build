@@ -28,7 +28,8 @@ public sealed class LiveCall
 {
     public enum Presentation { Docked, Window }
 
-    private enum Phase { Waiting, Connecting, Connected, Ended }
+    /// <summary>InRoom: this operator is in the call's room, the visitor not yet — the clock waits for them.</summary>
+    private enum Phase { Waiting, Connecting, InRoom, Connected, Ended }
 
     /// <summary>A call answered on the desk (or joined after a hand-over): the room already exists.</summary>
     private sealed record DeskCall(string CallId, CallAccept Accept, CallSession? Session);
@@ -174,7 +175,10 @@ public sealed class LiveCall
     public string Name => _name;
     public bool IsVideo => _channel == "video";
     public bool IsLive => !_ended;
+    /// <summary>The visitor is in the call and its time runs.</summary>
     public bool IsConnected => _phase == Phase.Connected;
+    /// <summary>This operator is in the call's room (the controls work), the visitor there or not yet.</summary>
+    public bool IsInRoom => _phase is Phase.InRoom or Phase.Connected;
     public bool IsMuted => _muted;
     public bool IsTransferred => _transferredTo is not null;
     public Presentation Shown { get; private set; } = Presentation.Docked;
@@ -198,6 +202,7 @@ public sealed class LiveCall
             {
                 Phase.Waiting => s[_desk is null ? "callWaiting" : "connectingCall"],
                 Phase.Connecting => s["connectingCall"],
+                Phase.InRoom => s["callWaiting"],
                 Phase.Connected => CallRules.Clock(DateTimeOffset.Now - (_connectedAt ?? DateTimeOffset.Now), s.Language),
                 _ => OutcomeText(_outcome),
             };
@@ -236,7 +241,7 @@ public sealed class LiveCall
     /// <summary>Mutes or unmutes from outside the page; the page answers with the new state.</summary>
     public void ToggleMute()
     {
-        if (_phase == Phase.Connected) Post(new { type = "setMute", on = !_muted });
+        if (_phase is Phase.InRoom or Phase.Connected) Post(new { type = "setMute", on = !_muted });
     }
 
     /// <summary>Hangs up — or, once handed on, leaves: hanging up then would end the call for the colleague too.</summary>
@@ -483,6 +488,10 @@ public sealed class LiveCall
                 SendState(surface);
                 if (_join is not null) _ = JoinWhenFreeAsync(surface);
                 break;
+            case "inRoom":
+                // In the room; the page says "connected" once the visitor is there too.
+                if (_phase != Phase.Connected) SetPhase(Phase.InRoom);
+                break;
             case "connected":
                 Log.Write($"[call] connected {_sessionId}");
                 _connectedAt ??= DateTimeOffset.Now;
@@ -604,6 +613,7 @@ public sealed class LiveCall
             hasNotes = _desk is not null || _conversation is not null,
             strings = new
             {
+                waitingVisitor = s["callWaiting"],
                 mute = s["mute"],
                 unmute = s["unmute"],
                 camera = s["camera"],
@@ -867,7 +877,7 @@ public sealed class LiveCall
         return outcome switch
         {
             "declined" => s["callDeclined"],
-            "expired" => s["callNoAnswer"],
+            "expired" or "noAnswer" => s["callNoAnswer"],
             "failed" => s["callFailed"],
             "transferred" => s["callTransferredOut"],
             _ => s["callEnded"],

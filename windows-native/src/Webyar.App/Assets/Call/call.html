@@ -213,6 +213,9 @@
   let room = null, video = false, muted = false, camOn = false, since = 0, tick = null, leftTimer = null, ended = false;
   let connected = false, transferred = false, canTransfer = false, hasNotes = false, S = {};
   let shownTrack = null, goneTimer = null, localShown = false;
+  // The clock runs from the moment the visitor is in the call, not from when this page reached the room.
+  let answered = false, noShowTimer = null;
+  const NO_SHOW_MS = 60000;
   let notesOpen = false, lastNoteId = null;
   let transferOpen = false, tab = 'operators', options = null, picked = { operators: null, departments: null }, transferBusy = false;
   let fullScreen = false;
@@ -358,6 +361,21 @@
   function syncLayout() {
     document.body.classList.toggle('video-live', video && (connected || !!shownTrack || localShown));
   }
+  // Someone in the room other than operators: the visitor (a colleague who took over is 'operator:…').
+  const visitorIn = (r) => [...r.remoteParticipants.values()].some(p => !String(p.identity || '').startsWith('operator:'));
+
+  // The visitor is in the call: from now on it is a call, and its time runs.
+  function visitorArrived(sinceMs) {
+    if (answered || ended) return;
+    answered = true;
+    clearTimeout(noShowTimer);
+    since = sinceMs > 0 ? sinceMs : Date.now();
+    setStatus(clock((Date.now() - since) / 1000), 'connected');
+    clearInterval(tick);
+    tick = setInterval(() => { if (!ended) $('status').textContent = clock((Date.now() - since) / 1000); }, 500);
+    post({ type: 'connected' });
+  }
+
   function reportRoom() {
     if (!room) return;
     post({
@@ -378,6 +396,7 @@
     ended = true;
     clearInterval(tick);
     clearTimeout(goneTimer);
+    clearTimeout(noShowTimer);
     closeTransfer();
     syncControls();
     post({ type: 'ended', reason, detail: detail || null });
@@ -392,6 +411,7 @@
     clearInterval(tick);
     clearTimeout(goneTimer);
     clearTimeout(leftTimer);
+    clearTimeout(noShowTimer);
     const r = room;
     room = null;
     if (r) { try { r.removeAllListeners(); await r.disconnect(); } catch (e) {} }
@@ -420,11 +440,15 @@
       syncVideo();
     });
     ['LocalTrackPublished', 'LocalTrackUnpublished', 'TrackMuted', 'TrackUnmuted'].forEach(e => r.on(L.RoomEvent[e], syncVideo));
-    r.on(L.RoomEvent.ParticipantConnected, () => { syncVideo(); reportRoom(); });
+    r.on(L.RoomEvent.ParticipantConnected, () => {
+      syncVideo();
+      reportRoom();
+      if (connected && !answered && visitorIn(r)) visitorArrived(0);
+    });
     // A reconnect drops and re-adds everyone, so an empty room only means "the visitor left" after a grace period.
     const checkLeft = () => {
       clearTimeout(leftTimer);
-      leftTimer = setTimeout(() => { if (room === r && r.state === L.ConnectionState.Connected && r.remoteParticipants.size === 0) finish('visitorLeft'); }, 4000);
+      leftTimer = setTimeout(() => { if (room === r && answered && r.state === L.ConnectionState.Connected && r.remoteParticipants.size === 0) finish('visitorLeft'); }, 4000);
     };
     r.on(L.RoomEvent.ParticipantDisconnected, () => { syncVideo(); reportRoom(); checkLeft(); });
     r.on(L.RoomEvent.Reconnected, checkLeft);
@@ -442,11 +466,17 @@
     if (ended) return;
     // The room may have dropped while the devices were starting: a dead room is not a connected call.
     if (r.state !== L.ConnectionState.Connected) { finish('visitorLeft'); return; }
+    // In the room, with the controls live; the call itself starts when the visitor is here too.
     connected = true;
-    since = Number(msg.since) > 0 ? Number(msg.since) : Date.now();
-    setStatus(clock((Date.now() - since) / 1000), 'connected');
-    tick = setInterval(() => { if (!ended) $('status').textContent = clock((Date.now() - since) / 1000); }, 500);
-    post({ type: 'connected' });
+    post({ type: 'inRoom' });
+    if (Number(msg.since) > 0 || visitorIn(r)) {
+      // Already talking (this page took over a running call), or the visitor was waiting in the room.
+      visitorArrived(Number(msg.since));
+    } else {
+      setStatus(S.waitingVisitor || '', 'waiting');
+      // Nobody came: not a call, and not left open with nobody on the other end.
+      noShowTimer = setTimeout(() => { if (room === r && !answered && !ended) finish('noAnswer'); }, NO_SHOW_MS);
+    }
     post({ type: 'mute', on: muted });
     post({ type: 'camera', on: camOn });
     syncControls();

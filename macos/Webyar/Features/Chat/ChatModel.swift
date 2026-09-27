@@ -66,7 +66,6 @@ struct ChatRow: Identifiable, Equatable {
 @MainActor
 @Observable
 final class ChatModel {
-    static let maxUpload = 20 * 1024 * 1024
     /// "specialist" or "assistant", kept for the session as on iOS and Windows.
     static var voice = "specialist"
 
@@ -443,18 +442,18 @@ final class ChatModel {
 
     // MARK: Files
 
-    /// Puts a file in the composer to go out with the next Send.
+    /// Puts a picked, dropped or pasted file in the composer to go out with the next Send —
+    /// or says at once why it can't go (a kind the server refuses, or over 25 MB).
     func attach(url: URL) {
+        guard !aiMode else { return }
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
         do {
-            let values = try url.resourceValues(forKeys: [.fileSizeKey])
-            if (values.fileSize ?? 0) > Self.maxUpload {
-                notice = Notice(severity: .error, message: app.strings["fileTooLarge"])
-                return
-            }
-            let accessing = url.startAccessingSecurityScopedResource()
-            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+            let values = try url.resourceValues(forKeys: [.fileSizeKey, .contentTypeKey, .isDirectoryKey])
+            guard values.isDirectory != true else { return refuse(.notAllowed) }
+            if (values.fileSize ?? 0) > SendableFile.maxBytes { return refuse(.tooLarge) }
             let data = try Data(contentsOf: url)
-            attach(name: url.lastPathComponent, mime: Mime.of(url.lastPathComponent), data: data)
+            take(SendableFile.prepare(name: url.lastPathComponent, type: values.contentType, data: data))
         } catch {
             Log.error("pick file", error)
             notice = Notice(severity: .error, message: app.strings["attachmentFailed"])
@@ -463,11 +462,15 @@ final class ChatModel {
 
     func attach(name: String, mime: String, data: Data) {
         guard !aiMode else { return }
-        guard data.count <= Self.maxUpload else {
-            notice = Notice(severity: .error, message: app.strings["fileTooLarge"])
-            return
-        }
-        pendingFile = (name, mime, data)
+        take(SendableFile.check(name: name, mime: mime, data: data))
+    }
+
+    private func take(_ outcome: SendableFile.Outcome) {
+        if case .ready(let name, let mime, let data) = outcome { pendingFile = (name, mime, data) } else { refuse(outcome) }
+    }
+
+    private func refuse(_ outcome: SendableFile.Outcome) {
+        notice = Notice(severity: .error, message: app.strings[outcome == .tooLarge ? "fileTooLarge" : "fileTypeNotAllowed"])
     }
 
     // MARK: Voice notes

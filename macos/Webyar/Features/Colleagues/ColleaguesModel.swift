@@ -11,8 +11,6 @@ import UniformTypeIdentifiers
 @MainActor
 @Observable
 final class ColleaguesModel {
-    static let maxUpload = 25 * 1024 * 1024
-
     struct Notice: Equatable {
         var message: String
         /// The microphone is blocked: offer System Settings beside the message.
@@ -346,33 +344,33 @@ final class ColleaguesModel {
 
     // MARK: Files
 
-    /// Puts a picked or dropped file in the composer to go out with the next Send.
+    /// Puts a picked, dropped or pasted file in the composer to go out with the next Send —
+    /// or says at once why it can't go (a kind the server refuses, or over 25 MB).
     func attach(url: URL) {
-        let s = app.strings
         let accessing = url.startAccessingSecurityScopedResource()
         defer { if accessing { url.stopAccessingSecurityScopedResource() } }
         do {
-            let values = try url.resourceValues(forKeys: [.fileSizeKey, .contentTypeKey])
-            if (values.fileSize ?? 0) > Self.maxUpload {
-                notice = Notice(message: s["fileTooLarge"])
-                return
-            }
+            let values = try url.resourceValues(forKeys: [.fileSizeKey, .contentTypeKey, .isDirectoryKey])
+            guard values.isDirectory != true else { return refuse(.notAllowed) }
+            if (values.fileSize ?? 0) > SendableFile.maxBytes { return refuse(.tooLarge) }
             let data = try Data(contentsOf: url)
-            let name = url.lastPathComponent
-            let mime = values.contentType?.preferredMIMEType ?? Mime.of(name)
-            attach(name: name, mime: mime, data: data)
+            take(SendableFile.prepare(name: url.lastPathComponent, type: values.contentType, data: data))
         } catch {
             Log.error("team pick file", error)
-            notice = Notice(message: s["attachmentFailed"])
+            notice = Notice(message: app.strings["attachmentFailed"])
         }
     }
 
     func attach(name: String, mime: String, data: Data) {
-        guard data.count <= Self.maxUpload else {
-            notice = Notice(message: app.strings["fileTooLarge"])
-            return
-        }
-        pendingFile = (name, mime, data)
+        take(SendableFile.check(name: name, mime: mime, data: data))
+    }
+
+    private func take(_ outcome: SendableFile.Outcome) {
+        if case .ready(let name, let mime, let data) = outcome { pendingFile = (name, mime, data) } else { refuse(outcome) }
+    }
+
+    private func refuse(_ outcome: SendableFile.Outcome) {
+        notice = Notice(message: app.strings[outcome == .tooLarge ? "fileTooLarge" : "fileTypeNotAllowed"])
     }
 
     func clearPendingFile() {

@@ -156,7 +156,7 @@ struct ComposerView: View {
         .glassCard(20, tint: focused ? Palette.brand.opacity(0.05) : nil)
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(focused ? Palette.brand.opacity(0.55) : .clear, lineWidth: 1.2))
         .animation(.smooth(duration: 0.18), value: focused)
-        .fileImporter(isPresented: $picking, allowedContentTypes: [.item]) { result in
+        .fileImporter(isPresented: $picking, allowedContentTypes: SendableFile.pickerTypes) { result in
             if case .success(let url) = result { chat.attach(url: url) }
             focused = true
         }

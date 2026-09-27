@@ -37,7 +37,12 @@
 #
 # Optional environment variables:
 #   LIVEKIT_LOG_LEVEL          - debug | info | warn | error  (default info)
-#   LIVEKIT_WEBHOOK_API_KEY    - same value as LIVEKIT_API_KEY, for webhooks
+#   LIVEKIT_WEBHOOK_URL        - where LiveKit posts room and participant events,
+#                                e.g. https://api.example.com/api/calls/livekit/webhook.
+#                                The backend learns from them when the visitor
+#                                actually joins a call. Off when empty.
+#   LIVEKIT_WEBHOOK_API_KEY    - the key webhooks are signed with (one of the
+#                                keys above; defaults to LIVEKIT_API_KEY)
 #   LIVEKIT_REDIS_ADDRESS      - "host:port". Optional for a single standalone
 #                                node; required for a multi-node deployment,
 #                                where nodes find each other through Redis.
@@ -170,7 +175,18 @@ services:
             echo "  relay_range_end: $${LIVEKIT_TURN_RELAY_PORT_END:-50200}"
           } >> /tmp/livekit.yaml
         fi
-        echo "[livekit-bootstrap] generated /tmp/livekit.yaml (log_level=$${LOG_LEVEL}, node_ip=$${LIVEKIT_NODE_IP}, redis=$${LIVEKIT_REDIS_ADDRESS:-none}, turn=$${LIVEKIT_TURN_DOMAIN:-off})"
+        # Webhooks. Off unless a URL is named. LiveKit signs each event with
+        # the secret of the key named here, which the backend verifies
+        # against the LiveKit secret in Super Admin -> Providers -> Calls.
+        if [ -n "$${LIVEKIT_WEBHOOK_URL:-}" ]; then
+          {
+            echo "webhook:"
+            echo "  api_key: $${LIVEKIT_WEBHOOK_API_KEY:-$${LIVEKIT_API_KEY}}"
+            echo "  urls:"
+            echo "    - $${LIVEKIT_WEBHOOK_URL}"
+          } >> /tmp/livekit.yaml
+        fi
+        echo "[livekit-bootstrap] generated /tmp/livekit.yaml (log_level=$${LOG_LEVEL}, node_ip=$${LIVEKIT_NODE_IP}, redis=$${LIVEKIT_REDIS_ADDRESS:-none}, turn=$${LIVEKIT_TURN_DOMAIN:-off}, webhook=$${LIVEKIT_WEBHOOK_URL:-off})"
         exec /livekit-server --config /tmp/livekit.yaml
 
     # Signaling reaches LiveKit via Coolify's reverse proxy on the internal
@@ -208,7 +224,8 @@ services:
       LIVEKIT_NODE_IP: ${LIVEKIT_NODE_IP}
       LIVEKIT_LOG_LEVEL: ${LIVEKIT_LOG_LEVEL:-info}
 
-      # --- Optional: webhook signing (only if used) ---------------------
+      # --- Optional: webhooks to the backend (off when the URL is empty) --
+      LIVEKIT_WEBHOOK_URL: ${LIVEKIT_WEBHOOK_URL:-}
       LIVEKIT_WEBHOOK_API_KEY: ${LIVEKIT_WEBHOOK_API_KEY:-}
 
       # --- Redis: multi-node only, optional for a single node -------------

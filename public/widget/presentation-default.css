@@ -1832,3 +1832,99 @@ a.wy-powered:hover { color: var(--wy-text); }
 }
 .panel-close:hover { transform: scale(1.08); background: rgba(255, 255, 255, 0.95); }
 .panel-close svg { width: 16px; height: 16px; }
+
+
+/* Composer surface refresh — visual-only: Core's data hooks and DOM order stay intact.
+   Scoped to the chat view so home, knowledge and call surfaces keep their layout. */
+.wy-view-chat .composer-zone {
+  padding-block: 10px 8px;
+}
+.wy-view-chat .input-wrap {
+  border-radius: 16px;
+  padding-inline: 8px;
+  background: var(--wy-card, #fff);
+  box-shadow: 0 0 0 1px var(--wy-border-strong, #d5d7dd), 0 3px 12px rgba(16, 24, 40, 0.06);
+  transition: box-shadow 0.18s ease, background-color 0.18s ease;
+}
+.wy-view-chat .input-wrap:focus-within {
+  box-shadow: 0 0 0 2px var(--wy-accent), 0 5px 18px rgba(16, 24, 40, 0.10);
+}
+.wy-view-chat .input {
+  min-height: 50px;
+  height: 50px;
+  padding-block: 15px;
+  line-height: 20px;
+  font-size: 14px;
+}
+.wy-view-chat .input::placeholder { color: var(--wy-faint); opacity: 1; }
+.wy-view-chat .composer-actions { padding-inline-start: 4px; }
+.wy-view-chat .composer-actions-start { gap: 2px; }
+.wy-view-chat .mic-btn,
+.wy-view-chat .send-btn,
+.wy-view-chat .attach-btn,
+.wy-view-chat .emoji-btn {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  box-sizing: border-box;
+  border-radius: 11px;
+  color: var(--wy-muted);
+  transition: color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+.wy-view-chat .mic-btn { margin-inline-end: 4px; }
+.wy-view-chat .mic-btn svg,
+.wy-view-chat .send-btn svg,
+.wy-view-chat .attach-btn svg,
+.wy-view-chat .emoji-btn svg {
+  width: 18px;
+  height: 18px;
+  transform: none;
+}
+.wy-view-chat .mic-btn:hover,
+.wy-view-chat .attach-btn:hover,
+.wy-view-chat .emoji-btn:hover { color: var(--wy-text); background: var(--wy-hover-2); }
+.wy-view-chat .emoji-btn[aria-expanded='true'] {
+  color: var(--wy-accent);
+  background: var(--wy-hover-2);
+}
+.wy-view-chat .send-btn {
+  color: var(--wy-accent);
+  background: var(--wy-hover-2);
+}
+.wy-view-chat .input-bar.has-draft .send-btn {
+  color: #fff;
+  background: var(--wy-accent);
+  box-shadow: 0 2px 6px rgba(16, 24, 40, 0.14);
+}
+.wy-view-chat .input-bar.has-draft .send-btn:hover { filter: brightness(1.08); }
+.wy-view-chat .input-bar:not(.has-draft) .send-btn { opacity: 0.55; }
+.wy-view-chat .mic-btn:focus-visible,
+.wy-view-chat .send-btn:focus-visible,
+.wy-view-chat .attach-btn:focus-visible,
+.wy-view-chat .emoji-btn:focus-visible,
+.wy-view-chat .wy-back:focus-visible,
+.wy-view-chat .panel-close:focus-visible {
+  outline: 2px solid var(--wy-accent);
+  outline-offset: 2px;
+}
+.wy-view-chat .wy-back {
+  width: 34px;
+  height: 34px;
+  margin-inline-end: 0;
+  border-radius: 10px;
+  background: var(--wy-hover-2);
+}
+.wy-view-chat .wy-back:hover { background: var(--wy-hover); }
+.wy-view-chat .panel-close {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wy-view-chat .input-wrap,
+  .wy-view-chat .mic-btn,
+  .wy-view-chat .send-btn,
+  .wy-view-chat .attach-btn,
+  .wy-view-chat .emoji-btn { transition: none; }
+}

@@ -86,6 +86,9 @@ public class InboxTests
     {
         Assert.Equal(Fa["offlineBody"], ErrorText.For(new ApiException(ApiFailure.Transport), Fa));
         Assert.Equal(Fa["errorNotFound"], ErrorText.For(new ApiException(ApiFailure.Server, 404, "nope"), Fa));
+        // A refused file type or size is said as such, not as "you don't have access".
+        Assert.Equal(Fa["fileTypeNotAllowed"], ErrorText.For(new ApiException(ApiFailure.Server, 415, "File type not allowed"), Fa));
+        Assert.Equal(Fa["fileTooLarge"], ErrorText.For(new ApiException(ApiFailure.Server, 413, "too big"), Fa));
         Assert.Equal("nope", ErrorText.For(new ApiException(ApiFailure.Server, 404, "nope"), En));
         Assert.Equal(Fa["errorNotAllowed"], ErrorText.For(new ApiException(ApiFailure.Server, 403), Fa));
     }

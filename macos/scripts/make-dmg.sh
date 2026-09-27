@@ -1,0 +1,56 @@
+#!/bin/zsh
+# The installer people download from the website: one Universal app (Apple
+# Silicon and Intel, macOS 14 or later) in a DMG whose window shows the app,
+# an arrow and the Applications folder over Webyar's own background.
+#
+#   scripts/make-dmg.sh <version> <build>      e.g. scripts/make-dmg.sh 1.0.2 3
+#
+# Signed ad hoc: without a Developer ID certificate macOS asks once, on first
+# open, to allow it (the window says how). With one in the keychain, pass
+# WEBYAR_SIGN="Developer ID Application" and WEBYAR_NOTARY_PROFILE=<profile>
+# to sign, notarize and staple instead.
+set -euo pipefail
+
+VERSION="${1:?version, e.g. 1.0.2}"
+BUILD="${2:?build number, e.g. 3}"
+SIGN="${WEBYAR_SIGN:--}"
+cd "$(dirname "$0")/.."
+command -v xcodegen >/dev/null || { echo "brew install xcodegen"; exit 1; }
+
+# 1. A Universal Release build.
+xcodegen -q
+if [[ "$SIGN" == "-" ]]; then
+  SIGNING=(ENABLE_HARDENED_RUNTIME=NO CODE_SIGN_IDENTITY=-)
+else
+  SIGNING=(CODE_SIGN_IDENTITY="$SIGN" OTHER_CODE_SIGN_FLAGS=--timestamp)
+fi
+xcodebuild -project Webyar.xcodeproj -scheme Webyar -configuration Release \
+  -derivedDataPath build/universal ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
+  MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD" "${SIGNING[@]}" \
+  build -quiet
+APP="build/universal/Build/Products/Release/Webyar.app"
+archs=$(lipo -archs "$APP/Contents/MacOS/Webyar")
+[[ "$archs" == *arm64* && "$archs" == *x86_64* ]] || { echo "not universal: $archs"; exit 1; }
+codesign --verify --deep --strict "$APP"
+
+# 2. The window's background, at 1x and 2x in one TIFF.
+OUT="build/dmg"
+rm -rf "$OUT" && mkdir -p "$OUT"
+swift scripts/dmg/background.swift "$OUT"
+tiffutil -cathidpicheck "$OUT/background.png" "$OUT/background@2x.png" -out "$OUT/background.tiff" >/dev/null
+
+# 3. The DMG (dmgbuild writes the window layout without driving Finder).
+python3 -c "import dmgbuild" 2>/dev/null || python3 -m pip install --user --quiet dmgbuild
+DMG="$OUT/Webyar-$VERSION.dmg"
+ICON=()
+[[ -f "$APP/Contents/Resources/AppIcon.icns" ]] && ICON=(-D icon="$APP/Contents/Resources/AppIcon.icns")
+python3 -m dmgbuild -s scripts/dmg/settings.py \
+  -D app="$APP" -D background="$OUT/background.tiff" "${ICON[@]}" \
+  "Webyar $VERSION" "$DMG"
+
+if [[ "$SIGN" != "-" ]]; then
+  codesign --sign "$SIGN" --timestamp "$DMG"
+  xcrun notarytool submit "$DMG" --keychain-profile "${WEBYAR_NOTARY_PROFILE:?notary keychain profile}" --wait
+  xcrun stapler staple "$DMG"
+fi
+echo "$DMG ($archs)"

@@ -267,6 +267,86 @@ final class BackgroundNotifier {
     }
 }
 
+/// Team chat while the app runs, whatever page is on screen: the unread count
+/// for the Colleagues badge and the Dock, and a Mac notification for each new
+/// message from a colleague. Pushed over the operator's own realtime channel
+/// where the server offers it (then checked every so often as a safety net);
+/// every 20 s otherwise, as the web console does.
+@MainActor
+final class TeamWatcher {
+    private unowned let app: AppModel
+    private let workspaceId: String
+    private var rules = TeamNotificationRules()
+    private var poller: Poller?
+    private var teamToken: Signal<TeamEvent>.Token?
+    private var inboxToken: Signal<InboxEvent>.Token?
+    private var prefs: NotificationPrefs?
+    private var prefsAt = Date.distantPast
+
+    /// Unread messages from colleagues, after every check.
+    var onUnread: ((Int) -> Void)?
+
+    init(app: AppModel, workspaceId: String) {
+        self.app = app
+        self.workspaceId = workspaceId
+    }
+
+    func start() {
+        poller = Poller("team", interval: { [weak self] in
+            guard let self else { return 20 }
+            return self.app.teamRealtime ? Double(self.app.config.pollWithRealtimeSeconds) : 20
+        }) { [weak self] in try await self?.tick() }
+        poller?.start()
+        teamToken = app.teamEvents.subscribe { [weak self] _ in self?.poller?.kick() }
+        inboxToken = app.inboxEvents.subscribe { [weak self] e in if e.isReconcile { self?.poller?.kick() } }
+    }
+
+    func stop() {
+        poller?.stop()
+        teamToken?.cancelNow()
+        inboxToken?.cancelNow()
+    }
+
+    func kick() { poller?.kick() }
+
+    private func tick() async throws {
+        guard app.plan.teamChat else {
+            onUnread?(0)
+            return
+        }
+        let r = try await app.api.colleagues(workspaceId: workspaceId)
+        guard app.workspace?.id == workspaceId else { return }
+        let list = r.colleagues ?? []
+        onUnread?(r.totalUnread ?? list.reduce(0) { $0 + max(0, $1.unread ?? 0) })
+
+        let fresh = rules.fresh(list)
+        guard !fresh.isEmpty, app.showsNotifications else { return }
+        let prefs = await currentPrefs()
+        guard NotificationRules.allowed(prefs) else { return }
+        let s = app.strings
+        for c in fresh.prefix(3) {
+            // Their thread is open in front of the operator: nothing to announce.
+            if app.isForeground, app.route == .colleagues, app.visibleColleagueId == c.userId { continue }
+            let preview = ColleaguesModel.preview(c, s)
+            let body = prefs.pushPreview && !preview.isEmpty ? preview : s["newMessage"]
+            app.notifier.show(title: s.get("newMessageFrom", "name", c.displayName), subtitle: s["navColleagues"], body: body,
+                              silent: !(prefs.playSound && app.settings.notificationSound),
+                              arguments: ["colleague": c.userId, "workspace": workspaceId])
+        }
+    }
+
+    private func currentPrefs() async -> NotificationPrefs {
+        if let prefs, Date().timeIntervalSince(prefsAt) < 300 { return prefs }
+        do {
+            prefs = try await app.api.notificationPrefs()
+            prefsAt = Date()
+        } catch {
+            // Keep the last answer rather than going quiet or noisy on a blip.
+        }
+        return prefs ?? NotificationPrefs()
+    }
+}
+
 /// What Super Admin shows the desktop app: ads and announcements for the
 /// workspace's plan (refreshed every few minutes), and the heartbeat that
 /// counts this copy as running and brings broadcasts back.

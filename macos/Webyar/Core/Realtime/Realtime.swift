@@ -20,6 +20,36 @@ struct InboxEvent: Sendable, Equatable {
     var isVisitorMessage: Bool { isMessage && senderType == SenderType.contact }
 }
 
+/// Team chat on the operator's own channel (server/services/realtime/publish.ts, publishTeamEvent):
+/// ids only — the text is read over REST. A send reaches the recipient and the sender's other
+/// devices; a read reaches the reader's other devices.
+struct TeamEvent: Sendable, Equatable {
+    static let message = "team_message"
+    static let read = "team_read"
+
+    var kind: String
+    var messageId: String?
+    var senderId: String?
+    var recipientId: String?
+    /// For a read: whose messages were read.
+    var peerId: String?
+
+    /// The `{ type: "event", payload: { kind, … } }` envelope, if it is a team event.
+    static func parse(_ data: JSONValue) -> TeamEvent? {
+        let p = data["payload"]
+        guard let kind = p?["kind"]?.string, kind == message || kind == read else { return nil }
+        return TeamEvent(kind: kind, messageId: p?["message_id"]?.string, senderId: p?["sender_id"]?.string,
+                         recipientId: p?["recipient_id"]?.string, peerId: p?["peer_id"]?.string)
+    }
+
+    /// The colleague this event is about, seen from `me`.
+    func peer(me: String?) -> String? {
+        if kind == Self.read { return peerId }
+        if let me, senderId == me { return recipientId }
+        return senderId
+    }
+}
+
 enum CentrifugoFrame: Equatable {
     /// An empty object: the server's ping. Unanswered, the server drops the connection.
     case ping
@@ -128,6 +158,11 @@ final class InboxRealtime {
     var onPresenceJoined: (() -> Void)?
     /// A nudge on the visitors channel (someone arrived, left or moved on).
     var onVisitorEvent: ((JSONValue) -> Void)?
+    /// Team chat on this operator's own channel.
+    var onTeamEvent: ((TeamEvent) -> Void)?
+    /// The operator's own channel was joined (true) or lost (false): team chat can relax its polling.
+    var onTeamChannelChanged: ((Bool) -> Void)?
+    private(set) var teamChannelJoined = false
 
     /// Set when the visitors page wants the visitors channel; joined on every (re)connect.
     var wantsVisitors = false {
@@ -153,7 +188,14 @@ final class InboxRealtime {
         setConnected(false)
     }
 
+    private func setTeamChannel(_ value: Bool) {
+        guard teamChannelJoined != value else { return }
+        teamChannelJoined = value
+        onTeamChannelChanged?(value)
+    }
+
     private func setConnected(_ value: Bool) {
+        if !value { setTeamChannel(false) }
         guard isConnected != value else { return }
         isConnected = value
         onConnectionChanged?(value)
@@ -209,8 +251,18 @@ final class InboxRealtime {
             Log.write("[realtime] presence token: \(error)")
         }
 
+        // This operator's own channel, for team chat. A server that predates it answers 404: polling covers.
+        var team: RealtimeSubscribe?
+        do {
+            let t = try await api.realtimeUserSubscribe(workspaceId: workspaceId)
+            if t.vendor == "centrifugo", t.channel != nil, t.token != nil { team = t }
+        } catch {
+            Log.write("[realtime] team token: \(error)")
+        }
+
         var expiresAt = min(conn.expiresAt ?? .max, sub.expiresAt ?? .max)
         if let pe = presence?.expiresAt { expiresAt = min(expiresAt, pe) }
+        if let te = team?.expiresAt { expiresAt = min(expiresAt, te) }
         let refreshAt: Date? = expiresAt == .max ? nil : Date(timeIntervalSince1970: Double(expiresAt) / 1000).addingTimeInterval(-Self.refreshLead)
 
         let task = URLSession.shared.webSocketTask(with: url)
@@ -258,6 +310,11 @@ final class InboxRealtime {
                 case .reply(3, nil):
                     Log.write("[realtime] joined \(presence?.channel ?? "")")
                     onPresenceJoined?()
+                case .reply(4, let error?):
+                    Log.write("[realtime] team channel error \(error)")
+                case .reply(4, nil):
+                    Log.write("[realtime] joined team channel")
+                    setTeamChannel(true)
                 case .reply(let id, let error?) where id == visitorsCommand:
                     Log.write("[realtime] visitors error \(error)")
                 case .reply(let id, nil) where id == visitorsCommand:
@@ -274,6 +331,9 @@ final class InboxRealtime {
                     if let pc = presence?.channel, let pt = presence?.token {
                         try await task.send(.string(CentrifugoProtocol.subscribe(id: 3, channel: pc, token: pt)))
                     }
+                    if let tc = team?.channel, let tt = team?.token {
+                        try await task.send(.string(CentrifugoProtocol.subscribe(id: 4, channel: tc, token: tt)))
+                    }
                     if wantsVisitors { await subscribeVisitors() }
                 case .disconnect:
                     Log.write("[realtime] server disconnect")
@@ -281,6 +341,10 @@ final class InboxRealtime {
                 case .publication(let ch, let data):
                     if let ch, ch.hasSuffix(":visitors") {
                         onVisitorEvent?(data)
+                        break
+                    }
+                    if let ch, ch.contains(":user:") {
+                        if let team = TeamEvent.parse(data) { onTeamEvent?(team) }
                         break
                     }
                     guard let ev = CentrifugoProtocol.event(data) else { break }

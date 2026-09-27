@@ -34,9 +34,12 @@ struct SettingsView: View {
             UpdateSettingsTab()
                 .tabItem { Label(s["updates"], systemImage: "arrow.triangle.2.circlepath") }
                 .tag(Pane.updates)
-            StorageSettingsTab()
-                .tabItem { Label(s["settingsStorage"], systemImage: "internaldrive") }
-                .tag(Pane.storage)
+            // Super Admin can hide Storage; the cache itself keeps working.
+            if app.config.sections.storageSettings {
+                StorageSettingsTab()
+                    .tabItem { Label(s["settingsStorage"], systemImage: "internaldrive") }
+                    .tag(Pane.storage)
+            }
         }
         .frame(width: 620)
         // The window is rebuilt in the new language and direction at once.
@@ -44,6 +47,9 @@ struct SettingsView: View {
         .environment(\.locale, s.language.locale)
         .onChange(of: app.phase) { _, phase in
             if phase != .signedIn && pane == .account { pane = .general }
+        }
+        .onChange(of: app.config.sections.storageSettings) { _, shown in
+            if !shown && pane == .storage { pane = .general }
         }
         #if DEBUG
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("WebyarDebugSettingsPane"))) { note in

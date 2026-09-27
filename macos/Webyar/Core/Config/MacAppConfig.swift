@@ -4,8 +4,9 @@ import Foundation
 /// (server/services/desktopApp/macosSettings.ts): where Sparkle looks for
 /// updates and which builds may still run, realtime and polling, what the
 /// app may do on the Mac, the defaults of a first launch, a maintenance
-/// notice and the help links. What the app offers is not here: the
-/// workspace's plan decides that (WorkspacePlan). Read on launch and
+/// notice and the help links. What the app offers is the workspace's plan
+/// (WorkspacePlan), less the sections Super Admin → macOS app → Behaviour
+/// switched off for every Mac (`sections`). Read on launch and
 /// hourly — every minute while maintenance is on — so a change reaches every
 /// installed copy without a release.
 struct MacAppConfig: Sendable, Equatable {
@@ -14,6 +15,7 @@ struct MacAppConfig: Sendable, Equatable {
     var pollIntervalSeconds: Int
     var pollWithRealtimeSeconds: Int
     var system: SystemIntegration
+    var sections: Sections
     var firstLaunch: FirstLaunch
     var maintenance: Maintenance
     var links: Links
@@ -24,6 +26,16 @@ struct MacAppConfig: Sendable, Equatable {
         var launchAtLogin = true
         var dockBadge = true
         var notifications = true
+    }
+
+    /// Sections Super Admin switched off on every Mac, whatever the plan allows (never on where it does not).
+    struct Sections: Sendable, Equatable {
+        var contacts = true
+        var visitors = true
+        var callCenter = true
+        var webAnalytics = true
+        /// Settings → Storage; the cache itself always works.
+        var storageSettings = true
     }
 
     /// Applied once, on a Mac that has no saved settings yet.
@@ -68,6 +80,7 @@ struct MacAppConfig: Sendable, Equatable {
         pollIntervalSeconds: 15,
         pollWithRealtimeSeconds: 120,
         system: SystemIntegration(),
+        sections: Sections(),
         firstLaunch: FirstLaunch(),
         maintenance: Maintenance(),
         links: Links())
@@ -78,6 +91,7 @@ struct MacAppConfig: Sendable, Equatable {
         let d = defaults
         let update = root["update"], realtime = root["realtime"], polling = root["polling"]
         let system = root["system"], first = root["defaults"], maintenance = root["maintenance"], links = root["links"]
+        let features = root["features"]
         func clamp(_ v: Int?, _ lo: Int, _ hi: Int, _ fallback: Int) -> Int { v.map { min(hi, max(lo, $0)) } ?? fallback }
         func https(_ v: String?) -> String? {
             guard let v, let u = URL(string: v), u.scheme?.lowercased() == "https", u.host?.isEmpty == false else { return nil }
@@ -91,6 +105,14 @@ struct MacAppConfig: Sendable, Equatable {
             launchAtLogin: flag(system, "launchAtLogin", s.launchAtLogin),
             dockBadge: flag(system, "dockBadge", s.dockBadge),
             notifications: flag(system, "notifications", s.notifications))
+
+        let sc = d.sections
+        let parsedSections = Sections(
+            contacts: flag(features, "contacts", sc.contacts),
+            visitors: flag(features, "visitors", sc.visitors),
+            callCenter: flag(features, "callCenter", sc.callCenter),
+            webAnalytics: flag(features, "webAnalytics", sc.webAnalytics),
+            storageSettings: flag(features, "storageSettings", sc.storageSettings))
 
         let fl = d.firstLaunch
         let parsedFirst = FirstLaunch(
@@ -126,6 +148,7 @@ struct MacAppConfig: Sendable, Equatable {
             pollIntervalSeconds: clamp(polling?["intervalSeconds"]?.int, 5, 300, d.pollIntervalSeconds),
             pollWithRealtimeSeconds: clamp(polling?["withRealtimeSeconds"]?.int, 15, 900, d.pollWithRealtimeSeconds),
             system: parsedSystem,
+            sections: parsedSections,
             firstLaunch: parsedFirst,
             maintenance: Maintenance(enabled: down, message: message, until: until),
             links: Links(support: https(links?["support"]?.text), status: https(links?["status"]?.text),

@@ -23,6 +23,8 @@ final class ColleaguesModel {
     @ObservationIgnored private var listPoller: Poller?
     @ObservationIgnored private var threadPoller: Poller?
     @ObservationIgnored private var events: Signal<InboxEvent>.Token?
+    @ObservationIgnored private var teamEvents: Signal<TeamEvent>.Token?
+    @ObservationIgnored private var requests: Signal<String>.Token?
     /// Messages still on their way stay at the end until the server has them.
     @ObservationIgnored private var outbox: [ChatRow] = []
     @ObservationIgnored private var me: String?
@@ -56,24 +58,50 @@ final class ColleaguesModel {
 
     // MARK: Lifecycle
 
-    /// The page came on screen: the team every 15 s, the open thread every
-    /// 5 s, and both at once on any realtime event.
+    /// The page came on screen. Team chat is pushed on the operator's own
+    /// realtime channel: a message or a read refreshes the team, and the open
+    /// thread when it is about that colleague. The polling covers for it —
+    /// every 15 s for the team and 5 s for the thread without that channel,
+    /// far less often with it.
     func start() {
         if workspaceId != app.workspace?.id {
             reset()
             workspaceId = app.workspace?.id
         }
         if listPoller == nil {
-            listPoller = Poller("colleagues", interval: { 15 }) { [weak self] in try await self?.loadList() }
+            listPoller = Poller("colleagues", interval: { [weak self] in self?.app.teamRealtime == true ? 60 : 15 }) { [weak self] in
+                try await self?.loadList()
+            }
             listPoller?.start()
         }
+        if teamEvents == nil {
+            teamEvents = app.teamEvents.subscribe { [weak self] e in
+                guard let self else { return }
+                self.listPoller?.kick()
+                if let peer = self.peer?.userId, e.peer(me: self.me ?? self.app.user?.id) == peer { self.threadPoller?.kick() }
+            }
+        }
+        if requests == nil {
+            requests = app.colleagueRequests.subscribe { [weak self] _ in self?.openPending() }
+        }
         if events == nil {
-            events = app.inboxEvents.subscribe { [weak self] _ in
+            // Back after a realtime gap: read everything again.
+            events = app.inboxEvents.subscribe { [weak self] e in
+                guard e.isReconcile else { return }
                 self?.listPoller?.kick()
                 self?.threadPoller?.kick()
             }
         }
         if let id = peer?.userId, threadPoller == nil { startThread(id) }
+        app.visibleColleagueId = peer?.userId
+        openPending()
+    }
+
+    /// A notification asked for this colleague: open them once the team is known.
+    private func openPending() {
+        guard let want = app.pendingColleague, colleagues.contains(where: { $0.userId == want }) else { return }
+        app.pendingColleague = nil
+        select(want)
     }
 
     /// The page left the screen: nothing polls, and a recording is dropped.
@@ -84,6 +112,11 @@ final class ColleaguesModel {
         threadPoller = nil
         events?.cancelNow()
         events = nil
+        teamEvents?.cancelNow()
+        teamEvents = nil
+        requests?.cancelNow()
+        requests = nil
+        if app.visibleColleagueId == peer?.userId { app.visibleColleagueId = nil }
         if recorder.isRecording { recorder.cancel() }
     }
 
@@ -121,6 +154,7 @@ final class ColleaguesModel {
         if list != colleagues { colleagues = list }
         loaded = true
         if let p = peer, let fresh = list.first(where: { $0.userId == p.userId }), fresh != p { peer = fresh }
+        openPending()
     }
 
     /// active, away, disconnected or offline — the team presence the shell already follows.
@@ -180,6 +214,7 @@ final class ColleaguesModel {
             drafts[old] = text.isEmpty ? nil : draft
         }
         peer = c
+        app.visibleColleagueId = id
         notice = nil
         rows = []
         outbox = []
@@ -192,7 +227,9 @@ final class ColleaguesModel {
     private func startThread(_ id: String) {
         threadPoller?.stop()
         threadLoading = true
-        threadPoller = Poller("team-thread", interval: { 5 }) { [weak self] in try await self?.loadThread(id) }
+        threadPoller = Poller("team-thread", interval: { [weak self] in self?.app.teamRealtime == true ? 30 : 5 }) { [weak self] in
+            try await self?.loadThread(id)
+        }
         threadPoller?.start()
     }
 
@@ -232,6 +269,8 @@ final class ColleaguesModel {
                 try await app.api.markTeamRead(workspaceId: ws.id, peerId: id)
                 if let j = colleagues.firstIndex(where: { $0.userId == id }) { colleagues[j].unread = 0 }
                 listPoller?.kick()
+                // The Colleagues badge and the Dock follow at once.
+                app.kickTeam()
             } catch {
                 Log.error("team read", error)
             }

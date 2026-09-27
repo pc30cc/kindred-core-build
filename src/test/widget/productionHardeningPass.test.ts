@@ -275,7 +275,15 @@ describe('hidden-tab polling backoff', () => {
 
   it('runtime.js slows chat polling while the tab is hidden and restores full cadence when visible, without tearing down the loop', () => {
     expect(runtime).toContain('getInterval: function () {');
-    expect(runtime).toMatch(/document\.hidden\)\s*\?\s*15000\s*:\s*4000/);
+    expect(runtime).toContain("document.hidden) return 60000");
+    expect(runtime).toContain("isPanelOpen && isPanelOpen() ? 4000 : 20000");
+  });
+
+  it('ignores late transport callbacks after disconnect or a newer reconnect', () => {
+    expect(runtime).toContain('var connectionGeneration = 0');
+    expect(runtime).toContain('var generation = connectionGeneration;');
+    expect(runtime).toContain('if (manuallyClosed || generation !== connectionGeneration) return;');
+    expect(runtimeChat).toContain('if (stopped || !data) return;');
   });
 
   it('a call in progress is never affected by the chat-poll backoff (call-widget has its own independent timers)', () => {

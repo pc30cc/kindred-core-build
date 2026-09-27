@@ -158,6 +158,9 @@ const settingsSchema = z.object({
   android_app_profile_photo_editable: z.boolean().optional(),
   android_app_show_visitors: z.boolean().optional(),
   android_app_show_web_analytics: z.boolean().optional(),
+  ios_app_show_contacts: z.boolean().optional(),
+  ios_app_show_visitors: z.boolean().optional(),
+  ios_app_show_web_analytics: z.boolean().optional(),
 }).refine(
   (v) => v.android_min_sdk === undefined || v.android_target_sdk === undefined || v.android_min_sdk <= v.android_target_sdk,
   { message: 'minimum SDK above target SDK', path: ['android_min_sdk'] },

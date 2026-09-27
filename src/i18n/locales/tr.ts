@@ -3694,6 +3694,7 @@ const tr: TranslationKeys = {
         review: 'Uygulama incelemesi',
         release: 'Yayın',
         buildGuide: 'Derle ve yayınla',
+        inApp: 'Uygulama içi ayarlar',
       },
       promotions: {
         heading: 'Uygulama içi tanıtımlar',
@@ -4435,6 +4436,16 @@ const tr: TranslationKeys = {
         label: 'Platform',
         ios: 'iOS',
         android: 'Android',
+      },
+      iosInApp: {
+        tabsHeading: 'Uygulama sekmeleri',
+        tabsCaption: 'iOS uygulamasının alt çubuğundaki sekmeler. Yeni sürüm gerekmeden hemen uygulanır. Bir anahtar yalnızca sekmeyi gizleyebilir: planında özellik olmayan bir çalışma alanı onu asla görmez.',
+        showContacts: '"Kişiler"i göster',
+        showContactsHint: 'Kişi listesi ve her kişinin ayrıntıları. Yalnızca kişiler özelliği olan planlarda.',
+        showVisitors: '"Ziyaretçiler"i göster',
+        showVisitorsHint: 'Şu anda sitede kim var: harita, sayfa geçmişi ve sohbet başlatma düğmesiyle. Yalnızca ziyaretçi takibi olan planlarda.',
+        showWebAnalytics: '"Web sitesi analitiği"ni göster',
+        showWebAnalyticsHint: 'Ziyaretler, kaynaklar, sayfalar, coğrafya, cihazlar ve etkinlikler. Yalnızca web analitiği olan planlarda sahipler ve yöneticiler için.',
       },
       androidTabs: {
         overview: 'Genel bakış',

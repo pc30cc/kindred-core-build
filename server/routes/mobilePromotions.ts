@@ -27,7 +27,7 @@ import { Router } from 'express';
 import type { Request } from 'express';
 import type { ServerConfig } from '../config.js';
 import { authorizeWorkspaceAccess, requireUser } from '../lib/workspaceAuth.js';
-import { loadMobileAppSettings, toAndroidAppConfig, MOBILE_APP_DEFAULTS } from '../services/mobileApp/settings.js';
+import { loadMobileAppSettings, toAndroidAppConfig, toIosAppConfig, MOBILE_APP_DEFAULTS } from '../services/mobileApp/settings.js';
 
 export const mobilePromotionsRouter = Router();
 
@@ -121,7 +121,7 @@ mobilePromotionsRouter.get('/promotions', async (req, res) => {
 });
 
 /**
- * GET /api/mobile-app/config?platform=android — how the installed app should
+ * GET /api/mobile-app/config?platform=android|ios — how the installed app should
  * behave: which Settings sections it shows and which profile fields an
  * operator may change. Written in Super Admin → Mobile App → Android.
  *
@@ -133,13 +133,15 @@ mobilePromotionsRouter.get('/promotions', async (req, res) => {
 mobilePromotionsRouter.get('/config', async (req, res) => {
   const userId = await requireUser(req, res);
   if (!userId) return;
-  if (String(req.query.platform || 'android') !== 'android') {
+  const platform = String(req.query.platform || 'android');
+  if (platform !== 'android' && platform !== 'ios') {
     return res.status(400).json({ error: 'Unknown platform' });
   }
+  const shape = platform === 'ios' ? toIosAppConfig : toAndroidAppConfig;
   try {
     const settings = await loadMobileAppSettings(serverConfigOf(req));
-    return res.json(toAndroidAppConfig(settings));
+    return res.json(shape(settings));
   } catch {
-    return res.json(toAndroidAppConfig(MOBILE_APP_DEFAULTS));
+    return res.json(shape(MOBILE_APP_DEFAULTS));
   }
 });

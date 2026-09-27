@@ -52,6 +52,7 @@ import { androidChecks } from '@/components/admin/mobile/android/androidChecks';
 import { AndroidIdentityTab } from '@/components/admin/mobile/android/AndroidIdentityTab';
 import { AndroidReleaseTab } from '@/components/admin/mobile/android/AndroidReleaseTab';
 import { AndroidInAppTab } from '@/components/admin/mobile/android/AndroidInAppTab';
+import { IosInAppTab } from '@/components/admin/mobile/IosInAppTab';
 import { cn } from '@/lib/utils';
 
 type Platform = 'ios' | 'android';
@@ -62,6 +63,7 @@ const IOS_TABS = [
   { value: 'build', icon: Hammer },
   { value: 'capabilities', icon: ToggleRight },
   { value: 'privacy', icon: ShieldCheck },
+  { value: 'inApp', icon: Settings2 },
   { value: 'promotions', icon: Megaphone },
   { value: 'appStore', icon: ClipboardCheck },
   { value: 'review', icon: UserCheck },
@@ -252,6 +254,9 @@ export default function MobileAppPage() {
           </TabsContent>
           <TabsContent value="privacy" className="space-y-4">
             <MobilePrivacyTab draft={draft} set={set} />
+          </TabsContent>
+          <TabsContent value="inApp" className="space-y-4">
+            <IosInAppTab draft={draft} set={set} />
           </TabsContent>
           <TabsContent value="promotions" className="space-y-4">
             <MobilePromotionsTab draft={draft} set={set} />

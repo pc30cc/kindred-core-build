@@ -3705,6 +3705,7 @@ const en = {
         review: 'App Review',
         release: 'Release',
         buildGuide: 'Build & ship',
+        inApp: 'In-app settings',
       },
       promotions: {
         heading: 'In-app promotions',
@@ -4446,6 +4447,16 @@ const en = {
         label: 'Platform',
         ios: 'iOS',
         android: 'Android',
+      },
+      iosInApp: {
+        tabsHeading: 'App tabs',
+        tabsCaption: "Tabs in the iOS app's bottom bar. Applied live, without a new build. A switch can only hide a tab: a workspace whose plan lacks the feature never sees it, whatever is set here.",
+        showContacts: 'Show "Contacts"',
+        showContactsHint: "The contact list and each contact's details. Plans with contacts only.",
+        showVisitors: 'Show "Visitors"',
+        showVisitorsHint: 'Who is on the site now, on a map, with their page history and a button to start a chat. Plans with visitor tracking only.',
+        showWebAnalytics: 'Show "Website analytics"',
+        showWebAnalyticsHint: 'Visits, sources, pages, geography, devices and events. Owners and admins on plans with web analytics only.',
       },
       androidTabs: {
         overview: 'Overview',

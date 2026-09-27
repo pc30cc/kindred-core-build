@@ -418,9 +418,12 @@ struct InboxFieldFilter: Equatable, Sendable {
     }
 
     var activeCount: Int {
-        [name, email, subject].count {
+        // `filter { }.count`, not `count(where:)`: the latter is Swift 6's
+        // standard library, and this target builds in the 5.9 language mode
+        // with toolchains that may not ship it.
+        [name, email, subject].filter {
             !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
+        }.count
     }
 
     func matches(_ conversation: Conversation) -> Bool {

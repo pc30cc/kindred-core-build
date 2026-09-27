@@ -75,4 +75,14 @@ extension TestAPIBase {
     func deleteAccount(password: String) async throws -> AccountDeletion { throw APIError.transport }
     func notificationPrefs() async throws -> NotificationPrefs { throw APIError.transport }
     func updateNotificationPrefs(_ prefs: NotificationPrefs) async throws -> NotificationPrefs { throw APIError.transport }
+    func mobileAppConfig() async throws -> MobileAppConfig { throw APIError.transport }
+    func liveVisitors(workspaceID: String, includeOffline: Bool) async throws -> [LiveVisitor] { throw APIError.transport }
+    func visitorPageHistory(workspaceID: String, sessionID: String) async throws -> VisitorPageHistory { throw APIError.transport }
+    func visitorMap(workspaceID: String) async throws -> VisitorMap { throw APIError.transport }
+    func startChatWithVisitor(workspaceID: String, sessionID: String) async throws -> StartVisitorChatResult { throw APIError.transport }
+    func analyticsOverview(workspaceID: String, range: AnalyticsDateRange) async throws -> WebAnalyticsOverview { throw APIError.transport }
+    func analyticsLiveVisitors(workspaceID: String) async throws -> Int { throw APIError.transport }
+    func analyticsBreakdown(workspaceID: String, report: WebAnalyticsBreakdown, dimension: String, range: AnalyticsDateRange) async throws -> WebAnalyticsRows<WebAnalyticsRow> { throw APIError.transport }
+    func analyticsPages(workspaceID: String, kind: String, range: AnalyticsDateRange) async throws -> WebAnalyticsRows<WebAnalyticsPage> { throw APIError.transport }
+    func analyticsEvents(workspaceID: String, range: AnalyticsDateRange) async throws -> WebAnalyticsRows<WebAnalyticsEvent> { throw APIError.transport }
 }

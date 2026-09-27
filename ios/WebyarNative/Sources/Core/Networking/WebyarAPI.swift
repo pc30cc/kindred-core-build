@@ -147,6 +147,30 @@ protocol WebyarAPI: Sendable {
 
     func notificationPrefs() async throws -> NotificationPrefs
     func updateNotificationPrefs(_ prefs: NotificationPrefs) async throws -> NotificationPrefs
+
+    /// Which sections Super Admin has switched on for the iPhone app.
+    func mobileAppConfig() async throws -> MobileAppConfig
+
+    // MARK: Online visitors
+
+    /// Who is on the site now; with `includeOffline`, those who just left too.
+    func liveVisitors(workspaceID: String, includeOffline: Bool) async throws -> [LiveVisitor]
+    func visitorPageHistory(workspaceID: String, sessionID: String) async throws -> VisitorPageHistory
+    func visitorMap(workspaceID: String) async throws -> VisitorMap
+    /// Opens a conversation with a visitor, or hands back the one they are
+    /// already in — the server decides which, never the phone.
+    func startChatWithVisitor(workspaceID: String, sessionID: String) async throws -> StartVisitorChatResult
+
+    // MARK: Website analytics
+
+    func analyticsOverview(workspaceID: String, range: AnalyticsDateRange) async throws -> WebAnalyticsOverview
+    func analyticsLiveVisitors(workspaceID: String) async throws -> Int
+    func analyticsBreakdown(
+        workspaceID: String, report: WebAnalyticsBreakdown, dimension: String, range: AnalyticsDateRange
+    ) async throws -> WebAnalyticsRows<WebAnalyticsRow>
+    /// `kind`: top | entry | exit | new.
+    func analyticsPages(workspaceID: String, kind: String, range: AnalyticsDateRange) async throws -> WebAnalyticsRows<WebAnalyticsPage>
+    func analyticsEvents(workspaceID: String, range: AnalyticsDateRange) async throws -> WebAnalyticsRows<WebAnalyticsEvent>
 }
 
 extension APIClient: WebyarAPI {}
@@ -218,6 +242,7 @@ enum SampleRoute: String {
     case inbox, chat, aiChat, call, videoCall, contacts, contact, settings, profile, security, email
     case notifications
     case colleagues, colleagueThread
+    case visitors, analytics
     /// A thread with a visitor who never gave a name — the case where a
     /// `{{contact.name}}` in a saved reply has nothing to resolve to.
     case anonymousChat

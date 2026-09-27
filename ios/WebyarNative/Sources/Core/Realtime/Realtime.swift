@@ -203,6 +203,10 @@ final class InboxRealtime {
     private var seen: [String] = []
     /// The socket is being closed on purpose, to renew its tokens.
     private var refreshing = false
+    /// `stop()` has run. The URL session is invalidated there — a session is
+    /// never usable again once invalidated — so a stopped connection is
+    /// finished for good, and the coordinator makes a fresh one to restart.
+    private var stopped = false
 
     private(set) var isConnected = false
 
@@ -223,7 +227,7 @@ final class InboxRealtime {
     var isRunning: Bool { loop != nil }
 
     func start() {
-        guard loop == nil else { return }
+        guard loop == nil, !stopped else { return }
         loop = Task { [weak self] in await self?.run() }
     }
 
@@ -233,6 +237,13 @@ final class InboxRealtime {
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
         setConnected(false)
+        // A URLSession holds a strong reference to its delegate queue and
+        // lives until invalidated; without this every foreground/background
+        // round trip leaked one.
+        if !stopped {
+            stopped = true
+            session.invalidateAndCancel()
+        }
     }
 
     private func setConnected(_ value: Bool) {

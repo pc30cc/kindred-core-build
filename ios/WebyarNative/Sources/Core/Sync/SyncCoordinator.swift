@@ -64,6 +64,10 @@ final class SyncCoordinator {
     @ObservationIgnored private let startsRealtime: Bool
     @ObservationIgnored private var upkeep: Task<Void, Never>?
     @ObservationIgnored private var attachmentScopeHandOver: Task<Void, Never>?
+    /// The stores last handed off to be closed. `endSession` waits on it
+    /// before deleting the account's files, so a purge never removes a
+    /// database out from under a close still writing to it.
+    @ObservationIgnored private var closing: Task<Void, Never>?
     @ObservationIgnored private var backgroundedAt: Date?
 
     init(
@@ -154,12 +158,23 @@ final class SyncCoordinator {
         return lists
     }
 
-    private func closeStores() {
+    /// Closes every open store, off the main actor. Returns the work so a
+    /// caller that needs the files quiet — `endSession` — can wait for it;
+    /// `sessionChanged` is synchronous and keeps it in `closing` instead.
+    ///
+    /// Chained on the previous close, so two account switches a moment apart
+    /// still finish in order.
+    @discardableResult
+    private func closeStores() -> Task<Void, Never> {
         let open = Array(stores.values)
         stores = [:]
-        Task.detached(priority: .utility) {
+        let previous = closing
+        let task = Task.detached(priority: .utility) {
+            await previous?.value
             for store in open { await store.close() }
         }
+        closing = task
+        return task
     }
 
     // MARK: - Signing out
@@ -175,6 +190,9 @@ final class SyncCoordinator {
         AttachmentPreviews.clear()
         VisitorIntelCache.shared.clear()
         guard purge, persistent, let userID else { return }
+        // The sign-out above (or the one `AppState` made a moment earlier)
+        // handed the stores to a close that may still be running.
+        await closing?.value
         let root = storeRoot
         await Task.detached(priority: .utility) {
             LocalStore.removeUser(userID, root: root)

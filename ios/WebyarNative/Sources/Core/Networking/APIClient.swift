@@ -1255,9 +1255,13 @@ actor APIClient {
     /// is what it did when there was only one, and is why turning push off
     /// here also turned off the operator's desk.
     func notificationPrefs() async throws -> NotificationPrefs {
+        // As a query item, not spliced into the path: the path goes through
+        // `appendingPathComponent`, which percent-encodes the `?` and asks
+        // the server for a route that does not exist.
         let request = try makeRequest(
             "GET",
-            "/api/notifications/prefs?platform=\(NotificationPrefs.surface)"
+            "/api/notifications/prefs",
+            query: [URLQueryItem(name: "platform", value: NotificationPrefs.surface)]
         )
         return try await perform(request, as: NotificationPrefsResponse.self).prefs
     }
@@ -1265,6 +1269,115 @@ actor APIClient {
     func updateNotificationPrefs(_ prefs: NotificationPrefs) async throws -> NotificationPrefs {
         let request = try makeRequest("PATCH", "/api/notifications/prefs", body: PrefsPatch(prefs: prefs))
         return try await perform(request, as: NotificationPrefsResponse.self).prefs
+    }
+
+    // MARK: - App configuration
+
+    func mobileAppConfig() async throws -> MobileAppConfig {
+        let request = try makeRequest(
+            "GET",
+            "/api/mobile-app/config",
+            query: [URLQueryItem(name: "platform", value: "ios")]
+        )
+        return try await perform(request, as: MobileAppConfig.self)
+    }
+
+    // MARK: - Online visitors
+
+    /// The same query the web's Visitors page makes: up to 200 sessions, the
+    /// last half hour's by default, offline ones only when asked for.
+    func liveVisitors(workspaceID: String, includeOffline: Bool) async throws -> [LiveVisitor] {
+        var query = [
+            URLQueryItem(name: "workspace_id", value: workspaceID),
+            URLQueryItem(name: "limit", value: "200"),
+        ]
+        if includeOffline { query.append(URLQueryItem(name: "include_offline", value: "1")) }
+        let request = try makeRequest("GET", "/api/visitor-intel/live", query: query)
+        return try await perform(request, as: LiveVisitorsResponse.self).items
+    }
+
+    func visitorPageHistory(workspaceID: String, sessionID: String) async throws -> VisitorPageHistory {
+        let request = try makeRequest(
+            "GET",
+            "/api/visitor-intel/\(Self.escape(sessionID))/page-history",
+            query: [
+                URLQueryItem(name: "workspace_id", value: workspaceID),
+                URLQueryItem(name: "limit", value: "20"),
+            ]
+        )
+        return try await perform(request, as: VisitorPageHistory.self)
+    }
+
+    func visitorMap(workspaceID: String) async throws -> VisitorMap {
+        let request = try makeRequest(
+            "GET",
+            "/api/visitor-intel/map",
+            query: [URLQueryItem(name: "workspace_id", value: workspaceID)]
+        )
+        return try await perform(request, as: VisitorMap.self)
+    }
+
+    private struct StartFromVisitorBody: Encodable, Sendable {
+        let workspace_id: String
+        let visitor_session_id: String
+    }
+
+    func startChatWithVisitor(workspaceID: String, sessionID: String) async throws -> StartVisitorChatResult {
+        let request = try makeRequest(
+            "POST",
+            "/api/conversations/start-from-visitor",
+            body: StartFromVisitorBody(workspace_id: workspaceID, visitor_session_id: sessionID)
+        )
+        return try await perform(request, as: StartVisitorChatResult.self)
+    }
+
+    // MARK: - Website analytics
+
+    private static func analyticsPath(_ workspaceID: String, _ tail: String) -> String {
+        "/api/web-analytics/\(escape(workspaceID))/\(tail)"
+    }
+
+    private static func rangeQuery(_ range: AnalyticsDateRange) -> [URLQueryItem] {
+        [URLQueryItem(name: "startDate", value: range.start), URLQueryItem(name: "endDate", value: range.end)]
+    }
+
+    func analyticsOverview(workspaceID: String, range: AnalyticsDateRange) async throws -> WebAnalyticsOverview {
+        let request = try makeRequest(
+            "GET", Self.analyticsPath(workspaceID, "overview"), query: Self.rangeQuery(range)
+        )
+        return try await perform(request, as: WebAnalyticsOverview.self)
+    }
+
+    func analyticsLiveVisitors(workspaceID: String) async throws -> Int {
+        let request = try makeRequest("GET", Self.analyticsPath(workspaceID, "live-visitors"))
+        return try await perform(request, as: WebAnalyticsLiveCount.self).count
+    }
+
+    func analyticsBreakdown(
+        workspaceID: String, report: WebAnalyticsBreakdown, dimension: String, range: AnalyticsDateRange
+    ) async throws -> WebAnalyticsRows<WebAnalyticsRow> {
+        let request = try makeRequest(
+            "GET",
+            Self.analyticsPath(workspaceID, report.rawValue),
+            query: [URLQueryItem(name: "dimension", value: dimension)] + Self.rangeQuery(range)
+        )
+        return try await perform(request, as: WebAnalyticsRows<WebAnalyticsRow>.self)
+    }
+
+    func analyticsPages(workspaceID: String, kind: String, range: AnalyticsDateRange) async throws -> WebAnalyticsRows<WebAnalyticsPage> {
+        let request = try makeRequest(
+            "GET",
+            Self.analyticsPath(workspaceID, "pages"),
+            query: [URLQueryItem(name: "kind", value: kind)] + Self.rangeQuery(range)
+        )
+        return try await perform(request, as: WebAnalyticsRows<WebAnalyticsPage>.self)
+    }
+
+    func analyticsEvents(workspaceID: String, range: AnalyticsDateRange) async throws -> WebAnalyticsRows<WebAnalyticsEvent> {
+        let request = try makeRequest(
+            "GET", Self.analyticsPath(workspaceID, "events"), query: Self.rangeQuery(range)
+        )
+        return try await perform(request, as: WebAnalyticsRows<WebAnalyticsEvent>.self)
     }
 
     /// The preference fields plus the surface they belong to, in one flat

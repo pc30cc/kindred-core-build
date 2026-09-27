@@ -37,6 +37,9 @@ final class ConversationActionsModel {
     var takeOverConfirmed = false
     var takeOverFailed = false
 
+    /// `tags` in the conversation update schema: `z.string().max(50)`.
+    static let maxTagLength = 50
+
     private let conversationID: String
     private let workspaceID: String
     private let api: any WebyarAPI
@@ -120,6 +123,14 @@ final class ConversationActionsModel {
     func addTag(_ raw: String, appState: AppState) async {
         let tag = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !tag.isEmpty, !tags.contains(tag), tags.count < 20 else { return }
+        // The server takes at most fifty characters a tag, and refuses the
+        // whole update over one that is longer — every other tag with it.
+        // Counted in UTF-16 because that is what a JavaScript string's
+        // length is. Said here rather than sent and reverted.
+        guard tag.utf16.count <= Self.maxTagLength else {
+            saveFailed = true
+            return
+        }
         await setTags(tags + [tag], appState: appState)
     }
 

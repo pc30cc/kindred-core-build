@@ -115,8 +115,9 @@ object VisitorText {
         return decode(rest)
     }
 
+    // The charset by name: the `Charset` overload is API 33, and this app runs from 24.
     private fun decode(s: String): String =
-        runCatching { URLDecoder.decode(s.replace("+", "%2B"), Charsets.UTF_8) }.getOrDefault(s)
+        runCatching { URLDecoder.decode(s.replace("+", "%2B"), "UTF-8") }.getOrDefault(s)
 
     fun matches(v: LiveVisitor, query: String, language: Language): Boolean {
         val q = query.trim()

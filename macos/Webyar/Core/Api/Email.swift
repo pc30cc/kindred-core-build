@@ -200,7 +200,9 @@ extension WebyarAPI {
     /// Uploads a file for the next send (up to 25 MB).
     func stageEmailAttachment(workspaceId: String, filename: String, contentType: String, data: Data) async throws -> StagedEmailAttachment {
         try await client.upload(Self.mailbox(workspaceId) + "/attachments", query: [("filename", filename), ("content_type", contentType)],
-                                data: data, contentType: contentType)
+                                // Not the file's own type: the server's JSON parser would swallow a .json file's
+                                // bytes before the upload route saw them. Its type goes in content_type.
+                                data: data, contentType: "application/octet-stream")
     }
 
     func sendEmail(workspaceId: String, threadId: String?, to: [String], cc: [String] = [], bcc: [String] = [],

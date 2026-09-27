@@ -84,7 +84,8 @@ final class WebyarAPI {
         // The server reads `needs_human` (snake case), and counts every status but closed, as the badge does.
         case .needsHuman: return [("queue", "main"), ("status", "open,pending,resolved"), ("needs_human", "true")]
         case .pending: return [("queue", "main"), ("status", "pending")]
-        case .resolved: return [("queue", "main"), ("status", "resolved")]
+        // Closed on the web counts as resolved (the tab's count includes it, as the web's list does).
+        case .resolved: return [("queue", "main"), ("status", "resolved,closed")]
         case .ai: return [("queue", "automated")]
         case .spam: return [("queue", "spam")]
         }
@@ -273,7 +274,7 @@ final class WebyarAPI {
             "data": data.base64EncodedString(),
             "contentType": contentType,
             "fileName": fileName,
-        ])
+        ], timeout: 120)
     }
 
     func removeAvatar() async throws {
@@ -487,7 +488,8 @@ final class WebyarAPI {
             "size_bytes": data.count,
         ])
         guard let id = reserve.attachmentId, !id.isEmpty else { throw ApiError(failure: .decoding) }
-        try await client.call("POST", "/api/conversation-attachments/\(Self.e(id))/upload", body: ["workspace_id": workspaceId, "data": data.base64EncodedString()])
+        try await client.call("POST", "/api/conversation-attachments/\(Self.e(id))/upload", body: ["workspace_id": workspaceId, "data": data.base64EncodedString()],
+                              timeout: 120)
         return id
     }
 
@@ -601,7 +603,8 @@ final class WebyarAPI {
     /// `display_name` is optional but not nullable server-side: leave it out rather than send null.
     func callToken(callSessionId: String, displayName: String?) async throws -> CallToken {
         var body: [String: Any?] = ["participant_type": "operator"]
-        if let n = displayName?.trimmingCharacters(in: .whitespaces), !n.isEmpty { body["display_name"] = n }
+        // The server takes at most 100 characters; a longer name (or an email standing in for one) would fail the call.
+        if let n = displayName?.trimmingCharacters(in: .whitespaces), !n.isEmpty { body["display_name"] = String(n.prefix(100)) }
         return try await client.post("/api/calls/\(Self.e(callSessionId))/token", body: body)
     }
 

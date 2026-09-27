@@ -345,7 +345,10 @@ final class SampleBackend: URLProtocol {
             switch (q["queue"], q["status"]) {
             case ("automated", _): list = all.filter { ($0["ai_state"] as? String) == "ai_managed" }
             case ("spam", _): list = []
-            case (_, let status?): list = all.filter { ($0["status"] as? String) == status && ($0["ai_state"] == nil || status != "open") }
+            case (_, let status?):
+                // A comma list, as the server takes it ("resolved,closed").
+                let wanted = Set(status.split(separator: ",").map(String.init))
+                list = all.filter { wanted.contains(($0["status"] as? String) ?? "") && ($0["ai_state"] == nil || status != "open") }
             default: list = all
             }
             return (200, ["conversations": list])

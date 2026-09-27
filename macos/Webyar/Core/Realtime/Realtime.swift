@@ -138,6 +138,8 @@ final class InboxRealtime {
     private static let backoff: [Double] = [1, 2, 4, 8, 15, 30]
     /// Renegotiate this long before the tokens expire, as the web console does.
     private static let refreshLead: TimeInterval = 120
+    /// The platform's shortest token lifetime (300 s) less the lead: when the clock cannot be trusted.
+    private static let skewedClockRefresh: TimeInterval = 180
     /// How long to wait before asking again when the server says "poll".
     private static let policyRetry: TimeInterval = 300
 
@@ -275,7 +277,10 @@ final class InboxRealtime {
         // Renew the tokens shortly before they expire.
         let refreshTimer: Task<Void, Never>? = refreshAt.map { at in
             Task { [weak task] in
-                let wait = max(10, at.timeIntervalSinceNow)
+                // A fresh token already "due" by this Mac's clock means the clock is off, not the token:
+                // renew on the shortest lifetime the platform allows rather than reconnect every 10 s.
+                let left = at.timeIntervalSinceNow
+                let wait = left > 10 ? left : Self.skewedClockRefresh
                 guard wait < 86_400 else { return }
                 try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
                 if !Task.isCancelled { task?.cancel(with: .goingAway, reason: nil) }

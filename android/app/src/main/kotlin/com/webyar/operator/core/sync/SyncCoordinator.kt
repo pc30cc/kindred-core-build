@@ -22,6 +22,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import com.webyar.operator.core.model.string
 import com.webyar.operator.core.model.get
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.channels.BufferOverflow
 
 /**
  * How realtime is doing, as the rest of the app needs to know it.
@@ -78,6 +82,18 @@ class SyncCoordinator(
     data class Focus(val scope: CacheScope, val filter: InboxFilter)
 
     private val focus = MutableStateFlow<Focus?>(null)
+
+    private val _team = MutableSharedFlow<TeamSignal>(
+        extraBufferCapacity = 16,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    /**
+     * Team-chat activity heard on the operator's own channel, for the screens
+     * that show it: the colleagues' count on the inbox, their list, an open
+     * thread. Ids only — each listener re-reads what it shows.
+     */
+    val team: SharedFlow<TeamSignal> = _team.asSharedFlow()
     private val openThreads = MutableStateFlow<Set<String>>(emptySet())
     private val foreground = MutableStateFlow(false)
     private val _realtime = MutableStateFlow(RealtimeHealth.IDLE)
@@ -228,6 +244,13 @@ class SyncCoordinator(
      * thread is open, for the system line most of them add.
      */
     fun onRealtimeEvent(workspaceId: String, event: RealtimeEventPayload) {
+        val kindHeard = event.kind
+        // Team chat is not about any conversation, and not about the queue
+        // on screen: it goes to whoever shows it, focus or no focus.
+        if (kindHeard != null && kindHeard.startsWith(TEAM_KIND_PREFIX)) {
+            _team.tryEmit(TeamSignal(workspaceId, kindHeard, event.senderId, event.recipientId, event.peerId))
+            return
+        }
         val f = focus.value ?: return
         if (f.scope.workspaceId != workspaceId) return
         val kind = event.kind ?: return
@@ -409,7 +432,26 @@ class SyncCoordinator(
 
     private companion object {
         const val AREA = "Sync"
+        /** `team_message`, `team_read`: the operator's own channel (`publishTeamEvent`). */
+        const val TEAM_KIND_PREFIX = "team_"
     }
+}
+
+/**
+ * Something moved in one of this operator's team threads, as the server
+ * announced it on their own channel: a message sent or received
+ * (`team_message`, with [senderId] and [recipientId]) or a thread read on
+ * another of their devices (`team_read`, with [peerId]).
+ */
+data class TeamSignal(
+    val workspaceId: String,
+    val kind: String,
+    val senderId: String? = null,
+    val recipientId: String? = null,
+    val peerId: String? = null,
+) {
+    /** Whether this is about the thread with [peer]. */
+    fun involves(peer: String): Boolean = peer == senderId || peer == recipientId || peer == peerId
 }
 
 /** The counters the inbox badges show, with the scope and queue they belong to. */

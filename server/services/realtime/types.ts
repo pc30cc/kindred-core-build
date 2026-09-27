@@ -287,6 +287,20 @@ export function isOperatorPresenceChannel(channel: string, workspaceId: string):
   return channel === `ws:${workspaceId}:operators`;
 }
 
+/**
+ * One operator's private channel in a workspace: `ws:<workspace_id>:user:<user_id>`.
+ *
+ * Carries what concerns that operator alone — team-chat activity
+ * (`team_message`, `team_read`), as ids only; the text is read over REST.
+ * Its subscription token is minted for the session's own user id, never for
+ * one the client names, so nobody can listen on another operator's channel.
+ * Deliberately not in `channelBelongsToWorkspace`: no other endpoint may
+ * mint a token for it.
+ */
+export function buildOperatorUserChannelName(workspaceId: string, userId: string): string {
+  return `ws:${workspaceId}:user:${userId}`;
+}
+
 /* ────────────── visitor live-presence channels (per session, v2) ────────── */
 
 /**

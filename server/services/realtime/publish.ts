@@ -27,6 +27,7 @@ import { resolvePublisher } from './resolvePublisher.js';
 import {
   buildChannelName,
   buildInboxChannelName,
+  buildOperatorUserChannelName,
   buildVisitorsChannelName,
 } from './types.js';
 import type { ConversationEventEnvelope } from './publishers/types.js';
@@ -242,6 +243,62 @@ export async function publishOperatorEvent(
   }
 
   await Promise.allSettled(tasks);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Team-chat event envelopes
+//   Channel: ws:<workspace_id>:user:<user_id>  (that operator only)
+//   Envelope: { type: 'event', payload: { kind, workspace_id, ... } }
+//   kinds: 'team_message' | 'team_read'
+//
+// Ids only, never the text: a client that hears one re-reads the thread or
+// the colleague list over REST, where membership is checked again. Polling
+// (the console's 10–20 s) remains the fallback when realtime is off.
+// ─────────────────────────────────────────────────────────────────────
+
+export type TeamEventKind = 'team_message' | 'team_read';
+
+export interface TeamEventPayload {
+  kind: TeamEventKind;
+  workspace_id: string;
+  /** `team_message`: the new row and who it is between. */
+  message_id?: string;
+  sender_id?: string;
+  recipient_id?: string;
+  /** `team_read`: whose messages the reader has just read. */
+  peer_id?: string;
+}
+
+/**
+ * Tell each of [userIds] — on their own channel — that something changed in
+ * one of their team threads. Best-effort and never throws: the DB write is
+ * the source of truth.
+ */
+export async function publishTeamEvent(
+  config: ServerConfig,
+  userIds: readonly string[],
+  payload: TeamEventPayload,
+): Promise<void> {
+  const envelope: ConversationEventEnvelope = {
+    type: 'event',
+    payload: payload as unknown as Record<string, unknown>,
+  };
+  const targets = [...new Set(userIds.filter((id) => typeof id === 'string' && id.length > 0))];
+  if (targets.length === 0) return;
+  try {
+    const publisher = await resolvePublisher(config, payload.workspace_id);
+    await Promise.allSettled(
+      targets.map(async (userId) => {
+        const channel = buildOperatorUserChannelName(payload.workspace_id, userId);
+        const result = await publisher.publish(channel, envelope);
+        if (!result.ok) {
+          rtWarn('publish', 'team_skipped', { vendor: publisher.vendor, kind: payload.kind, reason: result.reason });
+        }
+      }),
+    );
+  } catch (err) {
+    rtWarn('publish', 'team_error', { error: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────

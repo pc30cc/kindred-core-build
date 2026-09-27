@@ -200,6 +200,7 @@ describe('operator topic endpoints refuse unauthenticated callers (C8)', () => {
     ['/api/realtime/operator-inbox-subscribe', {}],
     ['/api/realtime/operator-visitors-subscribe', {}],
     ['/api/realtime/operator-presence-subscribe', {}],
+    ['/api/realtime/operator-user-subscribe', {}],
     ['/api/realtime/operator-subscribe', { conversation_id: CONV }],
   ] as const) {
     it(`${path} with transport=supabase and no session → 401, no topic`, async () => {

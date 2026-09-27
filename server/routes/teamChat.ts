@@ -11,6 +11,11 @@
  *   GET  /api/team-chat/thread?workspace_id=&peer_id=[&limit=]
  *   POST /api/team-chat/messages   { workspace_id, recipient_id, body }
  *   POST /api/team-chat/read       { workspace_id, peer_id }
+ *
+ * Each write also tells the operators it concerns, on their own realtime
+ * channel (`ws:<workspace>:user:<id>`), as ids only: a send reaches the
+ * recipient and the sender's other devices, a read the reader's other
+ * devices. Fire-and-forget — the response never waits on realtime.
  */
 
 import { Router } from 'express';
@@ -19,6 +24,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
+import { publishTeamEvent } from '../services/realtime/publish.js';
 
 export const teamChatRouter = Router();
 
@@ -319,6 +325,14 @@ teamChatRouter.post('/messages', async (req, res) => {
         .eq('id', attachmentId);
     }
 
+    void publishTeamEvent(config, [recipient_id, auth.userId], {
+      kind: 'team_message',
+      workspace_id,
+      message_id: inserted.id,
+      sender_id: auth.userId,
+      recipient_id,
+    });
+
     return res.json({ ok: true, message: { ...inserted, attachment } });
   } catch (err) {
     console.error('[team-chat send] error:', err);
@@ -349,6 +363,11 @@ teamChatRouter.post('/read', async (req, res) => {
       .eq('sender_id', parsed.data.peer_id)
       .is('read_at', null);
     if (error) return res.status(500).json({ error: error.message });
+    void publishTeamEvent(config, [auth.userId], {
+      kind: 'team_read',
+      workspace_id: parsed.data.workspace_id,
+      peer_id: parsed.data.peer_id,
+    });
     return res.json({ ok: true });
   } catch (err) {
     console.error('[team-chat read] error:', err);

@@ -152,6 +152,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import androidx.compose.foundation.layout.size
+import com.webyar.operator.core.sync.TeamSignal
+import kotlinx.coroutines.flow.Flow
+import com.webyar.operator.feature.team.followTeam
+import com.webyar.operator.feature.team.TEAM_LIST_POLL_MS
 
 /**
  * The screens, as the navigation graph sees them.
@@ -223,12 +227,22 @@ fun InboxRoute(
     // operator has just been reading them.
     val teamChat = plan.value?.featureEnabled("inbox_team_chat") == true
     var colleaguesUnread by remember { mutableStateOf<Int?>(null) }
-    LaunchedEffect(workspace?.id, teamChat, api) {
+    val teamSignals = rememberTeamSignals()
+    val inboxLifecycle = LocalLifecycleOwner.current
+    LaunchedEffect(workspace?.id, teamChat, api, inboxLifecycle, teamSignals) {
         val id = workspace?.id
-        colleaguesUnread = if (api == null || id == null || !teamChat) {
-            null
-        } else {
-            runCatching { api.colleagues(id).totalUnread }.getOrNull()
+        if (api == null || id == null || !teamChat) {
+            colleaguesUnread = null
+            return@LaunchedEffect
+        }
+        // Asked as the inbox comes on screen, the moment a colleague's
+        // message reaches this operator's own channel, and every twenty
+        // seconds regardless — it used to be asked once, so a message that
+        // came in while the inbox was open was never counted.
+        inboxLifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            followTeam(teamSignals, TEAM_LIST_POLL_MS, wanted = { it.workspaceId == id }) {
+                runCatching { api.colleagues(id).totalUnread }.onSuccess { colleaguesUnread = it }
+            }
         }
     }
 
@@ -744,6 +758,17 @@ fun ContactDetailRoute(
     }
 }
 
+/**
+ * Team-chat activity from this operator's own realtime channel, or null in
+ * previews and tests, which have no app graph — the screens then keep to
+ * their poll.
+ */
+@Composable
+private fun rememberTeamSignals(): Flow<TeamSignal>? {
+    val graph = LocalAppGraph.current
+    return remember(graph) { graph?.syncGraph()?.coordinator?.team }
+}
+
 @Composable
 fun ColleaguesRoute(
     appState: AppState,
@@ -762,6 +787,14 @@ fun ColleaguesRoute(
     }
     LaunchedEffect(workspace?.id) {
         workspace?.let { colleagues.bind(it.id) }
+    }
+    val teamSignals = rememberTeamSignals()
+    val listLifecycle = LocalLifecycleOwner.current
+    LaunchedEffect(workspace?.id, listLifecycle, teamSignals) {
+        val id = workspace?.id ?: return@LaunchedEffect
+        listLifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            colleagues.followWhileVisible(id, teamSignals)
+        }
     }
 
     Scaffold(
@@ -830,9 +863,10 @@ fun TeamThreadRoute(
     // background, and a thread being re-read every ten seconds from a phone in
     // a pocket is somebody's battery and somebody's data.
     val lifecycleOwner = LocalLifecycleOwner.current
-    LaunchedEffect(lifecycleOwner, peerId) {
+    val teamSignals = rememberTeamSignals()
+    LaunchedEffect(lifecycleOwner, peerId, teamSignals) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            thread.pollWhileVisible()
+            thread.pollWhileVisible(teamSignals)
         }
     }
 

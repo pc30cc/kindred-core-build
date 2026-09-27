@@ -3,6 +3,7 @@ package com.webyar.operator.core.realtime
 import com.webyar.operator.core.Diag
 import com.webyar.operator.core.model.RealtimeConnect
 import com.webyar.operator.core.model.RealtimePolicy
+import com.webyar.operator.core.model.RealtimeSubscribe
 import com.webyar.operator.core.net.ApiError
 import com.webyar.operator.core.sync.RealtimeHealth
 import com.webyar.operator.testing.FakeCentrifugo
@@ -112,6 +113,32 @@ class RealtimeClientTest {
         server.publish("ws:ws-1:operators", server.messageData("m-1", "c-1", "not for the inbox"))
         runCurrent()
         assertTrue(sink.messages.isEmpty())
+    }
+
+    @Test
+    fun `the operator's own channel is joined when the server offers it, and its team events reach the app`() = runTest {
+        api.userAnswer = RealtimeSubscribe(vendor = "centrifugo", channel = "ws:ws-1:user:u-1", token = "user-token")
+        start()
+
+        val socket = server.latest
+        assertEquals("ws:ws-1:user:u-1", socket.subscribes[2]["channel"].toString().trim('"'))
+        server.publish(
+            "ws:ws-1:user:u-1",
+            """{"type":"event","payload":{"kind":"team_message","workspace_id":"ws-1","message_id":"tm-1","sender_id":"u-2","recipient_id":"u-1"}}""",
+        )
+        runCurrent()
+
+        val event = sink.events.single()
+        assertEquals("team_message", event.kind)
+        assertEquals("u-2", event.senderId)
+        assertEquals("u-1", event.recipientId)
+    }
+
+    @Test
+    fun `a server without the operator's channel keeps the session it had`() = runTest {
+        start()
+        assertEquals(2, server.latest.subscribes.size)
+        assertEquals(RealtimeHealth.CONNECTED, sink.health.last())
     }
 
     @Test

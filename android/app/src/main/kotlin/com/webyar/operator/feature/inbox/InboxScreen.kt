@@ -827,15 +827,6 @@ private fun ConversationRow(
                 Modifier.padding(top = Space.xxs),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Urgent or high leads the line, where the eye starts reading
-                // it; a preview two lines long wraps beside it.
-                conversation.priority?.takeIf { it.isElevated }?.let { priority ->
-                    PriorityTag(
-                        priority,
-                        language,
-                        Modifier.align(Alignment.Top).padding(top = 2.dp, end = Space.sm),
-                    )
-                }
                 Text(
                     conversation.preview(language),
                     // The preview can arrive in any of the three languages,
@@ -848,6 +839,10 @@ private fun ConversationRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                // Urgent or high closes the line, beside the unread count.
+                conversation.priority?.takeIf { it.isElevated }?.let { priority ->
+                    PriorityTag(priority, language, Modifier.padding(start = Space.sm))
+                }
                 if (emphasis) {
                     UnreadBadge(unread, language, Modifier.padding(start = Space.sm))
                 }
@@ -857,8 +852,8 @@ private fun ConversationRow(
 }
 
 /**
- * A thread marked urgent or high, tagged on its row as the console tags it —
- * red for urgent, amber for high. Low and normal are the ordinary case and
+ * A thread marked urgent or high, tagged at the end of its row's message line
+ * as the console tags it — red for urgent, amber for high. Low and normal are the ordinary case and
  * say nothing: a tag on every row is a tag nobody reads.
  */
 @Composable

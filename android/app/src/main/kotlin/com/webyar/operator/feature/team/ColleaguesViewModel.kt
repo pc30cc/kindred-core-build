@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import com.webyar.operator.core.sync.TeamSignal
+import kotlinx.coroutines.flow.Flow
 
 sealed interface ColleaguesState {
     data object Loading : ColleaguesState
@@ -61,6 +63,21 @@ class ColleaguesViewModel(
     }
 
     fun retry() = load()
+
+    /**
+     * Keeps the list — and each colleague's unread count — current while it
+     * is on screen: re-read the moment the operator's own channel says a
+     * team thread moved, and every twenty seconds regardless, the console's
+     * rate. Quietly: no skeleton, no pull-to-refresh spinner, and a failed
+     * re-read leaves the list as it was.
+     */
+    suspend fun followWhileVisible(workspaceId: String, signals: Flow<TeamSignal>? = null) {
+        followTeam(signals, TEAM_LIST_POLL_MS, wanted = { it.workspaceId == workspaceId }) {
+            if (this.workspaceId != workspaceId) return@followTeam
+            runCatching { api.colleagues(workspaceId).colleagues }
+                .onSuccess { if (this.workspaceId == workspaceId) { loaded = it; publish() } }
+        }
+    }
 
     private fun load(showSkeleton: Boolean = true) {
         val workspace = workspaceId ?: return

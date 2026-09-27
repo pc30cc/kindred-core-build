@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Webyar.Core.Api;
 using Webyar.Core.Config;
 using Xunit;
 
@@ -14,7 +15,7 @@ public class DesktopConfigTests
         var c = Parse("""
         { "update": { "feedUrl": "https://github.com/pc30cc/webyar-desktop-releases/releases/latest/download/", "channel": "beta",
                       "latestVersion": "2.1.0", "minimumSupportedVersion": "2.0.0", "autoUpdate": false, "checkIntervalMinutes": 60 },
-          "realtime": { "enabled": false }, "polling": { "intervalSeconds": 20, "withRealtimeSeconds": 300 }, "features": { "calls": false, "storageSettings": false } }
+          "realtime": { "enabled": false }, "polling": { "intervalSeconds": 20, "withRealtimeSeconds": 300 }, "features": { "calls": false, "storageSettings": false, "contacts": false, "callCenter": false } }
         """);
         Assert.Equal("https://github.com/pc30cc/webyar-desktop-releases/releases/latest/download", c.Update.FeedUrl);
         Assert.Equal("beta", c.Update.Channel);
@@ -25,6 +26,7 @@ public class DesktopConfigTests
         Assert.Equal(300, c.PollWithRealtimeSeconds);
         Assert.False(c.CallsEnabled);
         Assert.False(c.StorageSettingsVisible);
+        Assert.Equal(new DesktopSections(Contacts: false, CallCenter: false), c.Sections);
     }
 
     [Fact]
@@ -37,6 +39,7 @@ public class DesktopConfigTests
         Assert.Equal(DesktopConfig.Defaults.PollIntervalSeconds, c.PollIntervalSeconds);
         Assert.True(c.RealtimeEnabled);
         Assert.True(c.StorageSettingsVisible);
+        Assert.Equal(DesktopSections.All, c.Sections);
     }
 
     [Fact]

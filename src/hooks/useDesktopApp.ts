@@ -25,6 +25,10 @@ export interface DesktopAppSettings {
   poll_interval_realtime_seconds: number;
   calls_enabled: boolean;
   storage_settings_visible: boolean;
+  contacts_enabled: boolean;
+  visitors_enabled: boolean;
+  analytics_enabled: boolean;
+  call_center_enabled: boolean;
 
   updated_at?: string | null;
 }

@@ -36,6 +36,7 @@ describe('desktop app settings — normalize', () => {
     expect(settings.realtime_enabled).toBe(false);
     expect(settings.storage_settings_visible).toBe(true);
     expect(normalize({ storage_settings_visible: false }).storage_settings_visible).toBe(false);
+    expect(normalize({ call_center_enabled: false, contacts_enabled: 'no' })).toMatchObject({ call_center_enabled: false, contacts_enabled: true });
   });
 });
 
@@ -95,7 +96,7 @@ describe('desktop app settings — public projection', () => {
       },
       realtime: { enabled: true },
       polling: { intervalSeconds: 15, withRealtimeSeconds: 120 },
-      features: { calls: true, storageSettings: true },
+      features: { calls: true, storageSettings: true, contacts: true, visitors: true, analytics: true, callCenter: true },
     });
   });
 });

@@ -53,6 +53,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
 import { publishOperatorEvent } from '../services/realtime/publish.js';
+import { notifyConversationEvent } from '../services/push/index.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
 
@@ -223,6 +224,18 @@ conversationNotesRouter.post('/:id/notes', async (req, res) => {
       created_at: inserted.created_at,
       preview: parsed.data.body.slice(0, 140),
     }, { skipInboxChannel: true });
+
+    // The operator holding the conversation hears about a colleague's note
+    // on their phone; the author never does.
+    void notifyConversationEvent(config, {
+      workspaceId: parsed.data.workspace_id,
+      conversationId,
+      messageId: inserted.id,
+      eventType: 'internal_note',
+      actorId: auth.userId,
+      senderName: (profile?.full_name || '').trim() || (profile?.email || '').trim() || null,
+      text: parsed.data.body,
+    });
 
     return res.json({ ok: true, note: { ...inserted, author: profile ?? null } });
   } catch (err) {

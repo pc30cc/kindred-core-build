@@ -71,6 +71,7 @@ import {
 import { botProvider } from '../../shared/channels/botProviders.js';
 import { handleTelegramCallbackQuery } from '../services/channels/telegram/runtime.js';
 import { publishOperatorEvent } from '../services/realtime/publish.js';
+import { notifyInboundEmail } from '../services/push/index.js';
 import { uploadFile } from '../services/storage/index.js';
 import { emailAttachmentKey } from '../services/storage/keys.js';
 
@@ -564,6 +565,15 @@ internalChannelsRouter.post('/gmail/upsert-thread-message', async (req: Request,
     }
 
     await updateIntegration(config, data.integration_id, { last_inbound_at: new Date().toISOString() });
+    void notifyInboundEmail(config, {
+      workspaceId: data.workspace_id,
+      threadId,
+      messageId: inserted!.id,
+      from: data.message.from_address,
+      subject: data.subject ?? null,
+      snippet: data.message.snippet ?? null,
+      sentAt: data.message.sent_at ?? null,
+    });
     res.json({ thread_id: threadId, message_id: inserted!.id, is_new_message: true });
   } catch (err) {
     console.error('[internal-channels] gmail upsert-thread-message failed:', err);
@@ -894,6 +904,15 @@ internalChannelsRouter.post('/yahoo/upsert-thread-message', async (req: Request,
     }
 
     await updateIntegration(config, data.integration_id, { last_inbound_at: new Date().toISOString() });
+    void notifyInboundEmail(config, {
+      workspaceId: data.workspace_id,
+      threadId,
+      messageId: inserted!.id,
+      from: data.message.from_address,
+      subject: data.subject ?? null,
+      snippet: data.message.snippet ?? null,
+      sentAt: data.message.sent_at ?? null,
+    });
     res.json({ thread_id: threadId, message_id: inserted!.id, is_new_message: true });
   } catch (err) {
     console.error('[internal-channels] yahoo upsert-thread-message failed:', err);

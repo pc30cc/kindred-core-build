@@ -379,6 +379,58 @@ enum Str {
         }
     }
 
+    /// The kinds of event beyond a customer's message, each with its own
+    /// switch on the server.
+    static func pushEventsTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Also tell me about"
+        case .fa: "اعلان این موارد هم بیاید"
+        case .tr: "Bunları da bildir"
+        }
+    }
+
+    static func pushTeamChat(_ l: Language) -> String {
+        switch l {
+        case .en: "Messages from colleagues"
+        case .fa: "پیام‌های همکاران"
+        case .tr: "Ekip arkadaşlarından mesajlar"
+        }
+    }
+
+    static func pushAssignments(_ l: Language) -> String {
+        switch l {
+        case .en: "Conversations handed to me"
+        case .fa: "گفتگوهایی که به من سپرده می‌شود"
+        case .tr: "Bana devredilen konuşmalar"
+        }
+    }
+
+    static func pushEmail(_ l: Language) -> String {
+        switch l {
+        case .en: "New emails"
+        case .fa: "ایمیل‌های جدید"
+        case .tr: "Yeni e-postalar"
+        }
+    }
+
+    /// "Handed to me" covers three different hands, and the AI's is the one
+    /// nobody would guess.
+    static func pushAssignmentsFooter(_ l: Language) -> String {
+        switch l {
+        case .en: "By a colleague, by automatic routing, or by the AI when a customer needs a person."
+        case .fa: "توسط همکار، تخصیص خودکار، یا هوش مصنوعی وقتی مشتری به اپراتور نیاز دارد."
+        case .tr: "Bir ekip arkadaşı, otomatik yönlendirme ya da müşteri bir temsilciye ihtiyaç duyduğunda yapay zekâ tarafından."
+        }
+    }
+
+    static func pushPrefsLoadFailed(_ l: Language) -> String {
+        switch l {
+        case .en: "Your notification settings could not be loaded."
+        case .fa: "تنظیمات اعلان بارگذاری نشد."
+        case .tr: "Bildirim ayarlarınız yüklenemedi."
+        }
+    }
+
     static func pushShowPreview(_ l: Language) -> String {
         switch l {
         case .en: "Show the message"

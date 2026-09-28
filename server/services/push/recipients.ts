@@ -18,13 +18,44 @@ import type { PushPlatformSettings } from './platformSettings.js';
 import { getServiceClient } from '../../supabase.js';
 import { getConnectedOperators } from '../widget/operatorPresenceSource.js';
 
-export type PushEventType = 'new_message' | 'internal_note' | 'mention';
+/**
+ * Every operator-facing event that can reach a phone.
+ *
+ *  • new_message    — a customer wrote (widget or any connected channel).
+ *  • internal_note  — a teammate left a note on a conversation.
+ *  • mention        — a teammate named the operator.
+ *  • assigned       — a conversation was given to the operator, by a
+ *                     teammate or by routing.
+ *  • handoff        — the AI stopped and handed a conversation to people.
+ *  • team_message   — a colleague wrote to the operator directly.
+ *  • email          — a new email arrived in the workspace's shared inbox.
+ */
+export type PushEventType =
+  | 'new_message'
+  | 'internal_note'
+  | 'mention'
+  | 'assigned'
+  | 'handoff'
+  | 'team_message'
+  | 'email';
 
 export interface RecipientContext {
   workspaceId: string;
-  conversationId: string;
+  /** Absent for events that are not about a customer conversation. */
+  conversationId?: string | null;
   assignedTo: string | null;
   eventType: PushEventType;
+  /**
+   * The only people this event is for — the assignee of an assignment, the
+   * recipient of a team message. Everyone else in the workspace is never
+   * considered, whatever their scope says.
+   */
+  targetUserIds?: string[];
+  /**
+   * Only members holding one of these roles — the shared email inbox is an
+   * owner/admin surface, and a push must not reveal what its screen hides.
+   */
+  roles?: string[];
   /** Operator who authored the note/mention; never notified. */
   actorId?: string | null;
   mentionedUserIds?: string[];
@@ -50,6 +81,7 @@ export interface Recipient {
 interface MemberRow {
   user_id: string;
   suspended_at: string | null;
+  role?: string | null;
 }
 
 interface PrefsRow {
@@ -65,6 +97,9 @@ interface PrefsRow {
   quiet_hours_start: string | null;
   quiet_hours_end: string | null;
   quiet_hours_timezone: string | null;
+  push_team_chat?: boolean | null;
+  push_assignments?: boolean | null;
+  push_email?: boolean | null;
 }
 
 const DEFAULT_PREFS = {
@@ -79,7 +114,16 @@ const DEFAULT_PREFS = {
   quiet_hours_start: null as string | null,
   quiet_hours_end: null as string | null,
   quiet_hours_timezone: null as string | null,
+  push_team_chat: true,
+  push_assignments: true,
+  push_email: true,
 };
+
+/** The prefs columns every deployment has. */
+const PREF_COLUMNS =
+  'user_id, disable_all, play_sound, push_scope, push_preview, push_internal_notes, push_when_online, push_when_offline, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone';
+/** Added by migration 234; read when present, defaulted on when not. */
+const EVENT_PREF_COLUMNS = 'push_team_chat, push_assignments, push_email';
 
 /**
  * Which row this resolver reads.
@@ -146,7 +190,7 @@ export async function resolveRecipients(
 
   const { data: members, error } = await sb
     .from('workspace_members')
-    .select('user_id, suspended_at')
+    .select('user_id, suspended_at, role')
     .eq('workspace_id', ctx.workspaceId);
   if (error) {
     console.error('[push] member lookup failed', { code: error.code, message: error.message });
@@ -154,21 +198,18 @@ export async function resolveRecipients(
   }
 
   const mentioned = new Set(ctx.mentionedUserIds ?? []);
+  const targets = ctx.targetUserIds ? new Set(ctx.targetUserIds) : null;
+  const roles = ctx.roles ? new Set(ctx.roles) : null;
   const eligible = (members as MemberRow[] | null ?? [])
     .filter((m) => !m.suspended_at)
+    .filter((m) => !roles || roles.has(String(m.role ?? '')))
     .map((m) => String(m.user_id))
-    .filter((id) => id !== ctx.actorId);
+    .filter((id) => id !== ctx.actorId)
+    .filter((id) => !targets || targets.has(id));
 
   if (!eligible.length) return [];
 
-  const { data: prefRows } = await sb
-    .from('user_notification_prefs')
-    .select(
-      'user_id, disable_all, play_sound, push_scope, push_preview, push_internal_notes, push_when_online, push_when_offline, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone',
-    )
-    .in('user_id', eligible)
-    .eq('platform', SURFACE)
-    .is('workspace_id', null);
+  const prefRows = await readPrefs(sb, eligible);
 
   const prefsByUser = new Map<string, PrefsRow>();
   for (const row of (prefRows ?? []) as PrefsRow[]) prefsByUser.set(row.user_id, row);
@@ -220,19 +261,7 @@ export async function resolveRecipients(
     if (!(isMentioned && mentionBypassesQuietHours) && isWithinQuietHours(p, now)) continue;
 
 
-    if (ctx.eventType === 'mention' && !isMentioned) continue;
-    if (ctx.eventType === 'internal_note') {
-      if (!p.push_internal_notes && !isMentioned) continue;
-      if (!isAssignee && !isMentioned && p.push_scope !== 'all') continue;
-    }
-    if (ctx.eventType === 'new_message') {
-      if (p.push_scope === 'mentions' && !isMentioned) continue;
-      // "only assigned to me": an unassigned thread still reaches everyone
-      // whose scope is 'all', so a new customer never goes unanswered.
-      if (p.push_scope === 'assigned' && !isAssignee && !isMentioned) continue;
-      // An assigned thread is that operator's (plus anyone mentioned).
-      if (ctx.assignedTo && !isAssignee && !isMentioned) continue;
-    }
+    if (!allowsEvent(ctx, p, { isAssignee, isMentioned })) continue;
 
     out.push({
       userId,
@@ -242,6 +271,79 @@ export async function resolveRecipients(
     });
   }
   return out;
+}
+
+/**
+ * The per-event rules, after the ones every event shares (mute all, scope
+ * none, presence, quiet hours).
+ *
+ * Scope reads as the settings screen describes it: "all" is everything the
+ * operator could act on, "assigned" is what is theirs, "mentions" is only
+ * what names them. A message a colleague wrote TO them, and a conversation
+ * given TO them, are theirs by definition — so those pass "assigned" and
+ * "mentions" alike, and only their own switch turns them off.
+ */
+function allowsEvent(
+  ctx: RecipientContext,
+  p: typeof DEFAULT_PREFS,
+  who: { isAssignee: boolean; isMentioned: boolean },
+): boolean {
+  const { isAssignee, isMentioned } = who;
+  switch (ctx.eventType) {
+    case 'mention':
+      return isMentioned;
+    case 'internal_note':
+      if (!p.push_internal_notes && !isMentioned) return false;
+      // A note on somebody's conversation is for that somebody.
+      if (ctx.assignedTo && !isAssignee && !isMentioned) return false;
+      return isAssignee || isMentioned || p.push_scope === 'all';
+    case 'new_message':
+      if (p.push_scope === 'mentions' && !isMentioned) return false;
+      // "only assigned to me": an unassigned thread still reaches everyone
+      // whose scope is 'all', so a new customer never goes unanswered.
+      if (p.push_scope === 'assigned' && !isAssignee && !isMentioned) return false;
+      // An assigned thread is that operator's (plus anyone mentioned).
+      if (ctx.assignedTo && !isAssignee && !isMentioned) return false;
+      return true;
+    case 'assigned':
+      return p.push_assignments !== false && isAssignee;
+    case 'handoff':
+      if (p.push_assignments === false) return false;
+      // Handed to somebody already: theirs alone. Handed to the queue: the
+      // same people a new customer reaches.
+      if (ctx.assignedTo) return isAssignee;
+      return p.push_scope === 'all';
+    case 'team_message':
+      return p.push_team_chat !== false;
+    case 'email':
+      // Nobody is assigned an email, so only "everything" covers one.
+      return p.push_email !== false && p.push_scope === 'all';
+    default:
+      return false;
+  }
+}
+
+/**
+ * The phone preferences of these operators, with the per-event switches when
+ * the deployment has them. A database that has not run migration 234 yet
+ * answers the short read, and the switches it lacks default to on — which is
+ * exactly how those events behaved before the switches existed.
+ */
+async function readPrefs(
+  sb: ReturnType<typeof getServiceClient>,
+  userIds: string[],
+): Promise<PrefsRow[]> {
+  const query = (columns: string) =>
+    sb
+      .from('user_notification_prefs')
+      .select(columns)
+      .in('user_id', userIds)
+      .eq('platform', SURFACE)
+      .is('workspace_id', null);
+  const full = await query(`${PREF_COLUMNS}, ${EVENT_PREF_COLUMNS}`);
+  if (!full.error) return (full.data ?? []) as unknown as PrefsRow[];
+  const legacy = await query(PREF_COLUMNS);
+  return (legacy.data ?? []) as unknown as PrefsRow[];
 }
 
 /**
@@ -313,15 +415,24 @@ function cleanPrefs(row: PrefsRow | undefined): Partial<typeof DEFAULT_PREFS> {
   if (row.quiet_hours_start != null) out.quiet_hours_start = row.quiet_hours_start;
   if (row.quiet_hours_end != null) out.quiet_hours_end = row.quiet_hours_end;
   if (row.quiet_hours_timezone != null) out.quiet_hours_timezone = row.quiet_hours_timezone;
+  if (row.push_team_chat != null) out.push_team_chat = row.push_team_chat;
+  if (row.push_assignments != null) out.push_assignments = row.push_assignments;
+  if (row.push_email != null) out.push_email = row.push_email;
   return out as Partial<typeof DEFAULT_PREFS>;
 }
 
 /**
- * Server-authoritative unread badge: conversations in the operator's
- * workspaces that still hold an unseen inbound customer message. Counting
- * CONVERSATIONS (not messages) is what makes the badge match the inbox list
- * the operator actually sees, and is what lets it reconcile on read/resolve
- * from any device instead of drifting from local increments.
+ * Server-authoritative unread badge: what is waiting for this operator, in
+ * CONVERSATIONS (not messages), which is what makes it reconcile on
+ * read/resolve from any device instead of drifting from local increments.
+ *
+ * It counts what the app's Inbox badge counts, so the number on the icon and
+ * the number on the tab agree: open conversations in the main queue — not
+ * spam, not the AI's own queue — that are unassigned or the operator's, and
+ * hold an unseen customer message; plus colleagues with an unread message for
+ * them. It used to count every open or pending thread, spam and the AI queue
+ * and other people's conversations included, so the icon said 40 over a tab
+ * that said 3.
  */
 export async function unreadBadgeCount(
   config: ServerConfig,
@@ -354,20 +465,39 @@ export async function unreadBadgeCount(
     .from('conversations')
     .select('id')
     .in('workspace_id', workspaceIds)
-    .in('status', ['open', 'pending'])
+    .eq('status', 'open')
+    .eq('is_spam', false)
+    .or('ai_state.is.null,ai_state.neq.ai_managed')
+    .or(`assigned_to.is.null,assigned_to.eq.${userId}`)
     .limit(500);
   const ids = (convs as { id: string }[] | null ?? []).map((c) => String(c.id));
-  if (!ids.length) return 0;
 
-  const { data: msgs } = await sb
-    .from('conversation_messages')
-    .select('conversation_id')
-    .in('conversation_id', ids)
-    .eq('sender_type', 'contact')
-    .is('seen_at', null)
+  let conversations = 0;
+  if (ids.length) {
+    const { data: msgs } = await sb
+      .from('conversation_messages')
+      .select('conversation_id')
+      .in('conversation_id', ids)
+      .eq('sender_type', 'contact')
+      .is('seen_at', null)
+      .limit(2000);
+    conversations = new Set(
+      (msgs as { conversation_id: string }[] | null ?? []).map((m) => String(m.conversation_id)),
+    ).size;
+  }
+
+  // Colleagues with something unread for this operator — one each, however
+  // many lines they sent, as the Colleagues tab counts them.
+  const { data: team } = await sb
+    .from('team_messages')
+    .select('sender_id')
+    .in('workspace_id', workspaceIds)
+    .eq('recipient_id', userId)
+    .is('read_at', null)
     .limit(2000);
-
-  return new Set(
-    (msgs as { conversation_id: string }[] | null ?? []).map((m) => String(m.conversation_id)),
+  const colleagues = new Set(
+    (team as { sender_id: string }[] | null ?? []).map((m) => String(m.sender_id)),
   ).size;
+
+  return conversations + colleagues;
 }

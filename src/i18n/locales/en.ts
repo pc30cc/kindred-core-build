@@ -5042,6 +5042,10 @@ const en = {
         new_message: 'New customer message',
         internal_note: 'Internal note',
         mention: 'Mention',
+        assigned: 'Assigned to an operator',
+        handoff: 'Handed over by the AI',
+        team_message: 'Team chat message',
+        email: 'New email',
       },
       status: {
         transportReady: 'Transport ready',
@@ -5182,11 +5186,15 @@ const en = {
         textInput: 'Inline reply field',
       },
       templates: {
-        variables: 'Available variables: {{sender}} the customer or teammate’s name, {{preview}} the message text, {{count}} the attachment count. An unknown variable is left visible rather than blanked.',
+        variables: 'Available variables: {{sender}} the customer or teammate’s name, {{preview}} the message text, {{count}} the attachment count, {{workspace}} the workspace name, {{actor}} who assigned the conversation. An unknown variable is left visible rather than blanked.',
         caption: {
           new_message: 'Sent when a customer writes into a conversation.',
           internal_note: 'Sent when a teammate leaves an internal note.',
           mention: 'Sent when someone addresses an operator directly.',
+          assigned: 'Sent to an operator when a teammate or automatic routing gives them a conversation.',
+          handoff: 'Sent when the AI hands a conversation to people: to its assignee, or to everyone watching the whole inbox.',
+          team_message: 'Sent to an operator when a colleague messages them in team chat.',
+          email: 'Sent to owners and admins when a new email reaches the shared inbox.',
         },
         publicVariant: 'With preview',
         privateVariant: 'Without preview',

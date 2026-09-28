@@ -172,7 +172,7 @@ struct VisitorDetailView: View {
               let conversationID = await model.conversationID(for: visitor, workspaceID: workspaceID, appState: appState)
         else { return }
         Haptics.selection()
-        push.pendingOpen = PushController.PendingConversation(workspaceID: workspaceID, conversationID: conversationID)
+        push.pendingOpen = .conversation(workspaceID: workspaceID, conversationID: conversationID)
     }
 
     // MARK: - Facts

@@ -65,6 +65,7 @@ import { createStorageUrlResolver, hydrateUserAvatars, hydrateContactAvatars } f
 import { deltaLowerBound, inThreadOrder, nextSyncCursor, parseSyncCursor } from '../services/messageSync.js';
 import { isConversationId, parseConversationIds } from '../services/conversationIds.js';
 import { queueTranscript } from '../services/notificationEmail/producers.js';
+import { notifyConversationEvent } from '../services/push/index.js';
 
 
 export const conversationsRouter = Router();
@@ -824,6 +825,21 @@ conversationsRouter.patch('/:id', async (req, res) => {
           const fromName = before.assigned_to ? (nameById.get(before.assigned_to) || null) : null;
           const toName = parsed.data.assigned_to ? (nameById.get(parsed.data.assigned_to) || null) : null;
           const isJoin = !before.assigned_to && !!parsed.data.assigned_to;
+
+          // The new assignee's phone — unless they took it themselves.
+          if (parsed.data.assigned_to && parsed.data.assigned_to !== auth.userId) {
+            void notifyConversationEvent(config, {
+              workspaceId: parsed.data.workspace_id,
+              conversationId,
+              // Not a message: unique to this hand-over, which is all the
+              // dedupe key needs.
+              messageId: `${parsed.data.assigned_to}:${after.updated_at ?? Date.now()}`,
+              eventType: 'assigned',
+              targetUserId: parsed.data.assigned_to,
+              actorId: auth.userId,
+              actorName,
+            });
+          }
           const body = isJoin
             ? `${toName || 'An operator'} joined the conversation.`
             : toName

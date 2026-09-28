@@ -130,6 +130,9 @@ struct RootView: View {
             case .active:
                 SyncCoordinator.shared.appBecameActive()
                 Task { await appState.refreshIfStale() }
+                // Notifications may have been turned off — or back on — in
+                // iOS Settings while the app was away.
+                Task { await PushController.shared.refreshAuthorization() }
             case .background:
                 SyncCoordinator.shared.appEnteredBackground()
             default:

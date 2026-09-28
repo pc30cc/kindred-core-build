@@ -1,7 +1,12 @@
 import SwiftUI
 
 /// Where the inbox's own navigation stack can go besides a conversation.
-enum InboxRoute: Hashable { case email, colleagues }
+enum InboxRoute: Hashable {
+    case email, colleagues
+    /// One mail thread — pushed over the mailbox when a notification opens
+    /// it, so Back lands in the mailbox rather than the conversations.
+    case emailThread(EmailThreadSummary)
+}
 
 struct InboxView: View {
     /// The tab's navigation stack, so the title menu can push the mailbox.
@@ -161,14 +166,14 @@ struct InboxView: View {
             // view exists at all — so the controller records it and the inbox
             // acts on it when it can.
             .task(id: pendingOpenKey) {
-                await openPendingConversation()
+                await openPendingTarget()
             }
     }
 
-    /// Changes when a notification asks for a conversation, and when the list
-    /// it would have to be found in has finished loading.
+    /// Changes when a notification asks for somewhere, and when the list it
+    /// would have to be found in has settled.
     private var pendingOpenKey: String {
-        "\(push.pendingOpen?.conversationID ?? "-")|\(content.isLoaded)|\(appState.workspaces.count)"
+        "\(push.pendingOpen?.key ?? "-")|\(content.isSettled)|\(appState.workspaces.count)"
     }
 
     /// What the list can show for the workspace on screen — never another's.
@@ -176,14 +181,16 @@ struct InboxView: View {
         model.content(for: workspaceID)
     }
 
-    /// Takes the operator to the conversation a banner was about.
+    /// Takes the operator to what a banner was about: a conversation, a
+    /// colleague's thread, or an email.
     ///
-    /// The notification carries identifiers and nothing else. The loaded list
-    /// is looked in first, then any list saved on this phone, and only then
-    /// is that one conversation asked for — never every queue in turn. If the
-    /// server no longer shows it to this operator, the inbox is still the
-    /// right place to be left, which beats a dead end or a blank screen.
-    private func openPendingConversation() async {
+    /// The notification carries identifiers and nothing else. A conversation
+    /// is looked for in the loaded list first, then in any list saved on this
+    /// phone, and only then is that one conversation asked for — never every
+    /// queue in turn. If the server no longer shows it to this operator, the
+    /// inbox is still the right place to be left, which beats a dead end or a
+    /// blank screen.
+    private func openPendingTarget() async {
         guard let target = push.pendingOpen else { return }
 
         if appState.selectedWorkspace?.id != target.workspaceID {
@@ -201,20 +208,49 @@ struct InboxView: View {
             }
             appState.select(workspace)
             // The list reloads on the workspace change; nothing to push at
-            // yet. The key includes `isLoaded`, so this runs again.
+            // yet. The key includes whether it has settled, so this runs again.
             return
         }
 
-        guard content.isLoaded, let workspaceID else { return }
+        // Settled, not loaded: a list that could not be read must not hold
+        // the tap back until some later reload, and then open a thread out of
+        // nowhere minutes after the operator gave up on it.
+        guard content.isSettled, let workspaceID else { return }
         _ = push.takePendingOpen()
-        let found: Conversation?
-        if let listed = model.conversation(id: target.conversationID) {
-            found = listed
-        } else {
-            found = await SyncCoordinator.shared.conversation(id: target.conversationID, workspaceID: workspaceID)
+
+        switch target {
+        case .conversation(_, let conversationID):
+            // The banner was about the thread already on screen.
+            guard push.viewing != conversationID else { return }
+            let found: Conversation?
+            if let listed = model.conversation(id: conversationID) {
+                found = listed
+            } else {
+                found = await SyncCoordinator.shared.conversation(id: conversationID, workspaceID: workspaceID)
+            }
+            guard let conversation = found, conversation.workspaceId == appState.selectedWorkspace?.id else { return }
+            path.append(conversation)
+
+        case .colleague(_, let peerID):
+            guard appState.colleaguesVisible, push.viewingColleague != peerID else { return }
+            let found: Colleague?
+            if let known = colleagues.state.value?.first(where: { $0.userId == peerID }) {
+                found = known
+            } else {
+                found = try? await Backend.current.colleagues(workspaceID: workspaceID)
+                    .colleagues.first { $0.userId == peerID }
+            }
+            guard let colleague = found, appState.selectedWorkspace?.id == workspaceID else { return }
+            path.append(colleague)
+
+        case .email(_, let threadID):
+            guard appState.emailInboxVisible, push.viewingEmailThread != threadID,
+                  let response = try? await Backend.current.emailThread(workspaceID: workspaceID, threadID: threadID),
+                  appState.selectedWorkspace?.id == workspaceID
+            else { return }
+            path.append(InboxRoute.email)
+            path.append(InboxRoute.emailThread(response.thread))
         }
-        guard let conversation = found, conversation.workspaceId == appState.selectedWorkspace?.id else { return }
-        path.append(conversation)
     }
 
     /// Any change to this reloads the list: switching filter, switching
@@ -284,6 +320,7 @@ struct InboxView: View {
             switch route {
             case .email: EmailInboxView()
             case .colleagues: ColleaguesView()
+            case .emailThread(let thread): EmailThreadView(thread: thread, mailbox: nil)
             }
         }
     }

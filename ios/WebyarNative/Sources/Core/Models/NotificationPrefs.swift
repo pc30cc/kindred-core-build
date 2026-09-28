@@ -44,6 +44,14 @@ struct NotificationPrefs: Codable, Equatable, Sendable {
     /// not to draw it, which would be theatre on a locked phone.
     var pushPreview: Bool = true
     var pushInternalNotes: Bool = true
+    /// A colleague's direct message in team chat.
+    var pushTeamChat: Bool = true
+    /// A conversation handed to this operator — by a colleague, by automatic
+    /// routing, or by the AI letting go of it.
+    var pushAssignments: Bool = true
+    /// A new email in the shared inbox. Only owners and admins are sent one,
+    /// whatever this says for anyone else.
+    var pushEmail: Bool = true
     var playSound: Bool = true
 
     /// Whether to reach this phone while the operator is also at their desk.
@@ -68,6 +76,9 @@ struct NotificationPrefs: Codable, Equatable, Sendable {
         case pushScope = "push_scope"
         case pushPreview = "push_preview"
         case pushInternalNotes = "push_internal_notes"
+        case pushTeamChat = "push_team_chat"
+        case pushAssignments = "push_assignments"
+        case pushEmail = "push_email"
         case playSound = "play_sound"
         case pushWhenOnline = "push_when_online"
         case pushWhenOffline = "push_when_offline"
@@ -92,6 +103,9 @@ struct NotificationPrefs: Codable, Equatable, Sendable {
         pushScope = try c.decodeIfPresent(Scope.self, forKey: .pushScope) ?? .all
         pushPreview = try c.decodeIfPresent(Bool.self, forKey: .pushPreview) ?? true
         pushInternalNotes = try c.decodeIfPresent(Bool.self, forKey: .pushInternalNotes) ?? true
+        pushTeamChat = try c.decodeIfPresent(Bool.self, forKey: .pushTeamChat) ?? true
+        pushAssignments = try c.decodeIfPresent(Bool.self, forKey: .pushAssignments) ?? true
+        pushEmail = try c.decodeIfPresent(Bool.self, forKey: .pushEmail) ?? true
         playSound = try c.decodeIfPresent(Bool.self, forKey: .playSound) ?? true
         pushWhenOnline = try c.decodeIfPresent(Bool.self, forKey: .pushWhenOnline) ?? true
         pushWhenOffline = try c.decodeIfPresent(Bool.self, forKey: .pushWhenOffline) ?? true

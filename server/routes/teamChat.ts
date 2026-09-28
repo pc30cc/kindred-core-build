@@ -25,6 +25,7 @@ import { getServiceClient } from '../supabase.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
 import { publishTeamEvent } from '../services/realtime/publish.js';
+import { notifyTeamMessage } from '../services/push/index.js';
 
 export const teamChatRouter = Router();
 
@@ -331,6 +332,16 @@ teamChatRouter.post('/messages', async (req, res) => {
       message_id: inserted.id,
       sender_id: auth.userId,
       recipient_id,
+    });
+    // The recipient's phone, when the app is not open on the thread. After
+    // the commit and never awaited: a push outage must not fail a send.
+    void notifyTeamMessage(config, {
+      workspaceId: workspace_id,
+      senderId: auth.userId,
+      recipientId: recipient_id,
+      messageId: inserted.id,
+      text: body,
+      hasAttachment: Boolean(attachmentId),
     });
 
     return res.json({ ok: true, message: { ...inserted, attachment } });

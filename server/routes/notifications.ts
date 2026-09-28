@@ -27,18 +27,30 @@
  */
 
 import { Router } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
+import { requireUser as requireSessionUser, serverConfigOf } from '../lib/workspaceAuth.js';
 
 export const notificationsRouter = Router();
 
-async function requireUser(req: any, res: any, next: any) {
+/** The signed-in operator, set by `requireUser` below for every route here. */
+type AuthedRequest = Request & { authUser?: { id: string } };
+
+async function requireUser(req: AuthedRequest, res: Response, next: NextFunction) {
   const userId = await requireSessionUser(req, res);
   if (!userId) return;
   req.authUser = { id: userId };
   next();
+}
+
+function authUserOf(req: Request): { id: string } {
+  return (req as AuthedRequest).authUser as { id: string };
+}
+
+function messageOf(err: unknown, fallback: string): string {
+  return (err as { message?: string } | null)?.message || fallback;
 }
 
 notificationsRouter.use(requireUser);
@@ -65,15 +77,21 @@ function platformOf(value: unknown): NotificationPlatform | null {
  * What an operator gets before they have ever opened the page.
  *
  * Every one of these is read by something that sends: `disable_all`,
- * `push_scope`, `push_preview`, `push_internal_notes` and the quiet hours by
- * `services/push/recipients.ts`, `play_sound` by both that and the browser's
- * own chime, and the two presence switches by the same resolver.
+ * `push_scope`, `push_preview`, `push_internal_notes`, the three event
+ * switches and the quiet hours by `services/push/recipients.ts`, `play_sound`
+ * by both that and the browser's own chime, and the two presence switches by
+ * the same resolver.
  */
 const DEFAULTS = {
   disable_all: false,
   push_scope: 'all' as 'all' | 'assigned' | 'mentions' | 'none',
   push_preview: true,
   push_internal_notes: true,
+  // A colleague's direct message, a conversation handed to me (by a
+  // colleague, by routing, or by the AI), a new email in the shared inbox.
+  push_team_chat: true,
+  push_assignments: true,
+  push_email: true,
   push_when_online: true,
   push_when_offline: true,
   play_sound: true,
@@ -84,8 +102,27 @@ const DEFAULTS = {
 };
 
 /** The columns the API reads and writes — never `select('*')`. */
-const COLUMNS =
+const LEGACY_COLUMNS =
   'disable_all, push_scope, push_preview, push_internal_notes, push_when_online, push_when_offline, play_sound, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone';
+/** Migration 234's switches. */
+const EVENT_KEYS = ['push_team_chat', 'push_assignments', 'push_email'] as const;
+const COLUMNS = `${LEGACY_COLUMNS}, ${EVENT_KEYS.join(', ')}`;
+
+/**
+ * Postgres' "column does not exist": a database that has not had migration
+ * 234 yet. Reads fall back to the older columns (the new switches then show
+ * their defaults, which is what the sender assumes too) rather than failing
+ * the whole page.
+ */
+function isMissingColumn(error: { code?: string } | null | undefined): boolean {
+  return error?.code === '42703' || error?.code === 'PGRST204';
+}
+
+function withoutEventKeys<T extends Record<string, unknown>>(patch: T): Partial<T> {
+  const out: Record<string, unknown> = { ...patch };
+  for (const key of EVENT_KEYS) delete out[key];
+  return out as Partial<T>;
+}
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -96,6 +133,9 @@ const updateSchema = z.object({
   push_scope: z.enum(['all', 'assigned', 'mentions', 'none']).optional(),
   push_preview: z.boolean().optional(),
   push_internal_notes: z.boolean().optional(),
+  push_team_chat: z.boolean().optional(),
+  push_assignments: z.boolean().optional(),
+  push_email: z.boolean().optional(),
   push_when_online: z.boolean().optional(),
   push_when_offline: z.boolean().optional(),
   play_sound: z.boolean().optional(),
@@ -108,33 +148,36 @@ const updateSchema = z.object({
 // GET /api/notifications/prefs?platform=web|mobile
 notificationsRouter.get('/prefs', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const user = (req as any).authUser;
+    const config: ServerConfig = serverConfigOf(req);
+    const user = authUserOf(req);
     const platform = platformOf(req.query.platform);
     if (!platform) return res.status(400).json({ error: 'Unknown platform' });
 
     const sb = getServiceClient(config);
 
-    const { data, error } = await sb
+    const read = (columns: string) => sb
       .from('user_notification_prefs')
-      .select(COLUMNS)
+      .select(columns)
       .eq('user_id', user.id)
       .eq('platform', platform)
       .is('workspace_id', null)
       .maybeSingle();
 
+    let { data, error } = await read(COLUMNS);
+    if (isMissingColumn(error)) ({ data, error } = await read(LEGACY_COLUMNS));
+
     if (error) return res.status(500).json({ error: error.message });
-    return res.json({ platform, prefs: { ...DEFAULTS, ...(data || {}) } });
-  } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Failed to load preferences' });
+    return res.json({ platform, prefs: { ...DEFAULTS, ...((data as unknown as Record<string, unknown> | null) || {}) } });
+  } catch (err) {
+    return res.status(500).json({ error: messageOf(err, 'Failed to load preferences') });
   }
 });
 
 // PATCH /api/notifications/prefs — upsert by (user_id, workspace_id NULL, platform)
 notificationsRouter.patch('/prefs', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const user = (req as any).authUser;
+    const config: ServerConfig = serverConfigOf(req);
+    const user = authUserOf(req);
 
     // The surface may travel in the body or the query string. The body is
     // where a JSON client naturally puts it; the query is what a client
@@ -161,25 +204,26 @@ notificationsRouter.patch('/prefs', async (req, res) => {
       .is('workspace_id', null)
       .maybeSingle();
 
-    if (existing?.id) {
-      const { data, error } = await sb
+    // Written with the new switches, and — on a database without them yet —
+    // again without, so the rest of the change still saves.
+    const write = (patch: Record<string, unknown>, columns: string) => existing?.id
+      ? sb
         .from('user_notification_prefs')
-        .update(parsed.data)
+        .update(patch)
         .eq('id', existing.id)
-        .select(COLUMNS)
+        .select(columns)
+        .maybeSingle()
+      : sb
+        .from('user_notification_prefs')
+        .insert({ user_id: user.id, workspace_id: null, platform, ...patch })
+        .select(columns)
         .maybeSingle();
-      if (error) return res.status(500).json({ error: error.message });
-      return res.json({ platform, prefs: { ...DEFAULTS, ...(data || {}) } });
-    }
 
-    const { data, error } = await sb
-      .from('user_notification_prefs')
-      .insert({ user_id: user.id, workspace_id: null, platform, ...parsed.data })
-      .select(COLUMNS)
-      .maybeSingle();
+    let { data, error } = await write(parsed.data, COLUMNS);
+    if (isMissingColumn(error)) ({ data, error } = await write(withoutEventKeys(parsed.data), LEGACY_COLUMNS));
     if (error) return res.status(500).json({ error: error.message });
-    return res.json({ platform, prefs: { ...DEFAULTS, ...(data || {}) } });
-  } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Failed to update preferences' });
+    return res.json({ platform, prefs: { ...DEFAULTS, ...((data as unknown as Record<string, unknown> | null) || {}) } });
+  } catch (err) {
+    return res.status(500).json({ error: messageOf(err, 'Failed to update preferences') });
   }
 });

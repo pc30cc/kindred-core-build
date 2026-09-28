@@ -11,7 +11,25 @@ import { adminFetch } from '@/hooks/useAdmin';
 export type PushScope = 'all' | 'assigned' | 'mentions' | 'none';
 export type InterruptionLevel = 'passive' | 'active' | 'time-sensitive' | 'critical';
 export type ThreadStrategy = 'conversation' | 'workspace' | 'none';
-export type PushEventType = 'new_message' | 'internal_note' | 'mention';
+export type PushEventType =
+  | 'new_message'
+  | 'internal_note'
+  | 'mention'
+  | 'assigned'
+  | 'handoff'
+  | 'team_message'
+  | 'email';
+
+/** Every event a phone can be told about, in the order the admin screens list them. */
+export const PUSH_EVENT_TYPES: PushEventType[] = [
+  'new_message',
+  'internal_note',
+  'mention',
+  'assigned',
+  'handoff',
+  'team_message',
+  'email',
+];
 
 export interface PushCategoryAction {
   id: string;

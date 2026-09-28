@@ -19,7 +19,7 @@ import {
   SettingsSection, FieldGrid, SelectField, SwitchField,
 } from '@/components/admin/settings/SettingsFields';
 import {
-  useDeviceFleet, useSendTestNotification,
+  PUSH_EVENT_TYPES, useDeviceFleet, useSendTestNotification,
   type PushEventType, type PushPlatformSettings, type TransportStatus,
 } from '@/hooks/useAdminNotifications';
 import { cn } from '@/lib/utils';
@@ -191,11 +191,10 @@ export function NotificationStatusTab({
             label={t('admin.notifications.status.testEvent')}
             value={eventType}
             onChange={(value) => setEventType(value as PushEventType)}
-            options={[
-              { value: 'new_message', label: t('admin.notifications.events.new_message') },
-              { value: 'internal_note', label: t('admin.notifications.events.internal_note') },
-              { value: 'mention', label: t('admin.notifications.events.mention') },
-            ]}
+            options={PUSH_EVENT_TYPES.map((value) => ({
+              value,
+              label: t(`admin.notifications.events.${value}` as TranslationKey),
+            }))}
           />
           <SelectField
             label={t('admin.notifications.status.testLocale')}

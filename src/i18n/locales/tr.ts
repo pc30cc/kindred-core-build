@@ -5031,6 +5031,10 @@ const tr: TranslationKeys = {
         new_message: 'Yeni müşteri mesajı',
         internal_note: 'Dahili not',
         mention: 'Bahsetme',
+        assigned: 'Operatöre atandı',
+        handoff: 'Yapay zekâ devretti',
+        team_message: 'Ekip sohbeti mesajı',
+        email: 'Yeni e-posta',
       },
       status: {
         transportReady: 'Taşıma hazır',
@@ -5171,11 +5175,15 @@ const tr: TranslationKeys = {
         textInput: 'Satır içi yanıt alanı',
       },
       templates: {
-        variables: 'Kullanılabilir değişkenler: {{sender}} müşterinin veya takım arkadaşının adı, {{preview}} mesaj metni, {{count}} ek sayısı. Bilinmeyen bir değişken boşaltılmaz, görünür kalır.',
+        variables: 'Kullanılabilir değişkenler: {{sender}} müşterinin veya takım arkadaşının adı, {{preview}} mesaj metni, {{count}} ek sayısı, {{workspace}} çalışma alanının adı, {{actor}} konuşmayı atayan kişi. Bilinmeyen bir değişken boşaltılmaz, görünür kalır.',
         caption: {
           new_message: 'Bir müşteri görüşmeye yazdığında gönderilir.',
           internal_note: 'Bir takım arkadaşı dahili not bıraktığında gönderilir.',
           mention: 'Biri bir operatöre doğrudan hitap ettiğinde gönderilir.',
+          assigned: 'Bir takım arkadaşı veya otomatik yönlendirme bir operatöre konuşma verdiğinde ona gönderilir.',
+          handoff: 'Yapay zekâ bir konuşmayı insanlara devrettiğinde gönderilir: atanan kişiye ya da tüm gelen kutusunu izleyen herkese.',
+          team_message: 'Bir ekip arkadaşı ekip sohbetinde bir operatöre yazdığında ona gönderilir.',
+          email: 'Ortak gelen kutusuna yeni bir e-posta geldiğinde sahiplere ve yöneticilere gönderilir.',
         },
         publicVariant: 'Önizlemeli',
         privateVariant: 'Önizlemesiz',

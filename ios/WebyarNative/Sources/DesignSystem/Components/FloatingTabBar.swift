@@ -126,15 +126,16 @@ struct FloatingTabBar<Tab: Hashable>: View {
 ///
 /// Geometry for an 18-point glyph: 16 points tall, a circle for one digit and
 /// a capsule beyond, 4.5 points either side of the digits in 11-point
-/// semibold. It sits on the icon's trailing top corner — top-right in
-/// English, top-left in Persian — with its near edge 3 points past the
-/// glyph's centre and its middle 1 point below the glyph's top, so it covers
-/// a corner of the tray and never touches the label.
+/// semibold. It sits beside the icon's trailing top corner — top-right in
+/// English, top-left in Persian — overlapping the glyph by only 3 points,
+/// with its middle 2 points below the glyph's top. It used to start at the
+/// glyph's centre and covered a third of the tray: the badge read, the icon
+/// did not. Out at the corner, both do, and it still never touches the label.
 ///
-/// The icon is cut away 1.5 points around it: a real hole, punched with
-/// `.destinationOut`, rather than a ring painted in the background colour.
-/// The bar is a translucent material, and a painted ring showed as a pale
-/// halo on it — worst in dark mode, where it was a white circle on grey.
+/// Where it does overlap, the icon is cut away 1.5 points around it: a real
+/// hole, punched with `.destinationOut`, rather than a ring painted in the
+/// background colour. The bar is a translucent material, and a painted ring
+/// showed as a pale halo on it — worst in dark mode.
 ///
 /// Motion is small and only says what changed: the capsule springs in, the
 /// digits roll to the new number, and a count that goes up pops once. Reduce
@@ -149,8 +150,10 @@ private struct TabBadge: ViewModifier {
 
     private let height: CGFloat = 16
     private let cutout: CGFloat = 1.5
-    /// How far past the glyph's centre the capsule's near edge sits.
-    private let inset: CGFloat = 3
+    /// How far the capsule reaches in over the glyph's trailing edge.
+    private let overlap: CGFloat = 3
+    /// How far below the glyph's top the capsule's middle sits.
+    private let drop: CGFloat = 2
 
     private var isShown: Bool { count > 0 }
 
@@ -166,19 +169,19 @@ private struct TabBadge: ViewModifier {
         content
             // The hole, the same shape and place as the capsule and a
             // cut-out wider, taken out of the icon itself.
-            .overlay(alignment: .top) {
+            .overlay(alignment: .topTrailing) {
                 if isShown {
                     capsule
                         .padding(cutout)
                         .background(Capsule())
                         .blendMode(.destinationOut)
-                        .alignmentGuide(HorizontalAlignment.center) { d in d[.leading] - (inset - cutout) }
-                        .alignmentGuide(.top) { d in d[VerticalAlignment.center] - 1 }
+                        .alignmentGuide(.trailing) { d in d[.leading] + cutout + overlap }
+                        .alignmentGuide(.top) { d in d[VerticalAlignment.center] - drop }
                         .transition(appearance)
                 }
             }
             .compositingGroup()
-            .overlay(alignment: .top) {
+            .overlay(alignment: .topTrailing) {
                 if isShown {
                     capsule
                         .keyframeAnimator(initialValue: 1.0, trigger: arrivals) { view, scale in
@@ -189,8 +192,8 @@ private struct TabBadge: ViewModifier {
                                 SpringKeyframe(1.0, duration: 0.25, spring: .snappy)
                             }
                         }
-                        .alignmentGuide(HorizontalAlignment.center) { d in d[.leading] - inset }
-                        .alignmentGuide(.top) { d in d[VerticalAlignment.center] - 1 }
+                        .alignmentGuide(.trailing) { d in d[.leading] + overlap }
+                        .alignmentGuide(.top) { d in d[VerticalAlignment.center] - drop }
                         .transition(appearance)
                 }
             }

@@ -20,9 +20,9 @@ struct FloatingTabBar<Tab: Hashable>: View {
         let icon: String
         /// The filled counterpart, shown when it is.
         let selectedIcon: String
-        /// Something waiting in this tab — unread messages, for the Inbox.
-        /// Any number above zero shows a dot; the number itself is for
-        /// VoiceOver, through `badgeLabel`.
+        /// Something waiting in this tab — unread conversations, for the
+        /// Inbox. Any number above zero is shown on the icon (`TabBadge`),
+        /// and read out through `badgeLabel`.
         var badge: Int = 0
         /// What VoiceOver says of the badge ("3 unread").
         var badgeLabel: String? = nil
@@ -87,13 +87,7 @@ struct FloatingTabBar<Tab: Hashable>: View {
                 Image(systemName: isSelected ? item.selectedIcon : item.icon)
                     .font(.system(size: 18, weight: .medium))
                     .symbolRenderingMode(.hierarchical)
-                    .overlay(alignment: .topTrailing) {
-                        if item.badge > 0 {
-                            TabBadgeDot(count: item.badge)
-                                .transition(.scale(scale: 0.2).combined(with: .opacity))
-                        }
-                    }
-                    .animation(reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.58), value: item.badge > 0)
+                    .modifier(TabBadge(count: item.badge))
 
                 Text(item.title)
                     .font(.app(size: 11, isSelected ? .semibold : .medium))
@@ -121,55 +115,117 @@ struct FloatingTabBar<Tab: Hashable>: View {
     }
 }
 
-/// The dot on a tab with something unread: a small red disc on the icon's
-/// top corner, cut out of the icon by a ring of the background — the way the
-/// system marks a tab — and, each time the count goes up, one soft ring going
-/// out from it, so a new message is noticed without anything moving for long.
+/// The unread count on a tab's icon: a small red capsule with the number in
+/// it, the way the system, Telegram, Signal and WhatsApp mark a tab.
 ///
-/// On the icon's trailing corner — top-right in English, top-left in Persian —
-/// where the system puts a tab's badge in each.
-private struct TabBadgeDot: View {
+/// A number rather than a dot, because what an operator wants from the tab
+/// bar is "how much is waiting", and a dot answers only "something". It
+/// counts conversations, not messages — the unit the inbox is worked in, and
+/// the one Slack, Intercom and Zendesk badge — and stops at 99+, past which
+/// the exact figure tells nobody anything.
+///
+/// Geometry for an 18-point glyph: 16 points tall, a circle for one digit and
+/// a capsule beyond, 4.5 points either side of the digits in 11-point
+/// semibold. It sits on the icon's trailing top corner — top-right in
+/// English, top-left in Persian — with its near edge 3 points past the
+/// glyph's centre and its middle 1 point below the glyph's top, so it covers
+/// a corner of the tray and never touches the label.
+///
+/// The icon is cut away 1.5 points around it: a real hole, punched with
+/// `.destinationOut`, rather than a ring painted in the background colour.
+/// The bar is a translucent material, and a painted ring showed as a pale
+/// halo on it — worst in dark mode, where it was a white circle on grey.
+///
+/// Motion is small and only says what changed: the capsule springs in, the
+/// digits roll to the new number, and a count that goes up pops once. Reduce
+/// Motion turns all of it into a cross-fade.
+private struct TabBadge: ViewModifier {
     let count: Int
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// Counts up each time the number does, to set off one ripple.
+    @Environment(\.locale) private var locale
+    /// Counts up each time the number does, to set off one pop.
     @State private var arrivals = 0
 
-    private let size: CGFloat = 9
-    private let cutout: CGFloat = 1.75
+    private let height: CGFloat = 16
+    private let cutout: CGFloat = 1.5
+    /// How far past the glyph's centre the capsule's near edge sits.
+    private let inset: CGFloat = 3
 
-    var body: some View {
-        ZStack {
-            Circle()
-                .stroke(Theme.Palette.danger, lineWidth: 1.5)
-                .frame(width: size, height: size)
-                .phaseAnimator([RipplePhase.rest, .start, .end], trigger: arrivals) { ring, phase in
-                    ring
-                        .scaleEffect(phase == .end ? 2.8 : 1)
-                        .opacity(phase == .start ? 0.75 : 0)
-                } animation: { phase in
-                    phase == .end ? .easeOut(duration: 0.9) : nil
-                }
+    private var isShown: Bool { count > 0 }
 
-            Circle()
-                .fill(Theme.Palette.danger)
-                .frame(width: size, height: size)
-                .padding(cutout)
-                .background(Circle().fill(Color(uiColor: .systemBackground)))
-        }
-        // Half over the icon's corner and half beyond it. Alignment guides
-        // rather than an offset: they are measured from the trailing edge in
-        // either direction, so the dot follows the corner in Persian too.
-        .alignmentGuide(.trailing) { d in d[.trailing] - size * 0.55 }
-        .alignmentGuide(.top) { d in d[.top] + size * 0.3 }
-        .accessibilityHidden(true)
-        .onChange(of: count) { old, new in
-            guard new > old, !reduceMotion else { return }
-            arrivals += 1
-        }
+    /// Persian digits in Persian, through the locale the root sets. The
+    /// capped form is "99+" — which a right-to-left line draws as "+۹۹", the
+    /// way Persian writes it.
+    private var label: String {
+        let shown = min(count, 99).formatted(.number.locale(locale).grouping(.never))
+        return count > 99 ? shown + "+" : shown
     }
 
-    private enum RipplePhase { case rest, start, end }
+    func body(content: Content) -> some View {
+        content
+            // The hole, the same shape and place as the capsule and a
+            // cut-out wider, taken out of the icon itself.
+            .overlay(alignment: .top) {
+                if isShown {
+                    capsule
+                        .padding(cutout)
+                        .background(Capsule())
+                        .blendMode(.destinationOut)
+                        .alignmentGuide(HorizontalAlignment.center) { d in d[.leading] - (inset - cutout) }
+                        .alignmentGuide(.top) { d in d[VerticalAlignment.center] - 1 }
+                        .transition(appearance)
+                }
+            }
+            .compositingGroup()
+            .overlay(alignment: .top) {
+                if isShown {
+                    capsule
+                        .keyframeAnimator(initialValue: 1.0, trigger: arrivals) { view, scale in
+                            view.scaleEffect(scale)
+                        } keyframes: { _ in
+                            KeyframeTrack {
+                                CubicKeyframe(1.12, duration: 0.12)
+                                SpringKeyframe(1.0, duration: 0.25, spring: .snappy)
+                            }
+                        }
+                        .alignmentGuide(HorizontalAlignment.center) { d in d[.leading] - inset }
+                        .alignmentGuide(.top) { d in d[VerticalAlignment.center] - 1 }
+                        .transition(appearance)
+                }
+            }
+            // Appearing and going: a spring in, a quick fade out.
+            .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.3, dampingFraction: 0.7), value: isShown)
+            // A new number while it is up: the digits roll.
+            .animation(reduceMotion ? .easeOut(duration: 0.15) : .snappy(duration: 0.25), value: count)
+            .onChange(of: count) { old, new in
+                // Only a count that was already showing pops; the first one
+                // has the spring in.
+                guard new > old, old > 0, !reduceMotion else { return }
+                arrivals += 1
+            }
+    }
+
+    private var capsule: some View {
+        Text(label)
+            .font(.app(size: 11, .semibold))
+            .monospacedDigit()
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .fixedSize()
+            .contentTransition(reduceMotion ? .opacity : .numericText(value: Double(count)))
+            .padding(.horizontal, 4.5)
+            .frame(minWidth: height)
+            .frame(height: height)
+            .background(Capsule().fill(Theme.Palette.danger))
+            // The tab says it out loud (`badgeLabel`); the capsule is only
+            // what the eye reads.
+            .accessibilityHidden(true)
+    }
+
+    private var appearance: AnyTransition {
+        reduceMotion ? .opacity : .scale(scale: 0.6).combined(with: .opacity)
+    }
 }
 
 /// Thin wrapper so call sites do not each reach for UIKit.

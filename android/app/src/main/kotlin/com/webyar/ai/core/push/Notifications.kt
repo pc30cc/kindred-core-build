@@ -85,7 +85,8 @@ object Notifications {
     @SuppressLint("MissingPermission") // canPost() is the check, and it runs first.
     fun showMessage(context: Context, payload: PushPayload, title: String?, body: String?, language: Language) {
         if (!canPost(context)) return
-        val conversationId = payload.conversationId ?: return
+        // One per conversation; a test send, which names none, has its own.
+        val conversationId = payload.conversationId ?: TEST_KEY.takeIf { payload.isTest } ?: return
         val tap = PendingIntent.getActivity(
             context,
             conversationId.hashCode(),
@@ -126,4 +127,5 @@ object Notifications {
         }
 
     private const val TAG = "conversation"
+    private const val TEST_KEY = "push-test"
 }

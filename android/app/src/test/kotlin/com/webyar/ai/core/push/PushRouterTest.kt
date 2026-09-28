@@ -59,6 +59,34 @@ class PushRouterTest {
         assertEquals(listOf(push), shown)
     }
 
+    /**
+     * Super Admin's test send names no workspace and no conversation. With
+     * the app in front it used to be dropped as "not this operator's", so a
+     * test from an admin looking at the app showed nothing at all.
+     */
+    @Test
+    fun `a test send is shown as it came, and syncs nothing`() = runTest {
+        val (router, _) = router()
+        val test = PushPayload(type = PushPayload.TYPE_TEST, workspaceId = null, conversationId = null, messageId = null)
+
+        router.onMessage(test, "Webyar", "Test notification")
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(listOf(test), shown)
+        assertTrue(api.idReads.isEmpty())
+    }
+
+    @Test
+    fun `a test send is not shown to nobody`() = runTest {
+        val (router, _) = router()
+        context = null
+
+        router.onMessage(PushPayload(type = PushPayload.TYPE_TEST, workspaceId = null, conversationId = null, messageId = null), "Webyar", "x")
+
+        assertTrue(shown.isEmpty())
+    }
+
     @Test
     fun `no notification for the conversation already on screen`() = runTest {
         val (router, _) = router()

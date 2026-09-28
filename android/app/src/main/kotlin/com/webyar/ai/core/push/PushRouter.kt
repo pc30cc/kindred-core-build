@@ -48,6 +48,16 @@ class PushRouter(
             diag.info(AREA, "push dropped: nobody signed in")
             return
         }
+        // Super Admin's test send: to the admin's own devices, about no
+        // conversation and carrying none of anyone's messages. Shown as it
+        // came, never synced — in the background the system draws it anyway,
+        // and in front it must not vanish, or a working setup reads as a
+        // broken one.
+        if (payload.isTest) {
+            diag.info(AREA, "test push shown")
+            show(payload, title, body, now.language)
+            return
+        }
         val workspace = payload.workspaceId
         if (workspace == null || workspace !in now.workspaceIds) {
             diag.warn(

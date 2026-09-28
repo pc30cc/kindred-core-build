@@ -19,7 +19,13 @@ final class NotificationSettingsModel {
         self.api = api
     }
 
+    /// Whether the switches show what the server holds. Until they do, none
+    /// of them may be touched: a change sends the whole row, and a row built
+    /// from defaults would overwrite whatever the operator saved before.
+    var canEdit: Bool { !isLoading && !loadFailed }
+
     func load(appState: AppState) async {
+        isLoading = true
         do {
             prefs = try await api.notificationPrefs()
             loadFailed = false
@@ -39,6 +45,7 @@ final class NotificationSettingsModel {
     /// where it was put while the server disagrees is a lie about what will
     /// reach this phone tonight.
     func change(appState: AppState, _ edit: (inout NotificationPrefs) -> Void) {
+        guard canEdit else { return }
         let previous = prefs
         var next = prefs
         edit(&next)
@@ -84,21 +91,29 @@ struct NotificationSettingsView: View {
             permissionSection
 
             if push.isAllowed {
-                Section {
-                    Toggle(Str.pushMuteAll(language), isOn: Binding(
-                        get: { model.prefs.disableAll },
-                        set: { value in model.change(appState: appState) { $0.disableAll = value } }
-                    ))
-                } footer: {
-                    Text(Str.pushMuteAllFooter(language))
+                if model.loadFailed {
+                    loadFailedSection
                 }
 
-                if !model.prefs.disableAll {
-                    scopeSection
-                    contentSection
-                    presenceSection
-                    quietHoursSection
+                Group {
+                    Section {
+                        Toggle(Str.pushMuteAll(language), isOn: Binding(
+                            get: { model.prefs.disableAll },
+                            set: { value in model.change(appState: appState) { $0.disableAll = value } }
+                        ))
+                    } footer: {
+                        Text(Str.pushMuteAllFooter(language))
+                    }
+
+                    if !model.prefs.disableAll {
+                        scopeSection
+                        eventsSection
+                        contentSection
+                        presenceSection
+                        quietHoursSection
+                    }
                 }
+                .disabled(!model.canEdit)
 
                 deviceSection
             }
@@ -207,6 +222,56 @@ struct NotificationSettingsView: View {
             Text(Str.pushScopeTitle(language))
         } footer: {
             Text(Str.pushScopeFooter(language))
+        }
+    }
+
+    /// Everything that is not a customer's message: each kind has its own
+    /// switch, and each is shown only where it can happen — team chat where
+    /// the workspace has it, email to the owners and admins it is sent to.
+    private var eventsSection: some View {
+        Section {
+            if appState.colleaguesVisible {
+                Toggle(Str.pushTeamChat(language), isOn: Binding(
+                    get: { model.prefs.pushTeamChat },
+                    set: { value in model.change(appState: appState) { $0.pushTeamChat = value } }
+                ))
+            }
+
+            Toggle(Str.pushAssignments(language), isOn: Binding(
+                get: { model.prefs.pushAssignments },
+                set: { value in model.change(appState: appState) { $0.pushAssignments = value } }
+            ))
+
+            if appState.emailInboxVisible {
+                Toggle(Str.pushEmail(language), isOn: Binding(
+                    get: { model.prefs.pushEmail },
+                    set: { value in model.change(appState: appState) { $0.pushEmail = value } }
+                ))
+            }
+        } header: {
+            Text(Str.pushEventsTitle(language))
+        } footer: {
+            Text(Str.pushAssignmentsFooter(language))
+        }
+    }
+
+    /// The row could not be read. The switches stay put rather than showing
+    /// defaults the operator might then "change" back over their real
+    /// settings.
+    private var loadFailedSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: Theme.Space.sm) {
+                Text(Str.pushPrefsLoadFailed(language))
+                    .font(.app(.footnote))
+                    .foregroundStyle(Theme.Palette.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(Str.retry(language)) {
+                    Task { await model.load(appState: appState) }
+                }
+                .font(.app(.subheadline, .semibold))
+                .frame(minHeight: Theme.Size.minTouchTarget - 8)
+            }
+            .padding(.vertical, Theme.Space.xs)
         }
     }
 

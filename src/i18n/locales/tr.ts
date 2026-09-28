@@ -5049,6 +5049,11 @@ const tr: TranslationKeys = {
         new_message: 'Yeni müşteri mesajı',
         internal_note: 'Dahili not',
         mention: 'Bahsetme',
+        assignment: 'Operatöre atandı',
+        handoff: 'Yapay zekâ devretti',
+        team_message: 'Ekip sohbeti mesajı',
+        email_message: 'Yeni e-posta',
+        callback_request: 'Geri arama isteği',
       },
       status: {
         transportReady: 'Taşıma hazır',
@@ -5189,7 +5194,7 @@ const tr: TranslationKeys = {
         textInput: 'Satır içi yanıt alanı',
       },
       templates: {
-        variables: 'Kullanılabilir değişkenler: {{sender}} müşterinin veya takım arkadaşının adı, {{preview}} mesaj metni, {{count}} ek sayısı. Bilinmeyen bir değişken boşaltılmaz, görünür kalır.',
+        variables: 'Kullanılabilir değişkenler: {{sender}} müşterinin veya takım arkadaşının adı, {{preview}} mesaj metni, {{count}} ek sayısı, {{workspace}} çalışma alanının adı. Bilinmeyen bir değişken boşaltılmaz, görünür kalır.',
         caption: {
           new_message: 'Bir müşteri görüşmeye yazdığında gönderilir.',
           internal_note: 'Bir takım arkadaşı dahili not bıraktığında gönderilir.',

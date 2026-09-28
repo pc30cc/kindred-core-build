@@ -107,7 +107,13 @@ struct ChatView: View {
             .background(Theme.Palette.background)
             // A banner for the thread that is already on screen would cover
             // the message it is announcing with a copy of it.
-            .onAppear { PushController.shared.viewing = conversation.id }
+            .onAppear {
+                PushController.shared.viewing = conversation.id
+                // Read now, so its banners have nothing left to say.
+                PushController.clearDelivered(
+                    .conversation(workspaceID: conversation.workspaceId, conversationID: conversation.id)
+                )
+            }
             .onDisappear {
                 guard PushController.shared.viewing == conversation.id else { return }
                 PushController.shared.viewing = nil

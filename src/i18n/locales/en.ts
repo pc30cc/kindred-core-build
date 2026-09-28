@@ -5060,6 +5060,11 @@ const en = {
         new_message: 'New customer message',
         internal_note: 'Internal note',
         mention: 'Mention',
+        assignment: 'Assigned to an operator',
+        handoff: 'Handed over by the AI',
+        team_message: 'Team chat message',
+        email_message: 'New email',
+        callback_request: 'Callback request',
       },
       status: {
         transportReady: 'Transport ready',
@@ -5200,7 +5205,7 @@ const en = {
         textInput: 'Inline reply field',
       },
       templates: {
-        variables: 'Available variables: {{sender}} the customer or teammate’s name, {{preview}} the message text, {{count}} the attachment count. An unknown variable is left visible rather than blanked.',
+        variables: 'Available variables: {{sender}} the customer or teammate’s name, {{preview}} the message text, {{count}} the attachment count, {{workspace}} the workspace name. An unknown variable is left visible rather than blanked.',
         caption: {
           new_message: 'Sent when a customer writes into a conversation.',
           internal_note: 'Sent when a teammate leaves an internal note.',

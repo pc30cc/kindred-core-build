@@ -194,6 +194,18 @@ struct TeamThreadView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) { composer }
             .navigationTitle(colleague.displayName)
             .navigationBarTitleDisplayMode(.inline)
+            // No banner for the thread on screen, and none left behind for it
+            // once it has been read.
+            .onAppear {
+                PushController.shared.viewingColleague = colleague.userId
+                if let workspaceID {
+                    PushController.clearDelivered(.colleague(workspaceID: workspaceID, peerID: colleague.userId))
+                }
+            }
+            .onDisappear {
+                guard PushController.shared.viewingColleague == colleague.userId else { return }
+                PushController.shared.viewingColleague = nil
+            }
             .task(id: colleague.userId) {
                 await model.load(
                     workspaceID: workspaceID, peerID: colleague.userId, appState: appState

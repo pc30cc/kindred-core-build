@@ -5045,6 +5045,11 @@ const fa: TranslationKeys = {
         new_message: 'پیام جدید مشتری',
         internal_note: 'یادداشت داخلی',
         mention: 'منشن',
+        assignment: 'سپردن به اپراتور',
+        handoff: 'واگذاری توسط هوش مصنوعی',
+        team_message: 'پیام گفتگوی تیمی',
+        email_message: 'ایمیل جدید',
+        callback_request: 'درخواست تماس',
       },
       status: {
         transportReady: 'مسیر تحویل آماده',
@@ -5185,7 +5190,7 @@ const fa: TranslationKeys = {
         textInput: 'فیلد پاسخ درجا',
       },
       templates: {
-        variables: 'متغیرهای در دسترس: {{sender}} نام مشتری یا هم‌تیمی، {{preview}} متن پیام، {{count}} تعداد پیوست. متغیر ناشناخته به‌جای خالی شدن، دیده می‌شود.',
+        variables: 'متغیرهای در دسترس: {{sender}} نام مشتری یا هم‌تیمی، {{preview}} متن پیام، {{count}} تعداد پیوست، {{workspace}} نام فضای کاری. متغیر ناشناخته به‌جای خالی شدن، دیده می‌شود.',
         caption: {
           new_message: 'وقتی مشتری در گفتگو پیام می‌نویسد ارسال می‌شود.',
           internal_note: 'وقتی هم‌تیمی یادداشت داخلی می‌گذارد ارسال می‌شود.',

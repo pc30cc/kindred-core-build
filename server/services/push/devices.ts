@@ -82,28 +82,36 @@ export async function registerDevice(
       .neq('user_id', input.userId);
   }
 
+  // Each address is written only by the registration that carries it. The
+  // alert token and the VoIP token arrive from different system callbacks,
+  // at different times: writing the absent one as null meant an alert-token
+  // refresh erased the phone's call address (and a VoIP-only registration
+  // its alert address) until the other callback happened to fire again.
+  const row: Record<string, unknown> = {
+    user_id: input.userId,
+    workspace_id: input.workspaceId ?? null,
+    platform: input.platform,
+    device_id: input.deviceId,
+    device_name: input.deviceName ?? null,
+    app_version: input.appVersion ?? null,
+    permission_status: input.permissionStatus ?? null,
+    enabled: true,
+    disabled_reason: null,
+    last_seen_at: now,
+    updated_at: now,
+  };
+  if (input.pushToken) {
+    row.push_token = input.pushToken;
+    row.transport = input.transport ?? 'fcm';
+  }
+  if (input.voipToken) {
+    row.voip_token = input.voipToken;
+    row.voip_token_updated_at = now;
+  }
+
   const { data, error } = await sb
     .from('mobile_push_devices')
-    .upsert(
-      {
-        user_id: input.userId,
-        workspace_id: input.workspaceId ?? null,
-        platform: input.platform,
-        push_token: input.pushToken ?? null,
-        transport: input.transport ?? 'fcm',
-        device_id: input.deviceId,
-        device_name: input.deviceName ?? null,
-        app_version: input.appVersion ?? null,
-        permission_status: input.permissionStatus ?? null,
-        voip_token: input.voipToken ?? null,
-        voip_token_updated_at: input.voipToken ? now : null,
-        enabled: true,
-        disabled_reason: null,
-        last_seen_at: now,
-        updated_at: now,
-      },
-      { onConflict: 'user_id,device_id' },
-    )
+    .upsert(row, { onConflict: 'user_id,device_id' })
     .select('id')
     .maybeSingle();
 

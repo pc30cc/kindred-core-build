@@ -227,6 +227,13 @@ struct MainTabView: View {
                 includesTeam: appState.colleaguesVisible
             )
         }
+        // The number on the app icon is the number on the Inbox tab while
+        // the app is open, so leaving the app never shows a different count
+        // from the one just on screen. Closed, the next push's badge — counted
+        // by the server the same way — takes over.
+        .onChange(of: inboxBadge.total, initial: true) { _, total in
+            push.applyBadge(total)
+        }
         // Another workspace: a thread or contact of the last one open in a
         // tab's stack would go on showing it. The stacks start over; the tab
         // the switch was made from (Settings) keeps its place.

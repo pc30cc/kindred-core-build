@@ -188,6 +188,17 @@ final class ListsAndCoordinatorTests: XCTestCase {
         XCTAssertEqual(event, .push(conversationID: "c1", messageID: "m1"))
     }
 
+    func testAColleaguesPushReadsTheTeamThreadsOfThisWorkspaceOnly() async {
+        let sync = coordinator()
+        sync.sessionChanged(userID: "u1", workspaceID: "w1")
+        let stream = sync.events()
+        sync.teamPushArrived(workspaceID: "w2", peerID: "p9")
+        sync.teamPushArrived(workspaceID: "w1", peerID: "p1")
+        var iterator = stream.makeAsyncIterator()
+        let event = await iterator.next()
+        XCTAssertEqual(event, .team(peerID: "p1"))
+    }
+
     // A notification's conversation: never every queue in turn
 
     func testFindingAConversationTriesTheListsAndTheStoreBeforeOneTargetedRead() async throws {

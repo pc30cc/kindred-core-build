@@ -245,6 +245,14 @@ final class SyncCoordinator {
         emit(.push(conversationID: conversationID, messageID: messageID))
     }
 
+    /// A colleague's message arrived by push while the app is open, or was
+    /// tapped: the team lists and the Inbox tab's count read again, as they
+    /// would for the same event over realtime.
+    func teamPushArrived(workspaceID: String?, peerID: String) {
+        if let workspaceID, workspaceID != scope?.workspaceID { return }
+        emit(.team(peerID: peerID))
+    }
+
     // MARK: - Finding one conversation
 
     /// A conversation the open list may not have — a notification's. This

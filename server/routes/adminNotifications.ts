@@ -24,6 +24,7 @@ import { getServiceClient } from '../supabase.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { getFcmCredentials, isPushConfigured, sendFcmMessage } from '../services/push/fcm.js';
 import { listActiveDevices } from '../services/push/devices.js';
+import { isApnsConfigured, nativeBundleId, sendApnsAlert } from '../services/push/apns.js';
 import { isVoipConfigured, getApnsCredentials } from '../services/push/apnsVoip.js';
 import { ringTestDevice } from '../services/push/callRing.js';
 import {
@@ -317,7 +318,9 @@ adminNotificationsRouter.post('/test', testLimiter, async (req, res) => {
   if (!actorId) return;
   const parsed = testSchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
-  if (!isPushConfigured()) return res.status(409).json({ error: 'push_not_configured' });
+  // Either transport is a working deployment: the native iOS app is reached
+  // over APNs directly and needs no Firebase at all.
+  if (!isPushConfigured() && !isApnsConfigured()) return res.status(409).json({ error: 'push_not_configured' });
 
   const config = serverConfigOf(req);
   try {
@@ -328,33 +331,45 @@ adminNotificationsRouter.post('/test', testLimiter, async (req, res) => {
     const { title, body } = renderTemplate(
       policy,
       parsed.data.event_type,
-      parsed.data.locale,
+      // Templates are keyed by bare language: "fa-IR" is "fa".
+      parsed.data.locale.toLowerCase().split(/[-_]/)[0],
       parsed.data.preview,
-      { sender: 'Webyar', preview: 'Test notification', count: '0' },
+      { sender: 'Webyar', preview: 'Test notification', count: '0', workspace: 'Webyar' },
     );
 
     let accepted = 0;
     const failures: { platform: string; status?: number; error?: string }[] = [];
+    const apns = {
+      priority: policy.apns_priority,
+      ttlSeconds: policy.apns_ttl_seconds,
+      interruptionLevel: policy.interruption_level,
+      relevanceScore: policy.relevance_score,
+      soundName: policy.sound_name,
+      mutableContent: policy.mutable_content,
+    };
     for (const device of devices) {
-      const outcome = await sendFcmMessage({
+      // The same door the real dispatch uses for this device: a native iOS
+      // registration is an APNs token, which Firebase cannot address.
+      const message = {
         token: device.push_token,
         title: title || 'Webyar',
         body: body || 'Test notification',
         // `type: test` lets the app recognise a diagnostic and skip routing.
         data: { type: 'test' },
         sound: policy.default_sound,
-        androidChannelId: policy.android_channel_id,
-        apns: {
-          priority: policy.apns_priority,
-          ttlSeconds: policy.apns_ttl_seconds,
-          interruptionLevel: policy.interruption_level,
-          relevanceScore: policy.relevance_score,
-          soundName: policy.sound_name,
-          mutableContent: policy.mutable_content,
-        },
-      });
+        apns,
+      };
+      const outcome = device.transport === 'apns'
+        ? await sendApnsAlert({ ...message, topic: nativeBundleId() })
+        : await sendFcmMessage({ ...message, androidChannelId: policy.android_channel_id });
       if (outcome.ok) accepted += 1;
-      else failures.push({ platform: device.platform, status: outcome.status, error: outcome.error });
+      else {
+        failures.push({
+          platform: device.platform,
+          status: outcome.status,
+          error: 'error' in outcome ? outcome.error : 'reason' in outcome ? outcome.reason : undefined,
+        });
+      }
     }
     return res.json({ success: accepted > 0, devices: devices.length, accepted, failures });
   } catch (err) {

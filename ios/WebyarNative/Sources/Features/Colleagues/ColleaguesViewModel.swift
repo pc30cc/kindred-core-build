@@ -111,7 +111,7 @@ final class ColleaguesViewModel {
             switch event {
             case .team, .resync, .reconcile:
                 scheduleRefresh(workspaceID: workspaceID)
-            case .message, .conversationChanged, .push:
+            case .message, .conversationChanged, .push, .seen:
                 continue
             }
         }

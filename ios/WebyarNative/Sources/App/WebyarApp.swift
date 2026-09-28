@@ -152,11 +152,10 @@ struct RootView: View {
 /// fading in on top of it. Anything already drawn at the first frame is a cut
 /// between two screens instead of one screen becoming another.
 ///
-/// What it adds is the brand's own mark, not its name: the icon the operator
-/// has just tapped, carried from the home screen into the app, with a ring of
-/// the icon's two blues running round it. The name set in type read as a
-/// placeholder; the mark reads as the product, and the ring says "loading"
-/// without a second element saying it again underneath.
+/// Deliberately quiet: a small loader in the middle, and the product's name
+/// set small at the foot of the screen — no logo, no glow. A launch screen is
+/// on screen for a few hundred milliseconds; anything bigger than this is the
+/// app talking about itself while the operator waits to work.
 struct LaunchView: View {
     @Environment(AppState.self) private var appState
 
@@ -189,120 +188,99 @@ struct LaunchView: View {
             Color("LaunchBackground")
                 .ignoresSafeArea()
 
-            LaunchGlow()
-                .opacity(hasAppeared ? 1 : 0)
-
             LaunchLoader()
-                .accessibilityElement()
-                .accessibilityLabel(Str.appName(appState.language))
-                .accessibilityAddTraits(.updatesFrequently)
+
+            VStack {
+                Spacer()
+                LaunchFooter()
+                    .padding(.bottom, Theme.Space.xl)
+            }
+            .opacity(hasAppeared ? 1 : 0)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Str.appName(appState.language))
+        .accessibilityAddTraits(.updatesFrequently)
         .task {
-            withAnimation(.easeOut(duration: 0.6)) { hasAppeared = true }
+            withAnimation(.easeOut(duration: 0.6).delay(0.1)) { hasAppeared = true }
         }
     }
 }
 
-/// The icon's two blues, as the loader draws them: the deep blue of its
-/// lower edge and the cyan of its highlight.
+/// The brand's two blues, as the loader draws them: the deep blue of the
+/// icon's lower edge and the cyan of its highlight.
 private enum LaunchPalette {
     static let deep = Color(red: 0.047, green: 0.314, blue: 0.914)
     static let cyan = Color(red: 0.180, green: 0.839, blue: 1.000)
 }
 
-/// Light behind the mark: two soft pools, the icon's blue and its cyan, that
-/// breathe slowly. A launch screen has one thing on it and a lot of empty
-/// space; lighting the space is what keeps the mark from looking dropped onto
-/// a blank page.
-private struct LaunchGlow: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var breathe = false
-
-    var body: some View {
-        ZStack {
-            RadialGradient(
-                colors: [LaunchPalette.deep.opacity(0.18), .clear],
-                center: .center, startRadius: 0, endRadius: 280
-            )
-            RadialGradient(
-                colors: [LaunchPalette.cyan.opacity(0.16), .clear],
-                center: UnitPoint(x: 0.62, y: 0.42), startRadius: 0, endRadius: 200
-            )
-            .opacity(breathe ? 1 : 0.45)
-            .animation(
-                reduceMotion ? nil : .easeInOut(duration: 2.4).repeatForever(autoreverses: true),
-                value: breathe
-            )
-        }
-        .ignoresSafeArea()
-        .accessibilityHidden(true)
-        .task { if !reduceMotion { breathe = true } }
-    }
-}
-
-/// The icon, breathing, inside a ring whose bright head runs round it.
+/// Two arcs turning against each other: an outer comet of the brand's blue
+/// running into cyan, with a bright bead at its head, and a fainter inner one
+/// going the other way. Small — the size of a large spinner, not of a logo.
 ///
-/// Every loop is started once the mark has arrived, and each is scoped to the
+/// Every loop starts once the loader has arrived, and each is scoped to the
 /// one modifier it drives: a repeating animation begun in the same
 /// transaction as the entrance would otherwise pick the entrance up too, and
-/// the mark would bob in and out for as long as the screen is up.
+/// the loader would bob in and out for as long as the screen is up.
 private struct LaunchLoader: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hasAppeared = false
     @State private var spin = false
-    @State private var breathe = false
 
-    private let markSize: CGFloat = 92
-    private let ringSize: CGFloat = 138
-    private let lineWidth: CGFloat = 3
-    /// How much of the circle the lit arc covers.
-    private let arc: CGFloat = 0.3
+    private let outer: CGFloat = 40
+    private let inner: CGFloat = 24
+    private let outerLine: CGFloat = 2.5
+    private let innerLine: CGFloat = 2
 
     var body: some View {
         ZStack {
-            // Where the arc runs, barely there: the ring reads as a ring even
-            // where the light is not.
+            // Where the outer arc runs, barely there.
             Circle()
-                .stroke(Theme.Palette.brand.opacity(0.10), lineWidth: lineWidth)
-                .frame(width: ringSize, height: ringSize)
+                .stroke(Theme.Palette.brand.opacity(0.10), lineWidth: outerLine)
+                .frame(width: outer, height: outer)
 
-            runner
-                .frame(width: ringSize, height: ringSize)
+            comet
+                .frame(width: outer, height: outer)
                 // Parked at the top for anyone who has asked the system to
-                // reduce motion: still a loading ring, just not a moving one.
+                // reduce motion: still a loader, just not a moving one.
                 .rotationEffect(.degrees(spin ? 270 : -90))
                 .animation(
-                    reduceMotion ? nil : .linear(duration: 1.15).repeatForever(autoreverses: false),
+                    reduceMotion ? nil : .linear(duration: 1.0).repeatForever(autoreverses: false),
                     value: spin
                 )
 
-            mark
-                .scaleEffect(breathe ? 1.035 : 1)
+            Circle()
+                .trim(from: 0, to: 0.22)
+                .stroke(
+                    LaunchPalette.cyan.opacity(0.55),
+                    style: StrokeStyle(lineWidth: innerLine, lineCap: .round)
+                )
+                .frame(width: inner, height: inner)
+                .rotationEffect(.degrees(spin ? -450 : 90))
                 .animation(
-                    reduceMotion ? nil : .easeInOut(duration: 1.3).repeatForever(autoreverses: true),
-                    value: breathe
+                    reduceMotion ? nil : .linear(duration: 1.6).repeatForever(autoreverses: false),
+                    value: spin
                 )
         }
         .opacity(hasAppeared ? 1 : 0)
-        .scaleEffect(hasAppeared ? 1 : 0.9)
-        // The ring turns the same way in every language: it is a clock, not text.
+        .scaleEffect(hasAppeared ? 1 : 0.8)
+        // It turns the same way in every language: it is a clock, not text.
         .environment(\.layoutDirection, .leftToRight)
         .onAppear {
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.82)) { hasAppeared = true }
+            withAnimation(.spring(response: 0.55, dampingFraction: 0.8)) { hasAppeared = true }
         }
         .task {
             guard !reduceMotion else { return }
             // After the entrance has been handed its own transaction.
             try? await Task.sleep(for: .milliseconds(60))
             spin = true
-            breathe = true
         }
     }
 
-    /// The lit arc — a comet, bright cyan at its head and fading to nothing
-    /// at its tail — and a small glowing bead on its head.
-    private var runner: some View {
-        ZStack {
+    /// Bright cyan at its head, fading to nothing at its tail, with a small
+    /// glowing bead leading it.
+    private var comet: some View {
+        let arc: CGFloat = 0.32
+        return ZStack {
             Circle()
                 .trim(from: 0, to: arc)
                 .stroke(
@@ -316,29 +294,46 @@ private struct LaunchLoader: View {
                         startAngle: .degrees(0),
                         endAngle: .degrees(arc * 360)
                     ),
-                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                    style: StrokeStyle(lineWidth: outerLine, lineCap: .round)
                 )
 
             Circle()
                 .fill(LaunchPalette.cyan)
-                .frame(width: lineWidth * 2.4, height: lineWidth * 2.4)
-                .shadow(color: LaunchPalette.cyan.opacity(0.9), radius: 5)
-                .offset(x: ringSize / 2)
+                .frame(width: outerLine * 1.9, height: outerLine * 1.9)
+                .shadow(color: LaunchPalette.cyan.opacity(0.9), radius: 3)
+                .offset(x: outer / 2)
                 .rotationEffect(.degrees(arc * 360))
         }
     }
+}
 
-    /// The home-screen icon, cut to the same continuous corner iOS gives it,
-    /// so the thing tapped is the thing that appears.
-    private var mark: some View {
-        let shape = RoundedRectangle(cornerRadius: markSize * 0.2237, style: .continuous)
-        return Image("LaunchMark")
-            .resizable()
-            .interpolation(.high)
-            .frame(width: markSize, height: markSize)
-            .clipShape(shape)
-            .overlay(shape.strokeBorder(.white.opacity(0.22), lineWidth: 0.5))
-            .shadow(color: LaunchPalette.deep.opacity(0.32), radius: 18, y: 8)
+/// "WEBYAR AI", small and letter-spaced at the foot of the screen: the name
+/// in the label's quiet grey, the "AI" in the brand's blue.
+///
+/// Latin in every language, as the wordmark is everywhere — it is the mark,
+/// not prose — so it is pinned left-to-right; a right-to-left layout would
+/// set it as "AI WEBYAR".
+private struct LaunchFooter: View {
+    private let tracking: CGFloat = 3
+
+    var body: some View {
+        HStack(spacing: tracking * 1.6) {
+            Text(Str.brandWordmark)
+                .foregroundStyle(Theme.Palette.labelSecondary)
+            Text(verbatim: "AI")
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [LaunchPalette.deep, LaunchPalette.cyan],
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                )
+        }
+        .font(.system(size: 12, weight: .semibold, design: .rounded))
+        .tracking(tracking)
+        // Tracking adds its space after the last letter too, which would sit
+        // the centred name half a letter to the left.
+        .padding(.leading, tracking)
+        .environment(\.layoutDirection, .leftToRight)
     }
 }
 

@@ -462,6 +462,19 @@ actor APIClient {
         return try await perform(request, as: RealtimeSubscribe.self)
     }
 
+    private struct BadgeResponse: Decodable, Sendable { let badge: Int? }
+
+    /// `GET /api/push/badge`: counted on the server, so it agrees with the
+    /// list and with the badge a push sets, and reconciles on a read or a
+    /// resolve from any device.
+    func unreadConversations(workspaceID: String) async throws -> Int {
+        let request = try makeRequest(
+            "GET", "/api/push/badge",
+            query: [URLQueryItem(name: "workspace_id", value: workspaceID)]
+        )
+        return max(0, try await perform(request, as: BadgeResponse.self).badge ?? 0)
+    }
+
     private struct SendBody: Encodable, Sendable {
         let conversation_id: String
         let workspace_id: String

@@ -303,7 +303,7 @@ final class InboxViewModel {
         for await event in sync.events() {
             guard stateWorkspaceID == workspaceID else { continue }
             switch event {
-            case .message, .conversationChanged, .push, .resync, .reconcile:
+            case .message, .conversationChanged, .push, .resync, .reconcile, .seen:
                 isStale = true
                 if isOnScreen { scheduleRefresh(after: CachePolicy.listEventDebounce) }
             case .team:

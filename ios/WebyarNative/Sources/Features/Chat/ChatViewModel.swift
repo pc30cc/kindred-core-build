@@ -216,7 +216,10 @@ final class ChatViewModel {
         else { return }
         lastSeenMarked = newest
         let id = conversation.id
-        Task { [api] in try? await api.markSeen(conversationID: id) }
+        Task { [api, sync] in
+            guard (try? await api.markSeen(conversationID: id)) != nil else { return }
+            sync.emit(.seen(conversationID: id))
+        }
     }
 
     /// Kept in memory for a while and shared with the inbox, so opening a
@@ -266,7 +269,7 @@ final class ChatViewModel {
             case .reconcile:
                 thread.requireWholeRead()
                 readShortly()
-            case .team:
+            case .team, .seen:
                 continue
             }
         }

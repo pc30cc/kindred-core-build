@@ -20,6 +20,10 @@ enum SyncEvent: Sendable, Equatable {
     case resync
     /// The saved copy was cleared or replaced: threads read whole.
     case reconcile
+    /// The operator read a conversation on this phone. The server announces
+    /// nothing when a message is marked seen, so the phone says so itself:
+    /// the list's unread count and the Inbox tab's dot follow at once.
+    case seen(conversationID: String)
     /// Something changed in one of this operator's team threads: a message
     /// either way, or a read. `peerID` is the colleague it is about; nil when
     /// the team channel has just (re)joined and anything may have been missed.

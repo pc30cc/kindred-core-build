@@ -576,6 +576,16 @@ enum Str {
         }
     }
 
+    /// What VoiceOver says of the dot on the Inbox tab. A template: `{count}`
+    /// is replaced with the number in the reader's digits.
+    static func tabUnread(_ l: Language) -> String {
+        switch l {
+        case .en: "{count} unread"
+        case .fa: "{count} خوانده‌نشده"
+        case .tr: "{count} okunmamış"
+        }
+    }
+
     static func tabContacts(_ l: Language) -> String {
         switch l {
         case .en: "Contacts"

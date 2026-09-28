@@ -10,7 +10,7 @@ package com.webyar.operator.i18n
 // product never reads the device language — the operator picks one and it
 // sticks — so locale resolution is not wanted here either.
 //
-// 391 of 407 strings are generated.
+// 392 of 408 strings are generated.
 // These are hand-written in StringsManual.kt because they are logic rather
 // than copy:
 //   resetSentDetail — takes more than a language
@@ -433,6 +433,16 @@ object Str {
         Language.EN -> "Inbox"
         Language.FA -> "صندوق"
         Language.TR -> "Gelen kutusu"
+    }
+
+    /**
+     * What VoiceOver says of the dot on the Inbox tab. A template: `{count}`
+     * is replaced with the number in the reader's digits.
+     */
+    fun tabUnread(l: Language): String = when (l) {
+        Language.EN -> "{count} unread"
+        Language.FA -> "{count} خوانده‌نشده"
+        Language.TR -> "{count} okunmamış"
     }
 
     fun tabContacts(l: Language): String = when (l) {

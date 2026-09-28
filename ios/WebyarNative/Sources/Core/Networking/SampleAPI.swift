@@ -108,6 +108,11 @@ actor SampleAPI: WebyarAPI {
         RealtimeSubscribe(vendor: "disabled", channel: nil, token: nil, expiresAt: nil)
     }
 
+    /// The sample inbox's conversations with something unread.
+    func unreadConversations(workspaceID: String) async throws -> Int {
+        Self.conversations.filter { ($0.unreadCount ?? 0) > 0 }.count
+    }
+
     func realtimeUserSubscribe(workspaceID: String) async throws -> RealtimeSubscribe {
         RealtimeSubscribe(vendor: "disabled", channel: nil, token: nil, expiresAt: nil)
     }

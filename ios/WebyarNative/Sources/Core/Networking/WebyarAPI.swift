@@ -30,6 +30,9 @@ protocol WebyarAPI: Sendable {
     func realtimeInboxSubscribe(workspaceID: String) async throws -> RealtimeSubscribe
     /// This operator's own channel, `ws:<workspace>:user:<id>`: team chat, as ids only.
     func realtimeUserSubscribe(workspaceID: String) async throws -> RealtimeSubscribe
+    /// Open conversations in `workspaceID` holding a customer message nobody
+    /// has seen — the server's own unread count, the one the push badge uses.
+    func unreadConversations(workspaceID: String) async throws -> Int
     func send(
         body: String,
         conversationID: String,

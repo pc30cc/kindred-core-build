@@ -111,6 +111,14 @@ enum Theme {
         /// A control resting on `surface` — a search field, a segmented track.
         static let surfaceElevated = Color(uiColor: .tertiarySystemFill)
 
+        /// The raised thumb of a segmented control — white on the grey track
+        /// in light mode, a lighter grey in dark, as the system draws it.
+        static let segmentThumb = Color(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0.388, green: 0.388, blue: 0.400, alpha: 1)
+                : .white
+        })
+
         /// The skeleton's ground: what stands where a picture or a face will
         /// be. Opaque, unlike `surfaceElevated`, so a face's silhouette reads
         /// the same on a white row, a grey sheet and a chat bubble.

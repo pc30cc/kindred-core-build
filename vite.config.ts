@@ -1,4 +1,5 @@
-import { defineConfig, loadEnv, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin, type HttpProxy, type ViteDevServer } from "vite";
+import type { IncomingMessage, ServerResponse } from "http";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import fs from "fs";
@@ -74,7 +75,7 @@ export default defineConfig(({ mode }) => {
                 // came back 401 "Not authenticated". Re-stamp the cookie as
                 // SameSite=None; Secure for the dev proxy ONLY; production
                 // keeps its stricter Lax cookie untouched.
-                configure: (proxy: any) => {
+                configure: (proxy: HttpProxy.Server) => {
                   // The backend also runs a CSRF origin check on every
                   // mutating request (POST/PUT/PATCH/DELETE) against
                   // CORS_ORIGINS. The preview's lovableproject.com origin is
@@ -86,11 +87,11 @@ export default defineConfig(({ mode }) => {
                   const trustedOrigin =
                     env.VITE_PREVIEW_PROXY_ORIGIN?.trim() ||
                     apiTarget.replace('://api.', '://app.');
-                  proxy.on('proxyReq', (proxyReq: any) => {
+                  proxy.on('proxyReq', (proxyReq) => {
                     proxyReq.setHeader('origin', trustedOrigin);
                     proxyReq.setHeader('referer', `${trustedOrigin}/`);
                   });
-                  proxy.on('proxyRes', (proxyRes: any) => {
+                  proxy.on('proxyRes', (proxyRes) => {
                     const setCookie = proxyRes.headers['set-cookie'];
                     if (!Array.isArray(setCookie)) return;
                     proxyRes.headers['set-cookie'] = setCookie.map((cookie: string) => {
@@ -118,8 +119,8 @@ export default defineConfig(({ mode }) => {
       // blocked and the widget falls back to a system font in dev only.
       {
         name: 'widget-assets-cors',
-        configureServer(server: any) {
-          server.middlewares.use((req: any, res: any, next: any) => {
+        configureServer(server: ViteDevServer) {
+          server.middlewares.use((req: IncomingMessage, res: ServerResponse, next: () => void) => {
             if (req.url && req.url.startsWith('/widget/')) {
               res.setHeader('Access-Control-Allow-Origin', '*');
               res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
@@ -131,12 +132,15 @@ export default defineConfig(({ mode }) => {
     ].filter(Boolean),
 
     resolve: {
-      alias: {
-        "@": path.resolve(__dirname, "./src"),
+      alias: [
+        { find: "@", replacement: path.resolve(__dirname, "./src") },
         // Push is native-only; keep the optional Firebase web SDK out of the
         // web bundle (the Capacitor plugin's web fallback imports it statically).
-        "firebase/messaging": path.resolve(__dirname, "./src/lib/push/firebaseMessagingWebStub.ts"),
-      },
+        { find: "firebase/messaging", replacement: path.resolve(__dirname, "./src/lib/push/firebaseMessagingWebStub.ts") },
+        // Every Loader2 spinner draws the brand's two arcs (src/lib/lucide).
+        // Exact match only: that module reaches the real package by file path.
+        { find: /^lucide-react$/, replacement: path.resolve(__dirname, "./src/lib/lucide/index.ts") },
+      ],
       dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "@tanstack/react-query", "@tanstack/query-core"],
     },
   };

@@ -2,6 +2,7 @@ package com.webyar.ai.ui
 
 import com.webyar.ai.core.model.User
 import com.webyar.ai.core.model.Workspace
+import com.webyar.ai.core.model.MobileAppConfig
 import com.webyar.ai.i18n.Language
 
 /**
@@ -18,6 +19,12 @@ interface SessionHooks {
     fun workspaceSelected(user: User, workspace: Workspace, all: List<Workspace>) {}
 
     fun languageChanged(language: Language) {}
+
+    /**
+     * Super Admin's config for this app, as the server has just given it —
+     * every time it is read, changed or not; acting on it is idempotent.
+     */
+    fun appConfigChanged(config: MobileAppConfig) {}
 
     /** While the session is still valid: the last moment anything can be told to the server. */
     suspend fun beforeSignOut(user: User) {}

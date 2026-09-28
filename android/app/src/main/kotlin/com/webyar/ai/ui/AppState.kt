@@ -389,6 +389,9 @@ class AppState(
         appConfigJob = viewModelScope.launch {
             val config = runCatching { api.mobileAppConfig() }.getOrNull() ?: return@launch
             appConfigFromServer = true
+            // The Firebase project push arrives through rides in it: handed on
+            // at every read, so a phone that missed it once takes it the next.
+            runCatching { hooks.appConfigChanged(config) }
             if (config != _appConfig.value) {
                 _appConfig.value = config
                 // Stored on the side, so this job ends when the answer is

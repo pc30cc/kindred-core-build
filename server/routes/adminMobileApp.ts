@@ -30,6 +30,7 @@ import {
 import { evaluateReadiness, summarize } from '../services/mobileApp/readiness.js';
 import { inspectNativeProject } from '../services/mobileApp/project.js';
 import { buildGeneratedConfig } from '../services/mobileApp/generatedConfig.js';
+import { firebaseClientFields, firebaseProjectsMatch } from '../services/mobileApp/firebaseClient.js';
 
 export const adminMobileAppRouter = Router();
 
@@ -167,6 +168,7 @@ const settingsSchema = z.object({
   android_app_profile_photo_editable: z.boolean().optional(),
   android_app_show_visitors: z.boolean().optional(),
   android_app_show_web_analytics: z.boolean().optional(),
+  ...firebaseClientFields,
   ios_app_show_contacts: z.boolean().optional(),
   ios_app_show_visitors: z.boolean().optional(),
   ios_app_show_web_analytics: z.boolean().optional(),
@@ -177,6 +179,11 @@ const settingsSchema = z.object({
 }).refine(
   (v) => v.android_min_sdk === undefined || v.android_target_sdk === undefined || v.android_min_sdk <= v.android_target_sdk,
   { message: 'minimum SDK above target SDK', path: ['android_min_sdk'] },
+).refine(
+  // The app id carries the project number: two values from two different
+  // projects would start Firebase against one and register with the other.
+  (v) => firebaseProjectsMatch(v.android_firebase_app_id, v.android_firebase_sender_id),
+  { message: 'app id and project number are from different Firebase projects', path: ['android_firebase_sender_id'] },
 );
 
 async function readRow(config: ServerConfig) {

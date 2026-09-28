@@ -349,6 +349,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/233_mobile_app_ios_support_link.sql',
     hosted: 'supabase/migrations/20260928140000_mobile_app_ios_support_link.sql',
   },
+  {
+    label: '234 — mobile_app_settings: the Android Firebase client configuration',
+    selfHost: 'database/migrations/234_mobile_app_android_firebase.sql',
+    hosted: 'supabase/migrations/20260928150000_mobile_app_android_firebase.sql',
+  },
 
   // intentionally asymmetric, not a drift bug.
 

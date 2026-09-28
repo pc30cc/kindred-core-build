@@ -39,8 +39,33 @@ data class MobileAppConfig(
      * owners and admins on plans with `web_analytics`.
      */
     val showWebAnalytics: Boolean = true,
+    /**
+     * The Firebase project push arrives through, as Super Admin → Mobile App
+     * → Android → Identity sets it; null until all four values are there.
+     * Kept apart by [com.webyar.ai.core.push.PushConfig], which starts
+     * Firebase with it at every launch from then on.
+     */
+    val firebase: FirebaseClientConfig? = null,
 ) {
     companion object {
         val DEFAULT = MobileAppConfig()
     }
+}
+
+/**
+ * Firebase's client identifiers for this app: the four values of the
+ * package's `google-services.json`. Not credentials — every build made with
+ * them carries them in the clear — so they travel in the app's config and
+ * are kept in ordinary preferences.
+ */
+@Serializable
+data class FirebaseClientConfig(
+    val appId: String = "",
+    val apiKey: String = "",
+    val projectId: String = "",
+    val senderId: String = "",
+) {
+    /** All four: Firebase cannot start with fewer. */
+    val isComplete: Boolean
+        get() = appId.isNotBlank() && apiKey.isNotBlank() && projectId.isNotBlank() && senderId.isNotBlank()
 }

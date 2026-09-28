@@ -22,7 +22,29 @@ describe('Android in-app config', () => {
       profilePhotoEditable: true,
       showVisitors: true,
       showWebAnalytics: true,
+      firebase: null,
     });
+  });
+
+  /**
+   * Push on Android starts Firebase with these; a partial set cannot, so
+   * the app is told nothing until all four are there.
+   */
+  it('hands the app Firebase\'s client identifiers only once all four are set', () => {
+    const complete = {
+      android_firebase_app_id: '1:123456789012:android:0a1b2c3d4e5f6a7b',
+      android_firebase_api_key: 'AIzaSyDq3b7mX0v9QeLr4TnKw2HsZc5Uf8Ga1pE',
+      android_firebase_project_id: 'webyar-app',
+      android_firebase_sender_id: '123456789012',
+    };
+    expect(toAndroidAppConfig(normalize(complete)).firebase).toEqual({
+      appId: '1:123456789012:android:0a1b2c3d4e5f6a7b',
+      apiKey: 'AIzaSyDq3b7mX0v9QeLr4TnKw2HsZc5Uf8Ga1pE',
+      projectId: 'webyar-app',
+      senderId: '123456789012',
+    });
+    expect(toAndroidAppConfig(normalize({ ...complete, android_firebase_api_key: null })).firebase).toBeNull();
+    expect(toAndroidAppConfig(normalize({ ...complete, android_firebase_sender_id: '  ' })).firebase).toBeNull();
   });
 
   it('keeps the Visitors and Website analytics tabs on for rows written before migration 228', () => {

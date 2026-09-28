@@ -30,8 +30,14 @@ failure can never fail or roll back message ingestion.
    the `.p8` APNs key with its Key ID and Team ID.
 3. Project settings → **Service accounts** → *Generate new private key* → this
    JSON is the **server** credential (never ships in the app).
-4. Android (when shipped): add the Android app, place `google-services.json` in
-   `android/app/`.
+4. Android: **Add app → Android**, package `com.webyar.ai`. Download its
+   `google-services.json` and read it into **Super Admin → Mobile App →
+   Android → Identity → Push notifications (Firebase)** ("Read
+   google-services.json"), then save. Installed apps read the four values from
+   `GET /api/mobile-app/config` (`firebase`), keep them and start Firebase with
+   them — no new build, and nothing is placed in `android/app/`. A build made
+   with `WEBYAR_FIREBASE_*` keeps its own project instead (see
+   `docs/ANDROID_RELEASE.md`).
 
 ## 3. Server environment
 

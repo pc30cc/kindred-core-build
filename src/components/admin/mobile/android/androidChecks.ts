@@ -3,6 +3,7 @@
  * tab so the page header can count them too, against the unsaved draft.
  */
 import type { MobileAppSettings } from '@/hooks/useMobileApp';
+import { firebaseClientComplete } from './googleServices';
 
 /** Google Play's floor for new apps and updates: Android 16. */
 export const PLAY_MIN_TARGET_SDK = 36;
@@ -13,6 +14,8 @@ export function androidChecks(settings: MobileAppSettings, pushConfigured: boole
     { key: 'privacyPolicy', ok: Boolean(settings.privacy_policy_url), tab: 'identity' },
     { key: 'targetSdk', ok: settings.android_target_sdk >= PLAY_MIN_TARGET_SDK, tab: 'release' },
     { key: 'sdkRange', ok: settings.android_min_sdk <= settings.android_target_sdk, tab: 'release' },
+    // Both halves of push: the app's Firebase project, and the server's key.
+    { key: 'firebaseClient', ok: firebaseClientComplete(settings), tab: 'identity' },
     { key: 'push', ok: pushConfigured, tab: null },
   ] as const;
 }

@@ -153,6 +153,11 @@ export interface MobileAppSettings {
   android_app_profile_photo_editable: boolean;
   android_app_show_visitors: boolean;
   android_app_show_web_analytics: boolean;
+  // Firebase's client identifiers for the Android package (google-services.json).
+  android_firebase_app_id: string | null;
+  android_firebase_api_key: string | null;
+  android_firebase_project_id: string | null;
+  android_firebase_sender_id: string | null;
   ios_app_show_contacts: boolean;
   ios_app_show_visitors: boolean;
   ios_app_show_web_analytics: boolean;

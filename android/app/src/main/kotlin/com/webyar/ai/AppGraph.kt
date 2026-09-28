@@ -27,6 +27,7 @@ import com.webyar.ai.core.net.Backend
 import com.webyar.ai.core.net.WebyarApi
 import com.webyar.ai.core.push.FirebasePushTokens
 import com.webyar.ai.core.push.Notifications
+import com.webyar.ai.core.model.MobileAppConfig
 import com.webyar.ai.core.push.PushConfig
 import com.webyar.ai.core.push.PushContext
 import com.webyar.ai.core.push.PushDevice
@@ -185,6 +186,15 @@ class AppGraph(private val app: Application) {
         override fun languageChanged(language: Language) {
             session.language = language
             Notifications.ensureChannels(app, language)
+        }
+
+        override fun appConfigChanged(config: MobileAppConfig) {
+            // Super Admin's Firebase project: kept for every launch after, and
+            // — when it has just started Firebase — this phone registers now.
+            if (Backend.isSample) return
+            if (PushConfig.adopt(app, config.firebase, diag)) {
+                appScope.launch { push.sync("firebase config") }
+            }
         }
 
         override suspend fun beforeSignOut(user: User) {

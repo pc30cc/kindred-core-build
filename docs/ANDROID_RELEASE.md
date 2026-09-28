@@ -104,9 +104,14 @@ a new version is that file replaced, merged and deployed. Details:
 Build it with a `versionCode` above the last one published (1.0.0 was 1,
 1.0.1 is 2), or phones that have it will refuse the file as a downgrade.
 
-A release built on a machine with no `WEBYAR_FIREBASE_*` values has no push
-notifications: it works while open and is silent when closed. Set them before
-building one for operators to rely on.
+Push does not depend on the build. The published APK carries no Firebase
+project: it reads the one set in **Super Admin → Mobile App → Android →
+Identity** from the server, keeps it and starts Firebase with it at every
+launch after (`core/push/PushConfig.kt`). Until that is set — and until the
+server has its FCM service account, `FIREBASE_SERVICE_ACCOUNT_JSON` — the app
+works while open and is silent when closed. A build made with
+`WEBYAR_FIREBASE_*` values uses that project instead, whatever Super Admin
+says: for a developer's own Firebase project, not for a release.
 
 ## Before you press publish
 

@@ -57,7 +57,9 @@ struct VisitorsView: View {
 
     @Environment(AppState.self) private var appState
     @State private var model = VisitorsViewModel()
-    @State private var mode: Mode = .list
+    /// Opens on the map: who is on the site right now is first a question
+    /// of where they are, and the list is one tap away in the switch above.
+    @State private var mode: Mode = .map
     @State private var isSearching = false
 
     private enum Mode: Hashable { case list, map }

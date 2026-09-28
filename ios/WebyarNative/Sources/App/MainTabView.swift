@@ -59,20 +59,32 @@ struct MainTabView: View {
 
     private var language: Language { appState.language }
 
-    /// The tabs this account actually has.
+    /// The tabs this account actually has, in the bar's order.
     ///
     /// Inbox and Settings are core and always present. Contacts, Visitors
     /// and Analytics are plan-gated, and while the plan is still resolving
     /// none of them is rendered — a tab that appears and then vanishes reads
     /// as a bug.
     private var tabs: [Tab] {
-        var tabs: [Tab] = [.inbox]
+        var others: [Tab] = []
         if appState.planResolved {
-            if appState.contactsVisible { tabs.append(.contacts) }
-            if appState.visitorsVisible { tabs.append(.visitors) }
-            if appState.webAnalyticsVisible { tabs.append(.analytics) }
+            if appState.contactsVisible { others.append(.contacts) }
+            if appState.visitorsVisible { others.append(.visitors) }
+            if appState.webAnalyticsVisible { others.append(.analytics) }
         }
-        tabs.append(.settings)
+        others.append(.settings)
+        return Self.order(inbox: .inbox, among: others)
+    }
+
+    /// The inbox in the middle of the bar, the rest around it in their order.
+    ///
+    /// The middle is where the thumb rests and where the eye lands first,
+    /// and the inbox is the tab an operator comes back to between every
+    /// other thing they do. With an even number of others it takes the
+    /// leading middle, and with only Settings beside it, the leading end.
+    static func order(inbox: Tab, among others: [Tab]) -> [Tab] {
+        var tabs = others
+        tabs.insert(inbox, at: others.count / 2)
         return tabs
     }
 

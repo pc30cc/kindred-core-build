@@ -18,6 +18,9 @@ struct InboxView: View {
     @Environment(AppState.self) private var appState
     @Environment(PromotionCenter.self) private var promotions
     @Environment(\.locale) private var locale
+    /// What the Inbox tab's badge counts, owned by the shell. Optional so the
+    /// screen still builds on its own, in a preview or a test.
+    @Environment(InboxBadge.self) private var inboxBadge: InboxBadge?
     @State private var model = InboxViewModel()
     /// The Colleagues tab on the strip: team chat, in place of the queues.
     @State private var colleagues = ColleaguesViewModel()
@@ -29,6 +32,18 @@ struct InboxView: View {
     @State private var isAskingAboutNotifications = false
 
     private var language: Language { appState.language }
+
+    /// The strip's segments holding something nobody has read, with how many:
+    /// Open and Colleagues, from the same counts as the tab's badge, so a dot
+    /// here and the number on the tab never disagree. Never the AI queue — the
+    /// AI is answering those.
+    private var stripUnread: [InboxStripItem: Int] {
+        guard let inboxBadge else { return [:] }
+        var unread: [InboxStripItem: Int] = [:]
+        if inboxBadge.conversations > 0 { unread[.queue(.open)] = inboxBadge.conversations }
+        if inboxBadge.teamThreads > 0 { unread[.colleagues] = inboxBadge.teamThreads }
+        return unread
+    }
     private var workspaceID: String? { appState.selectedWorkspace?.id }
     /// The installed channel inboxes the plan lets this workspace work in.
     private var channelInboxes: [ChannelInbox] { model.channels.filter { appState.channelInboxVisible($0) } }
@@ -240,6 +255,7 @@ struct InboxView: View {
                 items: appState.inboxStrip(automated: model.counts?.automated),
                 counts: model.counts,
                 colleaguesUnread: colleagues.unreadTotal,
+                unread: stripUnread,
                 language: language
             )
                 .listRowInsets(filterInsets)

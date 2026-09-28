@@ -51,22 +51,34 @@ struct PrimaryButton: View {
 /// The strip above the inbox list: the queues an operator moves between all
 /// day, and Colleagues.
 ///
-/// `Picker(.segmented)` is the native control and already handles RTL, Dynamic
-/// Type and the selection animation, so it is used rather than reimplemented.
 /// The items come from the plan and Super Admin, not from `allCases` — a
 /// segment that leads to a permanently empty list because the plan excludes
 /// it reads as a broken app, not as an upsell.
 ///
 /// A count rides in the segment label when there is one — the queue's, or the
 /// unread team messages on Colleagues — because the whole reason to glance at
-/// this control is to see where the work is.
+/// this control is to see where the work is. And a segment holding something
+/// nobody has read carries a red dot after its label: Open and Colleagues,
+/// from the same counts as the Inbox tab's badge, never the AI queue.
+///
+/// Drawn here rather than as `Picker(.segmented)`, which it replaced, because
+/// a system segment takes a string or a glyph and nothing else — there is no
+/// way to put one red dot in one segment. It keeps the system control's
+/// look: a grey track, a raised thumb that slides to the selection, equal
+/// segments, and the same traits for VoiceOver.
 struct FilterPicker: View {
     @Binding var selection: InboxStripItem
     let items: [InboxStripItem]
     let counts: InboxCounts?
     /// Messages from colleagues not read yet.
     var colleaguesUnread: Int = 0
+    /// The segments holding something nobody has read, and how many — a dot
+    /// on each, and the number for VoiceOver.
+    var unread: [InboxStripItem: Int] = [:]
     let language: Language
+
+    @Namespace private var thumb
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private func label(for item: InboxStripItem) -> String {
         let title: String
@@ -84,13 +96,62 @@ struct FilterPicker: View {
     }
 
     var body: some View {
-        Picker("", selection: $selection) {
+        HStack(spacing: 0) {
             ForEach(items) { item in
-                Text(label(for: item)).tag(item)
+                segment(item)
             }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
+        .padding(2)
+        .background(Capsule().fill(Theme.Palette.surfaceElevated))
+        .accessibilityElement(children: .contain)
+    }
+
+    private func segment(_ item: InboxStripItem) -> some View {
+        let isSelected = item == selection
+        let unreadCount = unread[item] ?? 0
+
+        return Button {
+            guard !isSelected else { return }
+            Haptics.selection()
+            withAnimation(reduceMotion ? nil : Theme.Motion.tabBubble) {
+                selection = item
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text(label(for: item))
+                    .font(.app(.footnote, isSelected ? .semibold : .medium))
+                    .foregroundStyle(isSelected ? Theme.Palette.label : Theme.Palette.labelSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+
+                if unreadCount > 0 {
+                    Circle()
+                        .fill(Theme.Palette.danger)
+                        .frame(width: 7, height: 7)
+                        .transition(reduceMotion ? .opacity : .scale(scale: 0.3).combined(with: .opacity))
+                }
+            }
+            .padding(.horizontal, Theme.Space.sm)
+            .frame(maxWidth: .infinity, minHeight: 30)
+            .background {
+                if isSelected {
+                    Capsule()
+                        .fill(Theme.Palette.segmentThumb)
+                        .shadow(color: .black.opacity(0.10), radius: 3, x: 0, y: 1)
+                        .matchedGeometryEffect(id: "thumb", in: thumb)
+                }
+            }
+            .contentShape(Capsule())
+            .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.7), value: unreadCount > 0)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label(for: item))
+        .accessibilityValue(
+            unreadCount > 0
+                ? Str.tabUnread(language).filling("count", with: Format.number(unreadCount, language: language))
+                : ""
+        )
+        .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
     }
 }
 

@@ -140,6 +140,9 @@ struct MainTabView: View {
             NavigationStack(path: $inboxPath) {
                 InboxView(path: $inboxPath, isSelectedTab: selection == .inbox)
             }
+            // The same counts the tab's badge shows, for the dots on the
+            // inbox strip's Open and Colleagues segments.
+            .environment(inboxBadge)
             .toolbar(.hidden, for: .tabBar)
             .tag(Tab.inbox)
 

@@ -4,7 +4,9 @@
  * The single point where a Webyar event becomes a native notification. No
  * provider handler (Telegram / WhatsApp / Instagram / Bale / widget) ever
  * calls FCM directly: they all reach this module through
- * `notifyInboundMessage`, which is channel-agnostic.
+ * `notifyInboundMessage`, which is channel-agnostic. A colleague's message in
+ * team chat, which is about no conversation, comes in through
+ * `notifyTeamMessage` and leaves by the same road.
  *
  * Load-bearing properties:
  *  • Best effort, never transactional. `notifyInboundMessage` never throws and
@@ -23,7 +25,7 @@ import { getServiceClient } from '../../supabase.js';
 import { sendFcmMessage, isPushConfigured, type ApnsDelivery } from './fcm.js';
 import { sendApnsAlert, isApnsConfigured, nativeBundleId } from './apns.js';
 import { listActiveDevices, disableToken, type PushDeviceRow } from './devices.js';
-import { resolveRecipients, unreadBadgeCount, type PushEventType } from './recipients.js';
+import { resolveRecipients, unreadBadgeCount, type PushEventType, type Recipient } from './recipients.js';
 import {
   loadPushPlatformSettings,
   renderTemplate,
@@ -78,6 +80,9 @@ const COPY = {
     newMessage: 'New message',
     internalNote: (name: string) => `${name} · internal note`,
     mentioned: (name: string) => `${name} mentioned you`,
+    colleague: 'Colleague',
+    teamPrivacyBody: 'New message from a colleague',
+    teamMessage: (name: string) => `${name} · colleague`,
   },
   fa: {
     privacyTitle: 'Webyar',
@@ -87,6 +92,9 @@ const COPY = {
     newMessage: 'پیام جدید',
     internalNote: (name: string) => `${name} · یادداشت داخلی`,
     mentioned: (name: string) => `${name} شما را نام برد`,
+    colleague: 'همکار',
+    teamPrivacyBody: 'پیام جدید از همکار',
+    teamMessage: (name: string) => `${name} · همکار`,
   },
   tr: {
     privacyTitle: 'Webyar',
@@ -96,6 +104,9 @@ const COPY = {
     newMessage: 'Yeni mesaj',
     internalNote: (name: string) => `${name} · dahili not`,
     mentioned: (name: string) => `${name} sizden bahsetti`,
+    colleague: 'İş arkadaşı',
+    teamPrivacyBody: 'Bir iş arkadaşından yeni mesaj',
+    teamMessage: (name: string) => `${name} · iş arkadaşı`,
   },
 } as const;
 
@@ -230,64 +241,19 @@ export async function notifyInboundMessage(
 
       const collapseId = policy.collapse_enabled ? `conv-${input.conversationId}` : undefined;
 
-      let accepted = 0;
-      let failed = 0;
-      for (const device of devices) {
-        // The row says which door. Both transports answer with the same three
-        // things that matter here — did it go, is the address dead, what did
-        // the service say — so only the call itself differs.
-        const outcome = device.transport === 'apns'
-          ? await sendApnsAlert({
-              token: device.push_token,
-              title,
-              body,
-              data,
-              badge,
-              sound: recipient.sound,
-              collapseId,
-              apns,
-              topic: nativeBundleId(),
-            })
-          : await sendFcmMessage({
-              token: device.push_token,
-              title,
-              body,
-              data,
-              badge,
-              sound: recipient.sound,
-              collapseKey: collapseId,
-              androidChannelId: policy.android_channel_id,
-              apns,
-            });
-        if (outcome.ok) {
-          accepted += 1;
-        } else {
-          failed += 1;
-          if (outcome.unregistered) {
-            await disableToken(
-              config,
-              device.push_token,
-              device.transport === 'apns' ? 'apns_unregistered' : 'fcm_unregistered',
-            );
-            console.warn('[push] token unregistered, device disabled', {
-              userId: recipient.userId,
-              platform: device.platform,
-              transport: device.transport,
-            });
-          } else {
-            console.warn('[push] send failed', {
-              userId: recipient.userId,
-              platform: device.platform,
-              transport: device.transport,
-              status: outcome.status,
-            });
-          }
-        }
-      }
+      const { accepted, failed } = await deliver(config, recipient, devices, {
+        title,
+        body,
+        data,
+        badge,
+        collapseId,
+        apns,
+        androidChannelId: policy.android_channel_id,
+      });
 
       await finish(
         config,
-        input,
+        input.workspaceId,
         recipient.userId,
         dedupeKey,
         devices.length,
@@ -302,9 +268,229 @@ export async function notifyInboundMessage(
   }
 }
 
+export interface TeamPushInput {
+  workspaceId: string;
+  /** The colleague who wrote it; never notified. */
+  senderId: string;
+  /** The one operator it is addressed to. */
+  recipientId: string;
+  /** The `team_messages` row, committed before this is called. */
+  messageId: string;
+  /** Only shown when the recipient allows previews. */
+  text?: string | null;
+  hasAttachment?: boolean;
+}
+
+/**
+ * A colleague's direct message in team chat, as a notification on the phone
+ * of the operator it was sent to.
+ *
+ * Team chat only ever told the recipient over realtime, which reaches an app
+ * that is open and nothing else: a message from a colleague to a phone in a
+ * pocket arrived in silence. The same properties as `notifyInboundMessage`
+ * — best effort and fire-and-forget after the row is committed, one claim
+ * per (workspace, user, message), every device independently — and the same
+ * preferences: "disable all", scope 'none', presence, quiet hours (which a
+ * direct message breaks exactly where a mention would) and previews.
+ *
+ * `data` names the colleague (`peerId`), not a conversation: that is the
+ * thread a tap opens.
+ */
+export async function notifyTeamMessage(config: ServerConfig, input: TeamPushInput): Promise<void> {
+  try {
+    if (!isPushConfigured() && !isApnsConfigured()) return;
+    if (input.recipientId === input.senderId) return;
+    const policy = await loadPushPlatformSettings(config);
+    if (!policy.push_enabled) return;
+    const eventType: PushEventType = 'team_message';
+
+    // Membership, suspension and preferences are read here, as for any
+    // other event; the route's own check is not taken as authority.
+    const [recipient] = await resolveRecipients(config, {
+      workspaceId: input.workspaceId,
+      assignedTo: null,
+      eventType,
+      actorId: input.senderId,
+      mentionedUserIds: [input.recipientId],
+      userIds: [input.recipientId],
+      policy,
+    });
+    if (!recipient) return;
+    const devices = await listActiveDevices(config, [recipient.userId]);
+    if (!devices.length) return;
+
+    const sb = getServiceClient(config);
+    const dedupeKey = `${eventType}:${input.messageId}`;
+    const { error: claimError } = await sb.from('push_dispatch_log').insert({
+      workspace_id: input.workspaceId,
+      user_id: recipient.userId,
+      conversation_id: null,
+      message_id: input.messageId,
+      notification_type: eventType,
+      dedupe_key: dedupeKey,
+      status: 'attempted',
+    });
+    if (claimError) return; // duplicate (or logging outage) → stay silent
+
+    const { data: sender } = await sb
+      .from('profiles')
+      .select('full_name')
+      .eq('id', input.senderId)
+      .maybeSingle();
+    const { title, body } = renderTeamContent(
+      {
+        senderName: (sender as { full_name: string | null } | null)?.full_name ?? null,
+        text: input.text,
+        hasAttachment: input.hasAttachment,
+      },
+      recipient.preview,
+      recipient.locale,
+    );
+    const badge = policy.badge_enabled
+      ? await unreadBadgeCount(config, recipient.userId, input.workspaceId)
+      : undefined;
+    // One thread per colleague, as the app shows them.
+    const thread = `team-${input.senderId}`;
+    const { accepted, failed } = await deliver(config, recipient, devices, {
+      title,
+      body,
+      data: {
+        type: eventType,
+        workspaceId: input.workspaceId,
+        peerId: input.senderId,
+        messageId: input.messageId,
+      },
+      badge,
+      collapseId: policy.collapse_enabled ? thread : undefined,
+      apns: apnsDeliveryFor(policy, eventType, { workspaceId: input.workspaceId, conversationId: thread }),
+      androidChannelId: policy.android_channel_id,
+    });
+
+    await finish(
+      config,
+      input.workspaceId,
+      recipient.userId,
+      dedupeKey,
+      devices.length,
+      accepted,
+      failed,
+      accepted > 0 ? 'sent' : 'failed',
+    );
+  } catch (err) {
+    // A team message is already saved and on its way over realtime.
+    console.error('[push] team dispatch error', { message: String((err as Error)?.message ?? err) });
+  }
+}
+
+/**
+ * A team message's copy, in the recipient's language: the colleague's name
+ * marked as a colleague's — so it is never read as a customer's — and what
+ * they wrote. With previews off, neither the text nor the name leaves the
+ * server.
+ *
+ * Not from Super Admin's templates: those are written for customers'
+ * messages ("{{sender}}" is a customer there), and a team message worded as
+ * one would say the wrong thing.
+ */
+export function renderTeamContent(
+  input: { senderName?: string | null; text?: string | null; hasAttachment?: boolean },
+  preview: boolean,
+  locale = 'en',
+): { title: string; body: string } {
+  const lang = copyLocale(locale);
+  const copy = COPY[lang];
+  const mark = (result: { title: string; body: string }) => ({
+    title: directed(lang, result.title),
+    body: directed(lang, result.body),
+  });
+  if (!preview) return mark({ title: copy.privacyTitle, body: copy.teamPrivacyBody });
+  const name = (input.senderName || '').trim();
+  const text = (input.text || '').trim();
+  const fallback = input.hasAttachment ? copy.attachment : copy.newMessage;
+  return mark({ title: name ? copy.teamMessage(name) : copy.colleague, body: truncate(text || fallback) });
+}
+
+/** One notification, as every device of one recipient is sent it. */
+interface Outgoing {
+  title: string;
+  body: string;
+  data: Record<string, string>;
+  badge?: number;
+  collapseId?: string;
+  apns: ApnsDelivery;
+  androidChannelId?: string;
+}
+
+/**
+ * Sends [message] to each of [recipient]'s devices, independently: a dead
+ * token on one phone is disabled and never blocks the others.
+ */
+async function deliver(
+  config: ServerConfig,
+  recipient: Recipient,
+  devices: PushDeviceRow[],
+  message: Outgoing,
+): Promise<{ accepted: number; failed: number }> {
+  let accepted = 0;
+  let failed = 0;
+  for (const device of devices) {
+    // The row says which door. Both transports answer with the same three
+    // things that matter here — did it go, is the address dead, what did
+    // the service say — so only the call itself differs.
+    const outcome = device.transport === 'apns'
+      ? await sendApnsAlert({
+          token: device.push_token,
+          title: message.title,
+          body: message.body,
+          data: message.data,
+          badge: message.badge,
+          sound: recipient.sound,
+          collapseId: message.collapseId,
+          apns: message.apns,
+          topic: nativeBundleId(),
+        })
+      : await sendFcmMessage({
+          token: device.push_token,
+          title: message.title,
+          body: message.body,
+          data: message.data,
+          badge: message.badge,
+          sound: recipient.sound,
+          collapseKey: message.collapseId,
+          androidChannelId: message.androidChannelId,
+          apns: message.apns,
+        });
+    if (outcome.ok) {
+      accepted += 1;
+    } else {
+      failed += 1;
+      if (outcome.unregistered) {
+        await disableToken(
+          config,
+          device.push_token,
+          device.transport === 'apns' ? 'apns_unregistered' : 'fcm_unregistered',
+        );
+        console.warn('[push] token unregistered, device disabled', {
+          userId: recipient.userId,
+          platform: device.platform,
+          transport: device.transport,
+        });
+      } else {
+        console.warn('[push] send failed', {
+          userId: recipient.userId,
+          platform: device.platform,
+          transport: device.transport,
+          status: outcome.status,
+        });
+      }
+    }
+  }
+  return { accepted, failed };
+}
+
 async function finish(
   config: ServerConfig,
-  input: InboundPushInput,
+  workspaceId: string,
   userId: string,
   dedupeKey: string,
   deviceCount: number,
@@ -321,7 +507,7 @@ async function finish(
       failed_count: failed,
       status,
     })
-    .eq('workspace_id', input.workspaceId)
+    .eq('workspace_id', workspaceId)
     .eq('user_id', userId)
     .eq('dedupe_key', dedupeKey);
 }
@@ -382,7 +568,7 @@ export function renderContent(
 function apnsDeliveryFor(
   policy: PushPlatformSettings,
   eventType: PushEventType,
-  input: InboundPushInput,
+  input: Pick<InboundPushInput, 'workspaceId' | 'conversationId'>,
 ): ApnsDelivery {
   const category = (policy.categories ?? []).find((c) => c.eventTypes?.includes(eventType));
   const threadId =

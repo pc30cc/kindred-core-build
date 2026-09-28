@@ -138,7 +138,8 @@ class AppState(
     }
 
     /**
-     * A conversation a notification asked to open, until the shell opens it.
+     * A conversation — or a colleague's team thread — a notification asked
+     * to open, until the shell opens it.
      *
      * Held here rather than acted on where the tap arrived: the tap can come
      * before the session is restored or the workspaces are loaded, and the
@@ -149,7 +150,7 @@ class AppState(
     val pendingLink: StateFlow<PushPayload?> = _pendingLink.asStateFlow()
 
     fun openFromNotification(link: PushPayload) {
-        if (link.opensConversation) _pendingLink.value = link
+        if (link.opensSomething) _pendingLink.value = link
     }
 
     /**

@@ -205,12 +205,21 @@ fun AppShell(
     // the workspace it names is checked to be this operator's, the Inbox tab
     // opens the conversation — by id, from the cache. A tap that switches
     // workspace clears the stacks first, and not after the chat is open.
+    // A colleague's message opens their thread, over the colleagues' list,
+    // so Back goes where it would have had the thread been opened by hand.
     val pendingLink by appState.pendingLink.collectAsStateWithLifecycle()
     val workspaces by appState.workspaces.collectAsStateWithLifecycle()
     LaunchedEffect(pendingLink, workspaces) {
         val link = appState.resolvePendingLink() ?: return@LaunchedEffect
-        val id = link.conversationId ?: return@LaunchedEffect
         enterWorkspace(appState.selectedWorkspace.value?.id)
+        val peer = link.peerId
+        if (link.opensTeamThread && peer != null) {
+            val top = navigator.stack(AppTab.INBOX).lastOrNull()
+            if (top !is TeamThreadKey && top != ColleaguesKey) navigator.open(ColleaguesKey)
+            navigator.open(TeamThreadKey(peer))
+            return@LaunchedEffect
+        }
+        val id = link.conversationId ?: return@LaunchedEffect
         navigator.open(ChatKey(id))
     }
 

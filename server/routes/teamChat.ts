@@ -15,7 +15,9 @@
  * Each write also tells the operators it concerns, on their own realtime
  * channel (`ws:<workspace>:user:<id>`), as ids only: a send reaches the
  * recipient and the sender's other devices, a read the reader's other
- * devices. Fire-and-forget — the response never waits on realtime.
+ * devices. Fire-and-forget — the response never waits on realtime. A send
+ * is also pushed to the recipient's phones, which realtime does not reach
+ * once the app is closed; that never holds up the response either.
  */
 
 import { Router } from 'express';
@@ -25,6 +27,7 @@ import { getServiceClient } from '../supabase.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
 import { publishTeamEvent } from '../services/realtime/publish.js';
+import { notifyTeamMessage } from '../services/push/index.js';
 
 export const teamChatRouter = Router();
 
@@ -331,6 +334,14 @@ teamChatRouter.post('/messages', async (req, res) => {
       message_id: inserted.id,
       sender_id: auth.userId,
       recipient_id,
+    });
+    void notifyTeamMessage(config, {
+      workspaceId: workspace_id,
+      senderId: auth.userId,
+      recipientId: recipient_id,
+      messageId: inserted.id,
+      text: body,
+      hasAttachment: !!attachmentId,
     });
 
     return res.json({ ok: true, message: { ...inserted, attachment } });

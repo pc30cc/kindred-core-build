@@ -25,8 +25,9 @@ fun PushPayload.Companion.from(intent: Intent?): PushPayload? {
         workspaceId = extras.getString(KEY_WORKSPACE)?.takeIf { isId(it) },
         conversationId = extras.getString(KEY_CONVERSATION)?.takeIf { isId(it) },
         messageId = extras.getString(KEY_MESSAGE)?.takeIf { isId(it) },
+        peerId = extras.getString(KEY_PEER)?.takeIf { isId(it) },
     )
-    return payload.takeIf { it.opensConversation }
+    return payload.takeIf { it.opensSomething }
 }
 
 /**
@@ -79,17 +80,18 @@ object Notifications {
      * The title and body are the server's — already in the operator's
      * language, already reduced to "New message" when the operator turned
      * previews off — and are shown as they came. One notification per
-     * conversation: a second message replaces the first, as the server's
-     * `collapse_key` does for the ones it has not delivered yet.
+     * conversation, and one per colleague: a second message replaces the
+     * first, as the server's `collapse_key` does for the ones it has not
+     * delivered yet.
      */
     @SuppressLint("MissingPermission") // canPost() is the check, and it runs first.
     fun showMessage(context: Context, payload: PushPayload, title: String?, body: String?, language: Language) {
         if (!canPost(context)) return
-        // One per conversation; a test send, which names none, has its own.
-        val conversationId = payload.conversationId ?: TEST_KEY.takeIf { payload.isTest } ?: return
+        // A test send, which names nothing, has its own.
+        val key = keyOf(payload) ?: TEST_KEY.takeIf { payload.isTest } ?: return
         val tap = PendingIntent.getActivity(
             context,
-            conversationId.hashCode(),
+            key.hashCode(),
             openIntent(context, payload),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -103,12 +105,22 @@ object Notifications {
             .setAutoCancel(true)
             .setContentIntent(tap)
             .build()
-        NotificationManagerCompat.from(context).notify(TAG, conversationId.hashCode(), notification)
+        NotificationManagerCompat.from(context).notify(TAG, key.hashCode(), notification)
     }
 
     /** The operator opened the conversation: its notification has done its job. */
     fun cancelConversation(context: Context, conversationId: String) {
         runCatching { NotificationManagerCompat.from(context).cancel(TAG, conversationId.hashCode()) }
+    }
+
+    /** The operator opened the thread with this colleague. */
+    fun cancelTeamThread(context: Context, peerId: String) {
+        runCatching { NotificationManagerCompat.from(context).cancel(TAG, teamKey(peerId).hashCode()) }
+    }
+
+    /** Whatever [payload]'s notification is about has been opened. */
+    fun cancelFor(context: Context, payload: PushPayload) {
+        keyOf(payload)?.let { key -> runCatching { NotificationManagerCompat.from(context).cancel(TAG, key.hashCode()) } }
     }
 
     /** Sign-out: nothing one operator was told stays on screen for the next. */
@@ -124,7 +136,18 @@ object Notifications {
             putExtra(PushPayload.KEY_WORKSPACE, payload.workspaceId)
             putExtra(PushPayload.KEY_CONVERSATION, payload.conversationId)
             payload.messageId?.let { putExtra(PushPayload.KEY_MESSAGE, it) }
+            payload.peerId?.let { putExtra(PushPayload.KEY_PEER, it) }
         }
+
+    /** What one notification stands for: a conversation, or a colleague's thread. */
+    private fun keyOf(payload: PushPayload): String? = when {
+        payload.isTeamMessage -> payload.peerId?.let(::teamKey)
+        else -> payload.conversationId
+    }
+
+    // A conversation's key is its id, as it has always been; a colleague's
+    // is marked so that the two can never share a notification.
+    private fun teamKey(peerId: String) = "team:$peerId"
 
     private const val TAG = "conversation"
     private const val TEST_KEY = "push-test"

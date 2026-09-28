@@ -64,6 +64,13 @@ vi.mock('../../../server/services/realtime/resolvePublisher.js', () => ({
   }),
 }));
 
+// ── Push, recorded: a send also reaches the recipient's phones ──────
+const pushed: Array<Record<string, unknown>> = [];
+vi.mock('../../../server/services/push/index.js', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  notifyTeamMessage: async (_config: unknown, input: Record<string, unknown>) => { pushed.push(input); },
+}));
+
 const { realtimeRouter } = await import('../../../server/routes/realtime.js');
 const { teamChatRouter } = await import('../../../server/routes/teamChat.js');
 const { publishTeamEvent } = await import('../../../server/services/realtime/publish.js');
@@ -119,6 +126,7 @@ const settle = () => new Promise((r) => setTimeout(r, 20));
 beforeEach(() => {
   published.length = 0;
   writes.length = 0;
+  pushed.length = 0;
 });
 
 describe('POST /api/realtime/operator-user-subscribe', () => {
@@ -172,6 +180,21 @@ describe('team-chat writes announce themselves', () => {
     const payload = published[0].envelope.payload;
     expect(payload).toMatchObject({ kind: 'team_message', workspace_id: WS, message_id: MSG, sender_id: ME, recipient_id: PEER });
     expect(JSON.stringify(published)).not.toContain('"hi"');
+  });
+
+  it("a send is pushed to the recipient's phones — realtime does not reach a closed app", async () => {
+    const res = await post('/api/team-chat/messages', { workspace_id: WS, recipient_id: PEER, body: 'hi' });
+    expect(res.status).toBe(200);
+    await settle();
+    expect(pushed).toEqual([
+      { workspaceId: WS, senderId: ME, recipientId: PEER, messageId: MSG, text: 'hi', hasAttachment: false },
+    ]);
+  });
+
+  it('a read pushes nothing', async () => {
+    await post('/api/team-chat/read', { workspace_id: WS, peer_id: PEER });
+    await settle();
+    expect(pushed).toHaveLength(0);
   });
 
   it("a read tells the reader's own devices, and nobody else", async () => {

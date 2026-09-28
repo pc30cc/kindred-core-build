@@ -86,6 +86,11 @@ import com.webyar.ai.ui.design.WebyarType
  * list or the map — one or the other, as a phone has room for, with the same
  * toggle the header carries. Tapping a row, or a dot on the map, opens the
  * visitor.
+ *
+ * It opens on the map, as the iOS app does: who is on the site right now is
+ * first a question of where they are, and the list is one tap away. Until
+ * `map-config` answers — and when the workspace has the map switched off —
+ * the list stands in.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -104,7 +109,11 @@ fun VisitorsScreen(
     search: SearchState? = null,
     selectedId: String? = null,
 ) {
-    var showMap by rememberSaveable { mutableStateOf(false) }
+    var showMap by rememberSaveable { mutableStateOf(true) }
+    val map = state.map
+    // What is on screen, not what was asked for: the list stands in until
+    // the map is known, and the toggle has to name the one that isn't showing.
+    val mapShown = showMap && map != null && map.enabled
     val rows = remember(state, language) { state.visible(language) }
 
     Column(modifier.fillMaxSize().testTag(A11y.VISITORS_SCREEN)) {
@@ -116,11 +125,11 @@ fun VisitorsScreen(
                     onClick = { search.toggle() },
                 )
             }
-            if (state.map?.enabled != false) {
+            if (map?.enabled != false) {
                 HeaderIconButton(
-                    icon = if (showMap) Icons.AutoMirrored.Filled.List else InsightGlyph.Map,
-                    contentDescription = if (showMap) StrInsights.visitorsActiveSessions(language) else StrInsights.visitorsMapHint(language),
-                    onClick = { showMap = !showMap },
+                    icon = if (mapShown) Icons.AutoMirrored.Filled.List else InsightGlyph.Map,
+                    contentDescription = if (mapShown) StrInsights.visitorsActiveSessions(language) else StrInsights.visitorsMapHint(language),
+                    onClick = { showMap = !mapShown },
                     modifier = Modifier.padding(start = Space.sm).testTag(A11y.VISITORS_MAP_TOGGLE),
                 )
             }
@@ -138,8 +147,7 @@ fun VisitorsScreen(
         StatsRow(state, language)
         Filters(state, language, onOnlineOnly, onChatOnly, onCountry, onIncludeOffline)
 
-        val map = state.map
-        if (showMap && map != null && map.enabled) {
+        if (mapShown && map != null) {
             VisitorsMap(
                 setup = map,
                 pins = state.pins,

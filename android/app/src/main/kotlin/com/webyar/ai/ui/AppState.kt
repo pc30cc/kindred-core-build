@@ -630,14 +630,20 @@ class AppState(
  * that appears a few seconds after launch and then vanishes reads as a bug,
  * and the plan resolves long enough after a cold start for the operator to be
  * reading something when it lands.
+ *
+ * **The inbox sits in the middle**, the rest in their order around it — the
+ * iOS app's `MainTabView.order`. The middle is where the thumb rests and the
+ * eye lands first, and the inbox is the tab an operator comes back to between
+ * everything else. With an even number of others it takes the leading middle;
+ * with only Settings beside it, the leading end.
  */
 internal fun appTabsFor(plan: EntitlementsState, access: WorkspaceAccess, config: MobileAppConfig): List<AppTab> {
     val resolved = plan.value.takeIf { plan.isResolved }
-    return buildList {
-        add(AppTab.INBOX)
+    val others = buildList {
         if (resolved?.moduleInPlan("contacts") == true) add(AppTab.CONTACTS)
         if (config.showVisitors && resolved?.moduleInPlan("visitor_tracking") == true) add(AppTab.VISITORS)
         if (config.showWebAnalytics && access.isAdmin && resolved?.moduleInPlan("web_analytics") == true) add(AppTab.ANALYTICS)
         add(AppTab.SETTINGS)
     }
+    return others.toMutableList().apply { add(others.size / 2, AppTab.INBOX) }
 }

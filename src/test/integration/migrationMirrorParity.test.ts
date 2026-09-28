@@ -359,6 +359,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/235_notification_prefs_event_switches.sql',
     hosted: 'supabase/migrations/20260928160000_notification_prefs_event_switches.sql',
   },
+  {
+    label: '236 — push_dispatch_log: automatic cleanup, and the badge in one query',
+    selfHost: 'database/migrations/236_push_dispatch_log_cleanup.sql',
+    hosted: 'supabase/migrations/20260928170000_push_dispatch_log_cleanup.sql',
+  },
 
   // intentionally asymmetric, not a drift bug.
 

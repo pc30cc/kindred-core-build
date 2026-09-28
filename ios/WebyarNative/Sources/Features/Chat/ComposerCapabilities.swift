@@ -46,8 +46,12 @@ struct ComposerCapabilities: Sendable, Equatable {
     /// An internal thread between operators: no AI and no visitor, so every tool.
     static let team = ComposerCapabilities(canAttach: true, canRecordVoice: true, canUseEmoji: true, isAIManaged: false)
 
-    static func resolve(conversation: Conversation) -> ComposerCapabilities {
-        let aiManaged = AIState.resolve(conversation) == .aiManaged
+    /// `takenOver`: the operator took the thread over on this phone. The
+    /// conversation in hand still says `ai_managed` until it is read again,
+    /// and without this the composer stayed in AI mode after the take-over
+    /// until the screen was reopened.
+    static func resolve(conversation: Conversation, takenOver: Bool = false) -> ComposerCapabilities {
+        let aiManaged = AIState.resolve(conversation) == .aiManaged && !takenOver
         return ComposerCapabilities(
             canAttach: !aiManaged,
             canRecordVoice: !aiManaged,

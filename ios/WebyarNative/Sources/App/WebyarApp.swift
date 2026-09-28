@@ -156,10 +156,15 @@ struct RootView: View {
 /// set small at the foot of the screen — no logo, no glow. A launch screen is
 /// on screen for a few hundred milliseconds; anything bigger than this is the
 /// app talking about itself while the operator waits to work.
+///
+/// And there from the first instant. The system's launch image is the
+/// loader's own first frame (`LaunchLoader` in the asset catalog, named by
+/// `UILaunchScreen.UIImageName`), centred on the whole screen as this loader
+/// is, so the loader is on screen the moment the icon is tapped and this view
+/// takes over in the same place, drawn at once and already turning — nothing
+/// here fades in.
 struct LaunchView: View {
     @Environment(AppState.self) private var appState
-
-    @State private var hasAppeared = false
 
     /// Whether this run was asked to stay on the launch screen.
     ///
@@ -188,21 +193,21 @@ struct LaunchView: View {
             Color("LaunchBackground")
                 .ignoresSafeArea()
 
+            // Centred on the whole screen, not on the safe area: that is
+            // where the system centres the launch image it takes over from.
             LaunchLoader()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea()
 
             VStack {
                 Spacer()
                 LaunchFooter()
                     .padding(.bottom, Theme.Space.xl)
             }
-            .opacity(hasAppeared ? 1 : 0)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Str.appName(appState.language))
         .accessibilityAddTraits(.updatesFrequently)
-        .task {
-            withAnimation(.easeOut(duration: 0.6).delay(0.1)) { hasAppeared = true }
-        }
     }
 }
 
@@ -217,13 +222,13 @@ private enum LaunchPalette {
 /// running into cyan, with a bright bead at its head, and a fainter inner one
 /// going the other way. Small — the size of a large spinner, not of a logo.
 ///
-/// Every loop starts once the loader has arrived, and each is scoped to the
-/// one modifier it drives: a repeating animation begun in the same
-/// transaction as the entrance would otherwise pick the entrance up too, and
-/// the loader would bob in and out for as long as the screen is up.
+/// Its resting pose — `spin` still false — is exactly the `LaunchLoader`
+/// launch image (`scripts/ios/render-launch-loader.py` draws it from these
+/// numbers), so the handoff from the system's launch screen shows nothing but
+/// the loader starting to turn. Change a size, a colour or a starting angle
+/// here and run the script again.
 private struct LaunchLoader: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var hasAppeared = false
     @State private var spin = false
 
     private let outer: CGFloat = 40
@@ -261,17 +266,12 @@ private struct LaunchLoader: View {
                     value: spin
                 )
         }
-        .opacity(hasAppeared ? 1 : 0)
-        .scaleEffect(hasAppeared ? 1 : 0.8)
         // It turns the same way in every language: it is a clock, not text.
         .environment(\.layoutDirection, .leftToRight)
+        // Turning from the first frame. Each loop is scoped to the one
+        // modifier it drives, so nothing else on the screen repeats with it.
         .onAppear {
-            withAnimation(.spring(response: 0.55, dampingFraction: 0.8)) { hasAppeared = true }
-        }
-        .task {
             guard !reduceMotion else { return }
-            // After the entrance has been handed its own transaction.
-            try? await Task.sleep(for: .milliseconds(60))
             spin = true
         }
     }

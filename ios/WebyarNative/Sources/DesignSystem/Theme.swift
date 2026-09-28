@@ -117,6 +117,21 @@ enum Theme {
 
         static let separator = Color(uiColor: .separator)
 
+        /// The AI's own colour — the Mac app's `Palette.ai` — so what is the
+        /// AI's (its composer's voice picker and send button) is told apart
+        /// from the operator's blue at a glance.
+        static let ai = Color(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0.647, green: 0.522, blue: 0.941, alpha: 1)   // #A585F0
+                : UIColor(red: 0.486, green: 0.302, blue: 0.859, alpha: 1)   // #7C4DDB
+        })
+        /// `ai` as a soft fill behind its own ink — the Mac's `aiSoft`.
+        static let aiSoft = Color(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0.647, green: 0.522, blue: 0.941, alpha: 0.16)
+                : UIColor(red: 0.486, green: 0.302, blue: 0.859, alpha: 0.12)
+        })
+
         static let danger = Color(uiColor: .systemRed)
         static let success = Color(uiColor: .systemGreen)
         static let warning = Color(uiColor: .systemOrange)

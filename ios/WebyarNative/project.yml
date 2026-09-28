@@ -53,8 +53,13 @@ targets:
         CFBundleIconName: AppIcon
         CFBundleShortVersionString: "1.0.0"
         CFBundleVersion: "1"
+        # The launch loader's first frame, centred on the whole screen, over
+        # the launch colour: the loader is there the instant the icon is
+        # tapped, and LaunchView takes over in the same place. Drawn by
+        # scripts/ios/render-launch-loader.py from LaunchLoader's numbers.
         UILaunchScreen:
           UIColorName: LaunchBackground
+          UIImageName: LaunchLoader
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         # Export compliance, NOT App Transport Security. The two get confused

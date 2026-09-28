@@ -2,22 +2,39 @@ import Foundation
 import XCTest
 @testable import WebyarNative
 
-/// The server's unread counts, scriptable between reads.
+/// A row of a list. Out here because inside the API double `conversation`
+/// names the protocol's own method rather than the shared test helper.
+private func listRow(_ id: String, workspace: String, unread: Int) throws -> Conversation {
+    try conversation(id, workspace: workspace, unread: unread)
+}
+
+/// The Open tab and the colleagues list, as the server would answer them,
+/// scriptable between reads.
 private actor BadgeAPI: TestAPIBase {
-    private(set) var conversationReads = 0
+    private(set) var reads: [InboxFilter] = []
     private(set) var teamReads = 0
-    private var unread = 2
+    /// Unread count per conversation in the Open tab.
+    private var open: [String: Int] = ["c1": 2, "c2": 0, "c3": 1]
+    /// The AI queue: busy, and never to light the dot.
+    private var automated: [String: Int] = ["a1": 4]
     private var team = 1
     private var failing = false
 
-    func setUnread(_ value: Int) { unread = value }
+    func setOpen(_ value: [String: Int]) { open = value }
     func setTeam(_ value: Int) { team = value }
     func setFailing(_ value: Bool) { failing = value }
+    var openReads: Int { reads.filter { $0 == .open }.count }
 
-    func unreadConversations(workspaceID: String) async throws -> Int {
-        conversationReads += 1
+    func conversations(workspaceID: String, filter: InboxFilter, etag: String?) async throws -> ListPage {
+        reads.append(filter)
         if failing { throw APIError.transport }
-        return unread
+        let rows = filter == .ai ? automated : filter == .open ? open : [:]
+        return ListPage(
+            conversations: try rows.sorted { $0.key < $1.key }.map { id, unread in
+                try listRow(id, workspace: workspaceID, unread: unread)
+            },
+            etag: nil
+        )
     }
 
     func colleagues(workspaceID: String) async throws -> ColleaguesResponse {
@@ -35,6 +52,7 @@ final class InboxBadgeTests: XCTestCase {
     override func setUp() async throws {
         api = BadgeAPI()
         sync = SyncCoordinator(api: api, persistent: false, storeRoot: nil, startsRealtime: false)
+        sync.sessionChanged(userID: "u1", workspaceID: "w1")
     }
 
     private func badge() -> InboxBadge { InboxBadge(api: api, sync: sync) }
@@ -51,37 +69,55 @@ final class InboxBadgeTests: XCTestCase {
         return task
     }
 
-    func testTheDotCountsUnreadConversationsAndTeamMessages() async throws {
+    func testTheDotCountsTheOpenTabAndColleaguesOnly() async throws {
         let badge = badge()
         let task = try await tracking(badge)
         defer { task.cancel() }
-        XCTAssertEqual(badge.conversations, 2)
+        XCTAssertEqual(badge.conversations, 2, "c1 and c3 hold unread messages; c2 is read")
         XCTAssertEqual(badge.teamMessages, 1)
         XCTAssertEqual(badge.total, 3)
-        XCTAssertTrue(badge.hasUnread)
+        let reads = await api.reads
+        XCTAssertFalse(reads.contains(.ai), "the AI queue is never asked for: it does not light the dot")
     }
 
-    /// The point of it: a new message shows on the tab without anyone
-    /// opening the inbox.
-    func testANewMessageReadsTheCountAgain() async throws {
+    /// The point of it: nothing unread in Open or Colleagues, no dot — however
+    /// busy the AI queue is.
+    func testEverythingReadMeansNoDot() async throws {
+        await api.setOpen(["c1": 0, "c2": 0])
+        await api.setTeam(0)
         let badge = badge()
         let task = try await tracking(badge)
         defer { task.cancel() }
-        await api.setUnread(5)
-        sync.emit(.message(conversationID: "c9", message: nil))
-        try await settle()
-        XCTAssertEqual(badge.conversations, 5)
+        XCTAssertFalse(badge.hasUnread)
     }
 
-    /// And reading a conversation on this phone takes the dot away at once:
-    /// the server announces nothing for a seen, so the phone does.
+    func testANewMessageLightsTheDot() async throws {
+        await api.setOpen(["c1": 0])
+        await api.setTeam(0)
+        let badge = badge()
+        let task = try await tracking(badge)
+        defer { task.cancel() }
+        XCTAssertFalse(badge.hasUnread)
+        await api.setOpen(["c1": 0, "c9": 1])
+        // As the coordinator does with every realtime event: the lists are
+        // told their copy is out of date before anyone hears of it.
+        sync.lists(for: "w1")?.invalidate()
+        sync.emit(.message(conversationID: "c9", message: nil))
+        try await settle()
+        XCTAssertEqual(badge.conversations, 1)
+    }
+
+    /// Reading a conversation here takes the dot away at once, although the
+    /// server announces nothing for a read and the list was fetched a moment
+    /// ago: the read goes to the server, not to the copy in hand.
     func testReadingAConversationHereClearsTheDot() async throws {
+        await api.setOpen(["c1": 1])
         await api.setTeam(0)
         let badge = badge()
         let task = try await tracking(badge)
         defer { task.cancel() }
         XCTAssertTrue(badge.hasUnread)
-        await api.setUnread(0)
+        await api.setOpen(["c1": 0])
         sync.emit(.seen(conversationID: "c1"))
         try await settle()
         XCTAssertFalse(badge.hasUnread)
@@ -91,12 +127,12 @@ final class InboxBadgeTests: XCTestCase {
         let badge = badge()
         let task = try await tracking(badge)
         defer { task.cancel() }
-        let before = await api.conversationReads
+        let before = await api.openReads
         await api.setTeam(4)
         sync.emit(.team(peerID: "u2"))
         try await settle()
         XCTAssertEqual(badge.teamMessages, 4)
-        let after = await api.conversationReads
+        let after = await api.openReads
         XCTAssertEqual(after, before, "a team message says nothing about visitors' conversations")
     }
 
@@ -104,16 +140,16 @@ final class InboxBadgeTests: XCTestCase {
         let badge = badge()
         let task = try await tracking(badge)
         defer { task.cancel() }
-        let before = await api.conversationReads
+        let before = await api.openReads
         sync.emit(.message(conversationID: "c1", message: nil))
         sync.emit(.push(conversationID: "c1", messageID: "m1"))
         sync.emit(.conversationChanged(conversationID: "c1"))
         try await settle()
-        let after = await api.conversationReads
-        XCTAssertEqual(after - before, 1)
+        let after = await api.openReads
+        XCTAssertLessThanOrEqual(after - before, 1)
     }
 
-    func testWithoutTeamChatOnlyConversationsCount() async throws {
+    func testWithoutTeamChatOnlyTheOpenTabCounts() async throws {
         let badge = badge()
         let task = try await tracking(badge, team: false)
         defer { task.cancel() }
@@ -138,6 +174,7 @@ final class InboxBadgeTests: XCTestCase {
         let first = try await tracking(badge)
         first.cancel()
         await api.setFailing(true)
+        sync.sessionChanged(userID: "u1", workspaceID: "w2")
         let second = Task { await badge.track(workspaceID: "w2", includesTeam: true) }
         defer { second.cancel() }
         try await Task.sleep(nanoseconds: 150_000_000)

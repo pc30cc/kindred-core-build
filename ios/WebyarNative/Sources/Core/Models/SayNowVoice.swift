@@ -16,7 +16,8 @@ enum SayNowVoice: String, CaseIterable, Identifiable, Sendable {
 
     var icon: String {
         switch self {
-        case .specialist: "person.wave.2.fill"
+        // The outline, as the Mac draws it: the capsule already fills it.
+        case .specialist: "person.wave.2"
         case .assistant: "sparkles"
         }
     }

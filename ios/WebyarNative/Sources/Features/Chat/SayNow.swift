@@ -56,13 +56,13 @@ final class SayNowModel {
     }
 }
 
-/// The voice control that sits inside the composer field.
+/// Whose voice the AI writes the operator's words in, on the AI composer's
+/// tool row — the Mac app's capsule: the voice's glyph and its name in the
+/// AI's purple, on a soft purple pill, opening a menu of the two.
 ///
-/// A `Menu` on a plain glyph-and-label button, sized to the other in-field
-/// controls: the same shape iOS uses wherever a field carries a choice about
-/// what it is about to do. It is not a segmented control and not a bar,
-/// because either of those would be a row of chrome the operator reads once
-/// and then has to look past for the rest of the conversation.
+/// The name is shown, not just a glyph: this control carries a value, and a
+/// value nobody can read without opening the menu is a value nobody checks
+/// before sending.
 struct SayNowVoiceButton: View {
     @Bindable var model: SayNowModel
     let language: Language
@@ -78,15 +78,25 @@ struct SayNowVoiceButton: View {
                 }
             }
         } label: {
-            // Tinted rather than bare: unlike its neighbours this control
-            // carries a value rather than performing an action, and a filled
-            // backing is how the rest of the app says so. Same frame as the
-            // others, so it sits on the same line.
-            ComposerGlyph(icon: model.voice.icon, isTinted: true)
+            HStack(spacing: Theme.Space.xs + 1) {
+                Image(systemName: model.voice.icon)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(model.voice.title(language))
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(Theme.Palette.ai)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(Theme.Palette.aiSoft))
+            .contentShape(Capsule())
+            .fixedSize()
+            .animation(Theme.Motion.standard, value: model.voice)
         }
         .disabled(model.isSending)
         // Spoken as one thing: what this picks, and what it is currently set
-        // to. The visual is a glyph, so without this it announces nothing.
+        // to. The label is replaced rather than read from the pill so it is
+        // never mistaken for one of the menu's own items.
         .accessibilityLabel(Str.sayNowVoice(language))
         .accessibilityValue(model.voice.title(language))
         .accessibilityIdentifier(A11y.sayNowVoice)

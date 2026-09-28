@@ -3,11 +3,14 @@ import Observation
 
 /// Whether anything in the Inbox is waiting to be read — the dot on its tab.
 ///
-/// Two counts, because the Inbox holds two kinds of conversation now:
-/// visitors' conversations with a customer message nobody has seen (the
-/// server's own count, `GET /api/push/badge`, the one the push badge uses, so
-/// the dot and the app icon agree), and team messages from colleagues not
-/// read yet (`total_unread` of the colleagues list), when team chat is on.
+/// Exactly the two places an operator is expected to answer: the **Open** tab
+/// — its conversations holding a customer message nobody has opened
+/// (`unread_count` on the rows of that very list, so the dot and the tab can
+/// never disagree) — and **Colleagues** — team messages not read yet
+/// (`total_unread` of the colleagues list), when team chat is on. The AI
+/// queue is deliberately not counted: the AI is answering those, and a dot
+/// that never goes away is a dot nobody looks at. Once everything in both is
+/// read, there is no dot.
 ///
 /// Read again on every realtime event — a message, a conversation changing,
 /// a push, a read on this phone, a team message, coming back to the app —
@@ -17,7 +20,8 @@ import Observation
 @MainActor
 @Observable
 final class InboxBadge {
-    /// Open conversations holding a customer message nobody has seen.
+    /// Conversations in the Open tab holding a customer message nobody has
+    /// opened.
     private(set) var conversations = 0
     /// Team messages from colleagues not read yet.
     private(set) var teamMessages = 0
@@ -64,8 +68,13 @@ final class InboxBadge {
     private func consumeEvents(workspaceID: String) async {
         for await event in sync.events() {
             switch event {
-            case .message, .conversationChanged, .push, .seen:
+            case .message, .conversationChanged, .push:
+                // The coordinator has already told the lists to ask again.
                 conversationsSoon = debounced(conversationsSoon) { await $0.refreshConversations(workspaceID) }
+            case .seen:
+                // Nothing on the server announced this read, so nothing has
+                // told the lists yet that their copy is out of date.
+                conversationsSoon = debounced(conversationsSoon) { await $0.refreshConversations(workspaceID, fresh: true) }
             case .team:
                 teamSoon = debounced(teamSoon) { await $0.refreshTeam(workspaceID) }
             case .resync, .reconcile:
@@ -81,7 +90,7 @@ final class InboxBadge {
             try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
             guard !Task.isCancelled else { return }
             guard sync.isForeground else { continue }
-            await refreshConversations(workspaceID)
+            await refreshConversations(workspaceID, fresh: true)
             await refreshTeam(workspaceID)
         }
     }
@@ -101,11 +110,16 @@ final class InboxBadge {
 
     /// A failed read keeps the count in hand: a dot that blinks off because
     /// one request failed would be telling the operator something untrue.
-    func refreshConversations(_ workspaceID: String) async {
-        guard let count = try? await api.unreadConversations(workspaceID: workspaceID),
-              self.workspaceID == workspaceID
-        else { return }
-        let value = max(0, count)
+    ///
+    /// Read through the same shared list the Inbox reads, so it costs a
+    /// revalidation (usually a 304) rather than a query of its own, and is
+    /// shared with the Inbox when both ask at once. `fresh` makes it ask the
+    /// server rather than take an answer from a moment ago.
+    func refreshConversations(_ workspaceID: String, fresh: Bool = false) async {
+        guard let lists = sync.lists(for: workspaceID) else { return }
+        if fresh { lists.invalidate() }
+        guard let rows = try? await lists.fetch(.open), self.workspaceID == workspaceID else { return }
+        let value = rows.filter { $0.workspaceId == workspaceID && $0.hasUnread }.count
         if value != conversations { conversations = value }
     }
 

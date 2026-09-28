@@ -10,7 +10,7 @@ package com.webyar.operator.i18n
 // product never reads the device language — the operator picks one and it
 // sticks — so locale resolution is not wanted here either.
 //
-// 392 of 408 strings are generated.
+// 393 of 409 strings are generated.
 // These are hand-written in StringsManual.kt because they are logic rather
 // than copy:
 //   resetSentDetail — takes more than a language
@@ -1702,8 +1702,18 @@ object Str {
     }
 
     /**
-     * The send button, spoken. The glyph is an arrow like any other send, so
-     * this is the only place that says the AI is the one writing it.
+     * The line in the AI composer's tool row, as the Mac app has it: what
+     * happens to the operator's words once they are sent.
+     */
+    fun sayNowHint(l: Language): String = when (l) {
+        Language.EN -> "The AI rewrites your words and sends them to the visitor now."
+        Language.FA -> "هوش مصنوعی حرف شما را بازنویسی می‌کند و همین حالا برای بازدیدکننده می‌فرستد."
+        Language.TR -> "Yapay zekâ sözlerinizi yeniden yazar ve ziyaretçiye hemen gönderir."
+    }
+
+    /**
+     * The AI send button, spoken. Its glyph is the AI's sparkles, but a
+     * glyph says nothing to VoiceOver.
      */
     fun sayNowAction(l: Language): String = when (l) {
         Language.EN -> "Send with AI"

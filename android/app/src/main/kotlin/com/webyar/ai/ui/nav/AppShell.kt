@@ -212,6 +212,13 @@ fun AppShell(
     LaunchedEffect(pendingLink, workspaces) {
         val link = appState.resolvePendingLink() ?: return@LaunchedEffect
         enterWorkspace(appState.selectedWorkspace.value?.id)
+        val thread = link.threadId
+        if (link.opensEmailThread && thread != null) {
+            val top = navigator.stack(AppTab.INBOX).lastOrNull()
+            if (top !is EmailThreadKey && top != EmailKey) navigator.open(EmailKey)
+            navigator.open(EmailThreadKey(thread))
+            return@LaunchedEffect
+        }
         val peer = link.peerId
         if (link.opensTeamThread && peer != null) {
             val top = navigator.stack(AppTab.INBOX).lastOrNull()
@@ -221,6 +228,24 @@ fun AppShell(
         }
         val id = link.conversationId ?: return@LaunchedEffect
         navigator.open(ChatKey(id))
+    }
+
+    // A ringing call the operator opened — Answer, or the ring itself — once
+    // the session and the workspaces are known and the call is this
+    // operator's. Over whatever was on screen; Back returns to it.
+    val pendingCall by appState.pendingCall.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingCall, workspaces) {
+        val call = appState.resolvePendingCall() ?: return@LaunchedEffect
+        enterWorkspace(appState.selectedWorkspace.value?.id)
+        navigator.open(
+            IncomingCallKey(
+                callId = call.callId,
+                workspaceId = call.workspaceId,
+                channel = call.channel.wire,
+                caller = call.caller,
+                answer = call.answer,
+            )
+        )
     }
 
     val entryProvider = entryProvider<NavKey> {
@@ -265,6 +290,14 @@ fun AppShell(
                 conversations = conversations,
                 language = language,
                 onBack = { navigator.back() },
+            )
+        }
+        entry<IncomingCallKey>(metadata = tabOf(AppTab.INBOX)) { key ->
+            IncomingCallRoute(
+                key = key,
+                api = api,
+                language = language,
+                onDone = { navigator.back() },
             )
         }
         entry<CallKey>(metadata = tabOf(AppTab.INBOX)) { key ->

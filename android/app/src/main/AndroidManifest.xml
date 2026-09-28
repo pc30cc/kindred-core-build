@@ -19,6 +19,12 @@
       exactly this — rather than at launch.
     -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--
+      A call-centre call rings full screen over the lock screen, the way a
+      phone call does. Granted at install; from Android 14 the operator can
+      turn it off, and the ring falls back to a heads-up notification.
+    -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <!--
       Voice notes. Requested at the moment the operator taps the microphone,
@@ -114,6 +120,14 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/attachment_paths" />
         </provider>
+
+        <!--
+          Decline on a ringing call. Not exported: only this app's own
+          notification can send it.
+        -->
+        <receiver
+            android:name=".core.push.CallActionReceiver"
+            android:exported="false" />
 
         <!--
           FCM delivers here with the app in front; with it in the background

@@ -1,6 +1,9 @@
 export {
   notifyInboundMessage,
   notifyTeamMessage,
+  notifyAssignment,
+  notifyEmailMessage,
+  notifyCallbackRequest,
   renderContent,
   renderTeamContent,
   type InboundPushInput,

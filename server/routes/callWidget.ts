@@ -69,6 +69,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { serverConfigOf } from '../lib/workspaceAuth.js';
 import { cancelRing } from '../services/push/callRing.js';
+import { notifyCallbackRequest } from '../services/push/index.js';
 
 export const callWidgetRouter = Router();
 
@@ -1481,6 +1482,11 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
   }).select('*').maybeSingle();
   if (error) return res.status(500).json({ error: 'callback_create_failed', message: error.message });
   await publishQueueEvent(config, ws.workspace_id, 'callback_requested', { callback_id: data!.id });
+  void notifyCallbackRequest(config, {
+    workspaceId: ws.workspace_id,
+    callbackId: data!.id,
+    visitorName: parsed.data.name || null,
+  });
   res.json({ ok: true, callback_id: data!.id });
 });
 

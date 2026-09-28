@@ -284,16 +284,19 @@ const testRingSchema = z.object({
 /**
  * POST /test-ring — rings the caller's own phone.
  *
- * Separate from /test because it exercises an entirely different path: APNs
- * direct rather than FCM, PushKit rather than a notification, and CallKit
- * rather than a banner. A green result on one says nothing about the other.
+ * Separate from /test because it exercises an entirely different path: on
+ * iOS APNs direct rather than FCM, PushKit rather than a notification, and
+ * CallKit rather than a banner; on Android a data-only FCM message the app
+ * turns into a full-screen incoming call. A green result on one says nothing
+ * about the other.
  */
 adminNotificationsRouter.post('/test-ring', testLimiter, async (req, res) => {
   const actorId = await requirePlatformAdmin(req, res);
   if (!actorId) return;
   const parsed = testRingSchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
-  if (!isVoipConfigured()) return res.status(409).json({ error: 'voip_not_configured' });
+  // Either transport rings something: VoIP an iPhone, FCM an Android phone.
+  if (!isVoipConfigured() && !isPushConfigured()) return res.status(409).json({ error: 'voip_not_configured' });
 
   const config = serverConfigOf(req);
   try {

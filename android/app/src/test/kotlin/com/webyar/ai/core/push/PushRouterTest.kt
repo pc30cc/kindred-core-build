@@ -210,6 +210,45 @@ class PushRouterTest {
     }
 
     @Test
+    fun `a new email is shown, and reads no conversation`() = runTest {
+        val (router, _) = router()
+        val email = PushPayload(type = PushPayload.TYPE_EMAIL, workspaceId = "ws-1", conversationId = null, messageId = "m-9", threadId = "t-1")
+
+        router.onMessage(email, "ali@example.com", "Invoice — attached")
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(listOf(email), shown)
+        assertTrue(api.idReads.isEmpty())
+        assertTrue(email.opensEmailThread)
+    }
+
+    @Test
+    fun `a callback request is shown`() = runTest {
+        val (router, _) = router()
+        val callback = PushPayload(type = PushPayload.TYPE_CALLBACK, workspaceId = "ws-1", conversationId = null, messageId = null, callbackId = "cb-1")
+
+        router.onMessage(callback, "Callback request", "A visitor asked to be called back")
+
+        assertEquals(listOf(callback), shown)
+    }
+
+    /** An assignment names its conversation, and is a conversation push like any other. */
+    @Test
+    fun `an assignment syncs its conversation and notifies`() = runTest {
+        val (router, _) = router()
+        api.put(InboxFilter.OPEN, api.row("c-1"))
+        val assignment = push.copy(type = "assignment", messageId = null)
+
+        router.onMessage(assignment, "Conversation assigned to you", "Ali")
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(listOf(listOf("c-1")), api.idReads)
+        assertEquals(listOf(assignment), shown)
+    }
+
+    @Test
     fun `a payload's ids are checked before they are used`() {
         val parsed = PushPayload.from(mapOf("workspaceId" to "../../etc", "conversationId" to "c-1", "type" to "new_message"))
         assertEquals(null, parsed.workspaceId)

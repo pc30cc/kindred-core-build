@@ -94,6 +94,8 @@ object A11y {
     const val CALL_CAMERA = "call.camera"
     const val CALL_SPEAKER = "call.speaker"
     const val CALL_HANG_UP = "call.hangUp"
+    const val CALL_ANSWER = "call.answer"
+    const val CALL_DECLINE = "call.decline"
     const val CALL_SELF_VIEW = "call.selfView"
 
     fun conversationRow(id: String) = "conversation.$id"

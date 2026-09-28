@@ -26,6 +26,8 @@ fun PushPayload.Companion.from(intent: Intent?): PushPayload? {
         conversationId = extras.getString(KEY_CONVERSATION)?.takeIf { isId(it) },
         messageId = extras.getString(KEY_MESSAGE)?.takeIf { isId(it) },
         peerId = extras.getString(KEY_PEER)?.takeIf { isId(it) },
+        threadId = extras.getString(KEY_THREAD)?.takeIf { isId(it) },
+        callbackId = extras.getString(KEY_CALLBACK)?.takeIf { isId(it) },
     )
     return payload.takeIf { it.opensSomething }
 }
@@ -137,11 +139,15 @@ object Notifications {
             putExtra(PushPayload.KEY_CONVERSATION, payload.conversationId)
             payload.messageId?.let { putExtra(PushPayload.KEY_MESSAGE, it) }
             payload.peerId?.let { putExtra(PushPayload.KEY_PEER, it) }
+            payload.threadId?.let { putExtra(PushPayload.KEY_THREAD, it) }
+            payload.callbackId?.let { putExtra(PushPayload.KEY_CALLBACK, it) }
         }
 
     /** What one notification stands for: a conversation, or a colleague's thread. */
     private fun keyOf(payload: PushPayload): String? = when {
         payload.isTeamMessage -> payload.peerId?.let(::teamKey)
+        payload.isEmail -> payload.threadId?.let { "email:$it" }
+        payload.isCallback -> payload.callbackId?.let { "callback:$it" }
         else -> payload.conversationId
     }
 

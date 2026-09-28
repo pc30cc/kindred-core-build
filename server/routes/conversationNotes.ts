@@ -53,6 +53,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
 import { publishOperatorEvent } from '../services/realtime/publish.js';
+import { notifyInboundMessage } from '../services/push/index.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
 
@@ -223,6 +224,18 @@ conversationNotesRouter.post('/:id/notes', async (req, res) => {
       created_at: inserted.created_at,
       preview: parsed.data.body.slice(0, 140),
     }, { skipInboxChannel: true });
+
+    // On the phones of those the conversation's messages reach — its
+    // assignee, or everyone following an unassigned one — never the author's.
+    void notifyInboundMessage(config, {
+      workspaceId: parsed.data.workspace_id,
+      conversationId,
+      messageId: inserted.id,
+      text: parsed.data.body,
+      senderName: profile?.full_name || null,
+      eventType: 'internal_note',
+      actorId: auth.userId,
+    });
 
     return res.json({ ok: true, note: { ...inserted, author: profile ?? null } });
   } catch (err) {

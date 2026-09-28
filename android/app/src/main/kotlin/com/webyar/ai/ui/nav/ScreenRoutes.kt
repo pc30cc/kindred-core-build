@@ -1486,6 +1486,111 @@ fun CallRoute(
     )
 }
 
+/**
+ * A call-centre call that rang this phone: the ring with Answer and Decline,
+ * then — answered — the same call screen as any other call.
+ *
+ * Reached from the ring's own notification (tapped, or shown full screen
+ * over the lock screen) or from its Answer button, in which case it answers
+ * on arrival. Declining here, like declining on the notification, only
+ * silences this phone; the call stays on offer to everybody else.
+ */
+@Composable
+fun IncomingCallRoute(
+    key: IncomingCallKey,
+    api: WebyarApi,
+    language: Language,
+    onDone: () -> Unit,
+) {
+    val context = LocalContext.current
+    val graph = LocalAppGraph.current
+    val session: CallSession = viewModel(
+        factory = viewModelFactory { CallSession(api, LiveKitRoom(context.applicationContext)) },
+    )
+    val room = session.room as LiveKitRoom
+    val channel = remember(key.channel) { CallChannel.from(key.channel) }
+
+    val phase by session.phase.collectAsStateWithLifecycle()
+    val connectedAt by session.connectedAt.collectAsStateWithLifecycle()
+    val muted by session.muted.collectAsStateWithLifecycle()
+    val cameraOn by session.cameraOn.collectAsStateWithLifecycle()
+    val speakerOn by session.speakerOn.collectAsStateWithLifecycle()
+    val relayWarning by session.relayWarning.collectAsStateWithLifecycle()
+    val degraded by session.degraded.collectAsStateWithLifecycle()
+    val remoteVideo by room.remoteVideo.collectAsStateWithLifecycle()
+    val localVideo by room.localVideo.collectAsStateWithLifecycle()
+
+    // First of this screen's effects, and it does not suspend, so an Answer
+    // that came with the key (the effect below) finds a ringing call.
+    LaunchedEffect(key.callId) {
+        session.ring(workspaceId = key.workspaceId, callSessionId = key.callId, channel = channel, language = language)
+    }
+
+    val wanted = remember(channel) {
+        if (channel == CallChannel.VIDEO) {
+            arrayOf(android.Manifest.permission.RECORD_AUDIO, android.Manifest.permission.CAMERA)
+        } else {
+            arrayOf(android.Manifest.permission.RECORD_AUDIO)
+        }
+    }
+    // A refusal is not fatal here either: the call is answered, and the
+    // session says which half of it the operator is missing.
+    val permissions = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { session.answer() }
+    val silence = {
+        com.webyar.ai.core.push.CallNotifications.stop(context, key.callId, missed = false, language = language)
+        com.webyar.ai.core.push.CallNotifications.forget(key.callId)
+    }
+    val answer = {
+        silence()
+        val missing = wanted.any {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing) permissions.launch(wanted) else session.answer()
+    }
+    LaunchedEffect(key.callId, key.answer) {
+        if (key.answer) answer()
+    }
+    // The server stopped the ring — somebody else took it, or the caller gave up.
+    LaunchedEffect(graph, key.callId) {
+        graph?.callCancels?.collect { cancel ->
+            if (cancel.callId == key.callId) session.noLongerRinging()
+        }
+    }
+    // Shown over the lock screen for the call, and only for the call.
+    DisposableEffect(Unit) {
+        onDispose { (context as? com.webyar.ai.MainActivity)?.showOverLockScreen(false) }
+    }
+
+    CallScreen(
+        phase = phase,
+        channel = channel,
+        contactName = key.caller.ifBlank { StrAndroid.websiteVisitor(language) },
+        language = language,
+        connectedAt = connectedAt,
+        muted = muted,
+        cameraOn = cameraOn,
+        speakerOn = speakerOn,
+        relayWarning = relayWarning,
+        degraded = degraded,
+        remoteVideo = remoteVideo,
+        localVideo = localVideo,
+        room = room,
+        onToggleMute = session::toggleMute,
+        onToggleCamera = session::toggleCamera,
+        onToggleSpeaker = session::toggleSpeaker,
+        onHangUp = session::hangUp,
+        onDone = onDone,
+        onAnswer = answer,
+        onDecline = {
+            silence()
+            session.decline()
+            onDone()
+        },
+    )
+}
+
 @Composable
 fun SettingsRoute(
     appState: AppState,

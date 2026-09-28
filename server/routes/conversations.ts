@@ -65,6 +65,7 @@ import { createStorageUrlResolver, hydrateUserAvatars, hydrateContactAvatars } f
 import { deltaLowerBound, inThreadOrder, nextSyncCursor, parseSyncCursor } from '../services/messageSync.js';
 import { isConversationId, parseConversationIds } from '../services/conversationIds.js';
 import { queueTranscript } from '../services/notificationEmail/producers.js';
+import { notifyAssignment } from '../services/push/index.js';
 
 
 export const conversationsRouter = Router();
@@ -791,6 +792,17 @@ conversationsRouter.patch('/:id', async (req, res) => {
         newValue: { assigned_to: parsed.data.assigned_to },
         payload: { from: before.assigned_to, to: parsed.data.assigned_to },
       });
+
+      // The operator it was handed to hears about it on their phone.
+      if (parsed.data.assigned_to) {
+        void notifyAssignment(config, {
+          workspaceId: parsed.data.workspace_id,
+          conversationId,
+          assigneeId: parsed.data.assigned_to,
+          actorId: auth.userId,
+          stamp: String(after.updated_at ?? Date.now()),
+        });
+      }
 
       // A notice inside the thread itself. Two genuinely different events
       // share this route:

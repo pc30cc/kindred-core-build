@@ -6,6 +6,7 @@ import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import androidx.work.Configuration
 import com.webyar.ai.core.media.ImageLoading
+import com.webyar.ai.core.push.CallNotifications
 import com.webyar.ai.core.push.Notifications
 import com.webyar.ai.core.push.PushConfig
 import com.webyar.ai.i18n.Language
@@ -33,6 +34,7 @@ class WebyarApp : Application(), SingletonImageLoader.Factory, Configuration.Pro
         // Exists before the first push can arrive, in English until the
         // operator's language is read and it is renamed.
         Notifications.ensureChannels(this, Language.DEFAULT, rename = false)
+        CallNotifications.ensureChannel(this, Language.DEFAULT, rename = false)
     }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader = ImageLoading.create(context)

@@ -29,6 +29,7 @@ import { listWorkspacePresence } from './widget/operatorPresence.js';
 import { publishOperatorEvent, publishConversationEvent, buildMessageEnvelope } from './realtime/publish.js';
 import { dispatchOutboundIfChannelConversation } from './channels/outbound.js';
 import { maybeQueueTelegramOfflineScreen } from './channels/telegram/offlineDelivery.js';
+import { notifyAssignment } from './push/index.js';
 
 export type AssignmentMode = 'auto' | 'round_robin' | 'manual';
 
@@ -81,9 +82,10 @@ async function loadAssignmentConfig(
     .select('assignment_mode, round_robin_cursor_user_id')
     .eq('workspace_id', workspaceId)
     .maybeSingle();
-  const raw = (data as any)?.assignment_mode;
+  const row = data as { assignment_mode?: string | null; round_robin_cursor_user_id?: string | null } | null;
+  const raw = row?.assignment_mode;
   const mode: AssignmentMode = raw === 'round_robin' || raw === 'manual' ? raw : 'auto';
-  return { mode, cursor: (data as any)?.round_robin_cursor_user_id || null };
+  return { mode, cursor: row?.round_robin_cursor_user_id || null };
 }
 
 /** Department the visitor picked, if any — read from conversation metadata,
@@ -109,7 +111,7 @@ async function resolveConversationDepartment(
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
-  const deptId = (msg as any)?.metadata?.department_id as string | undefined;
+  const deptId = (msg as { metadata?: Record<string, unknown> | null } | null)?.metadata?.department_id as string | undefined;
   if (!deptId) return null;
   // Atomic single-key patch — this used to write back the whole metadata
   // snapshot captured at routing entry, which could revert a concurrent AI
@@ -254,7 +256,7 @@ async function resolveAgentDisplayName(config: ServerConfig, userId: string): Pr
   try {
     const sb = getServiceClient(config);
     const { data } = await sb.from('profiles').select('full_name').eq('id', userId).maybeSingle();
-    const name = (data as any)?.full_name;
+    const name = (data as { full_name?: unknown } | null)?.full_name;
     return typeof name === 'string' && name.trim() ? name.trim() : 'a colleague';
   } catch {
     return 'a colleague';
@@ -336,7 +338,7 @@ async function insertRoutingSystemMessage(
         body: msgRow.body as string,
         created_at: msgRow.created_at as string | null,
         metadata: (msgRow.metadata as Record<string, unknown>) ?? metadata,
-        seen_at: (msgRow as any).seen_at ?? null,
+        seen_at: (msgRow as { seen_at?: string | null }).seen_at ?? null,
       }),
     );
   } catch { /* best-effort — never break routing */ }
@@ -360,7 +362,7 @@ export async function routeConversationToOperator(
       .eq('workspace_id', args.workspaceId)
       .maybeSingle();
     if (!conv) return { outcome: 'error', assignedTo: null };
-    const metadata = ((conv as any).metadata || {}) as Record<string, unknown>;
+    const metadata = ((conv as { metadata?: Record<string, unknown> | null }).metadata || {}) as Record<string, unknown>;
 
     if (conv.assigned_to) {
       // Already assigned, so nobody is being routed — but the visitor has
@@ -476,6 +478,15 @@ export async function routeConversationToOperator(
           reason: 'auto_assigned',
         });
       } catch { /* best-effort */ }
+      // The customer message that brought the conversation here was pushed
+      // before anybody owned it; the operator routing just picked hears now.
+      void notifyAssignment(config, {
+        workspaceId: args.workspaceId,
+        conversationId: args.conversationId,
+        assigneeId: picked,
+        actorId: null,
+        stamp: new Date().toISOString(),
+      });
     } else {
       // Team looked online but nobody was actually eligible/available —
       // never leave the visitor in a silent "connecting…" limbo (spec §16).
@@ -512,8 +523,8 @@ export async function routeConversationToOperator(
     }
 
     return { outcome, assignedTo: picked };
-  } catch (err: any) {
-    console.warn('[chat-routing] routeConversationToOperator failed:', err?.message || err);
+  } catch (err) {
+    console.warn('[chat-routing] routeConversationToOperator failed:', err instanceof Error ? err.message : err);
     return { outcome: 'error', assignedTo: null };
   }
 }
@@ -536,7 +547,7 @@ export async function claimConversationManually(
       .eq('id', args.conversationId)
       .eq('workspace_id', args.workspaceId)
       .maybeSingle();
-    return { claimed: false, assignedTo: (data as any)?.assigned_to || null };
+    return { claimed: false, assignedTo: (data as { assigned_to?: string | null } | null)?.assigned_to || null };
   }
   const agentName = await resolveAgentDisplayName(config, args.userId);
   await insertRoutingSystemMessage(

@@ -164,7 +164,7 @@ export async function sendFcmMessage(msg: FcmMessage): Promise<FcmSendOutcome> {
   }
   if (!token) return { ok: false, unregistered: false, status: 0, error: 'no_access_token' };
 
-  const payload = {
+  return post(creds.projectId, token, {
     message: {
       token: msg.token,
       notification: { title: msg.title, body: msg.body },
@@ -179,11 +179,56 @@ export async function sendFcmMessage(msg: FcmMessage): Promise<FcmSendOutcome> {
       },
       apns: buildApns(msg),
     },
-  };
+  });
+}
 
+export interface FcmDataMessage {
+  token: string;
+  /** Identifiers and display strings the app needs to act. Never credentials. */
+  data: Record<string, string>;
+  /** Past this the message is worthless and FCM drops it instead of delivering late. */
+  ttlSeconds: number;
+  collapseKey?: string;
+}
+
+/**
+ * A data-only, high-priority message to an ANDROID device.
+ *
+ * With no `notification` block the system draws nothing and hands the
+ * message to the app's own service whatever state it is in — open,
+ * backgrounded or not running — which is what a ringing call needs: the app
+ * decides how to ring, and it can also be told to stop. Not for iOS, where a
+ * data-only message is silent and throttled; iOS rings through PushKit.
+ */
+export async function sendFcmData(msg: FcmDataMessage): Promise<FcmSendOutcome> {
+  const creds = getFcmCredentials();
+  if (!creds) return { ok: false, unregistered: false, status: 0, error: 'push_not_configured' };
+
+  let token: string | null;
+  try {
+    token = await getAccessToken(creds);
+  } catch (err) {
+    return { ok: false, unregistered: false, status: 0, error: safeError(err) };
+  }
+  if (!token) return { ok: false, unregistered: false, status: 0, error: 'no_access_token' };
+
+  return post(creds.projectId, token, {
+    message: {
+      token: msg.token,
+      data: msg.data,
+      android: {
+        priority: 'HIGH',
+        ttl: `${Math.max(0, Math.floor(msg.ttlSeconds))}s`,
+        collapse_key: msg.collapseKey,
+      },
+    },
+  });
+}
+
+async function post(projectId: string, token: string, payload: unknown): Promise<FcmSendOutcome> {
   try {
     const res = await fetch(
-      `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(creds.projectId)}/messages:send`,
+      `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/messages:send`,
       {
         method: 'POST',
         headers: {

@@ -16,6 +16,25 @@ as for a mention) → their devices. Its `data` carries `type: team_message` and
 `peerId` (the colleague) instead of a `conversationId`; the apps open that
 colleague's thread on a tap.
 
+What else reaches an operator's phone, each under the same per-operator
+settings and in the operator's language:
+
+| Event | Sent from | `type` | Who |
+|---|---|---|---|
+| Customer message (widget, bot channels, widget "leave a message") | `notifyInboundMessage` | `new_message` | assignee, or everyone following all conversations |
+| Internal note | `POST /api/conversations/:id/notes` | `internal_note` | the same people, never the author |
+| Conversation assigned (by a colleague, or by routing) | `notifyAssignment` | `assignment` | the new assignee |
+| New email (Gmail / Yahoo, received in the last 15 minutes) | `notifyEmailMessage` | `email_message` + `threadId` | everyone following everything |
+| Callback request | `notifyCallbackRequest` | `callback_request` + `callbackId` | everyone following everything |
+| Call-centre call | `ringOperators` / `cancelRing` | `call_incoming` / `call_cancel` (Android, data-only) | the agent routed to, or every available agent |
+
+A call rings iPhones over PushKit and Android phones with a data-only,
+high-priority FCM message: the app draws a full-screen incoming call with
+Answer and Decline. Answer takes the call through
+`POST /api/call-center/calls/:id/accept`; Decline only silences that phone —
+the call centre's own reject would hang up on the caller for everyone. A ring
+that stops with nobody having answered it leaves a missed-call notification.
+
 Delivery is best-effort and idempotent (`push_dispatch_log.dedupe_key`); a push
 failure can never fail or roll back message ingestion.
 

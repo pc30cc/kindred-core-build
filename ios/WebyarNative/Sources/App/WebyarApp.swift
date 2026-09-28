@@ -198,24 +198,13 @@ struct LaunchView: View {
             LaunchLoader()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea()
-
-            VStack {
-                Spacer()
-                LaunchFooter()
-                    .padding(.bottom, Theme.Space.xl)
-            }
         }
+        // The name at the foot, where sign in and password reset have it too.
+        .brandFooter()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Str.appName(appState.language))
         .accessibilityAddTraits(.updatesFrequently)
     }
-}
-
-/// The brand's two blues, as the loader draws them: the deep blue of the
-/// icon's lower edge and the cyan of its highlight.
-private enum LaunchPalette {
-    static let deep = Color(red: 0.047, green: 0.314, blue: 0.914)
-    static let cyan = Color(red: 0.180, green: 0.839, blue: 1.000)
 }
 
 /// Two arcs turning against each other: an outer comet of the brand's blue
@@ -256,7 +245,7 @@ private struct LaunchLoader: View {
             Circle()
                 .trim(from: 0, to: 0.22)
                 .stroke(
-                    LaunchPalette.cyan.opacity(0.55),
+                    BrandPalette.cyan.opacity(0.55),
                     style: StrokeStyle(lineWidth: innerLine, lineCap: .round)
                 )
                 .frame(width: inner, height: inner)
@@ -286,9 +275,9 @@ private struct LaunchLoader: View {
                 .stroke(
                     AngularGradient(
                         gradient: Gradient(stops: [
-                            .init(color: LaunchPalette.deep.opacity(0), location: 0),
-                            .init(color: LaunchPalette.deep, location: 0.55),
-                            .init(color: LaunchPalette.cyan, location: 1),
+                            .init(color: BrandPalette.deep.opacity(0), location: 0),
+                            .init(color: BrandPalette.deep, location: 0.55),
+                            .init(color: BrandPalette.cyan, location: 1),
                         ]),
                         center: .center,
                         startAngle: .degrees(0),
@@ -298,42 +287,12 @@ private struct LaunchLoader: View {
                 )
 
             Circle()
-                .fill(LaunchPalette.cyan)
+                .fill(BrandPalette.cyan)
                 .frame(width: outerLine * 1.9, height: outerLine * 1.9)
-                .shadow(color: LaunchPalette.cyan.opacity(0.9), radius: 3)
+                .shadow(color: BrandPalette.cyan.opacity(0.9), radius: 3)
                 .offset(x: outer / 2)
                 .rotationEffect(.degrees(arc * 360))
         }
-    }
-}
-
-/// "WEBYAR AI", small and letter-spaced at the foot of the screen: the name
-/// in the label's quiet grey, the "AI" in the brand's blue.
-///
-/// Latin in every language, as the wordmark is everywhere — it is the mark,
-/// not prose — so it is pinned left-to-right; a right-to-left layout would
-/// set it as "AI WEBYAR".
-private struct LaunchFooter: View {
-    private let tracking: CGFloat = 3
-
-    var body: some View {
-        HStack(spacing: tracking * 1.6) {
-            Text(Str.brandWordmark)
-                .foregroundStyle(Theme.Palette.labelSecondary)
-            Text(verbatim: "AI")
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [LaunchPalette.deep, LaunchPalette.cyan],
-                        startPoint: .leading, endPoint: .trailing
-                    )
-                )
-        }
-        .font(.system(size: 12, weight: .semibold, design: .rounded))
-        .tracking(tracking)
-        // Tracking adds its space after the last letter too, which would sit
-        // the centred name half a letter to the left.
-        .padding(.leading, tracking)
-        .environment(\.layoutDirection, .leftToRight)
     }
 }
 
@@ -347,7 +306,7 @@ struct BrandMark: View {
     var size: CGFloat = 64
 
     /// The wordmark's first letter, not the translated name's. Same reason
-    /// `BrandWordmark` does not translate: this is the mark, and a "و" in the
+    /// `BrandFooter` does not translate: this is the mark, and a "و" in the
     /// box where every other surface shows a "W" is a different logo.
     private var letter: String {
         String(Str.brandWordmark.prefix(1))

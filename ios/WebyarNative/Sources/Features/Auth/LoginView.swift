@@ -65,7 +65,10 @@ struct LoginView: View {
 
                         Spacer(minLength: Theme.Space.huge)
 
-                        footerMark
+                        // Room for the name signed at the foot of the screen
+                        // (`brandFooter()` below), so on a short screen the
+                        // form stops above it rather than under it.
+                        Color.clear.frame(height: BrandFooter.clearance)
                     }
                     .padding(.horizontal, Theme.screenInset)
                     // Lets the two spacers do their work on a tall screen,
@@ -80,6 +83,10 @@ struct LoginView: View {
             .background(AuthBackdrop())
             .toolbar(.hidden, for: .navigationBar)
         }
+        // On the stack rather than on this screen, so it stays put while
+        // password reset slides in over it: the same place on both screens,
+        // and the same place as on the launch screen this one fades in from.
+        .brandFooter()
         .onAppear {
             if let message = appState.sessionEndedMessage {
                 errorMessage = message
@@ -96,8 +103,8 @@ struct LoginView: View {
     /// 34 points of "Welcome back" — the loudest thing on a screen whose job
     /// is two fields and a button. It is a greeting, so it is sized like one.
     ///
-    /// The wordmark used to sit above it and now sits at the foot of the
-    /// screen: see `footerMark`.
+    /// No wordmark above it, or anywhere in the form: the only mark on this
+    /// screen is the launch screen's small "WEBYAR AI" at its foot.
     private var header: some View {
         VStack(spacing: Theme.Space.xxs) {
             Text(Str.loginTitle(language))
@@ -110,27 +117,6 @@ struct LoginView: View {
         }
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
-    }
-
-    /// The mark, small and quiet, at the bottom of the screen.
-    ///
-    /// A wordmark over the fields is a sign above a door: it tells you where
-    /// you are before you are anywhere. But everyone here has already opened
-    /// this app — they saw the mark on the icon they tapped and again on the
-    /// launch screen — so a third, large one directly above the form is the
-    /// biggest thing on the screen saying the thing you already know, and it
-    /// pushes the two fields you came for down under it.
-    ///
-    /// So it moves to the foot: still present, signed rather than announced,
-    /// the way a name is set at the bottom of a card. Small enough to be a
-    /// signature (the login screen's mark was 30 points; this is half that),
-    /// dimmed so it sits behind the form in the eye's order, and last in the
-    /// scroll so the keyboard pushes it away instead of covering it.
-    private var footerMark: some View {
-        BrandWordmark(language: language, size: 15)
-            .opacity(0.55)
-            .padding(.top, Theme.Space.xxl)
-            .padding(.bottom, Theme.Space.xs)
     }
 
     private var fields: some View {

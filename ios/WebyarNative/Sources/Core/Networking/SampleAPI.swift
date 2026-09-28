@@ -20,7 +20,8 @@ actor SampleAPI: WebyarAPI {
     /// laid out and screenshotted with its switches actually working.
     private var samplePrefs = NotificationPrefs()
 
-    var hasToken: Bool { true }
+    /// Signed in, unless the run asked to see the sign-in screen.
+    var hasToken: Bool { SampleRoute.current != .login }
 
     // MARK: - Auth
 

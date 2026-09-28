@@ -364,7 +364,7 @@ struct MainTabView: View {
             else { return }
             inboxPath.append(first)
 
-        case .inbox, .none:
+        case .inbox, .login, .none:
             break
         }
         #endif

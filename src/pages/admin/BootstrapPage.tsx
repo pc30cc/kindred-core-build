@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Navigate } from 'react-router-dom';
 import { toast } from '@/lib/toast';
 import { Shield } from 'lucide-react';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 
 export default function AdminBootstrapPage() {
   const { t } = useTranslation();
@@ -25,17 +25,17 @@ export default function AdminBootstrapPage() {
     try {
       const result = await bootstrap.mutateAsync();
       if (result) {
-        toast.success(t('admin.bootstrap.success' as any));
+        toast.success(t('admin.bootstrap.success' as TranslationKey));
       } else {
-        toast.error(t('admin.bootstrap.alreadyExists' as any));
+        toast.error(t('admin.bootstrap.alreadyExists' as TranslationKey));
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       const messages: Record<string, string> = {
-        bootstrap_not_configured: t('admin.bootstrap.notConfigured' as any),
-        email_verification_required: t('admin.bootstrap.verifyEmail' as any),
-        not_authorized: t('admin.bootstrap.notAuthorized' as any),
+        bootstrap_not_configured: t('admin.bootstrap.notConfigured' as TranslationKey),
+        email_verification_required: t('admin.bootstrap.verifyEmail' as TranslationKey),
+        not_authorized: t('admin.bootstrap.notAuthorized' as TranslationKey),
       };
-      toast.error(messages[err?.message] || t('admin.bootstrap.failed' as any));
+      toast.error(messages[err instanceof Error ? err.message : ''] || t('admin.bootstrap.failed' as TranslationKey));
     }
   };
 
@@ -44,21 +44,21 @@ export default function AdminBootstrapPage() {
       <Card className="max-w-md w-full bg-card border-border">
         <CardHeader className="text-center">
           <Shield className="h-12 w-12 mx-auto text-red-400 mb-2" />
-          <CardTitle className="text-foreground text-xl">{t('admin.bootstrap.title' as any)}</CardTitle>
+          <CardTitle className="text-foreground text-xl">{t('admin.bootstrap.title' as TranslationKey)}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-center">
           <p className="text-muted-foreground text-sm">
-            {t('admin.bootstrap.intro' as any)} <strong className="text-foreground">{user.email}</strong>
+            {t('admin.bootstrap.intro' as TranslationKey)} <strong className="text-foreground">{user.email}</strong>
           </p>
           <p className="text-muted-foreground/70 text-xs">
-            {t('admin.bootstrap.warning' as any)}
+            {t('admin.bootstrap.warning' as TranslationKey)}
           </p>
           <Button
             onClick={handleBootstrap}
             disabled={bootstrap.isPending}
             className="w-full bg-red-600 hover:bg-red-700"
           >
-            {bootstrap.isPending ? t('admin.bootstrap.working' as any) : t('admin.bootstrap.claim' as any)}
+            {bootstrap.isPending ? t('admin.bootstrap.working' as TranslationKey) : t('admin.bootstrap.claim' as TranslationKey)}
           </Button>
         </CardContent>
       </Card>

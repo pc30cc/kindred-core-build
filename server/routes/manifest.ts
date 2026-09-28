@@ -29,7 +29,7 @@ function guessMimeType(url: string): string {
 }
 
 manifestRouter.get('/', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as unknown as { serverConfig: ServerConfig }).serverConfig;
   const sb = getServiceClient(config);
 
   const locale = await clampLocaleToPlatformRegion(config, typeof req.query.locale === 'string' ? req.query.locale : undefined);

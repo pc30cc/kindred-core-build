@@ -61,9 +61,9 @@ export function WorkspaceRedirect() {
             throw new Error(body.error || `API error: ${res.status}`);
           }
           await refetch();
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('Auto-provision failed:', err);
-          const raw = String(err?.message || '');
+          const raw = String((err instanceof Error && err.message) || '');
           if (raw === 'email_verification_required') {
             setNeedsVerification(true);
           } else if (err instanceof TypeError || /failed to fetch|network/i.test(raw)) {

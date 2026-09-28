@@ -1,11 +1,12 @@
-# App downloads (Windows installer, Android APK, Mac DMG)
+# App downloads (Windows installer, Mac DMG; the Android APK ships with the site)
 
 `https://app.webyar.ai/downloads/Webyar-Setup.exe` (latest) and
 `https://app.webyar.ai/downloads/Webyar-Setup-<version>.exe` are served from the
 production host, not from the frontend image: an ~90 MB binary does not belong
 in git or in every frontend build, and the file must survive redeploys.
 
-On the host (analyticsme.site):
+On the host (analyticsme.site — reached over SSH by its own IP; the name is
+behind Cloudflare):
 
 - Files: `/data/webyar-downloads/files/`. `Webyar-Setup.exe` is a symlink to
   the current `Webyar-Setup-<version>.exe`.
@@ -14,8 +15,8 @@ On the host (analyticsme.site):
   `/etc/nginx/conf.d/default.conf` and the files directory at `/data` (read-only).
 - Routing: `traefik-webyar-downloads.yaml` from this folder lives at
   `/data/coolify/proxy/dynamic/webyar-downloads.yaml`. It matches only
-  `/downloads/Webyar-Setup*.exe`; everything else under `/downloads/` (the
-  WooCommerce plugin) still reaches the frontend.
+  `/downloads/Webyar-Setup*.exe` and `/downloads/Webyar-Mac*.dmg`; everything
+  else under `/downloads/` (the plugins, the Android APK) reaches the frontend.
 
 Recreate the container:
 
@@ -31,23 +32,22 @@ to `/data/webyar-downloads/files/Webyar-Setup-<version>.exe`, then
 
 ## The Android app
 
-`https://app.webyar.ai/downloads/Webyar-Android.apk` (latest) and
-`https://app.webyar.ai/downloads/Webyar-Android-<version>.apk` come from the same
-container and folder. `nginx.conf` and the Traefik rule above already carry the
-`Webyar-Android*.apk` route; after updating either on the host:
-`docker exec webyar-downloads nginx -s reload` (Traefik rereads its dynamic
-folder by itself).
+`https://app.webyar.ai/downloads/Webyar-Android.apk` is **not** served from
+this container. It ships with the site: the file is
+`public/downloads/Webyar-Android.apk` in the repository, beside the plugin
+zips, and the frontend image serves it from `/downloads/` (no caching, a hard
+404 rather than the SPA page — see `nginx.conf.template`). The Traefik rule
+above leaves `.apk` alone for that reason; the frontend Dockerfiles fail the
+build if the file is missing.
 
 The APK is the universal release build (every ABI), signed with the release
-key — see `docs/ANDROID_RELEASE.md`. Publish a new version:
+key — see `docs/ANDROID_RELEASE.md`. Publish a new version: replace
+`public/downloads/Webyar-Android.apk` with the new build, merge, and let the
+frontend deploy. Keep the file name: the site's download page (webyar.ai →
+admin → «برنامه‌ها و دانلود» → Android) links to exactly this path.
 
-    v=1.0.0
-    scp Webyar-Android-$v.apk root@analyticsme.site:/data/webyar-downloads/files/
-    ssh root@analyticsme.site "cd /data/webyar-downloads/files && ln -sf Webyar-Android-$v.apk Webyar-Android.apk"
-
-The site's download page (webyar.ai → admin → «برنامه‌ها و دانلود» → Android)
-points at `https://app.webyar.ai/downloads/Webyar-Android.apk`, so a new
-version needs only the symlink moved.
+It is about 58 MB, under GitHub's 100 MB limit for one file; every version
+adds that much to the repository's history.
 
 ## The Mac app
 
@@ -59,8 +59,12 @@ macOS 14+), built on a Mac with `macos/scripts/make-dmg.sh <version> <build>`.
 Publish it:
 
     v=1.0.2
-    scp Webyar-Mac-$v.dmg root@analyticsme.site:/data/webyar-downloads/files/
-    ssh root@analyticsme.site "cd /data/webyar-downloads/files && ln -sf Webyar-Mac-$v.dmg Webyar-Mac.dmg"
+    host=<the server's own IP>
+    scp Webyar-Mac-$v.dmg root@$host:/data/webyar-downloads/files/
+    ssh root@$host "cd /data/webyar-downloads/files && ln -sf Webyar-Mac-$v.dmg Webyar-Mac.dmg"
+
+By IP, not by name: `analyticsme.site` resolves to Cloudflare, which does not
+carry SSH, so `ssh root@analyticsme.site` only ever times out.
 
 Two things learnt putting it up:
 
@@ -70,3 +74,6 @@ Two things learnt putting it up:
   `nginx -s reload` alone can keep serving the old rules.
 - Cloudflare caches a 404 for a few minutes: a new file name asked for before
   its route is in place answers 404 for a short while afterwards.
+- A 404 that carries this container's `Content-Disposition` header means the
+  routing works and the file (or its symlink) is missing; a 404 without it
+  means Traefik never sent the request here.

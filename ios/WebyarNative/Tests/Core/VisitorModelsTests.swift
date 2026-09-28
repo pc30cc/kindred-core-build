@@ -176,4 +176,19 @@ final class VisitorModelsTests: XCTestCase {
         let config = try decode(MobileAppConfig.self, #"{"platform":"ios","showVisitors":null}"#)
         XCTAssertEqual(config, .defaults, "an older server that sends fewer keys hides nothing")
     }
+
+    func testSuperAdminCanHideSettingsStorage() throws {
+        let config = try decode(MobileAppConfig.self, #"{"platform":"ios","showStorage":false}"#)
+        XCTAssertFalse(config.showStorage)
+        XCTAssertTrue(config.showContacts, "hiding Storage takes nothing else away")
+        XCTAssertTrue(config.showColleagues)
+    }
+
+    func testAServerWithoutTheStorageSwitchKeepsItShown() throws {
+        // Everything before migration 232 answers without the key.
+        let config = try decode(MobileAppConfig.self, """
+        {"platform":"ios","showContacts":true,"showVisitors":true,"showWebAnalytics":true,"showAIQueue":true,"showColleagues":true}
+        """)
+        XCTAssertTrue(config.showStorage)
+    }
 }

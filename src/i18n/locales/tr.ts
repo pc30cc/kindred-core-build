@@ -4452,6 +4452,10 @@ const tr: TranslationKeys = {
         showAIQueueHint: "Yapay zekâ asistanının yanıtladığı konuşmalar. Yalnızca planda yapay zekâ kuyruğu varsa ve asistan açıksa. Kapalıyken sekme ve gelen kutusu menüsündeki yapay zekâ kuyruğu gizlenir.",
         showColleagues: "\"Ekip arkadaşları\"nı göster",
         showColleaguesHint: "Operatörler arası canlı sohbet. Yalnızca ekip sohbeti olan planlarda. Kapalıyken sekme ve gelen kutusu menüsündeki Ekip arkadaşları girişi gizlenir.",
+        settingsHeading: "Ayarlar ekranı",
+        settingsCaption: "Operatörlerin iOS uygulamasının Ayarlar'ında gördüğü bölümler. Yukarıdaki sekmeler gibi hemen uygulanır.",
+        showStorage: "\"Depolama\" bölümünü göster",
+        showStorageHint: "Uygulamanın telefonda tuttuğu veriler ve onları temizleyen düğme. Kapalıyken bölüm gizlenir; önbelleğin kendisi çalışmaya devam eder.",
       },
       androidTabs: {
         overview: 'Genel bakış',

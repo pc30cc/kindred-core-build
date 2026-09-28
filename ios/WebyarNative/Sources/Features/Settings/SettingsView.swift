@@ -154,10 +154,14 @@ struct SettingsView: View {
                     Label(Str.security(language), systemImage: "lock.shield")
                 }
 
-                NavigationLink(value: SettingsRoute.storage) {
-                    Label(Str.storage(language), systemImage: "internaldrive")
+                // Super Admin can take this row away (Mobile App → iOS →
+                // In-app settings); the cache it describes keeps working.
+                if appState.storageVisible {
+                    NavigationLink(value: SettingsRoute.storage) {
+                        Label(Str.storage(language), systemImage: "internaldrive")
+                    }
+                    .accessibilityIdentifier(A11y.storageRow)
                 }
-                .accessibilityIdentifier(A11y.storageRow)
 
                 Button {
                     isConfirmingSignOut = true

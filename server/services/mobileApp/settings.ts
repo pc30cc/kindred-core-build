@@ -164,6 +164,8 @@ export interface MobileAppSettings {
   // The Inbox's AI and Colleagues tabs.
   ios_app_show_ai_queue: boolean;
   ios_app_show_colleagues: boolean;
+  // Settings → Storage, as android_app_show_storage is on Android.
+  ios_app_show_storage: boolean;
 
   checklist: Record<string, { done: boolean; at?: string; by?: string }>;
   updated_at?: string | null;
@@ -286,6 +288,7 @@ export const MOBILE_APP_DEFAULTS: MobileAppSettings = {
   ios_app_show_web_analytics: true,
   ios_app_show_ai_queue: true,
   ios_app_show_colleagues: true,
+  ios_app_show_storage: true,
 
   checklist: {},
   updated_at: null,
@@ -398,6 +401,8 @@ export interface IosAppConfig {
   showAIQueue: boolean;
   /** The Inbox's Colleagues tab — still only on plans with `inbox_team_chat`. */
   showColleagues: boolean;
+  /** Settings → Storage: the cache sizes and the button that clears them. */
+  showStorage: boolean;
 }
 
 export function toIosAppConfig(settings: MobileAppSettings): IosAppConfig {
@@ -408,5 +413,6 @@ export function toIosAppConfig(settings: MobileAppSettings): IosAppConfig {
     showWebAnalytics: settings.ios_app_show_web_analytics,
     showAIQueue: settings.ios_app_show_ai_queue,
     showColleagues: settings.ios_app_show_colleagues,
+    showStorage: settings.ios_app_show_storage,
   };
 }

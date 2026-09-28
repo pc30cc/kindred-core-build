@@ -20,6 +20,14 @@ enum SyncEvent: Sendable, Equatable {
     case resync
     /// The saved copy was cleared or replaced: threads read whole.
     case reconcile
+    /// The operator read a conversation on this phone. The server announces
+    /// nothing when a message is marked seen, so the phone says so itself:
+    /// the list's unread count and the Inbox tab's dot follow at once.
+    case seen(conversationID: String)
+    /// Something changed in one of this operator's team threads: a message
+    /// either way, or a read. `peerID` is the colleague it is about; nil when
+    /// the team channel has just (re)joined and anything may have been missed.
+    case team(peerID: String?)
 }
 
 /// Where the local-first pieces meet: the store and the lists of the
@@ -46,6 +54,9 @@ final class SyncCoordinator {
 
     /// Realtime is connected: screens relax their polling to a safety net.
     private(set) var realtimeConnected = false
+    /// The operator's own team-chat channel is joined too: the colleagues
+    /// list and an open team thread relax their polling the same way.
+    private(set) var teamRealtimeConnected = false
     /// The scene is active.
     private(set) var isForeground = true
     /// Bumped on every change of account or workspace, so an answer that
@@ -267,6 +278,17 @@ final class SyncCoordinator {
                 self.emit(.resync)
             }
         }
+        connection.onTeamEvent = { [weak self] event in
+            guard let self, self.scope == scope else { return }
+            self.emit(.team(peerID: event.peer(me: scope.userID)))
+        }
+        connection.onTeamConnectionChanged = { [weak self] up in
+            guard let self, self.scope == scope else { return }
+            self.teamRealtimeConnected = up
+            // Team messages sent before the channel was joined were never
+            // heard: one catch-up read covers them.
+            if up { self.emit(.team(peerID: nil)) }
+        }
         realtime = connection
         connection.start()
     }
@@ -274,9 +296,12 @@ final class SyncCoordinator {
     private func stopRealtime() {
         realtime?.onEvent = nil
         realtime?.onConnectionChanged = nil
+        realtime?.onTeamEvent = nil
+        realtime?.onTeamConnectionChanged = nil
         realtime?.stop()
         realtime = nil
         realtimeConnected = false
+        teamRealtimeConnected = false
     }
 
     private func handle(_ event: RealtimeEvent, from workspaceID: String) {

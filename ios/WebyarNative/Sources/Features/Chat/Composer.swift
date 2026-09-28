@@ -337,13 +337,75 @@ struct Composer: View {
     /// a row of loose glyphs next to a field rather than one object. They are
     /// inside now, at the leading edge, in the order an operator reaches for
     /// them — and the microphone last, so it is the one touching the text.
+    @ViewBuilder
     private var field: some View {
-        HStack(alignment: .bottom, spacing: 0) {
-            leadingControls
-            textArea
-            sendButton
+        if let active = activeSayNow {
+            aiCard(active)
+        } else {
+            HStack(alignment: .bottom, spacing: 0) {
+                leadingControls
+                textArea
+                sendButton
+            }
+            .composerPill()
+            .onTapGesture { isWriting = true }
         }
-        .composerPill()
+    }
+
+    /// The composer on a thread the AI is answering, as the Mac app draws it:
+    /// one card, the operator's words on top and, under them, a tool row with
+    /// whose voice they will land in, a line saying what happens to them, and
+    /// the AI's own send — a purple circle with its sparkles.
+    ///
+    /// Nothing above it: no bar, no second field. The card is the one place
+    /// the operator writes, whoever is answering.
+    private func aiCard(_ active: SayNowModel) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+        return VStack(alignment: .leading, spacing: 0) {
+            textArea
+                .padding(.horizontal, Theme.Space.sm)
+                .padding(.top, Theme.Space.xs)
+
+            HStack(alignment: .center, spacing: Theme.Space.sm) {
+                SayNowVoiceButton(model: active, language: language)
+
+                Text(Str.sayNowHint(language))
+                    .font(.caption2)
+                    .foregroundStyle(Theme.Palette.labelTertiary)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityHidden(true)
+
+                SendButton(
+                    isEnabled: effectiveCanSend,
+                    isSending: effectiveIsSending,
+                    label: effectiveSendLabel,
+                    icon: "sparkles",
+                    tint: Theme.Palette.ai,
+                    action: performSend
+                )
+            }
+            .padding(.leading, Theme.Space.sm)
+            .padding(.trailing, Theme.Space.xs)
+            .padding(.bottom, Theme.Space.xs)
+        }
+        // The Mac's focus treatment: while the card has the keyboard it takes
+        // a faint wash of the brand's blue over its fill and a blue ring;
+        // otherwise a hairline edge. One background, the wash over the fill —
+        // a second `.background` would draw it underneath, out of sight.
+        .background {
+            shape.fill(Theme.Palette.surface)
+                .overlay(shape.fill(Theme.Palette.brand.opacity(isWriting ? 0.05 : 0)))
+        }
+        .overlay(
+            shape.strokeBorder(
+                isWriting ? Theme.Palette.brand.opacity(0.55) : Theme.Palette.separator.opacity(0.6),
+                lineWidth: isWriting ? 1.2 : 0.5
+            )
+        )
+        .contentShape(shape)
+        .animation(.smooth(duration: 0.18), value: isWriting)
         .onTapGesture { isWriting = true }
     }
 
@@ -351,68 +413,65 @@ struct Composer: View {
     ///
     /// All of them are about putting something into a message to the visitor.
     /// On a thread the AI answers there is no such message — the operator's
-    /// words are rewritten before they go — so the whole cluster gives way to
-    /// the one control that does belong there, which voice it lands in.
+    /// words are rewritten before they go — so that composer is a card of its
+    /// own (`aiCard`), with the one control that does belong there: which
+    /// voice the words land in.
     @ViewBuilder
     private var leadingControls: some View {
-        if let active = activeSayNow {
-            SayNowVoiceButton(model: active, language: language)
-        } else {
-            if capabilities.canAttach {
-                // A menu rather than a single picker: a photo and a document
-                // come from two different system pickers, and guessing which
-                // one somebody meant gets it wrong half the time.
-                Menu {
-                    Button {
-                        isShowingPhotos = true
-                    } label: {
-                        Label(Str.sendPhoto(language), systemImage: "photo")
-                    }
-                    Button {
-                        isShowingDocuments = true
-                    } label: {
-                        Label(Str.sendDocument(language), systemImage: "doc")
-                    }
+        if capabilities.canAttach {
+            // A menu rather than a single picker: a photo and a document
+            // come from two different system pickers, and guessing which
+            // one somebody meant gets it wrong half the time.
+            Menu {
+                Button {
+                    isShowingPhotos = true
                 } label: {
-                    ComposerGlyph(icon: "paperclip")
+                    Label(Str.sendPhoto(language), systemImage: "photo")
                 }
-                .accessibilityLabel(Str.attachFile(language))
-                .accessibilityIdentifier(A11y.attachButton)
-                .disabled(isSending)
+                Button {
+                    isShowingDocuments = true
+                } label: {
+                    Label(Str.sendDocument(language), systemImage: "doc")
+                }
+            } label: {
+                ComposerGlyph(icon: "paperclip")
             }
+            .accessibilityLabel(Str.attachFile(language))
+            .accessibilityIdentifier(A11y.attachButton)
+            .disabled(isSending)
+        }
 
-            if shortcuts != nil {
-                // The console's lightning bolt, and for the same reason: a
-                // saved reply is the fastest thing in the composer.
-                ComposerGlyphButton(icon: "bolt", label: Str.shortcuts(language)) {
-                    isShowingEmoji = false
-                    isShowingShortcuts = true
-                }
-                .accessibilityIdentifier(A11y.shortcutsButton)
+        if shortcuts != nil {
+            // The console's lightning bolt, and for the same reason: a
+            // saved reply is the fastest thing in the composer.
+            ComposerGlyphButton(icon: "bolt", label: Str.shortcuts(language)) {
+                isShowingEmoji = false
+                isShowingShortcuts = true
             }
+            .accessibilityIdentifier(A11y.shortcutsButton)
+        }
 
-            if capabilities.canUseEmoji {
-                ComposerGlyphButton(
-                    icon: isShowingEmoji ? "keyboard" : "face.smiling",
-                    label: Str.emoji(language),
-                    isActive: isShowingEmoji
-                ) {
-                    isShowingEmoji.toggle()
-                }
+        if capabilities.canUseEmoji {
+            ComposerGlyphButton(
+                icon: isShowingEmoji ? "keyboard" : "face.smiling",
+                label: Str.emoji(language),
+                isActive: isShowingEmoji
+            ) {
+                isShowingEmoji.toggle()
             }
+        }
 
-            if capabilities.canRecordVoice {
-                // Last, so it is the control touching the text: a voice note
-                // is an alternative to typing rather than something added to
-                // what was typed.
-                // `mic`, not `mic.fill`: the paperclip, the bolt and the
-                // face beside it are all outlines, and a single solid glyph
-                // among them reads as the one that is already switched on.
-                ComposerGlyphButton(icon: "mic", label: Str.voiceNote(language)) {
-                    Task { await recorder.start() }
-                }
-                .disabled(isSending)
+        if capabilities.canRecordVoice {
+            // Last, so it is the control touching the text: a voice note
+            // is an alternative to typing rather than something added to
+            // what was typed.
+            // `mic`, not `mic.fill`: the paperclip, the bolt and the
+            // face beside it are all outlines, and a single solid glyph
+            // among them reads as the one that is already switched on.
+            ComposerGlyphButton(icon: "mic", label: Str.voiceNote(language)) {
+                Task { await recorder.start() }
             }
+            .disabled(isSending)
         }
     }
 

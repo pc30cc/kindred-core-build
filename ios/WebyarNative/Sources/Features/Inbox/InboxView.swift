@@ -19,6 +19,9 @@ struct InboxView: View {
     @Environment(PromotionCenter.self) private var promotions
     @Environment(\.locale) private var locale
     @State private var model = InboxViewModel()
+    /// The Colleagues tab on the strip: team chat, in place of the queues.
+    @State private var colleagues = ColleaguesViewModel()
+    @State private var showsColleagues = false
     @State private var isSearching = false
     @State private var isFiltering = false
 
@@ -81,6 +84,18 @@ struct InboxView: View {
             // The same for a channel inbox the plan no longer carries.
             .onChange(of: channelInboxes) { _, available in
                 if let channel = model.channel, !available.contains(channel) { model.channel = nil }
+            }
+            // Colleagues, and their unread count on the strip: read while the
+            // inbox is the tab on screen, then kept current by the operator's
+            // own team channel, with a slow poll underneath.
+            .task(id: "\(workspaceID ?? "-")|\(appState.colleaguesVisible)|\(isSelectedTab)") {
+                guard appState.colleaguesVisible, isSelectedTab else { return }
+                await colleagues.load(workspaceID: workspaceID, appState: appState)
+                await colleagues.listen(workspaceID: workspaceID)
+            }
+            // Team chat switched off, or out of the plan: back to the queues.
+            .onChange(of: appState.colleaguesVisible) { _, visible in
+                if !visible { showsColleagues = false }
             }
             // Notifications, asked for here rather than at launch.
             //
@@ -221,86 +236,33 @@ struct InboxView: View {
             }
 
             FilterPicker(
-                selection: $model.filter,
-                filters: appState.inboxChips(automated: model.counts?.automated),
+                selection: stripSelection,
+                items: appState.inboxStrip(automated: model.counts?.automated),
                 counts: model.counts,
+                colleaguesUnread: colleagues.unreadTotal,
                 language: language
             )
                 .listRowInsets(filterInsets)
                 .listRowSeparator(.hidden)
 
-            if content.isLoaded, model.syncStatus.isOffline {
+            if !showsColleagues, content.isLoaded, model.syncStatus.isOffline {
                 OfflineNotice(text: Str.offlineSavedCopy(language))
                     .listRowInsets(filterInsets)
                     .listRowSeparator(.hidden)
             }
 
-            switch content {
-            case .loading:
-                // A skeleton rather than a bare spinner: the row rhythm is
-                // already on screen, so the real content does not shift
-                // anything when it lands.
-                ForEach(0..<8, id: \.self) { _ in
-                    ConversationRowSkeleton()
-                        .listRowInsets(rowInsets)
-                }
-
-            case .failed(let error):
-                ErrorStateView(
-                    title: Str.offlineTitle(language),
-                    message: errorMessage(error),
-                    retryTitle: Str.retry(language),
-                    onRetry: { model.load(workspaceID: workspaceID, appState: appState) }
-                )
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-
-            case .loaded:
-                let rows = model.visible(in: workspaceID)
-                if rows.isEmpty {
-                    EmptyStateView(
-                        systemImage: model.searchText.isEmpty ? "tray" : "magnifyingglass",
-                        title: model.searchText.isEmpty
-                            ? Str.inboxEmptyTitle(language)
-                            : Str.noResults(language),
-                        message: model.searchText.isEmpty
-                            ? Str.inboxEmptyBody(language)
-                            : ""
-                    )
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-                } else {
-                    ForEach(rows) { conversation in
-                        ZStack {
-                            // A NavigationLink inside a List draws its own
-                            // chevron and highlight; overlaying it with zero
-                            // opacity keeps that behaviour while letting the
-                            // row be laid out exactly as designed.
-                            NavigationLink(value: conversation) { EmptyView() }
-                                .opacity(0)
-
-                            ConversationRow(
-                                conversation: conversation,
-                                visitor: model.visitor(for: conversation),
-                                language: language,
-                                locale: locale,
-                                currentUserID: appState.session.user?.id
-                            )
-                        }
-                        .listRowInsets(rowInsets)
-                        .accessibilityIdentifier(A11y.conversationRow(conversation.id))
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            swipeAction(for: conversation)
-                        }
-                        .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                            claimAction(for: conversation)
-                        }
-                    }
-                }
+            if showsColleagues {
+                colleagueRows
+            } else {
+                conversationRows
             }
         }
         .navigationDestination(for: Conversation.self) { conversation in
             ChatView(conversation: conversation)
+        }
+        .navigationDestination(for: Colleague.self) { colleague in
+            TeamThreadView(colleague: colleague)
+                .onAppear { colleagues.markRead(colleague.userId) }
         }
         .navigationDestination(for: InboxRoute.self) { route in
             switch route {
@@ -308,6 +270,139 @@ struct InboxView: View {
             case .colleagues: ColleaguesView()
             }
         }
+    }
+
+    /// The conversations of the queue or channel selected.
+    @ViewBuilder
+    private var conversationRows: some View {
+        switch content {
+        case .loading:
+            // A skeleton rather than a bare spinner: the row rhythm is
+            // already on screen, so the real content does not shift
+            // anything when it lands.
+            ForEach(0..<8, id: \.self) { _ in
+                ConversationRowSkeleton()
+                    .listRowInsets(rowInsets)
+            }
+
+        case .failed(let error):
+            ErrorStateView(
+                title: Str.offlineTitle(language),
+                message: errorMessage(error),
+                retryTitle: Str.retry(language),
+                onRetry: { model.load(workspaceID: workspaceID, appState: appState) }
+            )
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+
+        case .loaded:
+            let rows = model.visible(in: workspaceID)
+            if rows.isEmpty {
+                EmptyStateView(
+                    systemImage: model.searchText.isEmpty ? "tray" : "magnifyingglass",
+                    title: model.searchText.isEmpty
+                        ? Str.inboxEmptyTitle(language)
+                        : Str.noResults(language),
+                    message: model.searchText.isEmpty
+                        ? Str.inboxEmptyBody(language)
+                        : ""
+                )
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+            } else {
+                ForEach(rows) { conversation in
+                    ZStack {
+                        // A NavigationLink inside a List draws its own
+                        // chevron and highlight; overlaying it with zero
+                        // opacity keeps that behaviour while letting the
+                        // row be laid out exactly as designed.
+                        NavigationLink(value: conversation) { EmptyView() }
+                            .opacity(0)
+
+                        ConversationRow(
+                            conversation: conversation,
+                            visitor: model.visitor(for: conversation),
+                            language: language,
+                            locale: locale,
+                            currentUserID: appState.session.user?.id
+                        )
+                    }
+                    .listRowInsets(rowInsets)
+                    .accessibilityIdentifier(A11y.conversationRow(conversation.id))
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        swipeAction(for: conversation)
+                    }
+                    .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                        claimAction(for: conversation)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The Colleagues tab: every colleague, the latest message with each and
+    /// what is unread, filtered by the same search field as the queues.
+    @ViewBuilder
+    private var colleagueRows: some View {
+        switch colleagues.state {
+        case .loading:
+            ForEach(0..<8, id: \.self) { _ in
+                ContactRowSkeleton()
+                    .listRowInsets(rowInsets)
+            }
+
+        case .failed:
+            ErrorStateView(
+                title: Str.offlineTitle(language),
+                message: Str.offlineBody(language),
+                retryTitle: Str.retry(language),
+                onRetry: { Task { await colleagues.load(workspaceID: workspaceID, appState: appState) } }
+            )
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+
+        case .loaded:
+            let rows = colleagues.matching(model.searchText)
+            if rows.isEmpty {
+                EmptyStateView(
+                    systemImage: model.searchText.isEmpty ? "person.2" : "magnifyingglass",
+                    title: model.searchText.isEmpty
+                        ? Str.colleaguesEmptyTitle(language)
+                        : Str.noResults(language),
+                    message: model.searchText.isEmpty ? Str.colleaguesEmptyBody(language) : ""
+                )
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+            } else {
+                ForEach(rows) { colleague in
+                    ZStack {
+                        // As the conversation rows: the link's own chevron
+                        // and highlight, without its layout.
+                        NavigationLink(value: colleague) { EmptyView() }
+                            .opacity(0)
+                        ColleagueRow(colleague: colleague, language: language, locale: locale)
+                    }
+                    .listRowInsets(rowInsets)
+                }
+            }
+        }
+    }
+
+    /// The strip's selection: a queue, or Colleagues. Picking a queue is the
+    /// same as picking it from the menu.
+    private var stripSelection: Binding<InboxStripItem> {
+        Binding(
+            get: { showsColleagues ? .colleagues : .queue(model.filter) },
+            set: { item in
+                switch item {
+                case .colleagues:
+                    showsColleagues = true
+                case .queue(let filter):
+                    showsColleagues = false
+                    if model.filter != filter || model.channel != nil { model.open(filter) }
+                }
+            }
+        )
     }
 
     /// The screen's title, and the menu of every inbox behind it.
@@ -325,6 +420,7 @@ struct InboxView: View {
             Section {
                 ForEach(appState.inboxFilters(automated: model.counts?.automated)) { filter in
                     Button {
+                        showsColleagues = false
                         model.open(filter)
                     } label: {
                         Label(
@@ -339,11 +435,12 @@ struct InboxView: View {
                 Section(Str.otherInboxes(language)) {
                     ForEach(channelInboxes) { channel in
                         Button {
+                            showsColleagues = false
                             model.open(channel)
                         } label: {
                             Label(
                                 channel.title(language),
-                                systemImage: model.channel == channel ? "checkmark" : channel.icon
+                                systemImage: !showsColleagues && model.channel == channel ? "checkmark" : channel.icon
                             )
                         }
                     }
@@ -353,9 +450,9 @@ struct InboxView: View {
             Section {
                 if appState.colleaguesVisible {
                     Button {
-                        path.append(InboxRoute.colleagues)
+                        showsColleagues = true
                     } label: {
-                        Label(Str.colleagues(language), systemImage: "person.2")
+                        Label(Str.colleagues(language), systemImage: showsColleagues ? "checkmark" : "person.2")
                     }
                 }
                 if appState.emailInboxVisible {
@@ -368,7 +465,9 @@ struct InboxView: View {
             }
         } label: {
             HStack(spacing: Theme.Space.xs) {
-                Text(model.channel?.title(language) ?? model.filter.headerTitle(language))
+                Text(showsColleagues
+                     ? Str.colleagues(language)
+                     : model.channel?.title(language) ?? model.filter.headerTitle(language))
                     .font(.headline)
                     .foregroundStyle(Theme.Palette.label)
                 Image(systemName: "chevron.down")
@@ -410,7 +509,7 @@ struct InboxView: View {
 
     /// A queue is current only when no channel is laid over it.
     private func isCurrent(_ filter: InboxFilter) -> Bool {
-        model.channel == nil && model.filter == filter
+        !showsColleagues && model.channel == nil && model.filter == filter
     }
 
     /// The row the list rests on, leaving the search field just above the fold.

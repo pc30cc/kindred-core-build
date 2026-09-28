@@ -151,12 +151,20 @@ struct RootView: View {
 /// it: same colour underneath, and everything this screen adds arrives by
 /// fading in on top of it. Anything already drawn at the first frame is a cut
 /// between two screens instead of one screen becoming another.
+///
+/// Deliberately quiet: a small loader in the middle, and the product's name
+/// set small at the foot of the screen — no logo, no glow. A launch screen is
+/// on screen for a few hundred milliseconds; anything bigger than this is the
+/// app talking about itself while the operator waits to work.
+///
+/// And there from the first instant. The system's launch image is the
+/// loader's own first frame (`LaunchLoader` in the asset catalog, named by
+/// `UILaunchScreen.UIImageName`), centred on the whole screen as this loader
+/// is, so the loader is on screen the moment the icon is tapped and this view
+/// takes over in the same place, drawn at once and already turning — nothing
+/// here fades in.
 struct LaunchView: View {
     @Environment(AppState.self) private var appState
-
-    @State private var hasAppeared = false
-    /// Set once the restore has gone on long enough to be worth admitting to.
-    @State private var isTakingAWhile = false
 
     /// Whether this run was asked to stay on the launch screen.
     ///
@@ -179,84 +187,112 @@ struct LaunchView: View {
             // The exact colour the system's launch image is filled with —
             // `UILaunchScreen.UIColorName` in Info.plist names this asset.
             //
-            // It used to be `.systemBackground`, which is pure white and pure
-            // black, and this asset is neither: #F4F6F9 and #0C0E14. So the
-            // handoff the comment above claimed to be invisible was in fact a
-            // one-frame change of background colour, on every single launch.
+            // Not `.systemBackground`, which is pure white and pure black:
+            // this asset is neither (#F4F6F9 and #0C0E14), and the difference
+            // would be a one-frame change of background on every launch.
             Color("LaunchBackground")
                 .ignoresSafeArea()
 
-            // One soft pool of brand colour behind the mark. A launch screen
-            // has one thing on it and a lot of empty space; lighting the
-            // space is what stops the mark looking dropped onto a blank page.
-            RadialGradient(
-                colors: [Theme.Palette.brand.opacity(0.14), .clear],
-                center: .center,
-                startRadius: 0,
-                endRadius: 260
-            )
-            .ignoresSafeArea()
-            .opacity(hasAppeared ? 1 : 0)
-            .accessibilityHidden(true)
-
-            VStack(spacing: Theme.Space.xl) {
-                // The wordmark is the loading indicator. A spinner under it
-                // would be a second thing saying the same thing.
-                BrandWordmark(language: appState.language, size: 40, isLoading: true)
-
-                // Unless it is genuinely slow. The sweep is a shimmer on a
-                // logo: it reads as branding, and after a second or two of it
-                // an operator starts to wonder whether anything is happening.
-                // A restore that has taken longer than a moment has something
-                // to say, so it says it — and a fast launch, which is nearly
-                // all of them, never shows this at all.
-                LaunchProgress()
-                    .opacity(isTakingAWhile ? 1 : 0)
-            }
+            // Centred on the whole screen, not on the safe area: that is
+            // where the system centres the launch image it takes over from.
+            LaunchLoader()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea()
         }
-        .task {
-            withAnimation(.easeOut(duration: 0.55)) { hasAppeared = true }
-            try? await Task.sleep(for: .seconds(1.2))
-            withAnimation(.easeOut(duration: 0.35)) { isTakingAWhile = true }
-        }
+        // The name at the foot, where sign in and password reset have it too.
+        .brandFooter()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Str.appName(appState.language))
+        .accessibilityAddTraits(.updatesFrequently)
     }
 }
 
-/// A thin travelling segment: "still working", said quietly.
+/// Two arcs turning against each other: an outer comet of the brand's blue
+/// running into cyan, with a bright bead at its head, and a fainter inner one
+/// going the other way. Small — the size of a large spinner, not of a logo.
 ///
-/// Pinned left-to-right like the wordmark above it. It sits under a Latin
-/// mark whose own sweep runs that way, and a bar running the other way in
-/// Persian would have the two moving against each other.
-private struct LaunchProgress: View {
+/// Its resting pose — `spin` still false — is exactly the `LaunchLoader`
+/// launch image (`scripts/ios/render-launch-loader.py` draws it from these
+/// numbers), so the handoff from the system's launch screen shows nothing but
+/// the loader starting to turn. Change a size, a colour or a starting angle
+/// here and run the script again.
+private struct LaunchLoader: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var travel: CGFloat = -0.34
+    @State private var spin = false
 
-    private let width: CGFloat = 132
-    private let height: CGFloat = 3
-    private var segment: CGFloat { 0.34 }
+    private let outer: CGFloat = 40
+    private let inner: CGFloat = 24
+    private let outerLine: CGFloat = 2.5
+    private let innerLine: CGFloat = 2
 
     var body: some View {
-        Capsule()
-            .fill(Theme.Palette.brand.opacity(0.16))
-            .frame(width: width, height: height)
-            .overlay(alignment: .leading) {
-                Capsule()
-                    .fill(Theme.Palette.brand.opacity(reduceMotion ? 0.5 : 1))
-                    .frame(width: width * segment, height: height)
-                    // Parked a third of the way along for anyone who has asked
-                    // the system to reduce motion: the shape still reads as a
-                    // progress track rather than as a stray line.
-                    .offset(x: (reduceMotion ? 0.33 : travel) * width)
-            }
-            .clipShape(Capsule())
-            .environment(\.layoutDirection, .leftToRight)
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeInOut(duration: 1.25).repeatForever(autoreverses: false)) {
-                    travel = 1
-                }
-            }
-            .accessibilityHidden(true)
+        ZStack {
+            // Where the outer arc runs, barely there.
+            Circle()
+                .stroke(Theme.Palette.brand.opacity(0.10), lineWidth: outerLine)
+                .frame(width: outer, height: outer)
+
+            comet
+                .frame(width: outer, height: outer)
+                // Parked at the top for anyone who has asked the system to
+                // reduce motion: still a loader, just not a moving one.
+                .rotationEffect(.degrees(spin ? 270 : -90))
+                .animation(
+                    reduceMotion ? nil : .linear(duration: 1.0).repeatForever(autoreverses: false),
+                    value: spin
+                )
+
+            Circle()
+                .trim(from: 0, to: 0.22)
+                .stroke(
+                    BrandPalette.cyan.opacity(0.55),
+                    style: StrokeStyle(lineWidth: innerLine, lineCap: .round)
+                )
+                .frame(width: inner, height: inner)
+                .rotationEffect(.degrees(spin ? -450 : 90))
+                .animation(
+                    reduceMotion ? nil : .linear(duration: 1.6).repeatForever(autoreverses: false),
+                    value: spin
+                )
+        }
+        // It turns the same way in every language: it is a clock, not text.
+        .environment(\.layoutDirection, .leftToRight)
+        // Turning from the first frame. Each loop is scoped to the one
+        // modifier it drives, so nothing else on the screen repeats with it.
+        .onAppear {
+            guard !reduceMotion else { return }
+            spin = true
+        }
+    }
+
+    /// Bright cyan at its head, fading to nothing at its tail, with a small
+    /// glowing bead leading it.
+    private var comet: some View {
+        let arc: CGFloat = 0.32
+        return ZStack {
+            Circle()
+                .trim(from: 0, to: arc)
+                .stroke(
+                    AngularGradient(
+                        gradient: Gradient(stops: [
+                            .init(color: BrandPalette.deep.opacity(0), location: 0),
+                            .init(color: BrandPalette.deep, location: 0.55),
+                            .init(color: BrandPalette.cyan, location: 1),
+                        ]),
+                        center: .center,
+                        startAngle: .degrees(0),
+                        endAngle: .degrees(arc * 360)
+                    ),
+                    style: StrokeStyle(lineWidth: outerLine, lineCap: .round)
+                )
+
+            Circle()
+                .fill(BrandPalette.cyan)
+                .frame(width: outerLine * 1.9, height: outerLine * 1.9)
+                .shadow(color: BrandPalette.cyan.opacity(0.9), radius: 3)
+                .offset(x: outer / 2)
+                .rotationEffect(.degrees(arc * 360))
+        }
     }
 }
 
@@ -270,7 +306,7 @@ struct BrandMark: View {
     var size: CGFloat = 64
 
     /// The wordmark's first letter, not the translated name's. Same reason
-    /// `BrandWordmark` does not translate: this is the mark, and a "و" in the
+    /// `BrandFooter` does not translate: this is the mark, and a "و" in the
     /// box where every other surface shows a "W" is a different logo.
     private var letter: String {
         String(Str.brandWordmark.prefix(1))

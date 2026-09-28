@@ -9,64 +9,6 @@ import Observation
 // thread with them, which is why it is its own screen rather than another
 // filter over the same list.
 
-@MainActor
-@Observable
-final class ColleaguesViewModel {
-    private(set) var state: LoadState<[Colleague]> = .loading
-    var searchText = ""
-
-    private let api: any WebyarAPI
-
-    init(api: any WebyarAPI = Backend.current) {
-        self.api = api
-    }
-
-    var visible: [Colleague] {
-        guard let all = state.value else { return [] }
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return all }
-        return all.filter { colleague in
-            [colleague.fullName, colleague.email]
-                .contains { $0?.lowercased().contains(query) == true }
-        }
-    }
-
-    func load(workspaceID: String?, appState: AppState) async {
-        guard let workspaceID else {
-            state = .loaded([])
-            return
-        }
-        do {
-            state = .loaded(try await api.colleagues(workspaceID: workspaceID).colleagues)
-        } catch APIError.unauthorized {
-            await appState.handleUnauthorized()
-        } catch let error as APIError {
-            state = .failed(error)
-        } catch {
-            state = .failed(.transport)
-        }
-    }
-
-    func refresh(workspaceID: String?) async {
-        guard let workspaceID,
-              let colleagues = try? await api.colleagues(workspaceID: workspaceID).colleagues
-        else { return }
-        state = .loaded(colleagues)
-    }
-
-    /// Clears the badge as the thread opens, rather than one refresh later.
-    func markRead(_ userID: String) {
-        guard var all = state.value, let index = all.firstIndex(where: { $0.userId == userID })
-        else { return }
-        let old = all[index]
-        all[index] = Colleague(
-            userId: old.userId, role: old.role, fullName: old.fullName, email: old.email,
-            avatarURL: old.avatarURL, unread: 0, lastMessage: old.lastMessage
-        )
-        state = .loaded(all)
-    }
-}
-
 struct ColleaguesView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.locale) private var locale
@@ -97,6 +39,10 @@ struct ColleaguesView: View {
             .refreshable { await model.refresh(workspaceID: workspaceID) }
             .task(id: workspaceID) {
                 await model.load(workspaceID: workspaceID, appState: appState)
+            }
+            // Live: team events read the list again; a slow poll covers the rest.
+            .task(id: workspaceID) {
+                await model.listen(workspaceID: workspaceID)
             }
     }
 
@@ -146,10 +92,6 @@ struct ColleaguesView: View {
                     }
                 }
             }
-        }
-        .navigationDestination(for: Colleague.self) { colleague in
-            TeamThreadView(colleague: colleague)
-                .onAppear { model.markRead(colleague.userId) }
         }
     }
 

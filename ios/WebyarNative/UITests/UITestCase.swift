@@ -334,4 +334,5 @@ enum A11yID {
     static let offlineNotice = "sync.offlineNotice"
     static let storageRow = "settings.storage"
     static let clearCache = "settings.storage.clear"
+    static let brandFooter = "brand.footer"
 }

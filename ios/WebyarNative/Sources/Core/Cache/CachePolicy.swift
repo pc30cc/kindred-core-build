@@ -73,6 +73,17 @@ enum CachePolicy {
     static let threadPollInterval: TimeInterval = 10
     /// Realtime events arriving close together are answered by one list read.
     static let listEventDebounce: TimeInterval = 0.6
+    /// Team chat, as the Mac app paces it: the colleagues list every 15 s and
+    /// an open team thread every 10 s without the team channel; with it, a
+    /// safety net of 60 s and 30 s under the events.
+    static let teamListPollInterval: TimeInterval = 15
+    static let teamListSafetyInterval: TimeInterval = 60
+    static let teamThreadPollInterval: TimeInterval = 10
+    static let teamThreadSafetyInterval: TimeInterval = 30
+    /// The Inbox tab's unread dot: read on every realtime event, so the poll
+    /// is only a safety net — every 2 min with realtime, 30 s without.
+    static let badgeSafetyInterval: TimeInterval = 120
+    static let badgePollInterval: TimeInterval = 30
     /// Two readers of the same list within this window share one request.
     static let listShareWindow: TimeInterval = 2
 

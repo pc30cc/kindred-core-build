@@ -505,9 +505,11 @@ final class AppState {
 
     /// The inbox's AI queue, as the web's `aiQueueVisible`: the plan's
     /// `inbox_ai_queue`, the AI switched on and shown to customers, and either
-    /// answering by itself or already holding threads (`automated`).
+    /// answering by itself or already holding threads (`automated`) — under
+    /// the Super Admin switch, which takes it off the strip and the menu both.
     func aiQueueVisible(automated: Int?) -> Bool {
-        access.aiQueueVisible(inPlan: featureEnabled("inbox_ai_queue"), automated: automated)
+        appConfig.showAIQueue
+            && access.aiQueueVisible(inPlan: featureEnabled("inbox_ai_queue"), automated: automated)
     }
 
     /// The queues this plan includes, in the order they should appear.
@@ -520,10 +522,14 @@ final class AppState {
         InboxFilter.chips(aiQueue: aiQueueVisible(automated: automated))
     }
 
-    /// Whether the internal operator-to-operator inbox belongs in this plan.
-    ///
-    /// Same key the console gates its Colleagues tab on.
-    var colleaguesVisible: Bool { featureEnabled("inbox_team_chat") }
+    /// The strip above the inbox list: its queues, then Colleagues.
+    func inboxStrip(automated: Int?) -> [InboxStripItem] {
+        InboxStripItem.strip(chips: inboxChips(automated: automated), colleagues: colleaguesVisible)
+    }
+
+    /// Whether the internal operator-to-operator inbox belongs here: the key
+    /// the console gates its Colleagues tab on, under the Super Admin switch.
+    var colleaguesVisible: Bool { appConfig.showColleagues && featureEnabled("inbox_team_chat") }
 
     /// Whether the mailbox belongs here: an owner/admin section (as in the
     /// console's sidebar) whose Email Inbox module is exactly `true`. An entry

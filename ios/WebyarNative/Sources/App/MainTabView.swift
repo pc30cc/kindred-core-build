@@ -51,6 +51,9 @@ struct MainTabView: View {
     /// Promotions live here rather than in the inbox so the full-screen card
     /// covers the whole shell — and so a tab change cannot leave one behind.
     @State private var promotions = PromotionCenter()
+    /// The dot on the Inbox tab. Here, not in the inbox, because it matters
+    /// most while another tab is the one on screen.
+    @State private var inboxBadge = InboxBadge()
 
     typealias Tab = AppTab
 
@@ -78,7 +81,10 @@ struct MainTabView: View {
             switch tab {
             case .inbox:
                 .init(tab: .inbox, title: Str.tabInbox(language),
-                      icon: "tray", selectedIcon: "tray.fill")
+                      icon: "tray", selectedIcon: "tray.fill",
+                      badge: inboxBadge.total,
+                      badgeLabel: Str.tabUnread(language)
+                        .filling("count", with: Format.number(inboxBadge.total, language: language)))
             case .contacts:
                 .init(tab: .contacts, title: Str.tabContacts(language),
                       icon: "person.2", selectedIcon: "person.2.fill")
@@ -197,6 +203,15 @@ struct MainTabView: View {
             selection = intent
         }
         .environment(promotions)
+        // Unread in the Inbox, kept current by realtime whichever tab is
+        // open. Starts over when the workspace changes or team chat is turned
+        // on or off, since either changes what counts.
+        .task(id: "\(appState.selectedWorkspace?.id ?? "-")|\(appState.colleaguesVisible)") {
+            await inboxBadge.track(
+                workspaceID: appState.selectedWorkspace?.id,
+                includesTeam: appState.colleaguesVisible
+            )
+        }
         // Another workspace: a thread or contact of the last one open in a
         // tab's stack would go on showing it. The stacks start over; the tab
         // the switch was made from (Settings) keeps its place.
@@ -349,7 +364,7 @@ struct MainTabView: View {
             else { return }
             inboxPath.append(first)
 
-        case .inbox, .none:
+        case .inbox, .login, .none:
             break
         }
         #endif

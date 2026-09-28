@@ -38,7 +38,7 @@ describe('Android in-app config', () => {
   });
 
   it('fills a row from before the Android columns with the defaults', () => {
-    const settings = normalize({ app_name: 'Webyar', bundle_id: 'com.webyar.native' });
+    const settings = normalize({ app_name: 'Webyar', bundle_id: 'com.webyar.ai' });
     expect(settings.android_app_show_storage).toBe(true);
     expect(settings.android_app_profile_name_editable).toBe(false);
     expect(settings.android_package_name).toBe('com.webyar.operator');

@@ -277,7 +277,7 @@ export interface ApnsAlertInput {
    * The bundle id to address, when it is not the credentials'.
    *
    * There are two iOS apps against one APNs key: the Capacitor build
-   * (`com.webyar.app`) and the native operator app (`com.webyar.native`). The
+   * (`com.webyar.app`) and the native operator app (`com.webyar.ai`). The
    * topic is the bundle id, so a native alert sent to the Capacitor topic is
    * accepted by Apple and delivered to nobody — a silence with a 200 in front
    * of it, which is the worst shape a bug can take here.

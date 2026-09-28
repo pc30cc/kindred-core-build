@@ -451,6 +451,17 @@ actor APIClient {
         return try await perform(request, as: RealtimeSubscribe.self)
     }
 
+    /// The token for this operator's own channel. The server takes the user
+    /// from the session, never from the body, so it can only ever hand out
+    /// the caller's own channel.
+    func realtimeUserSubscribe(workspaceID: String) async throws -> RealtimeSubscribe {
+        let request = try makeRequest(
+            "POST", "/api/realtime/operator-user-subscribe",
+            body: WorkspaceBody(workspace_id: workspaceID)
+        )
+        return try await perform(request, as: RealtimeSubscribe.self)
+    }
+
     private struct SendBody: Encodable, Sendable {
         let conversation_id: String
         let workspace_id: String

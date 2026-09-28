@@ -84,21 +84,25 @@ final class AIThreadTests: UITestCase {
         )
     }
 
-    func testTheVoicePickerIsInsideTheFieldAndOffersBothVoices() {
+    func testTheVoicePickerSitsInTheComposerCardUnderTheText() {
         app.launchArguments += ["-WebyarScreen", "aiChat"]
         app.launch()
 
         let voice = app.buttons[A11yID.sayNowVoice]
         XCTAssertTrue(voice.waitForExistence(timeout: 25), "no voice picker")
 
-        // Inside the field's pill, not in a bar above it: its centre has to
-        // sit within the field's own frame.
+        // The Mac's AI composer: one card, the text on top and the tool row
+        // — the voice picker, the hint, the AI's send — right under it. Not
+        // in a bar above the field, and not somewhere else on the screen.
         let field = app.textFields[A11yID.composerField]
         XCTAssertTrue(field.exists, "no composer field")
-        XCTAssertTrue(
-            abs(voice.frame.midY - field.frame.midY) < field.frame.height,
-            "the voice picker is not on the field's row"
-        )
+        XCTAssertGreaterThanOrEqual(voice.frame.minY, field.frame.maxY - 1, "the voice picker is above the text")
+        XCTAssertLessThan(voice.frame.minY - field.frame.maxY, 44, "the voice picker is not in the composer's card")
+
+        // And the send button is on the voice picker's row.
+        let send = app.buttons[A11yID.composerSend]
+        XCTAssertTrue(send.exists, "no send button")
+        XCTAssertLessThan(abs(send.frame.midY - voice.frame.midY), 8, "the send button is not on the tool row")
 
         voice.tap()
         XCTAssertTrue(

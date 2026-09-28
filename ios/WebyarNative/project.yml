@@ -53,8 +53,13 @@ targets:
         CFBundleIconName: AppIcon
         CFBundleShortVersionString: "1.0.0"
         CFBundleVersion: "1"
+        # The launch loader's first frame, centred on the whole screen, over
+        # the launch colour: the loader is there the instant the icon is
+        # tapped, and LaunchView takes over in the same place. Drawn by
+        # scripts/ios/render-launch-loader.py from LaunchLoader's numbers.
         UILaunchScreen:
           UIColorName: LaunchBackground
+          UIImageName: LaunchLoader
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         # Export compliance, NOT App Transport Security. The two get confused
@@ -113,7 +118,7 @@ targets:
         aps-environment: $(APS_ENVIRONMENT)
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.native
+        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.ai
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
@@ -140,7 +145,7 @@ targets:
       - target: WebyarNative
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.native.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.ai.uitests
         TEST_TARGET_NAME: WebyarNative
         TARGETED_DEVICE_FAMILY: "1"
         # The app writes its own Info.plist above, from `info:`. A test bundle
@@ -164,7 +169,7 @@ targets:
       - target: WebyarNative
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.native.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.ai.tests
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
 

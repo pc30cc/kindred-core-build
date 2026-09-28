@@ -42,7 +42,7 @@ struct ChatView: View {
     }
 
     private var capabilities: ComposerCapabilities {
-        ComposerCapabilities.resolve(conversation: conversation)
+        ComposerCapabilities.resolve(conversation: conversation, takenOver: actions.didTakeOver)
     }
 
     /// The saved replies, and what their placeholders resolve against.
@@ -123,7 +123,7 @@ struct ChatView: View {
                         title: title,
                         avatarURL: conversation.contact?.avatarURL,
                         visitor: model.visitor,
-                        aiState: AIState.resolve(conversation),
+                        aiState: actions.didTakeOver ? .humanActive : AIState.resolve(conversation),
                         language: language
                     )
                 }

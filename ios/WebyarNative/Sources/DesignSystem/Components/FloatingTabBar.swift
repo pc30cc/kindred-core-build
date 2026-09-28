@@ -20,6 +20,12 @@ struct FloatingTabBar<Tab: Hashable>: View {
         let icon: String
         /// The filled counterpart, shown when it is.
         let selectedIcon: String
+        /// Something waiting in this tab — unread messages, for the Inbox.
+        /// Any number above zero shows a dot; the number itself is for
+        /// VoiceOver, through `badgeLabel`.
+        var badge: Int = 0
+        /// What VoiceOver says of the badge ("3 unread").
+        var badgeLabel: String? = nil
 
         var id: Tab { tab }
     }
@@ -81,6 +87,13 @@ struct FloatingTabBar<Tab: Hashable>: View {
                 Image(systemName: isSelected ? item.selectedIcon : item.icon)
                     .font(.system(size: 18, weight: .medium))
                     .symbolRenderingMode(.hierarchical)
+                    .overlay(alignment: .topTrailing) {
+                        if item.badge > 0 {
+                            TabBadgeDot(count: item.badge)
+                                .transition(.scale(scale: 0.2).combined(with: .opacity))
+                        }
+                    }
+                    .animation(reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.58), value: item.badge > 0)
 
                 Text(item.title)
                     .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
@@ -103,8 +116,60 @@ struct FloatingTabBar<Tab: Hashable>: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(item.title)
+        .accessibilityValue(item.badge > 0 ? (item.badgeLabel ?? "") : "")
         .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
     }
+}
+
+/// The dot on a tab with something unread: a small red disc on the icon's
+/// top corner, cut out of the icon by a ring of the background — the way the
+/// system marks a tab — and, each time the count goes up, one soft ring going
+/// out from it, so a new message is noticed without anything moving for long.
+///
+/// On the icon's trailing corner — top-right in English, top-left in Persian —
+/// where the system puts a tab's badge in each.
+private struct TabBadgeDot: View {
+    let count: Int
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Counts up each time the number does, to set off one ripple.
+    @State private var arrivals = 0
+
+    private let size: CGFloat = 9
+    private let cutout: CGFloat = 1.75
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Theme.Palette.danger, lineWidth: 1.5)
+                .frame(width: size, height: size)
+                .phaseAnimator([RipplePhase.rest, .start, .end], trigger: arrivals) { ring, phase in
+                    ring
+                        .scaleEffect(phase == .end ? 2.8 : 1)
+                        .opacity(phase == .start ? 0.75 : 0)
+                } animation: { phase in
+                    phase == .end ? .easeOut(duration: 0.9) : nil
+                }
+
+            Circle()
+                .fill(Theme.Palette.danger)
+                .frame(width: size, height: size)
+                .padding(cutout)
+                .background(Circle().fill(Color(uiColor: .systemBackground)))
+        }
+        // Half over the icon's corner and half beyond it. Alignment guides
+        // rather than an offset: they are measured from the trailing edge in
+        // either direction, so the dot follows the corner in Persian too.
+        .alignmentGuide(.trailing) { d in d[.trailing] - size * 0.55 }
+        .alignmentGuide(.top) { d in d[.top] + size * 0.3 }
+        .accessibilityHidden(true)
+        .onChange(of: count) { old, new in
+            guard new > old, !reduceMotion else { return }
+            arrivals += 1
+        }
+    }
+
+    private enum RipplePhase { case rest, start, end }
 }
 
 /// Thin wrapper so call sites do not each reach for UIKit.

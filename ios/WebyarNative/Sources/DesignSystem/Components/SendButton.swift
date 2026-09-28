@@ -23,6 +23,10 @@ struct SendButton: View {
     /// What this button sends, spoken. Never drawn — the glyph is an arrow
     /// everywhere, so this is the only thing that says what it does.
     let label: String
+    /// The glyph: an arrow everywhere, `sparkles` on the AI's send.
+    var icon: String = "arrow.up"
+    /// The fill: the brand's blue everywhere, the AI's purple on its send.
+    var tint: Color = Theme.Palette.brand
     let action: () -> Void
 
     /// Matches the other controls that sit inside a composer pill, so the
@@ -38,15 +42,17 @@ struct SendButton: View {
         Button(action: action) {
             ZStack {
                 Circle()
-                    .fill(Theme.Palette.brand.opacity(isEnabled && !isSending ? 1 : 0.35))
+                    .fill(tint.opacity(isEnabled && !isSending ? 1 : 0.35))
 
                 if isSending {
                     ProgressView()
                         .controlSize(.small)
                         .tint(.white)
                 } else {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 15, weight: .bold))
+                    // The arrow is a bold 15; the AI's sparkles a semibold
+                    // 14, as the Mac draws them — a heavier star is a blot.
+                    Image(systemName: icon)
+                        .font(.system(size: icon == "arrow.up" ? 15 : 14, weight: icon == "arrow.up" ? .bold : .semibold))
                         .foregroundStyle(.white)
                 }
             }

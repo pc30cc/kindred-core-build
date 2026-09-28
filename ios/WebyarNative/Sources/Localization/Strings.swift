@@ -576,6 +576,16 @@ enum Str {
         }
     }
 
+    /// What VoiceOver says of the dot on the Inbox tab. A template: `{count}`
+    /// is replaced with the number in the reader's digits.
+    static func tabUnread(_ l: Language) -> String {
+        switch l {
+        case .en: "{count} unread"
+        case .fa: "{count} خوانده‌نشده"
+        case .tr: "{count} okunmamış"
+        }
+    }
+
     static func tabContacts(_ l: Language) -> String {
         switch l {
         case .en: "Contacts"
@@ -602,12 +612,14 @@ enum Str {
         }
     }
 
-    /// Short everywhere for the same reason — "هوش مصنوعی" and "Yapay zekâ"
-    /// are both too long to sit in a quarter of the control with a count.
+    /// The AI queue. In full in Persian — "هوش" alone read as "intelligence"
+    /// rather than as the AI — which the strip has room for now that it holds
+    /// three segments, not four. "Yapay zekâ" is still too long for a third
+    /// of the control with a count, so Turkish keeps its usual "YZ".
     static func filterAI(_ l: Language) -> String {
         switch l {
         case .en: "AI"
-        case .fa: "هوش"
+        case .fa: "هوش مصنوعی"
         case .tr: "YZ"
         }
     }
@@ -2432,8 +2444,18 @@ extension Str {
         }
     }
 
-    /// The send button, spoken. The glyph is an arrow like any other send, so
-    /// this is the only place that says the AI is the one writing it.
+    /// The line in the AI composer's tool row, as the Mac app has it: what
+    /// happens to the operator's words once they are sent.
+    static func sayNowHint(_ l: Language) -> String {
+        switch l {
+        case .en: "The AI rewrites your words and sends them to the visitor now."
+        case .fa: "هوش مصنوعی حرف شما را بازنویسی می‌کند و همین حالا برای بازدیدکننده می‌فرستد."
+        case .tr: "Yapay zekâ sözlerinizi yeniden yazar ve ziyaretçiye hemen gönderir."
+        }
+    }
+
+    /// The AI send button, spoken. Its glyph is the AI's sparkles, but a
+    /// glyph says nothing to VoiceOver.
     static func sayNowAction(_ l: Language) -> String {
         switch l {
         case .en: "Send with AI"

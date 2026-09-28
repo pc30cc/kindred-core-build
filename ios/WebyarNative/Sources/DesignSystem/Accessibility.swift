@@ -62,4 +62,6 @@ enum A11y {
     static let storageRow = "settings.storage"
     /// Clear Cache, on the Storage screen.
     static let clearCache = "settings.storage.clear"
+    /// "WEBYAR AI" at the foot of the launch, sign-in and reset screens.
+    static let brandFooter = "brand.footer"
 }

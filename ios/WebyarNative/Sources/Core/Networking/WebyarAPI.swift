@@ -28,6 +28,8 @@ protocol WebyarAPI: Sendable {
     // Realtime — the Centrifugo tokens the console and the desktop apps use.
     func realtimeConnect(workspaceID: String, intent: String) async throws -> RealtimeConnect
     func realtimeInboxSubscribe(workspaceID: String) async throws -> RealtimeSubscribe
+    /// This operator's own channel, `ws:<workspace>:user:<id>`: team chat, as ids only.
+    func realtimeUserSubscribe(workspaceID: String) async throws -> RealtimeSubscribe
     func send(
         body: String,
         conversationID: String,
@@ -246,6 +248,9 @@ enum SampleRoute: String {
     /// A thread with a visitor who never gave a name — the case where a
     /// `{{contact.name}}` in a saved reply has nothing to resolve to.
     case anonymousChat
+    /// The sign-in screen. The sample backend reports no session for this
+    /// one run, so the app lands where a signed-out operator does.
+    case login
 
     static let current: SampleRoute? = {
         let arguments = ProcessInfo.processInfo.arguments

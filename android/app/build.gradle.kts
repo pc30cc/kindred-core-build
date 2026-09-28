@@ -38,7 +38,7 @@ val buildingAppBundle: Boolean = gradle.startParameter.taskNames.any {
 }
 
 android {
-    // NOT `com.webyar.native`, which is what the iOS app is called.
+    // NOT `com.webyar.ai`, which is what the iOS app is called.
     // `native` is a reserved word in Java, and the namespace becomes a real
     // package in generated sources (R, BuildConfig), so AGP rejects it. The
     // app's own vocabulary supplies the replacement: every screen in the iOS

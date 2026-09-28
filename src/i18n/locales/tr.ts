@@ -4446,6 +4446,12 @@ const tr: TranslationKeys = {
         showVisitorsHint: 'Şu anda sitede kim var: harita, sayfa geçmişi ve sohbet başlatma düğmesiyle. Yalnızca ziyaretçi takibi olan planlarda.',
         showWebAnalytics: '"Web sitesi analitiği"ni göster',
         showWebAnalyticsHint: 'Ziyaretler, kaynaklar, sayfalar, coğrafya, cihazlar ve etkinlikler. Yalnızca web analitiği olan planlarda sahipler ve yöneticiler için.',
+        inboxHeading: "Gelen kutusu sekmeleri",
+        inboxCaption: "iOS uygulamasının konuşma listesinin üstündeki sekmeler, \"Açık\"ın yanında. Hemen uygulanır. Bir anahtar yalnızca sekmeyi gizleyebilir: planında özellik olmayan bir çalışma alanı onu asla görmez.",
+        showAIQueue: "\"Yapay zekâ\"yı göster",
+        showAIQueueHint: "Yapay zekâ asistanının yanıtladığı konuşmalar. Yalnızca planda yapay zekâ kuyruğu varsa ve asistan açıksa. Kapalıyken sekme ve gelen kutusu menüsündeki yapay zekâ kuyruğu gizlenir.",
+        showColleagues: "\"Ekip arkadaşları\"nı göster",
+        showColleaguesHint: "Operatörler arası canlı sohbet. Yalnızca ekip sohbeti olan planlarda. Kapalıyken sekme ve gelen kutusu menüsündeki Ekip arkadaşları girişi gizlenir.",
       },
       androidTabs: {
         overview: 'Genel bakış',

@@ -39,8 +39,14 @@ const base = {
   data: { conversationId: 'c-1', workspaceId: 'w-1' },
 };
 
-function payloadOf(request: { body: Buffer }): any {
-  return JSON.parse(request.body.toString('utf8'));
+/** What Apple receives: its own `aps` dictionary beside our identifiers. */
+interface AlertPayload {
+  aps: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+function payloadOf(request: { body: Buffer }): AlertPayload {
+  return JSON.parse(request.body.toString('utf8')) as AlertPayload;
 }
 
 describe('APNs alert request', () => {
@@ -61,8 +67,8 @@ describe('APNs alert request', () => {
     // One APNs key, two bundle ids: the Capacitor build and the SwiftUI one.
     // Sending a native alert to the Capacitor topic is a 200 that reaches
     // nobody.
-    const { headers } = buildAlertRequest(creds, { ...base, topic: 'com.webyar.native' });
-    expect(headers['apns-topic']).toBe('com.webyar.native');
+    const { headers } = buildAlertRequest(creds, { ...base, topic: 'com.webyar.ai' });
+    expect(headers['apns-topic']).toBe('com.webyar.ai');
   });
 
   it('declares itself an alert', () => {

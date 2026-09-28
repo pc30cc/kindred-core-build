@@ -22,6 +22,7 @@ extension TestAPIBase {
     func messagePage(conversationID: String, since: String?) async throws -> ThreadPage { throw APIError.transport }
     func realtimeConnect(workspaceID: String, intent: String) async throws -> RealtimeConnect { throw APIError.transport }
     func realtimeInboxSubscribe(workspaceID: String) async throws -> RealtimeSubscribe { throw APIError.transport }
+    func realtimeUserSubscribe(workspaceID: String) async throws -> RealtimeSubscribe { throw APIError.transport }
     func send(body: String, conversationID: String, workspaceID: String, clientMessageID: String, attachmentID: String?) async throws { throw APIError.transport }
     func uploadAttachment(conversationID: String?, workspaceID: String, fileName: String, mimeType: String, data: Data) async throws -> String { throw APIError.transport }
     func markSeen(conversationID: String) async throws { throw APIError.transport }

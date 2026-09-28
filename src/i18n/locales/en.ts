@@ -4457,6 +4457,12 @@ const en = {
         showVisitorsHint: 'Who is on the site now, on a map, with their page history and a button to start a chat. Plans with visitor tracking only.',
         showWebAnalytics: 'Show "Website analytics"',
         showWebAnalyticsHint: 'Visits, sources, pages, geography, devices and events. Owners and admins on plans with web analytics only.',
+        inboxHeading: "Inbox tabs",
+        inboxCaption: "The tabs above the iOS app's conversation list, next to \"Open\". Applied live. A switch can only hide a tab: a workspace whose plan lacks the feature never sees it.",
+        showAIQueue: "Show \"AI\"",
+        showAIQueueHint: "The conversations the AI agent is handling. Only where the plan includes the AI queue and the AI agent is on. Off hides the tab and the AI queue in the inbox menu.",
+        showColleagues: "Show \"Colleagues\"",
+        showColleaguesHint: "Chat between operators, live. Plans with team chat only. Off hides the tab and the Colleagues entry in the inbox menu.",
       },
       androidTabs: {
         overview: 'Overview',

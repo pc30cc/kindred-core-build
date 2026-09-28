@@ -82,6 +82,43 @@ struct RealtimeEvent: Sendable, Equatable {
     var needsNoRead: Bool { type == "typing" }
 }
 
+/// Something that happened in one of this operator's team threads, as the
+/// server published it on their own channel `ws:<workspace>:user:<id>`
+/// (`publishTeamEvent`). Ids only: the text is read over REST, where
+/// membership is checked again.
+struct TeamEvent: Sendable, Equatable {
+    static let message = "team_message"
+    static let read = "team_read"
+
+    var kind: String
+    var messageID: String?
+    var senderID: String?
+    var recipientID: String?
+    /// For a read: whose messages were read.
+    var peerID: String?
+
+    /// The `{ type: "event", payload: { kind, … } }` envelope, if it is a team event.
+    static func parse(_ data: JSONValue) -> TeamEvent? {
+        let payload = data["payload"]
+        guard let kind = payload?["kind"]?.stringValue, kind == message || kind == read else { return nil }
+        return TeamEvent(
+            kind: kind,
+            messageID: payload?["message_id"]?.stringValue,
+            senderID: payload?["sender_id"]?.stringValue,
+            recipientID: payload?["recipient_id"]?.stringValue,
+            peerID: payload?["peer_id"]?.stringValue
+        )
+    }
+
+    /// The colleague this event is about, seen from `me`: the other side of
+    /// a message, or the one whose messages were just read.
+    func peer(me: String?) -> String? {
+        if kind == Self.read { return peerID }
+        if let me, senderID == me { return recipientID }
+        return senderID
+    }
+}
+
 enum CentrifugoFrame: Equatable {
     /// An empty object: the server's ping. Unanswered, the server drops the connection.
     case ping
@@ -182,6 +219,11 @@ enum CentrifugoProtocol {
 /// this never connects, asks again only every few minutes, and the screens
 /// keep to their polling.
 ///
+/// Also joined, when the server offers it: the operator's own channel
+/// `ws:<workspace>:user:<id>`, which carries team chat. It rides the same
+/// socket as a second subscription and is optional — a server without it, or
+/// a refusal, leaves the inbox connected and team chat on its polling.
+///
 /// Deliberately not joined: `ws:<workspace>:operators`. Membership there is
 /// what marks an operator "connected" for routing and for who gets pushed;
 /// the phone has never claimed that, and a phone opened for a glance should
@@ -209,9 +251,16 @@ final class InboxRealtime {
     private var stopped = false
 
     private(set) var isConnected = false
+    /// The team channel is joined as well.
+    private(set) var isTeamConnected = false
 
     var onEvent: ((RealtimeEvent) -> Void)?
     var onConnectionChanged: ((Bool) -> Void)?
+    var onTeamEvent: ((TeamEvent) -> Void)?
+    var onTeamConnectionChanged: ((Bool) -> Void)?
+
+    /// The command id of the team channel's subscribe.
+    private static let teamCommand = 3
 
     init(api: any WebyarAPI, workspaceID: String) {
         self.api = api
@@ -247,9 +296,16 @@ final class InboxRealtime {
     }
 
     private func setConnected(_ value: Bool) {
+        if !value { setTeamConnected(false) }
         guard isConnected != value else { return }
         isConnected = value
         onConnectionChanged?(value)
+    }
+
+    private func setTeamConnected(_ value: Bool) {
+        guard isTeamConnected != value else { return }
+        isTeamConnected = value
+        onTeamConnectionChanged?(value)
     }
 
     private func run() async {
@@ -302,9 +358,12 @@ final class InboxRealtime {
         else {
             return Outcome(subscribed: false, refresh: false, retry: Self.policyRetry)
         }
+        // The team channel is extra: an older server answers 404, a platform
+        // without it answers another vendor, and either way the inbox carries on.
+        let team = await teamSubscription()
         try Task.checkCancellation()
 
-        let expiresAt = min(connection.expiresAt ?? .max, subscription.expiresAt ?? .max)
+        let expiresAt = min(connection.expiresAt ?? .max, subscription.expiresAt ?? .max, team?.expiresAt ?? .max)
         let refreshAt: Date? = expiresAt == .max
             ? nil
             : Date(timeIntervalSince1970: Double(expiresAt) / 1000).addingTimeInterval(-Self.refreshLead)
@@ -348,6 +407,9 @@ final class InboxRealtime {
                 switch frame {
                 case .ping:
                     try await task.send(.string(CentrifugoProtocol.pong))
+                case .reply(Self.teamCommand, let error):
+                    // Refused or joined, the inbox subscription stands.
+                    setTeamConnected(error == nil)
                 case .reply(_, let error?):
                     _ = error
                     return Outcome(subscribed: subscribed, refresh: false, retry: nil)
@@ -356,9 +418,18 @@ final class InboxRealtime {
                 case .reply(2, nil):
                     subscribed = true
                     setConnected(true)
+                    if let team, let teamChannel = team.channel, let teamToken = team.token {
+                        try await task.send(.string(
+                            CentrifugoProtocol.subscribe(id: Self.teamCommand, channel: teamChannel, token: teamToken)
+                        ))
+                    }
                 case .disconnect:
                     return Outcome(subscribed: subscribed, refresh: false, retry: nil)
                 case .publication(let fromChannel, let data):
+                    if let fromChannel, fromChannel == team?.channel {
+                        if let event = TeamEvent.parse(data) { onTeamEvent?(event) }
+                        break
+                    }
                     // Only the channel asked for; anything else is not this workspace's.
                     guard fromChannel == nil || fromChannel == channel, let event = CentrifugoProtocol.event(data) else { break }
                     if event.isMessage, let id = event.messageID {
@@ -373,5 +444,15 @@ final class InboxRealtime {
             }
         }
         throw CancellationError()
+    }
+
+    /// The token for this operator's own channel, if the server offers one —
+    /// and only if it names a channel of this workspace's shape.
+    private func teamSubscription() async -> RealtimeSubscribe? {
+        guard let team = try? await api.realtimeUserSubscribe(workspaceID: workspaceID),
+              team.vendor == "centrifugo", let channel = team.channel, team.token != nil,
+              channel.hasPrefix("ws:\(workspaceID):user:")
+        else { return nil }
+        return team
     }
 }

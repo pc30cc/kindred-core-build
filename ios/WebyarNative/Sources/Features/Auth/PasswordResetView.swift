@@ -47,6 +47,10 @@ struct PasswordResetView: View {
                     }
 
                     Spacer(minLength: Theme.Space.xl)
+
+                    // Room for the name at the foot of the screen, which the
+                    // login screen's stack draws over this one too.
+                    Color.clear.frame(height: BrandFooter.clearance)
                 }
                 .padding(.horizontal, Theme.screenInset)
                 .frame(minHeight: proxy.size.height)

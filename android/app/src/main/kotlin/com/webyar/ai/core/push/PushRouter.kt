@@ -84,6 +84,13 @@ class PushRouter(
             show(payload, title, body, now.language)
             return
         }
+        if (payload.isEmail || payload.isCallback) {
+            // About no conversation: nothing for the inbox to read, and no
+            // thread on screen that could make it redundant.
+            diag.info(AREA, "push (${payload.type}) shown")
+            show(payload, title, body, now.language)
+            return
+        }
         diag.info(AREA, "push-triggered sync (${payload.type ?: "?"}) for ${Diag.id(payload.conversationId)}")
         sync.onPush(workspace, payload.conversationId)
         if (now.foreground && payload.conversationId != null && payload.conversationId in now.openConversationIds) {

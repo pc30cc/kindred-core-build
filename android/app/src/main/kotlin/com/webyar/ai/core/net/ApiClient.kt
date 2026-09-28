@@ -1240,6 +1240,22 @@ class ApiClient(
         build(HttpMethod.Post, "/api/calls/${callSessionId.urlPath()}/hangup").orThrow()
     }
 
+    override suspend fun acceptCenterCall(workspaceId: String, callSessionId: String) {
+        centerCall(workspaceId, callSessionId, "accept")
+    }
+
+    override suspend fun endCenterCall(workspaceId: String, callSessionId: String) {
+        centerCall(workspaceId, callSessionId, "end")
+    }
+
+    private suspend fun centerCall(workspaceId: String, callSessionId: String, action: String) {
+        build(
+            HttpMethod.Post,
+            "/api/call-center/calls/${callSessionId.urlPath()}/$action",
+            query = listOf("workspaceId" to workspaceId),
+        ).orThrow()
+    }
+
     @Serializable
     private data class EndCallBody(val reason: String)
 

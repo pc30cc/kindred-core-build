@@ -30,6 +30,17 @@ sealed interface Screen : NavKey {
     override val tab get() = AppTab.INBOX
 }
 
+/** A call-centre call that rang this phone; [answer] when Answer was already pressed. */
+@Serializable data class IncomingCallKey(
+    val callId: String,
+    val workspaceId: String,
+    val channel: String,
+    val caller: String,
+    val answer: Boolean,
+) : Screen {
+    override val tab get() = AppTab.INBOX
+}
+
 @Serializable data class CallKey(val conversationId: String, val channel: String) : Screen {
     override val tab get() = AppTab.INBOX
 }

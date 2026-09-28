@@ -48,6 +48,7 @@ import com.webyar.ai.core.model.VisitorProfile
 import com.webyar.ai.i18n.Format
 import com.webyar.ai.i18n.Language
 import com.webyar.ai.i18n.Str
+import com.webyar.ai.i18n.StrAndroid
 import com.webyar.ai.ui.A11y
 import com.webyar.ai.ui.components.Avatar
 import com.webyar.ai.ui.components.Glyph
@@ -100,6 +101,8 @@ fun CallScreen(
     onToggleSpeaker: () -> Unit = {},
     onHangUp: () -> Unit = {},
     onDone: () -> Unit = {},
+    onAnswer: () -> Unit = {},
+    onDecline: () -> Unit = {},
 ) {
     Surface(
         // Its own dark surface whatever the theme is doing. A call is a
@@ -146,6 +149,7 @@ fun CallScreen(
                         // and a circle over a video window is just something in
                         // the way.
                         compact = remoteVideo != null,
+                        video = channel == CallChannel.VIDEO,
                     )
 
                     if (relayWarning) Notice(Str.callRelayWarning(language))
@@ -167,6 +171,8 @@ fun CallScreen(
                         onToggleSpeaker = onToggleSpeaker,
                         onHangUp = onHangUp,
                         onDone = onDone,
+                        onAnswer = onAnswer,
+                        onDecline = onDecline,
                     )
                 }
             }
@@ -197,6 +203,7 @@ private fun Identity(
     connectedAt: Instant?,
     language: Language,
     compact: Boolean,
+    video: Boolean,
 ) {
     Column(
         Modifier.padding(top = Space.xl),
@@ -208,7 +215,7 @@ private fun Identity(
             // scalloped shape — Expressive's way of saying "working" without
             // a spinner — so the wait does not look like a frozen screen.
             // Once answered the shape stops and settles into a quiet halo.
-            val ringing = phase == CallPhase.Waiting || phase == CallPhase.Connecting
+            val ringing = phase == CallPhase.Ringing || phase == CallPhase.Waiting || phase == CallPhase.Connecting
             val turn by rememberLoop(
                 label = "ring.turn",
                 from = 0f,
@@ -257,7 +264,7 @@ private fun Identity(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        Status(phase, connectedAt, language)
+        Status(phase, connectedAt, language, video)
     }
 }
 
@@ -276,8 +283,9 @@ private fun Identity(
  * has: unlike the console there is no alert behind it to say more.
  */
 @Composable
-private fun Status(phase: CallPhase, connectedAt: Instant?, language: Language) {
+private fun Status(phase: CallPhase, connectedAt: Instant?, language: Language, video: Boolean) {
     val text = when (phase) {
+        CallPhase.Ringing -> StrAndroid.incomingCall(language, video)
         CallPhase.Waiting -> Str.inviteSent(language)
         CallPhase.Connecting -> Str.connectingCall(language)
         CallPhase.Connected -> {
@@ -356,7 +364,36 @@ private fun Controls(
     onToggleSpeaker: () -> Unit,
     onHangUp: () -> Unit,
     onDone: () -> Unit,
+    onAnswer: () -> Unit,
+    onDecline: () -> Unit,
 ) {
+    if (phase == CallPhase.Ringing) {
+        // A phone's own two: decline on the start side, answer on the end,
+        // far enough apart that one is never pressed for the other.
+        Row(
+            Modifier.padding(bottom = Space.xl).fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CallToggle(
+                icon = Glyph.CallEnd,
+                label = StrAndroid.declineCall(language),
+                tag = A11y.CALL_DECLINE,
+                on = true,
+                tint = CALL_END_RED,
+                onClick = onDecline,
+            )
+            CallToggle(
+                icon = Glyph.Call,
+                label = StrAndroid.answerCall(language),
+                tag = A11y.CALL_ANSWER,
+                on = true,
+                tint = CALL_ANSWER_GREEN,
+                onClick = onAnswer,
+            )
+        }
+        return
+    }
     Row(
         Modifier.padding(bottom = Space.xl),
         horizontalArrangement = Arrangement.spacedBy(Space.xl),
@@ -497,3 +534,6 @@ private val CALL_BACKGROUND = Color(0xFF111418)
  * that belongs on a near-black screen.
  */
 private val CALL_END_RED = Color(0xFFFF453A)
+
+/** The green under "answer": iOS's `systemGreen`, dark-mode value, for the same reason. */
+private val CALL_ANSWER_GREEN = Color(0xFF30D158)

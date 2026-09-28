@@ -22,7 +22,17 @@ import { getConnectedOperators } from '../widget/operatorPresenceSource.js';
  * `team_message` is a colleague's direct message in team chat: addressed to
  * one operator, and about no conversation.
  */
-export type PushEventType = 'new_message' | 'internal_note' | 'mention' | 'team_message';
+export type PushEventType =
+  | 'new_message'
+  | 'internal_note'
+  | 'mention'
+  | 'team_message'
+  /** A conversation handed to one operator — by a colleague, or by routing. */
+  | 'assignment'
+  /** A new email in the workspace's email inbox, which has no conversation. */
+  | 'email_message'
+  /** A visitor asked to be called back. */
+  | 'callback_request';
 
 export interface RecipientContext {
   workspaceId: string;
@@ -242,8 +252,16 @@ export async function resolveRecipients(
     if (ctx.eventType === 'team_message' && !isMentioned) continue;
     if (ctx.eventType === 'internal_note') {
       if (!p.push_internal_notes && !isMentioned) continue;
-      if (!isAssignee && !isMentioned && p.push_scope !== 'all') continue;
+      // A note is about the conversation, so it reaches whoever the
+      // conversation's customer messages would: the assignee of an assigned
+      // one, everyone who follows all conversations on an unassigned one.
+      if (ctx.assignedTo) {
+        if (!isAssignee && !isMentioned) continue;
+      } else if (p.push_scope !== 'all' && !isMentioned) continue;
     }
+    // Email and callbacks belong to no one yet: they reach those who follow
+    // everything, as an unassigned customer message does.
+    if ((ctx.eventType === 'email_message' || ctx.eventType === 'callback_request') && p.push_scope !== 'all') continue;
     if (ctx.eventType === 'new_message') {
       if (p.push_scope === 'mentions' && !isMentioned) continue;
       // "only assigned to me": an unassigned thread still reaches everyone

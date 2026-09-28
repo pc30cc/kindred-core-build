@@ -2,6 +2,7 @@ package com.webyar.ai.feature.call
 
 import com.webyar.ai.i18n.Language
 import com.webyar.ai.i18n.Str
+import com.webyar.ai.i18n.StrAndroid
 
 /**
  * Where a call is in its life.
@@ -11,6 +12,8 @@ import com.webyar.ai.i18n.Str
  * those combinations is a bug somebody would otherwise have to find.
  */
 sealed interface CallPhase {
+    /** A visitor is calling the call centre, and this phone has not answered yet. */
+    data object Ringing : CallPhase
     /** The invitation is out; the visitor has not answered. */
     data object Waiting : CallPhase
     /** They answered; we are joining the room. */
@@ -41,6 +44,11 @@ sealed interface CallOutcome {
     data object Expired : CallOutcome
     /** We never got into the room. */
     data class Failed(val reason: String) : CallOutcome
+    /**
+     * A call that rang here was taken by somebody else, or the caller gave
+     * up, before this phone answered it.
+     */
+    data object NoLongerWaiting : CallOutcome
 
     fun title(language: Language): String = when (this) {
         // "You hung up" and "they hung up" both read as "call ended" to the
@@ -49,6 +57,7 @@ sealed interface CallOutcome {
         Declined -> Str.callDeclined(language)
         Expired -> Str.callNoAnswer(language)
         is Failed -> Str.callFailed(language)
+        NoLongerWaiting -> StrAndroid.callNoLongerAvailable(language)
     }
 }
 

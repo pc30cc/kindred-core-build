@@ -11,6 +11,12 @@
  * rings on the lock screen, with the caller's name, whether the app is open,
  * backgrounded or not running at all.
  *
+ * Android has no PushKit. Its phones are rung with a data-only, high-priority
+ * FCM message instead (`type: call_incoming`), which the app turns into a
+ * full-screen incoming-call notification with Answer and Decline; the cancel
+ * that follows (`type: call_cancel`) stops it, and one that says nobody
+ * answered leaves a missed-call notification behind.
+ *
  * Rules that keep it honest:
  *  • Ringing follows the SAME routing decision the console follows. An
  *    assigned call rings one phone; a broadcast call rings every available
@@ -26,7 +32,9 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { randomUUID } from 'node:crypto';
 import { sendVoipPush, isVoipConfigured } from './apnsVoip.js';
+import { sendFcmData, isPushConfigured } from './fcm.js';
 import { createStorageUrlResolver, resolveContactAvatarUrl } from '../storage/urlResolver.js';
+import { disableToken } from './devices.js';
 
 /** How long a ring is worth delivering. Past this it is a missed call. */
 const RING_TTL_SECONDS = 45;
@@ -62,6 +70,19 @@ interface DeviceRow {
   voip_token: string | null;
 }
 
+/** An Android phone, rung over FCM. */
+interface AndroidRingDevice {
+  id: string;
+  userId: string;
+  token: string;
+}
+
+interface AndroidDeviceRow {
+  id: string;
+  user_id: string;
+  push_token: string | null;
+}
+
 interface CallRow {
   id: string;
   contact_id: string | null;
@@ -91,15 +112,21 @@ export async function ringOperators(
   config: ServerConfig,
   input: RingInput,
 ): Promise<{ sent: number; devices: number }> {
-  if (!isVoipConfigured()) return { sent: 0, devices: 0 };
+  const voip = isVoipConfigured();
+  const fcm = isPushConfigured();
+  if (!voip && !fcm) return { sent: 0, devices: 0 };
   try {
     const userIds = await resolveRingRecipients(config, input);
     if (!userIds.length) return { sent: 0, devices: 0 };
 
-    const devices = await voipDevicesFor(config, userIds);
-    if (!devices.length) return { sent: 0, devices: 0 };
+    const [devices, androids] = await Promise.all([
+      voip ? voipDevicesFor(config, userIds) : Promise.resolve([] as RingDevice[]),
+      fcm ? androidDevicesFor(config, userIds) : Promise.resolve([] as AndroidRingDevice[]),
+    ]);
+    if (!devices.length && !androids.length) return { sent: 0, devices: 0 };
 
     const caller = await describeCaller(config, input.workspaceId, input.callSessionId);
+    const expiresAt = Math.floor(Date.now() / 1000) + RING_TTL_SECONDS;
     const payload = {
       event: 'incoming',
       call_id: input.callSessionId,
@@ -109,11 +136,11 @@ export async function ringOperators(
       caller: caller.name,
       caller_id: caller.id,
       avatar_url: caller.avatarUrl,
-      expires_at: Math.floor(Date.now() / 1000) + RING_TTL_SECONDS,
+      expires_at: expiresAt,
     };
 
-    const outcomes = await Promise.all(
-      devices.map(async (device) => {
+    const outcomes = await Promise.all([
+      ...devices.map(async (device) => {
         const outcome = await sendVoipPush({
           token: device.voipToken,
           payload,
@@ -123,8 +150,18 @@ export async function ringOperators(
         if (outcome.unregistered) await forgetVoipToken(config, device.id);
         return outcome.ok;
       }),
-    );
-    return { sent: outcomes.filter(Boolean).length, devices: devices.length };
+      ...ringAndroids(config, androids, androidRingData({
+        callSessionId: input.callSessionId,
+        workspaceId: input.workspaceId,
+        workspaceName: caller.workspaceName,
+        channel: input.channel,
+        caller: caller.name,
+        callerId: caller.id,
+        avatarUrl: caller.avatarUrl,
+        expiresAt,
+      })),
+    ]);
+    return { sent: outcomes.filter(Boolean).length, devices: devices.length + androids.length };
   } catch (err) {
     console.warn('[call-ring] ring failed:', err instanceof Error ? err.message : err);
     return { sent: 0, devices: 0 };
@@ -155,7 +192,9 @@ export async function cancelRing(
     onlyUserId?: string | null;
   },
 ): Promise<void> {
-  if (!isVoipConfigured()) return;
+  const voip = isVoipConfigured();
+  const fcm = isPushConfigured();
+  if (!voip && !fcm) return;
   try {
     const userIds = input.onlyUserId
       ? [input.onlyUserId]
@@ -163,10 +202,18 @@ export async function cancelRing(
     const targets = input.exceptUserId
       ? userIds.filter((id) => id !== input.exceptUserId)
       : userIds;
-    if (!targets.length) return;
+    // An Android phone is told even when it belongs to the operator who took
+    // the call. There is no CallKit call on it to keep alive — answering on
+    // the phone already stopped its ring, and a call answered at the desk
+    // would otherwise go on ringing in their pocket, and then read as missed.
+    const androidTargets = input.reason === 'answered' ? userIds : targets;
+    if (!targets.length && !androidTargets.length) return;
 
-    const devices = await voipDevicesFor(config, targets);
-    if (!devices.length) return;
+    const [devices, androids] = await Promise.all([
+      voip && targets.length ? voipDevicesFor(config, targets) : Promise.resolve([] as RingDevice[]),
+      fcm ? androidDevicesFor(config, androidTargets) : Promise.resolve([] as AndroidRingDevice[]),
+    ]);
+    if (!devices.length && !androids.length) return;
 
     const payload = {
       event: 'cancel',
@@ -174,8 +221,14 @@ export async function cancelRing(
       workspace_id: input.workspaceId,
       reason: input.reason,
     };
-    await Promise.all(
-      devices.map(async (device) => {
+    await Promise.all([
+      ...ringAndroids(config, androids, {
+        type: 'call_cancel',
+        callId: input.callSessionId,
+        workspaceId: input.workspaceId,
+        reason: input.reason,
+      }),
+      ...devices.map(async (device) => {
         const outcome = await sendVoipPush({
           token: device.voipToken,
           payload,
@@ -185,11 +238,58 @@ export async function cancelRing(
           expirationSeconds: RING_TTL_SECONDS,
         });
         if (outcome.unregistered) await forgetVoipToken(config, device.id);
+        return outcome.ok;
       }),
-    );
+    ]);
   } catch (err) {
     console.warn('[call-ring] cancel failed:', err instanceof Error ? err.message : err);
   }
+}
+
+/** What an Android phone is told about a call it should ring for. */
+export function androidRingData(input: {
+  callSessionId: string;
+  workspaceId: string;
+  workspaceName: string | null;
+  channel: 'audio' | 'video';
+  caller: string;
+  callerId: string;
+  avatarUrl: string | null;
+  expiresAt: number;
+}): Record<string, string> {
+  const data: Record<string, string> = {
+    type: 'call_incoming',
+    callId: input.callSessionId,
+    workspaceId: input.workspaceId,
+    channel: input.channel,
+    caller: input.caller.slice(0, 120),
+    callerId: input.callerId,
+    expiresAt: String(input.expiresAt),
+  };
+  if (input.workspaceName) data.workspaceName = input.workspaceName.slice(0, 120);
+  // FCM caps a message at 4 KB; a signed URL that would crowd that out is
+  // left behind, and the app draws the caller without a face.
+  if (input.avatarUrl && input.avatarUrl.length <= 1500) data.avatarUrl = input.avatarUrl;
+  return data;
+}
+
+/** One data-only send per Android phone; a dead token is disabled like any other. */
+function ringAndroids(
+  config: ServerConfig,
+  devices: AndroidRingDevice[],
+  data: Record<string, string>,
+): Array<Promise<boolean>> {
+  return devices.map(async (device) => {
+    const outcome = await sendFcmData({
+      token: device.token,
+      data,
+      ttlSeconds: RING_TTL_SECONDS,
+      collapseKey: data.callId,
+    });
+    if (outcome.unregistered) await disableToken(config, device.token, 'fcm_unregistered');
+    else if (!outcome.ok) console.warn('[call-ring] android send failed', { userId: device.userId, status: outcome.status });
+    return outcome.ok;
+  });
 }
 
 // ── Who to ring ─────────────────────────────────────────────────────────
@@ -204,7 +304,8 @@ async function resolveRingRecipients(
   return availableAgents(config, input.workspaceId);
 }
 
-const OPERATOR_ROLES = new Set(['owner', 'admin', 'team_lead', 'agent']);
+/** Who answers calls: the call centre's own list (`requireCallOperator`), support agents included. */
+const OPERATOR_ROLES = new Set(['owner', 'admin', 'team_lead', 'agent', 'support_agent']);
 
 async function workspaceOperatorIds(
   config: ServerConfig,
@@ -267,6 +368,25 @@ async function voipDevicesFor(
       userId: String(row.user_id),
       voipToken: row.voip_token,
     }));
+}
+
+/** The Android phones of [userIds] that can be rung: FCM, enabled, with an address. */
+async function androidDevicesFor(
+  config: ServerConfig,
+  userIds: string[],
+): Promise<AndroidRingDevice[]> {
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('mobile_push_devices')
+    .select('id, user_id, push_token')
+    .in('user_id', userIds)
+    .eq('platform', 'android')
+    .eq('transport', 'fcm')
+    .eq('enabled', true)
+    .not('push_token', 'is', null);
+  return ((data || []) as AndroidDeviceRow[])
+    .filter((row): row is AndroidDeviceRow & { push_token: string } => !!row.push_token)
+    .map((row) => ({ id: String(row.id), userId: String(row.user_id), token: row.push_token }));
 }
 
 async function forgetVoipToken(config: ServerConfig, deviceId: string): Promise<void> {
@@ -370,9 +490,12 @@ export async function ringTestDevice(
   config: ServerConfig,
   input: { userId: string; callerName: string; channel: 'audio' | 'video' },
 ): Promise<{ devices: number; sent: number; failures: string[] }> {
-  if (!isVoipConfigured()) return { devices: 0, sent: 0, failures: ['not_configured'] };
-  const devices = await voipDevicesFor(config, [input.userId]);
-  if (!devices.length) return { devices: 0, sent: 0, failures: ['no_devices'] };
+  const voip = isVoipConfigured();
+  const fcm = isPushConfigured();
+  if (!voip && !fcm) return { devices: 0, sent: 0, failures: ['not_configured'] };
+  const devices = voip ? await voipDevicesFor(config, [input.userId]) : [];
+  const androids = fcm ? await androidDevicesFor(config, [input.userId]) : [];
+  if (!devices.length && !androids.length) return { devices: 0, sent: 0, failures: ['no_devices'] };
 
   const callId = randomUUID();
   const payload = {
@@ -386,6 +509,20 @@ export async function ringTestDevice(
 
   const failures: string[] = [];
   let sent = 0;
+  const androidData = androidRingData({
+    callSessionId: callId,
+    workspaceId: TEST_WORKSPACE_ID,
+    workspaceName: null,
+    channel: input.channel,
+    caller: input.callerName,
+    callerId: callId,
+    avatarUrl: null,
+    expiresAt: payload.expires_at,
+  });
+  for (const ok of await Promise.all(ringAndroids(config, androids, androidData))) {
+    if (ok) sent += 1;
+    else failures.push('android_send_failed');
+  }
   for (const device of devices) {
     const outcome = await sendVoipPush({
       token: device.voipToken,
@@ -397,7 +534,7 @@ export async function ringTestDevice(
     else failures.push(outcome.reason || `status_${outcome.status ?? 0}`);
     if (outcome.unregistered) await forgetVoipToken(config, device.id);
   }
-  return { devices: devices.length, sent, failures };
+  return { devices: devices.length + androids.length, sent, failures };
 }
 
 /** A workspace id that exists nowhere, so a test ring cannot touch real data. */

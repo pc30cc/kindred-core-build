@@ -12,6 +12,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import android.content.Intent
+import android.view.WindowManager
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
@@ -20,6 +21,8 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import com.webyar.ai.core.push.CallNotifications
+import com.webyar.ai.core.push.IncomingCallLink
 import com.webyar.ai.core.push.Notifications
 import com.webyar.ai.core.push.PushPayload
 import com.webyar.ai.core.push.from
@@ -132,11 +135,43 @@ class MainActivity : ComponentActivity() {
         // Reopened from Recents after the process died: the system hands back
         // the intent that first launched it, and that tap was already followed.
         if (intent == null || intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
+        // A ringing call — Answer, or the ring itself, possibly full screen
+        // over the lock screen.
+        runCatching { IncomingCallLink.from(intent) }.getOrNull()?.let { call ->
+            showOverLockScreen(true)
+            if (call.answer) {
+                // Answered: the ring has done its job on this phone.
+                CallNotifications.stop(this, call.callId, missed = false, language = appState.language.value)
+                CallNotifications.forget(call.callId)
+            }
+            appState.openIncomingCall(call)
+            return
+        }
         // This activity is exported; extras another app put there are not
         // worth a crash at launch.
         val link = runCatching { PushPayload.from(intent) }.getOrNull() ?: return
         appState.openFromNotification(link)
         Notifications.cancelFor(this, link)
+    }
+
+    /**
+     * Over the lock screen, and waking it, while a call is on: a phone rings
+     * and is answered without being unlocked first. Switched off again when
+     * the call screen goes, so the rest of the app is never shown to whoever
+     * holds a locked phone.
+     */
+    fun showOverLockScreen(on: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(on)
+            setTurnScreenOn(on)
+        } else {
+            @Suppress("DEPRECATION")
+            if (on) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
+            } else {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
+            }
+        }
     }
 }
 

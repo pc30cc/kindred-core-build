@@ -83,6 +83,14 @@ const COPY = {
     colleague: 'Colleague',
     teamPrivacyBody: 'New message from a colleague',
     teamMessage: (name: string) => `${name} · colleague`,
+    assignedTitle: 'Conversation assigned to you',
+    assignedPrivacyBody: 'A conversation was assigned to you',
+    assignedBy: (name: string) => `Assigned by ${name}`,
+    emailTitle: 'New email',
+    emailPrivacyBody: 'New email in Webyar',
+    callbackTitle: 'Callback request',
+    callbackBody: 'A visitor asked to be called back',
+    visitor: 'Website visitor',
   },
   fa: {
     privacyTitle: 'Webyar',
@@ -95,6 +103,14 @@ const COPY = {
     colleague: 'همکار',
     teamPrivacyBody: 'پیام جدید از همکار',
     teamMessage: (name: string) => `${name} · همکار`,
+    assignedTitle: 'گفتگو به شما سپرده شد',
+    assignedPrivacyBody: 'گفتگویی به شما سپرده شد',
+    assignedBy: (name: string) => `سپرده‌شده توسط ${name}`,
+    emailTitle: 'ایمیل تازه',
+    emailPrivacyBody: 'ایمیل تازه در وب‌یار',
+    callbackTitle: 'درخواست تماس',
+    callbackBody: 'بازدیدکننده‌ای درخواست تماس داده است',
+    visitor: 'بازدیدکننده وب‌سایت',
   },
   tr: {
     privacyTitle: 'Webyar',
@@ -107,6 +123,14 @@ const COPY = {
     colleague: 'İş arkadaşı',
     teamPrivacyBody: 'Bir iş arkadaşından yeni mesaj',
     teamMessage: (name: string) => `${name} · iş arkadaşı`,
+    assignedTitle: 'Görüşme size atandı',
+    assignedPrivacyBody: 'Size bir görüşme atandı',
+    assignedBy: (name: string) => `${name} tarafından atandı`,
+    emailTitle: 'Yeni e-posta',
+    emailPrivacyBody: 'Webyar\'da yeni e-posta',
+    callbackTitle: 'Geri arama isteği',
+    callbackBody: 'Bir ziyaretçi geri aranmak istedi',
+    visitor: 'Web sitesi ziyaretçisi',
   },
 } as const;
 
@@ -408,6 +432,289 @@ export function renderTeamContent(
   const text = (input.text || '').trim();
   const fallback = input.hasAttachment ? copy.attachment : copy.newMessage;
   return mark({ title: name ? copy.teamMessage(name) : copy.colleague, body: truncate(text || fallback) });
+}
+
+/**
+ * The shared tail of every event that is not a customer's message: for each
+ * recipient with a device, claim the (workspace, user, dedupe key) row —
+ * the second claim is the suppression — render in their language, send to
+ * each device, and record the outcome. Never throws.
+ */
+async function pushToRecipients(
+  config: ServerConfig,
+  input: {
+    workspaceId: string;
+    eventType: PushEventType;
+    recipients: Recipient[];
+    dedupeKey: string;
+    conversationId?: string | null;
+    /** A uuid, when the event has one; the dispatch log's column is typed. */
+    messageId?: string | null;
+    data: Record<string, string>;
+    render: (recipient: Recipient) => { title: string; body: string };
+    /** One notification per this, replacing the last. */
+    thread: string;
+    policy: PushPlatformSettings;
+  },
+): Promise<void> {
+  const { policy } = input;
+  if (!input.recipients.length) return;
+  const sb = getServiceClient(config);
+  const devicesByUser = new Map<string, PushDeviceRow[]>();
+  for (const device of await listActiveDevices(config, input.recipients.map((r) => r.userId))) {
+    const list = devicesByUser.get(device.user_id);
+    if (list) list.push(device);
+    else devicesByUser.set(device.user_id, [device]);
+  }
+  for (const recipient of input.recipients) {
+    const devices = devicesByUser.get(recipient.userId) ?? [];
+    if (!devices.length) continue;
+    const { error: claimError } = await sb.from('push_dispatch_log').insert({
+      workspace_id: input.workspaceId,
+      user_id: recipient.userId,
+      conversation_id: input.conversationId ?? null,
+      message_id: input.messageId ?? null,
+      notification_type: input.eventType,
+      dedupe_key: input.dedupeKey,
+      status: 'attempted',
+    });
+    if (claimError) continue;
+
+    const badge = policy.badge_enabled
+      ? await unreadBadgeCount(config, recipient.userId, input.workspaceId)
+      : undefined;
+    const { title, body } = input.render(recipient);
+    const { accepted, failed } = await deliver(config, recipient, devices, {
+      title,
+      body,
+      data: input.data,
+      badge,
+      collapseId: policy.collapse_enabled ? input.thread : undefined,
+      apns: apnsDeliveryFor(policy, input.eventType, { workspaceId: input.workspaceId, conversationId: input.thread }),
+      androidChannelId: policy.android_channel_id,
+    });
+    await finish(config, input.workspaceId, recipient.userId, input.dedupeKey, devices.length, accepted, failed, accepted > 0 ? 'sent' : 'failed');
+  }
+}
+
+/** Push is on at all: a transport, and the platform master switch. */
+async function pushPolicy(config: ServerConfig): Promise<PushPlatformSettings | null> {
+  if (!isPushConfigured() && !isApnsConfigured()) return null;
+  const policy = await loadPushPlatformSettings(config);
+  return policy.push_enabled ? policy : null;
+}
+
+async function displayName(config: ServerConfig, userId: string | null | undefined): Promise<string | null> {
+  if (!userId) return null;
+  const { data } = await getServiceClient(config)
+    .from('profiles')
+    .select('full_name')
+    .eq('id', userId)
+    .maybeSingle();
+  const name = (data as { full_name: string | null } | null)?.full_name?.trim();
+  return name || null;
+}
+
+export interface AssignmentPushInput {
+  workspaceId: string;
+  conversationId: string;
+  /** The operator it now belongs to. */
+  assigneeId: string;
+  /** Who handed it over; null when routing did. Never notified. */
+  actorId: string | null;
+  /** Distinguishes this handover from the next one of the same conversation. */
+  stamp: string;
+}
+
+/**
+ * A conversation handed to one operator — by a colleague, or by routing after
+ * the AI stepped aside — on that operator's phone.
+ *
+ * The customer message that led here was pushed before anyone was assigned,
+ * so without this the new owner heard nothing until the customer wrote
+ * again. Only to the assignee, under their own settings; a handover they
+ * made to themselves is not news to them.
+ */
+export async function notifyAssignment(config: ServerConfig, input: AssignmentPushInput): Promise<void> {
+  try {
+    if (input.actorId && input.actorId === input.assigneeId) return;
+    const policy = await pushPolicy(config);
+    if (!policy) return;
+    const eventType: PushEventType = 'assignment';
+    const sb = getServiceClient(config);
+    const { data: conversation } = await sb
+      .from('conversations')
+      .select('id, workspace_id, assigned_to, contact_id')
+      .eq('id', input.conversationId)
+      .maybeSingle();
+    const conv = conversation as { workspace_id: string; assigned_to: string | null; contact_id: string | null } | null;
+    // Read back rather than trusted: a handover already undone is not sent.
+    if (!conv || String(conv.workspace_id) !== input.workspaceId || conv.assigned_to !== input.assigneeId) return;
+
+    const recipients = await resolveRecipients(config, {
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      assignedTo: input.assigneeId,
+      eventType,
+      actorId: input.actorId,
+      userIds: [input.assigneeId],
+      policy,
+    });
+    if (!recipients.length) return;
+
+    let customer: string | null = null;
+    if (conv.contact_id) {
+      const { data: contact } = await sb
+        .from('contacts')
+        .select('name, email, visitor_code')
+        .eq('id', conv.contact_id)
+        .maybeSingle();
+      const row = contact as { name: string | null; email: string | null; visitor_code: string | null } | null;
+      customer = [row?.name, row?.email, row?.visitor_code].map((v) => v?.trim()).find(Boolean) ?? null;
+    }
+    const actorName = await displayName(config, input.actorId);
+
+    await pushToRecipients(config, {
+      workspaceId: input.workspaceId,
+      eventType,
+      recipients,
+      dedupeKey: `${eventType}:${input.conversationId}:${input.stamp}`.slice(0, 200),
+      conversationId: input.conversationId,
+      data: { type: eventType, workspaceId: input.workspaceId, conversationId: input.conversationId },
+      render: (recipient) => renderAssignmentContent({ customer, actorName }, recipient.preview, recipient.locale),
+      thread: `conv-${input.conversationId}`,
+      policy,
+    });
+  } catch (err) {
+    console.error('[push] assignment dispatch error', { message: String((err as Error)?.message ?? err) });
+  }
+}
+
+export function renderAssignmentContent(
+  input: { customer: string | null; actorName: string | null },
+  preview: boolean,
+  locale = 'en',
+): { title: string; body: string } {
+  const lang = copyLocale(locale);
+  const copy = COPY[lang];
+  const mark = (result: { title: string; body: string }) => ({
+    title: directed(lang, result.title),
+    body: directed(lang, result.body),
+  });
+  if (!preview) return mark({ title: copy.privacyTitle, body: copy.assignedPrivacyBody });
+  const who = input.customer?.trim() || copy.customer;
+  const by = input.actorName?.trim();
+  return mark({ title: copy.assignedTitle, body: by ? `${who} · ${copy.assignedBy(by)}` : who });
+}
+
+export interface EmailPushInput {
+  workspaceId: string;
+  threadId: string;
+  /** The `email_messages` row just stored. */
+  messageId: string;
+  from?: string | null;
+  subject?: string | null;
+  snippet?: string | null;
+}
+
+/**
+ * A new email in the workspace's email inbox.
+ *
+ * Email is not a conversation — it has its own threads and no assignee — so
+ * it reaches everyone who follows all of the workspace's traffic, as an
+ * unassigned customer message does. `data` names the thread the app opens.
+ */
+export async function notifyEmailMessage(config: ServerConfig, input: EmailPushInput): Promise<void> {
+  try {
+    const policy = await pushPolicy(config);
+    if (!policy) return;
+    const eventType: PushEventType = 'email_message';
+    const recipients = await resolveRecipients(config, {
+      workspaceId: input.workspaceId,
+      assignedTo: null,
+      eventType,
+      policy,
+    });
+    await pushToRecipients(config, {
+      workspaceId: input.workspaceId,
+      eventType,
+      recipients,
+      dedupeKey: `${eventType}:${input.messageId}`,
+      messageId: input.messageId,
+      data: { type: eventType, workspaceId: input.workspaceId, threadId: input.threadId, messageId: input.messageId },
+      render: (recipient) => renderEmailContent(input, recipient.preview, recipient.locale),
+      thread: `email-${input.threadId}`,
+      policy,
+    });
+  } catch (err) {
+    console.error('[push] email dispatch error', { message: String((err as Error)?.message ?? err) });
+  }
+}
+
+export function renderEmailContent(
+  input: { from?: string | null; subject?: string | null; snippet?: string | null },
+  preview: boolean,
+  locale = 'en',
+): { title: string; body: string } {
+  const lang = copyLocale(locale);
+  const copy = COPY[lang];
+  const mark = (result: { title: string; body: string }) => ({
+    title: directed(lang, result.title),
+    body: directed(lang, result.body),
+  });
+  if (!preview) return mark({ title: copy.privacyTitle, body: copy.emailPrivacyBody });
+  const from = input.from?.trim() || copy.emailTitle;
+  const subject = input.subject?.trim();
+  const snippet = input.snippet?.replace(/\s+/g, ' ').trim();
+  const body = [subject, snippet].filter(Boolean).join(' — ') || copy.emailTitle;
+  return mark({ title: from, body: truncate(body) });
+}
+
+export interface CallbackPushInput {
+  workspaceId: string;
+  /** The callback request row. */
+  callbackId: string;
+  visitorName?: string | null;
+}
+
+/**
+ * A visitor asked to be called back. Nobody is on the line, so it is a
+ * notification rather than a ring; it reaches everyone who follows all of
+ * the workspace's traffic.
+ */
+export async function notifyCallbackRequest(config: ServerConfig, input: CallbackPushInput): Promise<void> {
+  try {
+    const policy = await pushPolicy(config);
+    if (!policy) return;
+    const eventType: PushEventType = 'callback_request';
+    const recipients = await resolveRecipients(config, {
+      workspaceId: input.workspaceId,
+      assignedTo: null,
+      eventType,
+      policy,
+    });
+    await pushToRecipients(config, {
+      workspaceId: input.workspaceId,
+      eventType,
+      recipients,
+      dedupeKey: `${eventType}:${input.callbackId}`,
+      messageId: /^[0-9a-f-]{36}$/i.test(input.callbackId) ? input.callbackId : null,
+      data: { type: eventType, workspaceId: input.workspaceId, callbackId: input.callbackId },
+      render: (recipient) => {
+        const lang = copyLocale(recipient.locale);
+        const copy = COPY[lang];
+        const name = input.visitorName?.trim();
+        return {
+          title: directed(lang, copy.callbackTitle),
+          body: directed(lang, recipient.preview && name ? `${name} · ${copy.callbackBody}` : copy.callbackBody),
+        };
+      },
+      thread: `callback-${input.callbackId}`,
+      policy,
+    });
+  } catch (err) {
+    console.error('[push] callback dispatch error', { message: String((err as Error)?.message ?? err) });
+  }
 }
 
 /** One notification, as every device of one recipient is sent it. */

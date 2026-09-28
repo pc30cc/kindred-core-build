@@ -110,6 +110,22 @@ class NotificationsTest {
     }
 
     @Test
+    fun `a tap on a new email brings back its thread`() {
+        val email = PushPayload(type = PushPayload.TYPE_EMAIL, workspaceId = "ws-1", conversationId = null, messageId = "m-1", threadId = "t-1")
+        assertEquals(email, PushPayload.from(Notifications.openIntent(context, email)))
+    }
+
+    @Test
+    fun `emails and callbacks each get a notification of their own`() {
+        shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        Notifications.ensureChannels(context, Language.EN)
+        Notifications.showMessage(context, PushPayload("email_message", "ws-1", null, "m-1", threadId = "t-1"), "ali@example.com", "Hi", Language.EN)
+        Notifications.showMessage(context, PushPayload("callback_request", "ws-1", null, null, callbackId = "cb-1"), "Callback request", "Call me", Language.EN)
+        Notifications.showMessage(context, payload, "Maryam", "Hello", Language.EN)
+        assertEquals(3, shadowOf(manager).allNotifications.size)
+    }
+
+    @Test
     fun `a tap on a notification the system drew carries the same keys`() {
         // FCM puts the message's data into the launch intent's extras.
         val intent = Intent().apply {

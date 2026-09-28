@@ -473,6 +473,28 @@ interface WebyarApi {
      */
     suspend fun endCall(callSessionId: String, reason: String) = hangUp(callSessionId)
 
+    // MARK: - Call centre
+
+    /**
+     * Answers a call-centre call that rang this phone:
+     * `POST /api/call-center/calls/:id/accept`. The server takes it for this
+     * operator, stops every other phone, and makes the room; joining it is
+     * then [callToken] like any other call.
+     *
+     * Defaulted, like [endCall], so a fake with no call centre fails loudly
+     * rather than failing to compile.
+     */
+    suspend fun acceptCenterCall(workspaceId: String, callSessionId: String): Unit =
+        throw UnsupportedOperationException("acceptCenterCall")
+
+    /**
+     * Ends an answered call-centre call. Its own route rather than [hangUp]:
+     * this one also closes the queue entry and frees the operator's slot for
+     * the next caller.
+     */
+    suspend fun endCenterCall(workspaceId: String, callSessionId: String): Unit =
+        throw UnsupportedOperationException("endCenterCall")
+
     // MARK: - Account
 
     /**

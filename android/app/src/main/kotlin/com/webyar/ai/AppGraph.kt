@@ -25,7 +25,10 @@ import com.webyar.ai.core.model.User
 import com.webyar.ai.core.model.Workspace
 import com.webyar.ai.core.net.Backend
 import com.webyar.ai.core.net.WebyarApi
+import com.webyar.ai.core.push.CallCancel
+import com.webyar.ai.core.push.CallNotifications
 import com.webyar.ai.core.push.FirebasePushTokens
+import com.webyar.ai.core.push.IncomingCallRouter
 import com.webyar.ai.core.push.Notifications
 import com.webyar.ai.core.model.MobileAppConfig
 import com.webyar.ai.core.push.PushConfig
@@ -54,6 +57,9 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -144,10 +150,13 @@ class AppGraph(private val app: Application) {
         diag = diag,
     )
 
+    /** Whose this phone's push registration is — the one thing a cold-started ring can check. */
+    private val pushState = StoredPushState(secureStore)
+
     val push = PushRegistrar(
         api = api,
         tokens = FirebasePushTokens { PushConfig.isReady(app) && !Backend.isSample },
-        state = StoredPushState(secureStore),
+        state = pushState,
         permission = { PushDevice.permissionOf(app) },
         device = PushDevice.info(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE),
         diag = diag,
@@ -172,6 +181,28 @@ class AppGraph(private val app: Application) {
         diag = diag,
     )
 
+    private val _callCancels = MutableSharedFlow<CallCancel>(extraBufferCapacity = 8)
+
+    /** Rings the server stopped, for a ringing call on screen to stop with them. */
+    val callCancels: SharedFlow<CallCancel> = _callCancels.asSharedFlow()
+
+    /**
+     * Call-centre rings, which arrive whatever state the app is in: the
+     * signed-in check and the language come from storage, not from a
+     * session a cold start has not restored yet.
+     */
+    val incomingCalls = IncomingCallRouter(
+        signedInAccount = { session.user?.id ?: pushState.session()?.accountId },
+        language = { preferences.language() ?: session.language },
+        ring = { call, language -> CallNotifications.showIncoming(app, call, language) },
+        stop = { cancel, language ->
+            CallNotifications.stop(app, cancel.callId, cancel.reason.missed, language)
+            _callCancels.tryEmit(cancel)
+        },
+        diag = diag,
+    )
+
+
     val hooks: SessionHooks = object : SessionHooks {
         override fun signedIn(user: User) {
             session.user = user
@@ -187,6 +218,7 @@ class AppGraph(private val app: Application) {
         override fun languageChanged(language: Language) {
             session.language = language
             Notifications.ensureChannels(app, language)
+            CallNotifications.ensureChannel(app, language)
         }
 
         override fun appConfigChanged(config: MobileAppConfig) {

@@ -5,6 +5,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { resolvePublisher } from '../realtime/resolvePublisher.js';
+import { notifyCallbackRequest } from '../push/index.js';
 
 export type CallbackChannel = 'audio' | 'video';
 export type CallbackStatus =
@@ -65,7 +66,7 @@ async function publishCallbackEvent(
     await publisher.publish(channelName(workspaceId), {
       type: 'event',
       payload: { kind: 'call_callback', ...payload },
-    } as any);
+    } as Parameters<typeof publisher.publish>[1]);
   } catch {/* best-effort */}
 }
 
@@ -115,6 +116,12 @@ export async function createCallbackRequest(
     type: 'requested',
     callback_id: data.id,
     channel: input.channel,
+  });
+  const meta = (input.metadata ?? {}) as Record<string, unknown>;
+  void notifyCallbackRequest(config, {
+    workspaceId: input.workspaceId,
+    callbackId: String(data.id),
+    visitorName: typeof meta.name === 'string' ? meta.name : null,
   });
   return data as CallbackRequestRow;
 }
@@ -182,8 +189,8 @@ export async function getCallbackCounts(
     .gte('requested_at', new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString());
   const out = { requested: 0, scheduled: 0, in_progress: 0, completed: 0, cancelled: 0 };
   for (const r of data ?? []) {
-    const s = (r as any).status as CallbackStatus;
-    if (s in out) (out as any)[s]++;
+    const s = (r as { status?: string }).status as CallbackStatus;
+    if (s in out) out[s as keyof typeof out]++;
   }
   return out;
 }
@@ -202,8 +209,8 @@ export async function getPlatformCallbackCounts(
     .gte('requested_at', new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString());
   const out = { requested: 0, scheduled: 0, in_progress: 0, completed: 0, cancelled: 0 };
   for (const r of data ?? []) {
-    const s = (r as any).status as CallbackStatus;
-    if (s in out) (out as any)[s]++;
+    const s = (r as { status?: string }).status as CallbackStatus;
+    if (s in out) out[s as keyof typeof out]++;
   }
   return out;
 }

@@ -18,11 +18,17 @@ data class PushPayload(
     /** Enough to open a conversation. */
     val opensConversation: Boolean get() = !workspaceId.isNullOrBlank() && !conversationId.isNullOrBlank()
 
+    /** Super Admin → Notifications → "Send test": a diagnostic, about no conversation. */
+    val isTest: Boolean get() = type == TYPE_TEST
+
     companion object {
         const val KEY_TYPE = "type"
         const val KEY_WORKSPACE = "workspaceId"
         const val KEY_CONVERSATION = "conversationId"
         const val KEY_MESSAGE = "messageId"
+
+        /** `server/routes/adminNotifications.ts`, the test send. */
+        const val TYPE_TEST = "test"
 
         fun from(data: Map<String, String>): PushPayload = PushPayload(
             type = data[KEY_TYPE],

@@ -42,10 +42,33 @@ data class EmailComposeForm(
     val sent: Boolean = false,
     /** Filled in once the thread (when there is one) has been read. */
     val ready: Boolean = false,
+    /**
+     * What the fields held when the form became ready: a reply's addresses
+     * and subject, a forward's quoted mail, or nothing at all for a new one.
+     */
+    val initial: ComposeFields = ComposeFields(),
 ) {
-    /** Anything the operator would lose by leaving. */
+    val fields: ComposeFields get() = ComposeFields(to, cc, bcc, subject, body)
+
+    /**
+     * Anything the operator would lose by leaving: a field changed from how
+     * it started, or a file. A forward arrives with the quoted mail already
+     * in the body, and leaving it untouched loses nothing — while an address
+     * typed into a new mail with no words yet is still work.
+     */
     val touched: Boolean
-        get() = body.isNotBlank() || attachments.isNotEmpty()
+        get() = fields.trimmed() != initial.trimmed() || attachments.isNotEmpty()
+}
+
+/** The typed parts of a mail, compared to tell whether anything was written. */
+data class ComposeFields(
+    val to: String = "",
+    val cc: String = "",
+    val bcc: String = "",
+    val subject: String = "",
+    val body: String = "",
+) {
+    fun trimmed() = ComposeFields(to.trim(), cc.trim(), bcc.trim(), subject.trim(), body.trim())
 }
 
 /** What a reply, a reply-to-all or a forward starts out with. */
@@ -85,13 +108,17 @@ class EmailComposeViewModel(
             _form.update { it.copy(ready = true) }
             return
         }
+        // A reply belongs to its thread whether or not the thread could be
+        // read: if the fetch fails the operator can still address it by hand,
+        // and it must not go out as a new conversation because of that.
+        if (mode != EmailReplyMode.FORWARD) threadId = sourceThreadId
         viewModelScope.launch {
             runCatching { api.emailThread(workspaceId, sourceThreadId) }
                 .onSuccess { response ->
                     val prefill = prefill(mode, response.thread, response.messages, mailbox, language())
                     threadId = prefill.threadId
                     _form.update {
-                        it.copy(
+                        val filled = it.copy(
                             to = prefill.to.joinToString(", "),
                             cc = prefill.cc.joinToString(", "),
                             showCopies = prefill.cc.isNotEmpty(),
@@ -99,6 +126,7 @@ class EmailComposeViewModel(
                             body = prefill.body,
                             ready = true,
                         )
+                        filled.copy(initial = filled.fields)
                     }
                 }
                 .onFailure { error ->
@@ -184,13 +212,64 @@ class EmailComposeViewModel(
 
     companion object {
         private val ADDRESS = Regex("^[^@\\s,;<>]+@[^@\\s,;<>]+\\.[^@\\s,;<>]+$")
+        private val BARE_SEPARATORS = Regex("[\\s,;]+")
 
-        /** Addresses as typed: split on commas, semicolons and spaces; `Name <a@b>` reduced to the address. */
-        fun addresses(text: String): List<String> =
-            text.split(',', ';', '\n', ' ')
-                .map { it.trim().removePrefix("<").removeSuffix(">") }
+        /**
+         * Addresses as typed, or as a mail header gives them.
+         *
+         * Entries are separated by commas, semicolons and line breaks — but
+         * not inside quotes or angle brackets, because Gmail hands senders
+         * back as `"Ahmadi, Sara" <sara@example.com>` and a comma in a
+         * display name is not the end of an address. An entry with `<…>` is
+         * the address inside it, whatever name stands in front; an entry
+         * without one is bare addresses, which people also separate with
+         * spaces. Duplicates go regardless of case.
+         */
+        fun addresses(text: String): List<String> {
+            val out = mutableListOf<String>()
+            val entry = StringBuilder()
+            var quoted = false
+            var bracketed = false
+            fun flush() {
+                val value = entry.toString()
+                entry.setLength(0)
+                if ('<' in value) {
+                    out += address(value)
+                } else {
+                    out += value.split(BARE_SEPARATORS)
+                }
+            }
+            for (c in text) {
+                when {
+                    c == '"' && !bracketed -> { quoted = !quoted; entry.append(c) }
+                    c == '<' && !quoted -> { bracketed = true; entry.append(c) }
+                    c == '>' && !quoted -> { bracketed = false; entry.append(c) }
+                    (c == ',' || c == ';' || c == '\n') && !quoted && !bracketed -> flush()
+                    else -> entry.append(c)
+                }
+            }
+            flush()
+            return out
+                .map { it.trim() }
                 .filter { it.isNotEmpty() }
                 .distinctBy { it.lowercase() }
+        }
+
+        /**
+         * One address as a header writes it: `Sara Ahmadi <sara@x.com>` is
+         * `sara@x.com`; a bare address is itself. What goes to the server,
+         * and what two addresses are compared by.
+         */
+        fun address(value: String): String {
+            val open = value.lastIndexOf('<')
+            if (open < 0) return value.trim()
+            val close = value.indexOf('>', open + 1)
+            val inside = if (close < 0) value.substring(open + 1) else value.substring(open + 1, close)
+            return inside.trim()
+        }
+
+        /** The same mailbox, whatever name or case either side is written with. */
+        fun sameAddress(a: String, b: String): Boolean = address(a).equals(address(b), ignoreCase = true)
 
         fun isAddress(value: String): Boolean = ADDRESS.matches(value)
 
@@ -211,13 +290,19 @@ class EmailComposeViewModel(
             mailbox: String?,
             language: Language,
         ): EmailPrefill {
-            fun isMailbox(address: String) = mailbox != null && address.equals(mailbox, ignoreCase = true)
+            // Every address here is reduced to its bare form first: the
+            // server stores senders as Gmail wrote them (`Name <a@b>`) and
+            // takes back only plain addresses, and the mailbox and the people
+            // are only recognised as themselves once the names are off.
+            fun isMailbox(address: String) = mailbox != null && sameAddress(address, mailbox)
             val subject = thread.subject.orEmpty().trim()
             val last = messages.lastOrNull()
             val lastInbound = messages.lastOrNull { !it.isOutbound }
 
-            val sender = lastInbound?.fromAddress?.takeIf { it.isNotBlank() }
-            val fallback = thread.participants.orEmpty().map { it.email }.filterNot(::isMailbox)
+            val sender = lastInbound?.fromAddress?.let(::address)?.takeIf { it.isNotBlank() }
+            val fallback = thread.participants.orEmpty().map { address(it.email) }
+                .filter { it.isNotBlank() }
+                .filterNot(::isMailbox)
             val replyTo = listOfNotNull(sender).ifEmpty { fallback.take(1) }
 
             return when (mode) {
@@ -230,9 +315,10 @@ class EmailComposeViewModel(
                 )
                 EmailReplyMode.REPLY_ALL -> {
                     val others = (last?.toAddresses.orEmpty() + last?.ccAddresses.orEmpty())
-                        .map { it.email }
+                        .map { address(it.email) }
+                        .filter { it.isNotBlank() }
                         .filterNot(::isMailbox)
-                        .filterNot { address -> replyTo.any { it.equals(address, ignoreCase = true) } }
+                        .filterNot { other -> replyTo.any { sameAddress(it, other) } }
                         .distinctBy { it.lowercase() }
                     EmailPrefill(
                         threadId = thread.id,

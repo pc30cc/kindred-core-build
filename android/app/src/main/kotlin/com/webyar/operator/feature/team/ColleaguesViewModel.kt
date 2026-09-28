@@ -49,6 +49,9 @@ class ColleaguesViewModel(
         if (this.workspaceId == workspaceId) return
         this.workspaceId = workspaceId
         _query.value = ""
+        // The last workspace's team is not this one's, not even for the
+        // moment before the new list lands.
+        loaded = emptyList()
         load()
     }
 
@@ -58,6 +61,9 @@ class ColleaguesViewModel(
     }
 
     fun refresh() {
+        // Nothing to refresh before a workspace is bound — and a spinner
+        // raised here would have nothing to lower it.
+        if (workspaceId == null) return
         _refreshing.value = true
         load(showSkeleton = false)
     }
@@ -83,7 +89,11 @@ class ColleaguesViewModel(
         val workspace = workspaceId ?: return
         if (showSkeleton) _state.value = ColleaguesState.Loading
         viewModelScope.launch {
-            runCatching { api.colleagues(workspace).colleagues }
+            val result = runCatching { api.colleagues(workspace).colleagues }
+            // The workspace switched while this was on its way: the answer
+            // is the old team's, and the new workspace's own load has the say.
+            if (workspace != workspaceId) return@launch
+            result
                 .onSuccess { loaded = it; publish() }
                 .onFailure {
                     if (showSkeleton || loaded.isEmpty()) {

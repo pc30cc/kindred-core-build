@@ -452,6 +452,8 @@ class SampleApi : WebyarApi {
 
     override suspend fun hangUp(callSessionId: String) {}
 
+    override suspend fun endCall(callSessionId: String, reason: String) {}
+
     // MARK: - Account
 
     override suspend fun updateProfile(
@@ -714,6 +716,19 @@ class SampleApi : WebyarApi {
         fun ago(minutes: Long): Instant = Instant.now().minusSeconds(minutes * 60)
 
         /**
+         * [ago], but never before today's midnight: a sample that means
+         * "today" and was built just after midnight fell on yesterday, which
+         * drew an extra day header and moved the thread — and failed the
+         * tests that run a few minutes into the day. Those are moved to a few
+         * seconds past midnight instead, keeping their order.
+         */
+        fun agoToday(minutes: Long): Instant {
+            val midnight = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant()
+            val wanted = ago(minutes)
+            return if (wanted.isBefore(midnight)) midnight.plusSeconds((30 - minutes).coerceAtLeast(1)) else wanted
+        }
+
+        /**
          * The `metadata.channel` a conversation carries when it did not come
          * in through the widget.
          *
@@ -890,11 +905,11 @@ class SampleApi : WebyarApi {
                 TeamMessage(
                     id = "tm-3", senderId = "u-2", recipientId = "u-1",
                     body = "اون تیکت مربوط به پرداخت رو بررسی کردی؟",
-                    createdAt = ago(16),
+                    createdAt = agoToday(16),
                 ),
                 TeamMessage(
                     id = "tm-4", senderId = "u-2", recipientId = "u-1",
-                    body = "اون تیکت رو دیدی؟", createdAt = ago(14),
+                    body = "اون تیکت رو دیدی؟", createdAt = agoToday(14),
                 ),
             ),
             "u-3" to listOf(

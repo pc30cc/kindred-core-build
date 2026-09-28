@@ -49,6 +49,7 @@ import com.webyar.operator.core.sync.SyncGraph
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.ui.SessionHooks
 import com.webyar.operator.ui.components.AttachmentCache
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -72,7 +73,15 @@ import java.io.File
 class AppGraph(private val app: Application) {
 
     val diag: Diag = Diag.Android
-    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    /**
+     * With a handler: a failure nobody caught in one background job is
+     * logged and that job ends — it does not take the process with it, as an
+     * uncaught exception on the main thread otherwise would.
+     */
+    val appScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Main.immediate +
+            CoroutineExceptionHandler { _, e -> diag.warn("App", "background job failed: ${e.javaClass.simpleName}") },
+    )
 
     val secureStore = SecureStore(app)
     val api: WebyarApi = Backend.create(app)
@@ -182,6 +191,10 @@ class AppGraph(private val app: Application) {
             push.beforeSignOut()
         }
 
+        override suspend fun signOutFailed(user: User) {
+            push.sync("sign-out failed")
+        }
+
         override suspend fun signedOut(accountId: String?) {
             realtime.setWorkspace(null)
             sync.clear()
@@ -189,7 +202,6 @@ class AppGraph(private val app: Application) {
             session.avatarUrl = null
             session.workspaceIds = emptySet()
             PushRegistrationWorker.cancel(app)
-            Notifications.cancelAll(app)
             AttachmentCache.clear()
             ImageLoading.clear(app)
             withContext(Dispatchers.IO) {
@@ -200,6 +212,10 @@ class AppGraph(private val app: Application) {
                 runCatching { cache.purgeAccount(accountId) }
             }
             push.afterSignOut()
+            // After the token is gone, not before: a push landing in between
+            // would otherwise draw one more of the last operator's
+            // notifications on a tray just cleared for the next.
+            Notifications.cancelAll(app)
             diag.info("Session", "signed out: realtime off, push revoked, caches purged")
         }
     }

@@ -66,6 +66,8 @@ data class AnalyticsState(
     val breakdowns: Map<String, AnalyticsRows> = emptyMap(),
     val pageLists: Map<String, AnalyticsPages> = emptyMap(),
     val events: AnalyticsEvents? = null,
+    /** The days [overview] was asked for, which the chart spans — not today's range, which moves at midnight. */
+    val overviewDays: Pair<String, String>? = null,
     /** Visitors on the site right now. */
     val live: Int? = null,
     val loading: Set<String> = emptySet(),
@@ -131,6 +133,8 @@ class AnalyticsViewModel(
 
     /** "12 on the site now", every thirty seconds while the tab is up. */
     suspend fun followLiveWhileVisible(everyMs: Long = LIVE_MS) {
+        // Asked for now in any case; a kick left over from bind() would only ask twice.
+        liveKick.tryReceive()
         while (currentCoroutineContext().isActive) {
             loadLive()
             withTimeoutOrNull(everyMs) { liveKick.receive() }
@@ -168,6 +172,7 @@ class AnalyticsViewModel(
         return s.copy(
             overview = null,
             previous = null,
+            overviewDays = null,
             breakdowns = emptyMap(),
             pageLists = emptyMap(),
             events = null,
@@ -201,11 +206,11 @@ class AnalyticsViewModel(
         when (section) {
             AnalyticsSection.OVERVIEW -> {
                 if (s.overview == null) {
-                    fetch("overview", { ws, a, b -> api.analyticsOverview(ws, a, b) }) { st, v -> st.copy(overview = v) }
+                    fetch("overview", { ws, a, b -> api.analyticsOverview(ws, a, b) }) { st, v, days -> st.copy(overview = v, overviewDays = days) }
                 }
                 if (s.previous == null) {
                     val (a, b) = s.range.previousBounds(clock)
-                    fetch("overview.previous", quiet = true, request = { ws, _, _ -> api.analyticsOverview(ws, a, b) }) { st, v ->
+                    fetch("overview.previous", quiet = true, request = { ws, _, _ -> api.analyticsOverview(ws, a, b) }) { st, v, _ ->
                         st.copy(previous = v)
                     }
                 }
@@ -214,34 +219,34 @@ class AnalyticsViewModel(
                 val key = s.sourcesKey
                 val dim = s.sourceDimension
                 if (s.breakdowns[key] == null) {
-                    fetch(key, { ws, a, b -> api.analyticsTrafficSources(ws, dim, a, b) }) { st, v -> st.copy(breakdowns = st.breakdowns + (key to v)) }
+                    fetch(key, { ws, a, b -> api.analyticsTrafficSources(ws, dim, a, b) }) { st, v, _ -> st.copy(breakdowns = st.breakdowns + (key to v)) }
                 }
             }
             AnalyticsSection.PAGES -> {
                 val key = s.pagesKey
                 val kind = s.pagesKind
                 if (s.pageLists[key] == null) {
-                    fetch(key, { ws, a, b -> api.analyticsPages(ws, kind, a, b) }) { st, v -> st.copy(pageLists = st.pageLists + (key to v)) }
+                    fetch(key, { ws, a, b -> api.analyticsPages(ws, kind, a, b) }) { st, v, _ -> st.copy(pageLists = st.pageLists + (key to v)) }
                 }
             }
             AnalyticsSection.GEOGRAPHY -> {
                 val key = s.geoKey
                 val dim = s.geoDimension
                 if (s.breakdowns[key] == null) {
-                    fetch(key, { ws, a, b -> api.analyticsGeography(ws, dim, a, b) }) { st, v -> st.copy(breakdowns = st.breakdowns + (key to v)) }
+                    fetch(key, { ws, a, b -> api.analyticsGeography(ws, dim, a, b) }) { st, v, _ -> st.copy(breakdowns = st.breakdowns + (key to v)) }
                 }
             }
             AnalyticsSection.TECHNOLOGY -> {
                 for (dim in AnalyticsState.TECH_DIMENSIONS) {
                     val key = "tech.$dim"
                     if (s.breakdowns[key] == null) {
-                        fetch(key, { ws, a, b -> api.analyticsTechnology(ws, dim, a, b) }) { st, v -> st.copy(breakdowns = st.breakdowns + (key to v)) }
+                        fetch(key, { ws, a, b -> api.analyticsTechnology(ws, dim, a, b) }) { st, v, _ -> st.copy(breakdowns = st.breakdowns + (key to v)) }
                     }
                 }
             }
             AnalyticsSection.EVENTS -> {
                 if (s.events == null) {
-                    fetch("events", { ws, a, b -> api.analyticsEvents(ws, a, b) }) { st, v -> st.copy(events = v) }
+                    fetch("events", { ws, a, b -> api.analyticsEvents(ws, a, b) }) { st, v, _ -> st.copy(events = v) }
                 }
             }
         }
@@ -256,7 +261,7 @@ class AnalyticsViewModel(
         key: String,
         request: suspend (ws: String, start: String, end: String) -> T,
         quiet: Boolean = false,
-        apply: (AnalyticsState, T) -> AnalyticsState,
+        apply: (AnalyticsState, T, Pair<String, String>) -> AnalyticsState,
     ) {
         val ws = workspaceId ?: return
         if (key in _state.value.loading) return
@@ -267,7 +272,7 @@ class AnalyticsViewModel(
             try {
                 val value = request(ws, start, end)
                 if (gen != generation) return@launch
-                _state.update { apply(it, value).copy(locked = false) }
+                _state.update { apply(it, value, start to end).copy(locked = false) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {

@@ -6,7 +6,6 @@ import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.Point
 import android.view.MotionEvent
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -57,7 +57,8 @@ fun VisitorsMap(
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current.density
-    val dark = isSystemInDarkTheme()
+    // The app's own light or dark, which can differ from the phone's.
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val online = WebyarTheme.colors.success.toArgb()
     val brand = MaterialTheme.colorScheme.primary.toArgb()
     val pick = rememberUpdatedState(onPick)
@@ -89,14 +90,22 @@ fun VisitorsMap(
                     maxZoomLevel = setup.maxZoom.toDouble()
                     controller.setZoom(setup.zoom.coerceIn(2.0, 17.0))
                     controller.setCenter(GeoPoint(setup.centerLat ?: 32.0, setup.centerLng ?: 53.0))
-                    if (dark) overlayManager.tilesOverlay.setColorFilter(DIM)
                     overlays.add(overlay)
+                    // The first framing needs a size, which `update` — run as
+                    // the view attaches, before layout — does not have yet.
+                    addOnFirstLayoutListener { _, _, _, _, _ ->
+                        if (!fitted[0] && overlay.pins.isNotEmpty()) {
+                            fitted[0] = true
+                            frame(this, overlay.pins)
+                        }
+                    }
                     onResume()
                 }
             },
             update = { map ->
                 overlay.pins = pins
                 overlay.selected = selectedId
+                map.overlayManager.tilesOverlay.setColorFilter(if (dark) DIM else null)
                 if (!fitted[0] && pins.isNotEmpty() && map.width > 0) {
                     fitted[0] = true
                     frame(map, pins)

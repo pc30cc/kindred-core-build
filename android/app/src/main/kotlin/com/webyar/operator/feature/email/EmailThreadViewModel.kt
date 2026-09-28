@@ -110,13 +110,10 @@ class EmailThreadViewModel(
         }
     }
 
-    fun markUnread() {
-        val workspace = workspaceId ?: return
-        val id = threadId ?: return
-        viewModelScope.launch {
-            runCatching { api.setEmailThreadRead(workspace, id, isRead = false) }
-        }
-    }
+    // "Mark unread" is not here: the screen leaves the moment it is chosen,
+    // and this model's scope goes with it — the request would be cancelled
+    // on its way out. The mailbox's own model, which outlives the thread,
+    // sends it (EmailInboxViewModel.setRead).
 
     /**
      * Who a reply goes to.
@@ -126,13 +123,18 @@ class EmailThreadViewModel(
      * participants covers a thread we only ever sent to.
      */
     fun recipients(mailbox: String?): List<String> {
+        // Bare addresses: Gmail's senders arrive as `Name <a@b>`, and the
+        // server takes back only the address.
         val messages = (_state.value as? EmailThreadState.Loaded)?.messages.orEmpty()
-        messages.lastOrNull { !it.isOutbound }?.fromAddress?.takeIf { it.isNotEmpty() }
+        messages.lastOrNull { !it.isOutbound }?.fromAddress
+            ?.let(EmailComposeViewModel::address)?.takeIf { it.isNotEmpty() }
             ?.let { return listOf(it) }
 
-        val all = _thread.value?.participants.orEmpty().map { it.email }
+        val all = _thread.value?.participants.orEmpty()
+            .map { EmailComposeViewModel.address(it.email) }
+            .filter { it.isNotEmpty() }
         if (mailbox == null) return all
-        return all.filterNot { it.equals(mailbox, ignoreCase = true) }
+        return all.filterNot { EmailComposeViewModel.sameAddress(it, mailbox) }
     }
 
     /**

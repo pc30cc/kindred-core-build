@@ -3,6 +3,7 @@ package com.webyar.operator.feature.call
 import android.content.Context
 import com.twilio.audioswitch.AudioDevice
 import com.webyar.operator.core.model.CallToken
+import com.webyar.operator.core.runCatchingUnlessCancelled
 import io.livekit.android.ConnectOptions
 import io.livekit.android.LiveKit
 import io.livekit.android.AudioOptions
@@ -16,11 +17,16 @@ import io.livekit.android.room.Room
 import io.livekit.android.room.track.CameraPosition
 import io.livekit.android.room.track.LocalVideoTrackOptions
 import io.livekit.android.room.track.Track
+import io.livekit.android.room.track.TrackPublication
 import io.livekit.android.room.track.VideoTrack
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +34,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import livekit.org.webrtc.PeerConnection
 
 /**
@@ -60,7 +67,16 @@ class LiveKitRoom(private val context: Context) : CallRoom {
 
     private var room: Room? = null
     private var listening: Job? = null
-    private val scope = CoroutineScope(SupervisorJob())
+
+    /**
+     * On the main thread, like every other caller of [refreshTracks].
+     *
+     * The room's events used to be collected on a pool thread while
+     * [connect] and [setCamera] refreshed the same two flows from the main
+     * one, and whichever wrote last won — sometimes with the older answer.
+     * One thread makes "last" mean "latest".
+     */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val audio = AudioSwitchHandler(context.applicationContext)
 
     /**
@@ -96,18 +112,28 @@ class LiveKitRoom(private val context: Context) : CallRoom {
 
         try {
             room.connect(url = url, token = credentials.token, options = connectOptions(credentials))
+        } catch (e: CancellationException) {
+            // The operator hung up while this was connecting. That is not a
+            // failure, and reporting it as one rewrote "call ended" into
+            // "could not connect" on the screen of somebody who had just
+            // pressed the red button.
+            throw e
         } catch (e: Throwable) {
             return CallRoom.Result.Failed(e.message ?: e::class.simpleName.orEmpty())
         }
+        // A join can finish without ever looking at cancellation. Checked
+        // before anything is published, so a call hung up mid-connect never
+        // switches the microphone on for a moment afterwards.
+        currentCoroutineContext().ensureActive()
 
         // Best-effort, each on its own: a refused camera must not take the
         // microphone down with it.
-        val micOk = runCatching { room.localParticipant.setMicrophoneEnabled(true) }
+        val micOk = runCatchingUnlessCancelled { room.localParticipant.setMicrophoneEnabled(true) }
             .getOrDefault(false)
         val cameraOk = wantsVideo &&
-            runCatching { room.localParticipant.setCameraEnabled(true) }.getOrDefault(false)
+            runCatchingUnlessCancelled { room.localParticipant.setCameraEnabled(true) }.getOrDefault(false)
 
-        refreshTracks(room)
+        withContext(Dispatchers.Main.immediate) { refreshTracks(room) }
         return CallRoom.Result.Joined(microphone = micOk, camera = cameraOk)
     }
 
@@ -124,15 +150,21 @@ class LiveKitRoom(private val context: Context) : CallRoom {
                 )
             }
 
-        // Relay-only when the server says so. A workspace behind a strict NAT
-        // connects through TURN or not at all, and offering host candidates
-        // first only makes it slower to fail.
-        val rtcConfig = if (credentials.icePolicy == "relay") {
-            PeerConnection.RTCConfiguration(iceServers.orEmpty()).apply {
+        // Always a configuration of our own, never null. The SDK reads
+        // `ConnectOptions.iceServers` only while merging them into an
+        // `rtcConfig` it was given; with none, it builds its own from the
+        // server's list alone and the workspace's TURN is silently dropped —
+        // which is how every call not marked relay-only went out without it.
+        //
+        // With no TURN of our own the list is empty, and the SDK then uses
+        // the servers LiveKit sent, exactly as it did before.
+        val rtcConfig = PeerConnection.RTCConfiguration(iceServers.orEmpty()).apply {
+            // Relay-only when the server says so. A workspace behind a strict
+            // NAT connects through TURN or not at all, and offering host
+            // candidates first only makes it slower to fail.
+            if (credentials.relayOnly) {
                 iceTransportsType = PeerConnection.IceTransportsType.RELAY
             }
-        } else {
-            null
         }
 
         return ConnectOptions(iceServers = iceServers, rtcConfig = rtcConfig)
@@ -167,32 +199,68 @@ class LiveKitRoom(private val context: Context) : CallRoom {
                     )
                 }
 
-                is RoomEvent.Disconnected -> _events.tryEmit(CallRoom.Event.Disconnected)
+                is RoomEvent.Disconnected -> {
+                    clearTracks()
+                    _events.tryEmit(CallRoom.Event.Disconnected)
+                }
 
                 else -> Unit
             }
         }
     }
 
+    /**
+     * Reads the pictures out of the room as they stand at this moment.
+     *
+     * From `trackPublications`, not `videoTrackPublications`. The second is
+     * derived from the first on the SDK's own dispatcher, so at the moment a
+     * `TrackSubscribed` arrives it can still describe the room from before —
+     * and the refresh that event asked for read "no picture" about a visitor
+     * whose picture had just arrived. The first is the map itself.
+     *
+     * Main thread only; see [scope].
+     */
     private fun refreshTracks(room: Room) {
         _remoteVideo.value = room.remoteParticipants.values
             .asSequence()
-            .flatMap { it.videoTrackPublications.asSequence() }
-            .mapNotNull { it.second as? VideoTrack }
-            .firstOrNull()
+            .flatMap { it.trackPublications.values.asSequence() }
+            .firstNotNullOfOrNull { it.liveVideo() }
 
         _localVideo.value = room.localParticipant
             .getTrackPublication(Track.Source.CAMERA)
-            ?.track as? VideoTrack
+            ?.liveVideo()
     }
 
-    override suspend fun setMicrophone(enabled: Boolean) {
-        runCatching { room?.localParticipant?.setMicrophoneEnabled(enabled) }
+    /**
+     * The picture a publication is actually sending: video, subscribed, and
+     * not muted. A muted camera keeps its track, and drawing it showed the
+     * visitor frozen on the last frame before they switched it off.
+     */
+    private fun TrackPublication.liveVideo(): VideoTrack? =
+        if (kind == Track.Kind.VIDEO && !muted) track as? VideoTrack else null
+
+    /**
+     * Nothing to draw once the room is gone. A track outlives its room as an
+     * object, not as a picture: drawing it afterwards asks a disposed native
+     * track for frames.
+     */
+    private fun clearTracks() {
+        _remoteVideo.value = null
+        _localVideo.value = null
     }
 
-    override suspend fun setCamera(enabled: Boolean) {
-        runCatching { room?.localParticipant?.setCameraEnabled(enabled) }
-        room?.let { refreshTracks(it) }
+    override suspend fun setMicrophone(enabled: Boolean): Boolean {
+        val room = room ?: return false
+        return runCatchingUnlessCancelled { room.localParticipant.setMicrophoneEnabled(enabled) }
+            .getOrDefault(false)
+    }
+
+    override suspend fun setCamera(enabled: Boolean): Boolean {
+        val room = room ?: return false
+        val ok = runCatchingUnlessCancelled { room.localParticipant.setCameraEnabled(enabled) }
+            .getOrDefault(false)
+        withContext(Dispatchers.Main.immediate) { refreshTracks(room) }
+        return ok
     }
 
     /**
@@ -212,13 +280,13 @@ class LiveKitRoom(private val context: Context) : CallRoom {
 
     override suspend fun disconnect() {
         room?.disconnect()
+        clearTracks()
     }
 
     override fun release() {
         listening?.cancel()
         listening = null
-        _remoteVideo.value = null
-        _localVideo.value = null
+        clearTracks()
         room?.release()
         room = null
         scope.cancel()

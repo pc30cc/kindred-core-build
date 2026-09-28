@@ -4,9 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.webyar.operator.core.model.Contact
 import com.webyar.operator.core.model.VisitorProfile
+import com.webyar.operator.core.net.ApiError
 import com.webyar.operator.core.net.WebyarApi
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.displayText
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,7 +18,8 @@ import kotlinx.coroutines.launch
 sealed interface ContactsState {
     data object Loading : ContactsState
     data class Loaded(val contacts: List<Contact>) : ContactsState
-    data class Failed(val message: String) : ContactsState
+    /** [offline]: no answer came back at all, rather than a refusal. */
+    data class Failed(val message: String, val offline: Boolean = false) : ContactsState
 }
 
 /**
@@ -46,10 +50,18 @@ class ContactsViewModel(
 
     private var workspaceId: String? = null
     private var loaded: List<Contact> = emptyList()
+    private var loadJob: Job? = null
+    private var intelJob: Job? = null
 
     fun bind(workspaceId: String) {
         if (this.workspaceId == workspaceId) return
         this.workspaceId = workspaceId
+        // Nothing of the last workspace survives: not its rows (which search
+        // would re-show, and the detail screen would read), not its answers
+        // still on the way.
+        loadJob?.cancel()
+        intelJob?.cancel()
+        loaded = emptyList()
         _query.value = ""
         _intel.value = emptyMap()
         load()
@@ -68,23 +80,30 @@ class ContactsViewModel(
     fun retry() = load()
 
     private fun load(showSkeleton: Boolean = true) {
-        val workspace = workspaceId ?: return
-        if (showSkeleton) _state.value = ContactsState.Loading
-        viewModelScope.launch {
-            runCatching { api.contacts(workspace) }
-                .onSuccess {
-                    loaded = it
-                    publish()
-                    loadIntel(it)
-                }
-                .onFailure {
-                    // A refresh that fails keeps the list it has; only a first
-                    // load has nothing to fall back on.
-                    if (showSkeleton || loaded.isEmpty()) {
-                        _state.value = ContactsState.Failed(it.displayText(language()))
-                    }
-                }
+        val workspace = workspaceId ?: run {
             _refreshing.value = false
+            return
+        }
+        if (showSkeleton) _state.value = ContactsState.Loading
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
+            try {
+                val contacts = api.contacts(workspace)
+                if (workspaceId != workspace) return@launch
+                loaded = contacts
+                publish()
+                loadIntel(workspace, contacts)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // A refresh that fails keeps the list it has; only a first
+                // load has nothing to fall back on.
+                if (workspaceId == workspace && (showSkeleton || loaded.isEmpty())) {
+                    _state.value = ContactsState.Failed(e.displayText(language()), offline = e is ApiError.Transport)
+                }
+            } finally {
+                if (workspaceId == workspace) _refreshing.value = false
+            }
         }
     }
 
@@ -96,13 +115,19 @@ class ContactsViewModel(
      * Türkiye on one screen and as bare initials on the next. Decorative: a
      * failure leaves the list rendering exactly as it is.
      */
-    private fun loadIntel(contacts: List<Contact>) {
-        val workspace = workspaceId ?: return
+    private fun loadIntel(workspace: String, contacts: List<Contact>) {
         val ids = contacts.map { it.id }
         if (ids.isEmpty()) return
-        viewModelScope.launch {
-            runCatching { api.visitorIntelByContact(workspace, ids) }
-                .onSuccess { _intel.value = it }
+        intelJob?.cancel()
+        intelJob = viewModelScope.launch {
+            try {
+                val intel = api.visitorIntelByContact(workspace, ids)
+                if (workspaceId == workspace) _intel.value = intel
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                // Decorative: the list renders exactly as it is without it.
+            }
         }
     }
 

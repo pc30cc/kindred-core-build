@@ -1,6 +1,5 @@
 package com.webyar.operator.ui.components
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
@@ -19,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -129,7 +129,10 @@ fun ChannelLabel(
     /** A shorter pill for a dense row; the bar gets the fuller one. */
     compact: Boolean = false,
 ) {
-    val dark = isSystemInDarkTheme()
+    // The app's theme, not the phone's: Settings can pin light or dark
+    // whatever the system says, and a tint chosen for the other one
+    // is a pill that vanishes into its background.
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val primary = MaterialTheme.colorScheme.primary
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val look = remember(key, primary, neutral) { lookOf(key, primary, neutral) }
@@ -165,7 +168,7 @@ fun ChannelLabel(
 /** Just the mark, for a place with no room for a word. */
 @Composable
 fun ChannelIcon(key: String, size: Dp, modifier: Modifier = Modifier) {
-    val dark = isSystemInDarkTheme()
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val primary = MaterialTheme.colorScheme.primary
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val look = remember(key, primary, neutral) { lookOf(key, primary, neutral) }

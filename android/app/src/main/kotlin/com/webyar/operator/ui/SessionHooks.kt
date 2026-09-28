@@ -29,5 +29,11 @@ interface SessionHooks {
      */
     suspend fun signedOut(accountId: String?) {}
 
+    /**
+     * The server did not confirm a sign-out, so the operator stays signed in
+     * — and whatever [beforeSignOut] withdrew has to be put back.
+     */
+    suspend fun signOutFailed(user: User) {}
+
     object None : SessionHooks
 }

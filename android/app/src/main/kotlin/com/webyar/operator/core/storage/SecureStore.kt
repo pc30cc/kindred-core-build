@@ -9,7 +9,11 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
+import androidx.datastore.preferences.core.emptyPreferences
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
+import java.io.IOException
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -18,7 +22,17 @@ import javax.crypto.spec.GCMParameterSpec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private val Context.dataStore by preferencesDataStore(name = "webyar")
+/**
+ * A file that no longer reads — a crash mid-write on an old device, a full
+ * disk — is started again empty rather than thrown on every read: that was
+ * an app that crashed at launch, for ever, until its data was cleared by
+ * hand. What is lost is a language, a theme and the session token, which is
+ * a sign-in.
+ */
+private val Context.dataStore by preferencesDataStore(
+    name = "webyar",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
+)
 
 /**
  * The session token, encrypted by a key the app cannot export.
@@ -50,15 +64,22 @@ class SecureStore(private val context: Context) {
         val TOKEN = stringPreferencesKey("session.token")
     }
 
+    // The Keystore is a call into another process: on IO, never the caller's
+    // thread, which is usually the main one.
+    // Inside the IO block, not around it: a caller cancelled mid-read must
+    // hear it, not get "no token" — which the API client would then keep as
+    // this run's answer and show a signed-in operator the login screen.
     suspend fun readToken(): String? = read(TOKEN)?.let { stored ->
-        runCatching { decrypt(stored) }
-            .onFailure {
-                // The key is gone — the app was reinstalled, or the user
-                // changed their lock screen in a way that invalidated it.
-                // Nobody is signed in; that is an ordinary answer, not a bug.
-                Log.i(TAG, "Stored session token could not be decrypted; treating as signed out.")
-            }
-            .getOrNull()
+        withContext(Dispatchers.IO) {
+            runCatching { decrypt(stored) }
+                .onFailure {
+                    // The key is gone — the app was reinstalled, or the user
+                    // changed their lock screen in a way that invalidated it.
+                    // Nobody is signed in; that is an ordinary answer, not a bug.
+                    Log.i(TAG, "Stored session token could not be decrypted; treating as signed out.")
+                }
+                .getOrNull()
+        }
     }
 
     suspend fun writeToken(token: String?) {
@@ -66,7 +87,8 @@ class SecureStore(private val context: Context) {
             remove(TOKEN)
             return
         }
-        runCatching { write(TOKEN, encrypt(token)) }.onFailure {
+        val sealed = withContext(Dispatchers.IO) { runCatching { encrypt(token) } }
+        sealed.mapCatching { write(TOKEN, it) }.onFailure {
             // iOS logs the equivalent Keychain failure rather than swallowing
             // it, for the same reason: the app carries on working perfectly
             // until the next launch, when the session is gone with nothing to
@@ -88,8 +110,13 @@ class SecureStore(private val context: Context) {
     // the process for good. On IO the lock is always let go; the caller only
     // waits for the answer, and cancelling the caller still cancels the edit.
 
+    /** A read that fails is an unset value, not a crash: the caller already handles "not set". */
     suspend fun read(key: Preferences.Key<String>): String? =
-        withContext(Dispatchers.IO) { context.dataStore.data.first()[key] }
+        withContext(Dispatchers.IO) {
+            context.dataStore.data
+                .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
+                .first()[key]
+        }
 
     suspend fun write(key: Preferences.Key<String>, value: String) {
         withContext(Dispatchers.IO) { context.dataStore.edit { it[key] = value } }

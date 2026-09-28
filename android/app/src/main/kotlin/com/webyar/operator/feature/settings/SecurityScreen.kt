@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
@@ -19,7 +20,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.webyar.operator.core.model.AccountSession
 import com.webyar.operator.i18n.Format
@@ -134,13 +140,21 @@ fun SecurityScreen(
                     Modifier.padding(Space.lg),
                     verticalArrangement = Arrangement.spacedBy(Space.sm),
                 ) {
+                    // Password fields in every sense the system reads, the way
+                    // the login screen's is: the keyboard learns nothing from
+                    // them and offers no corrections, and the password
+                    // manager knows which is the old one and which the new —
+                    // so it can fill the first and offer to save the second.
                     FilledField(
                         value = currentPassword,
                         onValueChange = onCurrentPasswordChange,
                         label = Str.currentPassword(language),
                         enabled = !busy,
                         visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = PasswordKeyboard.copy(imeAction = ImeAction.Next),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics { contentType = ContentType.Password },
                     )
                     FilledField(
                         value = newPassword,
@@ -148,7 +162,10 @@ fun SecurityScreen(
                         label = Str.newPassword(language),
                         enabled = !busy,
                         visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = PasswordKeyboard.copy(imeAction = ImeAction.Done),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics { contentType = ContentType.NewPassword },
                     )
                     if (message != null) {
                         Text(
@@ -179,6 +196,11 @@ fun SecurityScreen(
 }
 
 private const val MIN_PASSWORD = 8
+
+private val PasswordKeyboard = KeyboardOptions(
+    keyboardType = KeyboardType.Password,
+    autoCorrectEnabled = false,
+)
 
 /** Rows of one group sit this close; everything else is spaced by its own padding. */
 private val SessionGap = com.webyar.operator.ui.components.SegmentGap

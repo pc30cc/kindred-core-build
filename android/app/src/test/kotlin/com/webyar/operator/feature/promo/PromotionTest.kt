@@ -69,7 +69,7 @@ class PromotionTest {
             put("mobile_promo_fullscreen", EffectiveBool(value = fullscreen))
         },
         limits = intervalMinutes?.let {
-            mapOf("mobile_promo_interval_minutes" to EffectiveInt(value = it))
+            mapOf("mobile_promo_interval_minutes" to EffectiveInt(value = it.toDouble()))
         },
     )
 

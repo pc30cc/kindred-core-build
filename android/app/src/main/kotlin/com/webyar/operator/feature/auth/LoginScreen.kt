@@ -1,5 +1,6 @@
 package com.webyar.operator.feature.auth
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.infiniteRepeatable
@@ -38,6 +39,7 @@ import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -68,8 +70,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.RoundedPolygon
 import com.webyar.operator.R
+import com.webyar.operator.core.net.ApiError
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
+import com.webyar.operator.i18n.StrAndroid
+import com.webyar.operator.i18n.StrManual
 import com.webyar.operator.i18n.displayText
 import com.webyar.operator.ui.A11y
 import com.webyar.operator.ui.components.PrimaryButton
@@ -116,11 +121,18 @@ fun LoginScreen(
     language: Language,
     onSubmit: suspend (String, String) -> Result<Unit>,
     modifier: Modifier = Modifier,
+    /**
+     * Asks the server to email a reset link (`WebyarApi.requestPasswordReset`).
+     * Null leaves "Forgot password?" off the screen — nothing to offer
+     * without somewhere to send the request.
+     */
+    onRequestReset: (suspend (String) -> Result<Unit>)? = null,
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var resetting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val emailFocus = remember { FocusRequester() }
     val passwordFocus = remember { FocusRequester() }
@@ -133,9 +145,25 @@ fun LoginScreen(
         error = null
         scope.launch {
             onSubmit(email, password)
-                .onFailure { error = it.displayText(language, unauthorized = Str.loginFailed(language)) }
+                .onFailure { error = loginErrorText(it, language) }
             busy = false
         }
+    }
+
+    if (resetting && onRequestReset != null) {
+        ResetPasswordScreen(
+            language = language,
+            initialEmail = email,
+            onRequest = onRequestReset,
+            // The address typed there is the one to sign in with next.
+            onBack = { typed ->
+                email = typed
+                error = null
+                resetting = false
+            },
+            modifier = modifier,
+        )
+        return
     }
 
     Box(
@@ -262,6 +290,183 @@ fun LoginScreen(
                         busy = busy,
                         modifier = Modifier.testTag(A11y.LOGIN_SUBMIT),
                     )
+                    if (onRequestReset != null) {
+                        TextButton(
+                            onClick = { resetting = true },
+                            enabled = !busy,
+                            modifier = Modifier.align(Alignment.CenterHorizontally),
+                        ) { Text(Str.forgotPassword(language)) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * What a refused sign-in says.
+ *
+ * Mostly the one sentence for every refusal, for the reason in the class
+ * comment. Two refusals are not about the password at all, and saying
+ * "check your email and password" over them sent people round in circles:
+ * an account that has never had a password (migrated, or invited and never
+ * finished) is told how to choose one, and a sign-in the server will only
+ * take with a captcha — which this app cannot show — is told to wait or use
+ * the web. The server answers both before it looks at the password.
+ */
+internal fun loginErrorText(error: Throwable, language: Language): String {
+    val server = error as? ApiError.Server
+    val message = server?.serverMessage.orEmpty()
+    return when {
+        server?.status == 403 && message.contains("password setup", ignoreCase = true) ->
+            StrAndroid.passwordSetupRequired(language)
+        server?.status == 400 && message.contains("captcha", ignoreCase = true) ->
+            StrAndroid.captchaRequired(language)
+        else -> error.displayText(language, unauthorized = Str.loginFailed(language))
+    }
+}
+
+/**
+ * "Forgot password?": an address, a link sent to it, and the way back.
+ *
+ * The confirmation reads the same whether or not the address has an
+ * account — the endpoint answers identically either way, so it cannot be
+ * used to find out who has one, and saying "no such account" here would
+ * undo that. Also the way in for an account that has never had a password:
+ * the same link chooses the first one.
+ */
+@Composable
+private fun ResetPasswordScreen(
+    language: Language,
+    initialEmail: String,
+    onRequest: suspend (String) -> Result<Unit>,
+    onBack: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var email by remember { mutableStateOf(initialEmail) }
+    var sentTo by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val focus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    BackHandler { onBack(email) }
+
+    fun send() {
+        val address = email.trim()
+        if (busy || address.isEmpty()) return
+        keyboard?.hide()
+        busy = true
+        error = null
+        scope.launch {
+            onRequest(address)
+                .onSuccess { sentTo = address }
+                .onFailure { error = it.displayText(language) }
+            busy = false
+        }
+    }
+
+    Box(
+        modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface),
+    ) {
+        Backdrop()
+        Column(
+            Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = Space.xl, vertical = Space.xl),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Column(
+                Modifier
+                    .widthIn(max = 440.dp)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(Space.lg),
+            ) {
+                val sent = sentTo
+                if (sent != null) {
+                    Text(
+                        Str.resetSentTitle(language),
+                        style = WebyarType.displaySmallEmphasized,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        StrManual.resetSentDetail(language, sent),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        Str.resetCheckSpam(language),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(Space.xs))
+                    PrimaryButton(
+                        label = Str.backToLogin(language),
+                        onClick = { onBack(email) },
+                    )
+                } else {
+                    LaunchedEffect(Unit) {
+                        focus.requestFocus()
+                        keyboard?.show()
+                    }
+                    Text(
+                        Str.resetTitle(language),
+                        style = WebyarType.displaySmallEmphasized,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        Str.resetSubtitle(language),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(Space.sm))
+                    TextField(
+                        value = email,
+                        onValueChange = {
+                            email = it
+                            error = null
+                        },
+                        label = { Text(Str.emailLabel(language)) },
+                        leadingIcon = { Icon(Icons.Outlined.Email, contentDescription = null) },
+                        singleLine = true,
+                        enabled = !busy,
+                        shape = RoundedCornerShape(Radius.lg),
+                        colors = filledFieldColors(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Email,
+                            imeAction = ImeAction.Send,
+                        ),
+                        keyboardActions = KeyboardActions(onSend = { send() }),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focus)
+                            .semantics { contentType = ContentType.EmailAddress },
+                    )
+                    AnimatedVisibility(
+                        visible = error != null,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically(),
+                    ) {
+                        ErrorNote(error.orEmpty())
+                    }
+                    Spacer(Modifier.height(Space.xs))
+                    PrimaryButton(
+                        label = Str.sendResetLink(language),
+                        onClick = ::send,
+                        enabled = email.isNotBlank(),
+                        busy = busy,
+                    )
+                    TextButton(
+                        onClick = { onBack(email) },
+                        enabled = !busy,
+                        modifier = Modifier.align(Alignment.CenterHorizontally),
+                    ) { Text(Str.backToLogin(language)) }
                 }
             }
         }

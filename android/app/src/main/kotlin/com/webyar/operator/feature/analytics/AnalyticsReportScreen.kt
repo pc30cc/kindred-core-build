@@ -213,7 +213,7 @@ private fun Overview(state: AnalyticsState, language: Language) {
             }
         }
     }
-    TrendCard(o, state.range, state.isLoading("overview"), language)
+    TrendCard(o, state.overviewDays ?: state.range.bounds(), state.isLoading("overview"), language)
     val sources = AnalyticsSection.SOURCES.tint()
     AnalyticsCard(StrInsights.waTopChannels(language), InsightGlyph.Split, sources) {
         BarList(
@@ -311,13 +311,12 @@ private fun ChangeChip(change: Double, higherIsBetter: Boolean, language: Langua
 
 /** Visits or page views, day by day; touching the chart calls out the day under the finger. */
 @Composable
-private fun TrendCard(overview: AnalyticsOverview?, range: AnalyticsRange, loading: Boolean, language: Language) {
+private fun TrendCard(overview: AnalyticsOverview?, days: Pair<String, String>, loading: Boolean, language: Language) {
     var showViews by rememberSaveable { mutableStateOf(false) }
     var selected by remember(overview) { mutableStateOf<Int?>(null) }
     val tint = MaterialTheme.colorScheme.primary
-    val points = remember(overview, range, showViews) {
-        val (start, end) = range.bounds()
-        AnalyticsFormat.fillDays(overview?.trend.orEmpty(), start, end).mapNotNull { d ->
+    val points = remember(overview, days, showViews) {
+        AnalyticsFormat.fillDays(overview?.trend.orEmpty(), days.first, days.second).mapNotNull { d ->
             AnalyticsFormat.day(d.date)?.let { it to ((if (showViews) d.pageviews else d.sessions) ?: 0) }
         }
     }

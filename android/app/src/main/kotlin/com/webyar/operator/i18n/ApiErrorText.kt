@@ -27,8 +27,12 @@ fun ApiError.text(language: Language, unauthorized: String? = null): String = wh
     is ApiError.Unauthorized -> unauthorized ?: Str.sessionExpired(language)
     is ApiError.Decoding -> Str.errorUnreadableAnswer(language)
     is ApiError.Server -> {
-        if (language == Language.EN && !serverMessage.isNullOrEmpty()) {
-            serverMessage
+        val code = serverMessage
+        val known = knownCodeText(code, language)
+        if (known != null) {
+            known
+        } else if (language == Language.EN && !code.isNullOrEmpty() && !MACHINE_CODE.matches(code)) {
+            code
         } else when (status) {
             // 403 is not 401. `ApiClient.orThrow` is careful about that —
             // signing an operator out of the whole app because one endpoint
@@ -54,6 +58,28 @@ fun ApiError.text(language: Language, unauthorized: String? = null): String = wh
             else -> Str.errorInvalidInput(language)
         }
     }
+}
+
+/**
+ * A code rather than a sentence: `invalid_payload`, `email_thread_not_found`,
+ * `email_provider_error`, `forbidden`. Several routes answer with one of
+ * these instead of words, and "the server's own wording is more specific"
+ * stops being true when the wording is an identifier — an English operator
+ * was reading `email_provider_error` under the heading. Lower case with no
+ * spaces is never a sentence, so it gets the same text as the other
+ * languages: by the one code worth naming, or by the status.
+ */
+private val MACHINE_CODE = Regex("^[a-z][a-z0-9]*(?:[_.-][a-z0-9]+)*$")
+
+/**
+ * The codes that say more than their status does, in every language.
+ * Anything not here falls back to the status — `email_thread_not_found` is
+ * a 404 and reads as one, `email_provider_error` a 500.
+ */
+private fun knownCodeText(code: String?, language: Language): String? = when (code) {
+    "email_missing_recipient" -> StrEmail.needsRecipient(language)
+    "email_attachment_upload_failed" -> StrEmail.uploadFailed(language)
+    else -> null
 }
 
 /** Anything that is not an [ApiError] still has to say something. */

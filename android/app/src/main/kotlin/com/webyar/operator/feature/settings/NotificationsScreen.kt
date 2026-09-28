@@ -48,6 +48,9 @@ import com.webyar.operator.ui.components.SegmentGap
 import com.webyar.operator.ui.components.segmentedShape
 import com.webyar.operator.ui.design.Radius
 import com.webyar.operator.ui.design.WebyarType
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.semantics.Role
 
 /**
  * How an operator wants to be told that something happened.
@@ -347,7 +350,12 @@ private fun ScopeChoice(
     onSelect: (NotificationPrefs.Scope) -> Unit,
 ) {
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = Space.lg, vertical = Space.sm),
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Space.lg, vertical = Space.sm)
+            // One choice among four, to TalkBack as well as to the eye:
+            // "1 of 4", and moving between the rows as a group.
+            .selectableGroup(),
         verticalArrangement = Arrangement.spacedBy(SegmentGap),
     ) {
         Text(
@@ -370,7 +378,14 @@ private fun ScopeChoice(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clickable(enabled = enabled) { onSelect(option) }
+                        // Selectable, not merely clickable: the row says
+                        // whether it is the chosen one, and says it as a
+                        // radio button — which is what the tick means.
+                        .selectable(
+                            selected = option == selected,
+                            enabled = enabled,
+                            role = Role.RadioButton,
+                        ) { onSelect(option) }
                         .heightIn(min = Size.rowMinHeight)
                         .padding(horizontal = Space.lg, vertical = Space.sm)
                         .testTag(A11y.notificationsScope(option.wire)),

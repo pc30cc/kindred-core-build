@@ -43,6 +43,8 @@ import com.webyar.operator.core.model.RealtimeConnect
 import com.webyar.operator.core.model.RealtimeSubscribe
 import com.webyar.operator.core.model.SentMessage
 import java.io.File
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import com.webyar.operator.core.model.EmailFolder
 import com.webyar.operator.core.model.EmailThreadsResponse
 import com.webyar.operator.core.model.EmailDraft
@@ -80,6 +82,15 @@ interface WebyarApi {
     suspend fun logOut()
     /** Drops the local session without asking. Only for a confirmed 401. */
     suspend fun discardSession()
+
+    /**
+     * Fires when the server answers 401 to a request carrying the token in
+     * hand — the session was revoked, from the web or another phone, while
+     * this one was in use. Not for a sign-in's wrong password, which carries
+     * no token, nor for a request still in flight from a session already
+     * replaced.
+     */
+    val sessionLost: Flow<Unit> get() = emptyFlow()
     suspend fun requestPasswordReset(email: String)
 
     /** Asks the platform where it lives, before anything else talks to it. */
@@ -441,6 +452,20 @@ interface WebyarApi {
     suspend fun invitation(id: String): CallInvitation
     suspend fun callToken(callSessionId: String, displayName: String?): CallToken
     suspend fun hangUp(callSessionId: String)
+
+    /**
+     * Ends a call for a reason other than the operator hanging up —
+     * `system_ended` when the visitor left or the room was lost, `failed`
+     * when the operator never got in. `POST /api/calls/:id/end`.
+     *
+     * [hangUp] records `operator_ended`, and saying that about a call the
+     * visitor walked out of puts the wrong name in the conversation's
+     * timeline. Idempotent on the server: the first end wins, so a visitor's
+     * own `visitor_ended` is never overwritten by this.
+     *
+     * Defaulted to [hangUp], so a fake with no opinion still ends the call.
+     */
+    suspend fun endCall(callSessionId: String, reason: String) = hangUp(callSessionId)
 
     // MARK: - Account
 

@@ -226,7 +226,8 @@ class AccountViewModelTest {
         val api = StubAccountApi()
         val account = model(api)
 
-        account.uploadAvatar(ByteArray(2 * 1024 * 1024 + 1), "image/jpeg", "big.jpg")
+        // Just over the server's 10 MB (server/routes/account.ts).
+        account.uploadAvatar(ByteArray(10 * 1024 * 1024 + 1), "image/jpeg", "big.jpg")
         testScheduler.advanceUntilIdle()
 
         assertEquals(0, api.uploadCalls)

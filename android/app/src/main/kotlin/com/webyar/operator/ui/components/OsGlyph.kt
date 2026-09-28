@@ -27,14 +27,22 @@ enum class OsKind {
             val value = os.orEmpty().lowercase()
             if (value.isEmpty()) return null
             return when {
-                "mac" in value || "ios" in value ||
-                    "iphone" in value || "ipad" in value -> APPLE
-                "win" in value -> WINDOWS
+                APPLE_NAMES.containsMatchIn(value) -> APPLE
+                WINDOWS_NAMES.containsMatchIn(value) -> WINDOWS
                 "android" in value -> ANDROID
                 "linux" in value || "ubuntu" in value -> LINUX
                 else -> null
             }
         }
+
+        // Matched from the start of a word, not anywhere inside one: as
+        // substrings "KaiOS" contained "ios" and was drawn as an Apple, and
+        // "Darwin" — Apple's own kernel — contained "win" and was drawn as
+        // Windows. `\bmac` still takes "Mac OS X", "macOS" and "MacIntel";
+        // `\bwin` still takes "Windows", "Win32" and "WinNT". The web's
+        // `OsIcon.tsx` compares "ios" exactly, which this now agrees with.
+        private val APPLE_NAMES = Regex("\\b(mac|ios(?![a-z])|ipad|iphone|ipod|os ?x(?![a-z])|darwin)")
+        private val WINDOWS_NAMES = Regex("\\bwin")
     }
 }
 

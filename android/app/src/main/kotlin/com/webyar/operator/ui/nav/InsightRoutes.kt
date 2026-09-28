@@ -14,6 +14,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
@@ -77,7 +78,12 @@ fun VisitorsRoute(
         onChatOnly = visitors::setChatOnly,
         onCountry = visitors::setCountry,
         onIncludeOffline = visitors::setIncludeOffline,
-        onClearFilters = visitors::clearFilters,
+        onClearFilters = {
+            // The field as well as the filter: a query left in the field
+            // would read as still applied to a list it no longer narrows.
+            search.close()
+            visitors.clearFilters()
+        },
         modifier = Modifier.statusBarsPadding(),
         search = search,
         selectedId = selectedId,
@@ -86,12 +92,36 @@ fun VisitorsRoute(
 
 @Composable
 fun LiveVisitorRoute(
+    appState: AppState,
     sessionId: String,
     visitors: VisitorsViewModel,
     language: Language,
     onBack: () -> Unit,
     onOpenChat: (String) -> Unit,
 ) {
+    val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
+    // A visitor belongs to the workspace they were opened in: on a switch the
+    // page is not re-read — or used to start a chat — under the workspace
+    // the operator moved to. The shell takes the tab back to its root.
+    var openedIn by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(workspace?.id) {
+        val ws = workspace?.id ?: return@LaunchedEffect
+        val bound = openedIn
+        if (bound != null && bound != ws) return@LaunchedEffect
+        openedIn = ws
+        // Bound here as well as by the list: on a phone the list is not
+        // composed under this page, and after the process was away nothing
+        // else would bind it.
+        visitors.bind(ws)
+        visitors.openHistory(sessionId)
+    }
+    // The row keeps itself current while it is read; on a phone the list,
+    // which usually asks, is not on screen.
+    val lifecycle = LocalLifecycleOwner.current
+    LaunchedEffect(workspace?.id, lifecycle) {
+        if (workspace == null) return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { visitors.followWhileVisible() }
+    }
     val state by visitors.state.collectAsStateWithLifecycle()
     val history by visitors.history.collectAsStateWithLifecycle()
     val busy by visitors.chatBusy.collectAsStateWithLifecycle()
@@ -102,7 +132,6 @@ fun LiveVisitorRoute(
     var lastSeen by remember(sessionId) { mutableStateOf<LiveVisitor?>(null) }
     LaunchedEffect(live) { if (live != null) lastSeen = live }
     val visitor = live ?: lastSeen
-    LaunchedEffect(sessionId) { visitors.openHistory(sessionId) }
 
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(notice) {
@@ -128,6 +157,7 @@ fun LiveVisitorRoute(
             language = language,
             onChat = { visitor?.let { v -> visitors.chat(v, onOpenChat) } },
             modifier = Modifier.padding(padding),
+            onRetryHistory = { visitors.openHistory(sessionId) },
         )
     }
 }
@@ -164,13 +194,22 @@ fun AnalyticsRoute(
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 fun AnalyticsSectionRoute(
+    appState: AppState,
     section: AnalyticsSection,
     analytics: AnalyticsViewModel,
     language: Language,
     onBack: () -> Unit,
 ) {
+    val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
     val state by analytics.state.collectAsStateWithLifecycle()
-    LaunchedEffect(section, state.range) { analytics.load(section) }
+    // Bound here too: on a phone the list is not composed under the report,
+    // and a report restored after the process was away has nothing else to
+    // bind it. A workspace switch re-binds and asks again.
+    LaunchedEffect(workspace?.id, section, state.range) {
+        val ws = workspace?.id ?: return@LaunchedEffect
+        analytics.bind(ws)
+        analytics.load(section)
+    }
     // Beside the list, the list's range picker is in view; on its own, the
     // page carries one so a phone need not go back to change it.
     val twoPanes = calculatePaneScaffoldDirective(currentWindowAdaptiveInfo()).maxHorizontalPartitions > 1

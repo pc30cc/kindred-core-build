@@ -5,7 +5,8 @@
 production host, not from the frontend image: an ~90 MB binary does not belong
 in git or in every frontend build, and the file must survive redeploys.
 
-On the host (analyticsme.site):
+On the host (analyticsme.site — reached over SSH by its own IP; the name is
+behind Cloudflare):
 
 - Files: `/data/webyar-downloads/files/`. `Webyar-Setup.exe` is a symlink to
   the current `Webyar-Setup-<version>.exe`.
@@ -35,15 +36,24 @@ to `/data/webyar-downloads/files/Webyar-Setup-<version>.exe`, then
 `https://app.webyar.ai/downloads/Webyar-Android-<version>.apk` come from the same
 container and folder. `nginx.conf` and the Traefik rule above already carry the
 `Webyar-Android*.apk` route; after updating either on the host:
-`docker exec webyar-downloads nginx -s reload` (Traefik rereads its dynamic
-folder by itself).
+`docker restart webyar-downloads` (not only `nginx -s reload` — see the Mac
+section below; Traefik rereads its dynamic folder by itself).
 
 The APK is the universal release build (every ABI), signed with the release
 key — see `docs/ANDROID_RELEASE.md`. Publish a new version:
 
-    v=1.0.0
-    scp Webyar-Android-$v.apk root@analyticsme.site:/data/webyar-downloads/files/
-    ssh root@analyticsme.site "cd /data/webyar-downloads/files && ln -sf Webyar-Android-$v.apk Webyar-Android.apk"
+    v=1.0.1
+    host=<the server's own IP>
+    scp Webyar-Android-$v.apk root@$host:/data/webyar-downloads/files/
+    ssh root@$host "cd /data/webyar-downloads/files && chmod 644 Webyar-Android-$v.apk && ln -sf Webyar-Android-$v.apk Webyar-Android.apk"
+
+By IP, not by name: `analyticsme.site` resolves to Cloudflare, which does not
+carry SSH, so `ssh root@analyticsme.site` only ever times out.
+
+Until the file is there, the link answers 404 **with** the `Content-Disposition`
+header above. That header is this container's, so a 404 carrying it means the
+routing works and the file (or the `Webyar-Android.apk` symlink) is missing;
+a 404 without it means Traefik never sent the request here.
 
 The site's download page (webyar.ai → admin → «برنامه‌ها و دانلود» → Android)
 points at `https://app.webyar.ai/downloads/Webyar-Android.apk`, so a new
@@ -59,8 +69,9 @@ macOS 14+), built on a Mac with `macos/scripts/make-dmg.sh <version> <build>`.
 Publish it:
 
     v=1.0.2
-    scp Webyar-Mac-$v.dmg root@analyticsme.site:/data/webyar-downloads/files/
-    ssh root@analyticsme.site "cd /data/webyar-downloads/files && ln -sf Webyar-Mac-$v.dmg Webyar-Mac.dmg"
+    host=<the server's own IP>
+    scp Webyar-Mac-$v.dmg root@$host:/data/webyar-downloads/files/
+    ssh root@$host "cd /data/webyar-downloads/files && ln -sf Webyar-Mac-$v.dmg Webyar-Mac.dmg"
 
 Two things learnt putting it up:
 

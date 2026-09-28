@@ -16,6 +16,9 @@ object A11y {
     const val LOGIN_PASSWORD = "login.password"
     const val LOGIN_SUBMIT = "login.submit"
     const val LOGIN_ERROR = "login.error"
+    const val BRAND_FOOTER = "brand.footer"
+    const val RESTORING = "session.restoring"
+    const val RESET_BACK = "reset.back"
 
     const val INBOX_LIST = "inbox.list"
     const val INBOX_EMPTY = "inbox.empty"

@@ -17,6 +17,13 @@ package com.webyar.ai.i18n
 object StrAndroid {
 
     /** The back arrow's spoken label. Drawn as a glyph, never as text. */
+    /** Under the mark while a launch confirms the session — the Mac's `checkingSession`. */
+    fun restoringSession(l: Language): String = when (l) {
+        Language.EN -> "Restoring your session…"
+        Language.FA -> "در حال بازیابی نشست…"
+        Language.TR -> "Oturum geri yükleniyor…"
+    }
+
     fun back(l: Language): String = when (l) {
         Language.EN -> "Back"
         Language.FA -> "بازگشت"

@@ -27,14 +27,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.ViewModel
@@ -44,6 +41,7 @@ import androidx.compose.runtime.collectAsState
 import com.webyar.ai.core.net.WebyarApi
 import com.webyar.ai.core.storage.Appearance
 import com.webyar.ai.feature.auth.LoginScreen
+import com.webyar.ai.feature.auth.RestoringScreen
 import com.webyar.ai.feature.inbox.InboxScreen
 import com.webyar.ai.feature.chat.ChatScreen
 import com.webyar.ai.feature.chat.ChatState
@@ -154,9 +152,8 @@ private fun RootScreen(appState: AppState, api: WebyarApi, language: Language) {
     }
 
     when (val current = session) {
-        is Session.Restoring -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-            CircularProgressIndicator()
-        }
+        // The Mac app's splash: the mark, a small spinner and one line.
+        is Session.Restoring -> RestoringScreen(language)
 
         // No `statusBarsPadding` here: the screen takes `safeDrawing`, which
         // is the status bar AND the cutout AND the keyboard. Passing the

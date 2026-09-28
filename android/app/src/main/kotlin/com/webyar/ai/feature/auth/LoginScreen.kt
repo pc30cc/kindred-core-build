@@ -29,6 +29,15 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -77,6 +86,8 @@ import com.webyar.ai.i18n.StrAndroid
 import com.webyar.ai.i18n.StrManual
 import com.webyar.ai.i18n.displayText
 import com.webyar.ai.ui.A11y
+import com.webyar.ai.ui.components.BrandFooterClearance
+import com.webyar.ai.ui.components.BrandFooterOverlay
 import com.webyar.ai.ui.components.PrimaryButton
 import com.webyar.ai.ui.components.filledFieldColors
 import com.webyar.ai.ui.components.ShapeFrame
@@ -172,6 +183,9 @@ fun LoginScreen(
             .background(MaterialTheme.colorScheme.surface),
     ) {
         Backdrop()
+        // iOS's signature at the foot: the same spot as on the loading
+        // screen before this one and the reset screen after it.
+        BrandFooterOverlay()
 
         BoxWithConstraints(
             Modifier
@@ -198,7 +212,9 @@ fun LoginScreen(
                 Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = Space.xl, vertical = Space.xl),
+                    // Room at the end for the name signed at the foot, so on a
+                    // short screen the form stops above it rather than under it.
+                    .padding(start = Space.xl, end = Space.xl, top = Space.xl, bottom = BrandFooterClearance),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
@@ -373,104 +389,171 @@ private fun ResetPasswordScreen(
             .background(MaterialTheme.colorScheme.surface),
     ) {
         Backdrop()
+        BrandFooterOverlay()
+
         Column(
             Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeDrawing)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = Space.xl, vertical = Space.xl),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+                .windowInsetsPadding(WindowInsets.safeDrawing),
         ) {
+            // The way back where iOS's navigation bar puts it: a screen pushed
+            // from sign in, not a second form under it.
+            IconButton(
+                onClick = { onBack(email) },
+                modifier = Modifier
+                    .padding(start = Space.xs, top = Space.xs)
+                    .testTag(A11y.RESET_BACK),
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = StrAndroid.back(language))
+            }
+
             Column(
                 Modifier
-                    .widthIn(max = 440.dp)
-                    .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(Space.lg),
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = Space.xl, end = Space.xl, top = Space.sm, bottom = BrandFooterClearance),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
             ) {
-                val sent = sentTo
-                if (sent != null) {
-                    Text(
-                        Str.resetSentTitle(language),
-                        style = WebyarType.displaySmallEmphasized,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        StrManual.resetSentDetail(language, sent),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        Str.resetCheckSpam(language),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(Space.xs))
-                    PrimaryButton(
-                        label = Str.backToLogin(language),
-                        onClick = { onBack(email) },
-                    )
-                } else {
-                    LaunchedEffect(Unit) {
-                        focus.requestFocus()
-                        keyboard?.show()
+                Column(
+                    Modifier
+                        .widthIn(max = 440.dp)
+                        .fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    val sent = sentTo
+                    if (sent != null) {
+                        ResetGlyph(Icons.Filled.Email)
+                        ResetHeading(Str.resetSentTitle(language))
+                        ResetCaption(StrManual.resetSentDetail(language, sent))
+                        Text(
+                            Str.resetCheckSpam(language),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = Space.sm).widthIn(max = 320.dp),
+                        )
+                        Spacer(Modifier.height(Space.xl))
+                        PrimaryButton(
+                            label = Str.backToLogin(language),
+                            onClick = { onBack(email) },
+                        )
+                    } else {
+                        LaunchedEffect(Unit) {
+                            // Straight into the field when there is nothing in
+                            // it: the whole screen is one question.
+                            if (email.isBlank()) {
+                                focus.requestFocus()
+                                keyboard?.show()
+                            }
+                        }
+                        ResetGlyph(KeyGlyph)
+                        ResetHeading(Str.resetTitle(language))
+                        ResetCaption(Str.resetSubtitle(language))
+                        Spacer(Modifier.height(Space.xxl))
+                        TextField(
+                            value = email,
+                            onValueChange = {
+                                email = it
+                                error = null
+                            },
+                            label = { Text(Str.emailLabel(language)) },
+                            leadingIcon = { Icon(Icons.Outlined.Email, contentDescription = null) },
+                            singleLine = true,
+                            enabled = !busy,
+                            shape = RoundedCornerShape(Radius.lg),
+                            colors = filledFieldColors(),
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Email,
+                                imeAction = ImeAction.Send,
+                            ),
+                            keyboardActions = KeyboardActions(onSend = { send() }),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(focus)
+                                .semantics { contentType = ContentType.EmailAddress },
+                        )
+                        AnimatedVisibility(
+                            visible = error != null,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically(),
+                        ) {
+                            Box(Modifier.padding(top = Space.md)) { ErrorNote(error.orEmpty()) }
+                        }
+                        Spacer(Modifier.height(Space.xl))
+                        PrimaryButton(
+                            label = Str.sendResetLink(language),
+                            onClick = ::send,
+                            enabled = email.isNotBlank(),
+                            busy = busy,
+                        )
                     }
-                    Text(
-                        Str.resetTitle(language),
-                        style = WebyarType.displaySmallEmphasized,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        Str.resetSubtitle(language),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(Space.sm))
-                    TextField(
-                        value = email,
-                        onValueChange = {
-                            email = it
-                            error = null
-                        },
-                        label = { Text(Str.emailLabel(language)) },
-                        leadingIcon = { Icon(Icons.Outlined.Email, contentDescription = null) },
-                        singleLine = true,
-                        enabled = !busy,
-                        shape = RoundedCornerShape(Radius.lg),
-                        colors = filledFieldColors(),
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Email,
-                            imeAction = ImeAction.Send,
-                        ),
-                        keyboardActions = KeyboardActions(onSend = { send() }),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .focusRequester(focus)
-                            .semantics { contentType = ContentType.EmailAddress },
-                    )
-                    AnimatedVisibility(
-                        visible = error != null,
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically(),
-                    ) {
-                        ErrorNote(error.orEmpty())
-                    }
-                    Spacer(Modifier.height(Space.xs))
-                    PrimaryButton(
-                        label = Str.sendResetLink(language),
-                        onClick = ::send,
-                        enabled = email.isNotBlank(),
-                        busy = busy,
-                    )
-                    TextButton(
-                        onClick = { onBack(email) },
-                        enabled = !busy,
-                        modifier = Modifier.align(Alignment.CenterHorizontally),
-                    ) { Text(Str.backToLogin(language)) }
                 }
             }
         }
     }
+}
+
+/**
+ * The one piece of ornament on either state: the subject of the screen, in a
+ * soft brand disc — iOS's `glyph`. It is what stops a screen holding one
+ * field from looking like an error page.
+ */
+@Composable
+private fun ResetGlyph(icon: ImageVector) {
+    Box(
+        Modifier
+            .padding(bottom = Space.md)
+            .size(64.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+    }
+}
+
+@Composable
+private fun ResetHeading(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+        color = MaterialTheme.colorScheme.onSurface,
+        textAlign = TextAlign.Center,
+    )
+}
+
+/**
+ * Under the heading, as a caption: capped at 320dp, so a two-line
+ * explanation under a one-line title does not stretch across a wide screen
+ * and read as a paragraph.
+ */
+@Composable
+private fun ResetCaption(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.padding(top = Space.sm).widthIn(max = 320.dp),
+    )
+}
+
+/**
+ * A key, for "reset your password" — iOS draws `key.horizontal.fill` there.
+ * Material's `VpnKey` outline (Apache 2.0); the core icon set this app uses
+ * has no key, and the extended set is far too large to take for one glyph.
+ */
+private val KeyGlyph: ImageVector by lazy {
+    ImageVector.Builder(name = "Key", defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f)
+        .addPath(
+            pathData = PathParser().parsePathString(
+                "M12.65,10C11.83,7.67 9.61,6 7,6c-3.31,0 -6,2.69 -6,6s2.69,6 6,6c2.61,0 4.83,-1.67 5.65,-4H17v4h4v-4h2v-4H12.65z" +
+                    "M7,14c-1.1,0 -2,-0.9 -2,-2s0.9,-2 2,-2 2,0.9 2,2 -0.9,2 -2,2z",
+            ).toNodes(),
+            fill = SolidColor(Color.Black),
+        )
+        .build()
 }
 
 /** The app's mark in a scalloped cookie — the brand, in the theme's colours. */

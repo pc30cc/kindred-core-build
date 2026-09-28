@@ -262,6 +262,17 @@ server {
     # ─────────────────────────────────────────────────────────────────────
     location ^~ /downloads/ {
         root /usr/share/nginx/html;
+        # Named here because a `types` block replaces nginx's whole table for
+        # this location, so every kind of file the folder holds is listed:
+        # the Android app (served as `application/octet-stream` without this,
+        # which some phones' browsers will not offer to install), the plugin
+        # zips, and their manifests. Anything else stays octet-stream.
+        types {
+            application/vnd.android.package-archive apk;
+            application/zip zip;
+            application/json json;
+        }
+        default_type application/octet-stream;
         expires -1;
         add_header Cache-Control "no-cache, no-store, must-revalidate" always;
         add_header Pragma "no-cache" always;

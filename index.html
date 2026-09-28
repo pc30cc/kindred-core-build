@@ -40,9 +40,69 @@
 
 
     <meta name="twitter:card" content="summary_large_image" />
+    <!-- The launch loader, the same one the iOS app opens on
+         (ios/WebyarNative/Sources/App/WebyarApp.swift, LaunchView): two arcs
+         turning against each other and "WEBYAR AI" at the foot. Styled here,
+         not in the bundle, so the static #boot-splash below is drawn on the
+         first paint; BrandLoaderScreen reuses the same classes. -->
+    <style>
+      .wy-launch {
+        --wy-bg: #f4f6f9; --wy-brand: 59 122 242; --wy-label: rgba(60, 60, 67, 0.6);
+        --wy-deep: #0c50e9; --wy-cyan: #2ed6ff;
+        position: fixed; inset: 0; z-index: 2147483000;
+        display: flex; align-items: center; justify-content: center;
+        background: var(--wy-bg);
+      }
+      .wy-launch.wy-inline { position: relative; inset: auto; z-index: auto; min-height: 100vh; min-height: 100dvh; }
+      @media (prefers-color-scheme: dark) {
+        html:not(.light) .wy-launch { --wy-bg: #0c0e14; --wy-brand: 90 148 255; --wy-label: rgba(235, 235, 245, 0.6); }
+      }
+      html.dark .wy-launch { --wy-bg: #0c0e14; --wy-brand: 90 148 255; --wy-label: rgba(235, 235, 245, 0.6); }
+      html.light .wy-launch { --wy-bg: #f4f6f9; --wy-brand: 59 122 242; --wy-label: rgba(60, 60, 67, 0.6); }
+      .wy-loader { position: relative; width: 42.5px; height: 42.5px; direction: ltr; }
+      .wy-loader > span { position: absolute; border-radius: 50%; }
+      .wy-track { inset: 0; border: 2.5px solid rgb(var(--wy-brand) / 0.10); }
+      .wy-comet { inset: 0; transform: rotate(0deg); animation: wy-cw 1s linear infinite; }
+      .wy-comet::before {
+        content: ''; position: absolute; inset: 0; border-radius: 50%;
+        background: conic-gradient(from 0deg, rgb(12 80 233 / 0) 0deg, var(--wy-deep) 63.36deg, var(--wy-cyan) 115.2deg, transparent 115.2deg);
+        -webkit-mask: radial-gradient(closest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2.5px));
+        mask: radial-gradient(closest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2.5px));
+      }
+      .wy-comet::after {
+        content: ''; position: absolute; left: 50%; top: 50%; width: 4.75px; height: 4.75px; margin: -2.375px;
+        border-radius: 50%; background: var(--wy-cyan); box-shadow: 0 0 6px rgb(46 214 255 / 0.9);
+        transform: rotate(115.2deg) translateY(-20px);
+      }
+      .wy-inner { left: 8.25px; top: 8.25px; width: 26px; height: 26px; transform: rotate(180deg); animation: wy-ccw 1.6s linear infinite; }
+      .wy-inner svg { display: block; width: 26px; height: 26px; }
+      @keyframes wy-cw { to { transform: rotate(360deg); } }
+      @keyframes wy-ccw { from { transform: rotate(180deg); } to { transform: rotate(-180deg); } }
+      @media (prefers-reduced-motion: reduce) { .wy-comet, .wy-inner { animation: none; } }
+      .wy-footer {
+        position: absolute; left: 0; right: 0; bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+        display: flex; justify-content: center; gap: 4.8px; direction: ltr; pointer-events: none;
+        font: 600 12px/1 ui-rounded, 'SF Pro Rounded', -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif;
+        letter-spacing: 3px; padding-left: 3px;
+      }
+      .wy-footer .wy-name { color: var(--wy-label); }
+      .wy-footer .wy-ai {
+        background: linear-gradient(90deg, var(--wy-deep), var(--wy-cyan));
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+      }
+      #boot-splash { transition: opacity 0.2s ease; }
+    </style>
   </head>
 
   <body>
+    <div id="boot-splash" class="wy-launch" role="status" aria-label="WEBYAR AI">
+      <div class="wy-loader" aria-hidden="true">
+        <span class="wy-track"></span>
+        <span class="wy-comet"></span>
+        <span class="wy-inner"><svg viewBox="0 0 26 26"><circle cx="13" cy="13" r="12" fill="none" stroke="#2ed6ff" stroke-opacity="0.55" stroke-width="2" stroke-linecap="round" stroke-dasharray="16.59 100" transform="rotate(-90 13 13)" /></svg></span>
+      </div>
+      <div class="wy-footer" aria-hidden="true"><span class="wy-name">WEBYAR</span><span class="wy-ai">AI</span></div>
+    </div>
     <div id="root" style="opacity:0"></div>
     <script type="text/javascript">
       (function () {

@@ -1,3 +1,4 @@
+import { BrandLoaderScreen } from '@/components/brand/BrandLoader';
 /**
  * WorkspaceRedirect: Redirects /app to /:slug using the user's first workspace.
  * If user has no workspaces, auto-provisions one.
@@ -60,9 +61,9 @@ export function WorkspaceRedirect() {
             throw new Error(body.error || `API error: ${res.status}`);
           }
           await refetch();
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('Auto-provision failed:', err);
-          const raw = String(err?.message || '');
+          const raw = String((err instanceof Error && err.message) || '');
           if (raw === 'email_verification_required') {
             setNeedsVerification(true);
           } else if (err instanceof TypeError || /failed to fetch|network/i.test(raw)) {
@@ -79,20 +80,7 @@ export function WorkspaceRedirect() {
   }, [isLoading, workspaces, user, provisioning, refetch, t]);
 
   if (isLoading || provisioning) {
-    return (
-      <div dir={dir} className="flex min-h-screen items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-4">
-          <div className="relative">
-            <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center">
-              <Building2 className="h-6 w-6 text-primary animate-pulse" />
-            </div>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {provisioning ? t('workspaceRedirect.provisioning') : t('workspaceRedirect.loading')}
-          </p>
-        </div>
-      </div>
-    );
+    return <BrandLoaderScreen />;
   }
 
   if (workspaces?.length) {

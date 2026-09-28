@@ -1,90 +1,49 @@
 /**
- * Branded loading indicator: a light band sweeps around the app mark while the
- * wordmark sits beneath it. Used instead of a generic spinner wherever a whole
- * screen or section is waiting.
+ * The launch loader, the same one the iOS app opens on (LaunchView in
+ * ios/WebyarNative/Sources/App/WebyarApp.swift): two arcs turning against each
+ * other, and "WEBYAR AI" set small at the foot of the screen.
+ *
+ * The styles live in index.html (the `.wy-*` classes) so the static
+ * #boot-splash can draw the identical loader on the very first paint, before
+ * this bundle loads; these components only reuse them.
  */
 import { cn } from '@/lib/utils';
-import { BrandLogo } from './BrandLogo';
-import webyarW from '@/assets/webyar-w.png';
 
-const SIZES = {
-  sm: { box: 56, mark: 24, label: 'text-[9px] tracking-[0.28em]' },
-  md: { box: 84, mark: 36, label: 'text-[11px] tracking-[0.32em]' },
-  lg: { box: 120, mark: 52, label: 'text-sm tracking-[0.36em]' },
-} as const;
-
-export function BrandLoader({
-  size = 'md',
-  logoUrl,
-  label = 'webyar',
-  showLabel = true,
-  className,
-}: {
-  size?: keyof typeof SIZES;
-  logoUrl?: string | null;
-  label?: string;
-  showLabel?: boolean;
-  className?: string;
-}) {
-  const s = SIZES[size];
-
+/** The two turning arcs on their own. */
+export function BrandLoader({ className }: { className?: string; size?: string; logoUrl?: string | null; label?: string; showLabel?: boolean }) {
   return (
-    <div className={cn('flex flex-col items-center gap-3', className)} role="status" aria-live="polite">
-      <div className="relative" style={{ width: s.box, height: s.box }}>
-        {/* Rotating ring — a conic sweep masked into a thin circular band.
-            Circular (not rounded-square) on purpose: a radial mask on a square
-            leaves the corners unmasked, which shows up as four colour blobs. */}
-        <span
-          className="absolute inset-0 rounded-full motion-safe:animate-brand-spin"
-          style={{
-            background:
-              'conic-gradient(from 0deg, transparent 0deg, transparent 180deg, hsl(var(--brand-teal) / 0.35) 230deg, hsl(var(--brand-sky)) 300deg, hsl(var(--brand-violet)) 352deg, transparent 360deg)',
-            WebkitMask: 'radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px))',
-            mask: 'radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px))',
-          }}
-          aria-hidden
-        />
-        <span className="absolute inset-0 rounded-full border border-primary/15" aria-hidden />
-        {/* Bare W mark inside the ring, painted through a CSS mask so it takes
-            the theme's primary colour. Operator branding (logoUrl) wins. */}
-        <span className="absolute inset-0 flex items-center justify-center">
-          {logoUrl ? (
-            <BrandLogo src={logoUrl} className="rounded-[26%]" style={{ width: s.mark, height: s.mark }} />
-          ) : (
-            <span
-              aria-hidden
-              className="bg-brand"
-              style={{
-                width: s.mark,
-                height: s.mark,
-                WebkitMaskImage: `url(${webyarW})`,
-                maskImage: `url(${webyarW})`,
-                WebkitMaskRepeat: 'no-repeat',
-                maskRepeat: 'no-repeat',
-                WebkitMaskPosition: 'center',
-                maskPosition: 'center',
-                WebkitMaskSize: 'contain',
-                maskSize: 'contain',
-              }}
-            />
-          )}
-        </span>
-      </div>
-      {showLabel && (
-        <span className={cn('font-display font-semibold uppercase text-muted-foreground', s.label)}>
-          {label}
-        </span>
-      )}
-      <span className="sr-only">Loading</span>
+    <div className={cn('wy-loader', className)} role="status" aria-label="Loading">
+      <span className="wy-track" aria-hidden />
+      <span className="wy-comet" aria-hidden />
+      <span className="wy-inner" aria-hidden>
+        <svg viewBox="0 0 26 26">
+          <circle
+            cx="13" cy="13" r="12" fill="none"
+            stroke="#2ed6ff" strokeOpacity={0.55} strokeWidth={2} strokeLinecap="round"
+            strokeDasharray="16.59 100" transform="rotate(-90 13 13)"
+          />
+        </svg>
+      </span>
     </div>
   );
 }
 
-/** Full-viewport branded loading screen. */
-export function BrandLoaderScreen({ logoUrl }: { logoUrl?: string | null }) {
+/** "WEBYAR AI" — always Latin and left-to-right: it is the mark, not prose. */
+export function BrandFooter() {
   return (
-    <div className="auth-aurora flex min-h-screen items-center justify-center">
-      <BrandLoader size="lg" logoUrl={logoUrl} />
+    <div className="wy-footer" aria-hidden>
+      <span className="wy-name">WEBYAR</span>
+      <span className="wy-ai">AI</span>
+    </div>
+  );
+}
+
+/** Full-viewport loading screen: identical to the iOS launch screen. */
+export function BrandLoaderScreen(_props: { logoUrl?: string | null } = {}) {
+  return (
+    <div className="wy-launch wy-inline" aria-label="WEBYAR AI">
+      <BrandLoader />
+      <BrandFooter />
     </div>
   );
 }

@@ -1079,3 +1079,15 @@ html.native-app [data-selectable='true'] {
   background: linear-gradient(90deg, hsl(var(--brand-teal)), transparent); }
 @keyframes wy-meteor { 0% { transform: rotate(215deg) translateX(0); opacity: 0; } 5% { opacity: 1; } 60% { opacity: 1; } 100% { transform: rotate(215deg) translateX(-420px); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .meteor { display: none; } }
+
+/* BrandSpinner (src/components/brand/BrandSpinner.tsx): the launch loader's
+   two arcs turning against each other, at spinner size. */
+.wy-spinner .wy-spinner-cw,
+.wy-spinner .wy-spinner-ccw { transform-box: view-box; transform-origin: 12px 12px; }
+.wy-spinner .wy-spinner-cw { animation: wy-spinner-cw 1s linear infinite; }
+.wy-spinner .wy-spinner-ccw { animation: wy-spinner-ccw 1.6s linear infinite; }
+@keyframes wy-spinner-cw { to { transform: rotate(360deg); } }
+@keyframes wy-spinner-ccw { to { transform: rotate(-360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .wy-spinner .wy-spinner-cw, .wy-spinner .wy-spinner-ccw { animation: none; }
+}

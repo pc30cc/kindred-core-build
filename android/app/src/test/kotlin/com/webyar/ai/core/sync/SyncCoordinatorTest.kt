@@ -116,9 +116,62 @@ class SyncCoordinatorTest {
         advanceTimeBy(1_000)
         runCurrent()
 
-        assertEquals(listOf(listOf("c-1", "c-2")), api.idReads)
+        // The batch in the queue on screen, and again in Open for its badge.
+        assertEquals(listOf(listOf("c-1", "c-2"), listOf("c-1", "c-2")), api.idReads)
+        assertEquals(listOf(InboxFilter.AI, InboxFilter.OPEN), api.idReadFilters)
         // Only the one on screen, not every id in the batch.
         assertEquals(listOf("c-1"), api.byIdReads)
+    }
+
+    /**
+     * The Inbox tab's badge counts Open whatever queue is on screen, so Open
+     * hears the news too: a customer writing while the operator reads the
+     * AI's queue lights the badge then, not when they go back to Open.
+     */
+    @Test
+    fun `with another queue on screen, Open hears the same news`() = runTest {
+        val sync = coordinator()
+        sync.focusInbox(scope, InboxFilter.AI)
+        api.put(InboxFilter.OPEN, api.row("c-9", unread = 1))
+
+        sync.onRealtimeEvent("ws-1", event("new_message", "c-9"))
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        val open = sync.conversations.observeInbox(scope, InboxFilter.OPEN).first()
+        assertEquals(listOf("c-9"), open.map { it.id })
+        assertEquals(1, open.single().unreadCount)
+        // Not in the AI's queue, so not listed there.
+        assertTrue(sync.conversations.observeInbox(scope, InboxFilter.AI).first().isEmpty())
+    }
+
+    /** Open on screen is read once, not a second time for the badge. */
+    @Test
+    fun `with Open on screen, the news is read once`() = runTest {
+        val sync = coordinator()
+        sync.focusInbox(scope, InboxFilter.OPEN)
+
+        sync.onRealtimeEvent("ws-1", event("new_message", "c-1"))
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(listOf<InboxFilter?>(InboxFilter.OPEN), api.idReadFilters)
+    }
+
+    /** A reconcile with another queue on screen asks after Open too, conditionally. */
+    @Test
+    fun `a reconcile with another queue on screen also asks after Open`() = runTest {
+        val sync = coordinator()
+        sync.focusInbox(scope, InboxFilter.AI)
+        api.put(InboxFilter.OPEN, api.row("c-9", unread = 1))
+
+        sync.reconcile("foreground")
+        assertEquals(listOf(InboxFilter.AI, InboxFilter.OPEN), api.listReads.map { it.first })
+        assertEquals(listOf("c-9"), sync.conversations.observeInbox(scope, InboxFilter.OPEN).first().map { it.id })
+
+        // Unchanged the second time: a conditional read, answered 304.
+        sync.reconcile("poll")
+        assertTrue(api.listReads.last().second != null)
     }
 
     /** A chat restored with no inbox behind it still hears its conversation. */

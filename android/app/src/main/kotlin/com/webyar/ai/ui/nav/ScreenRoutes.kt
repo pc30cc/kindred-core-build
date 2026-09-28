@@ -123,6 +123,7 @@ import com.webyar.ai.ui.Session
 import com.webyar.ai.ui.AppState
 import com.webyar.ai.ui.liveLanguage
 import com.webyar.ai.feature.inbox.InboxViewModel
+import com.webyar.ai.feature.inbox.TeamUnread
 import com.webyar.ai.ui.components.EmptyState
 import com.webyar.ai.ui.components.bidiContent
 import com.webyar.ai.ui.components.rememberSearchState
@@ -179,8 +180,11 @@ fun InboxRoute(
     onOpenEmail: () -> Unit,
     promotions: PromotionCenter,
     bottomInset: Dp,
-    /** For the colleagues' unread count on their button; null leaves it off. */
-    api: WebyarApi? = null,
+    /**
+     * The colleagues' unread threads and messages, read by the shell for the
+     * Inbox tab's badge; null leaves the count and the dot off.
+     */
+    teamUnread: TeamUnread? = null,
 ) {
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
     val plan by appState.entitlements.collectAsStateWithLifecycle()
@@ -193,6 +197,7 @@ fun InboxRoute(
     val intel by conversations.intel.collectAsStateWithLifecycle()
     val refreshing by conversations.refreshing.collectAsStateWithLifecycle()
     val syncProblem by conversations.syncProblem.collectAsStateWithLifecycle()
+    val openUnread by conversations.openUnread.collectAsStateWithLifecycle()
 
     // Closing the field on a queue change is the same rule the view model
     // applies to the terms: a search box left open over a list it no longer
@@ -225,30 +230,6 @@ fun InboxRoute(
 
     // The queues: the AI queue is the web's aiQueueVisible, which also depends
     // on the AI switches and on whether it already holds threads.
-    // The colleagues' unread messages, for the badge on their button. Asked
-    // whenever the inbox comes back on screen — which is also when an
-    // operator has just been reading them.
-    val teamChat = plan.value?.featureEnabled("inbox_team_chat") == true
-    var colleaguesUnread by remember { mutableStateOf<Int?>(null) }
-    val teamSignals = rememberTeamSignals()
-    val inboxLifecycle = LocalLifecycleOwner.current
-    LaunchedEffect(workspace?.id, teamChat, api, inboxLifecycle, teamSignals) {
-        val id = workspace?.id
-        if (api == null || id == null || !teamChat) {
-            colleaguesUnread = null
-            return@LaunchedEffect
-        }
-        // Asked as the inbox comes on screen, the moment a colleague's
-        // message reaches this operator's own channel, and every twenty
-        // seconds regardless — it used to be asked once, so a message that
-        // came in while the inbox was open was never counted.
-        inboxLifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            followTeam(teamSignals, TEAM_LIST_POLL_MS, wanted = { it.workspaceId == id }) {
-                runCatching { api.colleagues(id).totalUnread }.onSuccess { colleaguesUnread = it }
-            }
-        }
-    }
-
     val allFilters = conversations.filters(plan.value, access, counts.automated)
     val chipFilters = conversations.chips(plan.value, access, counts.automated)
     // A queue that has just gone away must not stay selected with nothing behind it.
@@ -307,7 +288,9 @@ fun InboxRoute(
         // The mailbox is also an owner/admin section, as in the console's sidebar.
         onOpenEmail = onOpenEmail
             .takeIf { access.isAdmin && plan.value?.moduleEnabled("email_inbox") == true },
-        colleaguesUnread = colleaguesUnread,
+        colleaguesUnread = teamUnread?.messages,
+        openUnread = openUnread,
+        colleagueThreadsUnread = teamUnread?.threads ?: 0,
         banner = banner?.let { creative ->
             {
                 PromoBanner(
@@ -779,7 +762,7 @@ fun ContactDetailRoute(
  * their poll.
  */
 @Composable
-private fun rememberTeamSignals(): Flow<TeamSignal>? {
+internal fun rememberTeamSignals(): Flow<TeamSignal>? {
     val graph = LocalAppGraph.current
     return remember(graph) { graph?.syncGraph()?.coordinator?.team }
 }

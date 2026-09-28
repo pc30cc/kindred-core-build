@@ -30,6 +30,15 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.webyar.ai.i18n.Format
 import com.webyar.ai.i18n.Language
+import com.webyar.ai.i18n.Str
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.stateDescription
 import com.webyar.ai.ui.design.Radius
 import com.webyar.ai.ui.design.Size
 import com.webyar.ai.ui.design.Space
@@ -174,6 +183,12 @@ fun ChoiceButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     count: Int? = null,
+    /**
+     * How many things behind this button nobody has read — shown as a red
+     * dot after the label (the number is TalkBack's). Zero, the ordinary
+     * case, shows nothing.
+     */
+    unread: Int = 0,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -207,7 +222,10 @@ fun ChoiceButton(
         interactionSource = interaction,
         modifier = modifier
             .heightIn(min = 40.dp)
-            .semantics { role = Role.RadioButton },
+            .semantics {
+                role = Role.RadioButton
+                if (unread > 0) stateDescription = unreadDescription(unread, language)
+            },
     ) {
         Row(
             Modifier.padding(horizontal = Space.lg, vertical = Space.sm),
@@ -237,9 +255,49 @@ fun ChoiceButton(
                     maxLines = 1,
                 )
             }
+            UnreadDot(
+                visible = unread > 0,
+                // Ringed in white on the selected pill: red straight on the
+                // brand blue is two colours of one weight, and the dot drowns.
+                ring = if (selected) MaterialTheme.colorScheme.onPrimary else Color.Transparent,
+                modifier = Modifier.padding(start = Space.xs),
+            )
         }
     }
 }
+
+/**
+ * The red dot that marks a place holding something nobody has read: the
+ * inbox strip's Open and Colleagues, a channel inbox in the menu. A dot, not
+ * a number — the number is on the Inbox tab, and beside a button's own count
+ * a second number reads as part of a sum.
+ *
+ * It grows in and shrinks away rather than blinking, so a dot that has just
+ * gone is seen to go.
+ */
+@Composable
+fun UnreadDot(visible: Boolean, modifier: Modifier = Modifier, ring: Color = Color.Transparent) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = scaleIn(initialScale = 0.3f) + fadeIn(),
+        exit = scaleOut(targetScale = 0.3f) + fadeOut(),
+        modifier = modifier,
+    ) {
+        Box(
+            Modifier.size(UNREAD_DOT + UNREAD_RING * 2).background(ring, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(UNREAD_DOT).background(WebyarTheme.colors.badge, CircleShape))
+        }
+    }
+}
+
+private val UNREAD_DOT = 7.dp
+private val UNREAD_RING = 1.5.dp
+
+/** What TalkBack says of an unread badge or dot — "3 unread" — in the reader's digits. */
+fun unreadDescription(count: Int, language: Language): String =
+    Str.tabUnread(language).replace("{count}", Format.number(count, language))
 
 /**
  * Shown when a list legitimately has nothing in it.

@@ -117,17 +117,22 @@ class AttachmentDiskCache(
         }
         if (running !== mine) return@withContext running.await()
 
-        val result = try {
-            fetchInto(final, attachment, download)
-        } catch (e: Throwable) {
-            // Whoever is waiting on this download must not wait forever
-            // because the screen that started it went away.
-            mine.complete(null)
-            throw e
+        var result: File? = null
+        try {
+            result = fetchInto(final, attachment, download)
         } finally {
-            withContext(NonCancellable) { lock.withLock { inFlight.remove(key) } }
+            // Out of the map before anyone hears the answer. A waiter woken by
+            // a failure who asks again at once — a voice note whose screen
+            // went away, tapped again — must start a fresh download, not find
+            // this finished one still standing and be handed its null; that
+            // used to happen whenever the waiter reached the lock first. And
+            // whoever waits is answered whatever happened here: the screen
+            // that started the download going away must not strand them.
+            withContext(NonCancellable) {
+                lock.withLock { inFlight.remove(key) }
+                mine.complete(result)
+            }
         }
-        mine.complete(result)
         result
     }
 

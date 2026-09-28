@@ -34,8 +34,22 @@ final class CallCoordinator {
     /// another page, and the call bar takes over.
     private(set) var dockedPanels = 0
 
-    /// A call is up.
-    var isBusy: Bool { call != nil }
+    /// A call is up, or one is being answered.
+    var isBusy: Bool { call != nil || answering }
+
+    /// An answer on its way to the server. Until it is back there is no call here yet, so without
+    /// this a second answer (another row, the banner, a handed-over call) or a new call could go
+    /// ahead too — and the server would give this operator a call nobody ever joins.
+    private(set) var answering = false
+
+    /// Claims the line for an answer; false when a call is up or another answer is on its way.
+    func beginAnswering() -> Bool {
+        guard !isBusy else { return false }
+        answering = true
+        return true
+    }
+
+    func endAnswering() { answering = false }
 
     /// The call session the operator is on: the desk call's id, or an outgoing
     /// call's session once the visitor joined.
@@ -68,6 +82,7 @@ final class CallCoordinator {
     /// The operator calls the visitor from a conversation.
     func start(app: AppModel, conversation: Conversation, channel: String) {
         if showRunningCall() { return }
+        guard !answering else { return }
         // The buttons hide with the plan and the platform's switches; this holds even if one lingers.
         guard channel == "video" ? app.plan.videoCalls : app.plan.voiceCalls else { return }
         let workspaceId = app.workspace?.id ?? conversation.workspaceId
@@ -78,6 +93,8 @@ final class CallCoordinator {
 
     /// Opens the media for a call just accepted on the call-center desk.
     func joinAccepted(app: AppModel, accept: CallAccept, call: CallSession?, callId: String) {
+        // The answer this line was held for is back.
+        answering = false
         if showRunningCall() { return }
         let workspaceId = app.workspace?.id ?? call?.workspaceId ?? ""
         let name = CallNames.caller(call, fallbackId: call?.contactId ?? call?.visitorSessionId ?? callId, app.strings)
@@ -104,8 +121,7 @@ final class CallCoordinator {
     /// The page the call belongs to: the conversation, or the call on the desk.
     func showCallPage() {
         guard let call, let app else { return }
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true }?.makeKeyAndOrderFront(nil)
+        app.showMainWindow()
         if let conversation = call.conversation {
             app.openConversation(conversation.id)
         } else if let desk = call.desk {
@@ -115,7 +131,12 @@ final class CallCoordinator {
 
     /// A call is already up: show it rather than start another.
     private func showRunningCall() -> Bool {
-        guard call != nil else { return false }
+        guard let call else { return false }
+        // Ended, and only still showing why: out of the way now, so the new call can start.
+        if call.isEnded {
+            finished()
+            return false
+        }
         if presentation == .window, let window {
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
@@ -145,14 +166,18 @@ final class CallCoordinator {
         window = nil
         windowDelegate = nil
         w?.delegate = nil
+        Self.close(w)
+        showCallPage()
+    }
+
+    /// Closes the call's window — out of full screen first, or the space it had is left behind.
+    private static func close(_ w: NSWindow?) {
         if w?.styleMask.contains(.fullScreen) == true {
             w?.toggleFullScreen(nil)
-            // Out of full screen first, or the space it had is left behind.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { w?.close() }
         } else {
             w?.close()
         }
-        showCallPage()
     }
 
     /// Full screen and back: from the page, the call goes to its own window first.
@@ -251,8 +276,15 @@ final class CallCoordinator {
         window = nil
         windowDelegate = nil
         w?.delegate = nil
-        w?.close()
+        Self.close(w)
         if let deskId { deskCallEnded.send(deskId) }
+    }
+
+    /// Signing out: the call ends, and the server hears it, while the session to tell it with still exists.
+    func hangUpBeforeSignOut() async {
+        guard let c = call, !c.isEnded else { return }
+        hangUpForQuit()
+        await c.waitUntilServerTold()
     }
 
     /// The app is quitting: the call ends properly rather than just vanishing.

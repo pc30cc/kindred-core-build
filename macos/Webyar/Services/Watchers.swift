@@ -155,11 +155,21 @@ final class CallQueueWatcher {
         polls += 1
         if polls % 2 == 1, let onActiveCalls {
             // Best-effort: the line is what matters here, so a failure is only logged.
-            do { onActiveCalls(try await app.api.activeCalls(workspaceId: workspaceId)) } catch { Log.error("active calls", error) }
+            do {
+                let calls = try await app.api.activeCalls(workspaceId: workspaceId)
+                guard !Task.isCancelled, app.workspace?.id == workspaceId else { return }
+                onActiveCalls(calls)
+            } catch {
+                if Task.isCancelled { return }
+                Log.error("active calls", error)
+            }
         }
+        // Stopped while the line was being read: no ringing for a workspace that is gone.
+        guard !Task.isCancelled, app.workspace?.id == workspaceId else { return }
         let fresh = list.filter { !known.contains($0.callSessionId) }
         known = Set(list.map(\.callSessionId))
         queue = list
+        app.syncRinging()
         // The first poll only learns what is already waiting, as the web desk does.
         if primed {
             for f in fresh {
@@ -236,17 +246,23 @@ final class BackgroundNotifier {
         // The inbox reads the same queue: asked at about the same time, one request serves both.
         guard let lists = app.lists, lists.workspaceId == workspaceId else { return }
         let open = try await lists.fetch(.open)
+        // Stopped (a workspace switch, a sign-out) while the list was on its way: the fetch it
+        // joined is not cancelled with this tick, so its answer belongs to nobody now.
+        guard isCurrent else { return }
         onUnread?(open.reduce(0) { $0 + max(0, $1.unreadCount ?? 0) })
 
         let fresh = rules.fresh(open)
         guard !fresh.isEmpty, app.showsNotifications else { return }
         let prefs = await currentPrefs()
-        guard NotificationRules.allowed(prefs) else { return }
+        guard isCurrent, NotificationRules.allowed(prefs) else { return }
 
         let s = app.strings
-        for c in fresh.prefix(3) {
-            guard NotificationRules.inScope(prefs, c, me: app.user?.id) else { continue }
-            if c.id == app.visibleConversationId && app.isForeground { continue }
+        // Which ones may be said first, then at most three: capped first, an operator's own
+        // conversation behind three others would be counted as seen and never said at all.
+        let sayable = fresh.filter { c in
+            NotificationRules.inScope(prefs, c, me: app.user?.id) && !(c.id == app.visibleConversationId && app.isForeground)
+        }
+        for c in sayable.prefix(3) {
             let name = Display.contactName(c.contacts, s, fallbackId: c.contactId ?? c.id)
             let body = prefs.pushPreview ? Display.preview(c.lastMessage, s) : s["newMessage"]
             app.notifier.show(title: s.get("newMessageFrom", "name", name), body: body.isEmpty ? s["newMessage"] : body,
@@ -254,6 +270,8 @@ final class BackgroundNotifier {
                               arguments: ["conversation": c.id, "workspace": workspaceId])
         }
     }
+
+    private var isCurrent: Bool { !Task.isCancelled && app.workspace?.id == workspaceId && app.lists != nil }
 
     private func currentPrefs() async -> NotificationPrefs {
         if let prefs, Date().timeIntervalSince(prefsAt) < 300 { return prefs }

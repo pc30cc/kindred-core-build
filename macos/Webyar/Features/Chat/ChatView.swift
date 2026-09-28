@@ -141,7 +141,8 @@ struct ThreadView: View {
                 }
             }
             .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in
-                guard !chat.aiMode, let p = providers.first else { return false }
+                // Not while recording: the note would take the card's one file slot over the dropped file.
+                guard !chat.aiMode, !chat.recorder.isRecording, let p = providers.first else { return false }
                 _ = p.loadObject(ofClass: URL.self) { url, _ in
                     if let url { Task { @MainActor in chat.attach(url: url) } }
                 }
@@ -338,7 +339,9 @@ struct MessagesView: View {
         PinnedMessageList(threadId: chat.id, lastId: chat.rows.last?.id, sentCount: chat.sentCount, isEmpty: chat.rows.isEmpty,
                           refit: CallCoordinator.shared.docksHere(conversationId: chat.conversation?.id) != nil) {
             ForEach(chat.rows) { row in
-                MessageRowView(row: row, conversation: chat.conversation)
+                MessageRowView(row: row, conversation: chat.conversation,
+                               onRetry: row.failed ? { chat.retryFailed(row.clientId) } : nil,
+                               onDiscard: row.failed ? { chat.discardFailed(row.clientId) } : nil)
                     .id(row.id)
             }
         }
@@ -349,6 +352,9 @@ struct MessagesView: View {
 struct MessageRowView: View {
     let row: ChatRow
     let conversation: Conversation?
+    /// A message that did not go out: send it again, or give it up.
+    var onRetry: (() -> Void)? = nil
+    var onDiscard: (() -> Void)? = nil
     @Environment(AppModel.self) private var app
 
     var body: some View {
@@ -418,6 +424,10 @@ struct MessageRowView: View {
                     if row.failed { Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Palette.danger) }
                     if row.pending { Image(systemName: "clock").font(.system(size: 9)) }
                     Text(row.meta)
+                    if row.failed, let onRetry, let onDiscard {
+                        Button(app.strings["retry"], action: onRetry).buttonStyle(.link).padding(.leading, 4)
+                        Button(app.strings["discardUnsent"], action: onDiscard).buttonStyle(.link)
+                    }
                 }
                 .appFont(10.5)
                 .foregroundStyle(row.failed ? Palette.danger : Palette.text3)
@@ -435,7 +445,8 @@ struct MessageRowView: View {
             .appFont(13.5)
             .lineSpacing(3)
             .textSelection(.enabled)
-            .multilineTextAlignment(rtl ? .trailing : .leading)
+            // Leading is the reading side in either direction: right for Persian, left otherwise.
+            .multilineTextAlignment(.leading)
             .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight)
             .foregroundStyle(outgoing ? Color.white : Palette.text)
             .padding(.horizontal, 14)

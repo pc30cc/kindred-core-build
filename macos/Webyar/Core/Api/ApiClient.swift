@@ -103,8 +103,9 @@ final class ApiClient {
     }
 
     /// A request whose answer is not needed.
-    func call(_ method: String, _ path: String, body: [String: Any?]? = nil, query: Query = []) async throws {
-        _ = try await raw(method, path, query: query, body: body, timeout: 20)
+    /// `timeout` longer for a file sent as JSON: the server stores it before it answers.
+    func call(_ method: String, _ path: String, body: [String: Any?]? = nil, query: Query = [], timeout: TimeInterval = 20) async throws {
+        _ = try await raw(method, path, query: query, body: body, timeout: timeout)
     }
 
     func send<T: Decodable>(_ method: String, _ path: String, query: Query = [], body: [String: Any?]?, as type: T.Type = T.self) async throws -> T {
@@ -168,7 +169,8 @@ final class ApiClient {
         request.httpMethod = method
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let token = store.read(), !token.isEmpty {
+        let sentToken = store.read()
+        if let token = sentToken, !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
@@ -196,7 +198,9 @@ final class ApiClient {
         if (200..<300).contains(status) || (accept304 && status == 304) { return (data, http) }
         let text = String(data: data, encoding: .utf8)
         if status == 401 {
-            onUnauthorized?()
+            // Only for the session this went out with: a slow request from before a new sign-in
+            // must not sign the new session out (and delete its token).
+            if store.read() == sentToken { onUnauthorized?() }
             throw ApiError(failure: .unauthorized, status: 401, body: text)
         }
         var message: String?

@@ -221,6 +221,9 @@ enum ErrorText {
         case .unauthorized: return unauthorized ?? s["sessionExpired"]
         case .decoding: return s["errorUnreadableAnswer"]
         case .server:
+            // A file the server refuses: what to do about it, not "no access" or its English wording.
+            if e.status == 413 { return s["fileTooLarge"] }
+            if e.status == 415 { return s["fileTypeNotAllowed"] }
             if s.language == .en, let m = e.serverMessage, !m.isEmpty { return m }
             switch e.status ?? 500 {
             case 400, 422: return s["errorInvalidInput"]

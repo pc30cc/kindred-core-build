@@ -60,7 +60,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         app.applyAppearance()
         // Opened at login: stay in the menu bar until the operator asks for the window.
-        if LoginItem.launchedAtLogin && app.config.system.menuBarExtra {
+        // Only with a menu bar item to come back through (and signing in shows the window again).
+        if LoginItem.launchedAtLogin && app.showsMenuBarItem {
             NSApp.windows.forEach { $0.orderOut(nil) }
         }
         #if DEBUG

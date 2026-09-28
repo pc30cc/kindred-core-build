@@ -432,12 +432,16 @@ final class CallCenterModel {
     func accept() async {
         guard let id = selectedId, let ws = app.workspace, let item = queueItem(id) else { return }
         let s = app.strings
-        if CallCoordinator.shared.isBusy {
+        guard !accepting else { return }
+        guard CallCoordinator.shared.beginAnswering() else {
             showNotice(s["ccOnCall"])
             return
         }
         accepting = true
-        defer { accepting = false }
+        defer {
+            accepting = false
+            CallCoordinator.shared.endAnswering()
+        }
         do {
             let accept = try await app.api.acceptCall(workspaceId: ws.id, callId: id)
             onCallId = id

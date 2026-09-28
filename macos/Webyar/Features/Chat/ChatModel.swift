@@ -60,13 +60,97 @@ struct ChatRow: Identifiable, Equatable {
     }
 }
 
+/// One thread's replies still on their way, or failed and waiting for Retry. The inbox keeps one per
+/// conversation, so a reply that fails after the operator has moved to another thread is there again,
+/// with Retry, when they come back — not dropped with the thread's model.
+@MainActor
+final class ChatOutbox {
+    typealias File = (name: String, mime: String, data: Data)
+
+    private(set) var rows: [ChatRow] = []
+    /// The status change and the file each message asked for, kept for a retry.
+    private var thenActions: [String: PostSendAction] = [:]
+    private var files: [String: File] = [:]
+    /// A sent message stays on show until a read brings it: the number of sends when it went.
+    private var sentOn: [String: Int] = [:]
+    private var sends = 0
+    /// The last delivery queued: each waits for the one before, so messages reach the server in the order they were sent.
+    var queue: Task<Void, Never>?
+    /// The thread's model on screen, redrawn as deliveries finish (nil while the thread is closed).
+    weak var shown: ChatModel?
+
+    var isEmpty: Bool { rows.isEmpty }
+    var failedIds: [String] { rows.filter(\.failed).compactMap(\.clientId) }
+
+    func add(_ row: ChatRow, then: PostSendAction, file: File?) {
+        guard let cid = row.clientId else { return }
+        rows.append(row)
+        thenActions[cid] = then
+        files[cid] = file
+    }
+
+    func row(_ clientId: String) -> ChatRow? { rows.first { $0.clientId == clientId } }
+    func then(_ clientId: String) -> PostSendAction { thenActions[clientId] ?? .none }
+    func file(_ clientId: String) -> File? { files[clientId] }
+
+    func update(_ clientId: String, _ change: (inout ChatRow) -> Void) {
+        if let i = rows.firstIndex(where: { $0.clientId == clientId }) { change(&rows[i]) }
+    }
+
+    /// The server took it: no longer pending, and kept until a read shows it, so it never blinks out.
+    func sent(_ clientId: String) {
+        guard let i = rows.firstIndex(where: { $0.clientId == clientId }) else { return }
+        rows[i].pending = false
+        rows[i].failed = false
+        sends += 1
+        sentOn[clientId] = sends
+        thenActions[clientId] = nil
+        files[clientId] = nil
+    }
+
+    /// Taken as a read starts: a read that started after a send finished has that message.
+    var readMark: Int { sends }
+
+    /// Lets go of what the server has: a message whose client id came back (by a read or by realtime —
+    /// also a failed one the server kept despite the error), or a sent one a later read has brought.
+    @discardableResult
+    func settle(delivered: Set<String> = [], readBegan mark: Int? = nil) -> Bool {
+        let gone = Set(rows.compactMap(\.clientId).filter { cid in
+            if delivered.contains(cid) { return true }
+            guard let mark, let at = sentOn[cid] else { return false }
+            return at <= mark
+        })
+        guard !gone.isEmpty else { return false }
+        rows.removeAll { $0.clientId.map(gone.contains) == true }
+        for cid in gone {
+            thenActions[cid] = nil
+            files[cid] = nil
+            sentOn[cid] = nil
+        }
+        return true
+    }
+
+    /// Failed messages the operator gives up on (one, or all): gone, and their files' bytes let go.
+    func discardFailed(_ only: String? = nil) {
+        let gone = rows.filter { $0.failed && (only == nil || $0.clientId == only) }
+        guard !gone.isEmpty else { return }
+        for r in gone {
+            for a in r.attachments { AttachmentStore.shared.forget(a.id) }
+            if let cid = r.clientId {
+                thenActions[cid] = nil
+                files[cid] = nil
+            }
+        }
+        rows.removeAll { r in r.failed && (only == nil || r.clientId == only) }
+    }
+}
+
 /// One thread: the conversation's header state and actions, the messages
 /// with their files, the reply box and the details beside it — the Windows
 /// app's ChatView and DetailsPanel, as a model.
 @MainActor
 @Observable
 final class ChatModel {
-    static let maxUpload = 20 * 1024 * 1024
     /// "specialist" or "assistant", kept for the session as on iOS and Windows.
     static var voice = "specialist"
 
@@ -74,7 +158,8 @@ final class ChatModel {
     @ObservationIgnored private var poller: Poller?
     @ObservationIgnored private var events: Signal<InboxEvent>.Token?
     @ObservationIgnored private var lastSeenMessage: String?
-    @ObservationIgnored private var outbox: [ChatRow] = []
+    /// Kept by the inbox per conversation, so it outlives this model (see ChatOutbox).
+    @ObservationIgnored private let box: ChatOutbox
     @ObservationIgnored var onChanged: (() -> Void)?
     @ObservationIgnored private var loggedPhotos = false
     /// The server's messages: the saved copy, realtime rows and reads merged (see ThreadSync).
@@ -120,12 +205,15 @@ final class ChatModel {
     private(set) var notes: [ConversationNote] = []
     private(set) var profile: VisitorProfile?
 
-    init(app: AppModel, id: String, conversation: Conversation?) {
+    init(app: AppModel, id: String, conversation: Conversation?, outbox: ChatOutbox) {
         self.app = app
         self.id = id
         self.conversation = conversation
+        box = outbox
         workspaceId = app.workspace?.id
         sendAction = UserDefaults.standard.string(forKey: sendActionKey).flatMap(PostSendAction.init(rawValue:)) ?? .none
+        // At the length cap the note goes into the card, whatever the view is doing.
+        recorder.onLimit = { [weak self] in self?.stopRecording(keep: true) }
     }
 
     var aiMode: Bool { conversation?.isAiManaged == true }
@@ -142,6 +230,9 @@ final class ChatModel {
         #if DEBUG
         Self.debugCurrent = self
         #endif
+        box.shown = self
+        // Replies still out, or failed, from an earlier visit to this thread show at once.
+        if !box.isEmpty { render() }
         events = app.inboxEvents.subscribe { [weak self] e in self?.handle(e) }
         // The copy saved on this Mac first (a few milliseconds), then the server: a delta from
         // the saved cursor when there is one.
@@ -170,6 +261,7 @@ final class ChatModel {
         deltaSoon?.cancel()
         events?.cancelNow()
         if recorder.isRecording { recorder.cancel() }
+        if box.shown === self { box.shown = nil }
     }
 
     /// A realtime event: a message row for this thread is shown at once, and a delta follows
@@ -215,6 +307,7 @@ final class ChatModel {
     private func load() async throws {
         defer { loading = false }
         let request = sync.beginFetch()
+        let mark = box.readMark
         let page: ThreadPage
         do {
             page = try await app.api.messagePage(conversationId: id, since: request.since)
@@ -238,6 +331,8 @@ final class ChatModel {
         Log.write("[sync] thread \(id.prefix(8)) \(page.delta ? "delta" : "full") rows=\(page.messages.count) total=\(sync.messages.count)")
         #endif
         if changed || !page.delta { save() }
+        // Sent before this read began: the server's copy is in it, so ours can go.
+        box.settle(readBegan: mark)
         render()
 
         // Seen once per new message, and only while someone is actually looking.
@@ -271,13 +366,8 @@ final class ChatModel {
         // longer ours to show: otherwise a read between the insert and the reply, or a 500 after the
         // insert, shows it twice.
         let delivered = Set(sync.messages.compactMap { $0.metadata?["client_message_id"]?.string })
-        if !delivered.isEmpty, outbox.contains(where: { $0.clientId.map(delivered.contains) == true }) {
-            for o in outbox where o.clientId.map(delivered.contains) == true {
-                if let cid = o.clientId { thenActions[cid] = nil; retryFiles[cid] = nil }
-            }
-            outbox.removeAll { $0.clientId.map(delivered.contains) == true }
-        }
-        wanted.append(contentsOf: outbox)
+        if !delivered.isEmpty { box.settle(delivered: delivered) }
+        wanted.append(contentsOf: box.rows)
         Self.group(&wanted)
         if wanted != rows { rows = wanted }
     }
@@ -345,49 +435,57 @@ final class ChatModel {
         row.avatarName = app.user?.fullName ?? ""
         row.avatarURL = app.account?.avatarUrl
         if let file { row.attachments = [AttachmentInfo.local(name: file.name, mime: file.mime, data: file.data, s)] }
-        outbox.append(row)
+        box.add(row, then: override ?? sendAction, file: file)
         rows.append(row)
         Self.group(&rows)
-        thenActions[clientId] = override ?? sendAction
-        Task { await deliver(clientId, workspaceId: ws.id, file: file) }
+        enqueue(clientId, workspaceId: ws.id)
     }
 
-    /// The status change each message in the outbox asked for, kept for a retry.
-    @ObservationIgnored private var thenActions: [String: PostSendAction] = [:]
+    /// One delivery at a time, in the order they were sent: a line typed after a big file does not
+    /// reach the visitor first. The row itself is on show at once.
+    private func enqueue(_ clientId: String, workspaceId: String) {
+        let previous = box.queue
+        box.queue = Task { [self] in
+            await previous?.value
+            await deliver(clientId, workspaceId: workspaceId)
+        }
+    }
 
-    private func deliver(_ clientId: String, workspaceId: String, file: (name: String, mime: String, data: Data)?) async {
-        guard let i = outbox.firstIndex(where: { $0.clientId == clientId }) else { return }
-        outbox[i].failed = false
-        outbox[i].pending = true
-        syncOutbox()
-        let body = outbox[i].body
+    /// The outbox is shared with any later model for this thread: whichever is on screen is redrawn,
+    /// and hears how it went.
+    private func deliver(_ clientId: String, workspaceId: String) async {
+        // Discarded while it waited its turn.
+        guard let row = box.row(clientId) else { return }
+        let file = box.file(clientId)
         do {
             var attachmentId: String?
             if let file {
                 let server = try await app.api.uploadAttachment(workspaceId: workspaceId, conversationId: id, fileName: file.name, mimeType: file.mime, data: file.data)
                 attachmentId = server
-                if let local = outbox.first(where: { $0.clientId == clientId })?.attachments.first?.id {
+                if let local = row.attachments.first?.id {
                     AttachmentStore.shared.alias(local, server)
                 }
             }
-            let then = thenActions[clientId] ?? .none
-            let result = try await app.api.sendMessage(conversationId: id, workspaceId: workspaceId, body: body, clientMessageId: clientId,
+            let then = box.then(clientId)
+            let result = try await app.api.sendMessage(conversationId: id, workspaceId: workspaceId, body: row.body, clientMessageId: clientId,
                                                        attachmentId: attachmentId, then: then)
-            outbox.removeAll { $0.clientId == clientId }
-            thenActions[clientId] = nil
-            if then != .none { afterSend(then, result) }
-            poller?.kick()
+            box.sent(clientId)
+            let shown = box.shown
+            shown?.render()
+            if then != .none { (shown ?? self).afterSend(then, result) }
+            shown?.poller?.kick()
             onChanged?()
         } catch {
             Log.error("send", error)
-            if let j = outbox.firstIndex(where: { $0.clientId == clientId }) {
-                outbox[j].pending = false
-                outbox[j].failed = true
-                outbox[j].time = "\(app.strings["sendFailed"]) · \(outbox[j].time)"
+            let failed = app.strings["sendFailed"]
+            box.update(clientId) { r in
+                r.pending = false
+                r.failed = true
+                r.time = "\(failed) · \(r.time)"
             }
-            syncOutbox()
-            retryFiles[clientId] = file
-            notice = Notice(severity: .error, message: ErrorText.of(error, app.strings), retry: true)
+            let shown = box.shown
+            shown?.render()
+            (shown ?? self).notice = Notice(severity: .error, message: ErrorText.of(error, app.strings), retry: true)
         }
     }
 
@@ -401,26 +499,28 @@ final class ChatModel {
         }
     }
 
-    @ObservationIgnored private var retryFiles: [String: (name: String, mime: String, data: Data)?] = [:]
-
-    func retryFailed() {
+    /// Sends the failed messages again (one, or all), in their order, each after the one before.
+    func retryFailed(_ only: String? = nil) {
         notice = nil
         guard let ws = app.workspace else { return }
-        for row in outbox where row.failed {
-            guard let cid = row.clientId else { continue }
-            if let i = outbox.firstIndex(where: { $0.clientId == cid }) {
-                outbox[i].time = Display.clockTime(Date(), app.strings.language)
+        let now = Display.clockTime(Date(), app.strings.language)
+        for cid in box.failedIds where only == nil || cid == only {
+            // Pending at once, so a second Retry does not send it twice.
+            box.update(cid) { r in
+                r.failed = false
+                r.pending = true
+                r.time = now
             }
-            let file = retryFiles[cid] ?? nil
-            Task { await deliver(cid, workspaceId: ws.id, file: file) }
+            enqueue(cid, workspaceId: ws.id)
         }
+        render()
     }
 
-    private func syncOutbox() {
-        for o in outbox {
-            if let i = rows.firstIndex(where: { $0.clientId == o.clientId }) { rows[i] = o }
-        }
-        Self.group(&rows)
+    /// Failed messages the operator gives up on (one, or all), with their files.
+    func discardFailed(_ only: String? = nil) {
+        notice = nil
+        box.discardFailed(only)
+        render()
     }
 
     /// The AI says it; the draft stays until that worked.
@@ -443,18 +543,18 @@ final class ChatModel {
 
     // MARK: Files
 
-    /// Puts a file in the composer to go out with the next Send.
+    /// Puts a picked, dropped or pasted file in the composer to go out with the next Send —
+    /// or says at once why it can't go (a kind the server refuses, or over 25 MB).
     func attach(url: URL) {
+        guard !aiMode else { return }
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
         do {
-            let values = try url.resourceValues(forKeys: [.fileSizeKey])
-            if (values.fileSize ?? 0) > Self.maxUpload {
-                notice = Notice(severity: .error, message: app.strings["fileTooLarge"])
-                return
-            }
-            let accessing = url.startAccessingSecurityScopedResource()
-            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+            let values = try url.resourceValues(forKeys: [.fileSizeKey, .contentTypeKey, .isDirectoryKey])
+            guard values.isDirectory != true else { return refuse(.notAllowed) }
+            if (values.fileSize ?? 0) > SendableFile.maxBytes { return refuse(.tooLarge) }
             let data = try Data(contentsOf: url)
-            attach(name: url.lastPathComponent, mime: Mime.of(url.lastPathComponent), data: data)
+            take(SendableFile.prepare(name: url.lastPathComponent, type: values.contentType, data: data))
         } catch {
             Log.error("pick file", error)
             notice = Notice(severity: .error, message: app.strings["attachmentFailed"])
@@ -463,11 +563,15 @@ final class ChatModel {
 
     func attach(name: String, mime: String, data: Data) {
         guard !aiMode else { return }
-        guard data.count <= Self.maxUpload else {
-            notice = Notice(severity: .error, message: app.strings["fileTooLarge"])
-            return
-        }
-        pendingFile = (name, mime, data)
+        take(SendableFile.check(name: name, mime: mime, data: data))
+    }
+
+    private func take(_ outcome: SendableFile.Outcome) {
+        if case .ready(let name, let mime, let data) = outcome { pendingFile = (name, mime, data) } else { refuse(outcome) }
+    }
+
+    private func refuse(_ outcome: SendableFile.Outcome) {
+        notice = Notice(severity: .error, message: app.strings[outcome == .tooLarge ? "fileTooLarge" : "fileTypeNotAllowed"])
     }
 
     // MARK: Voice notes

@@ -319,9 +319,10 @@ enum FileCache {
         do {
             try data.write(to: url, options: .atomic)
         } catch let e as CocoaError where e.code == .fileWriteOutOfSpace {
-            // The Mac is full: keep what is in memory and make room for next time.
+            // The Mac is full: keep what is in memory and make room for next time — half the cache,
+            // since the usual trim frees nothing until it is over its own limit.
             Log.write("[files] disk full, not cached")
-            trimInBackground()
+            upkeep.async { trim(maxBytes: 0, trimTo: measure().bytes / 2) }
         } catch {
             Log.write("[files] write failed")
         }
@@ -359,8 +360,12 @@ enum FileCache {
         guard total > maxBytes else { return }
         entries.sort { $0.2 < $1.2 }
         var removed = 0
-        for (url, size, _) in entries {
+        for (url, size, listedAt) in entries {
             if total <= trimTo { break }
+            // Read or rewritten since it was listed (reads and writes run on other threads): in use, kept.
+            // A fresh URL: the listed one caches the values it was asked for.
+            let now = (try? URL(fileURLWithPath: url.path).resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            if let now, now > listedAt { continue }
             try? FileManager.default.removeItem(at: url)
             total -= size
             removed += 1

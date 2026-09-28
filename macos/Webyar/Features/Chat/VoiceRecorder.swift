@@ -8,6 +8,9 @@ import Observation
 final class VoiceRecorder {
     enum Failure: Error { case denied, failed }
 
+    /// Voice notes are short: five minutes at most, well under the upload cap, whatever is on screen.
+    static let maxLength: TimeInterval = 300
+
     private(set) var isRecording = false
     private(set) var elapsed: TimeInterval = 0
 
@@ -15,6 +18,8 @@ final class VoiceRecorder {
     @ObservationIgnored private var url: URL?
     @ObservationIgnored private var started = Date()
     @ObservationIgnored private var timer: Timer?
+    /// Called once the cap is reached, to take the note (the file itself stops growing there).
+    @ObservationIgnored var onLimit: (() -> Void)?
 
     func start() async throws {
         guard !isRecording else { return }
@@ -32,7 +37,7 @@ final class VoiceRecorder {
             AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
         ]
         let r = try AVAudioRecorder(url: file, settings: settings)
-        guard r.record() else { throw Failure.failed }
+        guard r.record(forDuration: Self.maxLength) else { throw Failure.failed }
         recorder = r
         url = file
         started = Date()
@@ -41,7 +46,8 @@ final class VoiceRecorder {
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.isRecording else { return }
-                self.elapsed = Date().timeIntervalSince(self.started)
+                self.elapsed = min(Date().timeIntervalSince(self.started), VoiceRecorder.maxLength)
+                if self.elapsed >= VoiceRecorder.maxLength { self.onLimit?() }
             }
         }
     }
@@ -49,7 +55,7 @@ final class VoiceRecorder {
     /// Stops and hands back the file and its length.
     func stop() -> (Data, TimeInterval)? {
         guard isRecording, let recorder, let url else { return nil }
-        let length = Date().timeIntervalSince(started)
+        let length = min(Date().timeIntervalSince(started), Self.maxLength)
         recorder.stop()
         finish()
         defer { try? FileManager.default.removeItem(at: url) }

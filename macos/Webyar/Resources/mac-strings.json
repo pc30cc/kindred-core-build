@@ -71,7 +71,16 @@
   "cacheMessagesHint": "Conversations you have opened are saved on this Mac, so they show at once — even without a connection — and only what changed is fetched from the server.",
   "cacheFiles": "Photos and files",
   "cacheTotal": "Total",
-  "offlineSavedCopy": "No connection — showing the copy saved on this Mac."
+  "offlineSavedCopy": "No connection — showing the copy saved on this Mac.",
+  "loginLocked": "Too many tries: this account is locked for a few minutes. Try again later.",
+  "loginUseWeb": "After several tries, signing in needs a security check that only the website can show. Sign in once on the website, then try here again.",
+  "loginSetPassword": "This account has no password yet. Set one from the invitation email or on the website, then sign in here.",
+  "loginDisabled": "This account has been disabled. Ask your workspace admin.",
+  "switchWorkspaceOnCallTitle": "End the call and switch?",
+  "switchWorkspaceOnCallBody": "A call belongs to the workspace it started in, so switching ends the call you are on.",
+  "switchWorkspaceOnCallConfirm": "End call and switch",
+  "discardUnsent": "Discard",
+  "sendFailedFileNotKept": "{name} was not put back in the box, which already holds another file: attach it again to send it."
  },
  "fa": {
   "jumpToLatest": "رفتن به آخرین پیام",
@@ -145,7 +154,16 @@
   "cacheMessagesHint": "گفتگوهایی که باز کرده‌اید روی همین مک ذخیره می‌شوند تا فوری نمایش داده شوند — حتی بدون اینترنت — و فقط تغییرات از سرور دریافت شود.",
   "cacheFiles": "عکس‌ها و فایل‌ها",
   "cacheTotal": "مجموع",
-  "offlineSavedCopy": "اتصال برقرار نیست — نسخهٔ ذخیره‌شده روی این مک نمایش داده می‌شود."
+  "offlineSavedCopy": "اتصال برقرار نیست — نسخهٔ ذخیره‌شده روی این مک نمایش داده می‌شود.",
+  "loginLocked": "تلاش‌ها بیش از حد شد و این حساب چند دقیقه قفل است. کمی بعد دوباره امتحان کنید.",
+  "loginUseWeb": "بعد از چند بار تلاش، ورود به یک بررسی امنیتی نیاز دارد که فقط در وب‌سایت نشان داده می‌شود. یک بار در وب‌سایت وارد شوید و بعد دوباره اینجا امتحان کنید.",
+  "loginSetPassword": "این حساب هنوز رمز عبور ندارد. از ایمیل دعوت یا در وب‌سایت رمز بگذارید و بعد اینجا وارد شوید.",
+  "loginDisabled": "این حساب غیرفعال شده است. با مدیر فضای کاری تماس بگیرید.",
+  "switchWorkspaceOnCallTitle": "تماس قطع شود و فضای کاری عوض شود؟",
+  "switchWorkspaceOnCallBody": "هر تماس مال همان فضای کاری است که در آن شروع شده؛ با عوض کردن فضای کاری، تماسی که در آن هستید قطع می‌شود.",
+  "switchWorkspaceOnCallConfirm": "قطع تماس و تغییر",
+  "discardUnsent": "حذف",
+  "sendFailedFileNotKept": "«{name}» به کادر پیام برنگشت، چون فایل دیگری در آن است؛ برای فرستادنش، دوباره آن را پیوست کنید."
  },
  "tr": {
   "jumpToLatest": "En son mesaja git",
@@ -219,6 +237,15 @@
   "cacheMessagesHint": "Açtığınız konuşmalar bu Mac’e kaydedilir; bağlantı olmasa bile anında görünür ve sunucudan yalnızca değişenler alınır.",
   "cacheFiles": "Fotoğraflar ve dosyalar",
   "cacheTotal": "Toplam",
-  "offlineSavedCopy": "Bağlantı yok — bu Mac’e kaydedilen kopya gösteriliyor."
+  "offlineSavedCopy": "Bağlantı yok — bu Mac’e kaydedilen kopya gösteriliyor.",
+  "loginLocked": "Çok fazla deneme yapıldı; bu hesap birkaç dakikalığına kilitlendi. Biraz sonra yeniden deneyin.",
+  "loginUseWeb": "Birkaç denemeden sonra giriş için yalnızca web sitesinde gösterilebilen bir güvenlik doğrulaması gerekiyor. Bir kez web sitesinden giriş yapın, sonra burada yeniden deneyin.",
+  "loginSetPassword": "Bu hesabın henüz parolası yok. Davet e-postasından veya web sitesinden bir parola belirleyin, sonra buradan giriş yapın.",
+  "loginDisabled": "Bu hesap devre dışı bırakıldı. Çalışma alanı yöneticinize başvurun.",
+  "switchWorkspaceOnCallTitle": "Görüşme bitirilip geçilsin mi?",
+  "switchWorkspaceOnCallBody": "Bir görüşme başladığı çalışma alanına aittir; çalışma alanını değiştirmek sürmekte olan görüşmeyi bitirir.",
+  "switchWorkspaceOnCallConfirm": "Görüşmeyi bitir ve geç",
+  "discardUnsent": "Sil",
+  "sendFailedFileNotKept": "Kutuda zaten başka bir dosya olduğu için {name} geri konmadı; göndermek için yeniden ekleyin."
  }
 }

@@ -88,7 +88,8 @@ final class AnalyticsModel {
     private(set) var live: Int?
 
     private(set) var loading: Set<String> = []
-    private(set) var error: String?
+    /// Failures by report key, like `loading`, so one report's error is not shown on another's page.
+    private(set) var errors: [String: String] = [:]
     /// The server says the plan does not include web analytics (it may have changed since the sidebar last looked).
     private(set) var locked = false
 
@@ -131,6 +132,7 @@ final class AnalyticsModel {
         generation += 1
         // Answers still out are for the old range: they will be dropped, so they must not block the new ones.
         loading = []
+        errors = [:]
         overview = nil
         previous = nil
         breakdowns = [:]
@@ -144,6 +146,7 @@ final class AnalyticsModel {
         generation += 1
         // Answers still out are for the old range: they will be dropped, so they must not block the new ones.
         loading = []
+        errors = [:]
         overview = nil
         previous = nil
         breakdowns = [:]
@@ -197,6 +200,20 @@ final class AnalyticsModel {
 
     func isLoading(_ key: String) -> Bool { loading.contains(key) }
 
+    /// The failure of a report on the page on show, if any.
+    var error: String? {
+        let keys: [String]
+        switch section {
+        case .overview: keys = ["overview"]
+        case .sources: keys = ["sources.\(sourceDimension)"]
+        case .pages: keys = ["pages.\(pagesKind)"]
+        case .geography: keys = ["geo.\(geoDimension)"]
+        case .technology: keys = ["tech.device", "tech.os", "tech.browser"]
+        case .events: keys = ["events"]
+        }
+        return keys.compactMap { errors[$0] }.first
+    }
+
     /// One report for the range on show; its answer is kept only if the range is still the same.
     /// A `quiet` report is only an extra: when it fails the page shows without it.
     private func fetch<T>(_ key: String,
@@ -208,7 +225,7 @@ final class AnalyticsModel {
         let (start, end) = range.bounds
         let api = app.api
         loading.insert(key)
-        if !quiet { error = nil }
+        if !quiet { errors[key] = nil }
         Task {
             defer { if gen == generation { loading.remove(key) } }
             do {
@@ -224,7 +241,7 @@ final class AnalyticsModel {
             } catch {
                 guard gen == generation, !quiet, !(error is CancellationError) else { return }
                 Log.error("web analytics \(key)", error)
-                self.error = ErrorText.of(error, app.strings)
+                errors[key] = ErrorText.of(error, app.strings)
             }
         }
     }

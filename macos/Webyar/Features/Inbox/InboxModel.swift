@@ -20,6 +20,9 @@ final class InboxModel {
 
     /// The open conversation's thread; replaced when another one is picked.
     private(set) var chat: ChatModel?
+    /// Each conversation's replies still on their way or failed, kept while the operator moves between
+    /// threads: a reply that fails after they have moved on is there, with Retry, when they come back.
+    @ObservationIgnored private var outboxes: [String: ChatOutbox] = [:]
     var selectedId: String? { chat?.id }
 
     init(app: AppModel) {
@@ -57,6 +60,8 @@ final class InboxModel {
     /// its new messages are notified and not marked seen.
     func hide() {
         if app.visibleConversationId == chat?.id { app.visibleConversationId = nil }
+        // Nobody is there to stop it: a recording is dropped, as the colleagues page does.
+        chat?.stopRecording(keep: false)
     }
 
     func show(_ route: Route) {
@@ -174,7 +179,11 @@ final class InboxModel {
 
     private func openChat(id: String, conversation: Conversation?, focusComposer: Bool = true) {
         chat?.close()
-        let model = ChatModel(app: app, id: id, conversation: conversation)
+        // Only threads with something still out or failed keep an outbox.
+        outboxes = outboxes.filter { !$0.value.isEmpty }
+        let outbox = outboxes[id] ?? ChatOutbox()
+        outboxes[id] = outbox
+        let model = ChatModel(app: app, id: id, conversation: conversation, outbox: outbox)
         model.focusComposerOnOpen = focusComposer
         model.onChanged = { [weak self] in
             self?.poller?.kick()

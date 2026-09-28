@@ -423,20 +423,32 @@ actor LocalStore {
 
     @discardableResult
     private func run(_ db: OpaquePointer, _ sql: String, _ binds: [Bind] = []) -> Bool {
-        guard let s = prepare(db, sql, binds) else { return false }
+        guard let s = prepare(db, sql, binds) else {
+            failedInTransaction = true
+            return false
+        }
         defer { sqlite3_finalize(s) }
         let rc = sqlite3_step(s)
         if rc != SQLITE_DONE && rc != SQLITE_ROW {
+            failedInTransaction = true
             noteFailure(db)
             return false
         }
         return true
     }
 
+    /// A statement inside the current transaction failed.
+    private var failedInTransaction = false
+
+    /// All or nothing: SQLite undoes only a failing statement and keeps the transaction open, so
+    /// committing after one would save a thread marked whole (with its cursor) but missing messages
+    /// — which a delta read would then never fetch again.
     private func transaction(_ db: OpaquePointer, _ body: () -> Void) {
+        failedInTransaction = false
         guard run(db, "BEGIN IMMEDIATE") else { return }
         body()
-        if !run(db, "COMMIT") { run(db, "ROLLBACK") }
+        if failedInTransaction || !run(db, "COMMIT") { run(db, "ROLLBACK") }
+        failedInTransaction = false
     }
 
     /// A damaged file found while in use: dropped, and the next call starts from an empty one.

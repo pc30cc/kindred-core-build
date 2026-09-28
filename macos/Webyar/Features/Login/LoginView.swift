@@ -147,12 +147,33 @@ struct LoginView: View {
                 password = ""
             } catch {
                 Log.error("login", error)
-                let status = error.apiError?.status
-                withAnimation {
-                    self.error = [400, 401, 403].contains(status ?? 0) ? s["loginFailed"] : ErrorText.of(error, s, unauthorized: s["loginFailed"])
-                }
+                withAnimation { self.error = Self.message(for: error, s) }
             }
             busy = false
+        }
+    }
+}
+
+extension LoginView {
+    /// What went wrong, in the words that say what to do: a wrong password is only one of the
+    /// server's refusals (auth.ts), and the others cannot be fixed by typing it again.
+    static func message(for error: Error, _ s: Strings) -> String {
+        let e = error.apiError
+        let said = ((e?.serverMessage ?? "") + " " + (e?.body ?? "")).lowercased()
+        switch e?.status ?? 0 {
+        case 429:
+            return s["loginLocked"]
+        case 400 where said.contains("captcha"):
+            // After a few misses the server wants a captcha, which only the web page can show.
+            return s["loginUseWeb"]
+        case 403 where said.contains("passwordsetuprequired") || said.contains("password setup"):
+            return s["loginSetPassword"]
+        case 403 where said.contains("disabled"):
+            return s["loginDisabled"]
+        case 400, 401, 403:
+            return s["loginFailed"]
+        default:
+            return ErrorText.of(error, s, unauthorized: s["loginFailed"])
         }
     }
 }

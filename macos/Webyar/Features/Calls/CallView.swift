@@ -782,7 +782,7 @@ struct CallStatusText: View {
     @Environment(AppModel.self) private var app
 
     static func color(_ call: LiveCall) -> Color {
-        call.phase == .connected ? Palette.success : Color(hex: 0x98A2B3)
+        call.phase == .connected && call.connectedAt != nil ? Palette.success : Color(hex: 0x98A2B3)
     }
 
     var body: some View {
@@ -800,7 +800,8 @@ struct CallStatusText: View {
                             .monospacedDigit()
                     }
                 } else {
-                    Text(Display.duration(0, s.language))
+                    // In the room, the visitor not yet: as Windows' "waiting for the visitor".
+                    Text(s["callWaiting"])
                 }
             case .ended(let outcome):
                 Text(s[outcome.textKey])

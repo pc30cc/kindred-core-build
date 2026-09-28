@@ -1,4 +1,4 @@
-# App downloads (Windows installer, Android APK)
+# App downloads (Windows installer, Android APK, Mac DMG)
 
 `https://app.webyar.ai/downloads/Webyar-Setup.exe` (latest) and
 `https://app.webyar.ai/downloads/Webyar-Setup-<version>.exe` are served from the
@@ -48,3 +48,25 @@ key — see `docs/ANDROID_RELEASE.md`. Publish a new version:
 The site's download page (webyar.ai → admin → «برنامه‌ها و دانلود» → Android)
 points at `https://app.webyar.ai/downloads/Webyar-Android.apk`, so a new
 version needs only the symlink moved.
+
+## The Mac app
+
+`https://app.webyar.ai/downloads/Webyar-Mac.dmg` (latest) and
+`https://app.webyar.ai/downloads/Webyar-Mac-<version>.dmg` come from the same
+container and folder; `nginx.conf` and the Traefik rule above carry the
+`Webyar-Mac*.dmg` route. The DMG is one Universal app (Apple Silicon and Intel,
+macOS 14+), built on a Mac with `macos/scripts/make-dmg.sh <version> <build>`.
+Publish it:
+
+    v=1.0.2
+    scp Webyar-Mac-$v.dmg root@analyticsme.site:/data/webyar-downloads/files/
+    ssh root@analyticsme.site "cd /data/webyar-downloads/files && ln -sf Webyar-Mac-$v.dmg Webyar-Mac.dmg"
+
+Two things learnt putting it up:
+
+- After changing `nginx.conf`, restart the container (`docker restart
+  webyar-downloads`): the file is bind-mounted, and a container keeps the copy
+  it started with once the file is rewritten in place of the old one, so
+  `nginx -s reload` alone can keep serving the old rules.
+- Cloudflare caches a 404 for a few minutes: a new file name asked for before
+  its route is in place answers 404 for a short while afterwards.

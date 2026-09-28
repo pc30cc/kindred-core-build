@@ -48,7 +48,9 @@ final class EmailModel {
     }
     var search = ""
     @ObservationIgnored private var searchTask: Task<Void, Never>?
-    @ObservationIgnored private var appliedSearch: String?
+    /// The query the list is built for. Only the debounce changes it, so a poll or ⌘R while the operator
+    /// is still typing refreshes what is shown instead of mixing a half-typed search into it.
+    @ObservationIgnored private var appliedSearch = ""
 
     // The open thread
     private(set) var selectedId: String?
@@ -86,6 +88,8 @@ final class EmailModel {
         poller = Poller("email", interval: { 60 }) { [weak self] in try await self?.load() }
         poller?.start()
         Task { await checkConnection() }
+        // A search typed just before the section was left never reached its debounce.
+        applySearch()
     }
 
     func stop() {
@@ -111,9 +115,15 @@ final class EmailModel {
         searchTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 400_000_000)
             guard !Task.isCancelled, let self else { return }
-            let q = self.search.trimmingCharacters(in: .whitespaces)
-            if q != (self.appliedSearch ?? "") { self.reload() }
+            self.applySearch()
         }
+    }
+
+    private func applySearch() {
+        let q = search.trimmingCharacters(in: .whitespaces)
+        guard q != appliedSearch else { return }
+        appliedSearch = q
+        reload()
     }
 
     private func checkConnection() async {
@@ -125,20 +135,15 @@ final class EmailModel {
     private func load() async throws {
         guard let ws = app.workspace else { return }
         let gen = generation
-        let q = search.trimmingCharacters(in: .whitespaces)
         defer { if gen == generation { loading = false } }
         do {
-            let page = try await app.api.emailThreads(workspaceId: ws.id, folder: folder, search: q)
+            let page = try await app.api.emailThreads(workspaceId: ws.id, folder: folder, search: appliedSearch)
             guard gen == generation else { return }
-            appliedSearch = q
-            // Keep any older pages already loaded below the fresh first page.
-            let fresh = page.threads ?? []
-            let freshIds = Set(fresh.map(\.id))
-            // Everything already loaded that the fresh page does not carry: new mail pushes the old first
-            // page's tail down, and dropping a fixed count would lose it.
-            let older = threads.filter { !freshIds.contains($0.id) }
-            threads = sorted(fresh + older)
-            if nextBefore == nil || threads.count <= fresh.count { nextBefore = page.nextBefore }
+            let merged = Self.merge(threads, fresh: page.threads ?? [], hasMore: page.nextBefore != nil)
+            threads = merged.threads
+            // Only while nothing past the first page is loaded does its cursor apply; after "Load more"
+            // (to the end or not) the deeper cursor stands, or a poll would send the list back to page two.
+            if !merged.keptOlder { nextBefore = page.nextBefore }
             error = nil
         } catch let e as ApiError where e.failure != .unauthorized {
             // 409: no mailbox connected — shown as its own empty state, not an error.
@@ -163,7 +168,7 @@ final class EmailModel {
                 let page = try await app.api.emailThreads(workspaceId: ws.id, folder: folder, search: appliedSearch, before: before)
                 guard gen == generation else { return }
                 let known = Set(threads.map(\.id))
-                threads = sorted(threads + (page.threads ?? []).filter { !known.contains($0.id) })
+                threads = Self.sorted(threads + (page.threads ?? []).filter { !known.contains($0.id) })
                 nextBefore = page.nextBefore
             } catch {
                 Log.error("email more", error)
@@ -171,13 +176,27 @@ final class EmailModel {
         }
     }
 
-    private func sorted(_ list: [EmailThreadSummary]) -> [EmailThreadSummary] {
+    /// A fresh first page over what is loaded, and whether any thread past it was kept.
+    static func merge(_ loaded: [EmailThreadSummary], fresh: [EmailThreadSummary], hasMore: Bool) -> (threads: [EmailThreadSummary], keptOlder: Bool) {
+        let freshIds = Set(fresh.map(\.id))
+        // Everything already loaded that the fresh page does not carry and that is older than it: new mail
+        // pushes the old first page's tail down, and dropping a fixed count would lose it. One missing from
+        // within the page's span no longer belongs in this folder or search; with no next page, none do.
+        let oldest = hasMore ? fresh.map { $0.lastMessageAt ?? .distantPast }.min() : nil
+        let older = loaded.filter { t in
+            guard let oldest, !freshIds.contains(t.id) else { return false }
+            return (t.lastMessageAt ?? .distantPast) <= oldest
+        }
+        return (Self.sorted(fresh + older), !older.isEmpty)
+    }
+
+    private static func sorted(_ list: [EmailThreadSummary]) -> [EmailThreadSummary] {
         list.sorted { ($0.lastMessageAt ?? .distantPast) > ($1.lastMessageAt ?? .distantPast) }
     }
 
     var unreadCount: Int { threads.filter(\.unread).count }
 
-    var notConnected: Bool { connectionChecked && connection?.connected != true && threads.isEmpty && (appliedSearch ?? "").isEmpty }
+    var notConnected: Bool { connectionChecked && connection?.connected != true && threads.isEmpty && appliedSearch.isEmpty }
 
     // MARK: Reading
 
@@ -364,23 +383,30 @@ final class EmailModel {
     func stage(_ url: URL, into list: @escaping (OutgoingAttachment?, UUID?) -> Void) {
         guard let ws = app.workspace else { return }
         let accessing = url.startAccessingSecurityScopedResource()
-        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
-        guard let data = try? Data(contentsOf: url) else {
+        // The size from the file system, so an oversized file is refused without reading it.
+        guard let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else {
+            if accessing { url.stopAccessingSecurityScopedResource() }
             notice = (.error, app.strings["attachmentFailed"])
             return
         }
-        guard Int64(data.count) <= Self.maxAttachment else {
+        guard Int64(fileSize) <= Self.maxAttachment else {
+            if accessing { url.stopAccessingSecurityScopedResource() }
             notice = (.error, app.strings["fileTooLarge"])
             return
         }
         let name = url.lastPathComponent
         let mime = Mime.of(name)
-        let item = OutgoingAttachment(name: name, mime: mime, size: Int64(data.count))
+        let item = OutgoingAttachment(name: name, mime: mime, size: Int64(fileSize))
         list(item, nil)
         let id = item.id
         Task {
             var done = item
             do {
+                // Up to 25 MB: read off the main actor, keeping the sandbox grant until it is read.
+                let data = try await Task.detached(priority: .userInitiated) { () throws -> Data in
+                    defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+                    return try Data(contentsOf: url)
+                }.value
                 done.staged = try await app.api.stageEmailAttachment(workspaceId: ws.id, filename: name, contentType: mime, data: data)
             } catch {
                 Log.error("email attachment", error)

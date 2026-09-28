@@ -104,6 +104,31 @@ final class AppModel {
     private(set) var isForeground = true
     /// SwiftUI's openSettings, handed over by the window (macOS 14 has no selector for it).
     @ObservationIgnored var showSettings: (() -> Void)?
+    /// Opens the main window again after it was closed (the app kept running in the menu bar).
+    @ObservationIgnored var reopenMainWindow: (() -> Void)?
+    /// A notification clicked before the workspace was up.
+    @ObservationIgnored private var pendingOpen: [String: String]?
+
+    /// Brings the main window forward — reopening it if it was closed, which a closed SwiftUI
+    /// window needs: it is no longer among NSApp.windows to bring forward.
+    func showMainWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        let isMain: (NSWindow) -> Bool = { $0.identifier?.rawValue.hasPrefix("main") == true }
+        if let main = NSApp.windows.first(where: { isMain($0) && ($0.isVisible || $0.isMiniaturized) }) {
+            if main.isMiniaturized { main.deminiaturize(nil) }
+            main.makeKeyAndOrderFront(nil)
+        } else if let reopen = reopenMainWindow {
+            reopen()
+        } else {
+            // Hidden at login before any view could hand over the way to reopen it.
+            NSApp.windows.first(where: isMain)?.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    /// The main window is on screen (or in the Dock): somewhere a docked call can be shown.
+    var hasMainWindow: Bool {
+        NSApp.windows.contains { $0.identifier?.rawValue.hasPrefix("main") == true && ($0.isVisible || $0.isMiniaturized) }
+    }
     /// Bumped by each workspace start and by sign-out, so a start still waiting on the plan knows it is stale.
     @ObservationIgnored private var openGeneration = 0
 
@@ -169,7 +194,7 @@ final class AppModel {
         Log.write("launch \(Self.version)")
         await refreshPlatform()
         guard client.hasSession else {
-            phase = .signedOut
+            needSignIn()
             return
         }
         do {
@@ -177,7 +202,8 @@ final class AppModel {
             rememberStoreOwner()
             await enter()
         } catch let e as ApiError where e.failure == .unauthorized {
-            phase = .signedOut
+            client.discardSession()
+            needSignIn()
         } catch {
             // Offline at launch: keep the session and show the shell, which retries on its own.
             Log.error("restore session", error)
@@ -213,7 +239,11 @@ final class AppModel {
         applySystemIntegration()
         // A section the platform just switched off: back to the inbox, and no ringing for a desk that is gone.
         if !isAllowed(route) { route = .inbox(.open) }
-        if !plan.callCenter { stopRinging() }
+        if !plan.callCenter {
+            stopRinging()
+            handedCall = nil
+            handedCallError = nil
+        }
     }
 
     /// Hourly; every minute while maintenance is on, so the notice clears promptly.
@@ -268,7 +298,8 @@ final class AppModel {
     // MARK: Platform switches
 
     /// Closing the window keeps the app running: the operator's choice, when there is a menu bar item to run in.
-    var closesToMenuBar: Bool { config.system.menuBarExtra && settings.closeToMenuBar }
+    /// Only with the menu bar item actually shown: otherwise the app would run on with no way back but the Dock.
+    var closesToMenuBar: Bool { showsMenuBarItem && settings.closeToMenuBar }
 
     var showsMenuBarItem: Bool { config.system.menuBarExtra && settings.menuBarItem }
 
@@ -290,16 +321,20 @@ final class AppModel {
 
     /// After a sign-in or a restored session: pick the workspace and open the shell.
     func enter() async {
+        var listed = false
         do {
             workspaces = try await api.workspaces()
+            listed = true
             Log.write("workspaces: \(workspaces.count)")
         } catch let e as ApiError where e.failure != .unauthorized {
             Log.error("workspaces", e)
         } catch {
             return
         }
+        // The saved one stands in only when the list could not be read (offline at launch): an
+        // account the server says has no workspace must not open whichever this Mac used last.
         workspace = workspaces.first { $0.id == settings.workspaceId } ?? workspaces.first
-            ?? settings.workspaceId.map { Workspace(id: $0, name: "") }
+            ?? (listed ? nil : settings.workspaceId.map { Workspace(id: $0, name: "") })
         if let ws = workspace, ws.id != settings.workspaceId {
             settings.workspaceId = ws.id
             saveSettings()
@@ -328,10 +363,35 @@ final class AppModel {
         openLocalStore()
         startRealtime()
         await startPresence()
+        // Signed out while presence started (a 401 elsewhere): nothing of this start may go on.
+        guard gen == openGeneration else {
+            stopPresence()
+            return
+        }
         startShell()
         phase = .signedIn
         engagement.start()
         engagement.refresh()
+        // A notification clicked while the app was still starting.
+        if let args = pendingOpen {
+            pendingOpen = nil
+            open(from: args)
+        }
+    }
+
+    /// From the workspace menus: moving hangs up the call under way, so that is asked first.
+    func requestSwitchWorkspace(_ ws: Workspace) async {
+        guard ws.id != workspace?.id else { return }
+        if CallCoordinator.shared.isBusy {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = strings["switchWorkspaceOnCallTitle"]
+            alert.informativeText = strings["switchWorkspaceOnCallBody"]
+            alert.addButton(withTitle: strings["switchWorkspaceOnCallConfirm"])
+            alert.addButton(withTitle: strings["cancel"])
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        await switchWorkspace(ws)
     }
 
     /// Moves to another of the operator's workspaces, as the web's workspace menu does.
@@ -357,6 +417,9 @@ final class AppModel {
     func refreshWorkspaces() async {
         guard let fresh = try? await api.workspaces(), !fresh.isEmpty else { return }
         if fresh.map(\.id) != workspaces.map(\.id) || fresh != workspaces { workspaces = fresh }
+        // Its name and logo too: the header reads them from here, and a launch before the network
+        // was up left only the id.
+        if let current = fresh.first(where: { $0.id == workspace?.id }), current != workspace { workspace = current }
     }
 
     #if DEBUG
@@ -367,6 +430,7 @@ final class AppModel {
         // Signing out on purpose: this account's saved messages leave the Mac too.
         let leaving = user?.id ?? UserDefaults.standard.string(forKey: Self.storeOwnerKey)
         let store = localStore
+        await CallCoordinator.shared.hangUpBeforeSignOut()
         await engagement.sayGoodbye()
         do {
             try await client.logout()
@@ -383,6 +447,8 @@ final class AppModel {
     /// The server no longer knows this session (or the operator signed out).
     func signedOut() {
         guard phase != .signedOut else { return }
+        // The server no longer takes this session: the next launch must go to sign-in, not an empty shell.
+        client.discardSession()
         openGeneration += 1
         // Nothing would be left on screen to hang up with, and the microphone would stay live.
         CallCoordinator.shared.hangUpForQuit()
@@ -403,10 +469,27 @@ final class AppModel {
         ImageStore.shared.clearMemory()
         user = nil
         account = nil
+        workspace = nil
+        workspaces = []
+        pendingConversation = nil
+        pendingCall = nil
+        pendingOpen = nil
+        handedCall = nil
+        handedCallError = nil
+        stopRinging()
+        // Message previews stay in Notification Center otherwise, for whoever uses this Mac next.
+        notifier.clearDelivered()
         unread = 0
         updateBadge()
         route = .inbox(.open)
+        needSignIn()
+    }
+
+    /// The sign-in page, where it can be seen: the menu bar item goes when signed out, and a window
+    /// closed to the menu bar (or hidden at login) would leave the app with no way in.
+    private func needSignIn() {
         phase = .signedOut
+        if !hasMainWindow { showMainWindow() }
     }
 
     // MARK: Plan
@@ -761,30 +844,44 @@ final class AppModel {
 
     /// Shows a section by name: inbox, contacts, visitors, calls, colleagues.
     func openPage(_ page: String?) {
+        let target: Route
         switch page {
-        case "contacts": route = .contacts
-        case "visitors": route = .visitors
-        case "calls": route = .calls
-        case "colleagues": route = .colleagues
-        case "email": route = .email
-        case "analytics": route = .analytics
-        case "settings": showSettings?()
-        default: route = .inbox(.open)
+        case "contacts": target = .contacts
+        case "visitors": target = .visitors
+        case "calls": target = .calls
+        case "colleagues": target = .colleagues
+        case "email": target = .email
+        case "analytics": target = .analytics
+        case "settings": showSettings?(); return
+        default: target = .inbox(.open)
         }
+        // A section the plan or Super Admin has switched off since the notice went out stays hidden.
+        route = isAllowed(target) ? target : .inbox(.open)
     }
 
     func openCall(_ id: String, answer: Bool) {
         if ringing?.callSessionId == id { stopRinging() }
+        guard isAllowed(.calls) else { return }
         pendingCall = (id, answer)
         route = .calls
     }
 
     /// A notification was clicked.
     func open(from args: [String: String]) {
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true || $0.isMainWindow }?.makeKeyAndOrderFront(nil)
+        showMainWindow()
+        // Still starting (a click that launched the app): opened once the workspace is up. Signed
+        // out, a notice from before belongs to nobody on screen now.
+        guard phase == .signedIn else {
+            if phase == .launching { pendingOpen = args }
+            return
+        }
         // A notice from another workspace opens there, not under the one on show now.
         if let wsId = args["workspace"], !wsId.isEmpty, wsId != workspace?.id {
+            // Moving would hang up the call under way: a click on an old notice is no reason to.
+            guard !CallCoordinator.shared.isBusy else {
+                CallCoordinator.shared.showCallPage()
+                return
+            }
             guard let target = workspaces.first(where: { $0.id == wsId }) else { return }
             Task {
                 await switchWorkspace(target)
@@ -826,12 +923,23 @@ final class AppModel {
     }
 
     /// The caller hung up, or a colleague answered: the banner goes with the call.
+    /// Run after every read of the line (not from a view: with the window closed to the menu bar
+    /// the banner would never go, and a banner left up keeps every later call from ringing).
     func syncRinging() {
         guard let r = ringing, let q = callQueue else { return }
         if !q.queue.contains(where: { $0.callSessionId == r.callSessionId }) {
             stopRinging()
-            let now = Date()
-            if let next = q.queue.first(where: { $0.createdAt.map { now.timeIntervalSince($0) < ringFor } ?? false }) { ring(next) }
+            ringNext(excluding: r.callSessionId)
+        }
+    }
+
+    /// The next caller still waiting, and new enough to ring for (one that came in while another
+    /// rang was not rung, and is only known by the line now).
+    private func ringNext(excluding id: String) {
+        guard let q = callQueue else { return }
+        let now = Date()
+        if let next = q.queue.first(where: { $0.callSessionId != id && ($0.createdAt.map { now.timeIntervalSince($0) < ringFor } ?? false) }) {
+            ring(next)
         }
     }
 
@@ -866,13 +974,16 @@ final class AppModel {
     /// Joins the handed-over call: the desk's accept gives this operator a token for the same room.
     func joinHandedCall() async {
         guard let c = handedCall, let ws = workspace, !joiningHandedCall else { return }
-        if CallCoordinator.shared.isBusy {
+        guard CallCoordinator.shared.beginAnswering() else {
             handedCallError = strings["ccOnCall"]
             return
         }
         joiningHandedCall = true
         handedCallError = nil
-        defer { joiningHandedCall = false }
+        defer {
+            joiningHandedCall = false
+            CallCoordinator.shared.endAnswering()
+        }
         do {
             let accept = try await api.acceptCall(workspaceId: ws.id, callId: c.id)
             guard accept.connect?.supported == true else {
@@ -914,7 +1025,10 @@ final class AppModel {
         } catch {
             Log.error("reject call", error)
         }
+        // A poll during the reject may already have moved the banner on to the next caller.
+        guard ringing?.callSessionId == entry.callSessionId else { return }
         stopRinging()
+        ringNext(excluding: entry.callSessionId)
         callQueue?.kick()
     }
 

@@ -35,10 +35,6 @@ struct ComposerView: View {
                 }
                 .padding(.horizontal, 16)
                 .frame(minHeight: 46)
-                .onChange(of: Int(chat.recorder.elapsed)) { _, secs in
-                    // Voice notes are short; stop well before the upload cap.
-                    if secs >= 300 { chat.stopRecording(keep: true) }
-                }
             } else {
                 TextField(s[ai ? "sayNowPlaceholder" : "composerPlaceholder"], text: $chat.draft, axis: .vertical)
                     .textFieldStyle(.plain)
@@ -156,7 +152,7 @@ struct ComposerView: View {
         .glassCard(20, tint: focused ? Palette.brand.opacity(0.05) : nil)
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(focused ? Palette.brand.opacity(0.55) : .clear, lineWidth: 1.2))
         .animation(.smooth(duration: 0.18), value: focused)
-        .fileImporter(isPresented: $picking, allowedContentTypes: [.item]) { result in
+        .fileImporter(isPresented: $picking, allowedContentTypes: SendableFile.pickerTypes) { result in
             if case .success(let url) = result { chat.attach(url: url) }
             focused = true
         }

@@ -242,6 +242,7 @@ class AppState(
         try {
             val user = api.currentUser()
             cache.save(user)
+            recallWorkspace(user.id)
             hooks.signedIn(user)
             _session.value = Session.SignedIn(user)
             loadWorkspaces()
@@ -255,6 +256,7 @@ class AppState(
                 withContext(NonCancellable) { endSession(stale?.id) }
             } else {
                 val cached = cache.read()
+                cached?.let { recallWorkspace(it.id) }
                 // Offline at launch: the cached operator stands in, and so
                 // does their cache — which is the whole point of having one.
                 cached?.let(hooks::signedIn)
@@ -289,6 +291,7 @@ class AppState(
     suspend fun logIn(email: String, password: String): Result<Unit> = runCatching {
         val user = api.logIn(email.trim(), password)
         cache.save(user)
+        recallWorkspace(user.id)
         hooks.signedIn(user)
         _session.value = Session.SignedIn(user)
         loadWorkspaces()
@@ -360,6 +363,7 @@ class AppState(
         // selected here may carry across to them — and no retry still in
         // flight may bring the last one's back.
         workspacesJob?.cancel()
+        rememberedWorkspace = null
         _workspaces.value = emptyList()
         _selectedWorkspace.value = null
         entitlementsRetry?.cancel()
@@ -406,6 +410,17 @@ class AppState(
     private var workspacesJob: Job? = null
 
     /**
+     * The workspace this operator was last in ([Preferences.workspace]), read
+     * before the list is asked for rather than while choosing from it: the
+     * choice then waits on nothing but the list.
+     */
+    private var rememberedWorkspace: String? = null
+
+    private suspend fun recallWorkspace(userId: String) {
+        rememberedWorkspace = runCatching { prefs.workspace(userId) }.getOrNull()
+    }
+
+    /**
      * Loads the workspace list, and tries again until it lands.
      *
      * Everything else hangs off the workspace — the conversations, the plan,
@@ -430,8 +445,7 @@ class AppState(
                 val current = _selectedWorkspace.value
                 if (current == null || list.none { it.id == current.id }) {
                     // Where this operator last was, while they still have it.
-                    val userId = (_session.value as? Session.SignedIn)?.user?.id
-                    val remembered = userId?.let { runCatching { prefs.workspace(it) }.getOrNull() }
+                    val remembered = rememberedWorkspace
                     val chosen = list.firstOrNull { it.id == remembered } ?: list.firstOrNull()
                     chosen?.let(::selectWorkspace)
                 } else {

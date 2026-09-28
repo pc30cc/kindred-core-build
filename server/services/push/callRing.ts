@@ -155,7 +155,9 @@ export async function ringOperators(
         workspaceId: input.workspaceId,
         workspaceName: caller.workspaceName,
         channel: input.channel,
-        caller: caller.name,
+        // Left empty when nobody is named, so the phone says "website
+        // visitor" in its operator's language rather than in English.
+        caller: caller.named ? caller.name : '',
         callerId: caller.id,
         avatarUrl: caller.avatarUrl,
         expiresAt,
@@ -404,6 +406,8 @@ async function forgetVoipToken(config: ServerConfig, deviceId: string): Promise<
 
 interface CallerDescription {
   name: string;
+  /** False when [name] is only the generic label, not anybody's name. */
+  named: boolean;
   id: string;
   avatarUrl: string | null;
   workspaceName: string | null;
@@ -424,6 +428,7 @@ async function describeCaller(
   const sb = getServiceClient(config);
   const fallback: CallerDescription = {
     name: 'Website visitor',
+    named: false,
     id: callSessionId,
     avatarUrl: null,
     workspaceName: null,
@@ -450,9 +455,10 @@ async function describeCaller(
         .maybeSingle();
       if (contact) {
         const row = contact as ContactRow;
-        const name = firstNonEmpty([row.name, row.email, row.visitor_code]) ?? fallback.name;
+        const known = firstNonEmpty([row.name, row.email, row.visitor_code]);
         return {
-          name,
+          name: known ?? fallback.name,
+          named: known !== null,
           id: String(row.id),
           // From the key through the provider in use now, like every other avatar.
           avatarUrl: await resolveContactAvatarUrl(createStorageUrlResolver(config), workspaceId, row),

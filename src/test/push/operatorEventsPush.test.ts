@@ -252,6 +252,12 @@ describe('a call-centre call on an Android phone', () => {
     expect(sent.fcm).toHaveLength(0);
   });
 
+  it('a caller nobody could name is sent unnamed, for the phone to name in its own language', async () => {
+    db.contacts = [];
+    await ringOperators(CONFIG, { workspaceId: WS, callSessionId: 'call-1', agentId: ME, channel: 'audio' });
+    expect(sent.data[0].data.caller).toBe('');
+  });
+
   it('broadcast rings every available operator, support agents included', async () => {
     await ringOperators(CONFIG, { workspaceId: WS, callSessionId: 'call-1', agentId: null, channel: 'audio' });
     expect(sent.data.map((m) => m.token).sort()).toEqual([`token-${ME}`, `token-${OTHER}`].sort());

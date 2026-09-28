@@ -132,12 +132,13 @@ final class AppState {
         #else
         self.language = chosen
         #endif
-        // `didSet` does not run for the initial value, and this is before the
-        // first frame — IRANSans is registered and chosen here or not at all.
-        Typeface.use(language)
 
         let storedAppearance = UserDefaults.standard.string(forKey: Self.appearanceKey)
         self.appearance = storedAppearance.flatMap(AppearancePreference.init(rawValue:)) ?? .system
+
+        // `didSet` does not run for the initial value, and this is before the
+        // first frame — IRANSans is registered and chosen here or not at all.
+        Typeface.use(language)
     }
 
     // MARK: - Session

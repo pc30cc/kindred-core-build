@@ -90,6 +90,8 @@ export interface PushPlatformSettings {
 
   throttle_per_user_per_minute: number;
   dispatch_log_retention_days: number;
+  /** The server removes log rows older than the retention on its own. */
+  dispatch_log_auto_purge: boolean;
 
   categories: PushCategory[];
   templates: Record<string, PushTemplate>;
@@ -168,6 +170,40 @@ export function useDispatchLog(status: string) {
       adminFetch<{ entries: DispatchEntry[]; totals: { devices: number; accepted: number; failed: number } }>(
         `/api/admin/notifications/log?limit=50&status=${encodeURIComponent(status)}`,
       ),
+  });
+}
+
+/** What the notification log holds — iPhone and Android alike — and its last cleanup. */
+export interface DispatchLogStats {
+  total: number;
+  /** Rows a cleanup at `retentionDays` would remove right now. */
+  expired: number;
+  oldest: string | null;
+  retentionDays: number;
+  autoPurge: boolean;
+  lastPurgedAt: string | null;
+  lastPurgedCount: number | null;
+}
+
+export function useDispatchLogStats(days: number) {
+  return useQuery({
+    queryKey: [...KEY, 'log', 'stats', days],
+    queryFn: () => adminFetch<DispatchLogStats>(`/api/admin/notifications/log/stats?days=${days}`),
+  });
+}
+
+/** "Clean up now": removes every log row older than `days`. */
+export function usePurgeDispatchLog() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (days: number) =>
+      adminFetch<{ success: boolean; removed: number; days: number; stats: DispatchLogStats }>(
+        '/api/admin/notifications/log/purge',
+        { method: 'POST', body: JSON.stringify({ days }) },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: [...KEY, 'log'] });
+    },
   });
 }
 

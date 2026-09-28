@@ -418,6 +418,17 @@ export async function unreadBadgeCount(
   workspaceId?: string | null,
 ): Promise<number> {
   const sb = getServiceClient(config);
+  // One statement (migration 236) in place of the four round trips below,
+  // which stay as the path for a database that has not run it yet.
+  try {
+    const { data, error } = await sb.rpc('push_unread_badge', {
+      p_user_id: userId,
+      p_workspace_id: workspaceId ?? null,
+    });
+    if (!error && data != null && Number.isFinite(Number(data))) return Number(data);
+  } catch {
+    // No such function, or a client without rpc: count it the long way.
+  }
   let workspaceIds: string[] = [];
   if (workspaceId) {
     const { data: member } = await sb

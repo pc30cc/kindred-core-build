@@ -151,7 +151,7 @@ export default function AdminNotificationsPage() {
           <NotificationEmailTab />
         </TabsContent>
         <TabsContent value="diagnostics" className="space-y-4">
-          <NotificationDiagnosticsTab active={tab === 'diagnostics'} />
+          <NotificationDiagnosticsTab active={tab === 'diagnostics'} draft={draft} set={set} />
         </TabsContent>
       </Tabs>
 

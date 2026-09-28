@@ -92,7 +92,7 @@ export const DEFAULT_CATEGORIES: PushCategory[] = [
     // Everything that is about one customer conversation the operator can
     // answer from the banner: a new message, one handed to them, one the AI
     // let go of.
-    eventTypes: ['new_message', 'assigned', 'handoff'],
+    eventTypes: ['new_message', 'assignment', 'handoff'],
     actions: [
       {
         id: 'REPLY',
@@ -149,7 +149,7 @@ export const DEFAULT_CATEGORIES: PushCategory[] = [
   },
   {
     id: 'WEBYAR_EMAIL',
-    eventTypes: ['email'],
+    eventTypes: ['email_message'],
     actions: [
       {
         id: 'OPEN',
@@ -163,8 +163,8 @@ export const DEFAULT_CATEGORIES: PushCategory[] = [
 ];
 
 /**
- * Copy templates. `{{sender}}`, `{{preview}}`, `{{workspace}}`, `{{actor}}`
- * and `{{count}}` are substituted at dispatch time; an unknown placeholder is
+ * Copy templates. `{{sender}}`, `{{preview}}`, `{{workspace}}` and
+ * `{{count}}` are substituted at dispatch time; an unknown placeholder is
  * left untouched rather than rendered as an empty string.
  */
 export const DEFAULT_TEMPLATES: Record<string, PushTemplate> = {
@@ -193,60 +193,6 @@ export const DEFAULT_TEMPLATES: Record<string, PushTemplate> = {
       en: 'New internal note',
       fa: 'یادداشت داخلی جدید',
       tr: 'Yeni dahili not',
-    },
-  },
-  assigned: {
-    title: { default: '{{sender}}', en: '{{sender}}', fa: '{{sender}}', tr: '{{sender}}' },
-    body: {
-      default: 'Assigned to you · {{actor}}',
-      en: 'Assigned to you · {{actor}}',
-      fa: 'به شما سپرده شد · {{actor}}',
-      tr: 'Size atandı · {{actor}}',
-    },
-    privateTitle: { default: 'Webyar', en: 'Webyar', fa: 'Webyar', tr: 'Webyar' },
-    privateBody: {
-      default: 'A conversation was assigned to you',
-      en: 'A conversation was assigned to you',
-      fa: 'گفتگویی به شما سپرده شد',
-      tr: 'Size bir konuşma atandı',
-    },
-  },
-  handoff: {
-    title: { default: '{{sender}}', en: '{{sender}}', fa: '{{sender}}', tr: '{{sender}}' },
-    body: {
-      default: 'The AI handed this conversation to your team',
-      en: 'The AI handed this conversation to your team',
-      fa: 'هوش مصنوعی این گفتگو را به تیم شما سپرد',
-      tr: 'Yapay zekâ bu konuşmayı ekibinize devretti',
-    },
-    privateTitle: { default: 'Webyar', en: 'Webyar', fa: 'Webyar', tr: 'Webyar' },
-    privateBody: {
-      default: 'A conversation needs a person',
-      en: 'A conversation needs a person',
-      fa: 'گفتگویی به اپراتور نیاز دارد',
-      tr: 'Bir konuşma bir temsilci bekliyor',
-    },
-  },
-  team_message: {
-    title: { default: '{{sender}}', en: '{{sender}}', fa: '{{sender}}', tr: '{{sender}}' },
-    body: { default: '{{preview}}', en: '{{preview}}', fa: '{{preview}}', tr: '{{preview}}' },
-    privateTitle: { default: 'Webyar', en: 'Webyar', fa: 'Webyar', tr: 'Webyar' },
-    privateBody: {
-      default: 'New message from a colleague',
-      en: 'New message from a colleague',
-      fa: 'پیام جدید از همکار',
-      tr: 'Bir ekip arkadaşından yeni mesaj',
-    },
-  },
-  email: {
-    title: { default: '{{sender}}', en: '{{sender}}', fa: '{{sender}}', tr: '{{sender}}' },
-    body: { default: '{{preview}}', en: '{{preview}}', fa: '{{preview}}', tr: '{{preview}}' },
-    privateTitle: { default: 'Webyar', en: 'Webyar', fa: 'Webyar', tr: 'Webyar' },
-    privateBody: {
-      default: 'New email',
-      en: 'New email',
-      fa: 'ایمیل جدید',
-      tr: 'Yeni e-posta',
     },
   },
   mention: {

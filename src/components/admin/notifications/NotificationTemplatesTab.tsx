@@ -12,11 +12,11 @@ import { Label } from '@/components/ui/label';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { SettingsSection } from '@/components/admin/settings/SettingsFields';
 import {
-  PUSH_EVENT_TYPES,
+  TEMPLATE_EVENT_TYPES,
   type PushEventType, type PushPlatformSettings, type PushTemplate,
 } from '@/hooks/useAdminNotifications';
 
-const EVENT_TYPES: PushEventType[] = PUSH_EVENT_TYPES;
+const EVENT_TYPES: PushEventType[] = TEMPLATE_EVENT_TYPES;
 const LOCALES = ['en', 'fa', 'tr'] as const;
 
 /** `{{name}}` → sample value; an unknown placeholder is left visible. */
@@ -42,7 +42,6 @@ export function NotificationTemplatesTab({
     preview: t('admin.notifications.templates.samplePreview'),
     count: '1',
     workspace: 'Webyar',
-    actor: t('admin.notifications.templates.sampleSender'),
   };
 
   const update = (eventType: string, patch: Partial<PushTemplate>) =>

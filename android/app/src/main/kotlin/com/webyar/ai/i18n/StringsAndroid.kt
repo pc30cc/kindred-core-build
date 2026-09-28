@@ -176,7 +176,59 @@ object StrAndroid {
         Language.TR -> "Yeni mesaj"
     }
 
-    // MARK: - Adaptive layout and appearance
+    fun channelCalls(l: Language): String = when (l) {
+        Language.EN -> "Calls"
+        Language.FA -> "تماس‌ها"
+        Language.TR -> "Aramalar"
+    }
+
+    fun channelCallsDescription(l: Language): String = when (l) {
+        Language.EN -> "Visitors calling the call centre"
+        Language.FA -> "تماس بازدیدکنندگان با مرکز تماس"
+        Language.TR -> "Çağrı merkezini arayan ziyaretçiler"
+    }
+
+    /** Under the caller's name while a call rings. */
+    fun incomingCall(l: Language, video: Boolean): String = when (l) {
+        Language.EN -> if (video) "Incoming video call" else "Incoming voice call"
+        Language.FA -> if (video) "تماس تصویری ورودی" else "تماس صوتی ورودی"
+        Language.TR -> if (video) "Gelen görüntülü arama" else "Gelen sesli arama"
+    }
+
+    /** A caller the server could not name. */
+    fun websiteVisitor(l: Language): String = when (l) {
+        Language.EN -> "Website visitor"
+        Language.FA -> "بازدیدکننده وب‌سایت"
+        Language.TR -> "Web sitesi ziyaretçisi"
+    }
+
+    fun answerCall(l: Language): String = when (l) {
+        Language.EN -> "Answer"
+        Language.FA -> "پاسخ"
+        Language.TR -> "Yanıtla"
+    }
+
+    fun declineCall(l: Language): String = when (l) {
+        Language.EN -> "Decline"
+        Language.FA -> "رد"
+        Language.TR -> "Reddet"
+    }
+
+    /** A call that stopped ringing with nobody having answered it. */
+    fun missedCall(l: Language): String = when (l) {
+        Language.EN -> "Missed call"
+        Language.FA -> "تماس بی‌پاسخ"
+        Language.TR -> "Cevapsız arama"
+    }
+
+    /** The call was taken by someone else, or ended, before this phone answered. */
+    fun callNoLongerAvailable(l: Language): String = when (l) {
+        Language.EN -> "This call is no longer waiting"
+        Language.FA -> "این تماس دیگر در انتظار نیست"
+        Language.TR -> "Bu arama artık beklemiyor"
+    }
+
+        // MARK: - Adaptive layout and appearance
 
     /** The detail pane beside the inbox on a tablet, before a row is picked. */
     fun pickConversation(l: Language): String = when (l) {

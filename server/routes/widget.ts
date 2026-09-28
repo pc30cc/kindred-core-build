@@ -3802,12 +3802,26 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
   }
 
   // Insert visitor message.
-  await supabase.from('conversation_messages').insert({
+  const { data: offlineMessage } = await supabase.from('conversation_messages').insert({
     conversation_id: conv.id,
     sender_type: 'contact',
     body: message,
     metadata: { source: 'offline_capture', visitor_id: visitorId },
-  });
+  }).select('id').single();
+
+  // A message left while nobody was there is still a customer's message: on
+  // the phones of those who follow the workspace, like any other — the email
+  // to the owners below is for whoever is not carrying one.
+  if (offlineMessage?.id) {
+    void notifyInboundMessage(config, {
+      workspaceId: workspace_id,
+      conversationId: conv.id,
+      messageId: offlineMessage.id,
+      text: message,
+      senderName: name || email || null,
+      channel: 'widget',
+    });
+  }
 
   // Record the timeline event so operators can see it was offline-captured.
   await recordConversationEvent(config, {

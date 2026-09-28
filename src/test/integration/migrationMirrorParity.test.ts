@@ -350,9 +350,14 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     hosted: 'supabase/migrations/20260928140000_mobile_app_ios_support_link.sql',
   },
   {
-    label: '234 — user_notification_prefs: team chat, assignment and email push switches',
-    selfHost: 'database/migrations/234_notification_prefs_event_switches.sql',
-    hosted: 'supabase/migrations/20260928150000_notification_prefs_event_switches.sql',
+    label: '234 — mobile_app_settings: the Android Firebase client configuration',
+    selfHost: 'database/migrations/234_mobile_app_android_firebase.sql',
+    hosted: 'supabase/migrations/20260928150000_mobile_app_android_firebase.sql',
+  },
+  {
+    label: '235 — user_notification_prefs: team chat, assignment and email push switches',
+    selfHost: 'database/migrations/235_notification_prefs_event_switches.sql',
+    hosted: 'supabase/migrations/20260928160000_notification_prefs_event_switches.sql',
   },
 
   // intentionally asymmetric, not a drift bug.

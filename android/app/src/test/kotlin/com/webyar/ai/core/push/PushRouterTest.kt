@@ -10,6 +10,8 @@ import com.webyar.ai.core.sync.SyncCoordinator
 import com.webyar.ai.i18n.Language
 import com.webyar.ai.testing.ScriptedApi
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -59,6 +61,34 @@ class PushRouterTest {
         assertEquals(listOf(push), shown)
     }
 
+    /**
+     * Super Admin's test send names no workspace and no conversation. With
+     * the app in front it used to be dropped as "not this operator's", so a
+     * test from an admin looking at the app showed nothing at all.
+     */
+    @Test
+    fun `a test send is shown as it came, and syncs nothing`() = runTest {
+        val (router, _) = router()
+        val test = PushPayload(type = PushPayload.TYPE_TEST, workspaceId = null, conversationId = null, messageId = null)
+
+        router.onMessage(test, "Webyar", "Test notification")
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(listOf(test), shown)
+        assertTrue(api.idReads.isEmpty())
+    }
+
+    @Test
+    fun `a test send is not shown to nobody`() = runTest {
+        val (router, _) = router()
+        context = null
+
+        router.onMessage(PushPayload(type = PushPayload.TYPE_TEST, workspaceId = null, conversationId = null, messageId = null), "Webyar", "x")
+
+        assertTrue(shown.isEmpty())
+    }
+
     @Test
     fun `no notification for the conversation already on screen`() = runTest {
         val (router, _) = router()
@@ -105,6 +135,117 @@ class PushRouterTest {
         context = null
         router.onMessage(push, "x", "y")
         assertTrue(shown.isEmpty())
+    }
+
+    private val teamPush = PushPayload(
+        type = PushPayload.TYPE_TEAM_MESSAGE,
+        workspaceId = "ws-1",
+        conversationId = null,
+        messageId = "tm-1",
+        peerId = "user-sara",
+    )
+
+    /**
+     * A colleague's message used to reach a phone only over realtime — so
+     * never with the app closed. Now it is pushed; in front, it tells the
+     * team screens to read again and is shown like any other message.
+     */
+    @Test
+    fun `a colleague's message is shown, and wakes the team screens instead of a conversation read`() = runTest {
+        val (router, sync) = router()
+        val heard = mutableListOf<com.webyar.ai.core.sync.TeamSignal>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { sync.team.collect { heard += it } }
+
+        router.onMessage(teamPush, "Sara · همکار", "Can you take this one?")
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(listOf(teamPush), shown)
+        assertTrue(api.idReads.isEmpty())
+        assertEquals(1, heard.size)
+        assertTrue(heard.single().involves("user-sara"))
+        assertEquals("ws-1", heard.single().workspaceId)
+    }
+
+    @Test
+    fun `no notification for the colleague whose thread is on screen`() = runTest {
+        val (router, _) = router()
+        context = context!!.copy(openTeamPeerIds = setOf("user-sara"))
+
+        router.onMessage(teamPush, "Sara", "Hi")
+
+        assertTrue(shown.isEmpty())
+    }
+
+    @Test
+    fun `another colleague's thread on screen does not hide it`() = runTest {
+        val (router, _) = router()
+        context = context!!.copy(openTeamPeerIds = setOf("user-ben"))
+
+        router.onMessage(teamPush, "Sara", "Hi")
+
+        assertEquals(listOf(teamPush), shown)
+    }
+
+    @Test
+    fun `a colleague's message for another operator's workspace is dropped`() = runTest {
+        val (router, _) = router()
+
+        router.onMessage(teamPush.copy(workspaceId = "ws-somebody-else"), "Sara", "Hi")
+        router.onMessage(teamPush.copy(peerId = null), "Sara", "Hi")
+
+        assertTrue(shown.isEmpty())
+    }
+
+    @Test
+    fun `a team payload names its colleague, checked like any id`() {
+        val parsed = PushPayload.from(mapOf("type" to "team_message", "workspaceId" to "ws-1", "peerId" to "user-sara"))
+        assertEquals("user-sara", parsed.peerId)
+        assertTrue(parsed.opensTeamThread)
+        assertEquals(false, parsed.opensConversation)
+
+        val forged = PushPayload.from(mapOf("type" to "team_message", "workspaceId" to "ws-1", "peerId" to "../x"))
+        assertEquals(null, forged.peerId)
+        assertEquals(false, forged.opensSomething)
+    }
+
+    @Test
+    fun `a new email is shown, and reads no conversation`() = runTest {
+        val (router, _) = router()
+        val email = PushPayload(type = PushPayload.TYPE_EMAIL, workspaceId = "ws-1", conversationId = null, messageId = "m-9", threadId = "t-1")
+
+        router.onMessage(email, "ali@example.com", "Invoice — attached")
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(listOf(email), shown)
+        assertTrue(api.idReads.isEmpty())
+        assertTrue(email.opensEmailThread)
+    }
+
+    @Test
+    fun `a callback request is shown`() = runTest {
+        val (router, _) = router()
+        val callback = PushPayload(type = PushPayload.TYPE_CALLBACK, workspaceId = "ws-1", conversationId = null, messageId = null, callbackId = "cb-1")
+
+        router.onMessage(callback, "Callback request", "A visitor asked to be called back")
+
+        assertEquals(listOf(callback), shown)
+    }
+
+    /** An assignment names its conversation, and is a conversation push like any other. */
+    @Test
+    fun `an assignment syncs its conversation and notifies`() = runTest {
+        val (router, _) = router()
+        api.put(InboxFilter.OPEN, api.row("c-1"))
+        val assignment = push.copy(type = "assignment", messageId = null)
+
+        router.onMessage(assignment, "Conversation assigned to you", "Ali")
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(listOf(listOf("c-1")), api.idReads)
+        assertEquals(listOf(assignment), shown)
     }
 
     @Test

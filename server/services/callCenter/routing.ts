@@ -108,6 +108,9 @@ async function getDept(
   return (data as DepartmentRow | null) ?? null;
 }
 
+/** A call whose caller is still there to be answered. */
+const STILL_ON_THE_LINE = new Set(['queued', 'pending', 'ringing', 'connecting', 'active']);
+
 async function getStandaloneCallCenterSession(
   config: ServerConfig, workspaceId: string, callId: string,
 ) {
@@ -328,6 +331,17 @@ export async function assignCallToAgent(
   await publishQueueEvent(config, args.workspaceId, 'call_assigned', {
     call_id: args.callSessionId, agent_id: args.agentId,
   });
+  // The agent it was handed to hears about it the way a routed call tells
+  // them — their phone rings — unless they handed it to themselves, or the
+  // caller is no longer on the line.
+  if (args.agentId && args.agentId !== args.actorId && STILL_ON_THE_LINE.has(String(call.state ?? ''))) {
+    void ringOperators(config, {
+      workspaceId: args.workspaceId,
+      callSessionId: args.callSessionId,
+      agentId: args.agentId,
+      channel: call.call_type === 'video' ? 'video' : 'audio',
+    });
+  }
   return { call_id: args.callSessionId, assigned_agent_id: args.agentId };
 }
 
@@ -580,6 +594,16 @@ export async function transferCall(
     await publishQueueEvent(config, args.workspaceId, 'call_transferred', {
       call_id: args.callSessionId, agent_id: assignedAgentId, department_id: departmentId,
     });
+    // Rings whoever it was transferred to: an agent by name, or the one the
+    // department's routing just picked. Answering joins the same room.
+    if (assignedAgentId && assignedAgentId !== args.actorId && (channel === 'audio' || channel === 'video')) {
+      void ringOperators(config, {
+        workspaceId: args.workspaceId,
+        callSessionId: args.callSessionId,
+        agentId: assignedAgentId,
+        channel,
+      });
+    }
 
     return {
       ok: true,

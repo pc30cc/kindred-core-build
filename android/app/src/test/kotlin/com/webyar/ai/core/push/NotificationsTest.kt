@@ -68,6 +68,63 @@ class NotificationsTest {
         assertEquals(payload, PushPayload.from(intent))
     }
 
+    private val teamPayload = PushPayload(
+        type = PushPayload.TYPE_TEAM_MESSAGE,
+        workspaceId = "ws-1",
+        conversationId = null,
+        messageId = "tm-1",
+        peerId = "user-sara",
+    )
+
+    @Test
+    fun `a colleague's messages share one notification, apart from the conversations'`() {
+        shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        Notifications.ensureChannels(context, Language.FA)
+
+        Notifications.showMessage(context, teamPayload, "Sara · همکار", "Hi", Language.FA)
+        Notifications.showMessage(context, teamPayload.copy(messageId = "tm-2"), "Sara · همکار", "Still there?", Language.FA)
+        Notifications.showMessage(context, payload, "Maryam", "Hello", Language.FA)
+        assertEquals(2, shadowOf(manager).allNotifications.size)
+
+        Notifications.cancelTeamThread(context, "user-sara")
+        assertEquals(1, shadowOf(manager).allNotifications.size)
+    }
+
+    @Test
+    fun `a tap on a colleague's message brings back their thread`() {
+        val intent = Notifications.openIntent(context, teamPayload)
+        assertEquals(teamPayload, PushPayload.from(intent))
+    }
+
+    @Test
+    fun `a system-drawn colleague's message opens their thread too`() {
+        val intent = Intent().apply {
+            putExtra("type", "team_message")
+            putExtra("workspaceId", "ws-1")
+            putExtra("peerId", "user-sara")
+            putExtra("messageId", "tm-1")
+        }
+        val link = PushPayload.from(intent)
+        assertEquals("user-sara", link?.peerId)
+        assertEquals(true, link?.opensTeamThread)
+    }
+
+    @Test
+    fun `a tap on a new email brings back its thread`() {
+        val email = PushPayload(type = PushPayload.TYPE_EMAIL, workspaceId = "ws-1", conversationId = null, messageId = "m-1", threadId = "t-1")
+        assertEquals(email, PushPayload.from(Notifications.openIntent(context, email)))
+    }
+
+    @Test
+    fun `emails and callbacks each get a notification of their own`() {
+        shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        Notifications.ensureChannels(context, Language.EN)
+        Notifications.showMessage(context, PushPayload("email_message", "ws-1", null, "m-1", threadId = "t-1"), "ali@example.com", "Hi", Language.EN)
+        Notifications.showMessage(context, PushPayload("callback_request", "ws-1", null, null, callbackId = "cb-1"), "Callback request", "Call me", Language.EN)
+        Notifications.showMessage(context, payload, "Maryam", "Hello", Language.EN)
+        assertEquals(3, shadowOf(manager).allNotifications.size)
+    }
+
     @Test
     fun `a tap on a notification the system drew carries the same keys`() {
         // FCM puts the message's data into the launch intent's extras.

@@ -29,7 +29,7 @@ import { listWorkspacePresence } from './widget/operatorPresence.js';
 import { publishOperatorEvent, publishConversationEvent, buildMessageEnvelope } from './realtime/publish.js';
 import { dispatchOutboundIfChannelConversation } from './channels/outbound.js';
 import { maybeQueueTelegramOfflineScreen } from './channels/telegram/offlineDelivery.js';
-import { notifyConversationEvent } from './push/index.js';
+import { notifyAssignment, notifyHandoff } from './push/index.js';
 
 export type AssignmentMode = 'auto' | 'round_robin' | 'manual';
 
@@ -82,10 +82,10 @@ async function loadAssignmentConfig(
     .select('assignment_mode, round_robin_cursor_user_id')
     .eq('workspace_id', workspaceId)
     .maybeSingle();
-  const settings = data as { assignment_mode?: string | null; round_robin_cursor_user_id?: string | null } | null;
-  const raw = settings?.assignment_mode;
+  const row = data as { assignment_mode?: string | null; round_robin_cursor_user_id?: string | null } | null;
+  const raw = row?.assignment_mode;
   const mode: AssignmentMode = raw === 'round_robin' || raw === 'manual' ? raw : 'auto';
-  return { mode, cursor: settings?.round_robin_cursor_user_id || null };
+  return { mode, cursor: row?.round_robin_cursor_user_id || null };
 }
 
 /** Department the visitor picked, if any — read from conversation metadata,
@@ -111,7 +111,7 @@ async function resolveConversationDepartment(
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
-  const deptId = (msg as { metadata?: { department_id?: string } | null } | null)?.metadata?.department_id;
+  const deptId = (msg as { metadata?: Record<string, unknown> | null } | null)?.metadata?.department_id as string | undefined;
   if (!deptId) return null;
   // Atomic single-key patch — this used to write back the whole metadata
   // snapshot captured at routing entry, which could revert a concurrent AI
@@ -256,7 +256,7 @@ async function resolveAgentDisplayName(config: ServerConfig, userId: string): Pr
   try {
     const sb = getServiceClient(config);
     const { data } = await sb.from('profiles').select('full_name').eq('id', userId).maybeSingle();
-    const name = (data as { full_name?: string | null } | null)?.full_name;
+    const name = (data as { full_name?: unknown } | null)?.full_name;
     return typeof name === 'string' && name.trim() ? name.trim() : 'a colleague';
   } catch {
     return 'a colleague';
@@ -345,35 +345,26 @@ async function insertRoutingSystemMessage(
 }
 
 /**
- * Tells the operators' phones that a conversation just came off the AI: the
- * one operator it went to, or — when nobody took it — everyone whose
- * notification scope covers the whole inbox.
- *
- * Routing runs again on every visitor message while a conversation waits, so
- * the dedupe key is the handoff itself (`ai_handoff_at`, stamped once per
- * handoff): the second run finds the log row the first one claimed and stays
- * silent. Without that stamp there is nothing to tell runs apart, so only
- * the run that also sends the visitor notice pushes.
+ * The AI let go of this conversation and routing gave it to nobody new — it
+ * stays with whoever already held it, or waits in the queue — so the phones
+ * hear it from here (a conversation routing DID give to someone is
+ * `notifyAssignment`). Routing runs again on every visitor message while a
+ * conversation waits, so the handoff's own stamp (`ai_handoff_at`) makes it
+ * one notification per handoff; without a stamp only the run that also sends
+ * the visitor notice pushes.
  */
-function notifyOperatorsOfHandoff(
+function notifyHandoffOnce(
   config: ServerConfig,
   args: { workspaceId: string; conversationId: string },
   metadata: Record<string, unknown>,
   firstRun: boolean,
-  to: { assignee: string; newlyAssigned: boolean } | null,
 ): void {
-  const handoffAt = typeof metadata.ai_handoff_at === 'string' ? metadata.ai_handoff_at : null;
-  if (!handoffAt && !firstRun) return;
-  const episode = handoffAt ?? String(Date.now());
-  // A fresh claim is an assignment ("assigned to you · automatic routing");
-  // a conversation somebody already held is a handoff to them.
-  void notifyConversationEvent(config, {
+  const stamp = typeof metadata.ai_handoff_at === 'string' ? metadata.ai_handoff_at : null;
+  if (!stamp && !firstRun) return;
+  void notifyHandoff(config, {
     workspaceId: args.workspaceId,
     conversationId: args.conversationId,
-    messageId: to ? `${to.assignee}:${episode}` : `team:${episode}`,
-    eventType: to?.newlyAssigned ? 'assigned' : 'handoff',
-    targetUserId: to?.newlyAssigned ? to.assignee : null,
-    actorId: null,
+    handoffAt: stamp ?? new Date().toISOString(),
   });
 }
 
@@ -402,7 +393,8 @@ export async function routeConversationToOperator(
       // just been handed over from the AI and still needs to be told who
       // they are now talking to. The `routing_notice_sent` flag makes this
       // once per conversation, so a second handoff does not repeat it.
-      if (metadata.routing_notice_sent !== true) {
+      const firstRun = metadata.routing_notice_sent !== true;
+      if (firstRun) {
         const assignedName = await resolveAgentDisplayName(config, conv.assigned_to as string);
         await insertRoutingSystemMessage(
           config, args.workspaceId, args.conversationId,
@@ -414,10 +406,7 @@ export async function routeConversationToOperator(
           'already_assigned', { routing_notice_sent: true },
         );
       }
-      notifyOperatorsOfHandoff(
-        config, args, metadata, metadata.routing_notice_sent !== true,
-        { assignee: conv.assigned_to as string, newlyAssigned: false },
-      );
+      notifyHandoffOnce(config, args, metadata, firstRun);
       return { outcome: 'already_assigned', assignedTo: conv.assigned_to };
     }
     // If routing was deferred until pre-chat identification (see
@@ -434,8 +423,8 @@ export async function routeConversationToOperator(
     const { mode, cursor } = await loadAssignmentConfig(config, args.workspaceId);
 
     if (mode === 'manual') {
-      // The queue is the team's: everyone who watches the whole inbox.
-      notifyOperatorsOfHandoff(config, args, metadata, !noticeAlreadySent, null);
+      // The queue is the team's: everyone following all conversations.
+      notifyHandoffOnce(config, args, metadata, !noticeAlreadySent);
       if (!noticeAlreadySent) {
         await insertRoutingSystemMessage(
           config, args.workspaceId, args.conversationId,
@@ -500,12 +489,6 @@ export async function routeConversationToOperator(
       }
     }
 
-    // Whoever it went to, or the team when it went to nobody.
-    notifyOperatorsOfHandoff(
-      config, args, metadata, !noticeAlreadySent,
-      picked ? { assignee: picked, newlyAssigned: true } : null,
-    );
-
     if (picked) {
       await tagOutcome(config, args.workspaceId, args.conversationId, metadata, outcome, { routing_notice_sent: true });
       const agentName = await resolveAgentDisplayName(config, picked);
@@ -523,7 +506,17 @@ export async function routeConversationToOperator(
           reason: 'auto_assigned',
         });
       } catch { /* best-effort */ }
+      // The customer message that brought the conversation here was pushed
+      // before anybody owned it; the operator routing just picked hears now.
+      void notifyAssignment(config, {
+        workspaceId: args.workspaceId,
+        conversationId: args.conversationId,
+        assigneeId: picked,
+        actorId: null,
+        stamp: new Date().toISOString(),
+      });
     } else {
+      notifyHandoffOnce(config, args, metadata, !noticeAlreadySent);
       // Team looked online but nobody was actually eligible/available —
       // never leave the visitor in a silent "connecting…" limbo (spec §16).
       if (!noticeAlreadySent) {
@@ -560,7 +553,7 @@ export async function routeConversationToOperator(
 
     return { outcome, assignedTo: picked };
   } catch (err) {
-    console.warn('[chat-routing] routeConversationToOperator failed:', (err as Error)?.message || err);
+    console.warn('[chat-routing] routeConversationToOperator failed:', err instanceof Error ? err.message : err);
     return { outcome: 'error', assignedTo: null };
   }
 }

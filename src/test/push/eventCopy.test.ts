@@ -1,18 +1,17 @@
 /**
- * What the new kinds of notification say, and how they reach the app.
+ * What the phone is told, and how the app finds its way from it.
  *
- * Three things the first version got wrong are pinned here. Templates are
- * keyed by bare language ("fa") while profiles store full tags ("fa-IR"), so
- * every Persian operator got the English template. `{{workspace}}` was offered
- * to template authors and never supplied. And a category list saved before an
- * event type existed gave that event no buttons at all.
+ * Three things pinned here were wrong. Templates are keyed by bare language
+ * ("fa") while profiles store full tags ("fa-IR"), so every Persian operator
+ * got the English template. `{{workspace}}` was offered to template authors
+ * and never supplied. And a category list saved before an event type existed
+ * gave that event no buttons at all.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   renderContent,
-  emailSenderName,
-  isFreshEmail,
+  renderHandoffContent,
   type InboundPushInput,
 } from '../../../server/services/push/dispatch';
 import {
@@ -25,81 +24,56 @@ const base: InboundPushInput = {
   workspaceId: 'w-1',
   conversationId: 'c-1',
   messageId: 'm-1',
-  senderName: 'سارا',
-  text: 'سلام',
+  senderName: 'Ali',
+  text: 'Hello',
 };
 
-describe('templates in the recipient\'s language', () => {
+describe('templates', () => {
+  const policy = {
+    ...PUSH_PLATFORM_DEFAULTS,
+    templates: {
+      ...DEFAULT_TEMPLATES,
+      new_message: {
+        ...DEFAULT_TEMPLATES.new_message,
+        title: { default: '{{workspace}} · {{sender}}', en: '{{workspace}} · {{sender}}', fa: 'فارسی · {{sender}}' },
+      },
+    },
+  };
+
   it('a full locale tag finds the Persian template', () => {
-    const out = renderContent(base, 'handoff', true, PUSH_PLATFORM_DEFAULTS, 'fa-IR');
-    expect(out.body).toBe('هوش مصنوعی این گفتگو را به تیم شما سپرد');
+    expect(renderContent(base, 'new_message', true, policy, 'fa-IR').title).toContain('فارسی');
   });
 
   it('fills in the workspace name for a template that asks for it', () => {
-    const policy = {
-      ...PUSH_PLATFORM_DEFAULTS,
-      templates: {
-        ...DEFAULT_TEMPLATES,
-        new_message: { ...DEFAULT_TEMPLATES.new_message, title: { default: '{{workspace}} · {{sender}}' } },
-      },
-    };
-    const out = renderContent({ ...base, senderName: 'Ali', workspaceName: 'Acme' }, 'new_message', true, policy, 'en');
+    const out = renderContent({ ...base, workspaceName: 'Acme' }, 'new_message', true, policy, 'en');
     expect(out.title).toBe('Acme · Ali');
   });
 });
 
-describe('an assignment', () => {
-  it('says who gave it', () => {
-    const out = renderContent({ ...base, senderName: 'Ali', actorName: 'Sara' }, 'assigned', true, PUSH_PLATFORM_DEFAULTS, 'en');
-    expect(out).toEqual({ title: 'Ali', body: 'Assigned to you · Sara' });
-  });
-
-  it('or that routing did, when nobody did', () => {
-    const out = renderContent({ ...base, senderName: 'Ali' }, 'assigned', true, null, 'fa');
-    expect(out.body).toBe('به شما سپرده شد · تخصیص خودکار');
+describe('the AI letting go of a conversation', () => {
+  it('names the customer and says what happened, in the recipient\'s language', () => {
+    expect(renderHandoffContent({ customer: 'Ali' }, true, 'en')).toEqual({
+      title: 'Needs a person',
+      body: 'Ali · The AI handed this conversation to your team',
+    });
+    expect(renderHandoffContent({ customer: null }, true, 'fa').body).toContain('هوش مصنوعی');
   });
 
   it('keeps the customer off a locked screen when previews are off', () => {
-    const out = renderContent({ ...base, senderName: 'Ali' }, 'assigned', false, PUSH_PLATFORM_DEFAULTS, 'en');
-    expect(out.title).toBe('Webyar');
+    const out = renderHandoffContent({ customer: 'Ali' }, false, 'tr');
     expect(JSON.stringify(out)).not.toContain('Ali');
-  });
-});
-
-describe('a colleague\'s message and an email', () => {
-  it('a colleague\'s message with no name says "colleague", not "customer"', () => {
-    const out = renderContent({ ...base, senderName: null, text: 'ping' }, 'team_message', true, null, 'en');
-    expect(out).toEqual({ title: 'Colleague', body: 'ping' });
-  });
-
-  it('private copy names the kind of thing without its words', () => {
-    expect(renderContent(base, 'team_message', false, PUSH_PLATFORM_DEFAULTS, 'fa').body).toBe('پیام جدید از همکار');
-    expect(renderContent(base, 'email', false, PUSH_PLATFORM_DEFAULTS, 'tr').body).toBe('Yeni e-posta');
-  });
-
-  it('an email is titled by who sent it', () => {
-    expect(emailSenderName('"Sara Karimi" <sara@example.com>')).toBe('Sara Karimi');
-    expect(emailSenderName('Sara Karimi <sara@example.com>')).toBe('Sara Karimi');
-    expect(emailSenderName('<sara@example.com>')).toBe('sara@example.com');
-    expect(emailSenderName('sara@example.com')).toBe('sara@example.com');
-  });
-
-  it('only fresh mail is news — a first sync imports days of it at once', () => {
-    const now = Date.parse('2026-09-28T12:00:00Z');
-    expect(isFreshEmail('2026-09-28T11:55:00Z', now)).toBe(true);
-    expect(isFreshEmail('2026-09-25T09:00:00Z', now)).toBe(false);
-    expect(isFreshEmail(null, now)).toBe(true);
-    expect(isFreshEmail('not a date', now)).toBe(true);
+    expect(out.body).toBe('Bir görüşme bir temsilci bekliyor');
   });
 });
 
 describe('buttons on the banner', () => {
-  const EVENTS = ['new_message', 'internal_note', 'mention', 'assigned', 'handoff', 'team_message', 'email'];
-
-  it('every event type has a category', () => {
-    for (const event of EVENTS) {
-      expect(DEFAULT_CATEGORIES.some((c) => c.eventTypes.includes(event)), event).toBe(true);
-    }
+  it('each kind of event that can be answered from the banner has its category', () => {
+    const byEvent = (event: string) => DEFAULT_CATEGORIES.find((c) => c.eventTypes.includes(event))?.id;
+    expect(byEvent('new_message')).toBe('WEBYAR_MESSAGE');
+    expect(byEvent('assignment')).toBe('WEBYAR_MESSAGE');
+    expect(byEvent('handoff')).toBe('WEBYAR_MESSAGE');
+    expect(byEvent('team_message')).toBe('WEBYAR_TEAM');
+    expect(byEvent('email_message')).toBe('WEBYAR_EMAIL');
   });
 
   it('and every category is one the iOS app registers — or its banner has no buttons', () => {
@@ -109,25 +83,19 @@ describe('buttons on the banner', () => {
       for (const action of category.actions) expect(swift, action.id).toContain(`identifier: "${action.id}"`);
     }
   });
-
-  it('a template exists for every event type, in every shipped language', () => {
-    for (const event of EVENTS) {
-      const template = DEFAULT_TEMPLATES[event];
-      expect(template, event).toBeTruthy();
-      for (const lang of ['en', 'fa', 'tr']) {
-        expect(template.privateBody[lang], `${event}/${lang}`).toBeTruthy();
-      }
-    }
-  });
 });
 
 describe('the payload the app routes on', () => {
-  it('names the destination with the keys the iOS app reads', () => {
+  it('names each destination with the keys the iOS app reads', () => {
     const swift = readFileSync('ios/WebyarNative/Sources/Core/Push/PushTarget.swift', 'utf8');
     const server = readFileSync('server/services/push/dispatch.ts', 'utf8');
-    for (const key of ['workspaceId', 'conversationId', 'teamPeerId', 'emailThreadId']) {
+    for (const key of ['workspaceId', 'conversationId', 'peerId', 'threadId']) {
       expect(swift, key).toContain(`"${key}"`);
       expect(server, key).toContain(`${key}:`);
+    }
+    for (const type of ['team_message', 'email_message']) {
+      expect(swift, type).toContain(`"${type}"`);
+      expect(server, type).toContain(`'${type}'`);
     }
   });
 });

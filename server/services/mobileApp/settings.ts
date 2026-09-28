@@ -156,6 +156,14 @@ export interface MobileAppSettings {
   // whether it has the tab at all.
   android_app_show_visitors: boolean;
   android_app_show_web_analytics: boolean;
+  // Firebase's client identifiers for the Android package — the four values
+  // of its google-services.json. Served to the app, which starts Firebase
+  // with them for push. Not credentials: the server's FCM service account
+  // stays in the environment.
+  android_firebase_app_id: string | null;
+  android_firebase_api_key: string | null;
+  android_firebase_project_id: string | null;
+  android_firebase_sender_id: string | null;
   // The iOS app's tabs, read by GET /api/mobile-app/config?platform=ios.
   // Like Android's, a switch only takes a tab away.
   ios_app_show_contacts: boolean;
@@ -285,6 +293,10 @@ export const MOBILE_APP_DEFAULTS: MobileAppSettings = {
   android_app_profile_photo_editable: true,
   android_app_show_visitors: true,
   android_app_show_web_analytics: true,
+  android_firebase_app_id: null,
+  android_firebase_api_key: null,
+  android_firebase_project_id: null,
+  android_firebase_sender_id: null,
   ios_app_show_contacts: true,
   ios_app_show_visitors: true,
   ios_app_show_web_analytics: true,
@@ -371,6 +383,29 @@ export interface AndroidAppConfig {
   showVisitors: boolean;
   /** The Website analytics tab — still only for owners and admins on plans with `web_analytics`. */
   showWebAnalytics: boolean;
+  /**
+   * Firebase's client identifiers, for push; null until all four are set.
+   * The app keeps the last ones it was given and starts Firebase with them.
+   */
+  firebase: AndroidFirebaseClient | null;
+}
+
+/** The four values of the package's google-services.json that the app starts Firebase with. */
+export interface AndroidFirebaseClient {
+  appId: string;
+  apiKey: string;
+  projectId: string;
+  senderId: string;
+}
+
+/** All four, or nothing: a partial set cannot start Firebase and would only fail on the phone. */
+export function androidFirebaseClient(settings: MobileAppSettings): AndroidFirebaseClient | null {
+  const appId = settings.android_firebase_app_id?.trim();
+  const apiKey = settings.android_firebase_api_key?.trim();
+  const projectId = settings.android_firebase_project_id?.trim();
+  const senderId = settings.android_firebase_sender_id?.trim();
+  if (!appId || !apiKey || !projectId || !senderId) return null;
+  return { appId, apiKey, projectId, senderId };
 }
 
 export function toAndroidAppConfig(settings: MobileAppSettings): AndroidAppConfig {
@@ -385,6 +420,7 @@ export function toAndroidAppConfig(settings: MobileAppSettings): AndroidAppConfi
     profilePhotoEditable: settings.android_app_profile_photo_editable,
     showVisitors: settings.android_app_show_visitors,
     showWebAnalytics: settings.android_app_show_web_analytics,
+    firebase: androidFirebaseClient(settings),
   };
 }
 

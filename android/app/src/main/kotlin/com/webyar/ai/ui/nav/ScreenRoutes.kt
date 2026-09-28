@@ -128,6 +128,7 @@ import com.webyar.ai.ui.components.EmptyState
 import com.webyar.ai.ui.components.bidiContent
 import com.webyar.ai.ui.components.rememberSearchState
 import com.webyar.ai.LocalAppGraph
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.LifecycleStartEffect
 import com.webyar.ai.core.cache.CacheScope
@@ -842,7 +843,10 @@ fun TeamThreadRoute(
     val sendFailed by thread.sendFailed.collectAsStateWithLifecycle()
     val notice by thread.notice.collectAsStateWithLifecycle()
 
-    val colleague = remember(peerId) { colleagues.colleague(peerId) }
+    // Read again as the list lands: a thread opened from a notification at
+    // a cold start is on screen before the colleagues have been read.
+    val colleaguesState by colleagues.state.collectAsStateWithLifecycle()
+    val colleague = remember(peerId, colleaguesState) { colleagues.colleague(peerId) }
     val context = LocalContext.current
     val graph = LocalAppGraph.current
     val session by appState.session.collectAsStateWithLifecycle()
@@ -853,7 +857,11 @@ fun TeamThreadRoute(
     }
 
     LaunchedEffect(workspace?.id, peerId) {
-        workspace?.let { thread.open(it.id, peerId) }
+        workspace?.let {
+            thread.open(it.id, peerId)
+            // Idempotent: the list itself binds the same way.
+            colleagues.bind(it.id)
+        }
     }
 
     // Polls only while this screen is resumed. `repeatOnLifecycle` and not a
@@ -865,6 +873,21 @@ fun TeamThreadRoute(
     LaunchedEffect(lifecycleOwner, peerId, teamSignals) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             thread.pollWhileVisible(teamSignals)
+        }
+    }
+
+    // On screen, this colleague's next message needs no notification — it is
+    // arriving here — and the one already in the tray has done its job.
+    val coordinator = remember(graph) { graph?.syncGraph()?.coordinator }
+    LaunchedEffect(lifecycleOwner, peerId, coordinator) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            com.webyar.ai.core.push.Notifications.cancelTeamThread(context, peerId)
+            coordinator?.openTeamThread(peerId)
+            try {
+                awaitCancellation()
+            } finally {
+                coordinator?.closeTeamThread(peerId)
+            }
         }
     }
 
@@ -1460,6 +1483,111 @@ fun CallRoute(
         onToggleSpeaker = session::toggleSpeaker,
         onHangUp = session::hangUp,
         onDone = onDone,
+    )
+}
+
+/**
+ * A call-centre call that rang this phone: the ring with Answer and Decline,
+ * then — answered — the same call screen as any other call.
+ *
+ * Reached from the ring's own notification (tapped, or shown full screen
+ * over the lock screen) or from its Answer button, in which case it answers
+ * on arrival. Declining here, like declining on the notification, only
+ * silences this phone; the call stays on offer to everybody else.
+ */
+@Composable
+fun IncomingCallRoute(
+    key: IncomingCallKey,
+    api: WebyarApi,
+    language: Language,
+    onDone: () -> Unit,
+) {
+    val context = LocalContext.current
+    val graph = LocalAppGraph.current
+    val session: CallSession = viewModel(
+        factory = viewModelFactory { CallSession(api, LiveKitRoom(context.applicationContext)) },
+    )
+    val room = session.room as LiveKitRoom
+    val channel = remember(key.channel) { CallChannel.from(key.channel) }
+
+    val phase by session.phase.collectAsStateWithLifecycle()
+    val connectedAt by session.connectedAt.collectAsStateWithLifecycle()
+    val muted by session.muted.collectAsStateWithLifecycle()
+    val cameraOn by session.cameraOn.collectAsStateWithLifecycle()
+    val speakerOn by session.speakerOn.collectAsStateWithLifecycle()
+    val relayWarning by session.relayWarning.collectAsStateWithLifecycle()
+    val degraded by session.degraded.collectAsStateWithLifecycle()
+    val remoteVideo by room.remoteVideo.collectAsStateWithLifecycle()
+    val localVideo by room.localVideo.collectAsStateWithLifecycle()
+
+    // First of this screen's effects, and it does not suspend, so an Answer
+    // that came with the key (the effect below) finds a ringing call.
+    LaunchedEffect(key.callId) {
+        session.ring(workspaceId = key.workspaceId, callSessionId = key.callId, channel = channel, language = language)
+    }
+
+    val wanted = remember(channel) {
+        if (channel == CallChannel.VIDEO) {
+            arrayOf(android.Manifest.permission.RECORD_AUDIO, android.Manifest.permission.CAMERA)
+        } else {
+            arrayOf(android.Manifest.permission.RECORD_AUDIO)
+        }
+    }
+    // A refusal is not fatal here either: the call is answered, and the
+    // session says which half of it the operator is missing.
+    val permissions = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { session.answer() }
+    val silence = {
+        com.webyar.ai.core.push.CallNotifications.stop(context, key.callId, missed = false, language = language)
+        com.webyar.ai.core.push.CallNotifications.forget(key.callId)
+    }
+    val answer = {
+        silence()
+        val missing = wanted.any {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing) permissions.launch(wanted) else session.answer()
+    }
+    LaunchedEffect(key.callId, key.answer) {
+        if (key.answer) answer()
+    }
+    // The server stopped the ring — somebody else took it, or the caller gave up.
+    LaunchedEffect(graph, key.callId) {
+        graph?.callCancels?.collect { cancel ->
+            if (cancel.callId == key.callId) session.noLongerRinging()
+        }
+    }
+    // Shown over the lock screen for the call, and only for the call.
+    DisposableEffect(Unit) {
+        onDispose { (context as? com.webyar.ai.MainActivity)?.showOverLockScreen(false) }
+    }
+
+    CallScreen(
+        phase = phase,
+        channel = channel,
+        contactName = key.caller.ifBlank { StrAndroid.websiteVisitor(language) },
+        language = language,
+        connectedAt = connectedAt,
+        muted = muted,
+        cameraOn = cameraOn,
+        speakerOn = speakerOn,
+        relayWarning = relayWarning,
+        degraded = degraded,
+        remoteVideo = remoteVideo,
+        localVideo = localVideo,
+        room = room,
+        onToggleMute = session::toggleMute,
+        onToggleCamera = session::toggleCamera,
+        onToggleSpeaker = session::toggleSpeaker,
+        onHangUp = session::hangUp,
+        onDone = onDone,
+        onAnswer = answer,
+        onDecline = {
+            silence()
+            session.decline()
+            onDone()
+        },
     )
 }
 

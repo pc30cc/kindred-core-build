@@ -104,13 +104,13 @@ const DEFAULTS = {
 /** The columns the API reads and writes — never `select('*')`. */
 const LEGACY_COLUMNS =
   'disable_all, push_scope, push_preview, push_internal_notes, push_when_online, push_when_offline, play_sound, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone';
-/** Migration 234's switches. */
+/** Migration 235's switches. */
 const EVENT_KEYS = ['push_team_chat', 'push_assignments', 'push_email'] as const;
 const COLUMNS = `${LEGACY_COLUMNS}, ${EVENT_KEYS.join(', ')}`;
 
 /**
  * Postgres' "column does not exist": a database that has not had migration
- * 234 yet. Reads fall back to the older columns (the new switches then show
+ * 235 yet. Reads fall back to the older columns (the new switches then show
  * their defaults, which is what the sender assumes too) rather than failing
  * the whole page.
  */

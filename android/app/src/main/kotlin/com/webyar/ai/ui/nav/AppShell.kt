@@ -205,13 +205,47 @@ fun AppShell(
     // the workspace it names is checked to be this operator's, the Inbox tab
     // opens the conversation — by id, from the cache. A tap that switches
     // workspace clears the stacks first, and not after the chat is open.
+    // A colleague's message opens their thread, over the colleagues' list,
+    // so Back goes where it would have had the thread been opened by hand.
     val pendingLink by appState.pendingLink.collectAsStateWithLifecycle()
     val workspaces by appState.workspaces.collectAsStateWithLifecycle()
     LaunchedEffect(pendingLink, workspaces) {
         val link = appState.resolvePendingLink() ?: return@LaunchedEffect
-        val id = link.conversationId ?: return@LaunchedEffect
         enterWorkspace(appState.selectedWorkspace.value?.id)
+        val thread = link.threadId
+        if (link.opensEmailThread && thread != null) {
+            val top = navigator.stack(AppTab.INBOX).lastOrNull()
+            if (top !is EmailThreadKey && top != EmailKey) navigator.open(EmailKey)
+            navigator.open(EmailThreadKey(thread))
+            return@LaunchedEffect
+        }
+        val peer = link.peerId
+        if (link.opensTeamThread && peer != null) {
+            val top = navigator.stack(AppTab.INBOX).lastOrNull()
+            if (top !is TeamThreadKey && top != ColleaguesKey) navigator.open(ColleaguesKey)
+            navigator.open(TeamThreadKey(peer))
+            return@LaunchedEffect
+        }
+        val id = link.conversationId ?: return@LaunchedEffect
         navigator.open(ChatKey(id))
+    }
+
+    // A ringing call the operator opened — Answer, or the ring itself — once
+    // the session and the workspaces are known and the call is this
+    // operator's. Over whatever was on screen; Back returns to it.
+    val pendingCall by appState.pendingCall.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingCall, workspaces) {
+        val call = appState.resolvePendingCall() ?: return@LaunchedEffect
+        enterWorkspace(appState.selectedWorkspace.value?.id)
+        navigator.open(
+            IncomingCallKey(
+                callId = call.callId,
+                workspaceId = call.workspaceId,
+                channel = call.channel.wire,
+                caller = call.caller,
+                answer = call.answer,
+            )
+        )
     }
 
     val entryProvider = entryProvider<NavKey> {
@@ -256,6 +290,14 @@ fun AppShell(
                 conversations = conversations,
                 language = language,
                 onBack = { navigator.back() },
+            )
+        }
+        entry<IncomingCallKey>(metadata = tabOf(AppTab.INBOX)) { key ->
+            IncomingCallRoute(
+                key = key,
+                api = api,
+                language = language,
+                onDone = { navigator.back() },
             )
         }
         entry<CallKey>(metadata = tabOf(AppTab.INBOX)) { key ->

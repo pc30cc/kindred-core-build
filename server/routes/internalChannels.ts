@@ -71,9 +71,9 @@ import {
 import { botProvider } from '../../shared/channels/botProviders.js';
 import { handleTelegramCallbackQuery } from '../services/channels/telegram/runtime.js';
 import { publishOperatorEvent } from '../services/realtime/publish.js';
-import { notifyInboundEmail } from '../services/push/index.js';
 import { uploadFile } from '../services/storage/index.js';
 import { emailAttachmentKey } from '../services/storage/keys.js';
+import { notifyEmailMessage } from '../services/push/index.js';
 
 export const internalChannelsRouter = Router();
 
@@ -452,6 +452,40 @@ internalChannelsRouter.post('/outbound-result', async (req: Request, res) => {
  * /process-inbound or /outbound-result.
  */
 
+/**
+ * A new email, on the phones of those who follow the workspace's traffic.
+ *
+ * Only a message that arrived just now: connecting a mailbox, or catching up
+ * after an outage, imports mail that is hours or years old, and a phone
+ * buzzing once for each of those would be a phone switched off by evening.
+ */
+const EMAIL_PUSH_WINDOW_MS = 15 * 60 * 1000;
+
+function notifyNewEmail(
+  config: ServerConfig,
+  // Loose, because the parsed body's fields read as optional here; the
+  // schema has already required the ones that matter.
+  data: {
+    workspace_id?: string;
+    subject?: string | null;
+    message?: { from_address?: string; snippet?: string | null; text_body?: string | null; sent_at?: string | null };
+  },
+  threadId: string,
+  messageId: string,
+): void {
+  if (!data.workspace_id || !data.message) return;
+  const sentAt = data.message.sent_at ? Date.parse(data.message.sent_at) : Date.now();
+  if (!Number.isFinite(sentAt) || Date.now() - sentAt > EMAIL_PUSH_WINDOW_MS) return;
+  void notifyEmailMessage(config, {
+    workspaceId: data.workspace_id,
+    threadId,
+    messageId,
+    from: data.message.from_address ?? null,
+    subject: data.subject ?? null,
+    snippet: data.message.snippet ?? data.message.text_body?.slice(0, 300) ?? null,
+  });
+}
+
 const gmailUpsertSchema = z.object({
   integration_id: z.string().uuid(),
   workspace_id: z.string().uuid(),
@@ -565,16 +599,8 @@ internalChannelsRouter.post('/gmail/upsert-thread-message', async (req: Request,
     }
 
     await updateIntegration(config, data.integration_id, { last_inbound_at: new Date().toISOString() });
-    void notifyInboundEmail(config, {
-      workspaceId: data.workspace_id,
-      threadId,
-      messageId: inserted!.id,
-      from: data.message.from_address,
-      subject: data.subject ?? null,
-      snippet: data.message.snippet ?? null,
-      sentAt: data.message.sent_at ?? null,
-    });
     res.json({ thread_id: threadId, message_id: inserted!.id, is_new_message: true });
+    notifyNewEmail(config, data, threadId, inserted!.id);
   } catch (err) {
     console.error('[internal-channels] gmail upsert-thread-message failed:', err);
     res.status(500).json({ error: 'gmail_upsert_failed' });
@@ -904,16 +930,8 @@ internalChannelsRouter.post('/yahoo/upsert-thread-message', async (req: Request,
     }
 
     await updateIntegration(config, data.integration_id, { last_inbound_at: new Date().toISOString() });
-    void notifyInboundEmail(config, {
-      workspaceId: data.workspace_id,
-      threadId,
-      messageId: inserted!.id,
-      from: data.message.from_address,
-      subject: data.subject ?? null,
-      snippet: data.message.snippet ?? null,
-      sentAt: data.message.sent_at ?? null,
-    });
     res.json({ thread_id: threadId, message_id: inserted!.id, is_new_message: true });
+    notifyNewEmail(config, data, threadId, inserted!.id);
   } catch (err) {
     console.error('[internal-channels] yahoo upsert-thread-message failed:', err);
     res.status(500).json({ error: 'yahoo_upsert_failed' });

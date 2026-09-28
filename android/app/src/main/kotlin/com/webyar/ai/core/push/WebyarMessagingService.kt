@@ -3,9 +3,14 @@ package com.webyar.ai.core.push
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.webyar.ai.WebyarApp
+import kotlinx.coroutines.runBlocking
 
 /**
  * Where FCM hands this app its messages and its tokens.
+ *
+ * Call-centre rings are the exception to what follows: they come data-only,
+ * so this class is called for them whatever state the app is in, and they
+ * go to [IncomingCallRouter].
  *
  * The server sends a notification-plus-data message
  * (`server/services/push/fcm.ts`), so with the app in the background the
@@ -31,6 +36,10 @@ class WebyarMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val graph = (application as? WebyarApp)?.graph ?: return
+        // A call-centre ring is data-only, so it lands here in every state
+        // of the app — cold included. This runs on FCM's own worker thread,
+        // with seconds to spare; the two reads it waits on are local.
+        if (runBlocking { graph.incomingCalls.onMessage(message.data) }) return
         graph.pushRouter.onMessage(
             payload = PushPayload.from(message.data),
             title = message.notification?.title,

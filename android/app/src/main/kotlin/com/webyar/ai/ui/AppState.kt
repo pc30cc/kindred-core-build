@@ -9,6 +9,7 @@ import com.webyar.ai.core.model.User
 import com.webyar.ai.core.model.Workspace
 import com.webyar.ai.core.net.ApiError
 import com.webyar.ai.core.net.WebyarApi
+import com.webyar.ai.core.push.IncomingCallLink
 import com.webyar.ai.core.push.PushPayload
 import com.webyar.ai.core.storage.Appearance
 import com.webyar.ai.core.storage.Preferences
@@ -138,7 +139,8 @@ class AppState(
     }
 
     /**
-     * A conversation a notification asked to open, until the shell opens it.
+     * A conversation — or a colleague's team thread — a notification asked
+     * to open, until the shell opens it.
      *
      * Held here rather than acted on where the tap arrived: the tap can come
      * before the session is restored or the workspaces are loaded, and the
@@ -148,8 +150,33 @@ class AppState(
     private val _pendingLink = MutableStateFlow<PushPayload?>(null)
     val pendingLink: StateFlow<PushPayload?> = _pendingLink.asStateFlow()
 
+    /** A ringing call the operator asked to see or answer, until the shell opens it. */
+    private val _pendingCall = MutableStateFlow<IncomingCallLink?>(null)
+    val pendingCall: StateFlow<IncomingCallLink?> = _pendingCall.asStateFlow()
+
+    fun openIncomingCall(link: IncomingCallLink) {
+        _pendingCall.value = link
+    }
+
+    /**
+     * The call, once it can be opened: signed in, the workspaces known, and
+     * the one it rang for among them — switched to if it is not in front.
+     * One this operator has no part in is dropped.
+     */
+    fun resolvePendingCall(): IncomingCallLink? {
+        val link = _pendingCall.value ?: return null
+        if (_session.value !is Session.SignedIn) return null
+        val list = _workspaces.value
+        if (list.isEmpty()) return null
+        val target = list.firstOrNull { it.id == link.workspaceId }
+        _pendingCall.value = null
+        if (target == null) return null
+        if (target.id != _selectedWorkspace.value?.id) selectWorkspace(target)
+        return link
+    }
+
     fun openFromNotification(link: PushPayload) {
-        if (link.opensConversation) _pendingLink.value = link
+        if (link.opensSomething) _pendingLink.value = link
     }
 
     /**
@@ -372,6 +399,7 @@ class AppState(
         planLoadedAt = null
         _avatarUrl.value = null
         _pendingLink.value = null
+        _pendingCall.value = null
         _selectedTab.value = AppTab.INBOX
         _session.value = Session.SignedOut
     }
@@ -389,6 +417,9 @@ class AppState(
         appConfigJob = viewModelScope.launch {
             val config = runCatching { api.mobileAppConfig() }.getOrNull() ?: return@launch
             appConfigFromServer = true
+            // The Firebase project push arrives through rides in it: handed on
+            // at every read, so a phone that missed it once takes it the next.
+            runCatching { hooks.appConfigChanged(config) }
             if (config != _appConfig.value) {
                 _appConfig.value = config
                 // Stored on the side, so this job ends when the answer is

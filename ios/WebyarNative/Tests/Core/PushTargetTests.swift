@@ -17,7 +17,7 @@ final class PushTargetTests: XCTestCase {
     }
 
     func testAnAssignmentAHandoffAndANoteOpenTheirConversation() {
-        for type in ["assigned", "handoff", "internal_note", "mention"] {
+        for type in ["assignment", "handoff", "internal_note", "mention"] {
             let target = PushTarget(userInfo: ["type": type, "workspaceId": "w1", "conversationId": "c1"])
             XCTAssertEqual(target, .conversation(workspaceID: "w1", conversationID: "c1"), type)
         }
@@ -25,20 +25,30 @@ final class PushTargetTests: XCTestCase {
 
     func testAColleaguesMessageOpensTheThreadWithWhoeverWrote() {
         let target = PushTarget(userInfo: [
-            "type": "team_message", "workspaceId": "w1", "teamPeerId": "u2", "messageId": "t1",
+            "type": "team_message", "workspaceId": "w1", "peerId": "u2", "messageId": "t1",
         ])
         XCTAssertEqual(target, .colleague(workspaceID: "w1", peerID: "u2"))
     }
 
     func testAnEmailOpensItsThread() {
         let target = PushTarget(userInfo: [
-            "type": "email", "workspaceId": "w1", "emailThreadId": "e1", "messageId": "em1",
+            "type": "email_message", "workspaceId": "w1", "threadId": "e1", "messageId": "em1",
         ])
         XCTAssertEqual(target, .email(workspaceID: "w1", threadID: "e1"))
     }
 
     func testTheSuperAdminDiagnosticGoesNowhere() {
         XCTAssertNil(PushTarget(userInfo: ["type": "test", "workspaceId": "w1", "conversationId": "c1"]))
+    }
+
+    func testACallbackRequestHasNowhereToGoOnThisPhone() {
+        XCTAssertNil(PushTarget(userInfo: ["type": "callback_request", "workspaceId": "w1", "callbackId": "cb1"]))
+    }
+
+    func testATeamMessageOrEmailMissingItsDestinationGoesNowhere() {
+        // Never a conversation by accident: a colleague's id is not one.
+        XCTAssertNil(PushTarget(userInfo: ["type": "team_message", "workspaceId": "w1", "conversationId": "c1"]))
+        XCTAssertNil(PushTarget(userInfo: ["type": "email_message", "workspaceId": "w1"]))
     }
 
     func testAPayloadWithoutAWorkspaceOrADestinationGoesNowhere() {

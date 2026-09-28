@@ -3,6 +3,7 @@ package com.webyar.ai.feature.call
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.webyar.ai.core.model.CallChannel
+import com.webyar.ai.core.net.ApiError
 import com.webyar.ai.core.net.WebyarApi
 import com.webyar.ai.core.runCatchingUnlessCancelled
 import com.webyar.ai.i18n.Language
@@ -92,6 +93,9 @@ class CallSession(
     private var started = false
     private var language: Language = Language.EN
 
+    /** Set for a call-centre call this phone was rung for: whose queue it is in. */
+    private var centerWorkspaceId: String? = null
+
     /**
      * Invites the visitor, then waits for them.
      *
@@ -146,6 +150,73 @@ class CallSession(
         viewModelScope.launch {
             room.events.collect { event -> onRoomEvent(event) }
         }
+    }
+
+    /**
+     * A call-centre call ringing this phone: nothing is sent until the
+     * operator answers. Idempotent, like [start].
+     */
+    fun ring(
+        workspaceId: String,
+        callSessionId: String,
+        channel: CallChannel,
+        language: Language,
+    ) {
+        if (started) return
+        started = true
+        this.channel = channel
+        this.language = language
+        this.centerWorkspaceId = workspaceId
+        this.callSessionId = callSessionId
+        _cameraOn.value = channel == CallChannel.VIDEO
+        _phase.value = CallPhase.Ringing
+        viewModelScope.launch {
+            room.events.collect { event -> onRoomEvent(event) }
+        }
+    }
+
+    /**
+     * Answers the ringing call: the call centre gives it to this operator —
+     * and stops every other phone — and then the room is joined like any
+     * other. A call somebody else took first, or that the caller has given
+     * up on, is said to be exactly that.
+     */
+    fun answer() {
+        if (_phase.value != CallPhase.Ringing) return
+        val workspaceId = centerWorkspaceId ?: return
+        val sessionId = callSessionId ?: return
+        _phase.value = CallPhase.Connecting
+        viewModelScope.launch {
+            runCatchingUnlessCancelled {
+                api.acceptCenterCall(workspaceId = workspaceId, callSessionId = sessionId)
+            }.onFailure { error ->
+                _phase.value = CallPhase.Ended(
+                    if ((error as? ApiError.Server)?.status in GONE_STATUSES) {
+                        CallOutcome.NoLongerWaiting
+                    } else {
+                        CallOutcome.Failed(error.displayText(language))
+                    }
+                )
+                return@launch
+            }
+            join(sessionId)
+        }
+    }
+
+    /**
+     * Declined here: this phone is done with the call, which stays on offer
+     * to everybody else. Nothing is sent — the call centre's reject would
+     * hang up on the caller for all of them.
+     */
+    fun decline() {
+        if (_phase.value != CallPhase.Ringing) return
+        _phase.value = CallPhase.Ended(CallOutcome.HungUp)
+    }
+
+    /** The server stopped the ring before this phone answered. */
+    fun noLongerRinging() {
+        if (_phase.value != CallPhase.Ringing) return
+        _phase.value = CallPhase.Ended(CallOutcome.NoLongerWaiting)
     }
 
     /**
@@ -269,15 +340,25 @@ class CallSession(
 
     private fun finish(outcome: CallOutcome) {
         if (!_phase.value.isLive) return
+        // Never answered: there is nothing of ours to end.
+        if (_phase.value == CallPhase.Ringing) {
+            _phase.value = CallPhase.Ended(outcome)
+            return
+        }
         _phase.value = CallPhase.Ended(outcome)
         val sessionId = callSessionId
         val invitation = invitationId
+        val center = centerWorkspaceId
         viewModelScope.launch {
             room.disconnect()
             // Told to the server last and best-effort: the local side is
             // already over, and a failed request must not leave the operator
             // staring at a call they have finished with.
             when {
+                // A call-centre call ends through the call centre, which also
+                // frees this operator's line for the next caller.
+                center != null && sessionId != null ->
+                    runCatchingUnlessCancelled { api.endCenterCall(workspaceId = center, callSessionId = sessionId) }
                 // Idempotent server-side, which is what makes it safe to send
                 // even when the visitor hung up first and the call is already
                 // over as far as the server is concerned.
@@ -300,5 +381,8 @@ class CallSession(
 
     private companion object {
         const val POLL_MILLIS = 2_000L
+
+        /** The call centre's "not there to answer any more": gone, or no longer active. */
+        val GONE_STATUSES = setOf(404, 409)
     }
 }

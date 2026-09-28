@@ -19,46 +19,41 @@ import { getServiceClient } from '../../supabase.js';
 import { getConnectedOperators } from '../widget/operatorPresenceSource.js';
 
 /**
- * Every operator-facing event that can reach a phone.
- *
- *  • new_message    — a customer wrote (widget or any connected channel).
- *  • internal_note  — a teammate left a note on a conversation.
- *  • mention        — a teammate named the operator.
- *  • assigned       — a conversation was given to the operator, by a
- *                     teammate or by routing.
- *  • handoff        — the AI stopped and handed a conversation to people.
- *  • team_message   — a colleague wrote to the operator directly.
- *  • email          — a new email arrived in the workspace's shared inbox.
+ * `team_message` is a colleague's direct message in team chat: addressed to
+ * one operator, and about no conversation.
  */
 export type PushEventType =
   | 'new_message'
   | 'internal_note'
   | 'mention'
-  | 'assigned'
-  | 'handoff'
   | 'team_message'
-  | 'email';
+  /** A conversation handed to one operator — by a colleague, or by routing. */
+  | 'assignment'
+  /** A new email in the workspace's email inbox, which has no conversation. */
+  | 'email_message'
+  /** A visitor asked to be called back. */
+  | 'callback_request'
+  /**
+   * The AI stopped and handed a conversation to people: to whoever already
+   * holds it, or — when nobody does — to the operators following everything.
+   */
+  | 'handoff';
 
 export interface RecipientContext {
   workspaceId: string;
-  /** Absent for events that are not about a customer conversation. */
+  /** The conversation the event is in; none for a team message. */
   conversationId?: string | null;
   assignedTo: string | null;
   eventType: PushEventType;
-  /**
-   * The only people this event is for — the assignee of an assignment, the
-   * recipient of a team message. Everyone else in the workspace is never
-   * considered, whatever their scope says.
-   */
-  targetUserIds?: string[];
-  /**
-   * Only members holding one of these roles — the shared email inbox is an
-   * owner/admin surface, and a push must not reveal what its screen hides.
-   */
-  roles?: string[];
   /** Operator who authored the note/mention; never notified. */
   actorId?: string | null;
   mentionedUserIds?: string[];
+  /**
+   * Only these members are considered at all — the one operator a team
+   * message is addressed to — so a direct message does not read the prefs,
+   * profiles and presence of the whole workspace to notify one person.
+   */
+  userIds?: string[];
   /**
    * Platform-wide policy (Super Admin → Notifications). Supplies the defaults
    * for an operator who never opened their own notification preferences, and
@@ -81,7 +76,6 @@ export interface Recipient {
 interface MemberRow {
   user_id: string;
   suspended_at: string | null;
-  role?: string | null;
 }
 
 interface PrefsRow {
@@ -114,6 +108,7 @@ const DEFAULT_PREFS = {
   quiet_hours_start: null as string | null,
   quiet_hours_end: null as string | null,
   quiet_hours_timezone: null as string | null,
+  // Migration 235: one switch per kind of event beyond a customer's message.
   push_team_chat: true,
   push_assignments: true,
   push_email: true,
@@ -122,7 +117,7 @@ const DEFAULT_PREFS = {
 /** The prefs columns every deployment has. */
 const PREF_COLUMNS =
   'user_id, disable_all, play_sound, push_scope, push_preview, push_internal_notes, push_when_online, push_when_offline, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone';
-/** Added by migration 234; read when present, defaulted on when not. */
+/** Added by migration 235; read when present, defaulted on when not. */
 const EVENT_PREF_COLUMNS = 'push_team_chat, push_assignments, push_email';
 
 /**
@@ -188,24 +183,22 @@ export async function resolveRecipients(
 ): Promise<Recipient[]> {
   const sb = getServiceClient(config);
 
-  const { data: members, error } = await sb
+  let memberQuery = sb
     .from('workspace_members')
-    .select('user_id, suspended_at, role')
+    .select('user_id, suspended_at')
     .eq('workspace_id', ctx.workspaceId);
+  if (ctx.userIds) memberQuery = memberQuery.in('user_id', ctx.userIds);
+  const { data: members, error } = await memberQuery;
   if (error) {
     console.error('[push] member lookup failed', { code: error.code, message: error.message });
     return [];
   }
 
   const mentioned = new Set(ctx.mentionedUserIds ?? []);
-  const targets = ctx.targetUserIds ? new Set(ctx.targetUserIds) : null;
-  const roles = ctx.roles ? new Set(ctx.roles) : null;
   const eligible = (members as MemberRow[] | null ?? [])
     .filter((m) => !m.suspended_at)
-    .filter((m) => !roles || roles.has(String(m.role ?? '')))
     .map((m) => String(m.user_id))
-    .filter((id) => id !== ctx.actorId)
-    .filter((id) => !targets || targets.has(id));
+    .filter((id) => id !== ctx.actorId);
 
   if (!eligible.length) return [];
 
@@ -257,11 +250,46 @@ export async function resolveRecipients(
     const isAssignee = ctx.assignedTo === userId;
 
     // Quiet hours: silenced unless the operator was personally mentioned AND
-    // the platform allows a mention to break the window.
+    // the platform allows a mention to break the window. A colleague's
+    // direct message is addressed to them just as personally, and is passed
+    // in as a mention of its recipient for exactly this.
     if (!(isMentioned && mentionBypassesQuietHours) && isWithinQuietHours(p, now)) continue;
 
-
-    if (!allowsEvent(ctx, p, { isAssignee, isMentioned })) continue;
+    if (ctx.eventType === 'mention' && !isMentioned) continue;
+    // Addressed to one operator: the scope ("assigned to me", "mentions
+    // only") is about customers' conversations, and a direct message is
+    // theirs whatever it is set to — only 'none' and "disable all", above,
+    // silence it.
+    if (ctx.eventType === 'team_message' && !isMentioned) continue;
+    if (ctx.eventType === 'internal_note') {
+      if (!p.push_internal_notes && !isMentioned) continue;
+      // A note is about the conversation, so it reaches whoever the
+      // conversation's customer messages would: the assignee of an assigned
+      // one, everyone who follows all conversations on an unassigned one.
+      if (ctx.assignedTo) {
+        if (!isAssignee && !isMentioned) continue;
+      } else if (p.push_scope !== 'all' && !isMentioned) continue;
+    }
+    // Email and callbacks belong to no one yet: they reach those who follow
+    // everything, as an unassigned customer message does.
+    if ((ctx.eventType === 'email_message' || ctx.eventType === 'callback_request') && p.push_scope !== 'all') continue;
+    // Each kind of event beyond a customer's message has its own switch.
+    if (ctx.eventType === 'team_message' && p.push_team_chat === false) continue;
+    if ((ctx.eventType === 'assignment' || ctx.eventType === 'handoff') && p.push_assignments === false) continue;
+    if (ctx.eventType === 'email_message' && p.push_email === false) continue;
+    if (ctx.eventType === 'handoff') {
+      // Handed to somebody already: theirs alone. Handed to the queue: the
+      // same people an unassigned customer message reaches.
+      if (ctx.assignedTo ? !isAssignee : p.push_scope !== 'all') continue;
+    }
+    if (ctx.eventType === 'new_message') {
+      if (p.push_scope === 'mentions' && !isMentioned) continue;
+      // "only assigned to me": an unassigned thread still reaches everyone
+      // whose scope is 'all', so a new customer never goes unanswered.
+      if (p.push_scope === 'assigned' && !isAssignee && !isMentioned) continue;
+      // An assigned thread is that operator's (plus anyone mentioned).
+      if (ctx.assignedTo && !isAssignee && !isMentioned) continue;
+    }
 
     out.push({
       userId,
@@ -274,58 +302,8 @@ export async function resolveRecipients(
 }
 
 /**
- * The per-event rules, after the ones every event shares (mute all, scope
- * none, presence, quiet hours).
- *
- * Scope reads as the settings screen describes it: "all" is everything the
- * operator could act on, "assigned" is what is theirs, "mentions" is only
- * what names them. A message a colleague wrote TO them, and a conversation
- * given TO them, are theirs by definition — so those pass "assigned" and
- * "mentions" alike, and only their own switch turns them off.
- */
-function allowsEvent(
-  ctx: RecipientContext,
-  p: typeof DEFAULT_PREFS,
-  who: { isAssignee: boolean; isMentioned: boolean },
-): boolean {
-  const { isAssignee, isMentioned } = who;
-  switch (ctx.eventType) {
-    case 'mention':
-      return isMentioned;
-    case 'internal_note':
-      if (!p.push_internal_notes && !isMentioned) return false;
-      // A note on somebody's conversation is for that somebody.
-      if (ctx.assignedTo && !isAssignee && !isMentioned) return false;
-      return isAssignee || isMentioned || p.push_scope === 'all';
-    case 'new_message':
-      if (p.push_scope === 'mentions' && !isMentioned) return false;
-      // "only assigned to me": an unassigned thread still reaches everyone
-      // whose scope is 'all', so a new customer never goes unanswered.
-      if (p.push_scope === 'assigned' && !isAssignee && !isMentioned) return false;
-      // An assigned thread is that operator's (plus anyone mentioned).
-      if (ctx.assignedTo && !isAssignee && !isMentioned) return false;
-      return true;
-    case 'assigned':
-      return p.push_assignments !== false && isAssignee;
-    case 'handoff':
-      if (p.push_assignments === false) return false;
-      // Handed to somebody already: theirs alone. Handed to the queue: the
-      // same people a new customer reaches.
-      if (ctx.assignedTo) return isAssignee;
-      return p.push_scope === 'all';
-    case 'team_message':
-      return p.push_team_chat !== false;
-    case 'email':
-      // Nobody is assigned an email, so only "everything" covers one.
-      return p.push_email !== false && p.push_scope === 'all';
-    default:
-      return false;
-  }
-}
-
-/**
  * The phone preferences of these operators, with the per-event switches when
- * the deployment has them. A database that has not run migration 234 yet
+ * the deployment has them. A database that has not run migration 235 yet
  * answers the short read, and the switches it lacks default to on — which is
  * exactly how those events behaved before the switches existed.
  */

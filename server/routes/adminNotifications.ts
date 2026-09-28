@@ -266,9 +266,7 @@ const testLimiter = rateLimit({
 });
 
 const testSchema = z.object({
-  event_type: z
-    .enum(['new_message', 'internal_note', 'mention', 'assigned', 'handoff', 'team_message', 'email'])
-    .default('new_message'),
+  event_type: z.enum(['new_message', 'internal_note', 'mention']).default('new_message'),
   locale: z.string().trim().min(2).max(10).default('en'),
   preview: z.boolean().default(true),
 });
@@ -287,16 +285,19 @@ const testRingSchema = z.object({
 /**
  * POST /test-ring — rings the caller's own phone.
  *
- * Separate from /test because it exercises an entirely different path: APNs
- * direct rather than FCM, PushKit rather than a notification, and CallKit
- * rather than a banner. A green result on one says nothing about the other.
+ * Separate from /test because it exercises an entirely different path: on
+ * iOS APNs direct rather than FCM, PushKit rather than a notification, and
+ * CallKit rather than a banner; on Android a data-only FCM message the app
+ * turns into a full-screen incoming call. A green result on one says nothing
+ * about the other.
  */
 adminNotificationsRouter.post('/test-ring', testLimiter, async (req, res) => {
   const actorId = await requirePlatformAdmin(req, res);
   if (!actorId) return;
   const parsed = testRingSchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
-  if (!isVoipConfigured()) return res.status(409).json({ error: 'voip_not_configured' });
+  // Either transport rings something: VoIP an iPhone, FCM an Android phone.
+  if (!isVoipConfigured() && !isPushConfigured()) return res.status(409).json({ error: 'voip_not_configured' });
 
   const config = serverConfigOf(req);
   try {
@@ -333,7 +334,7 @@ adminNotificationsRouter.post('/test', testLimiter, async (req, res) => {
       // Templates are keyed by bare language: "fa-IR" is "fa".
       parsed.data.locale.toLowerCase().split(/[-_]/)[0],
       parsed.data.preview,
-      { sender: 'Webyar', preview: 'Test notification', count: '0', workspace: 'Webyar', actor: 'Webyar' },
+      { sender: 'Webyar', preview: 'Test notification', count: '0', workspace: 'Webyar' },
     );
 
     let accepted = 0;

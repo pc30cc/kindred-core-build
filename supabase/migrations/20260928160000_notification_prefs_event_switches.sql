@@ -1,7 +1,7 @@
 -- ============================================================
 -- THREE MORE PUSH SWITCHES, ONE PER KIND OF EVENT
 --
--- Self-host twin: database/migrations/234_notification_prefs_event_switches.sql
+-- Self-host twin: database/migrations/235_notification_prefs_event_switches.sql
 -- (functionally identical; registered in
 -- src/test/integration/migrationMirrorParity.test.ts).
 --
@@ -14,7 +14,7 @@
 --   • push_assignments — a conversation handed to me: by a colleague, by
 --                        automatic routing, or by the AI letting go of it
 --   • push_email       — a new email in the workspace's shared inbox
---                        (owners and admins only)
+--                        (for those whose scope is "all conversations")
 --
 -- Default on, like every push switch before them: an operator who has never
 -- opened the page gets the notifications, and turns off what they don't

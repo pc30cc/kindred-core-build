@@ -9,6 +9,32 @@ message committed → notifyInboundMessage() → recipient resolver (prefs, role
 assignment, actor exclusion) → mobile_push_devices → FCM v1 → APNs → device
 ```
 
+A colleague's direct message in team chat takes the same road from its own
+door: `POST /api/team-chat/messages` → `notifyTeamMessage()` → the recipient's
+own preferences (scope `none` and "disable all" silence it; quiet hours give way
+as for a mention) → their devices. Its `data` carries `type: team_message` and
+`peerId` (the colleague) instead of a `conversationId`; the apps open that
+colleague's thread on a tap.
+
+What else reaches an operator's phone, each under the same per-operator
+settings and in the operator's language:
+
+| Event | Sent from | `type` | Who |
+|---|---|---|---|
+| Customer message (widget, bot channels, widget "leave a message") | `notifyInboundMessage` | `new_message` | assignee, or everyone following all conversations |
+| Internal note | `POST /api/conversations/:id/notes` | `internal_note` | the same people, never the author |
+| Conversation assigned (by a colleague, or by routing) | `notifyAssignment` | `assignment` | the new assignee |
+| New email (Gmail / Yahoo, received in the last 15 minutes) | `notifyEmailMessage` | `email_message` + `threadId` | everyone following everything |
+| Callback request | `notifyCallbackRequest` | `callback_request` + `callbackId` | everyone following everything |
+| Call-centre call | `ringOperators` / `cancelRing` | `call_incoming` / `call_cancel` (Android, data-only) | the agent routed to, or every available agent |
+
+A call rings iPhones over PushKit and Android phones with a data-only,
+high-priority FCM message: the app draws a full-screen incoming call with
+Answer and Decline. Answer takes the call through
+`POST /api/call-center/calls/:id/accept`; Decline only silences that phone —
+the call centre's own reject would hang up on the caller for everyone. A ring
+that stops with nobody having answered it leaves a missed-call notification.
+
 Delivery is best-effort and idempotent (`push_dispatch_log.dedupe_key`); a push
 failure can never fail or roll back message ingestion.
 
@@ -30,8 +56,14 @@ failure can never fail or roll back message ingestion.
    the `.p8` APNs key with its Key ID and Team ID.
 3. Project settings → **Service accounts** → *Generate new private key* → this
    JSON is the **server** credential (never ships in the app).
-4. Android (when shipped): add the Android app, place `google-services.json` in
-   `android/app/`.
+4. Android: **Add app → Android**, package `com.webyar.ai`. Download its
+   `google-services.json` and read it into **Super Admin → Mobile App →
+   Android → Identity → Push notifications (Firebase)** ("Read
+   google-services.json"), then save. Installed apps read the four values from
+   `GET /api/mobile-app/config` (`firebase`), keep them and start Firebase with
+   them — no new build, and nothing is placed in `android/app/`. A build made
+   with `WEBYAR_FIREBASE_*` keeps its own project instead (see
+   `docs/ANDROID_RELEASE.md`).
 
 ## 3. Server environment
 

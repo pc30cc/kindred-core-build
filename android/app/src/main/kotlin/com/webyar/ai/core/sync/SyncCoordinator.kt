@@ -105,6 +105,7 @@ class SyncCoordinator(
      */
     val team: SharedFlow<TeamSignal> = _team.asSharedFlow()
     private val openThreads = MutableStateFlow<Set<String>>(emptySet())
+    private val openTeamThreads = MutableStateFlow<Set<String>>(emptySet())
     private val foreground = MutableStateFlow(false)
     private val _realtime = MutableStateFlow(RealtimeHealth.IDLE)
     val realtime: StateFlow<RealtimeHealth> = _realtime.asStateFlow()
@@ -236,6 +237,18 @@ class SyncCoordinator(
         openThreads.update { it - conversationId }
         messages.unwatch(conversationId)
     }
+
+    /** A colleague's team thread came on screen; a push from them needs no notification. */
+    fun openTeamThread(peerId: String) {
+        openTeamThreads.update { it + peerId }
+    }
+
+    fun closeTeamThread(peerId: String) {
+        openTeamThreads.update { it - peerId }
+    }
+
+    /** Which colleagues' threads are on screen, for a push deciding whether to notify. */
+    fun openTeamPeerIds(): Set<String> = openTeamThreads.value
 
     /**
      * Signed out: nothing is in focus and nothing may be written for anyone.
@@ -415,6 +428,16 @@ class SyncCoordinator(
      * realtime event, so a message that arrives both ways is still one read
      * of one row.
      */
+    /**
+     * A colleague's message, heard by push rather than on the operator's own
+     * channel — the channel may be down, or not yet up. The screens that show
+     * team chat read again, exactly as for the realtime event; when both
+     * arrive, the second read finds nothing new.
+     */
+    fun onTeamPush(workspaceId: String, peerId: String) {
+        _team.tryEmit(TeamSignal(workspaceId, TEAM_MESSAGE_KIND, senderId = peerId, peerId = peerId))
+    }
+
     fun onPush(workspaceId: String, conversationId: String?) {
         val f = focus.value ?: return
         if (f.scope.workspaceId != workspaceId || conversationId.isNullOrBlank()) return
@@ -682,6 +705,9 @@ class SyncCoordinator(
         const val AREA = "Sync"
         /** `team_message`, `team_read`: the operator's own channel (`publishTeamEvent`). */
         const val TEAM_KIND_PREFIX = "team_"
+
+        /** The realtime event a sent team message is announced with. */
+        const val TEAM_MESSAGE_KIND = "team_message"
     }
 }
 

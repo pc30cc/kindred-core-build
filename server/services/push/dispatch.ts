@@ -4,7 +4,9 @@
  * The single point where a Webyar event becomes a native notification. No
  * provider handler (Telegram / WhatsApp / Instagram / Bale / widget) ever
  * calls FCM directly: they all reach this module through
- * `notifyInboundMessage`, which is channel-agnostic.
+ * `notifyInboundMessage`, which is channel-agnostic. A colleague's message in
+ * team chat, which is about no conversation, comes in through
+ * `notifyTeamMessage` and leaves by the same road.
  *
  * Load-bearing properties:
  *  • Best effort, never transactional. `notifyInboundMessage` never throws and
@@ -23,12 +25,7 @@ import { getServiceClient } from '../../supabase.js';
 import { sendFcmMessage, isPushConfigured, type ApnsDelivery } from './fcm.js';
 import { sendApnsAlert, isApnsConfigured, nativeBundleId } from './apns.js';
 import { listActiveDevices, disableToken, type PushDeviceRow } from './devices.js';
-import {
-  resolveRecipients,
-  unreadBadgeCount,
-  type PushEventType,
-  type Recipient,
-} from './recipients.js';
+import { resolveRecipients, unreadBadgeCount, type PushEventType, type Recipient } from './recipients.js';
 import {
   DEFAULT_CATEGORIES,
   loadPushPlatformSettings,
@@ -44,31 +41,21 @@ interface ConversationRow {
   status: string;
   is_spam?: boolean | null;
   ai_state?: string | null;
-  contacts?: { name: string | null } | { name: string | null }[] | null;
 }
 
 export interface InboundPushInput {
   workspaceId: string;
   conversationId: string;
-  /**
-   * The message this is about — or, for an event that is not a message (an
-   * assignment, a handoff), any id unique to the event: it is only the
-   * dedupe key then.
-   */
   messageId: string;
   /** Raw message text; only used when the recipient allows previews. */
   text?: string | null;
-  /** Display name of the customer / note author / colleague / email sender. */
+  /** Display name of the customer / note author. */
   senderName?: string | null;
-  /** Who did it, by name — the teammate who assigned a conversation. */
-  actorName?: string | null;
   channel?: string | null;
   eventType?: PushEventType;
   actorId?: string | null;
   mentionedUserIds?: string[];
   attachmentCount?: number;
-  /** The one operator an event is for — the assignee of an assignment. */
-  targetUserId?: string | null;
   /** The workspace's name, for templates that use `{{workspace}}`. */
   workspaceName?: string | null;
 }
@@ -98,11 +85,20 @@ const COPY = {
     newMessage: 'New message',
     internalNote: (name: string) => `${name} · internal note`,
     mentioned: (name: string) => `${name} mentioned you`,
-    assigned: (actor: string) => `Assigned to you · ${actor}`,
-    autoRouting: 'automatic routing',
-    handoff: 'The AI handed this conversation to your team',
     colleague: 'Colleague',
-    emailSender: 'Email',
+    teamPrivacyBody: 'New message from a colleague',
+    teamMessage: (name: string) => `${name} · colleague`,
+    assignedTitle: 'Conversation assigned to you',
+    assignedPrivacyBody: 'A conversation was assigned to you',
+    assignedBy: (name: string) => `Assigned by ${name}`,
+    handoffTitle: 'Needs a person',
+    handoffBody: 'The AI handed this conversation to your team',
+    handoffPrivacyBody: 'A conversation needs a person',
+    emailTitle: 'New email',
+    emailPrivacyBody: 'New email in Webyar',
+    callbackTitle: 'Callback request',
+    callbackBody: 'A visitor asked to be called back',
+    visitor: 'Website visitor',
   },
   fa: {
     privacyTitle: 'Webyar',
@@ -112,11 +108,20 @@ const COPY = {
     newMessage: 'پیام جدید',
     internalNote: (name: string) => `${name} · یادداشت داخلی`,
     mentioned: (name: string) => `${name} شما را نام برد`,
-    assigned: (actor: string) => `به شما سپرده شد · ${actor}`,
-    autoRouting: 'تخصیص خودکار',
-    handoff: 'هوش مصنوعی این گفتگو را به تیم شما سپرد',
     colleague: 'همکار',
-    emailSender: 'ایمیل',
+    teamPrivacyBody: 'پیام جدید از همکار',
+    teamMessage: (name: string) => `${name} · همکار`,
+    assignedTitle: 'گفتگو به شما سپرده شد',
+    assignedPrivacyBody: 'گفتگویی به شما سپرده شد',
+    assignedBy: (name: string) => `سپرده‌شده توسط ${name}`,
+    handoffTitle: 'نیاز به اپراتور',
+    handoffBody: 'هوش مصنوعی این گفتگو را به تیم شما سپرد',
+    handoffPrivacyBody: 'گفتگویی به اپراتور نیاز دارد',
+    emailTitle: 'ایمیل تازه',
+    emailPrivacyBody: 'ایمیل تازه در وب‌یار',
+    callbackTitle: 'درخواست تماس',
+    callbackBody: 'بازدیدکننده‌ای درخواست تماس داده است',
+    visitor: 'بازدیدکننده وب‌سایت',
   },
   tr: {
     privacyTitle: 'Webyar',
@@ -126,11 +131,20 @@ const COPY = {
     newMessage: 'Yeni mesaj',
     internalNote: (name: string) => `${name} · dahili not`,
     mentioned: (name: string) => `${name} sizden bahsetti`,
-    assigned: (actor: string) => `Size atandı · ${actor}`,
-    autoRouting: 'otomatik yönlendirme',
-    handoff: 'Yapay zekâ bu konuşmayı ekibinize devretti',
-    colleague: 'Ekip arkadaşı',
-    emailSender: 'E-posta',
+    colleague: 'İş arkadaşı',
+    teamPrivacyBody: 'Bir iş arkadaşından yeni mesaj',
+    teamMessage: (name: string) => `${name} · iş arkadaşı`,
+    assignedTitle: 'Görüşme size atandı',
+    assignedPrivacyBody: 'Size bir görüşme atandı',
+    assignedBy: (name: string) => `${name} tarafından atandı`,
+    handoffTitle: 'Bir temsilci gerekiyor',
+    handoffBody: 'Yapay zekâ bu görüşmeyi ekibinize devretti',
+    handoffPrivacyBody: 'Bir görüşme bir temsilci bekliyor',
+    emailTitle: 'Yeni e-posta',
+    emailPrivacyBody: 'Webyar\'da yeni e-posta',
+    callbackTitle: 'Geri arama isteği',
+    callbackBody: 'Bir ziyaretçi geri aranmak istedi',
+    visitor: 'Web sitesi ziyaretçisi',
   },
 } as const;
 
@@ -179,31 +193,21 @@ function directed(locale: CopyLocale, value: string): string {
   return firstStrongDirection(value) === 'ltr' ? `${RLM}${value}` : value;
 }
 
-/**
- * A customer message arrived — the original entry point, kept for its two
- * callers (the widget and the channel ingestion path).
- */
 export async function notifyInboundMessage(
   config: ServerConfig,
   input: InboundPushInput,
 ): Promise<void> {
-  return notifyConversationEvent(config, input);
-}
-
-/**
- * Anything about one customer conversation: a new message, a note, a
- * mention, an assignment, a handoff from the AI.
- *
- * Never throws, and is always invoked fire-and-forget AFTER the change it
- * reports is committed.
- */
-export async function notifyConversationEvent(
-  config: ServerConfig,
-  input: InboundPushInput,
-): Promise<void> {
   try {
-    const policy = await livePolicy(config);
-    if (!policy) return;
+    // Either transport being available is enough. A deployment with an APNs
+    // key and no Firebase service account reaches every native operator app,
+    // and returning early here because Google is absent would have silently
+    // turned all of them off.
+    if (!isPushConfigured() && !isApnsConfigured()) return;
+    // Platform policy (Super Admin → Notifications). The master switch is
+    // honoured before any work is done, so turning push off is immediate and
+    // does not depend on removing credentials.
+    const policy = await loadPushPlatformSettings(config);
+    if (!policy.push_enabled) return;
     const eventType: PushEventType = input.eventType ?? 'new_message';
     const sb = getServiceClient(config);
 
@@ -211,380 +215,513 @@ export async function notifyConversationEvent(
     // treated as authority for who may be notified.
     const { data: conversationRow } = await sb
       .from('conversations')
-      .select('id, workspace_id, assigned_to, status, is_spam, ai_state, contacts(name)')
+      .select('id, workspace_id, assigned_to, status, is_spam, ai_state')
       .eq('id', input.conversationId)
       .maybeSingle();
     const conv = conversationRow as ConversationRow | null;
     if (!conv || String(conv.workspace_id) !== input.workspaceId) return;
-
     // Spam is hidden from every inbox; it does not get to buzz a phone.
     if (conv.is_spam) return;
-    // The AI is answering this one and nobody holds it: the operator would
-    // be woken for a conversation their inbox deliberately keeps out of the
-    // way. The handoff, when it comes, is its own event.
+    // The AI is answering this one and nobody holds it: the inbox keeps it
+    // in the AI's own queue, out of the operators' way, and so does the
+    // phone. When the AI hands it over, that is its own notification.
     if (eventType === 'new_message' && conv.ai_state === 'ai_managed' && !conv.assigned_to) return;
-    // An assignment is only news while it still stands.
-    if (eventType === 'assigned') {
-      if (!input.targetUserId || conv.assigned_to !== input.targetUserId) return;
-    }
 
     const recipients = await resolveRecipients(config, {
       workspaceId: input.workspaceId,
       conversationId: input.conversationId,
       assignedTo: conv.assigned_to ?? null,
       eventType,
-      targetUserIds: eventType === 'assigned' && input.targetUserId ? [input.targetUserId] : undefined,
       actorId: input.actorId ?? null,
       mentionedUserIds: input.mentionedUserIds,
       policy,
     });
     if (!recipients.length) return;
 
-    const contact = Array.isArray(conv.contacts) ? conv.contacts[0] : conv.contacts;
-    const content: InboundPushInput = {
-      ...input,
-      senderName: input.senderName ?? contact?.name ?? null,
-    };
-
+    const dedupeKey = `${eventType}:${input.messageId}`;
     const data: Record<string, string> = {
       type: eventType,
       workspaceId: input.workspaceId,
       conversationId: input.conversationId,
+      messageId: input.messageId,
     };
-    if (eventType === 'new_message') data.messageId = input.messageId;
+    // Read only when a template asks for it: most never do.
+    const content: InboundPushInput = usesPlaceholder(policy, 'workspace')
+      ? { ...input, workspaceName: await workspaceName(config, input.workspaceId) }
+      : input;
     if (input.channel) data.channel = String(input.channel).slice(0, 32);
 
-    const workspace = await workspaceName(config, input.workspaceId);
-    await deliver(config, {
-      workspaceId: input.workspaceId,
-      eventType,
-      recipients,
-      data,
-      dedupeKey: `${eventType}:${input.messageId}`,
-      conversationId: input.conversationId,
-      messageId: eventType === 'new_message' ? input.messageId : null,
-      collapseId: policy.collapse_enabled ? `conv-${input.conversationId}` : undefined,
-      threadId: threadIdFor(policy, input.workspaceId, input.conversationId),
-      policy,
-      content: (recipient) =>
-        renderContent({ ...content, workspaceName: workspace }, eventType, recipient.preview, policy, recipient.locale),
-    });
+    // One device lookup for every recipient, up front. A recipient with no
+    // active device has nothing to deliver to, so they get no claim row and
+    // no status update: those were two writes per member per message (for a
+    // team where only a few people install the app, most of this table),
+    // recording only "no_devices", plus a device query each. Every recipient
+    // WITH a device is claimed, sent and logged exactly as before.
+    const devicesByUser = new Map<string, PushDeviceRow[]>();
+    for (const device of await listActiveDevices(config, recipients.map((r) => r.userId))) {
+      const list = devicesByUser.get(device.user_id);
+      if (list) list.push(device);
+      else devicesByUser.set(device.user_id, [device]);
+    }
+
+    for (const recipient of recipients) {
+      const devices = devicesByUser.get(recipient.userId) ?? [];
+      if (!devices.length) continue;
+
+      // Idempotency gate: the UNIQUE index rejects the second attempt for the
+      // same (workspace, user, message) — that rejection IS the suppression.
+      const { error: claimError } = await sb.from('push_dispatch_log').insert({
+        workspace_id: input.workspaceId,
+        user_id: recipient.userId,
+        conversation_id: input.conversationId,
+        message_id: input.messageId,
+        notification_type: eventType,
+        dedupe_key: dedupeKey,
+        status: 'attempted',
+      });
+      if (claimError) continue; // duplicate (or logging outage) → stay silent
+
+      const badge = policy.badge_enabled
+        ? await unreadBadgeCount(config, recipient.userId, input.workspaceId)
+        : undefined;
+      const { title, body } = renderContent(content, eventType, recipient.preview, policy, recipient.locale);
+      const apns = apnsDeliveryFor(policy, eventType, input);
+
+      const collapseId = policy.collapse_enabled ? `conv-${input.conversationId}` : undefined;
+
+      const { accepted, failed } = await deliver(config, recipient, devices, {
+        title,
+        body,
+        data,
+        badge,
+        collapseId,
+        apns,
+        androidChannelId: policy.android_channel_id,
+      });
+
+      await finish(
+        config,
+        input.workspaceId,
+        recipient.userId,
+        dedupeKey,
+        devices.length,
+        accepted,
+        failed,
+        accepted > 0 ? 'sent' : 'failed',
+      );
+    }
   } catch (err) {
     // Absolutely terminal: push must never surface into the ingestion path.
     console.error('[push] dispatch error', { message: String((err as Error)?.message ?? err) });
   }
 }
 
-export interface TeamMessagePushInput {
+export interface TeamPushInput {
   workspaceId: string;
+  /** The colleague who wrote it; never notified. */
   senderId: string;
+  /** The one operator it is addressed to. */
   recipientId: string;
+  /** The `team_messages` row, committed before this is called. */
   messageId: string;
+  /** Only shown when the recipient allows previews. */
   text?: string | null;
   hasAttachment?: boolean;
 }
 
 /**
- * A colleague wrote to the operator in team chat. Only the recipient is ever
- * considered — a direct message is nobody else's business.
+ * A colleague's direct message in team chat, as a notification on the phone
+ * of the operator it was sent to.
+ *
+ * Team chat only ever told the recipient over realtime, which reaches an app
+ * that is open and nothing else: a message from a colleague to a phone in a
+ * pocket arrived in silence. The same properties as `notifyInboundMessage`
+ * — best effort and fire-and-forget after the row is committed, one claim
+ * per (workspace, user, message), every device independently — and the same
+ * preferences: "disable all", scope 'none', presence, quiet hours (which a
+ * direct message breaks exactly where a mention would) and previews.
+ *
+ * `data` names the colleague (`peerId`), not a conversation: that is the
+ * thread a tap opens.
  */
-export async function notifyTeamMessage(
-  config: ServerConfig,
-  input: TeamMessagePushInput,
-): Promise<void> {
+export async function notifyTeamMessage(config: ServerConfig, input: TeamPushInput): Promise<void> {
   try {
-    if (input.senderId === input.recipientId) return;
-    const policy = await livePolicy(config);
-    if (!policy) return;
+    if (!isPushConfigured() && !isApnsConfigured()) return;
+    if (input.recipientId === input.senderId) return;
+    const policy = await loadPushPlatformSettings(config);
+    if (!policy.push_enabled) return;
+    const eventType: PushEventType = 'team_message';
 
-    const recipients = await resolveRecipients(config, {
+    // Membership, suspension and preferences are read here, as for any
+    // other event; the route's own check is not taken as authority.
+    const [recipient] = await resolveRecipients(config, {
       workspaceId: input.workspaceId,
-      conversationId: null,
       assignedTo: null,
-      eventType: 'team_message',
-      targetUserIds: [input.recipientId],
+      eventType,
       actorId: input.senderId,
+      mentionedUserIds: [input.recipientId],
+      userIds: [input.recipientId],
       policy,
     });
-    if (!recipients.length) return;
+    if (!recipient) return;
+    const devices = await listActiveDevices(config, [recipient.userId]);
+    if (!devices.length) return;
 
-    const senderName = await personName(config, input.senderId);
-    const workspace = await workspaceName(config, input.workspaceId);
+    const sb = getServiceClient(config);
+    const dedupeKey = `${eventType}:${input.messageId}`;
+    const { error: claimError } = await sb.from('push_dispatch_log').insert({
+      workspace_id: input.workspaceId,
+      user_id: recipient.userId,
+      conversation_id: null,
+      message_id: input.messageId,
+      notification_type: eventType,
+      dedupe_key: dedupeKey,
+      status: 'attempted',
+    });
+    if (claimError) return; // duplicate (or logging outage) → stay silent
+
+    const { data: sender } = await sb
+      .from('profiles')
+      .select('full_name')
+      .eq('id', input.senderId)
+      .maybeSingle();
+    const { title, body } = renderTeamContent(
+      {
+        senderName: (sender as { full_name: string | null } | null)?.full_name ?? null,
+        text: input.text,
+        hasAttachment: input.hasAttachment,
+      },
+      recipient.preview,
+      recipient.locale,
+    );
+    const badge = policy.badge_enabled
+      ? await unreadBadgeCount(config, recipient.userId, input.workspaceId)
+      : undefined;
+    // One thread per colleague, as the app shows them.
     const thread = `team-${input.senderId}`;
-    await deliver(config, {
-      workspaceId: input.workspaceId,
-      eventType: 'team_message',
-      recipients,
+    const { accepted, failed } = await deliver(config, recipient, devices, {
+      title,
+      body,
       data: {
-        type: 'team_message',
+        type: eventType,
         workspaceId: input.workspaceId,
-        // The thread is the colleague: the app opens the conversation with
-        // whoever wrote.
-        teamPeerId: input.senderId,
+        peerId: input.senderId,
         messageId: input.messageId,
       },
-      dedupeKey: `team_message:${input.messageId}`,
+      badge,
       collapseId: policy.collapse_enabled ? thread : undefined,
-      threadId: threadIdFor(policy, input.workspaceId, thread),
-      policy,
-      content: (recipient) =>
-        renderContent(
-          {
-            workspaceId: input.workspaceId,
-            conversationId: '',
-            messageId: input.messageId,
-            senderName,
-            text: input.text ?? null,
-            attachmentCount: input.hasAttachment ? 1 : 0,
-            workspaceName: workspace,
-          },
-          'team_message',
-          recipient.preview,
-          policy,
-          recipient.locale,
-        ),
+      apns: apnsDeliveryFor(policy, eventType, { workspaceId: input.workspaceId, conversationId: thread }),
+      androidChannelId: policy.android_channel_id,
     });
+
+    await finish(
+      config,
+      input.workspaceId,
+      recipient.userId,
+      dedupeKey,
+      devices.length,
+      accepted,
+      failed,
+      accepted > 0 ? 'sent' : 'failed',
+    );
   } catch (err) {
+    // A team message is already saved and on its way over realtime.
     console.error('[push] team dispatch error', { message: String((err as Error)?.message ?? err) });
   }
 }
 
-export interface EmailPushInput {
-  workspaceId: string;
-  threadId: string;
-  messageId: string;
-  /** The raw From: — `Name <address>` or a bare address. */
-  from: string;
-  subject?: string | null;
-  snippet?: string | null;
-  /** When the email was sent, as the provider reports it. */
-  sentAt?: string | null;
+/**
+ * A team message's copy, in the recipient's language: the colleague's name
+ * marked as a colleague's — so it is never read as a customer's — and what
+ * they wrote. With previews off, neither the text nor the name leaves the
+ * server.
+ *
+ * Not from Super Admin's templates: those are written for customers'
+ * messages ("{{sender}}" is a customer there), and a team message worded as
+ * one would say the wrong thing.
+ */
+export function renderTeamContent(
+  input: { senderName?: string | null; text?: string | null; hasAttachment?: boolean },
+  preview: boolean,
+  locale = 'en',
+): { title: string; body: string } {
+  const lang = copyLocale(locale);
+  const copy = COPY[lang];
+  const mark = (result: { title: string; body: string }) => ({
+    title: directed(lang, result.title),
+    body: directed(lang, result.body),
+  });
+  if (!preview) return mark({ title: copy.privacyTitle, body: copy.teamPrivacyBody });
+  const name = (input.senderName || '').trim();
+  const text = (input.text || '').trim();
+  const fallback = input.hasAttachment ? copy.attachment : copy.newMessage;
+  return mark({ title: name ? copy.teamMessage(name) : copy.colleague, body: truncate(text || fallback) });
 }
 
 /**
- * How old an email may be and still be news. A mailbox's first sync, or a
- * resync after the provider's history window lapsed, imports the latest
- * messages in one go — days-old mail that must not arrive on a phone as
- * twenty-five banners.
+ * The shared tail of every event that is not a customer's message: for each
+ * recipient with a device, claim the (workspace, user, dedupe key) row —
+ * the second claim is the suppression — render in their language, send to
+ * each device, and record the outcome. Never throws.
  */
-const EMAIL_FRESH_MS = 15 * 60_000;
-
-export function isFreshEmail(sentAt: string | null | undefined, now = Date.now()): boolean {
-  if (!sentAt) return true;
-  const at = Date.parse(sentAt);
-  if (!Number.isFinite(at)) return true;
-  return now - at <= EMAIL_FRESH_MS;
-}
-
-/**
- * A new email arrived in the workspace's shared inbox. The inbox is an
- * owner/admin surface, so only they are told about it.
- */
-export async function notifyInboundEmail(
+async function pushToRecipients(
   config: ServerConfig,
-  input: EmailPushInput,
+  input: {
+    workspaceId: string;
+    eventType: PushEventType;
+    recipients: Recipient[];
+    dedupeKey: string;
+    conversationId?: string | null;
+    /** A uuid, when the event has one; the dispatch log's column is typed. */
+    messageId?: string | null;
+    data: Record<string, string>;
+    render: (recipient: Recipient) => { title: string; body: string };
+    /** One notification per this, replacing the last. */
+    thread: string;
+    policy: PushPlatformSettings;
+  },
 ): Promise<void> {
-  try {
-    if (!isFreshEmail(input.sentAt)) return;
-    const policy = await livePolicy(config);
-    if (!policy) return;
-
-    const recipients = await resolveRecipients(config, {
-      workspaceId: input.workspaceId,
-      conversationId: null,
-      assignedTo: null,
-      eventType: 'email',
-      roles: ['owner', 'admin'],
-      policy,
+  const { policy } = input;
+  if (!input.recipients.length) return;
+  const sb = getServiceClient(config);
+  const devicesByUser = new Map<string, PushDeviceRow[]>();
+  for (const device of await listActiveDevices(config, input.recipients.map((r) => r.userId))) {
+    const list = devicesByUser.get(device.user_id);
+    if (list) list.push(device);
+    else devicesByUser.set(device.user_id, [device]);
+  }
+  for (const recipient of input.recipients) {
+    const devices = devicesByUser.get(recipient.userId) ?? [];
+    if (!devices.length) continue;
+    const { error: claimError } = await sb.from('push_dispatch_log').insert({
+      workspace_id: input.workspaceId,
+      user_id: recipient.userId,
+      conversation_id: input.conversationId ?? null,
+      message_id: input.messageId ?? null,
+      notification_type: input.eventType,
+      dedupe_key: input.dedupeKey,
+      status: 'attempted',
     });
-    if (!recipients.length) return;
+    if (claimError) continue;
 
-    const workspace = await workspaceName(config, input.workspaceId);
-    const thread = `email-${input.threadId}`;
-    const subject = (input.subject || '').trim();
-    const snippet = (input.snippet || '').trim();
-    await deliver(config, {
-      workspaceId: input.workspaceId,
-      eventType: 'email',
-      recipients,
-      data: {
-        type: 'email',
-        workspaceId: input.workspaceId,
-        emailThreadId: input.threadId,
-        messageId: input.messageId,
-      },
-      dedupeKey: `email:${input.messageId}`,
-      collapseId: policy.collapse_enabled ? thread : undefined,
-      threadId: threadIdFor(policy, input.workspaceId, thread),
-      policy,
-      content: (recipient) =>
-        renderContent(
-          {
-            workspaceId: input.workspaceId,
-            conversationId: '',
-            messageId: input.messageId,
-            senderName: emailSenderName(input.from),
-            // The subject says what an email is about; the snippet is what a
-            // subject-less one has instead.
-            text: subject && snippet ? `${subject} — ${snippet}` : subject || snippet,
-            workspaceName: workspace,
-          },
-          'email',
-          recipient.preview,
-          policy,
-          recipient.locale,
-        ),
+    const badge = policy.badge_enabled
+      ? await unreadBadgeCount(config, recipient.userId, input.workspaceId)
+      : undefined;
+    const { title, body } = input.render(recipient);
+    const { accepted, failed } = await deliver(config, recipient, devices, {
+      title,
+      body,
+      data: input.data,
+      badge,
+      collapseId: policy.collapse_enabled ? input.thread : undefined,
+      apns: apnsDeliveryFor(policy, input.eventType, { workspaceId: input.workspaceId, conversationId: input.thread }),
+      androidChannelId: policy.android_channel_id,
     });
-  } catch (err) {
-    console.error('[push] email dispatch error', { message: String((err as Error)?.message ?? err) });
+    await finish(config, input.workspaceId, recipient.userId, input.dedupeKey, devices.length, accepted, failed, accepted > 0 ? 'sent' : 'failed');
   }
 }
 
-/** `"Sara Karimi" <sara@example.com>` → Sara Karimi; a bare address stays. */
-export function emailSenderName(from: string): string {
-  const raw = String(from || '').trim();
-  const named = /^\s*"?([^"<]+?)"?\s*<[^>]+>\s*$/.exec(raw);
-  if (named && named[1].trim()) return named[1].trim();
-  const bracketed = /<([^>]+)>/.exec(raw);
-  return (bracketed ? bracketed[1] : raw).trim();
-}
-
-/**
- * The platform policy, or null when nothing may be sent at all: no transport
- * configured, or Super Admin's master switch off. Either transport being
- * available is enough — a deployment with an APNs key and no Firebase
- * service account reaches every native operator app.
- */
-async function livePolicy(config: ServerConfig): Promise<PushPlatformSettings | null> {
+/** Push is on at all: a transport, and the platform master switch. */
+async function pushPolicy(config: ServerConfig): Promise<PushPlatformSettings | null> {
   if (!isPushConfigured() && !isApnsConfigured()) return null;
   const policy = await loadPushPlatformSettings(config);
   return policy.push_enabled ? policy : null;
 }
 
-interface Delivery {
+async function displayName(config: ServerConfig, userId: string | null | undefined): Promise<string | null> {
+  if (!userId) return null;
+  const { data } = await getServiceClient(config)
+    .from('profiles')
+    .select('full_name')
+    .eq('id', userId)
+    .maybeSingle();
+  const name = (data as { full_name: string | null } | null)?.full_name?.trim();
+  return name || null;
+}
+
+export interface AssignmentPushInput {
   workspaceId: string;
-  eventType: PushEventType;
-  recipients: Recipient[];
-  data: Record<string, string>;
-  /** Unique per event; one log row per (workspace, user, key). */
-  dedupeKey: string;
-  conversationId?: string | null;
-  /** A customer message's id, or null for an event that is not one. */
-  messageId?: string | null;
-  collapseId?: string;
-  threadId?: string;
-  policy: PushPlatformSettings;
-  content: (recipient: Recipient) => { title: string; body: string };
+  conversationId: string;
+  /** The operator it now belongs to. */
+  assigneeId: string;
+  /** Who handed it over; null when routing did. Never notified. */
+  actorId: string | null;
+  /** Distinguishes this handover from the next one of the same conversation. */
+  stamp: string;
 }
 
 /**
- * Claim, render, send and log, for every recipient with a device. Shared by
- * every kind of event so each one gets the same idempotency, the same
- * dead-token handling and the same log.
+ * A conversation handed to one operator — by a colleague, or by routing after
+ * the AI stepped aside — on that operator's phone.
+ *
+ * The customer message that led here was pushed before anyone was assigned,
+ * so without this the new owner heard nothing until the customer wrote
+ * again. Only to the assignee, under their own settings; a handover they
+ * made to themselves is not news to them.
  */
-async function deliver(config: ServerConfig, d: Delivery): Promise<void> {
-  const sb = getServiceClient(config);
+export async function notifyAssignment(config: ServerConfig, input: AssignmentPushInput): Promise<void> {
+  try {
+    if (input.actorId && input.actorId === input.assigneeId) return;
+    const policy = await pushPolicy(config);
+    if (!policy) return;
+    const eventType: PushEventType = 'assignment';
+    const sb = getServiceClient(config);
+    const { data: conversation } = await sb
+      .from('conversations')
+      .select('id, workspace_id, assigned_to, contact_id')
+      .eq('id', input.conversationId)
+      .maybeSingle();
+    const conv = conversation as { workspace_id: string; assigned_to: string | null; contact_id: string | null } | null;
+    // Read back rather than trusted: a handover already undone is not sent.
+    if (!conv || String(conv.workspace_id) !== input.workspaceId || conv.assigned_to !== input.assigneeId) return;
 
-  // One device lookup for every recipient, up front. A recipient with no
-  // active device has nothing to deliver to, so they get no claim row and
-  // no status update.
-  const devicesByUser = new Map<string, PushDeviceRow[]>();
-  for (const device of await listActiveDevices(config, d.recipients.map((r) => r.userId))) {
-    const list = devicesByUser.get(device.user_id);
-    if (list) list.push(device);
-    else devicesByUser.set(device.user_id, [device]);
-  }
-
-  for (const recipient of d.recipients) {
-    const devices = devicesByUser.get(recipient.userId) ?? [];
-    if (!devices.length) continue;
-
-    // Idempotency gate: the UNIQUE index rejects the second attempt for the
-    // same (workspace, user, event) — that rejection IS the suppression.
-    const { error: claimError } = await sb.from('push_dispatch_log').insert({
-      workspace_id: d.workspaceId,
-      user_id: recipient.userId,
-      conversation_id: d.conversationId ?? null,
-      message_id: d.messageId ?? null,
-      notification_type: d.eventType,
-      dedupe_key: d.dedupeKey,
-      status: 'attempted',
+    const recipients = await resolveRecipients(config, {
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      assignedTo: input.assigneeId,
+      eventType,
+      actorId: input.actorId,
+      userIds: [input.assigneeId],
+      policy,
     });
-    if (claimError) continue; // duplicate (or logging outage) → stay silent
+    if (!recipients.length) return;
 
-    const badge = d.policy.badge_enabled
-      ? await unreadBadgeCount(config, recipient.userId, d.workspaceId)
-      : undefined;
-    const { title, body } = d.content(recipient);
-    const apns = apnsDeliveryFor(d.policy, d.eventType, d.threadId);
-
-    let accepted = 0;
-    let failed = 0;
-    for (const device of devices) {
-      // The row says which door. Both transports answer with the same three
-      // things that matter here — did it go, is the address dead, what did
-      // the service say — so only the call itself differs.
-      const outcome = device.transport === 'apns'
-        ? await sendApnsAlert({
-            token: device.push_token,
-            title,
-            body,
-            data: d.data,
-            badge,
-            sound: recipient.sound,
-            collapseId: d.collapseId,
-            apns,
-            topic: nativeBundleId(),
-          })
-        : await sendFcmMessage({
-            token: device.push_token,
-            title,
-            body,
-            data: d.data,
-            badge,
-            sound: recipient.sound,
-            collapseKey: d.collapseId,
-            androidChannelId: d.policy.android_channel_id,
-            apns,
-          });
-      if (outcome.ok) {
-        accepted += 1;
-      } else {
-        failed += 1;
-        if (outcome.unregistered) {
-          await disableToken(
-            config,
-            device.push_token,
-            device.transport === 'apns' ? 'apns_unregistered' : 'fcm_unregistered',
-          );
-          console.warn('[push] token unregistered, device disabled', {
-            userId: recipient.userId,
-            platform: device.platform,
-            transport: device.transport,
-          });
-        } else {
-          console.warn('[push] send failed', {
-            userId: recipient.userId,
-            platform: device.platform,
-            transport: device.transport,
-            status: outcome.status,
-          });
-        }
-      }
+    let customer: string | null = null;
+    if (conv.contact_id) {
+      const { data: contact } = await sb
+        .from('contacts')
+        .select('name, email, visitor_code')
+        .eq('id', conv.contact_id)
+        .maybeSingle();
+      const row = contact as { name: string | null; email: string | null; visitor_code: string | null } | null;
+      customer = [row?.name, row?.email, row?.visitor_code].map((v) => v?.trim()).find(Boolean) ?? null;
     }
+    const actorName = await displayName(config, input.actorId);
 
-    await sb
-      .from('push_dispatch_log')
-      .update({
-        device_count: devices.length,
-        accepted_count: accepted,
-        failed_count: failed,
-        status: accepted > 0 ? 'sent' : 'failed',
-      })
-      .eq('workspace_id', d.workspaceId)
-      .eq('user_id', recipient.userId)
-      .eq('dedupe_key', d.dedupeKey);
+    await pushToRecipients(config, {
+      workspaceId: input.workspaceId,
+      eventType,
+      recipients,
+      dedupeKey: `${eventType}:${input.conversationId}:${input.stamp}`.slice(0, 200),
+      conversationId: input.conversationId,
+      data: { type: eventType, workspaceId: input.workspaceId, conversationId: input.conversationId },
+      render: (recipient) => renderAssignmentContent({ customer, actorName }, recipient.preview, recipient.locale),
+      thread: `conv-${input.conversationId}`,
+      policy,
+    });
+  } catch (err) {
+    console.error('[push] assignment dispatch error', { message: String((err as Error)?.message ?? err) });
   }
+}
+
+export function renderAssignmentContent(
+  input: { customer: string | null; actorName: string | null },
+  preview: boolean,
+  locale = 'en',
+): { title: string; body: string } {
+  const lang = copyLocale(locale);
+  const copy = COPY[lang];
+  const mark = (result: { title: string; body: string }) => ({
+    title: directed(lang, result.title),
+    body: directed(lang, result.body),
+  });
+  if (!preview) return mark({ title: copy.privacyTitle, body: copy.assignedPrivacyBody });
+  const who = input.customer?.trim() || copy.customer;
+  const by = input.actorName?.trim();
+  return mark({ title: copy.assignedTitle, body: by ? `${who} · ${copy.assignedBy(by)}` : who });
+}
+
+export interface HandoffPushInput {
+  workspaceId: string;
+  conversationId: string;
+  /** When the AI let go of it: one notification per handoff, however often routing runs. */
+  handoffAt: string;
+}
+
+/**
+ * The AI stopped and handed a conversation to people, and routing did not
+ * give it to anyone new: it is still the AI queue's last owner's, or it is
+ * waiting in the queue. The customer's messages up to here were the AI's and
+ * reached no phone, so without this nobody would hear of it until the
+ * customer wrote again. A handoff routing DID assign is `notifyAssignment`.
+ */
+export async function notifyHandoff(config: ServerConfig, input: HandoffPushInput): Promise<void> {
+  try {
+    const policy = await pushPolicy(config);
+    if (!policy) return;
+    const eventType: PushEventType = 'handoff';
+    const sb = getServiceClient(config);
+    const { data: conversation } = await sb
+      .from('conversations')
+      .select('id, workspace_id, assigned_to, is_spam, contact_id')
+      .eq('id', input.conversationId)
+      .maybeSingle();
+    const conv = conversation as {
+      workspace_id: string;
+      assigned_to: string | null;
+      is_spam: boolean | null;
+      contact_id: string | null;
+    } | null;
+    if (!conv || String(conv.workspace_id) !== input.workspaceId || conv.is_spam) return;
+
+    const recipients = await resolveRecipients(config, {
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      assignedTo: conv.assigned_to ?? null,
+      eventType,
+      userIds: conv.assigned_to ? [conv.assigned_to] : undefined,
+      policy,
+    });
+    if (!recipients.length) return;
+
+    const customer = await customerName(config, conv.contact_id);
+    await pushToRecipients(config, {
+      workspaceId: input.workspaceId,
+      eventType,
+      recipients,
+      dedupeKey: `${eventType}:${input.conversationId}:${input.handoffAt}`.slice(0, 200),
+      conversationId: input.conversationId,
+      data: { type: eventType, workspaceId: input.workspaceId, conversationId: input.conversationId },
+      render: (recipient) => renderHandoffContent({ customer }, recipient.preview, recipient.locale),
+      thread: `conv-${input.conversationId}`,
+      policy,
+    });
+  } catch (err) {
+    console.error('[push] handoff dispatch error', { message: String((err as Error)?.message ?? err) });
+  }
+}
+
+export function renderHandoffContent(
+  input: { customer: string | null },
+  preview: boolean,
+  locale = 'en',
+): { title: string; body: string } {
+  const lang = copyLocale(locale);
+  const copy = COPY[lang];
+  const mark = (result: { title: string; body: string }) => ({
+    title: directed(lang, result.title),
+    body: directed(lang, result.body),
+  });
+  if (!preview) return mark({ title: copy.privacyTitle, body: copy.handoffPrivacyBody });
+  const who = input.customer?.trim() || copy.customer;
+  return mark({ title: copy.handoffTitle, body: `${who} · ${copy.handoffBody}` });
+}
+
+/** The customer's name as the inbox shows it, or null. */
+async function customerName(config: ServerConfig, contactId: string | null): Promise<string | null> {
+  if (!contactId) return null;
+  const { data: contact } = await getServiceClient(config)
+    .from('contacts')
+    .select('name, email, visitor_code')
+    .eq('id', contactId)
+    .maybeSingle();
+  const row = contact as { name: string | null; email: string | null; visitor_code: string | null } | null;
+  return [row?.name, row?.email, row?.visitor_code].map((v) => v?.trim()).find(Boolean) ?? null;
+}
+
+/** Whether any of the platform's templates uses `{{name}}`. */
+function usesPlaceholder(policy: PushPlatformSettings, name: string): boolean {
+  return JSON.stringify(policy.templates ?? {}).includes(`{{${name}}}`);
 }
 
 /** The workspace's display name, for the `{{workspace}}` placeholder. */
@@ -602,19 +739,216 @@ async function workspaceName(config: ServerConfig, workspaceId: string): Promise
   }
 }
 
-/** An operator's name as their colleagues see it. */
-async function personName(config: ServerConfig, userId: string): Promise<string | null> {
+export interface EmailPushInput {
+  workspaceId: string;
+  threadId: string;
+  /** The `email_messages` row just stored. */
+  messageId: string;
+  from?: string | null;
+  subject?: string | null;
+  snippet?: string | null;
+}
+
+/**
+ * A new email in the workspace's email inbox.
+ *
+ * Email is not a conversation — it has its own threads and no assignee — so
+ * it reaches everyone who follows all of the workspace's traffic, as an
+ * unassigned customer message does. `data` names the thread the app opens.
+ */
+export async function notifyEmailMessage(config: ServerConfig, input: EmailPushInput): Promise<void> {
   try {
-    const { data } = await getServiceClient(config)
-      .from('profiles')
-      .select('full_name, email')
-      .eq('id', userId)
-      .maybeSingle();
-    const row = data as { full_name?: string | null; email?: string | null } | null;
-    return (row?.full_name || '').trim() || (row?.email || '').trim() || null;
-  } catch {
-    return null;
+    const policy = await pushPolicy(config);
+    if (!policy) return;
+    const eventType: PushEventType = 'email_message';
+    const recipients = await resolveRecipients(config, {
+      workspaceId: input.workspaceId,
+      assignedTo: null,
+      eventType,
+      policy,
+    });
+    await pushToRecipients(config, {
+      workspaceId: input.workspaceId,
+      eventType,
+      recipients,
+      dedupeKey: `${eventType}:${input.messageId}`,
+      messageId: input.messageId,
+      data: { type: eventType, workspaceId: input.workspaceId, threadId: input.threadId, messageId: input.messageId },
+      render: (recipient) => renderEmailContent(input, recipient.preview, recipient.locale),
+      thread: `email-${input.threadId}`,
+      policy,
+    });
+  } catch (err) {
+    console.error('[push] email dispatch error', { message: String((err as Error)?.message ?? err) });
   }
+}
+
+export function renderEmailContent(
+  input: { from?: string | null; subject?: string | null; snippet?: string | null },
+  preview: boolean,
+  locale = 'en',
+): { title: string; body: string } {
+  const lang = copyLocale(locale);
+  const copy = COPY[lang];
+  const mark = (result: { title: string; body: string }) => ({
+    title: directed(lang, result.title),
+    body: directed(lang, result.body),
+  });
+  if (!preview) return mark({ title: copy.privacyTitle, body: copy.emailPrivacyBody });
+  const from = input.from?.trim() || copy.emailTitle;
+  const subject = input.subject?.trim();
+  const snippet = input.snippet?.replace(/\s+/g, ' ').trim();
+  const body = [subject, snippet].filter(Boolean).join(' — ') || copy.emailTitle;
+  return mark({ title: from, body: truncate(body) });
+}
+
+export interface CallbackPushInput {
+  workspaceId: string;
+  /** The callback request row. */
+  callbackId: string;
+  visitorName?: string | null;
+}
+
+/**
+ * A visitor asked to be called back. Nobody is on the line, so it is a
+ * notification rather than a ring; it reaches everyone who follows all of
+ * the workspace's traffic.
+ */
+export async function notifyCallbackRequest(config: ServerConfig, input: CallbackPushInput): Promise<void> {
+  try {
+    const policy = await pushPolicy(config);
+    if (!policy) return;
+    const eventType: PushEventType = 'callback_request';
+    const recipients = await resolveRecipients(config, {
+      workspaceId: input.workspaceId,
+      assignedTo: null,
+      eventType,
+      policy,
+    });
+    await pushToRecipients(config, {
+      workspaceId: input.workspaceId,
+      eventType,
+      recipients,
+      dedupeKey: `${eventType}:${input.callbackId}`,
+      messageId: /^[0-9a-f-]{36}$/i.test(input.callbackId) ? input.callbackId : null,
+      data: { type: eventType, workspaceId: input.workspaceId, callbackId: input.callbackId },
+      render: (recipient) => {
+        const lang = copyLocale(recipient.locale);
+        const copy = COPY[lang];
+        const name = input.visitorName?.trim();
+        return {
+          title: directed(lang, copy.callbackTitle),
+          body: directed(lang, recipient.preview && name ? `${name} · ${copy.callbackBody}` : copy.callbackBody),
+        };
+      },
+      thread: `callback-${input.callbackId}`,
+      policy,
+    });
+  } catch (err) {
+    console.error('[push] callback dispatch error', { message: String((err as Error)?.message ?? err) });
+  }
+}
+
+/** One notification, as every device of one recipient is sent it. */
+interface Outgoing {
+  title: string;
+  body: string;
+  data: Record<string, string>;
+  badge?: number;
+  collapseId?: string;
+  apns: ApnsDelivery;
+  androidChannelId?: string;
+}
+
+/**
+ * Sends [message] to each of [recipient]'s devices, independently: a dead
+ * token on one phone is disabled and never blocks the others.
+ */
+async function deliver(
+  config: ServerConfig,
+  recipient: Recipient,
+  devices: PushDeviceRow[],
+  message: Outgoing,
+): Promise<{ accepted: number; failed: number }> {
+  let accepted = 0;
+  let failed = 0;
+  for (const device of devices) {
+    // The row says which door. Both transports answer with the same three
+    // things that matter here — did it go, is the address dead, what did
+    // the service say — so only the call itself differs.
+    const outcome = device.transport === 'apns'
+      ? await sendApnsAlert({
+          token: device.push_token,
+          title: message.title,
+          body: message.body,
+          data: message.data,
+          badge: message.badge,
+          sound: recipient.sound,
+          collapseId: message.collapseId,
+          apns: message.apns,
+          topic: nativeBundleId(),
+        })
+      : await sendFcmMessage({
+          token: device.push_token,
+          title: message.title,
+          body: message.body,
+          data: message.data,
+          badge: message.badge,
+          sound: recipient.sound,
+          collapseKey: message.collapseId,
+          androidChannelId: message.androidChannelId,
+          apns: message.apns,
+        });
+    if (outcome.ok) {
+      accepted += 1;
+    } else {
+      failed += 1;
+      if (outcome.unregistered) {
+        await disableToken(
+          config,
+          device.push_token,
+          device.transport === 'apns' ? 'apns_unregistered' : 'fcm_unregistered',
+        );
+        console.warn('[push] token unregistered, device disabled', {
+          userId: recipient.userId,
+          platform: device.platform,
+          transport: device.transport,
+        });
+      } else {
+        console.warn('[push] send failed', {
+          userId: recipient.userId,
+          platform: device.platform,
+          transport: device.transport,
+          status: outcome.status,
+        });
+      }
+    }
+  }
+  return { accepted, failed };
+}
+
+async function finish(
+  config: ServerConfig,
+  workspaceId: string,
+  userId: string,
+  dedupeKey: string,
+  deviceCount: number,
+  accepted: number,
+  failed: number,
+  status: string,
+): Promise<void> {
+  const sb = getServiceClient(config);
+  await sb
+    .from('push_dispatch_log')
+    .update({
+      device_count: deviceCount,
+      accepted_count: accepted,
+      failed_count: failed,
+      status,
+    })
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', userId)
+    .eq('dedupe_key', dedupeKey);
 }
 
 /**
@@ -641,24 +975,19 @@ export function renderContent(
     body: directed(lang, result.body),
   });
 
-  const whoDefault =
-    eventType === 'team_message' ? copy.colleague : eventType === 'email' ? copy.emailSender : copy.customer;
-  const name = (input.senderName || '').trim() || whoDefault;
+  const name = (input.senderName || '').trim() || copy.customer;
   const text = (input.text || '').trim();
   const fallback = input.attachmentCount ? copy.attachment : copy.newMessage;
-  // Nobody assigned it by hand: the routing rules did.
-  const actor = (input.actorName || '').trim() || copy.autoRouting;
 
   if (policy) {
-    // Templates are keyed by bare language ("fa"), and profiles store full
-    // tags ("fa-IR") — rendering with the raw tag fell through to the
-    // English default for every Persian operator.
+    // Templates are keyed by bare language ("fa") and profiles store full
+    // tags ("fa-IR"): rendering with the raw tag gave every Persian operator
+    // the English template.
     const rendered = renderTemplate(policy, eventType, lang, preview, {
       sender: name,
       preview: truncate(text || fallback),
       count: String(input.attachmentCount ?? 0),
       workspace: (input.workspaceName || '').trim() || 'Webyar',
-      actor,
     });
     // A template edited down to nothing must not produce a blank banner.
     if (rendered.title.trim() && rendered.body.trim()) return mark(rendered);
@@ -671,42 +1000,30 @@ export function renderContent(
   if (eventType === 'mention') {
     return mark({ title: copy.mentioned(name), body: truncate(text || fallback) });
   }
-  if (eventType === 'assigned') return mark({ title: name, body: copy.assigned(actor) });
-  if (eventType === 'handoff') return mark({ title: name, body: copy.handoff });
   return mark({ title: name, body: truncate(text || fallback) });
-}
-
-/**
- * The APNs thread a notification groups under, by platform policy: one per
- * conversation (or colleague, or email thread), one per workspace, or none.
- */
-function threadIdFor(
-  policy: PushPlatformSettings,
-  workspaceId: string,
-  key: string,
-): string | undefined {
-  if (policy.thread_id_strategy === 'conversation') return key;
-  if (policy.thread_id_strategy === 'workspace') return workspaceId;
-  return undefined;
 }
 
 /**
  * The APNs half of a send, derived from platform policy. The category id is
  * the one registered for this event type, which is what gives the banner its
  * action buttons ("Reply", "Mark as read") on the device.
- *
- * A category list saved before an event type existed does not name it, so
- * the shipped categories answer for it: a team message saved into an old
- * policy still gets the team-chat Reply rather than no buttons at all.
  */
 function apnsDeliveryFor(
   policy: PushPlatformSettings,
   eventType: PushEventType,
-  threadId?: string,
+  input: Pick<InboundPushInput, 'workspaceId' | 'conversationId'>,
 ): ApnsDelivery {
+  // A category list saved before an event type existed does not name it; the
+  // shipped categories answer for it, so its banner still has its buttons.
   const category =
     (policy.categories ?? []).find((c) => c.eventTypes?.includes(eventType)) ??
     DEFAULT_CATEGORIES.find((c) => c.eventTypes.includes(eventType));
+  const threadId =
+    policy.thread_id_strategy === 'conversation'
+      ? input.conversationId
+      : policy.thread_id_strategy === 'workspace'
+        ? input.workspaceId
+        : undefined;
   return {
     priority: policy.apns_priority,
     ttlSeconds: policy.apns_ttl_seconds,

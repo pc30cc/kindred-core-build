@@ -30,18 +30,24 @@ enum PushTarget: Equatable, Hashable, Sendable {
         }
     }
 
-    /// The shapes `server/services/push/dispatch.ts` sends. A diagnostic
-    /// from Super Admin (`type: test`) goes nowhere, and neither does a
-    /// payload this build cannot place.
+    /// The shapes `server/services/push/dispatch.ts` sends — the same ones the
+    /// Android app reads: a colleague's message names the colleague
+    /// (`peerId`), an email names its thread (`threadId`), everything else
+    /// names a conversation. A diagnostic from Super Admin (`type: test`)
+    /// goes nowhere, and neither does a payload this build cannot place — a
+    /// callback request, which has no screen on this phone.
     init?(userInfo info: [AnyHashable: Any]) {
         func value(_ key: String) -> String? {
             guard let text = info[key] as? String, !text.isEmpty else { return nil }
             return text
         }
-        guard value("type") != "test", let workspaceID = value("workspaceId") else { return nil }
-        if let peer = value("teamPeerId") {
+        let type = value("type")
+        guard type != "test", let workspaceID = value("workspaceId") else { return nil }
+        if type == "team_message" {
+            guard let peer = value("peerId") else { return nil }
             self = .colleague(workspaceID: workspaceID, peerID: peer)
-        } else if let thread = value("emailThreadId") {
+        } else if type == "email_message" {
+            guard let thread = value("threadId") else { return nil }
             self = .email(workspaceID: workspaceID, threadID: thread)
         } else if let conversation = value("conversationId") {
             self = .conversation(workspaceID: workspaceID, conversationID: conversation)

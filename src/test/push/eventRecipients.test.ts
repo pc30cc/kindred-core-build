@@ -1,15 +1,12 @@
 /**
- * Who a phone notification is for, for every event beyond a customer's
- * message.
+ * The switches an operator has for each kind of event beyond a customer's
+ * message, and who hears that the AI has let go of a conversation.
  *
- * The native app used to hear about exactly one thing — a customer writing —
- * and nothing else: a colleague's direct message, a conversation handed to
- * the operator, the AI giving one up, a note on their conversation, a new
- * email all went unannounced until the operator happened to open the app.
- * Each now reaches a phone, and each reaches only the people it is for: a
- * direct message only its recipient, an assignment only the assignee, email
- * only the owners and admins whose screen it is — and every one of them can
- * be turned off on its own.
+ * Team chat, assignments and email each reach a phone now, and each can be
+ * turned off on its own (migration 235) — a deployment that has not run the
+ * migration yet still sends, as it did before the switches existed. A handoff
+ * the routing gave to nobody new goes to whoever already held the
+ * conversation, or to the operators following everything.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { ServerConfig } from '../../../server/config';
@@ -30,7 +27,7 @@ vi.mock('../../../server/supabase.js', () => ({
         is(col: string, val: null) { filters.push((r: Row) => (r[col] ?? null) === val); return builder; },
         in(col: string, vals: unknown[]) { filters.push((r: Row) => vals.includes(r[col])); return builder; },
         then(resolve: (value: { data: Row[] | null; error: { code: string; message: string } | null }) => unknown) {
-          // A database that has not run migration 234.
+          // A database that has not run migration 235.
           if (state.eventColumnsMissing && table === 'user_notification_prefs' && columns.includes('push_team_chat')) {
             return resolve({ data: null, error: { code: '42703', message: 'column does not exist' } });
           }
@@ -52,7 +49,6 @@ type RecipientContext = Parameters<typeof resolveRecipients>[1];
 const CONFIG = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' } as unknown as ServerConfig;
 const WS = 'ws-1';
 const OWNER = 'owner';
-const ADMIN = 'admin';
 const AGENT = 'agent';
 const OTHER = 'other-agent';
 
@@ -79,140 +75,87 @@ function prefs(userId: string, overrides: Row = {}): Row {
   };
 }
 
-async function who(ctx: Record<string, unknown>): Promise<string[]> {
+async function who(ctx: Partial<RecipientContext>): Promise<string[]> {
   const out = await resolveRecipients(CONFIG, {
     workspaceId: WS,
     conversationId: 'conv-1',
     assignedTo: null,
     actorId: null,
+    eventType: 'new_message',
     ...ctx,
-  } as RecipientContext);
+  });
   return out.map((r) => r.userId).sort();
 }
+
+/** How `notifyTeamMessage` asks: one addressee, passed as mentioned. */
+const teamMessage = (to: string): Partial<RecipientContext> => ({
+  eventType: 'team_message',
+  conversationId: null,
+  actorId: AGENT,
+  mentionedUserIds: [to],
+  userIds: [to],
+});
 
 beforeEach(() => {
   for (const key of Object.keys(db)) delete db[key];
   state.eventColumnsMissing = false;
-  db.workspace_members = [
-    { workspace_id: WS, user_id: OWNER, suspended_at: null, role: 'owner' },
-    { workspace_id: WS, user_id: ADMIN, suspended_at: null, role: 'admin' },
-    { workspace_id: WS, user_id: AGENT, suspended_at: null, role: 'agent' },
-    { workspace_id: WS, user_id: OTHER, suspended_at: null, role: 'agent' },
-  ];
-  db.profiles = [OWNER, ADMIN, AGENT, OTHER].map((id) => ({ id, preferred_locale: 'en' }));
-  db.user_notification_prefs = [prefs(OWNER), prefs(ADMIN), prefs(AGENT), prefs(OTHER)];
+  db.workspace_members = [OWNER, AGENT, OTHER].map((id) => ({ workspace_id: WS, user_id: id, suspended_at: null }));
+  db.profiles = [OWNER, AGENT, OTHER].map((id) => ({ id, preferred_locale: 'en' }));
+  db.user_notification_prefs = [prefs(OWNER), prefs(AGENT), prefs(OTHER)];
 });
 
-describe('a colleague\'s direct message', () => {
-  const event = { eventType: 'team_message', conversationId: null, actorId: AGENT, targetUserIds: [OTHER] };
-
-  it('reaches its recipient and nobody else', async () => {
-    expect(await who(event)).toEqual([OTHER]);
-  });
-
-  it('is theirs, so a narrow scope does not hide it', async () => {
-    db.user_notification_prefs = [prefs(OTHER, { push_scope: 'assigned' })];
-    expect(await who(event)).toEqual([OTHER]);
-  });
-
-  it('has its own switch', async () => {
+describe('each kind of event has its own switch', () => {
+  it('a colleague\'s message: push_team_chat', async () => {
+    expect(await who(teamMessage(OTHER))).toEqual([OTHER]);
     db.user_notification_prefs = [prefs(OTHER, { push_team_chat: false })];
-    expect(await who(event)).toEqual([]);
+    expect(await who(teamMessage(OTHER))).toEqual([]);
   });
 
-  it('never reaches the sender, even addressed to themselves', async () => {
-    expect(await who({ ...event, targetUserIds: [AGENT] })).toEqual([]);
-  });
-
-  it('stays silent under mute-all and quiet "nothing"', async () => {
-    db.user_notification_prefs = [prefs(OTHER, { disable_all: true })];
-    expect(await who(event)).toEqual([]);
-    db.user_notification_prefs = [prefs(OTHER, { push_scope: 'none' })];
-    expect(await who(event)).toEqual([]);
-  });
-});
-
-describe('a conversation handed to an operator', () => {
-  const event = { eventType: 'assigned', assignedTo: OTHER, actorId: AGENT, targetUserIds: [OTHER] };
-
-  it('reaches the new assignee only', async () => {
-    expect(await who(event)).toEqual([OTHER]);
-  });
-
-  it('whatever their scope', async () => {
-    db.user_notification_prefs = [prefs(OTHER, { push_scope: 'mentions' })];
-    expect(await who(event)).toEqual([OTHER]);
-  });
-
-  it('can be turned off', async () => {
+  it('a conversation handed over: push_assignments', async () => {
+    const assignment: Partial<RecipientContext> = { eventType: 'assignment', assignedTo: OTHER, userIds: [OTHER] };
+    expect(await who(assignment)).toEqual([OTHER]);
     db.user_notification_prefs = [prefs(OTHER, { push_assignments: false })];
-    expect(await who(event)).toEqual([]);
+    expect(await who(assignment)).toEqual([]);
   });
 
-  it('is not news to somebody who is no longer the assignee', async () => {
-    expect(await who({ ...event, assignedTo: ADMIN })).toEqual([]);
+  it('a new email: push_email', async () => {
+    db.user_notification_prefs = [prefs(OWNER, { push_email: false }), prefs(AGENT), prefs(OTHER)];
+    expect(await who({ eventType: 'email_message', conversationId: null })).toEqual([AGENT, OTHER].sort());
+  });
+
+  it('turning one off leaves the others alone', async () => {
+    db.user_notification_prefs = [prefs(OTHER, { push_team_chat: false })];
+    expect(await who({ eventType: 'assignment', assignedTo: OTHER, userIds: [OTHER] })).toEqual([OTHER]);
+    expect(await who({ eventType: 'new_message', assignedTo: OTHER })).toEqual([OTHER]);
   });
 });
 
 describe('the AI letting go of a conversation', () => {
-  it('goes to the operator already holding it', async () => {
+  it('goes to the operator already holding it, and only them', async () => {
+    expect(await who({ eventType: 'handoff', assignedTo: AGENT, userIds: [AGENT] })).toEqual([AGENT]);
     expect(await who({ eventType: 'handoff', assignedTo: AGENT })).toEqual([AGENT]);
   });
 
-  it('with nobody holding it, goes to everyone who watches the whole inbox', async () => {
+  it('with nobody holding it, goes to everyone following all conversations', async () => {
     db.user_notification_prefs = [
       prefs(OWNER),
-      prefs(ADMIN, { push_scope: 'assigned' }),
-      prefs(AGENT, { push_assignments: false }),
+      prefs(AGENT, { push_scope: 'assigned' }),
       prefs(OTHER),
     ];
     expect(await who({ eventType: 'handoff' })).toEqual([OTHER, OWNER].sort());
   });
-});
 
-describe('a note on a conversation', () => {
-  it('goes to whoever holds the conversation, never the author', async () => {
-    expect(await who({ eventType: 'internal_note', assignedTo: OTHER, actorId: AGENT })).toEqual([OTHER]);
-  });
-
-  it('on an unheld conversation, to everyone who watches the whole inbox', async () => {
-    db.user_notification_prefs = [prefs(OWNER), prefs(ADMIN, { push_scope: 'assigned' }), prefs(OTHER)];
-    expect(await who({ eventType: 'internal_note', actorId: AGENT })).toEqual([OTHER, OWNER].sort());
-  });
-
-  it('respects the notes switch', async () => {
-    db.user_notification_prefs = [prefs(OTHER, { push_internal_notes: false })];
-    expect(await who({ eventType: 'internal_note', assignedTo: OTHER, actorId: AGENT })).toEqual([]);
-  });
-});
-
-describe('a new email', () => {
-  const event = { eventType: 'email', conversationId: null, roles: ['owner', 'admin'] };
-
-  it('reaches the owners and admins — the only people whose screen it is', async () => {
-    expect(await who(event)).toEqual([ADMIN, OWNER].sort());
-  });
-
-  it('has its own switch', async () => {
-    db.user_notification_prefs = [prefs(OWNER, { push_email: false }), prefs(ADMIN)];
-    expect(await who(event)).toEqual([ADMIN]);
-  });
-
-  it('is nobody\'s assignment, so only "everything" covers it', async () => {
-    db.user_notification_prefs = [prefs(OWNER, { push_scope: 'assigned' }), prefs(ADMIN)];
-    expect(await who(event)).toEqual([ADMIN]);
+  it('is silenced by the assignments switch', async () => {
+    db.user_notification_prefs = [prefs(OWNER, { push_assignments: false }), prefs(AGENT), prefs(OTHER)];
+    expect(await who({ eventType: 'handoff' })).toEqual([AGENT, OTHER].sort());
   });
 });
 
 describe('a database one migration behind', () => {
   it('still sends, with the switches it does not have treated as on', async () => {
     state.eventColumnsMissing = true;
-    expect(await who({ eventType: 'team_message', conversationId: null, targetUserIds: [OTHER] })).toEqual([OTHER]);
-    expect(await who({ eventType: 'email', conversationId: null, roles: ['owner'] })).toEqual([OWNER]);
-  });
-
-  it('and a customer\'s message reaches the same people it always did', async () => {
-    state.eventColumnsMissing = true;
-    expect(await who({ eventType: 'new_message' })).toEqual([ADMIN, AGENT, OTHER, OWNER].sort());
+    expect(await who(teamMessage(OTHER))).toEqual([OTHER]);
+    expect(await who({ eventType: 'email_message', conversationId: null })).toEqual([AGENT, OTHER, OWNER].sort());
+    expect(await who({ eventType: 'new_message' })).toEqual([AGENT, OTHER, OWNER].sort());
   });
 });

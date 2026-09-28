@@ -48,32 +48,45 @@ struct PrimaryButton: View {
 
 // MARK: - Segmented filter
 
-/// The inbox queue filter.
+/// The strip above the inbox list: the queues an operator moves between all
+/// day, and Colleagues.
 ///
 /// `Picker(.segmented)` is the native control and already handles RTL, Dynamic
 /// Type and the selection animation, so it is used rather than reimplemented.
-/// The queues come from the plan, not from `allCases` — a segment that leads
-/// to a permanently empty list because the plan excludes it reads as a broken
-/// app, not as an upsell.
+/// The items come from the plan and Super Admin, not from `allCases` — a
+/// segment that leads to a permanently empty list because the plan excludes
+/// it reads as a broken app, not as an upsell.
 ///
-/// A count rides in the segment label when there is one, because the whole
-/// reason to glance at this control is to see where the work is.
+/// A count rides in the segment label when there is one — the queue's, or the
+/// unread team messages on Colleagues — because the whole reason to glance at
+/// this control is to see where the work is.
 struct FilterPicker: View {
-    @Binding var selection: InboxFilter
-    let filters: [InboxFilter]
+    @Binding var selection: InboxStripItem
+    let items: [InboxStripItem]
     let counts: InboxCounts?
+    /// Messages from colleagues not read yet.
+    var colleaguesUnread: Int = 0
     let language: Language
 
-    private func label(for filter: InboxFilter) -> String {
-        let title = filter.title(language)
-        guard let count = counts?.count(for: filter), count > 0 else { return title }
+    private func label(for item: InboxStripItem) -> String {
+        let title: String
+        let count: Int?
+        switch item {
+        case .queue(let filter):
+            title = filter.title(language)
+            count = counts?.count(for: filter)
+        case .colleagues:
+            title = Str.colleagues(language)
+            count = colleaguesUnread
+        }
+        guard let count, count > 0 else { return title }
         return "\(title) (\(Format.number(count, language: language)))"
     }
 
     var body: some View {
         Picker("", selection: $selection) {
-            ForEach(filters) { filter in
-                Text(label(for: filter)).tag(filter)
+            ForEach(items) { item in
+                Text(label(for: item)).tag(item)
             }
         }
         .pickerStyle(.segmented)

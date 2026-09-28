@@ -250,18 +250,27 @@ struct MobileAppConfig: Hashable, Sendable {
     var showContacts: Bool
     var showVisitors: Bool
     var showWebAnalytics: Bool
+    /// The Inbox's AI tab, and the AI queue in its menu.
+    var showAIQueue: Bool
+    /// The Inbox's Colleagues tab, and team chat wherever it is reached from.
+    var showColleagues: Bool
 
     static let defaults = MobileAppConfig(showContacts: true, showVisitors: true, showWebAnalytics: true)
 
-    init(showContacts: Bool, showVisitors: Bool, showWebAnalytics: Bool) {
+    init(
+        showContacts: Bool, showVisitors: Bool, showWebAnalytics: Bool,
+        showAIQueue: Bool = true, showColleagues: Bool = true
+    ) {
         self.showContacts = showContacts
         self.showVisitors = showVisitors
         self.showWebAnalytics = showWebAnalytics
+        self.showAIQueue = showAIQueue
+        self.showColleagues = showColleagues
     }
 }
 
 extension MobileAppConfig: Decodable {
-    enum CodingKeys: String, CodingKey { case showContacts, showVisitors, showWebAnalytics }
+    enum CodingKeys: String, CodingKey { case showContacts, showVisitors, showWebAnalytics, showAIQueue, showColleagues }
 
     /// Only an explicit `false` turns a section off; a missing or unreadable
     /// key keeps the default, so an older server that sends fewer keys never
@@ -274,5 +283,7 @@ extension MobileAppConfig: Decodable {
         showContacts = flag(.showContacts)
         showVisitors = flag(.showVisitors)
         showWebAnalytics = flag(.showWebAnalytics)
+        showAIQueue = flag(.showAIQueue)
+        showColleagues = flag(.showColleagues)
     }
 }

@@ -306,6 +306,9 @@ final class InboxViewModel {
             case .message, .conversationChanged, .push, .resync, .reconcile:
                 isStale = true
                 if isOnScreen { scheduleRefresh(after: CachePolicy.listEventDebounce) }
+            case .team:
+                // Team chat is the Colleagues list's to read, not the queues'.
+                continue
             }
         }
     }

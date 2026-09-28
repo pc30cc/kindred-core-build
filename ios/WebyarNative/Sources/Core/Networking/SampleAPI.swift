@@ -108,6 +108,10 @@ actor SampleAPI: WebyarAPI {
         RealtimeSubscribe(vendor: "disabled", channel: nil, token: nil, expiresAt: nil)
     }
 
+    func realtimeUserSubscribe(workspaceID: String) async throws -> RealtimeSubscribe {
+        RealtimeSubscribe(vendor: "disabled", channel: nil, token: nil, expiresAt: nil)
+    }
+
     func attachmentFile(id: String) async throws -> URL {
         let data = try await attachmentData(id: id)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("webyar-sample-\(UUID().uuidString)")

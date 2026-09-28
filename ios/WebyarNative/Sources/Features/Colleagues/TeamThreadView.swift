@@ -199,23 +199,33 @@ struct TeamThreadView: View {
                     workspaceID: workspaceID, peerID: colleague.userId, appState: appState
                 )
             }
-            // The console polls this thread every ten seconds; so does this.
-            // A colleague answering while you are looking at the screen should
-            // not need a pull to appear. Team messages have no realtime channel
-            // of their own on the server, so this stays a poll — but only while
-            // the app is in front of the operator.
+            // Live: a message or a read in this thread, heard on the
+            // operator's own team channel, reads it at once — and so does
+            // coming back to the app. A poll stays underneath as the safety
+            // net (every 10 s without the channel, as the console does; every
+            // 30 s with it), and only while the app is in front of the operator.
             .task(id: colleague.userId) {
+                let sync = SyncCoordinator.shared
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(10))
+                    let interval = sync.teamRealtimeConnected
+                        ? CachePolicy.teamThreadSafetyInterval
+                        : CachePolicy.teamThreadPollInterval
+                    try? await Task.sleep(for: .seconds(interval))
                     guard !Task.isCancelled else { return }
-                    guard SyncCoordinator.shared.isForeground else { continue }
+                    guard sync.isForeground else { continue }
                     await model.poll(workspaceID: workspaceID, peerID: colleague.userId)
                 }
             }
-            // Back from the background: read at once, not up to ten seconds later.
             .task(id: colleague.userId) {
-                for await event in SyncCoordinator.shared.events() where event == .resync {
-                    await model.poll(workspaceID: workspaceID, peerID: colleague.userId)
+                for await event in SyncCoordinator.shared.events() {
+                    switch event {
+                    case .team(let peerID) where peerID == nil || peerID == colleague.userId:
+                        await model.poll(workspaceID: workspaceID, peerID: colleague.userId)
+                    case .resync:
+                        await model.poll(workspaceID: workspaceID, peerID: colleague.userId)
+                    default:
+                        continue
+                    }
                 }
             }
             .alert(

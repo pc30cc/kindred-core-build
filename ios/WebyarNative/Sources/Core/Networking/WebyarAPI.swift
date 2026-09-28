@@ -28,6 +28,8 @@ protocol WebyarAPI: Sendable {
     // Realtime — the Centrifugo tokens the console and the desktop apps use.
     func realtimeConnect(workspaceID: String, intent: String) async throws -> RealtimeConnect
     func realtimeInboxSubscribe(workspaceID: String) async throws -> RealtimeSubscribe
+    /// This operator's own channel, `ws:<workspace>:user:<id>`: team chat, as ids only.
+    func realtimeUserSubscribe(workspaceID: String) async throws -> RealtimeSubscribe
     func send(
         body: String,
         conversationID: String,

@@ -12,7 +12,19 @@ describe('iOS in-app config', () => {
       showContacts: true,
       showVisitors: true,
       showWebAnalytics: true,
+      showAIQueue: true,
+      showColleagues: true,
     });
+  });
+
+  it('keeps the Inbox AI and Colleagues tabs on for rows written before migration 230', () => {
+    const config = toIosAppConfig(normalize({ ios_app_show_contacts: false }));
+    expect(config).toMatchObject({ showContacts: false, showAIQueue: true, showColleagues: true });
+  });
+
+  it('hides the Inbox AI and Colleagues tabs Super Admin turned off', () => {
+    const config = toIosAppConfig(normalize({ ios_app_show_ai_queue: false, ios_app_show_colleagues: false }));
+    expect(config).toMatchObject({ showAIQueue: false, showColleagues: false, showContacts: true });
   });
 
   it('keeps every tab on for rows written before migration 229', () => {

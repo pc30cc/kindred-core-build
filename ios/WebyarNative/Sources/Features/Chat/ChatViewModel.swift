@@ -266,6 +266,8 @@ final class ChatViewModel {
             case .reconcile:
                 thread.requireWholeRead()
                 readShortly()
+            case .team:
+                continue
             }
         }
     }

@@ -161,6 +161,9 @@ export interface MobileAppSettings {
   ios_app_show_contacts: boolean;
   ios_app_show_visitors: boolean;
   ios_app_show_web_analytics: boolean;
+  // The Inbox's AI and Colleagues tabs.
+  ios_app_show_ai_queue: boolean;
+  ios_app_show_colleagues: boolean;
 
   checklist: Record<string, { done: boolean; at?: string; by?: string }>;
   updated_at?: string | null;
@@ -281,6 +284,8 @@ export const MOBILE_APP_DEFAULTS: MobileAppSettings = {
   ios_app_show_contacts: true,
   ios_app_show_visitors: true,
   ios_app_show_web_analytics: true,
+  ios_app_show_ai_queue: true,
+  ios_app_show_colleagues: true,
 
   checklist: {},
   updated_at: null,
@@ -389,6 +394,10 @@ export interface IosAppConfig {
   showVisitors: boolean;
   /** The Website analytics tab — still only for owners and admins on plans with `web_analytics`. */
   showWebAnalytics: boolean;
+  /** The Inbox's AI tab and queue — still only where the plan and the AI agent allow it. */
+  showAIQueue: boolean;
+  /** The Inbox's Colleagues tab — still only on plans with `inbox_team_chat`. */
+  showColleagues: boolean;
 }
 
 export function toIosAppConfig(settings: MobileAppSettings): IosAppConfig {
@@ -397,5 +406,7 @@ export function toIosAppConfig(settings: MobileAppSettings): IosAppConfig {
     showContacts: settings.ios_app_show_contacts,
     showVisitors: settings.ios_app_show_visitors,
     showWebAnalytics: settings.ios_app_show_web_analytics,
+    showAIQueue: settings.ios_app_show_ai_queue,
+    showColleagues: settings.ios_app_show_colleagues,
   };
 }

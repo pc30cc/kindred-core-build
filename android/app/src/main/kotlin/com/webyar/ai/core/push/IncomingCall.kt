@@ -17,12 +17,18 @@ data class IncomingCall(
     val callId: String,
     val workspaceId: String,
     val channel: CallChannel,
-    /** Who is calling, as the server could best name them. */
+    /** The caller's own name, or their email's local part; empty for an anonymous visitor. */
     val caller: String,
+    /** An anonymous visitor's code, which the inbox list names them by. */
+    val callerCode: String? = null,
     val workspaceName: String?,
     /** Epoch seconds past which the ring is a missed call, not a call. */
     val expiresAt: Long,
 ) {
+    /** What the inbox list calls this caller — the name the ring shows. */
+    fun displayName(language: com.webyar.ai.i18n.Language): String =
+        com.webyar.ai.i18n.Format.contactName(name = caller, email = null, visitorCode = callerCode, language = language)
+
     /** Past its time: nothing to answer any more. */
     fun expired(nowEpochSeconds: Long): Boolean = nowEpochSeconds >= expiresAt
 
@@ -41,6 +47,7 @@ data class IncomingCall(
                 workspaceId = workspaceId,
                 channel = CallChannel.from(data[KEY_CHANNEL]),
                 caller = data[KEY_CALLER]?.trim()?.take(MAX_NAME)?.takeIf { it.isNotEmpty() } ?: "",
+                callerCode = data[KEY_CALLER_CODE]?.trim()?.take(MAX_CODE)?.takeIf { it.isNotEmpty() },
                 workspaceName = data[KEY_WORKSPACE_NAME]?.trim()?.take(MAX_NAME)?.takeIf { it.isNotEmpty() },
                 expiresAt = expiresAt,
             )
@@ -49,11 +56,13 @@ data class IncomingCall(
         const val KEY_CALL = "callId"
         const val KEY_CHANNEL = "channel"
         const val KEY_CALLER = "caller"
+        const val KEY_CALLER_CODE = "callerCode"
         const val KEY_WORKSPACE_NAME = "workspaceName"
         const val KEY_EXPIRES = "expiresAt"
         const val KEY_REASON = "reason"
 
         private const val MAX_NAME = 120
+        private const val MAX_CODE = 32
     }
 }
 

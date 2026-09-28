@@ -195,13 +195,6 @@ object StrAndroid {
         Language.TR -> if (video) "Gelen görüntülü arama" else "Gelen sesli arama"
     }
 
-    /** A caller the server could not name. */
-    fun websiteVisitor(l: Language): String = when (l) {
-        Language.EN -> "Website visitor"
-        Language.FA -> "بازدیدکننده وب‌سایت"
-        Language.TR -> "Web sitesi ziyaretçisi"
-    }
-
     fun answerCall(l: Language): String = when (l) {
         Language.EN -> "Answer"
         Language.FA -> "پاسخ"

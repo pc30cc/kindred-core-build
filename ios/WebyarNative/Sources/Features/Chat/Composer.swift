@@ -370,7 +370,7 @@ struct Composer: View {
                 SayNowVoiceButton(model: active, language: language)
 
                 Text(Str.sayNowHint(language))
-                    .font(.caption2)
+                    .font(.app(.caption2))
                     .foregroundStyle(Theme.Palette.labelTertiary)
                     .lineLimit(2)
                     .minimumScaleFactor(0.85)
@@ -479,14 +479,14 @@ struct Composer: View {
         ZStack(alignment: .leading) {
             if text.isEmpty {
                 Text(effectivePlaceholder)
-                    .font(.body)
+                    .font(.app(.body))
                     .foregroundStyle(Theme.Palette.labelTertiary)
                     .allowsHitTesting(false)
             }
 
             TextField("", text: $text, axis: .vertical)
                 .accessibilityIdentifier(A11y.composerField)
-                .font(.body)
+                .font(.app(.body))
                 .lineLimit(1...6)
                 .focused($isWriting)
         }

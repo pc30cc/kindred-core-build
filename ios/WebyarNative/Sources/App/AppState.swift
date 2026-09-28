@@ -77,6 +77,9 @@ final class AppState {
             // Before SwiftUI has even been told, so the window and the
             // interface turn together rather than one frame apart.
             WindowDirection.apply(language)
+            // And the type, for the same reason: the rebuilt interface is
+            // drawn in the new language's typeface from its first frame.
+            Typeface.use(language)
         }
     }
 
@@ -132,6 +135,10 @@ final class AppState {
 
         let storedAppearance = UserDefaults.standard.string(forKey: Self.appearanceKey)
         self.appearance = storedAppearance.flatMap(AppearancePreference.init(rawValue:)) ?? .system
+
+        // `didSet` does not run for the initial value, and this is before the
+        // first frame — IRANSans is registered and chosen here or not at all.
+        Typeface.use(language)
     }
 
     // MARK: - Session
@@ -319,8 +326,8 @@ final class AppState {
     /// Called on sign-in and after the profile editor saves, so a newly
     /// uploaded photograph appears everywhere rather than only on the screen
     /// that uploaded it. A failure is not surfaced: an avatar that has not
-    /// arrived yet falls back to initials, which is the same thing the app
-    /// shows before the fetch finishes anyway.
+    /// arrived yet shows the skeleton's silhouette, which is the same thing
+    /// the app shows before the fetch finishes anyway.
     ///
     /// Whose profile is decided before the request goes out: an answer that
     /// lands after a sign-out, or after somebody else signed in, belongs to

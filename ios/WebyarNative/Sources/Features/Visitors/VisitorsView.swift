@@ -326,7 +326,7 @@ private struct VisitorStatTile: View {
                     .minimumScaleFactor(0.8)
             }
             Text(Format.number(value, language: language))
-                .font(.title2.weight(.bold))
+                .font(.app(.title2, .bold))
                 .monospacedDigit()
                 .foregroundStyle(tint)
                 .contentTransition(.numericText())
@@ -374,7 +374,7 @@ private struct ActiveVisitorFilters: View {
             HStack(spacing: Theme.Space.xs) {
                 Text(title).lineLimit(1)
                 Image(systemName: "xmark")
-                    .font(.caption2.weight(.bold))
+                    .font(.app(.caption2, .bold))
             }
             .font(Theme.Typo.metaEmphasis)
             .foregroundStyle(Theme.Palette.brand)

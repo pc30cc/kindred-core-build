@@ -111,6 +111,28 @@ enum Theme {
         /// A control resting on `surface` — a search field, a segmented track.
         static let surfaceElevated = Color(uiColor: .tertiarySystemFill)
 
+        /// The skeleton's ground: what stands where a picture or a face will
+        /// be. Opaque, unlike `surfaceElevated`, so a face's silhouette reads
+        /// the same on a white row, a grey sheet and a chat bubble.
+        static let skeletonBase = Color(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0.165, green: 0.176, blue: 0.204, alpha: 1)
+                : UIColor(red: 0.914, green: 0.925, blue: 0.945, alpha: 1)
+        })
+        /// The figure drawn on the skeleton's ground — a silhouette's head
+        /// and shoulders. One step off the ground, never a contrast.
+        static let skeletonFigure = Color(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0.259, green: 0.275, blue: 0.314, alpha: 1)
+                : UIColor(red: 0.812, green: 0.831, blue: 0.867, alpha: 1)
+        })
+        /// The band of light that crosses a skeleton while it loads.
+        static let skeletonShine = Color(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(white: 1, alpha: 0.08)
+                : UIColor(white: 1, alpha: 0.6)
+        })
+
         static let label = Color(uiColor: .label)
         static let labelSecondary = Color(uiColor: .secondaryLabel)
         static let labelTertiary = Color(uiColor: .tertiaryLabel)
@@ -153,23 +175,25 @@ enum Theme {
 
     // MARK: - Typography
     //
-    // Text styles are system styles, never fixed point sizes, so every label
-    // grows with the reader's Dynamic Type setting.
+    // Text styles, never fixed point sizes, so every label grows with the
+    // reader's Dynamic Type setting — and through `Font.app`, so Persian is
+    // set in IRANSans (see `Typeface`). Computed rather than stored: the
+    // answer depends on the language, which can change while the app runs.
 
     enum Typo {
         /// Screen hero title (login).
-        static let hero = Font.system(.largeTitle, design: .default, weight: .bold)
+        static var hero: Font { .app(.largeTitle, .bold) }
         /// A row's primary line — a contact name, a conversation subject.
-        static let rowTitle = Font.system(.body, weight: .semibold)
+        static var rowTitle: Font { .app(.body, .semibold) }
         /// A row's supporting line — the message preview.
-        static let rowSubtitle = Font.system(.subheadline)
+        static var rowSubtitle: Font { .app(.subheadline) }
         /// Timestamps, counters, channel badges.
-        static let meta = Font.system(.caption)
-        static let metaEmphasis = Font.system(.caption, weight: .semibold)
+        static var meta: Font { .app(.caption) }
+        static var metaEmphasis: Font { .app(.caption, .semibold) }
         /// Button labels.
-        static let button = Font.system(.body, weight: .semibold)
+        static var button: Font { .app(.body, .semibold) }
         /// Chat message text.
-        static let message = Font.system(.body)
+        static var message: Font { .app(.body) }
     }
 
     // MARK: - Motion

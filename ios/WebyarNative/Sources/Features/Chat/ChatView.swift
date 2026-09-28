@@ -388,19 +388,19 @@ struct ChatHeader: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: Theme.Space.xs) {
                     Text(title)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.app(.subheadline, .semibold))
                         .lineLimit(1)
 
                     if aiState == .aiManaged {
                         Image(systemName: "sparkles")
-                            .font(.caption2)
+                            .font(.app(.caption2))
                             .foregroundStyle(Theme.Palette.brand)
                     }
                 }
 
                 if let subtitle {
                     Text(subtitle)
-                        .font(.caption2)
+                        .font(.app(.caption2))
                         .foregroundStyle(Theme.Palette.labelSecondary)
                         .lineLimit(1)
                 }
@@ -613,7 +613,7 @@ struct MessageRow: View {
             }
             Text(Format.bubbleTime(message.createdAt, locale: locale))
         }
-        .font(.caption2)
+        .font(.app(.caption2))
         .foregroundStyle(Theme.Palette.labelTertiary)
         .padding(.horizontal, Theme.Space.xs)
         // Clears the avatar's gutter so the time sits under the bubble rather

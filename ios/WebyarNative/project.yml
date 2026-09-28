@@ -34,6 +34,10 @@ targets:
       - path: Sources
       - path: Resources
         buildPhase: resources
+      # IRANSans for Persian (Regular, Medium, Bold): the web console's own
+      # font, and the same file the Mac and Windows apps bundle.
+      - path: ../../windows-native/src/Webyar.App/Assets/Fonts/IRANSans.ttc
+        buildPhase: resources
     # Generated, and deliberately NOT inside `Resources` — a plist sitting in
     # a resources build phase is also copied verbatim, which makes two
     # commands produce the same output file and fails the build.

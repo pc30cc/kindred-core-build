@@ -96,7 +96,7 @@ struct FloatingTabBar<Tab: Hashable>: View {
                     .animation(reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.58), value: item.badge > 0)
 
                 Text(item.title)
-                    .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
+                    .font(.app(size: 11, isSelected ? .semibold : .medium))
                     .lineLimit(1)
                     // Long localized labels ("Gelen kutusu") shrink instead of
                     // being cut off mid-word.

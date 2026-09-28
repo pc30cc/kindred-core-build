@@ -65,7 +65,7 @@ struct AvailabilitySection: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(Str.availabilityForceOffline(language))
                         Text(Str.availabilityForceOfflineHint(language))
-                            .font(.caption)
+                            .font(.app(.caption))
                             .foregroundStyle(Theme.Palette.labelSecondary)
                     }
                 }
@@ -74,7 +74,7 @@ struct AvailabilitySection: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(Str.availabilityWhenUsingApp(language))
                         Text(Str.availabilityWhenUsingAppHint(language))
-                            .font(.caption)
+                            .font(.app(.caption))
                             .foregroundStyle(Theme.Palette.labelSecondary)
                     }
                 }
@@ -84,7 +84,7 @@ struct AvailabilitySection: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(Str.availabilitySchedule(language))
                         Text(Str.availabilityScheduleHint(language))
-                            .font(.caption)
+                            .font(.app(.caption))
                             .foregroundStyle(Theme.Palette.labelSecondary)
                     }
                 }

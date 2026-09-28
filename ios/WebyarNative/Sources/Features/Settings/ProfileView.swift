@@ -127,9 +127,9 @@ struct ProfileView: View {
     /// screen can be opened — it draws their face in the row you tapped to
     /// get here — so asking `appState` means the picture is known from the
     /// first frame rather than after this screen's own round trip. Without
-    /// it, the avatar drew INITIALS for a moment and then replaced them with
-    /// the photograph: initials are not a loading state, they look like the
-    /// answer, and the swap reads as the screen changing its mind.
+    /// it, the avatar drew its no-picture placeholder for a moment and then
+    /// replaced it with the photograph, which reads as the screen changing
+    /// its mind.
     private var avatarURL: String? {
         model.account?.profile?.avatarURL ?? appState.myAvatarURL
     }
@@ -158,7 +158,7 @@ struct ProfileView: View {
                 VStack(spacing: Theme.Space.md) {
                     // Drawn exactly the way the workspace logo is: the URL
                     // is known from the first frame, so there is never a
-                    // moment of initials that turns into a photograph.
+                    // moment of placeholder that turns into a photograph.
                     Avatar(
                         name: displayName,
                         imageURL: avatarURL,
@@ -177,7 +177,7 @@ struct ProfileView: View {
                             Task { await model.removePhoto(appState: appState) }
                         } label: {
                             Text(Str.removePhoto(language))
-                                .font(.subheadline)
+                                .font(.app(.subheadline))
                         }
                         .disabled(model.isUploadingPhoto)
                     }
@@ -209,7 +209,7 @@ struct ProfileView: View {
 
                 if let account = model.account, !account.isEmailVerified {
                     Label(Str.emailNotVerified(language), systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote)
+                        .font(.app(.footnote))
                         .foregroundStyle(Theme.Palette.warning)
                 }
             } header: {
@@ -226,7 +226,7 @@ struct ProfileView: View {
                             if model.isSaving { ProgressView().controlSize(.small) }
                             Text(Str.save(language))
                         }
-                        .font(.subheadline.weight(.semibold))
+                        .font(.app(.subheadline, .semibold))
                         .frame(minHeight: Theme.Size.minTouchTarget - 8)
                     }
                     .disabled(model.isSaving)
@@ -306,7 +306,7 @@ private struct ChangePhotoButton: View {
     var body: some View {
         PhotosPicker(selection: $selection, matching: .images, photoLibrary: .shared()) {
             Text(verbatim: title)
-                .font(.subheadline.weight(.semibold))
+                .font(.app(.subheadline, .semibold))
                 .foregroundStyle(Theme.Palette.brand)
                 .frame(minHeight: Theme.Size.minTouchTarget - 8)
         }

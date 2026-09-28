@@ -157,12 +157,12 @@ struct CallScreen: View {
     private var header: some View {
         VStack(spacing: Theme.Space.xs) {
             Text(session.contactName)
-                .font(.system(.title2, weight: .semibold))
+                .font(.app(.title2, .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
 
             statusLine
-                .font(.system(.subheadline, design: .rounded))
+                .font(.app(.subheadline, design: .rounded))
                 .foregroundStyle(.white.opacity(0.75))
                 .monospacedDigit()
 

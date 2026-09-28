@@ -41,7 +41,7 @@ describe('Android in-app config', () => {
     const settings = normalize({ app_name: 'Webyar', bundle_id: 'com.webyar.ai' });
     expect(settings.android_app_show_storage).toBe(true);
     expect(settings.android_app_profile_name_editable).toBe(false);
-    expect(settings.android_package_name).toBe('com.webyar.operator');
+    expect(settings.android_package_name).toBe('com.webyar.ai');
     expect(settings.android_release_notes).toEqual({});
   });
 

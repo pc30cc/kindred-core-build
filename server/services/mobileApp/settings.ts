@@ -261,7 +261,7 @@ export const MOBILE_APP_DEFAULTS: MobileAppSettings = {
   testflight_group: null,
   release_notes: null,
 
-  android_package_name: 'com.webyar.operator',
+  android_package_name: 'com.webyar.ai',
   android_app_name: 'Webyar',
   android_play_store_url: null,
   android_version_name: '1.0.0',

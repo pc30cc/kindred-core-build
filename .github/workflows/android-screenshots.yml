@@ -47,7 +47,7 @@ jobs:
 
       - name: Record screenshots
         working-directory: android
-        run: ./gradlew :app:testDebugUnitTest --tests 'com.webyar.operator.screenshots.*' -Proborazzi.test.record=true --stacktrace
+        run: ./gradlew :app:testDebugUnitTest --tests 'com.webyar.ai.screenshots.*' -Proborazzi.test.record=true --stacktrace
 
       - name: Publish to screenshots/${{ github.ref_name }}
         env:

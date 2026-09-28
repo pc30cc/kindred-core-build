@@ -66,4 +66,17 @@ describe('the plugin download and its update manifest', () => {
     // which the image copies to the nginx root.
     expect(downloads).toMatch(/root\s+\/usr\/share\/nginx\/html;/);
   });
+
+  it('serves the Android app as an Android package', () => {
+    // public/downloads/Webyar-Android.apk; octet-stream is what a phone's
+    // browser may decline to offer to install.
+    expect(downloads).toMatch(/application\/vnd\.android\.package-archive\s+apk;/);
+  });
+
+  it('keeps the plugin archives and manifests typed as they were', () => {
+    // A `types` block replaces nginx's table for the location, so the kinds
+    // the folder already held have to be listed beside the new one.
+    expect(downloads).toMatch(/application\/zip\s+zip;/);
+    expect(downloads).toMatch(/application\/json\s+json;/);
+  });
 });

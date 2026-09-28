@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.webyar.operator.baselineprofile"
+    namespace = "com.webyar.ai.baselineprofile"
     compileSdk = 37
 
     defaultConfig {

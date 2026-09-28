@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- The same launch colour the iOS app uses (capacitor.config.ts and
-         WebyarNative's LaunchBackground colour set), so the two platforms
-         open on the same shade rather than nearly the same one. -->
-    <color name="launch_background">#0b1220</color>
+    <!-- The launch colour the iOS app (WebyarNative's LaunchBackground colour
+         set) and the Mac app (Palette.appBackground) open on — light here,
+         dark in values-night — so the three platforms start on the same
+         shade. The loading screen after the system splash draws it too. -->
+    <color name="launch_background">#F4F6F9</color>
 </resources>

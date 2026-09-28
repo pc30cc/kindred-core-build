@@ -1,0 +1,272 @@
+package com.webyar.ai.feature.email
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.webyar.ai.core.model.EmailFolder
+import com.webyar.ai.core.model.EmailThreadSummary
+import com.webyar.ai.core.net.ApiError
+import com.webyar.ai.core.net.WebyarApi
+import com.webyar.ai.i18n.Language
+import com.webyar.ai.i18n.displayText
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+sealed interface EmailInboxState {
+    data object Loading : EmailInboxState
+    data class Loaded(val threads: List<EmailThreadSummary>) : EmailInboxState
+    data class Failed(val message: String) : EmailInboxState
+}
+
+/**
+ * The mailbox.
+ *
+ * A different screen from the chat inbox rather than another queue inside it,
+ * deliberately: these are email threads with subjects, recipients and quoted
+ * trails, not conversations with a visitor, and the server keeps them on a
+ * separate surface for exactly that reason.
+ */
+class EmailInboxViewModel(
+    private val api: WebyarApi,
+    private val language: () -> Language,
+) : ViewModel() {
+
+    private val _state = MutableStateFlow<EmailInboxState>(EmailInboxState.Loading)
+    val state: StateFlow<EmailInboxState> = _state.asStateFlow()
+
+    /**
+     * Whose mailbox this is.
+     *
+     * Decorative: a failure never becomes an error state, it just leaves the
+     * caption off the title.
+     */
+    private val _mailbox = MutableStateFlow<String?>(null)
+    val mailbox: StateFlow<String?> = _mailbox.asStateFlow()
+
+    /**
+     * The workspace has the module but no mailbox connected yet.
+     *
+     * A thing to explain rather than an error to retry, which is why it is a
+     * flag beside an empty list and not a [EmailInboxState.Failed].
+     */
+    private val _notConnected = MutableStateFlow(false)
+    val notConnected: StateFlow<Boolean> = _notConnected.asStateFlow()
+
+    private val _query = MutableStateFlow("")
+    val query: StateFlow<String> = _query.asStateFlow()
+
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+
+    /** Everything, what is unread, or what is starred — the server's own filters. */
+    private val _folder = MutableStateFlow(EmailFolder.INBOX)
+    val folder: StateFlow<EmailFolder> = _folder.asStateFlow()
+
+    /** A further page is on its way. */
+    private val _loadingMore = MutableStateFlow(false)
+    val loadingMore: StateFlow<Boolean> = _loadingMore.asStateFlow()
+
+    private var workspaceId: String? = null
+    private var loaded: List<EmailThreadSummary> = emptyList()
+    /** Where the next page starts; null when this is all there is. */
+    private var nextBefore: String? = null
+    private var generation = 0
+
+    fun bind(workspaceId: String) {
+        if (this.workspaceId == workspaceId) return
+        this.workspaceId = workspaceId
+        _query.value = ""
+        _mailbox.value = null
+        // The last workspace's setup state and pages are not this one's.
+        _notConnected.value = false
+        loaded = emptyList()
+        nextBefore = null
+        load()
+    }
+
+    fun selectFolder(folder: EmailFolder) {
+        if (_folder.value == folder) return
+        _folder.value = folder
+        load()
+    }
+
+    val hasMore: Boolean get() = nextBefore != null
+
+    /** The next page, when the list has been scrolled to its end. */
+    fun loadMore() {
+        val workspace = workspaceId ?: return
+        val before = nextBefore ?: return
+        if (_loadingMore.value) return
+        val mine = generation
+        _loadingMore.value = true
+        viewModelScope.launch {
+            runCatching { api.emailThreadsPage(workspace, _folder.value, search = null, before = before) }
+                .onSuccess { page ->
+                    if (mine != generation) return@onSuccess
+                    val seen = loaded.mapTo(HashSet()) { it.id }
+                    loaded = loaded + page.threads.filter { it.id !in seen }
+                    nextBefore = page.nextBefore
+                    publish()
+                }
+            _loadingMore.value = false
+        }
+    }
+
+    /**
+     * Starred or not, on the row, optimistically — the star flips under the
+     * thumb and the request follows. In the Starred folder an unstarred row
+     * stays until the next load rather than vanishing under the finger.
+     */
+    fun toggleStar(threadId: String) {
+        val workspace = workspaceId ?: return
+        val current = loaded.firstOrNull { it.id == threadId } ?: return
+        val next = current.isStarred != true
+        update(threadId) { it.copy(isStarred = next) }
+        viewModelScope.launch {
+            runCatching { api.setEmailThreadStarred(workspace, threadId, next) }
+                .onFailure { update(threadId) { it.copy(isStarred = !next) } }
+        }
+    }
+
+    /** Read or unread, from the row. */
+    fun toggleRead(threadId: String) {
+        val workspace = workspaceId ?: return
+        val current = loaded.firstOrNull { it.id == threadId } ?: return
+        val next = current.isRead != true
+        update(threadId) { it.copy(isRead = next) }
+        viewModelScope.launch {
+            runCatching { api.setEmailThreadRead(workspace, threadId, next) }
+                .onFailure { update(threadId) { it.copy(isRead = !next) } }
+        }
+    }
+
+    /**
+     * Read or unread, said to the server from here rather than from the
+     * thread's own model.
+     *
+     * "Mark unread" is chosen inside a thread that closes at the same
+     * moment, and a request launched in the thread's scope would be
+     * cancelled as the screen goes. This model lives as long as the
+     * activity, so the request finishes. The row changes at once, and
+     * changes back if the server refuses.
+     */
+    fun setRead(threadId: String, read: Boolean) {
+        val workspace = workspaceId ?: return
+        val before = loaded.firstOrNull { it.id == threadId }?.isRead
+        update(threadId) { it.copy(isRead = read) }
+        viewModelScope.launch {
+            runCatching { api.setEmailThreadRead(workspace, threadId, read) }
+                .onFailure {
+                    if (workspace == workspaceId && before != null) update(threadId) { it.copy(isRead = before) }
+                }
+        }
+    }
+
+    /** The thread's star changed inside it: the row follows. */
+    fun setStarredLocally(threadId: String, starred: Boolean) = update(threadId) { it.copy(isStarred = starred) }
+
+    private fun update(threadId: String, change: (EmailThreadSummary) -> EmailThreadSummary) {
+        loaded = loaded.map { if (it.id == threadId) change(it) else it }
+        publish()
+    }
+
+    fun setQuery(value: String) {
+        _query.value = value
+        publish()
+    }
+
+    fun refresh() {
+        // Nothing to refresh before a workspace is bound — and a spinner
+        // raised here would have nothing to lower it.
+        if (workspaceId == null) return
+        _refreshing.value = true
+        load(showSkeleton = false)
+    }
+
+    fun retry() = load()
+
+    private fun load(showSkeleton: Boolean = true) {
+        val workspace = workspaceId ?: return
+        if (showSkeleton) _state.value = EmailInboxState.Loading
+        val mine = ++generation
+        val folder = _folder.value
+        viewModelScope.launch {
+            runCatching { api.emailThreadsPage(workspace, folder, search = null, before = null) }
+                .onSuccess { page ->
+                    // A folder switched meanwhile has its own load on the way.
+                    if (mine != generation) return@onSuccess
+                    loaded = page.threads
+                    nextBefore = page.nextBefore
+                    _notConnected.value = false
+                    publish()
+                }
+                .onFailure { error ->
+                    // The same rule as success: a newer load — another
+                    // folder, another workspace — has the say.
+                    if (mine != generation) return@onFailure
+                    if (error.isNotConnected) {
+                        // 409 is the server saying the mailbox has never been
+                        // connected. Not a failure — a setup step.
+                        _notConnected.value = true
+                        loaded = emptyList()
+                        nextBefore = null
+                        publish()
+                    } else if (showSkeleton || loaded.isEmpty()) {
+                        _state.value = EmailInboxState.Failed(error.displayText(language()))
+                    }
+                }
+            // A newer load lowers the spinner itself, when it lands.
+            if (mine != generation) return@launch
+            _refreshing.value = false
+            runCatching { api.gmailConnection(workspace) }
+                .onSuccess { if (mine == generation) _mailbox.value = it?.emailAddress }
+        }
+    }
+
+    /**
+     * Unbolds the row as its thread opens rather than at the next refresh.
+     *
+     * Only the row: opening the thread is what tells the server it was read,
+     * and saying so twice would be two requests for one act.
+     */
+    fun markReadLocally(threadId: String) {
+        loaded = loaded.map { if (it.id == threadId) it.copy(isRead = true) else it }
+        publish()
+    }
+
+    fun thread(id: String): EmailThreadSummary? = loaded.firstOrNull { it.id == id }
+
+    private fun publish() {
+        val needle = _query.value.trim().lowercase()
+        _state.value = EmailInboxState.Loaded(
+            if (needle.isEmpty()) loaded else loaded.filter { it.matches(needle) }
+        )
+    }
+
+    /**
+     * Filtered here rather than on the server, the same way the chat inbox
+     * filters its own list, so "matches" means the same thing on both
+     * screens. The server's `q=` would search the whole mailbox; this searches
+     * what is on screen.
+     */
+    private fun EmailThreadSummary.matches(needle: String): Boolean {
+        val haystack = listOfNotNull(subject, lastMessageSnippet) +
+            participants.orEmpty().map { it.email }
+        return haystack.any { it.lowercase().contains(needle) }
+    }
+}
+
+/**
+ * Whether this failure is "no mailbox connected" rather than a fault.
+ *
+ * The server says so two ways depending on where in the stack the request
+ * stopped — a 409 status, or a 400 whose body names the reason — so both are
+ * read rather than only the one that happened to be seen first.
+ */
+private val Throwable.isNotConnected: Boolean
+    get() {
+        val error = this as? ApiError.Server ?: return false
+        return error.status == 409 ||
+            error.serverMessage?.contains("email_not_connected") == true
+    }

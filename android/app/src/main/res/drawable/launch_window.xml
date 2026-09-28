@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The window before the first frame: the launch colour with the brand mark at
+  the loading screen's size and place (72dp, centred), so the hand-over to it
+  is the same picture gaining a spinner rather than a cut. Android 12 and later
+  draw their own splash from values-v31 instead and show this only after it.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/launch_background" />
+    <item
+        android:width="72dp"
+        android:height="72dp"
+        android:gravity="center"
+        android:drawable="@drawable/brand_mark" />
+</layer-list>

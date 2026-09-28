@@ -24,8 +24,8 @@ import { readFileSync, existsSync } from 'node:fs';
 
 const GENERATOR = 'scripts/android/strings-from-ios.mjs';
 const SWIFT = 'ios/WebyarNative/Sources/Localization/Strings.swift';
-const KOTLIN = 'android/app/src/main/kotlin/com/webyar/operator/i18n/Strings.kt';
-const MANUAL = 'android/app/src/main/kotlin/com/webyar/operator/i18n/StringsManual.kt';
+const KOTLIN = 'android/app/src/main/kotlin/com/webyar/ai/i18n/Strings.kt';
+const MANUAL = 'android/app/src/main/kotlin/com/webyar/ai/i18n/StringsManual.kt';
 
 describe('Android strings are generated from the iOS ones', () => {
   it('the committed Strings.kt is what the generator produces today', () => {

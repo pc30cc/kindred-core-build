@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12's splash icon. The system scales it to its icon box (288dp for an
+  icon without its own background) and masks it to a circle, so the mark sits
+  in the middle quarter: 72dp, the loading screen's size, and nowhere near the
+  mask — the rounded square is never clipped into a circle.
+-->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/brand_mark"
+    android:inset="37.5%" />

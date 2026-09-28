@@ -14,6 +14,7 @@ import org.junit.Test
  * Which tabs the bar shows: the plan decides what exists (the web's
  * `planAccess.ts`), the role keeps Website analytics to owners and admins,
  * and Super Admin's switches for the Android app can only take a tab away.
+ * The inbox sits in the middle of whichever tabs are left, as on iOS.
  */
 class AppTabsTest {
 
@@ -26,9 +27,9 @@ class AppTabsTest {
     private val everything = plan("contacts", "visitor_tracking", "web_analytics")
 
     @Test
-    fun `an owner whose plan has them gets both tabs, in the bar's order`() {
+    fun `an owner whose plan has them gets both tabs, the inbox in the middle`() {
         assertEquals(
-            listOf(AppTab.INBOX, AppTab.CONTACTS, AppTab.VISITORS, AppTab.ANALYTICS, AppTab.SETTINGS),
+            listOf(AppTab.CONTACTS, AppTab.VISITORS, AppTab.INBOX, AppTab.ANALYTICS, AppTab.SETTINGS),
             appTabsFor(everything, owner, MobileAppConfig.DEFAULT),
         )
     }
@@ -36,7 +37,8 @@ class AppTabsTest {
     @Test
     fun `an agent sees the visitors but not the website analytics`() {
         val tabs = appTabsFor(everything, agent, MobileAppConfig.DEFAULT)
-        assertEquals(listOf(AppTab.INBOX, AppTab.CONTACTS, AppTab.VISITORS, AppTab.SETTINGS), tabs)
+        // Three others: the inbox takes the leading middle.
+        assertEquals(listOf(AppTab.CONTACTS, AppTab.INBOX, AppTab.VISITORS, AppTab.SETTINGS), tabs)
         // Nor while the role is not yet known.
         assertFalse(AppTab.ANALYTICS in appTabsFor(everything, WorkspaceAccess.UNKNOWN, MobileAppConfig.DEFAULT))
     }
@@ -44,7 +46,7 @@ class AppTabsTest {
     @Test
     fun `a plan without them shows neither, whatever the switches say`() {
         assertEquals(
-            listOf(AppTab.INBOX, AppTab.CONTACTS, AppTab.SETTINGS),
+            listOf(AppTab.CONTACTS, AppTab.INBOX, AppTab.SETTINGS),
             appTabsFor(plan("contacts"), owner, MobileAppConfig(showVisitors = true, showWebAnalytics = true)),
         )
     }
@@ -52,17 +54,18 @@ class AppTabsTest {
     @Test
     fun `Super Admin's switches take a tab away`() {
         assertEquals(
-            listOf(AppTab.INBOX, AppTab.CONTACTS, AppTab.ANALYTICS, AppTab.SETTINGS),
+            listOf(AppTab.CONTACTS, AppTab.INBOX, AppTab.ANALYTICS, AppTab.SETTINGS),
             appTabsFor(everything, owner, MobileAppConfig(showVisitors = false)),
         )
         assertEquals(
-            listOf(AppTab.INBOX, AppTab.CONTACTS, AppTab.VISITORS, AppTab.SETTINGS),
+            listOf(AppTab.CONTACTS, AppTab.INBOX, AppTab.VISITORS, AppTab.SETTINGS),
             appTabsFor(everything, owner, MobileAppConfig(showWebAnalytics = false)),
         )
     }
 
     @Test
     fun `nothing gated shows while the plan loads or cannot be read`() {
+        // With only Settings beside it, the inbox keeps the leading end.
         for (state in listOf(EntitlementsState.Loading, EntitlementsState.Failed)) {
             assertEquals(listOf(AppTab.INBOX, AppTab.SETTINGS), appTabsFor(state, owner, MobileAppConfig.DEFAULT))
         }

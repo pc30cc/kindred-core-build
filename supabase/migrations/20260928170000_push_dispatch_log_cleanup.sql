@@ -59,47 +59,59 @@ BEGIN
 END;
 $$;
 
+-- PL/pgSQL rather than SQL on purpose: its columns are resolved when it
+-- runs, not when it is created, so a schema without the spam or AI-queue
+-- columns still takes this migration — the call fails there instead, and
+-- the server counts the long way.
 CREATE OR REPLACE FUNCTION public.push_unread_badge(
   p_user_id uuid,
   p_workspace_id uuid DEFAULT NULL
 )
 RETURNS integer
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  WITH ws AS (
+DECLARE
+  v_workspaces uuid[];
+  v_conversations integer;
+  v_colleagues integer;
+BEGIN
+  v_workspaces := ARRAY(
     SELECT m.workspace_id
     FROM public.workspace_members m
     WHERE m.user_id = p_user_id
       AND m.suspended_at IS NULL
       AND (p_workspace_id IS NULL OR m.workspace_id = p_workspace_id)
-  )
-  SELECT (
-    (
-      SELECT count(*)
-      FROM public.conversations c
-      WHERE c.workspace_id IN (SELECT workspace_id FROM ws)
-        AND c.status = 'open'
-        AND c.is_spam = false
-        AND (c.ai_state IS NULL OR c.ai_state <> 'ai_managed')
-        AND (c.assigned_to IS NULL OR c.assigned_to = p_user_id)
-        AND EXISTS (
-          SELECT 1
-          FROM public.conversation_messages cm
-          WHERE cm.conversation_id = c.id
-            AND cm.sender_type = 'contact'
-            AND cm.seen_at IS NULL
-        )
-    ) + (
-      SELECT count(DISTINCT t.sender_id)
-      FROM public.team_messages t
-      WHERE t.workspace_id IN (SELECT workspace_id FROM ws)
-        AND t.recipient_id = p_user_id
-        AND t.read_at IS NULL
-    )
-  )::integer;
+  );
+  IF cardinality(v_workspaces) = 0 THEN
+    RETURN 0;
+  END IF;
+
+  SELECT count(*) INTO v_conversations
+  FROM public.conversations c
+  WHERE c.workspace_id = ANY (v_workspaces)
+    AND c.status = 'open'
+    AND c.is_spam = false
+    AND (c.ai_state IS NULL OR c.ai_state <> 'ai_managed')
+    AND (c.assigned_to IS NULL OR c.assigned_to = p_user_id)
+    AND EXISTS (
+      SELECT 1
+      FROM public.conversation_messages cm
+      WHERE cm.conversation_id = c.id
+        AND cm.sender_type = 'contact'
+        AND cm.seen_at IS NULL
+    );
+
+  SELECT count(DISTINCT t.sender_id) INTO v_colleagues
+  FROM public.team_messages t
+  WHERE t.workspace_id = ANY (v_workspaces)
+    AND t.recipient_id = p_user_id
+    AND t.read_at IS NULL;
+
+  RETURN v_conversations + v_colleagues;
+END;
 $$;
 
 REVOKE ALL ON FUNCTION public.purge_push_dispatch_log(timestamptz, integer) FROM PUBLIC;

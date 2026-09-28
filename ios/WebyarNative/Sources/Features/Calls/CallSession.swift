@@ -161,6 +161,18 @@ final class CallSession {
                     phase = .ended(invitation.status == "declined" ? .declined : .expired)
                     return
                 }
+            } catch APIError.unauthorized {
+                // The session is gone, and no amount of polling brings it
+                // back. Ending here rather than spinning for five minutes is
+                // also what withdraws the offer while we still can.
+                await finish(.failed("unauthorized"))
+                return
+            } catch APIError.server(let status, _) where status == 403 || status == 404 {
+                // The invitation is not ours to see any more — withdrawn,
+                // swept, or the workspace access revoked. That is an answer,
+                // and the nearest one the operator knows is "nobody came".
+                await finish(.expired)
+                return
             } catch {
                 // A single failed poll is a blip, not an answer. Only a
                 // terminal invitation or the operator ends the wait.
@@ -176,6 +188,12 @@ final class CallSession {
                 callSessionID: callSessionID,
                 displayName: nil
             )
+            // Every await in here is a moment the operator could hang up in.
+            // `finish` has already told the server and torn down whatever room
+            // existed then, so each step re-checks before going further —
+            // otherwise a hang-up during "connecting" is followed a second
+            // later by the microphone going live in a call nobody is on.
+            guard phase == .connecting else { return }
             relayWarning = credentials.warnings?.contains("turn_missing") == true
 
             guard let url = credentials.signallingURL else {
@@ -208,6 +226,7 @@ final class CallSession {
                     dynacast: true
                 )
             )
+            guard await stillJoining(room) else { return }
 
             // Publishing is best-effort, deliberately. A camera that will not
             // start — no camera at all on the simulator, permission refused,
@@ -220,6 +239,7 @@ final class CallSession {
                 isMuted = true
                 degraded = .noMicrophone
             }
+            guard await stillJoining(room) else { return }
 
             if channel == .video {
                 do {
@@ -228,6 +248,7 @@ final class CallSession {
                     isCameraOn = false
                     if degraded == nil { degraded = .noCamera }
                 }
+                guard await stillJoining(room) else { return }
             }
 
             phase = .connected
@@ -235,9 +256,28 @@ final class CallSession {
             refreshVisitorPresence()
             syncTracks()
         } catch {
-            // Only a failure to reach the room itself gets here now.
+            // Only a failure to reach the room itself gets here now — unless
+            // the call was ended while connecting, in which case the throw is
+            // just the room being torn down under us and there is nothing to
+            // report.
+            guard phase == .connecting else { return }
             await finish(.failed(Self.describe(error)))
         }
+    }
+
+    /// Whether `room` is still the call being joined.
+    ///
+    /// When it is not — the operator hung up, or the call failed and was torn
+    /// down while an await was in flight — this room is an orphan: `teardown`
+    /// either never saw it or saw it before it had published anything. Taking
+    /// the microphone and camera back down and disconnecting it here is what
+    /// makes sure nothing is left live.
+    private func stillJoining(_ room: Room) async -> Bool {
+        if phase == .connecting, self.room === room { return true }
+        _ = try? await room.localParticipant.setCamera(enabled: false)
+        _ = try? await room.localParticipant.setMicrophone(enabled: false)
+        await room.disconnect()
+        return false
     }
 
     /// LiveKit errors stringify into a paragraph. The operator needs the one
@@ -288,6 +328,21 @@ final class CallSession {
     /// Ends the call for both sides.
     func hangUp() async {
         await finish(.hungUp)
+    }
+
+    /// Called when the room itself dropped.
+    ///
+    /// Once connected that is the call ending under us, which to the operator
+    /// reads the same as the visitor going. Before that it is a join that
+    /// never landed, and calling it "visitor left" would blame someone who
+    /// was never there.
+    fileprivate func roomDisconnected() {
+        switch phase {
+        case .connecting:
+            Task { await finish(.failed("disconnected")) }
+        default:
+            visitorDisconnected()
+        }
     }
 
     /// Called when the room tells us the other side has gone.
@@ -384,7 +439,7 @@ private final class RoomObserver: RoomDelegate, @unchecked Sendable {
 
     func room(_ room: Room, didUpdateConnectionState connectionState: ConnectionState, from oldConnectionState: ConnectionState) {
         guard connectionState == .disconnected else { return }
-        Task { @MainActor [weak session] in session?.visitorDisconnected() }
+        Task { @MainActor [weak session] in session?.roomDisconnected() }
     }
 
     // Everything that can change what is on screen. Subscribing to the

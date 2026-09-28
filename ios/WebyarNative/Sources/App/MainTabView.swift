@@ -1,12 +1,19 @@
 import SwiftUI
 
-/// The shell's three tabs.
+/// The shell's tabs: the inbox and Settings always, and between them the
+/// sections the plan (and Super Admin's switches) grant.
+///
+/// Five at most, which is where the floating bar stops. Every section is a
+/// tab rather than a row buried in Settings because each is somewhere an
+/// operator goes to *watch* — the visitors on the site, the traffic — and a
+/// tab is what keeps that one tap away. The bar's items shrink their labels
+/// rather than clip them, and at five they still fit the narrowest iPhone.
 ///
 /// It lives outside the shell because `AppState` remembers which one is open,
 /// and it remembers because a language change rebuilds the shell from
 /// scratch — without somewhere outside to keep it, changing the language
 /// would drop the operator back on the inbox from wherever they were.
-enum AppTab: Hashable { case inbox, contacts, settings }
+enum AppTab: Hashable { case inbox, contacts, visitors, analytics, settings }
 
 /// The signed-in shell.
 ///
@@ -34,7 +41,13 @@ struct MainTabView: View {
     }
     @State private var inboxPath = NavigationPath()
     @State private var contactsPath = NavigationPath()
+    @State private var visitorsPath = NavigationPath()
+    @State private var analyticsPath = NavigationPath()
     @State private var settingsPath = NavigationPath()
+    /// Read here so that a conversation asked to be opened — a tapped
+    /// notification, or "Open chat" on a visitor — brings the inbox forward,
+    /// wherever the operator happens to be.
+    @State private var push = PushController.shared
     /// Promotions live here rather than in the inbox so the full-screen card
     /// covers the whole shell — and so a tab change cannot leave one behind.
     @State private var promotions = PromotionCenter()
@@ -45,12 +58,17 @@ struct MainTabView: View {
 
     /// The tabs this account actually has.
     ///
-    /// Inbox and Settings are core and always present. Contacts is
-    /// plan-gated, and while the plan is still resolving it is not rendered —
-    /// a tab that appears and then vanishes reads as a bug.
+    /// Inbox and Settings are core and always present. Contacts, Visitors
+    /// and Analytics are plan-gated, and while the plan is still resolving
+    /// none of them is rendered — a tab that appears and then vanishes reads
+    /// as a bug.
     private var tabs: [Tab] {
         var tabs: [Tab] = [.inbox]
-        if appState.planResolved, appState.contactsVisible { tabs.append(.contacts) }
+        if appState.planResolved {
+            if appState.contactsVisible { tabs.append(.contacts) }
+            if appState.visitorsVisible { tabs.append(.visitors) }
+            if appState.webAnalyticsVisible { tabs.append(.analytics) }
+        }
         tabs.append(.settings)
         return tabs
     }
@@ -64,6 +82,12 @@ struct MainTabView: View {
             case .contacts:
                 .init(tab: .contacts, title: Str.tabContacts(language),
                       icon: "person.2", selectedIcon: "person.2.fill")
+            case .visitors:
+                .init(tab: .visitors, title: Str.tabVisitors(language),
+                      icon: "globe.americas", selectedIcon: "globe.americas.fill")
+            case .analytics:
+                .init(tab: .analytics, title: Str.tabAnalytics(language),
+                      icon: "chart.bar", selectedIcon: "chart.bar.fill")
             case .settings:
                 .init(tab: .settings, title: Str.tabSettings(language),
                       icon: "gearshape", selectedIcon: "gearshape.fill")
@@ -77,6 +101,8 @@ struct MainTabView: View {
         switch selection {
         case .inbox: inboxPath.isEmpty
         case .contacts: contactsPath.isEmpty
+        case .visitors: visitorsPath.isEmpty
+        case .analytics: analyticsPath.isEmpty
         case .settings: settingsPath.isEmpty
         }
     }
@@ -114,6 +140,24 @@ struct MainTabView: View {
             }
             .toolbar(.hidden, for: .tabBar)
             .tag(Tab.contacts)
+
+            // The same arrangement for the other two gated sections: always
+            // a child, only sometimes with anything in it.
+            NavigationStack(path: $visitorsPath) {
+                if appState.visitorsVisible {
+                    VisitorsView(path: $visitorsPath, isSelectedTab: selection == .visitors)
+                }
+            }
+            .toolbar(.hidden, for: .tabBar)
+            .tag(Tab.visitors)
+
+            NavigationStack(path: $analyticsPath) {
+                if appState.webAnalyticsVisible {
+                    AnalyticsView(isSelectedTab: selection == .analytics)
+                }
+            }
+            .toolbar(.hidden, for: .tabBar)
+            .tag(Tab.analytics)
 
             NavigationStack(path: $settingsPath) {
                 SettingsView()
@@ -160,6 +204,15 @@ struct MainTabView: View {
             guard old != nil, old != new else { return }
             inboxPath = NavigationPath()
             contactsPath = NavigationPath()
+            visitorsPath = NavigationPath()
+            analyticsPath = NavigationPath()
+        }
+        // A conversation somebody asked to open is shown in the inbox, so the
+        // inbox comes forward; `InboxView` takes it from there, exactly as it
+        // does for a tapped notification.
+        .onChange(of: push.pendingOpen) { _, target in
+            guard target != nil, selection != .inbox else { return }
+            select(.inbox)
         }
         .task(id: appState.selectedWorkspace?.id) {
             await openRequestedScreen()
@@ -262,6 +315,12 @@ struct MainTabView: View {
 
         case .contacts:
             if appState.contactsVisible { select(.contacts) }
+
+        case .visitors:
+            if appState.visitorsVisible { select(.visitors) }
+
+        case .analytics:
+            if appState.webAnalyticsVisible { select(.analytics) }
 
         case .settings:
             select(.settings)

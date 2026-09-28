@@ -42,6 +42,16 @@ final class AppState {
     /// plan. Unknown (nil) hides whatever depends on it.
     private(set) var access: WorkspaceAccess = .unknown
 
+    /// Which sections Super Admin has switched on for the iPhone app.
+    ///
+    /// Held in memory only, never in `UserDefaults`: it is the platform's
+    /// setting, not this operator's, it is read again on every sign-in and
+    /// every return to the foreground, and nothing about it is worth keeping
+    /// on the phone. Until it arrives — and whenever it cannot be read — it
+    /// is the last answer, which starts as everything on: an unreachable
+    /// server must not strip sections out of the app.
+    private(set) var appConfig: MobileAppConfig = .defaults
+
     /// The operator's own profile row, for the one thing every screen wants
     /// from it: their photograph.
     ///
@@ -254,6 +264,7 @@ final class AppState {
         planRefresh?.cancel()
         planRefresh = nil
         access = .unknown
+        appConfig = .defaults
         workspacesFromSnapshot = false
         entitlements = .loading
         profile = nil
@@ -290,6 +301,9 @@ final class AppState {
     /// workspaces asks the server again now that it may be reachable.
     func refreshIfStale() async {
         guard session.user != nil else { return }
+        // Not gated on staleness: Super Admin can switch a section off at any
+        // time, and coming back to the app is the natural moment to notice.
+        Task { await loadAppConfig() }
         if workspacesFromSnapshot || workspaces.isEmpty { await loadWorkspaces() }
         if case .failed = entitlements, selectedWorkspace != nil { await loadPlan() }
     }
@@ -307,8 +321,15 @@ final class AppState {
     /// that uploaded it. A failure is not surfaced: an avatar that has not
     /// arrived yet falls back to initials, which is the same thing the app
     /// shows before the fetch finishes anyway.
+    ///
+    /// Whose profile is decided before the request goes out: an answer that
+    /// lands after a sign-out, or after somebody else signed in, belongs to
+    /// nobody on screen and is dropped rather than shown as theirs.
     func loadProfile() async {
-        profile = try? await api.account().profile
+        guard let userID = session.user?.id else { return }
+        let fetched = try? await api.account().profile
+        guard session.user?.id == userID else { return }
+        profile = fetched
     }
 
     /// Takes a profile somebody else has just fetched or changed.
@@ -322,9 +343,14 @@ final class AppState {
     }
 
     func loadWorkspaces() async {
+        // As with the profile: a list that arrives for an account that is no
+        // longer the one signed in must not become the new account's list —
+        // or, after a sign-out, bring a workspace back onto a login screen.
+        guard let userID = session.user?.id else { return }
         do {
             await loadProfile()
             let list = try await api.workspaces()
+            guard session.user?.id == userID else { return }
             workspaces = list
             // Keep the current selection if it is still valid; otherwise fall
             // back to the first, so the inbox always has something to load.
@@ -344,6 +370,7 @@ final class AppState {
             // so every gated tab permanently hidden.
             await loadPlan()
         } catch APIError.unauthorized {
+            guard session.user?.id == userID else { return }
             await handleUnauthorized()
         } catch {
             // Leave whatever we had; the inbox surfaces its own error state.
@@ -375,6 +402,10 @@ final class AppState {
     /// alongside it; one of those that cannot be read is simply off, and never
     /// fails the plan.
     func loadPlan() async {
+        // Alongside, never in front: the plan decides most of what shows,
+        // and waiting on a second request to resolve it would only delay the
+        // tab bar.
+        Task { await loadAppConfig() }
         guard let workspaceID = selectedWorkspace?.id else {
             entitlements = .failed
             return
@@ -397,6 +428,19 @@ final class AppState {
             }
         }
         schedulePlanRefresh(workspaceID)
+    }
+
+    /// Reads the Super Admin switches for this app.
+    ///
+    /// An answer that lands after the operator signed out, or after somebody
+    /// else signed in, is dropped. A failure keeps what is already known —
+    /// and says nothing: the switches are a ceiling on sections that the
+    /// plan still has to grant, so the worst a missed read can do is leave a
+    /// section on for one more refresh.
+    func loadAppConfig() async {
+        guard let userID = session.user?.id else { return }
+        guard let fresh = try? await api.mobileAppConfig(), session.user?.id == userID else { return }
+        if fresh != appConfig { appConfig = fresh }
     }
 
     /// Which workspace the snapshot in `entitlements` belongs to.
@@ -446,7 +490,18 @@ final class AppState {
         entitlements.value?.featureEnabled(key) == true
     }
 
-    var contactsVisible: Bool { moduleInPlan("contacts") }
+    /// Contacts: in the plan, and not switched off for the iPhone app.
+    var contactsVisible: Bool { appConfig.showContacts && moduleInPlan("contacts") }
+
+    /// Online visitors: the plan's `visitor_tracking`, as the web's sidebar
+    /// and the desktop apps gate it, under the Super Admin switch.
+    var visitorsVisible: Bool { appConfig.showVisitors && moduleInPlan("visitor_tracking") }
+
+    /// Website analytics: owners and admins, when the plan has the module —
+    /// the web sidebar's rule — under the Super Admin switch.
+    var webAnalyticsVisible: Bool {
+        appConfig.showWebAnalytics && access.isAdmin && moduleInPlan("web_analytics")
+    }
 
     /// The inbox's AI queue, as the web's `aiQueueVisible`: the plan's
     /// `inbox_ai_queue`, the AI switched on and shown to customers, and either

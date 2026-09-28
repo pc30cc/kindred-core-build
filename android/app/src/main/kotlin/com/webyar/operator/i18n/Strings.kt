@@ -10,7 +10,7 @@ package com.webyar.operator.i18n
 // product never reads the device language — the operator picks one and it
 // sticks — so locale resolution is not wanted here either.
 //
-// 270 of 286 strings are generated.
+// 391 of 407 strings are generated.
 // These are hand-written in StringsManual.kt because they are logic rather
 // than copy:
 //   resetSentDetail — takes more than a language
@@ -1749,5 +1749,742 @@ object Str {
         Language.EN -> "Take-over failed"
         Language.FA -> "در دست گرفتن ناموفق بود"
         Language.TR -> "Devralma başarısız oldu"
+    }
+
+    /** The Visitors tab. Short, because it shares the bar with four others. */
+    fun tabVisitors(l: Language): String = when (l) {
+        Language.EN -> "Visitors"
+        Language.FA -> "بازدیدکنندگان"
+        Language.TR -> "Ziyaretçiler"
+    }
+
+    fun visitorsTitle(l: Language): String = when (l) {
+        Language.EN -> "Online Visitors"
+        Language.FA -> "بازدیدکنندگان آنلاین"
+        Language.TR -> "Çevrimiçi Ziyaretçiler"
+    }
+
+    fun visitorsSubtitle(l: Language): String = when (l) {
+        Language.EN -> "Real-time visitor intelligence"
+        Language.FA -> "هوش لحظه‌ای بازدیدکنندگان"
+        Language.TR -> "Gerçek zamanlı ziyaretçi zekâsı"
+    }
+
+    fun visitorsSearchPrompt(l: Language): String = when (l) {
+        Language.EN -> "Search by page, country, browser…"
+        Language.FA -> "جست‌وجو بر اساس صفحه، کشور، مرورگر…"
+        Language.TR -> "Sayfa, ülke, tarayıcı ile ara…"
+    }
+
+    /** The list half of the list / map switch. */
+    fun visitorsList(l: Language): String = when (l) {
+        Language.EN -> "List"
+        Language.FA -> "فهرست"
+        Language.TR -> "Liste"
+    }
+
+    fun visitorsMap(l: Language): String = when (l) {
+        Language.EN -> "Map"
+        Language.FA -> "نقشه"
+        Language.TR -> "Harita"
+    }
+
+    fun visitorsFilters(l: Language): String = when (l) {
+        Language.EN -> "Filters"
+        Language.FA -> "فیلترها"
+        Language.TR -> "Filtreler"
+    }
+
+    fun visitorsFilterOnline(l: Language): String = when (l) {
+        Language.EN -> "Online only"
+        Language.FA -> "فقط آنلاین"
+        Language.TR -> "Yalnızca çevrimiçi"
+    }
+
+    fun visitorsFilterInChat(l: Language): String = when (l) {
+        Language.EN -> "Has conversation"
+        Language.FA -> "دارای گفت‌وگو"
+        Language.TR -> "Sohbeti olan"
+    }
+
+    fun visitorsFilterCountry(l: Language): String = when (l) {
+        Language.EN -> "Country"
+        Language.FA -> "کشور"
+        Language.TR -> "Ülke"
+    }
+
+    fun visitorsAllCountries(l: Language): String = when (l) {
+        Language.EN -> "All countries"
+        Language.FA -> "همه کشورها"
+        Language.TR -> "Tüm ülkeler"
+    }
+
+    fun visitorsIncludeOffline(l: Language): String = when (l) {
+        Language.EN -> "Include offline"
+        Language.FA -> "نمایش آفلاین‌ها"
+        Language.TR -> "Çevrimdışıları göster"
+    }
+
+    fun visitorsClearFilters(l: Language): String = when (l) {
+        Language.EN -> "Clear filters"
+        Language.FA -> "پاک کردن فیلترها"
+        Language.TR -> "Filtreleri temizle"
+    }
+
+    fun visitorsStatOnline(l: Language): String = when (l) {
+        Language.EN -> "Online"
+        Language.FA -> "آنلاین"
+        Language.TR -> "Çevrimiçi"
+    }
+
+    fun visitorsStatActive(l: Language): String = when (l) {
+        Language.EN -> "Active now"
+        Language.FA -> "فعال"
+        Language.TR -> "Şu an aktif"
+    }
+
+    fun visitorsStatCountries(l: Language): String = when (l) {
+        Language.EN -> "Countries"
+        Language.FA -> "کشورها"
+        Language.TR -> "Ülkeler"
+    }
+
+    fun visitorsStatPages(l: Language): String = when (l) {
+        Language.EN -> "Pages"
+        Language.FA -> "صفحات"
+        Language.TR -> "Sayfalar"
+    }
+
+    fun visitorsEmptyTitle(l: Language): String = when (l) {
+        Language.EN -> "No visitors right now"
+        Language.FA -> "بازدیدکننده‌ای حضور ندارد"
+        Language.TR -> "Şu anda ziyaretçi yok"
+    }
+
+    fun visitorsEmptyBody(l: Language): String = when (l) {
+        Language.EN -> "Live visitors browsing your site will appear here."
+        Language.FA -> "بازدیدکنندگانی که همین حالا در سایت شما هستند اینجا نمایش داده می‌شوند."
+        Language.TR -> "Sitenizdeki canlı ziyaretçiler burada görünecek."
+    }
+
+    fun visitorsNoResults(l: Language): String = when (l) {
+        Language.EN -> "No visitors match your filters"
+        Language.FA -> "بازدیدکننده‌ای با این فیلترها یافت نشد"
+        Language.TR -> "Filtrelerinizle eşleşen ziyaretçi yok"
+    }
+
+    fun visitorsErrorTitle(l: Language): String = when (l) {
+        Language.EN -> "Could not load visitors"
+        Language.FA -> "بارگذاری بازدیدکنندگان ناموفق بود"
+        Language.TR -> "Ziyaretçiler yüklenemedi"
+    }
+
+    fun visitorsJustNow(l: Language): String = when (l) {
+        Language.EN -> "just now"
+        Language.FA -> "هم‌اکنون"
+        Language.TR -> "şimdi"
+    }
+
+    /** A template: `{n}` is replaced with the number in the reader's digits. */
+    fun visitorsMinutesAgo(l: Language): String = when (l) {
+        Language.EN -> "{n}m ago"
+        Language.FA -> "{n} دقیقه پیش"
+        Language.TR -> "{n} dk önce"
+    }
+
+    /** A template: `{n}` is replaced with the number in the reader's digits. */
+    fun visitorsHoursAgo(l: Language): String = when (l) {
+        Language.EN -> "{n}h ago"
+        Language.FA -> "{n} ساعت پیش"
+        Language.TR -> "{n} sa önce"
+    }
+
+    fun visitorsUnknownLocation(l: Language): String = when (l) {
+        Language.EN -> "Unknown location"
+        Language.FA -> "موقعیت نامشخص"
+        Language.TR -> "Bilinmeyen konum"
+    }
+
+    /** Under the map. A template: `{n}` is replaced with the number. */
+    fun visitorsWithoutLocation(l: Language): String = when (l) {
+        Language.EN -> "{n} without a known location"
+        Language.FA -> "{n} نفر بدون موقعیت مشخص"
+        Language.TR -> "Konumu bilinmeyen {n} kişi"
+    }
+
+    fun visitorStatusOnline(l: Language): String = when (l) {
+        Language.EN -> "Online"
+        Language.FA -> "آنلاین"
+        Language.TR -> "Çevrimiçi"
+    }
+
+    fun visitorStatusIdle(l: Language): String = when (l) {
+        Language.EN -> "Idle"
+        Language.FA -> "غیرفعال"
+        Language.TR -> "Boşta"
+    }
+
+    fun visitorStatusOffline(l: Language): String = when (l) {
+        Language.EN -> "Offline"
+        Language.FA -> "آفلاین"
+        Language.TR -> "Çevrimdışı"
+    }
+
+    fun visitorInChat(l: Language): String = when (l) {
+        Language.EN -> "In chat"
+        Language.FA -> "در گفت‌وگو"
+        Language.TR -> "Sohbette"
+    }
+
+    fun visitorDetails(l: Language): String = when (l) {
+        Language.EN -> "Visitor details"
+        Language.FA -> "جزئیات بازدیدکننده"
+        Language.TR -> "Ziyaretçi detayları"
+    }
+
+    fun visitorCurrentPage(l: Language): String = when (l) {
+        Language.EN -> "Current page"
+        Language.FA -> "صفحه فعلی"
+        Language.TR -> "Mevcut sayfa"
+    }
+
+    fun visitorLocation(l: Language): String = when (l) {
+        Language.EN -> "Location"
+        Language.FA -> "موقعیت"
+        Language.TR -> "Konum"
+    }
+
+    fun visitorIPAddress(l: Language): String = when (l) {
+        Language.EN -> "IP address"
+        Language.FA -> "آدرس IP"
+        Language.TR -> "IP adresi"
+    }
+
+    fun visitorBrowserOS(l: Language): String = when (l) {
+        Language.EN -> "Browser · OS"
+        Language.FA -> "مرورگر · سیستم‌عامل"
+        Language.TR -> "Tarayıcı · İşletim sistemi"
+    }
+
+    fun visitorDevice(l: Language): String = when (l) {
+        Language.EN -> "Device"
+        Language.FA -> "دستگاه"
+        Language.TR -> "Cihaz"
+    }
+
+    fun visitorReferrer(l: Language): String = when (l) {
+        Language.EN -> "Referrer"
+        Language.FA -> "ارجاع‌دهنده"
+        Language.TR -> "Yönlendiren"
+    }
+
+    fun visitorDirect(l: Language): String = when (l) {
+        Language.EN -> "Direct visit"
+        Language.FA -> "ورود مستقیم"
+        Language.TR -> "Doğrudan ziyaret"
+    }
+
+    fun visitorLastActivity(l: Language): String = when (l) {
+        Language.EN -> "Last activity"
+        Language.FA -> "آخرین فعالیت"
+        Language.TR -> "Son etkinlik"
+    }
+
+    fun visitorPageHistory(l: Language): String = when (l) {
+        Language.EN -> "Page history"
+        Language.FA -> "تاریخچه صفحات"
+        Language.TR -> "Sayfa geçmişi"
+    }
+
+    fun visitorPageHistoryEmpty(l: Language): String = when (l) {
+        Language.EN -> "No page history yet"
+        Language.FA -> "هنوز تاریخچه‌ای ثبت نشده"
+        Language.TR -> "Henüz sayfa geçmişi yok"
+    }
+
+    fun visitorEntryPoint(l: Language): String = when (l) {
+        Language.EN -> "Entry point"
+        Language.FA -> "نقطه ورود"
+        Language.TR -> "Giriş noktası"
+    }
+
+    fun visitorJourney(l: Language): String = when (l) {
+        Language.EN -> "Journey"
+        Language.FA -> "مسیر بازدید"
+        Language.TR -> "Gezinti"
+    }
+
+    fun visitorCurrentlyOn(l: Language): String = when (l) {
+        Language.EN -> "Currently on"
+        Language.FA -> "هم‌اکنون در"
+        Language.TR -> "Şu anda"
+    }
+
+    fun visitorStartChat(l: Language): String = when (l) {
+        Language.EN -> "Start chat"
+        Language.FA -> "شروع گفت‌وگو"
+        Language.TR -> "Sohbet başlat"
+    }
+
+    fun visitorOpenChat(l: Language): String = when (l) {
+        Language.EN -> "Open chat"
+        Language.FA -> "باز کردن گفت‌وگو"
+        Language.TR -> "Sohbeti aç"
+    }
+
+    fun visitorCopySession(l: Language): String = when (l) {
+        Language.EN -> "Copy session ID"
+        Language.FA -> "کپی شناسه نشست"
+        Language.TR -> "Oturum kimliğini kopyala"
+    }
+
+    fun visitorCopied(l: Language): String = when (l) {
+        Language.EN -> "Copied"
+        Language.FA -> "کپی شد"
+        Language.TR -> "Kopyalandı"
+    }
+
+    fun visitorChatFailed(l: Language): String = when (l) {
+        Language.EN -> "The chat could not be opened. Try again in a moment."
+        Language.FA -> "باز کردن گفت‌وگو ممکن نشد. کمی بعد دوباره امتحان کنید."
+        Language.TR -> "Sohbet açılamadı. Birazdan tekrar deneyin."
+    }
+
+    /** Over a visitor's page when they dropped off the live list while it was open. */
+    fun visitorLeft(l: Language): String = when (l) {
+        Language.EN -> "This visitor has left the site."
+        Language.FA -> "این بازدیدکننده سایت را ترک کرده است."
+        Language.TR -> "Bu ziyaretçi siteden ayrıldı."
+    }
+
+    /** The Analytics tab. Short, because it shares the bar with four others. */
+    fun tabAnalytics(l: Language): String = when (l) {
+        Language.EN -> "Analytics"
+        Language.FA -> "آمار"
+        Language.TR -> "Analitik"
+    }
+
+    fun analyticsTitle(l: Language): String = when (l) {
+        Language.EN -> "Website analytics"
+        Language.FA -> "تحلیل وب‌سایت"
+        Language.TR -> "Web sitesi analitiği"
+    }
+
+    fun analyticsSubtitle(l: Language): String = when (l) {
+        Language.EN -> "Visits recorded by the chat widget on your site"
+        Language.FA -> "بازدیدهایی که ویجت گفت‌وگو در سایت شما ثبت می‌کند"
+        Language.TR -> "Sohbet widget'ının sitenizde kaydettiği ziyaretler"
+    }
+
+    /** A template: `{count}` is replaced with the number in the reader's digits. */
+    fun analyticsLiveNow(l: Language): String = when (l) {
+        Language.EN -> "{count} on the site now"
+        Language.FA -> "{count} نفر هم‌اکنون در سایت"
+        Language.TR -> "Şu an sitede {count} kişi"
+    }
+
+    fun analyticsRange7(l: Language): String = when (l) {
+        Language.EN -> "7 days"
+        Language.FA -> "۷ روز"
+        Language.TR -> "7 gün"
+    }
+
+    fun analyticsRange28(l: Language): String = when (l) {
+        Language.EN -> "28 days"
+        Language.FA -> "۲۸ روز"
+        Language.TR -> "28 gün"
+    }
+
+    fun analyticsRange90(l: Language): String = when (l) {
+        Language.EN -> "90 days"
+        Language.FA -> "۹۰ روز"
+        Language.TR -> "90 gün"
+    }
+
+    fun analyticsOverview(l: Language): String = when (l) {
+        Language.EN -> "Overview"
+        Language.FA -> "نمای کلی"
+        Language.TR -> "Genel bakış"
+    }
+
+    fun analyticsOverviewHint(l: Language): String = when (l) {
+        Language.EN -> "Visitors, visits and time on site"
+        Language.FA -> "بازدیدکننده‌ها، بازدیدها و زمان حضور"
+        Language.TR -> "Ziyaretçiler, ziyaretler ve sitede geçen süre"
+    }
+
+    fun analyticsSources(l: Language): String = when (l) {
+        Language.EN -> "Traffic sources"
+        Language.FA -> "منابع ترافیک"
+        Language.TR -> "Trafik kaynakları"
+    }
+
+    fun analyticsSourcesHint(l: Language): String = when (l) {
+        Language.EN -> "Where your visitors come from"
+        Language.FA -> "بازدیدکننده‌ها از کجا می‌آیند"
+        Language.TR -> "Ziyaretçileriniz nereden geliyor"
+    }
+
+    fun analyticsPages(l: Language): String = when (l) {
+        Language.EN -> "Pages"
+        Language.FA -> "صفحات"
+        Language.TR -> "Sayfalar"
+    }
+
+    fun analyticsPagesHint(l: Language): String = when (l) {
+        Language.EN -> "Most viewed, entry and exit pages"
+        Language.FA -> "پربازدیدترین، صفحات ورود و خروج"
+        Language.TR -> "En çok görüntülenen, giriş ve çıkış sayfaları"
+    }
+
+    fun analyticsGeography(l: Language): String = when (l) {
+        Language.EN -> "Geography"
+        Language.FA -> "جغرافیا"
+        Language.TR -> "Coğrafya"
+    }
+
+    fun analyticsGeographyHint(l: Language): String = when (l) {
+        Language.EN -> "Countries, cities and languages"
+        Language.FA -> "کشورها، شهرها و زبان‌ها"
+        Language.TR -> "Ülkeler, şehirler ve diller"
+    }
+
+    fun analyticsTechnology(l: Language): String = when (l) {
+        Language.EN -> "Devices & browsers"
+        Language.FA -> "دستگاه و مرورگر"
+        Language.TR -> "Cihaz ve tarayıcı"
+    }
+
+    fun analyticsTechnologyHint(l: Language): String = when (l) {
+        Language.EN -> "Device, operating system and browser"
+        Language.FA -> "نوع دستگاه، سیستم‌عامل و مرورگر"
+        Language.TR -> "Cihaz, işletim sistemi ve tarayıcı"
+    }
+
+    fun analyticsEvents(l: Language): String = when (l) {
+        Language.EN -> "Events"
+        Language.FA -> "رویدادها"
+        Language.TR -> "Olaylar"
+    }
+
+    fun analyticsEventsHint(l: Language): String = when (l) {
+        Language.EN -> "Custom events from your site"
+        Language.FA -> "رویدادهای سفارشی سایت شما"
+        Language.TR -> "Sitenizden özel olaylar"
+    }
+
+    fun analyticsVisitors(l: Language): String = when (l) {
+        Language.EN -> "Visitors"
+        Language.FA -> "بازدیدکننده"
+        Language.TR -> "Ziyaretçi"
+    }
+
+    fun analyticsSessions(l: Language): String = when (l) {
+        Language.EN -> "Visits"
+        Language.FA -> "بازدید"
+        Language.TR -> "Ziyaret"
+    }
+
+    fun analyticsPageviews(l: Language): String = when (l) {
+        Language.EN -> "Page views"
+        Language.FA -> "بازدید صفحه"
+        Language.TR -> "Sayfa görüntüleme"
+    }
+
+    fun analyticsPagesPerVisit(l: Language): String = when (l) {
+        Language.EN -> "Pages per visit"
+        Language.FA -> "صفحه در هر بازدید"
+        Language.TR -> "Ziyaret başına sayfa"
+    }
+
+    fun analyticsBounceRate(l: Language): String = when (l) {
+        Language.EN -> "Bounce rate"
+        Language.FA -> "نرخ پرش"
+        Language.TR -> "Hemen çıkma oranı"
+    }
+
+    fun analyticsAvgDuration(l: Language): String = when (l) {
+        Language.EN -> "Avg. time on site"
+        Language.FA -> "میانگین زمان حضور"
+        Language.TR -> "Ort. sitede kalma"
+    }
+
+    /** A template: `{count}` is replaced with the number in the reader's digits. */
+    fun analyticsVsPrevious(l: Language): String = when (l) {
+        Language.EN -> "Compared with the {count} days before"
+        Language.FA -> "در مقایسه با {count} روز قبل از آن"
+        Language.TR -> "Önceki {count} günle karşılaştırıldığında"
+    }
+
+    fun analyticsTrend(l: Language): String = when (l) {
+        Language.EN -> "Traffic over time"
+        Language.FA -> "روند ترافیک"
+        Language.TR -> "Zaman içinde trafik"
+    }
+
+    fun analyticsTopChannels(l: Language): String = when (l) {
+        Language.EN -> "Top channels"
+        Language.FA -> "کانال‌های برتر"
+        Language.TR -> "En iyi kanallar"
+    }
+
+    fun analyticsTopPages(l: Language): String = when (l) {
+        Language.EN -> "Top pages"
+        Language.FA -> "صفحات برتر"
+        Language.TR -> "En iyi sayfalar"
+    }
+
+    fun analyticsVisitsUnit(l: Language): String = when (l) {
+        Language.EN -> "visits"
+        Language.FA -> "بازدید"
+        Language.TR -> "ziyaret"
+    }
+
+    fun analyticsViewsUnit(l: Language): String = when (l) {
+        Language.EN -> "views"
+        Language.FA -> "بازدید"
+        Language.TR -> "görüntüleme"
+    }
+
+    fun analyticsChannel(l: Language): String = when (l) {
+        Language.EN -> "Channel"
+        Language.FA -> "کانال"
+        Language.TR -> "Kanal"
+    }
+
+    fun analyticsSource(l: Language): String = when (l) {
+        Language.EN -> "Source"
+        Language.FA -> "منبع"
+        Language.TR -> "Kaynak"
+    }
+
+    fun analyticsCampaign(l: Language): String = when (l) {
+        Language.EN -> "Campaign"
+        Language.FA -> "کمپین"
+        Language.TR -> "Kampanya"
+    }
+
+    fun analyticsCountry(l: Language): String = when (l) {
+        Language.EN -> "Country"
+        Language.FA -> "کشور"
+        Language.TR -> "Ülke"
+    }
+
+    fun analyticsCity(l: Language): String = when (l) {
+        Language.EN -> "City"
+        Language.FA -> "شهر"
+        Language.TR -> "Şehir"
+    }
+
+    fun analyticsLanguage(l: Language): String = when (l) {
+        Language.EN -> "Language"
+        Language.FA -> "زبان"
+        Language.TR -> "Dil"
+    }
+
+    fun analyticsPagesTop(l: Language): String = when (l) {
+        Language.EN -> "Most viewed"
+        Language.FA -> "پربازدیدترین"
+        Language.TR -> "En çok görüntülenen"
+    }
+
+    fun analyticsPagesEntry(l: Language): String = when (l) {
+        Language.EN -> "Entry"
+        Language.FA -> "ورود"
+        Language.TR -> "Giriş"
+    }
+
+    fun analyticsPagesExit(l: Language): String = when (l) {
+        Language.EN -> "Exit"
+        Language.FA -> "خروج"
+        Language.TR -> "Çıkış"
+    }
+
+    fun analyticsDevice(l: Language): String = when (l) {
+        Language.EN -> "Device"
+        Language.FA -> "دستگاه"
+        Language.TR -> "Cihaz"
+    }
+
+    fun analyticsOS(l: Language): String = when (l) {
+        Language.EN -> "Operating system"
+        Language.FA -> "سیستم‌عامل"
+        Language.TR -> "İşletim sistemi"
+    }
+
+    fun analyticsBrowser(l: Language): String = when (l) {
+        Language.EN -> "Browser"
+        Language.FA -> "مرورگر"
+        Language.TR -> "Tarayıcı"
+    }
+
+    fun analyticsEventCount(l: Language): String = when (l) {
+        Language.EN -> "Times"
+        Language.FA -> "تعداد"
+        Language.TR -> "Adet"
+    }
+
+    fun analyticsEventVisits(l: Language): String = when (l) {
+        Language.EN -> "Visits"
+        Language.FA -> "بازدید"
+        Language.TR -> "Ziyaret"
+    }
+
+    fun analyticsConversion(l: Language): String = when (l) {
+        Language.EN -> "Conversion"
+        Language.FA -> "نرخ تبدیل"
+        Language.TR -> "Dönüşüm"
+    }
+
+    fun analyticsNoData(l: Language): String = when (l) {
+        Language.EN -> "No visits in this range yet"
+        Language.FA -> "در این بازه هنوز بازدیدی نیست"
+        Language.TR -> "Bu aralıkta henüz ziyaret yok"
+    }
+
+    fun analyticsNoDataHint(l: Language): String = when (l) {
+        Language.EN -> "The chat widget's snippet records every page view on your site; they show up here."
+        Language.FA -> "اسکریپت ویجت گفت‌وگو هر بازدید صفحه در سایت شما را ثبت می‌کند و اینجا نمایش داده می‌شود."
+        Language.TR -> "Sohbet widget'ının kodu sitenizdeki her sayfa görüntülemeyi kaydeder; burada görünür."
+    }
+
+    fun analyticsNoEvents(l: Language): String = when (l) {
+        Language.EN -> "No custom events yet"
+        Language.FA -> "هنوز رویداد سفارشی‌ای نیست"
+        Language.TR -> "Henüz özel olay yok"
+    }
+
+    fun analyticsNoEventsHint(l: Language): String = when (l) {
+        Language.EN -> "Send them from your site with window.gsAnalytics.track('name')."
+        Language.FA -> "از سایت خود با window.gsAnalytics.track('name') رویداد بفرستید."
+        Language.TR -> "Sitenizden window.gsAnalytics.track('ad') ile gönderin."
+    }
+
+    fun analyticsLocked(l: Language): String = when (l) {
+        Language.EN -> "Website analytics is not in your plan"
+        Language.FA -> "تحلیل وب‌سایت در پلن شما نیست"
+        Language.TR -> "Web sitesi analitiği planınızda yok"
+    }
+
+    fun analyticsLockedHint(l: Language): String = when (l) {
+        Language.EN -> "The workspace owner can add it by upgrading the plan."
+        Language.FA -> "مالک فضای کاری می‌تواند با ارتقای پلن آن را فعال کند."
+        Language.TR -> "Çalışma alanı sahibi planı yükselterek ekleyebilir."
+    }
+
+    fun analyticsLoadFailed(l: Language): String = when (l) {
+        Language.EN -> "This report could not be loaded."
+        Language.FA -> "این گزارش بارگذاری نشد."
+        Language.TR -> "Bu rapor yüklenemedi."
+    }
+
+    fun analyticsTruncated(l: Language): String = when (l) {
+        Language.EN -> "This range is very busy, so these numbers are from a sample of it."
+        Language.FA -> "این بازه خیلی پرترافیک است؛ اعداد از نمونه‌ای از آن محاسبه شده‌اند."
+        Language.TR -> "Bu aralık çok yoğun; rakamlar bir örneklemden hesaplandı."
+    }
+
+    fun analyticsUnknown(l: Language): String = when (l) {
+        Language.EN -> "Unknown"
+        Language.FA -> "نامشخص"
+        Language.TR -> "Bilinmiyor"
+    }
+
+    fun analyticsTotal(l: Language): String = when (l) {
+        Language.EN -> "Total"
+        Language.FA -> "مجموع"
+        Language.TR -> "Toplam"
+    }
+
+    fun analyticsLeader(l: Language): String = when (l) {
+        Language.EN -> "Top"
+        Language.FA -> "در صدر"
+        Language.TR -> "Zirvede"
+    }
+
+    fun analyticsDistinct(l: Language): String = when (l) {
+        Language.EN -> "Different items"
+        Language.FA -> "تعداد موارد"
+        Language.TR -> "Farklı öğe"
+    }
+
+    /** After a number of minutes in a duration: 2m 14s. */
+    fun analyticsMinutesShort(l: Language): String = when (l) {
+        Language.EN -> "m"
+        Language.FA -> "دقیقه"
+        Language.TR -> "dk"
+    }
+
+    /** After a number of seconds in a duration: 2m 14s. */
+    fun analyticsSecondsShort(l: Language): String = when (l) {
+        Language.EN -> "s"
+        Language.FA -> "ثانیه"
+        Language.TR -> "sn"
+    }
+
+    fun analyticsChannelDirect(l: Language): String = when (l) {
+        Language.EN -> "Direct"
+        Language.FA -> "مستقیم"
+        Language.TR -> "Doğrudan"
+    }
+
+    fun analyticsChannelOrganicSearch(l: Language): String = when (l) {
+        Language.EN -> "Organic search"
+        Language.FA -> "جست‌وجوی ارگانیک"
+        Language.TR -> "Organik arama"
+    }
+
+    fun analyticsChannelOrganicSocial(l: Language): String = when (l) {
+        Language.EN -> "Organic social"
+        Language.FA -> "شبکه‌های اجتماعی"
+        Language.TR -> "Organik sosyal"
+    }
+
+    fun analyticsChannelReferral(l: Language): String = when (l) {
+        Language.EN -> "Referral"
+        Language.FA -> "ارجاع از سایت‌ها"
+        Language.TR -> "Yönlendirme"
+    }
+
+    fun analyticsChannelPaidSearch(l: Language): String = when (l) {
+        Language.EN -> "Paid search"
+        Language.FA -> "جست‌وجوی پولی"
+        Language.TR -> "Ücretli arama"
+    }
+
+    fun analyticsChannelPaidSocial(l: Language): String = when (l) {
+        Language.EN -> "Paid social"
+        Language.FA -> "تبلیغات شبکه‌های اجتماعی"
+        Language.TR -> "Ücretli sosyal"
+    }
+
+    fun analyticsChannelEmail(l: Language): String = when (l) {
+        Language.EN -> "Email"
+        Language.FA -> "ایمیل"
+        Language.TR -> "E-posta"
+    }
+
+    fun analyticsChannelOther(l: Language): String = when (l) {
+        Language.EN -> "Other"
+        Language.FA -> "سایر"
+        Language.TR -> "Diğer"
+    }
+
+    fun analyticsDeviceMobile(l: Language): String = when (l) {
+        Language.EN -> "Mobile"
+        Language.FA -> "موبایل"
+        Language.TR -> "Mobil"
+    }
+
+    fun analyticsDeviceDesktop(l: Language): String = when (l) {
+        Language.EN -> "Desktop"
+        Language.FA -> "دسکتاپ"
+        Language.TR -> "Masaüstü"
+    }
+
+    fun analyticsDeviceTablet(l: Language): String = when (l) {
+        Language.EN -> "Tablet"
+        Language.FA -> "تبلت"
+        Language.TR -> "Tablet"
     }
 }

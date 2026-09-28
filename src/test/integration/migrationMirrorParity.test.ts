@@ -324,6 +324,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/228_mobile_app_android_insight_tabs.sql',
     hosted: 'supabase/migrations/20260927120000_mobile_app_android_insight_tabs.sql',
   },
+  {
+    label: '229 — mobile_app_settings: the iOS Contacts, Visitors and Website analytics tab switches',
+    selfHost: 'database/migrations/229_mobile_app_ios_section_switches.sql',
+    hosted: 'supabase/migrations/20260927130000_mobile_app_ios_section_switches.sql',
+  },
 
   // intentionally asymmetric, not a drift bug.
 

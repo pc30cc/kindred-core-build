@@ -33,7 +33,7 @@ struct InboxView: View {
     var body: some View {
         @Bindable var model = model
 
-        content
+        list
             // The screen's name sits on the leading edge rather than centred —
             // right in Persian, left in English, which is where the console
             // puts it — and it is also the button that opens the list of every
@@ -138,7 +138,7 @@ struct InboxView: View {
     /// Changes when a notification asks for a conversation, and when the list
     /// it would have to be found in has finished loading.
     private var pendingOpenKey: String {
-        "\(push.pendingOpen?.conversationID ?? "-")|\(content.isLoaded)"
+        "\(push.pendingOpen?.conversationID ?? "-")|\(content.isLoaded)|\(appState.workspaces.count)"
     }
 
     /// What the list can show for the workspace on screen — never another's.
@@ -156,8 +156,19 @@ struct InboxView: View {
     private func openPendingConversation() async {
         guard let target = push.pendingOpen else { return }
 
-        if appState.selectedWorkspace?.id != target.workspaceID,
-           let workspace = appState.workspaces.first(where: { $0.id == target.workspaceID }) {
+        if appState.selectedWorkspace?.id != target.workspaceID {
+            // A tap that launched the app arrives before the workspace list
+            // does. An empty list is "not known yet", not "not yours": wait
+            // for it — the key counts the workspaces, so this runs again the
+            // moment they land.
+            guard !appState.workspaces.isEmpty else { return }
+            guard let workspace = appState.workspaces.first(where: { $0.id == target.workspaceID }) else {
+                // The list is in and this workspace is not on it — the
+                // operator was removed from it since. The inbox is where
+                // they are left.
+                _ = push.takePendingOpen()
+                return
+            }
             appState.select(workspace)
             // The list reloads on the workspace change; nothing to push at
             // yet. The key includes `isLoaded`, so this runs again.
@@ -183,7 +194,7 @@ struct InboxView: View {
     }
 
     @ViewBuilder
-    private var content: some View {
+    private var list: some View {
         // One list across every state, with the queue filter as its first real
         // row and the search field above that, out of sight until the list is
         // pulled down.

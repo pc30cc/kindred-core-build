@@ -51,10 +51,14 @@ final class SecurityViewModel {
             // device list is no longer trustworthy until it is re-read.
             await load(appState: appState)
         } catch APIError.unauthorized {
-            // Here a 401 means the *current* password was wrong, not that the
-            // session died — signing the operator out over a typo would be
-            // wrong.
-            banner = .init(text: Str.loginFailed(appState.language), tone: .failure)
+            // A 401 here is the session, not the typing: the server answers a
+            // wrong current password with 400 and its own sentence
+            // (`server/routes/account.ts`), which the case below shows. Saying
+            // "wrong password" to somebody whose session had simply ended sent
+            // them retyping a password that was right.
+            isChangingPassword = false
+            await appState.handleUnauthorized()
+            return
         } catch let APIError.server(_, message) {
             banner = .init(text: message ?? Str.saveFailed(appState.language), tone: .failure)
         } catch {

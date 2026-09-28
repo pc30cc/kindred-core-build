@@ -156,6 +156,11 @@ export interface MobileAppSettings {
   // whether it has the tab at all.
   android_app_show_visitors: boolean;
   android_app_show_web_analytics: boolean;
+  // The iOS app's tabs, read by GET /api/mobile-app/config?platform=ios.
+  // Like Android's, a switch only takes a tab away.
+  ios_app_show_contacts: boolean;
+  ios_app_show_visitors: boolean;
+  ios_app_show_web_analytics: boolean;
 
   checklist: Record<string, { done: boolean; at?: string; by?: string }>;
   updated_at?: string | null;
@@ -273,6 +278,9 @@ export const MOBILE_APP_DEFAULTS: MobileAppSettings = {
   android_app_profile_photo_editable: true,
   android_app_show_visitors: true,
   android_app_show_web_analytics: true,
+  ios_app_show_contacts: true,
+  ios_app_show_visitors: true,
+  ios_app_show_web_analytics: true,
 
   checklist: {},
   updated_at: null,
@@ -366,5 +374,28 @@ export function toAndroidAppConfig(settings: MobileAppSettings): AndroidAppConfi
     profilePhotoEditable: settings.android_app_profile_photo_editable,
     showVisitors: settings.android_app_show_visitors,
     showWebAnalytics: settings.android_app_show_web_analytics,
+  };
+}
+
+/**
+ * What the installed iOS app is told: which tabs it may show. As on Android,
+ * the plan still decides whether a workspace has a tab at all.
+ */
+export interface IosAppConfig {
+  platform: 'ios';
+  /** The Contacts tab — still only on plans with `contacts`. */
+  showContacts: boolean;
+  /** The Visitors tab — still only on plans with `visitor_tracking`. */
+  showVisitors: boolean;
+  /** The Website analytics tab — still only for owners and admins on plans with `web_analytics`. */
+  showWebAnalytics: boolean;
+}
+
+export function toIosAppConfig(settings: MobileAppSettings): IosAppConfig {
+  return {
+    platform: 'ios',
+    showContacts: settings.ios_app_show_contacts,
+    showVisitors: settings.ios_app_show_visitors,
+    showWebAnalytics: settings.ios_app_show_web_analytics,
   };
 }

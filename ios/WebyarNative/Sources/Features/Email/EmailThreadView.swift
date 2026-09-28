@@ -33,7 +33,10 @@ final class EmailThreadViewModel {
         return all.filter { $0.caseInsensitiveCompare(mailbox) != .orderedSame }
     }
 
-    func load(threadID: String, workspaceID: String?, appState: AppState) async {
+    /// `keepOnFailure` is for the reload after a send: the reply went out,
+    /// and a hiccup fetching the trail again should leave the trail that is
+    /// already on screen rather than replace it with an error.
+    func load(threadID: String, workspaceID: String?, appState: AppState, keepOnFailure: Bool = false) async {
         guard let workspaceID else {
             state = .loaded([])
             return
@@ -47,8 +50,10 @@ final class EmailThreadViewModel {
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()
         } catch let error as APIError {
+            if keepOnFailure, state.value != nil { return }
             state = .failed(error)
         } catch {
+            if keepOnFailure, state.value != nil { return }
             state = .failed(.transport)
         }
     }
@@ -86,16 +91,19 @@ final class EmailThreadViewModel {
         defer { isSending = false }
         do {
             // The server rewrites the subject from the thread when it is given
-            // a `thread_id`, so what goes up here is only a fallback.
+            // a `thread_id`, so what goes up here is only a fallback — but
+            // the schema still refuses an empty one, so a subjectless thread
+            // answers as "Re:" rather than failing validation.
+            let subject = (thread.subject ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             try await api.sendEmail(
                 workspaceID: workspaceID,
                 threadID: thread.id,
                 to: to,
-                subject: thread.subject ?? "",
+                subject: subject.isEmpty ? "Re:" : subject,
                 body: body
             )
             draft = ""
-            await load(threadID: thread.id, workspaceID: workspaceID, appState: appState)
+            await load(threadID: thread.id, workspaceID: workspaceID, appState: appState, keepOnFailure: true)
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()
         } catch {

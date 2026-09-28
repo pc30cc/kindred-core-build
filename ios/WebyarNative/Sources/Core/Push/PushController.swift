@@ -265,6 +265,16 @@ final class PushController {
         let target = PendingConversation(workspaceID: workspaceID, conversationID: conversationID)
         noteArrival(info)
 
+        // The two buttons act on the server as whoever holds the token. With
+        // nobody signed in there is nobody to act as — and a pending open
+        // left behind would surface in whichever account signs in next — so
+        // they do nothing at all. The token rather than `isSignedIn`: a
+        // button pressed on a cold launch arrives before the session has been
+        // restored, and that operator is signed in all the same.
+        if response.actionIdentifier == "MARK_READ" || response.actionIdentifier == "REPLY" {
+            guard await api.hasToken else { return }
+        }
+
         switch response.actionIdentifier {
         case "MARK_READ":
             // Nothing opens. If it fails, fall through to opening the thread

@@ -544,6 +544,7 @@ actor SampleAPI: WebyarAPI {
                 "contacts": on,
                 "call_center": on,
                 "visitor_tracking": on,
+                "web_analytics": on,
                 "email_inbox": on,
                 "voice_video": on,
             ],
@@ -643,6 +644,231 @@ actor SampleAPI: WebyarAPI {
     func updateNotificationPrefs(_ prefs: NotificationPrefs) async throws -> NotificationPrefs {
         samplePrefs = prefs
         return prefs
+    }
+
+    // MARK: - App configuration
+
+    func mobileAppConfig() async throws -> MobileAppConfig { .defaults }
+
+    // MARK: - Online visitors
+    //
+    // A spread the screens have to cope with: several countries, one visitor
+    // already in a chat, a named contact, an idle tab, a visitor nobody could
+    // place on the map, a Persian slug and a very long address.
+
+    func liveVisitors(workspaceID: String, includeOffline: Bool) async throws -> [LiveVisitor] {
+        includeOffline ? Self.visitors : Self.visitors.filter { $0.presence != .offline }
+    }
+
+    func visitorPageHistory(workspaceID: String, sessionID: String) async throws -> VisitorPageHistory {
+        let visitor = Self.visitors.first { $0.id == sessionID }
+        let now = visitor?.lastActivityAt ?? Self.ago(1)
+        let current = VisitorPageView(url: visitor?.currentPage, title: "Pricing — Webyar", viewedAt: now)
+        return VisitorPageHistory(
+            items: [
+                current,
+                VisitorPageView(url: "https://webyar.app/features/live-chat", title: "Live chat", viewedAt: now.addingTimeInterval(-160)),
+                VisitorPageView(url: "https://webyar.app/blog/%D8%B1%D8%A7%D9%87%D9%86%D9%85%D8%A7", title: "راهنمای شروع", viewedAt: now.addingTimeInterval(-420)),
+            ],
+            entry: VisitorPageEntry(
+                landingURL: "https://webyar.app/",
+                landingTitle: "Webyar — customer messaging",
+                landedAt: now.addingTimeInterval(-600),
+                referrer: visitor?.referrer
+            ),
+            current: current
+        )
+    }
+
+    func visitorMap(workspaceID: String) async throws -> VisitorMap {
+        let markers = Self.visitors.compactMap(VisitorMapMarker.init(visitor:))
+        return VisitorMap(markers: markers, total: Self.visitors.count, withoutLocation: Self.visitors.count - markers.count)
+    }
+
+    func startChatWithVisitor(workspaceID: String, sessionID: String) async throws -> StartVisitorChatResult {
+        if let existing = Self.visitors.first(where: { $0.id == sessionID })?.conversation {
+            return StartVisitorChatResult(conversationID: existing.id, created: false)
+        }
+        return StartVisitorChatResult(conversationID: Self.conversations.first?.id, created: true)
+    }
+
+    private static let visitors: [LiveVisitor] = [
+        LiveVisitor(
+            id: "vs-1", presence: .online, currentPage: "https://webyar.app/pricing",
+            lastActivityAt: ago(0), startedAt: ago(9), browser: "Chrome 128", device: "desktop", os: "Windows",
+            referrer: "https://www.google.com/",
+            geo: VisitorGeo(country: "Iran", countryCode: "IR", region: "Tehran", city: "Tehran", latitude: 35.6892, longitude: 51.389),
+            ipDisplay: "5.160.xxx.xxx",
+            contact: VisitorContactRef(id: "p-1", name: "مریم حسینی", email: "maryam@example.com"),
+            conversation: VisitorConversationRef(id: "c-1", status: "open")
+        ),
+        LiveVisitor(
+            id: "vs-2", presence: .online, currentPage: "https://webyar.app/features/live-chat",
+            lastActivityAt: ago(1), startedAt: ago(4), browser: "Safari 18", device: "mobile", os: "iOS",
+            referrer: "https://www.instagram.com/",
+            geo: VisitorGeo(country: "Türkiye", countryCode: "TR", region: "Istanbul", city: "Istanbul", latitude: 41.0082, longitude: 28.9784),
+            ipDisplay: "88.241.xxx.xxx",
+            contact: VisitorContactRef(id: "ct-2", code: "K7Q2")
+        ),
+        LiveVisitor(
+            id: "vs-3", presence: .idle,
+            currentPage: "https://webyar.app/blog/%D8%B1%D8%A7%D9%87%D9%86%D9%85%D8%A7-%DB%8C-%D8%B4%D8%B1%D9%88%D8%B9",
+            lastActivityAt: ago(6), startedAt: ago(22), browser: "Firefox 130", device: "desktop", os: "macOS",
+            geo: VisitorGeo(country: "Iran", countryCode: "IR", region: "Isfahan", city: "Isfahan", latitude: 32.6546, longitude: 51.668),
+            ipDisplay: "151.232.xxx.xxx"
+        ),
+        LiveVisitor(
+            id: "vs-4", presence: .online,
+            currentPage: "https://webyar.app/docs/integrations/telegram-and-bale-bots-for-customer-support?utm_source=newsletter",
+            lastActivityAt: ago(2), startedAt: ago(14), browser: "Chrome 127", device: "mobile", os: "Android",
+            referrer: "https://t.me/",
+            geo: VisitorGeo(country: "Germany", countryCode: "DE", region: "Berlin", city: "Berlin", latitude: 52.52, longitude: 13.405),
+            ipDisplay: "91.64.xxx.xxx"
+        ),
+        LiveVisitor(
+            id: "vs-5", presence: .online, currentPage: "https://webyar.app/",
+            lastActivityAt: ago(0), startedAt: ago(1), browser: "Edge 128", device: "desktop", os: "Windows",
+            geo: VisitorGeo(country: "United Arab Emirates", countryCode: "AE", city: "Dubai", latitude: 25.2048, longitude: 55.2708),
+            ipDisplay: "94.200.xxx.xxx"
+        ),
+        LiveVisitor(
+            id: "vs-6", presence: .online, currentPage: "https://webyar.app/signup",
+            lastActivityAt: ago(3), startedAt: ago(5), browser: "Safari 17", device: "tablet", os: "iPadOS",
+            ipDisplay: "—", ipLocked: true
+        ),
+        LiveVisitor(
+            id: "vs-7", presence: .offline, currentPage: "https://webyar.app/contact",
+            lastActivityAt: ago(27), startedAt: ago(40), browser: "Chrome 128", device: "desktop", os: "Linux",
+            geo: VisitorGeo(country: "Canada", countryCode: "CA", region: "Ontario", city: "Toronto", latitude: 43.6532, longitude: -79.3832),
+            ipDisplay: "142.112.xxx.xxx"
+        ),
+    ]
+
+    // MARK: - Website analytics
+    //
+    // Numbers with a shape — a weekly rhythm and a slow climb — so the trend
+    // reads as a real site rather than as noise.
+
+    func analyticsOverview(workspaceID: String, range: AnalyticsDateRange) async throws -> WebAnalyticsOverview {
+        let days = Self.days(range)
+        // The period before is a little quieter, so the change chips have
+        // something to say in both directions.
+        let scale = range.end < Self.todayUTC ? 0.86 : 1.0
+        let trend = days.enumerated().map { index, day in
+            let weekday = [1.0, 1.08, 1.12, 1.1, 1.02, 0.72, 0.66][index % 7]
+            let sessions = Int((180 + Double(index) * 2.4) * weekday * scale)
+            return WebAnalyticsDay(date: day, sessions: sessions, pageviews: Int(Double(sessions) * 2.7))
+        }
+        let sessions = trend.reduce(0) { $0 + $1.sessions }
+        let pageviews = trend.reduce(0) { $0 + $1.pageviews }
+        return WebAnalyticsOverview(
+            sessions: sessions,
+            pageviews: pageviews,
+            avgPagesPerSession: Double(pageviews) / Double(max(1, sessions)),
+            uniqueVisitors: Int(Double(sessions) * 0.74),
+            bounceRate: scale < 1 ? 44.8 : 41.2,
+            avgVisitDurationSeconds: scale < 1 ? 131 : 154,
+            trend: trend,
+            topChannels: Self.channels(scale: Double(sessions) / 1000),
+            topPages: Array(Self.pages(scale: Double(pageviews) / 1000).prefix(6))
+        )
+    }
+
+    func analyticsLiveVisitors(workspaceID: String) async throws -> Int {
+        Self.visitors.filter { $0.presence == .online }.count
+    }
+
+    func analyticsBreakdown(
+        workspaceID: String, report: WebAnalyticsBreakdown, dimension: String, range: AnalyticsDateRange
+    ) async throws -> WebAnalyticsRows<WebAnalyticsRow> {
+        let scale = Double(Self.days(range).count) / 28
+        func rows(_ pairs: [(String, Int)]) -> WebAnalyticsRows<WebAnalyticsRow> {
+            WebAnalyticsRows(rows: pairs.map { key, n in
+                let sessions = Int(Double(n) * scale)
+                return WebAnalyticsRow(key: key, label: key, sessions: sessions, pageviews: Int(Double(sessions) * 2.6))
+            })
+        }
+        switch (report, dimension) {
+        case (.trafficSources, "channel"):
+            return WebAnalyticsRows(rows: Self.channels(scale: scale * 5))
+        case (.trafficSources, "source"):
+            return rows([("google.com", 1840), ("(direct)", 1320), ("instagram.com", 610), ("t.me", 402), ("bing.com", 96), ("chatgpt.com", 71)])
+        case (.trafficSources, _):
+            return rows([("autumn-sale", 380), ("newsletter-2026-09", 214), ("(unknown)", 88)])
+        case (.geography, "city"):
+            return rows([("Tehran", 1710), ("Istanbul", 640), ("Isfahan", 390), ("Mashhad", 288), ("Dubai", 170), ("Berlin", 96)])
+        case (.geography, "language"):
+            return rows([("fa-IR", 2410), ("tr-TR", 690), ("en-US", 520), ("de-DE", 110), ("ar-AE", 64)])
+        case (.geography, "continent"):
+            return rows([("Asia", 3420), ("Europe", 520), ("North America", 140)])
+        case (.geography, _):
+            return rows([("Iran", 2560), ("Turkey", 720), ("Germany", 240), ("United Arab Emirates", 190), ("Canada", 88), ("(unknown)", 42)])
+        case (.technology, "device"):
+            return rows([("mobile", 2380), ("desktop", 1460), ("tablet", 170)])
+        case (.technology, "os"):
+            return rows([("Android", 1630), ("Windows", 1120), ("iOS", 760), ("macOS", 330), ("Linux", 90)])
+        case (.technology, _):
+            return rows([("Chrome", 2410), ("Safari", 820), ("Edge", 360), ("Firefox", 240), ("Samsung Internet", 130)])
+        }
+    }
+
+    func analyticsPages(workspaceID: String, kind: String, range: AnalyticsDateRange) async throws -> WebAnalyticsRows<WebAnalyticsPage> {
+        let scale = Double(Self.days(range).count) / 28 * (kind == "top" ? 5 : 2)
+        var pages = Self.pages(scale: scale)
+        if kind == "exit" { pages.reverse() }
+        return WebAnalyticsRows(rows: pages)
+    }
+
+    func analyticsEvents(workspaceID: String, range: AnalyticsDateRange) async throws -> WebAnalyticsRows<WebAnalyticsEvent> {
+        WebAnalyticsRows(rows: [
+            WebAnalyticsEvent(eventName: "signup_started", count: 412, uniqueSessions: 377, conversionRate: 0.094),
+            WebAnalyticsEvent(eventName: "pricing_cta_click", count: 298, uniqueSessions: 251, conversionRate: 0.063),
+            WebAnalyticsEvent(eventName: "demo_booked", count: 64, uniqueSessions: 61, conversionRate: 0.015),
+            WebAnalyticsEvent(eventName: "chat_opened", count: 1_120, uniqueSessions: 806, conversionRate: 0.201),
+        ])
+    }
+
+    private static func channels(scale: Double) -> [WebAnalyticsRow] {
+        [("organic_search", 410), ("direct", 290), ("organic_social", 150), ("referral", 72), ("paid_search", 38), ("email", 21)]
+            .map { key, n in
+                let sessions = Int(Double(n) * scale)
+                return WebAnalyticsRow(key: key, label: key, sessions: sessions, pageviews: Int(Double(sessions) * 2.8))
+            }
+    }
+
+    private static func pages(scale: Double) -> [WebAnalyticsPage] {
+        [("/", 520), ("/pricing", 344), ("/features/live-chat", 262), ("/blog/راهنمای-شروع", 198),
+         ("/docs/integrations/telegram-and-bale-bots-for-customer-support", 121), ("/signup", 96), ("/contact", 44)]
+            .map { WebAnalyticsPage(path: $0.0, views: Int(Double($0.1) * scale)) }
+    }
+
+    private static var todayUTC: String { dayString(Date()) }
+
+    private static func dayString(_ date: Date) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+    }
+
+    /// Every day of a range, oldest first.
+    private static func days(_ range: AnalyticsDateRange) -> [String] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
+        let parser = DateFormatter()
+        parser.calendar = calendar
+        parser.timeZone = calendar.timeZone
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.dateFormat = "yyyy-MM-dd"
+        guard let start = parser.date(from: range.start), let end = parser.date(from: range.end), start <= end else { return [] }
+        var out: [String] = []
+        var day = start
+        while day <= end, out.count < 400 {
+            out.append(parser.string(from: day))
+            guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+            day = next
+        }
+        return out
     }
 
     // MARK: - Fixtures

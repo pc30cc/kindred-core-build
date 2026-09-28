@@ -69,6 +69,26 @@ final class TeamThreadViewModel {
         else { return }
         me = response.me
         state = .loaded(response.messages)
+        await markReadIfNeeded(response, workspaceID: workspaceID, peerID: peerID)
+    }
+
+    /// Marks the thread read when something from the colleague is still
+    /// unread in it.
+    ///
+    /// `load` marks read on opening; the timer and the reload after a send
+    /// did not, so a message that arrived while the thread was open on screen
+    /// stayed unread in the Colleagues list — and kept badging — although it
+    /// had plainly been seen. Asking only when there is an unread message
+    /// from them keeps a ten-second poll from writing every ten seconds.
+    private func markReadIfNeeded(_ response: TeamThreadResponse, workspaceID: String, peerID: String) async {
+        // Without knowing which side is ours, our own sent-and-not-yet-read
+        // messages would look like theirs and mark on every tick.
+        guard let me = response.me else { return }
+        let unread = response.messages.contains { message in
+            message.readAt == nil && message.senderId != me
+        }
+        guard unread else { return }
+        try? await api.markTeamThreadRead(workspaceID: workspaceID, peerID: peerID)
     }
 
     func send(workspaceID: String?, peerID: String, appState: AppState) async {
@@ -138,6 +158,7 @@ final class TeamThreadViewModel {
             let response = try await api.teamThread(workspaceID: workspaceID, peerID: peerID)
             me = response.me
             state = .loaded(response.messages)
+            await markReadIfNeeded(response, workspaceID: workspaceID, peerID: peerID)
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()
         } catch {

@@ -2510,4 +2510,985 @@ extension Str {
         }
     }
 
+    // MARK: - Online visitors
+
+    /// The Visitors tab. Short, because it shares the bar with four others.
+    static func tabVisitors(_ l: Language) -> String {
+        switch l {
+        case .en: "Visitors"
+        case .fa: "بازدیدکنندگان"
+        case .tr: "Ziyaretçiler"
+        }
+    }
+
+    static func visitorsTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Online Visitors"
+        case .fa: "بازدیدکنندگان آنلاین"
+        case .tr: "Çevrimiçi Ziyaretçiler"
+        }
+    }
+
+    static func visitorsSubtitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Real-time visitor intelligence"
+        case .fa: "هوش لحظه‌ای بازدیدکنندگان"
+        case .tr: "Gerçek zamanlı ziyaretçi zekâsı"
+        }
+    }
+
+    static func visitorsSearchPrompt(_ l: Language) -> String {
+        switch l {
+        case .en: "Search by page, country, browser…"
+        case .fa: "جست‌وجو بر اساس صفحه، کشور، مرورگر…"
+        case .tr: "Sayfa, ülke, tarayıcı ile ara…"
+        }
+    }
+
+    /// The list half of the list / map switch.
+    static func visitorsList(_ l: Language) -> String {
+        switch l {
+        case .en: "List"
+        case .fa: "فهرست"
+        case .tr: "Liste"
+        }
+    }
+
+    static func visitorsMap(_ l: Language) -> String {
+        switch l {
+        case .en: "Map"
+        case .fa: "نقشه"
+        case .tr: "Harita"
+        }
+    }
+
+    static func visitorsFilters(_ l: Language) -> String {
+        switch l {
+        case .en: "Filters"
+        case .fa: "فیلترها"
+        case .tr: "Filtreler"
+        }
+    }
+
+    static func visitorsFilterOnline(_ l: Language) -> String {
+        switch l {
+        case .en: "Online only"
+        case .fa: "فقط آنلاین"
+        case .tr: "Yalnızca çevrimiçi"
+        }
+    }
+
+    static func visitorsFilterInChat(_ l: Language) -> String {
+        switch l {
+        case .en: "Has conversation"
+        case .fa: "دارای گفت‌وگو"
+        case .tr: "Sohbeti olan"
+        }
+    }
+
+    static func visitorsFilterCountry(_ l: Language) -> String {
+        switch l {
+        case .en: "Country"
+        case .fa: "کشور"
+        case .tr: "Ülke"
+        }
+    }
+
+    static func visitorsAllCountries(_ l: Language) -> String {
+        switch l {
+        case .en: "All countries"
+        case .fa: "همه کشورها"
+        case .tr: "Tüm ülkeler"
+        }
+    }
+
+    static func visitorsIncludeOffline(_ l: Language) -> String {
+        switch l {
+        case .en: "Include offline"
+        case .fa: "نمایش آفلاین‌ها"
+        case .tr: "Çevrimdışıları göster"
+        }
+    }
+
+    static func visitorsClearFilters(_ l: Language) -> String {
+        switch l {
+        case .en: "Clear filters"
+        case .fa: "پاک کردن فیلترها"
+        case .tr: "Filtreleri temizle"
+        }
+    }
+
+    static func visitorsStatOnline(_ l: Language) -> String {
+        switch l {
+        case .en: "Online"
+        case .fa: "آنلاین"
+        case .tr: "Çevrimiçi"
+        }
+    }
+
+    static func visitorsStatActive(_ l: Language) -> String {
+        switch l {
+        case .en: "Active now"
+        case .fa: "فعال"
+        case .tr: "Şu an aktif"
+        }
+    }
+
+    static func visitorsStatCountries(_ l: Language) -> String {
+        switch l {
+        case .en: "Countries"
+        case .fa: "کشورها"
+        case .tr: "Ülkeler"
+        }
+    }
+
+    static func visitorsStatPages(_ l: Language) -> String {
+        switch l {
+        case .en: "Pages"
+        case .fa: "صفحات"
+        case .tr: "Sayfalar"
+        }
+    }
+
+    static func visitorsEmptyTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "No visitors right now"
+        case .fa: "بازدیدکننده‌ای حضور ندارد"
+        case .tr: "Şu anda ziyaretçi yok"
+        }
+    }
+
+    static func visitorsEmptyBody(_ l: Language) -> String {
+        switch l {
+        case .en: "Live visitors browsing your site will appear here."
+        case .fa: "بازدیدکنندگانی که همین حالا در سایت شما هستند اینجا نمایش داده می‌شوند."
+        case .tr: "Sitenizdeki canlı ziyaretçiler burada görünecek."
+        }
+    }
+
+    static func visitorsNoResults(_ l: Language) -> String {
+        switch l {
+        case .en: "No visitors match your filters"
+        case .fa: "بازدیدکننده‌ای با این فیلترها یافت نشد"
+        case .tr: "Filtrelerinizle eşleşen ziyaretçi yok"
+        }
+    }
+
+    static func visitorsErrorTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Could not load visitors"
+        case .fa: "بارگذاری بازدیدکنندگان ناموفق بود"
+        case .tr: "Ziyaretçiler yüklenemedi"
+        }
+    }
+
+    static func visitorsJustNow(_ l: Language) -> String {
+        switch l {
+        case .en: "just now"
+        case .fa: "هم‌اکنون"
+        case .tr: "şimdi"
+        }
+    }
+
+    /// A template: `{n}` is replaced with the number in the reader's digits.
+    static func visitorsMinutesAgo(_ l: Language) -> String {
+        switch l {
+        case .en: "{n}m ago"
+        case .fa: "{n} دقیقه پیش"
+        case .tr: "{n} dk önce"
+        }
+    }
+
+    /// A template: `{n}` is replaced with the number in the reader's digits.
+    static func visitorsHoursAgo(_ l: Language) -> String {
+        switch l {
+        case .en: "{n}h ago"
+        case .fa: "{n} ساعت پیش"
+        case .tr: "{n} sa önce"
+        }
+    }
+
+    static func visitorsUnknownLocation(_ l: Language) -> String {
+        switch l {
+        case .en: "Unknown location"
+        case .fa: "موقعیت نامشخص"
+        case .tr: "Bilinmeyen konum"
+        }
+    }
+
+    /// Under the map. A template: `{n}` is replaced with the number.
+    static func visitorsWithoutLocation(_ l: Language) -> String {
+        switch l {
+        case .en: "{n} without a known location"
+        case .fa: "{n} نفر بدون موقعیت مشخص"
+        case .tr: "Konumu bilinmeyen {n} kişi"
+        }
+    }
+
+    static func visitorStatusOnline(_ l: Language) -> String {
+        switch l {
+        case .en: "Online"
+        case .fa: "آنلاین"
+        case .tr: "Çevrimiçi"
+        }
+    }
+
+    static func visitorStatusIdle(_ l: Language) -> String {
+        switch l {
+        case .en: "Idle"
+        case .fa: "غیرفعال"
+        case .tr: "Boşta"
+        }
+    }
+
+    static func visitorStatusOffline(_ l: Language) -> String {
+        switch l {
+        case .en: "Offline"
+        case .fa: "آفلاین"
+        case .tr: "Çevrimdışı"
+        }
+    }
+
+    static func visitorInChat(_ l: Language) -> String {
+        switch l {
+        case .en: "In chat"
+        case .fa: "در گفت‌وگو"
+        case .tr: "Sohbette"
+        }
+    }
+
+    static func visitorDetails(_ l: Language) -> String {
+        switch l {
+        case .en: "Visitor details"
+        case .fa: "جزئیات بازدیدکننده"
+        case .tr: "Ziyaretçi detayları"
+        }
+    }
+
+    static func visitorCurrentPage(_ l: Language) -> String {
+        switch l {
+        case .en: "Current page"
+        case .fa: "صفحه فعلی"
+        case .tr: "Mevcut sayfa"
+        }
+    }
+
+    static func visitorLocation(_ l: Language) -> String {
+        switch l {
+        case .en: "Location"
+        case .fa: "موقعیت"
+        case .tr: "Konum"
+        }
+    }
+
+    static func visitorIPAddress(_ l: Language) -> String {
+        switch l {
+        case .en: "IP address"
+        case .fa: "آدرس IP"
+        case .tr: "IP adresi"
+        }
+    }
+
+    static func visitorBrowserOS(_ l: Language) -> String {
+        switch l {
+        case .en: "Browser · OS"
+        case .fa: "مرورگر · سیستم‌عامل"
+        case .tr: "Tarayıcı · İşletim sistemi"
+        }
+    }
+
+    static func visitorDevice(_ l: Language) -> String {
+        switch l {
+        case .en: "Device"
+        case .fa: "دستگاه"
+        case .tr: "Cihaz"
+        }
+    }
+
+    static func visitorReferrer(_ l: Language) -> String {
+        switch l {
+        case .en: "Referrer"
+        case .fa: "ارجاع‌دهنده"
+        case .tr: "Yönlendiren"
+        }
+    }
+
+    static func visitorDirect(_ l: Language) -> String {
+        switch l {
+        case .en: "Direct visit"
+        case .fa: "ورود مستقیم"
+        case .tr: "Doğrudan ziyaret"
+        }
+    }
+
+    static func visitorLastActivity(_ l: Language) -> String {
+        switch l {
+        case .en: "Last activity"
+        case .fa: "آخرین فعالیت"
+        case .tr: "Son etkinlik"
+        }
+    }
+
+    static func visitorPageHistory(_ l: Language) -> String {
+        switch l {
+        case .en: "Page history"
+        case .fa: "تاریخچه صفحات"
+        case .tr: "Sayfa geçmişi"
+        }
+    }
+
+    static func visitorPageHistoryEmpty(_ l: Language) -> String {
+        switch l {
+        case .en: "No page history yet"
+        case .fa: "هنوز تاریخچه‌ای ثبت نشده"
+        case .tr: "Henüz sayfa geçmişi yok"
+        }
+    }
+
+    static func visitorEntryPoint(_ l: Language) -> String {
+        switch l {
+        case .en: "Entry point"
+        case .fa: "نقطه ورود"
+        case .tr: "Giriş noktası"
+        }
+    }
+
+    static func visitorJourney(_ l: Language) -> String {
+        switch l {
+        case .en: "Journey"
+        case .fa: "مسیر بازدید"
+        case .tr: "Gezinti"
+        }
+    }
+
+    static func visitorCurrentlyOn(_ l: Language) -> String {
+        switch l {
+        case .en: "Currently on"
+        case .fa: "هم‌اکنون در"
+        case .tr: "Şu anda"
+        }
+    }
+
+    static func visitorStartChat(_ l: Language) -> String {
+        switch l {
+        case .en: "Start chat"
+        case .fa: "شروع گفت‌وگو"
+        case .tr: "Sohbet başlat"
+        }
+    }
+
+    static func visitorOpenChat(_ l: Language) -> String {
+        switch l {
+        case .en: "Open chat"
+        case .fa: "باز کردن گفت‌وگو"
+        case .tr: "Sohbeti aç"
+        }
+    }
+
+    static func visitorCopySession(_ l: Language) -> String {
+        switch l {
+        case .en: "Copy session ID"
+        case .fa: "کپی شناسه نشست"
+        case .tr: "Oturum kimliğini kopyala"
+        }
+    }
+
+    static func visitorCopied(_ l: Language) -> String {
+        switch l {
+        case .en: "Copied"
+        case .fa: "کپی شد"
+        case .tr: "Kopyalandı"
+        }
+    }
+
+    static func visitorChatFailed(_ l: Language) -> String {
+        switch l {
+        case .en: "The chat could not be opened. Try again in a moment."
+        case .fa: "باز کردن گفت‌وگو ممکن نشد. کمی بعد دوباره امتحان کنید."
+        case .tr: "Sohbet açılamadı. Birazdan tekrar deneyin."
+        }
+    }
+
+    /// Over a visitor's page when they dropped off the live list while it was open.
+    static func visitorLeft(_ l: Language) -> String {
+        switch l {
+        case .en: "This visitor has left the site."
+        case .fa: "این بازدیدکننده سایت را ترک کرده است."
+        case .tr: "Bu ziyaretçi siteden ayrıldı."
+        }
+    }
+
+    // MARK: - Website analytics
+
+    /// The Analytics tab. Short, because it shares the bar with four others.
+    static func tabAnalytics(_ l: Language) -> String {
+        switch l {
+        case .en: "Analytics"
+        case .fa: "آمار"
+        case .tr: "Analitik"
+        }
+    }
+
+    static func analyticsTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Website analytics"
+        case .fa: "تحلیل وب‌سایت"
+        case .tr: "Web sitesi analitiği"
+        }
+    }
+
+    static func analyticsSubtitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Visits recorded by the chat widget on your site"
+        case .fa: "بازدیدهایی که ویجت گفت‌وگو در سایت شما ثبت می‌کند"
+        case .tr: "Sohbet widget'ının sitenizde kaydettiği ziyaretler"
+        }
+    }
+
+    /// A template: `{count}` is replaced with the number in the reader's digits.
+    static func analyticsLiveNow(_ l: Language) -> String {
+        switch l {
+        case .en: "{count} on the site now"
+        case .fa: "{count} نفر هم‌اکنون در سایت"
+        case .tr: "Şu an sitede {count} kişi"
+        }
+    }
+
+    static func analyticsRange7(_ l: Language) -> String {
+        switch l {
+        case .en: "7 days"
+        case .fa: "۷ روز"
+        case .tr: "7 gün"
+        }
+    }
+
+    static func analyticsRange28(_ l: Language) -> String {
+        switch l {
+        case .en: "28 days"
+        case .fa: "۲۸ روز"
+        case .tr: "28 gün"
+        }
+    }
+
+    static func analyticsRange90(_ l: Language) -> String {
+        switch l {
+        case .en: "90 days"
+        case .fa: "۹۰ روز"
+        case .tr: "90 gün"
+        }
+    }
+
+    static func analyticsOverview(_ l: Language) -> String {
+        switch l {
+        case .en: "Overview"
+        case .fa: "نمای کلی"
+        case .tr: "Genel bakış"
+        }
+    }
+
+    static func analyticsOverviewHint(_ l: Language) -> String {
+        switch l {
+        case .en: "Visitors, visits and time on site"
+        case .fa: "بازدیدکننده‌ها، بازدیدها و زمان حضور"
+        case .tr: "Ziyaretçiler, ziyaretler ve sitede geçen süre"
+        }
+    }
+
+    static func analyticsSources(_ l: Language) -> String {
+        switch l {
+        case .en: "Traffic sources"
+        case .fa: "منابع ترافیک"
+        case .tr: "Trafik kaynakları"
+        }
+    }
+
+    static func analyticsSourcesHint(_ l: Language) -> String {
+        switch l {
+        case .en: "Where your visitors come from"
+        case .fa: "بازدیدکننده‌ها از کجا می‌آیند"
+        case .tr: "Ziyaretçileriniz nereden geliyor"
+        }
+    }
+
+    static func analyticsPages(_ l: Language) -> String {
+        switch l {
+        case .en: "Pages"
+        case .fa: "صفحات"
+        case .tr: "Sayfalar"
+        }
+    }
+
+    static func analyticsPagesHint(_ l: Language) -> String {
+        switch l {
+        case .en: "Most viewed, entry and exit pages"
+        case .fa: "پربازدیدترین، صفحات ورود و خروج"
+        case .tr: "En çok görüntülenen, giriş ve çıkış sayfaları"
+        }
+    }
+
+    static func analyticsGeography(_ l: Language) -> String {
+        switch l {
+        case .en: "Geography"
+        case .fa: "جغرافیا"
+        case .tr: "Coğrafya"
+        }
+    }
+
+    static func analyticsGeographyHint(_ l: Language) -> String {
+        switch l {
+        case .en: "Countries, cities and languages"
+        case .fa: "کشورها، شهرها و زبان‌ها"
+        case .tr: "Ülkeler, şehirler ve diller"
+        }
+    }
+
+    static func analyticsTechnology(_ l: Language) -> String {
+        switch l {
+        case .en: "Devices & browsers"
+        case .fa: "دستگاه و مرورگر"
+        case .tr: "Cihaz ve tarayıcı"
+        }
+    }
+
+    static func analyticsTechnologyHint(_ l: Language) -> String {
+        switch l {
+        case .en: "Device, operating system and browser"
+        case .fa: "نوع دستگاه، سیستم‌عامل و مرورگر"
+        case .tr: "Cihaz, işletim sistemi ve tarayıcı"
+        }
+    }
+
+    static func analyticsEvents(_ l: Language) -> String {
+        switch l {
+        case .en: "Events"
+        case .fa: "رویدادها"
+        case .tr: "Olaylar"
+        }
+    }
+
+    static func analyticsEventsHint(_ l: Language) -> String {
+        switch l {
+        case .en: "Custom events from your site"
+        case .fa: "رویدادهای سفارشی سایت شما"
+        case .tr: "Sitenizden özel olaylar"
+        }
+    }
+
+    static func analyticsVisitors(_ l: Language) -> String {
+        switch l {
+        case .en: "Visitors"
+        case .fa: "بازدیدکننده"
+        case .tr: "Ziyaretçi"
+        }
+    }
+
+    static func analyticsSessions(_ l: Language) -> String {
+        switch l {
+        case .en: "Visits"
+        case .fa: "بازدید"
+        case .tr: "Ziyaret"
+        }
+    }
+
+    static func analyticsPageviews(_ l: Language) -> String {
+        switch l {
+        case .en: "Page views"
+        case .fa: "بازدید صفحه"
+        case .tr: "Sayfa görüntüleme"
+        }
+    }
+
+    static func analyticsPagesPerVisit(_ l: Language) -> String {
+        switch l {
+        case .en: "Pages per visit"
+        case .fa: "صفحه در هر بازدید"
+        case .tr: "Ziyaret başına sayfa"
+        }
+    }
+
+    static func analyticsBounceRate(_ l: Language) -> String {
+        switch l {
+        case .en: "Bounce rate"
+        case .fa: "نرخ پرش"
+        case .tr: "Hemen çıkma oranı"
+        }
+    }
+
+    static func analyticsAvgDuration(_ l: Language) -> String {
+        switch l {
+        case .en: "Avg. time on site"
+        case .fa: "میانگین زمان حضور"
+        case .tr: "Ort. sitede kalma"
+        }
+    }
+
+    /// A template: `{count}` is replaced with the number in the reader's digits.
+    static func analyticsVsPrevious(_ l: Language) -> String {
+        switch l {
+        case .en: "Compared with the {count} days before"
+        case .fa: "در مقایسه با {count} روز قبل از آن"
+        case .tr: "Önceki {count} günle karşılaştırıldığında"
+        }
+    }
+
+    static func analyticsTrend(_ l: Language) -> String {
+        switch l {
+        case .en: "Traffic over time"
+        case .fa: "روند ترافیک"
+        case .tr: "Zaman içinde trafik"
+        }
+    }
+
+    static func analyticsTopChannels(_ l: Language) -> String {
+        switch l {
+        case .en: "Top channels"
+        case .fa: "کانال‌های برتر"
+        case .tr: "En iyi kanallar"
+        }
+    }
+
+    static func analyticsTopPages(_ l: Language) -> String {
+        switch l {
+        case .en: "Top pages"
+        case .fa: "صفحات برتر"
+        case .tr: "En iyi sayfalar"
+        }
+    }
+
+    static func analyticsVisitsUnit(_ l: Language) -> String {
+        switch l {
+        case .en: "visits"
+        case .fa: "بازدید"
+        case .tr: "ziyaret"
+        }
+    }
+
+    static func analyticsViewsUnit(_ l: Language) -> String {
+        switch l {
+        case .en: "views"
+        case .fa: "بازدید"
+        case .tr: "görüntüleme"
+        }
+    }
+
+    static func analyticsChannel(_ l: Language) -> String {
+        switch l {
+        case .en: "Channel"
+        case .fa: "کانال"
+        case .tr: "Kanal"
+        }
+    }
+
+    static func analyticsSource(_ l: Language) -> String {
+        switch l {
+        case .en: "Source"
+        case .fa: "منبع"
+        case .tr: "Kaynak"
+        }
+    }
+
+    static func analyticsCampaign(_ l: Language) -> String {
+        switch l {
+        case .en: "Campaign"
+        case .fa: "کمپین"
+        case .tr: "Kampanya"
+        }
+    }
+
+    static func analyticsCountry(_ l: Language) -> String {
+        switch l {
+        case .en: "Country"
+        case .fa: "کشور"
+        case .tr: "Ülke"
+        }
+    }
+
+    static func analyticsCity(_ l: Language) -> String {
+        switch l {
+        case .en: "City"
+        case .fa: "شهر"
+        case .tr: "Şehir"
+        }
+    }
+
+    static func analyticsLanguage(_ l: Language) -> String {
+        switch l {
+        case .en: "Language"
+        case .fa: "زبان"
+        case .tr: "Dil"
+        }
+    }
+
+    static func analyticsPagesTop(_ l: Language) -> String {
+        switch l {
+        case .en: "Most viewed"
+        case .fa: "پربازدیدترین"
+        case .tr: "En çok görüntülenen"
+        }
+    }
+
+    static func analyticsPagesEntry(_ l: Language) -> String {
+        switch l {
+        case .en: "Entry"
+        case .fa: "ورود"
+        case .tr: "Giriş"
+        }
+    }
+
+    static func analyticsPagesExit(_ l: Language) -> String {
+        switch l {
+        case .en: "Exit"
+        case .fa: "خروج"
+        case .tr: "Çıkış"
+        }
+    }
+
+    static func analyticsDevice(_ l: Language) -> String {
+        switch l {
+        case .en: "Device"
+        case .fa: "دستگاه"
+        case .tr: "Cihaz"
+        }
+    }
+
+    static func analyticsOS(_ l: Language) -> String {
+        switch l {
+        case .en: "Operating system"
+        case .fa: "سیستم‌عامل"
+        case .tr: "İşletim sistemi"
+        }
+    }
+
+    static func analyticsBrowser(_ l: Language) -> String {
+        switch l {
+        case .en: "Browser"
+        case .fa: "مرورگر"
+        case .tr: "Tarayıcı"
+        }
+    }
+
+    static func analyticsEventCount(_ l: Language) -> String {
+        switch l {
+        case .en: "Times"
+        case .fa: "تعداد"
+        case .tr: "Adet"
+        }
+    }
+
+    static func analyticsEventVisits(_ l: Language) -> String {
+        switch l {
+        case .en: "Visits"
+        case .fa: "بازدید"
+        case .tr: "Ziyaret"
+        }
+    }
+
+    static func analyticsConversion(_ l: Language) -> String {
+        switch l {
+        case .en: "Conversion"
+        case .fa: "نرخ تبدیل"
+        case .tr: "Dönüşüm"
+        }
+    }
+
+    static func analyticsNoData(_ l: Language) -> String {
+        switch l {
+        case .en: "No visits in this range yet"
+        case .fa: "در این بازه هنوز بازدیدی نیست"
+        case .tr: "Bu aralıkta henüz ziyaret yok"
+        }
+    }
+
+    static func analyticsNoDataHint(_ l: Language) -> String {
+        switch l {
+        case .en: "The chat widget's snippet records every page view on your site; they show up here."
+        case .fa: "اسکریپت ویجت گفت‌وگو هر بازدید صفحه در سایت شما را ثبت می‌کند و اینجا نمایش داده می‌شود."
+        case .tr: "Sohbet widget'ının kodu sitenizdeki her sayfa görüntülemeyi kaydeder; burada görünür."
+        }
+    }
+
+    static func analyticsNoEvents(_ l: Language) -> String {
+        switch l {
+        case .en: "No custom events yet"
+        case .fa: "هنوز رویداد سفارشی‌ای نیست"
+        case .tr: "Henüz özel olay yok"
+        }
+    }
+
+    static func analyticsNoEventsHint(_ l: Language) -> String {
+        switch l {
+        case .en: "Send them from your site with window.gsAnalytics.track('name')."
+        case .fa: "از سایت خود با window.gsAnalytics.track('name') رویداد بفرستید."
+        case .tr: "Sitenizden window.gsAnalytics.track('ad') ile gönderin."
+        }
+    }
+
+    static func analyticsLocked(_ l: Language) -> String {
+        switch l {
+        case .en: "Website analytics is not in your plan"
+        case .fa: "تحلیل وب‌سایت در پلن شما نیست"
+        case .tr: "Web sitesi analitiği planınızda yok"
+        }
+    }
+
+    static func analyticsLockedHint(_ l: Language) -> String {
+        switch l {
+        case .en: "The workspace owner can add it by upgrading the plan."
+        case .fa: "مالک فضای کاری می‌تواند با ارتقای پلن آن را فعال کند."
+        case .tr: "Çalışma alanı sahibi planı yükselterek ekleyebilir."
+        }
+    }
+
+    static func analyticsLoadFailed(_ l: Language) -> String {
+        switch l {
+        case .en: "This report could not be loaded."
+        case .fa: "این گزارش بارگذاری نشد."
+        case .tr: "Bu rapor yüklenemedi."
+        }
+    }
+
+    static func analyticsTruncated(_ l: Language) -> String {
+        switch l {
+        case .en: "This range is very busy, so these numbers are from a sample of it."
+        case .fa: "این بازه خیلی پرترافیک است؛ اعداد از نمونه‌ای از آن محاسبه شده‌اند."
+        case .tr: "Bu aralık çok yoğun; rakamlar bir örneklemden hesaplandı."
+        }
+    }
+
+    static func analyticsUnknown(_ l: Language) -> String {
+        switch l {
+        case .en: "Unknown"
+        case .fa: "نامشخص"
+        case .tr: "Bilinmiyor"
+        }
+    }
+
+    static func analyticsTotal(_ l: Language) -> String {
+        switch l {
+        case .en: "Total"
+        case .fa: "مجموع"
+        case .tr: "Toplam"
+        }
+    }
+
+    static func analyticsLeader(_ l: Language) -> String {
+        switch l {
+        case .en: "Top"
+        case .fa: "در صدر"
+        case .tr: "Zirvede"
+        }
+    }
+
+    static func analyticsDistinct(_ l: Language) -> String {
+        switch l {
+        case .en: "Different items"
+        case .fa: "تعداد موارد"
+        case .tr: "Farklı öğe"
+        }
+    }
+
+    /// After a number of minutes in a duration: 2m 14s.
+    static func analyticsMinutesShort(_ l: Language) -> String {
+        switch l {
+        case .en: "m"
+        case .fa: "دقیقه"
+        case .tr: "dk"
+        }
+    }
+
+    /// After a number of seconds in a duration: 2m 14s.
+    static func analyticsSecondsShort(_ l: Language) -> String {
+        switch l {
+        case .en: "s"
+        case .fa: "ثانیه"
+        case .tr: "sn"
+        }
+    }
+
+    static func analyticsChannelDirect(_ l: Language) -> String {
+        switch l {
+        case .en: "Direct"
+        case .fa: "مستقیم"
+        case .tr: "Doğrudan"
+        }
+    }
+
+    static func analyticsChannelOrganicSearch(_ l: Language) -> String {
+        switch l {
+        case .en: "Organic search"
+        case .fa: "جست‌وجوی ارگانیک"
+        case .tr: "Organik arama"
+        }
+    }
+
+    static func analyticsChannelOrganicSocial(_ l: Language) -> String {
+        switch l {
+        case .en: "Organic social"
+        case .fa: "شبکه‌های اجتماعی"
+        case .tr: "Organik sosyal"
+        }
+    }
+
+    static func analyticsChannelReferral(_ l: Language) -> String {
+        switch l {
+        case .en: "Referral"
+        case .fa: "ارجاع از سایت‌ها"
+        case .tr: "Yönlendirme"
+        }
+    }
+
+    static func analyticsChannelPaidSearch(_ l: Language) -> String {
+        switch l {
+        case .en: "Paid search"
+        case .fa: "جست‌وجوی پولی"
+        case .tr: "Ücretli arama"
+        }
+    }
+
+    static func analyticsChannelPaidSocial(_ l: Language) -> String {
+        switch l {
+        case .en: "Paid social"
+        case .fa: "تبلیغات شبکه‌های اجتماعی"
+        case .tr: "Ücretli sosyal"
+        }
+    }
+
+    static func analyticsChannelEmail(_ l: Language) -> String {
+        switch l {
+        case .en: "Email"
+        case .fa: "ایمیل"
+        case .tr: "E-posta"
+        }
+    }
+
+    static func analyticsChannelOther(_ l: Language) -> String {
+        switch l {
+        case .en: "Other"
+        case .fa: "سایر"
+        case .tr: "Diğer"
+        }
+    }
+
+    static func analyticsDeviceMobile(_ l: Language) -> String {
+        switch l {
+        case .en: "Mobile"
+        case .fa: "موبایل"
+        case .tr: "Mobil"
+        }
+    }
+
+    static func analyticsDeviceDesktop(_ l: Language) -> String {
+        switch l {
+        case .en: "Desktop"
+        case .fa: "دسکتاپ"
+        case .tr: "Masaüstü"
+        }
+    }
+
+    static func analyticsDeviceTablet(_ l: Language) -> String {
+        switch l {
+        case .en, .tr: "Tablet"
+        case .fa: "تبلت"
+        }
+    }
 }

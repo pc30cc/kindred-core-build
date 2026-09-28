@@ -153,6 +153,9 @@ export interface MobileAppSettings {
   android_app_profile_photo_editable: boolean;
   android_app_show_visitors: boolean;
   android_app_show_web_analytics: boolean;
+  ios_app_show_contacts: boolean;
+  ios_app_show_visitors: boolean;
+  ios_app_show_web_analytics: boolean;
 
   checklist: Record<string, { done: boolean; at?: string; by?: string }>;
   updated_at?: string | null;

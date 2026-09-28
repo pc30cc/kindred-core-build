@@ -14,6 +14,24 @@ describe('iOS in-app config', () => {
       showWebAnalytics: true,
       showAIQueue: true,
       showColleagues: true,
+      showStorage: true,
+    });
+  });
+
+  it('keeps Settings → Storage on for rows written before migration 232', () => {
+    const config = toIosAppConfig(normalize({ ios_app_show_colleagues: false }));
+    expect(config).toMatchObject({ showColleagues: false, showStorage: true });
+  });
+
+  it('hides Settings → Storage when Super Admin turned it off, and nothing else', () => {
+    const config = toIosAppConfig(normalize({ ios_app_show_storage: false }));
+    expect(config).toMatchObject({
+      showStorage: false,
+      showContacts: true,
+      showVisitors: true,
+      showWebAnalytics: true,
+      showAIQueue: true,
+      showColleagues: true,
     });
   });
 

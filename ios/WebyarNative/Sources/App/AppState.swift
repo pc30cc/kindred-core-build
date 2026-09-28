@@ -538,6 +538,10 @@ final class AppState {
     /// the console gates its Colleagues tab on, under the Super Admin switch.
     var colleaguesVisible: Bool { appConfig.showColleagues && featureEnabled("inbox_team_chat") }
 
+    /// Whether Settings shows Storage. Super Admin's switch alone: it is not
+    /// a plan feature, and hiding it leaves the cache working as before.
+    var storageVisible: Bool { appConfig.showStorage }
+
     /// Whether the mailbox belongs here: an owner/admin section (as in the
     /// console's sidebar) whose Email Inbox module is exactly `true`. An entry
     /// that opens onto a 403 is worse than no entry.

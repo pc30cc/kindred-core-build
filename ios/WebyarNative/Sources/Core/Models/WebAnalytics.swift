@@ -254,23 +254,29 @@ struct MobileAppConfig: Hashable, Sendable {
     var showAIQueue: Bool
     /// The Inbox's Colleagues tab, and team chat wherever it is reached from.
     var showColleagues: Bool
+    /// Settings → Storage: what the app keeps on the phone and the button
+    /// that clears it. Hiding it hides the row, not the cache.
+    var showStorage: Bool
 
     static let defaults = MobileAppConfig(showContacts: true, showVisitors: true, showWebAnalytics: true)
 
     init(
         showContacts: Bool, showVisitors: Bool, showWebAnalytics: Bool,
-        showAIQueue: Bool = true, showColleagues: Bool = true
+        showAIQueue: Bool = true, showColleagues: Bool = true, showStorage: Bool = true
     ) {
         self.showContacts = showContacts
         self.showVisitors = showVisitors
         self.showWebAnalytics = showWebAnalytics
         self.showAIQueue = showAIQueue
         self.showColleagues = showColleagues
+        self.showStorage = showStorage
     }
 }
 
 extension MobileAppConfig: Decodable {
-    enum CodingKeys: String, CodingKey { case showContacts, showVisitors, showWebAnalytics, showAIQueue, showColleagues }
+    enum CodingKeys: String, CodingKey {
+        case showContacts, showVisitors, showWebAnalytics, showAIQueue, showColleagues, showStorage
+    }
 
     /// Only an explicit `false` turns a section off; a missing or unreadable
     /// key keeps the default, so an older server that sends fewer keys never
@@ -285,5 +291,6 @@ extension MobileAppConfig: Decodable {
         showWebAnalytics = flag(.showWebAnalytics)
         showAIQueue = flag(.showAIQueue)
         showColleagues = flag(.showColleagues)
+        showStorage = flag(.showStorage)
     }
 }

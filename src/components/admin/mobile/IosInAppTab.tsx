@@ -1,12 +1,12 @@
 /**
  * Which tabs the installed iOS app shows, in its bottom bar and in its
- * Inbox — applied live.
+ * Inbox, and which sections its Settings screen has — applied live.
  *
  * The app reads these from `GET /api/mobile-app/config?platform=ios` when it
  * signs in and whenever it comes back to the foreground, so a switch flipped
  * here reaches every iPhone without a new build or an App Store release.
  */
-import { Inbox, LayoutGrid } from 'lucide-react';
+import { Inbox, LayoutGrid, Settings2 } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { SettingsSection, FieldGrid, SwitchField } from '@/components/admin/settings/SettingsFields';
 import type { MobileAppSettings } from '@/hooks/useMobileApp';
@@ -66,6 +66,21 @@ export function IosInAppTab({
             hint={t('admin.mobileApp.iosInApp.showColleaguesHint')}
             checked={draft.ios_app_show_colleagues}
             onChange={(ios_app_show_colleagues) => set({ ios_app_show_colleagues })}
+          />
+        </FieldGrid>
+      </SettingsSection>
+
+      <SettingsSection
+        icon={Settings2}
+        heading={t('admin.mobileApp.iosInApp.settingsHeading')}
+        caption={t('admin.mobileApp.iosInApp.settingsCaption')}
+      >
+        <FieldGrid>
+          <SwitchField
+            label={t('admin.mobileApp.iosInApp.showStorage')}
+            hint={t('admin.mobileApp.iosInApp.showStorageHint')}
+            checked={draft.ios_app_show_storage}
+            onChange={(ios_app_show_storage) => set({ ios_app_show_storage })}
           />
         </FieldGrid>
       </SettingsSection>

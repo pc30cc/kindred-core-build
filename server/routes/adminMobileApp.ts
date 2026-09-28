@@ -163,6 +163,7 @@ const settingsSchema = z.object({
   ios_app_show_web_analytics: z.boolean().optional(),
   ios_app_show_ai_queue: z.boolean().optional(),
   ios_app_show_colleagues: z.boolean().optional(),
+  ios_app_show_storage: z.boolean().optional(),
 }).refine(
   (v) => v.android_min_sdk === undefined || v.android_target_sdk === undefined || v.android_min_sdk <= v.android_target_sdk,
   { message: 'minimum SDK above target SDK', path: ['android_min_sdk'] },

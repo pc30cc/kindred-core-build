@@ -4463,6 +4463,10 @@ const en = {
         showAIQueueHint: "The conversations the AI agent is handling. Only where the plan includes the AI queue and the AI agent is on. Off hides the tab and the AI queue in the inbox menu.",
         showColleagues: "Show \"Colleagues\"",
         showColleaguesHint: "Chat between operators, live. Plans with team chat only. Off hides the tab and the Colleagues entry in the inbox menu.",
+        settingsHeading: "Settings screen",
+        settingsCaption: "Which sections operators see in the iOS app's Settings. Applied live, like the tabs above.",
+        showStorage: "Show \"Storage\"",
+        showStorageHint: "What the app keeps on the phone and the button that clears it. Off hides the row; the cache itself keeps working.",
       },
       androidTabs: {
         overview: 'Overview',

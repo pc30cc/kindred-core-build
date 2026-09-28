@@ -158,6 +158,7 @@ export interface MobileAppSettings {
   ios_app_show_web_analytics: boolean;
   ios_app_show_ai_queue: boolean;
   ios_app_show_colleagues: boolean;
+  ios_app_show_storage: boolean;
 
   checklist: Record<string, { done: boolean; at?: string; by?: string }>;
   updated_at?: string | null;

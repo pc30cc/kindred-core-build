@@ -91,7 +91,13 @@ interface WebyarApi {
      * replaced.
      */
     val sessionLost: Flow<Unit> get() = emptyFlow()
-    suspend fun requestPasswordReset(email: String)
+    /**
+     * Emails a reset link. [locale] is the interface language: the one message
+     * the product writes to somebody not signed in has no stored preference
+     * to go by, so without it the email came in English whatever the screen
+     * it was asked for was written in.
+     */
+    suspend fun requestPasswordReset(email: String, locale: String)
 
     /** Asks the platform where it lives, before anything else talks to it. */
     suspend fun refreshOrigin()

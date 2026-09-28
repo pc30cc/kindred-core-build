@@ -3,9 +3,10 @@ package com.webyar.ai.feature.auth
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -15,6 +16,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -37,31 +40,39 @@ import com.webyar.ai.ui.components.BrandPalette
  */
 @Composable
 fun RestoringScreen(language: Language, modifier: Modifier = Modifier) {
-    Box(
+    // The launch colour (res/values/colors.xml), in the app's own light or
+    // dark — so the hand-over from the system splash is not a change of shade.
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    BoxWithConstraints(
         modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
+            .background(if (dark) LAUNCH_DARK else LAUNCH_LIGHT)
             .testTag(A11y.RESTORING),
     ) {
+        // Exactly in the middle, where the system splash put it a moment ago;
+        // the spinner and the line hang below it rather than pushing it up.
+        Image(
+            painter = painterResource(R.drawable.brand_mark),
+            contentDescription = null,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(MARK)
+                // The mark's own corner, so the glow follows its outline
+                // rather than a square around it.
+                .shadow(
+                    elevation = 18.dp,
+                    shape = RoundedCornerShape(16.dp),
+                    ambientColor = BrandPalette.deep.copy(alpha = 0.35f),
+                    spotColor = BrandPalette.deep.copy(alpha = 0.35f),
+                ),
+        )
         Column(
-            Modifier.align(Alignment.Center),
+            Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = maxHeight / 2 + MARK / 2 + GAP),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            verticalArrangement = Arrangement.spacedBy(GAP),
         ) {
-            Image(
-                painter = painterResource(R.drawable.brand_mark),
-                contentDescription = null,
-                modifier = Modifier
-                    .size(72.dp)
-                    // The mark's own corner, so the glow follows its outline
-                    // rather than a square around it.
-                    .shadow(
-                        elevation = 18.dp,
-                        shape = RoundedCornerShape(16.dp),
-                        ambientColor = BrandPalette.deep.copy(alpha = 0.35f),
-                        spotColor = BrandPalette.deep.copy(alpha = 0.35f),
-                    ),
-            )
             CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
             Text(
                 StrAndroid.restoringSession(language),
@@ -72,3 +83,10 @@ fun RestoringScreen(language: Language, modifier: Modifier = Modifier) {
         BrandFooterOverlay()
     }
 }
+
+private val MARK = 72.dp
+private val GAP = 18.dp
+
+/** `launch_background`, light and night — iOS's LaunchBackground, the Mac's appBackground. */
+private val LAUNCH_LIGHT = Color(0xFFF4F6F9)
+private val LAUNCH_DARK = Color(0xFF0C0E14)

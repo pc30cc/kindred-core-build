@@ -478,7 +478,7 @@ class ApiClient(
     override suspend fun discardSession() = setToken(null)
 
     @Serializable
-    private data class ResetBody(val email: String)
+    private data class ResetBody(val email: String, val locale: String)
 
     /**
      * Asks the server to email a reset link.
@@ -488,8 +488,8 @@ class ApiClient(
      * used to discover which addresses have accounts, and the UI must not undo
      * that by reporting a difference.
      */
-    override suspend fun requestPasswordReset(email: String) {
-        build(HttpMethod.Post, "/api/auth-email/send-reset", body = ResetBody(email)).orThrow()
+    override suspend fun requestPasswordReset(email: String, locale: String) {
+        build(HttpMethod.Post, "/api/auth-email/send-reset", body = ResetBody(email, locale)).orThrow()
     }
 
     // MARK: - Workspaces and conversations

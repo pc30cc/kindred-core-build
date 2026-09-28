@@ -105,7 +105,7 @@ class SampleApi : WebyarApi {
     override suspend fun currentUser(): User = OPERATOR
     override suspend fun logOut() {}
     override suspend fun discardSession() {}
-    override suspend fun requestPasswordReset(email: String) {}
+    override suspend fun requestPasswordReset(email: String, locale: String) {}
     override suspend fun refreshOrigin() {}
 
     /**

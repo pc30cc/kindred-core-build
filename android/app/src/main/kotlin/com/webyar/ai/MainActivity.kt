@@ -38,6 +38,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.collectAsState
+import com.webyar.ai.core.net.ApiError
 import com.webyar.ai.core.net.WebyarApi
 import com.webyar.ai.core.storage.Appearance
 import com.webyar.ai.feature.auth.LoginScreen
@@ -139,6 +140,25 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Asks for a reset link, as the iOS app does: a request that never reached
+ * the server is reported (it says nothing about the address), and anything
+ * else reads as sent. The endpoint answers the same for an address with an
+ * account and one without, and saying otherwise here would turn this screen
+ * into a way to test which addresses are registered.
+ */
+private suspend fun requestReset(api: WebyarApi, email: String, language: Language): Result<Unit> =
+    try {
+        api.requestPasswordReset(email.trim().lowercase(), language.code)
+        Result.success(Unit)
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: ApiError.Transport) {
+        Result.failure(e)
+    } catch (_: Throwable) {
+        Result.success(Unit)
+    }
+
 /** Chooses the login screen or the app, and holds while it does not yet know. */
 @Composable
 private fun RootScreen(appState: AppState, api: WebyarApi, language: Language) {
@@ -161,6 +181,9 @@ private fun RootScreen(appState: AppState, api: WebyarApi, language: Language) {
         is Session.SignedOut -> LoginScreen(
             language = language,
             onSubmit = appState::logIn,
+            // "Forgot password?" was never offered: nothing passed this, so
+            // the screen that asks for a link could not be reached at all.
+            onRequestReset = { email -> requestReset(api, email, language) },
         )
 
         is Session.SignedIn -> {

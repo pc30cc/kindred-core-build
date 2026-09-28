@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- LaunchBackground's dark appearance (iOS) and appBackground's dark
+         value (Mac). -->
+    <color name="launch_background">#0C0E14</color>
+</resources>

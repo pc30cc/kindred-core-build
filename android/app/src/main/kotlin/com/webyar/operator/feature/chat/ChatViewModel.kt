@@ -56,9 +56,7 @@ import com.webyar.operator.core.model.SenderType
  */
 class ChatViewModel(
     private val api: WebyarApi,
-    /** Last-but-one so `ChatViewModel(api) { language }` still reads as it always did. */
     private val sync: SyncGraph = SyncGraph.inMemory(api),
-    private val language: () -> Language,
     /**
      * Where a send and an upload run: the app's scope when there is one.
      * In this model's own they were cancelled the moment the operator left
@@ -66,6 +64,8 @@ class ChatViewModel(
      * next came to the front.
      */
     private val outlive: CoroutineScope? = null,
+    /** Last, so `ChatViewModel(api, sync) { language }` still reads as it always did. */
+    private val language: () -> Language,
 ) : ViewModel() {
 
     private val work: CoroutineScope get() = outlive ?: viewModelScope

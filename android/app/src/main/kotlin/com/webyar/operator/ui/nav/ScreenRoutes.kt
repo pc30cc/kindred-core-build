@@ -337,7 +337,7 @@ fun ChatRoute(
     val chatModel: ChatViewModel =
         viewModel(factory = viewModelFactory {
             val sync = graph?.syncGraph()
-            if (sync != null) ChatViewModel(api, sync, currentLanguage, outlive = graph.appScope)
+            if (sync != null) ChatViewModel(api, sync, outlive = graph.appScope, language = currentLanguage)
             else ChatViewModel(api, language = currentLanguage)
         })
     // Read only while it is in front: under another screen, in a tab left

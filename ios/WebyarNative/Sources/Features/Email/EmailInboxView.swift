@@ -112,11 +112,11 @@ struct EmailInboxView: View {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 0) {
                         Text(Str.emailInbox(language))
-                            .font(.headline)
+                            .font(.app(.headline))
                             .foregroundStyle(Theme.Palette.label)
                         if let mailbox = model.mailbox, !mailbox.isEmpty {
                             Text(mailbox)
-                                .font(.caption2)
+                                .font(.app(.caption2))
                                 .foregroundStyle(Theme.Palette.labelSecondary)
                                 .lineLimit(1)
                         }

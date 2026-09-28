@@ -59,7 +59,7 @@ struct VisitorDetailView: View {
             if !model.isListed(sessionID) {
                 Section {
                     Label(Str.visitorLeft(language), systemImage: "figure.walk.departure")
-                        .font(.subheadline)
+                        .font(.app(.subheadline))
                         .foregroundStyle(Theme.Palette.labelSecondary)
                 }
             }
@@ -101,14 +101,14 @@ struct VisitorDetailView: View {
             }
 
             Text(name)
-                .font(.title3.weight(.bold))
+                .font(.app(.title3, .bold))
                 .foregroundStyle(Theme.Palette.label)
                 .multilineTextAlignment(.center)
                 .textSelection(.enabled)
 
             if let email = visitor.contact?.email, !email.isEmpty, email != name {
                 Text(email)
-                    .font(.subheadline)
+                    .font(.app(.subheadline))
                     .foregroundStyle(Theme.Palette.labelSecondary)
                     .latin()
                     .textSelection(.enabled)
@@ -150,7 +150,7 @@ struct VisitorDetailView: View {
                 }
             } label: {
                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                    .font(.body.weight(.semibold))
+                    .font(.app(.body, .semibold))
                     .contentTransition(.symbolEffect(.replace))
                     .frame(width: Theme.Size.minTouchTarget + 6, height: Theme.Size.minTouchTarget + 6)
                     .background(
@@ -252,7 +252,7 @@ private struct VisitorFactRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: Theme.Space.md) {
             Image(systemName: systemImage)
-                .font(.subheadline.weight(.medium))
+                .font(.app(.subheadline, .medium))
                 .foregroundStyle(Theme.Palette.brand)
                 .frame(width: 32, height: 32)
                 .background(
@@ -268,7 +268,7 @@ private struct VisitorFactRow: View {
                 HStack(spacing: Theme.Space.xs) {
                     if let leading { Text(leading).accessibilityHidden(true) }
                     Text(value)
-                        .font(.subheadline)
+                        .font(.app(.subheadline))
                         .foregroundStyle(Theme.Palette.label)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
@@ -311,7 +311,7 @@ private struct VisitStepRow: View {
                     .foregroundStyle(step.kind == .current ? Theme.Palette.success : Theme.Palette.labelSecondary)
                 if let title = step.title, !title.isEmpty {
                     Text(title)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.app(.subheadline, .semibold))
                         .foregroundStyle(Theme.Palette.label)
                         .fixedSize(horizontal: false, vertical: true)
                 }

@@ -78,7 +78,7 @@ struct SettingsView: View {
 
                             if let email = appState.session.user?.email, !email.isEmpty {
                                 Text(email)
-                                    .font(.subheadline)
+                                    .font(.app(.subheadline))
                                     .foregroundStyle(Theme.Palette.labelSecondary)
                                     .lineLimit(1)
                                     .environment(\.layoutDirection, .leftToRight)
@@ -186,7 +186,7 @@ struct SettingsView: View {
                                 .foregroundStyle(Theme.Palette.brand)
                             Spacer()
                             Image(systemName: "arrow.up.right")
-                                .font(.footnote)
+                                .font(.app(.footnote))
                                 .foregroundStyle(Theme.Palette.labelTertiary)
                         }
                         .frame(minHeight: Theme.Size.minTouchTarget - 10)
@@ -274,7 +274,7 @@ private struct WorkspaceRow: View {
 
     private var content: some View {
         HStack(spacing: Theme.Space.sm) {
-            Avatar(name: workspace.name, imageURL: workspace.logoURL, size: Theme.Size.avatarSmall)
+            Avatar(name: workspace.name, imageURL: workspace.logoURL, size: Theme.Size.avatarSmall, subject: .organisation)
 
             VStack(alignment: .leading, spacing: 1) {
                 if isOnly {
@@ -283,7 +283,7 @@ private struct WorkspaceRow: View {
                         .foregroundStyle(Theme.Palette.labelSecondary)
                 }
                 Text(workspace.name)
-                    .font(.body)
+                    .font(.app(.body))
                     .foregroundStyle(Theme.Palette.label)
                     .lineLimit(1)
             }

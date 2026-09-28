@@ -200,99 +200,147 @@ final class ImageCache {
 
 /// A remote picture with a skeleton in its place until it arrives.
 ///
-/// `fallback` is for a link that is broken or missing — initials, an OS mark,
-/// whatever the caller shows when there is no picture. The skeleton is only
-/// ever shown while a fetch is genuinely outstanding, so a missing picture goes
-/// straight to the fallback rather than pretending to load first.
-struct RemoteImage<Fallback: View>: View {
+/// `placeholder` is what stands in while a fetch is genuinely outstanding —
+/// the plain skeleton by default, a silhouette for a face. `fallback` is for a
+/// link that is broken or missing: whatever the caller shows when there is no
+/// picture. A missing picture goes straight to the fallback rather than
+/// pretending to load first.
+struct RemoteImage<Placeholder: View, Fallback: View>: View {
     let url: URL?
     /// The longest side this picture will ever be drawn at, in pixels.
     ///
     /// The default suits an avatar: the largest one in the app is 72 points,
     /// which is 216 pixels on a 3× screen. A view that draws bigger says so.
     var maxPixel: Int = 256
+    @ViewBuilder let placeholder: Placeholder
     @ViewBuilder let fallback: Fallback
 
     @State private var image: UIImage?
-    @State private var isLoading = false
+    /// The link a fetch came back from with nothing, so the fallback shows
+    /// for it and the placeholder does not — until the link changes.
+    @State private var missing: URL?
 
     var body: some View {
         content
+            // The picture fades in over its placeholder rather than cutting
+            // in: the one moment in a scrolling list where a row changes by
+            // itself, and a cut there reads as a flicker.
+            .animation(.easeOut(duration: 0.25), value: image)
             .task(id: url) { await fetch() }
     }
 
     @ViewBuilder
     private var content: some View {
-        if let image {
-            Image(uiImage: image)
+        if let shown = image ?? cachedNow {
+            Image(uiImage: shown)
                 .resizable()
                 .scaledToFill()
-        } else if isLoading {
-            SkeletonFill()
+                .transition(.opacity)
+        } else if isPending {
+            placeholder
+                .transition(.opacity)
         } else {
             fallback
+                .transition(.opacity)
         }
+    }
+
+    /// A picture this app already holds, read on the very first frame — the
+    /// fetch below only runs after it, so without this a face seen a moment
+    /// ago would show its placeholder for one frame on every appearance.
+    private var cachedNow: UIImage? {
+        guard let url else { return nil }
+        return ImageCache.shared.cached(url, maxPixel: maxPixel)
+    }
+
+    /// A picture is on its way: there is a link, it has not failed recently,
+    /// and no fetch for it has come back empty.
+    private var isPending: Bool {
+        guard let url else { return false }
+        return missing != url && !ImageCache.shared.hasFailed(url)
     }
 
     private func fetch() async {
         guard let url else {
             image = nil
-            isLoading = false
             return
         }
         // Synchronous hit: no skeleton, no flash, no frame where the row is
         // anything other than finished.
         if let cached = ImageCache.shared.cached(url, maxPixel: maxPixel) {
             image = cached
-            isLoading = false
-            return
-        }
-        if ImageCache.shared.hasFailed(url) {
-            image = nil
-            isLoading = false
             return
         }
         image = nil
-        isLoading = true
+        if ImageCache.shared.hasFailed(url) {
+            missing = url
+            return
+        }
         let loaded = await ImageCache.shared.load(url, maxPixel: maxPixel)
         guard !Task.isCancelled else { return }
         image = loaded
-        isLoading = false
+        if loaded == nil { missing = url }
+    }
+}
+
+extension RemoteImage where Placeholder == SkeletonFill {
+    /// The plain skeleton while it loads.
+    init(url: URL?, maxPixel: Int = 256, @ViewBuilder fallback: () -> Fallback) {
+        self.init(url: url, maxPixel: maxPixel, placeholder: { SkeletonFill() }, fallback: fallback)
     }
 }
 
 /// The grey shape that stands in for a picture while it loads.
+struct SkeletonFill: View {
+    var body: some View {
+        Theme.Palette.skeletonBase
+            .skeletonSweep()
+            .accessibilityHidden(true)
+    }
+}
+
+/// The skeleton's one movement: a soft band of light crossing the shape, the
+/// way it is read.
 ///
 /// A slow sweep rather than a pulse: a pulse in a list of eight avatars turns
-/// the whole column on and off together, which reads as a fault. The sweep is
-/// also stopped for anyone who has asked the system to reduce motion.
-struct SkeletonFill: View {
+/// the whole column on and off together, which reads as a fault. Masked to
+/// the shape it crosses, so one sweep over a whole loading row — avatar,
+/// title bar, preview bars — lights the shapes and never the gaps between
+/// them. Stopped for anyone who has asked the system to reduce motion: the
+/// shape alone still says "something goes here".
+private struct SkeletonSweep: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var phase: CGFloat = -1
 
-    var body: some View {
-        GeometryReader { proxy in
-            let width = max(proxy.size.width, 1)
-            Theme.Palette.surfaceElevated
-                .overlay {
-                    if !reduceMotion {
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                if !reduceMotion {
+                    GeometryReader { proxy in
+                        let width = max(proxy.size.width, 1)
                         LinearGradient(
-                            colors: [.clear, .white.opacity(0.35), .clear],
+                            colors: [.clear, Theme.Palette.skeletonShine, .clear],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
                         .frame(width: width * 0.8)
                         .offset(x: phase * width * 1.6)
-                        .blendMode(.plusLighter)
+                    }
+                    .mask(content)
+                    .onAppear {
+                        withAnimation(.linear(duration: 1.3).repeatForever(autoreverses: false)) {
+                            phase = 1
+                        }
                     }
                 }
-                .onAppear {
-                    guard !reduceMotion else { return }
-                    withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) {
-                        phase = 1
-                    }
-                }
-        }
-        .accessibilityHidden(true)
+            }
+            .clipped()
+    }
+}
+
+extension View {
+    /// The skeleton's sweep over this shape.
+    func skeletonSweep() -> some View {
+        modifier(SkeletonSweep())
     }
 }

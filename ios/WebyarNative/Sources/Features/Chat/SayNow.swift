@@ -82,7 +82,7 @@ struct SayNowVoiceButton: View {
                 Image(systemName: model.voice.icon)
                     .font(.system(size: 12, weight: .semibold))
                 Text(model.voice.title(language))
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.app(size: 12, .semibold))
                     .lineLimit(1)
             }
             .foregroundStyle(Theme.Palette.ai)

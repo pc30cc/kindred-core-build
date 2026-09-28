@@ -468,7 +468,7 @@ struct InboxView: View {
                 Text(showsColleagues
                      ? Str.colleagues(language)
                      : model.channel?.title(language) ?? model.filter.headerTitle(language))
-                    .font(.headline)
+                    .font(.app(.headline))
                     .foregroundStyle(Theme.Palette.label)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 11, weight: .bold))
@@ -713,26 +713,29 @@ struct ConversationRow: View {
 struct ConversationRowSkeleton: View {
     var body: some View {
         HStack(alignment: .top, spacing: Theme.Space.md) {
-            Circle()
-                .fill(Theme.Palette.surfaceElevated)
+            // The face is the silhouette every avatar stands in with, so the
+            // row that loads is the row that arrives, less its words.
+            AvatarSkeleton()
                 .frame(width: Theme.Size.avatarMedium, height: Theme.Size.avatarMedium)
+                .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: Theme.Space.sm) {
                 RoundedRectangle(cornerRadius: Theme.Radius.sm)
-                    .fill(Theme.Palette.surfaceElevated)
+                    .fill(Theme.Palette.skeletonBase)
                     .frame(width: 140, height: 13)
 
                 RoundedRectangle(cornerRadius: Theme.Radius.sm)
-                    .fill(Theme.Palette.surfaceElevated)
+                    .fill(Theme.Palette.skeletonBase)
                     .frame(maxWidth: .infinity)
                     .frame(height: 11)
 
                 RoundedRectangle(cornerRadius: Theme.Radius.sm)
-                    .fill(Theme.Palette.surfaceElevated)
+                    .fill(Theme.Palette.skeletonBase)
                     .frame(width: 200, height: 11)
             }
         }
-        .redacted(reason: .placeholder)
+        // One sweep across the whole row rather than one per shape.
+        .skeletonSweep()
         .accessibilityHidden(true)
     }
 }

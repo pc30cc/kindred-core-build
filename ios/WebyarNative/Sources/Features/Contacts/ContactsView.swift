@@ -60,8 +60,8 @@ final class ContactsViewModel {
     ///
     /// One request for the whole page, never one per row — the same rule the
     /// inbox follows, and the same endpoint, so a visitor cannot appear as an
-    /// Android phone from Türkiye on one screen and as bare initials on the
-    /// next. Decorative: a failure leaves the list rendering exactly as it is.
+    /// Android phone from Türkiye on one screen and as a bare silhouette on
+    /// the next. Decorative: a failure leaves the list rendering exactly as it is.
     private func loadVisitors(_ contacts: [Contact], workspaceID: String) async {
         visitors = (try? await api.visitorIntel(
             workspaceID: workspaceID,
@@ -230,21 +230,24 @@ struct ContactRow: View {
 struct ContactRowSkeleton: View {
     var body: some View {
         HStack(spacing: Theme.Space.md) {
-            Circle()
-                .fill(Theme.Palette.surfaceElevated)
+            AvatarSkeleton()
                 .frame(width: Theme.Size.avatarMedium, height: Theme.Size.avatarMedium)
+                .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: Theme.Space.sm) {
                 RoundedRectangle(cornerRadius: Theme.Radius.sm)
-                    .fill(Theme.Palette.surfaceElevated)
+                    .fill(Theme.Palette.skeletonBase)
                     .frame(width: 130, height: 13)
                 RoundedRectangle(cornerRadius: Theme.Radius.sm)
-                    .fill(Theme.Palette.surfaceElevated)
+                    .fill(Theme.Palette.skeletonBase)
                     .frame(width: 180, height: 11)
             }
+            // Pushes the row to full width, so the sweep crosses the whole
+            // row and not just the shapes' own width.
+            Spacer(minLength: 0)
         }
         .padding(.vertical, Theme.Space.xs)
-        .redacted(reason: .placeholder)
+        .skeletonSweep()
         .accessibilityHidden(true)
     }
 }

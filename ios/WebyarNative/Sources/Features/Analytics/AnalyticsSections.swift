@@ -104,7 +104,7 @@ private struct KPITile: View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
             HStack(alignment: .center, spacing: Theme.Space.xs) {
                 Image(systemName: icon)
-                    .font(.caption.weight(.semibold))
+                    .font(.app(.caption, .semibold))
                     .foregroundStyle(tint)
                     .frame(width: 28, height: 28)
                     .background(Circle().fill(tint.opacity(0.14)))
@@ -114,7 +114,7 @@ private struct KPITile: View {
             }
             if let value {
                 Text(value)
-                    .font(.title2.weight(.bold))
+                    .font(.app(.title2, .bold))
                     .monospacedDigit()
                     .foregroundStyle(Theme.Palette.label)
                     .lineLimit(1)
@@ -146,9 +146,9 @@ private struct KPITile: View {
         let color = flat ? Theme.Palette.labelSecondary : good ? Theme.Palette.success : Theme.Palette.danger
         return HStack(spacing: Theme.Space.xxs) {
             Image(systemName: flat ? "equal" : change > 0 ? "arrow.up.right" : "arrow.down.right")
-                .font(.caption2.weight(.bold))
+                .font(.app(.caption2, .bold))
             Text(AnalyticsFormat.percent(abs(change), language))
-                .font(.caption2.weight(.semibold))
+                .font(.app(.caption2, .semibold))
                 .monospacedDigit()
         }
         .foregroundStyle(color)
@@ -242,7 +242,7 @@ private struct AnalyticsTrendCard: View {
                 AxisValueLabel {
                     if let n = value.as(Int.self) {
                         Text(AnalyticsFormat.count(n, language))
-                            .font(.caption2)
+                            .font(.app(.caption2))
                             .foregroundStyle(Theme.Palette.labelTertiary)
                     }
                 }
@@ -253,7 +253,7 @@ private struct AnalyticsTrendCard: View {
                 AxisValueLabel {
                     if let date = value.as(Date.self) {
                         Text(AnalyticsFormat.dayLabel(date, language))
-                            .font(.caption2)
+                            .font(.app(.caption2))
                             .foregroundStyle(Theme.Palette.labelTertiary)
                     }
                 }
@@ -267,10 +267,10 @@ private struct AnalyticsTrendCard: View {
     private func callout(_ point: Point) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.xxs) {
             Text(AnalyticsFormat.dayLabel(point.date, language, long: true))
-                .font(.caption2)
+                .font(.app(.caption2))
                 .foregroundStyle(Theme.Palette.labelSecondary)
             Text("\(AnalyticsFormat.count(point.value, language)) \(showsViews ? Str.analyticsViewsUnit(language) : Str.analyticsVisitsUnit(language))")
-                .font(.footnote.weight(.bold))
+                .font(.app(.footnote, .bold))
                 .foregroundStyle(Theme.Palette.label)
         }
         .padding(.horizontal, Theme.Space.sm)
@@ -450,15 +450,15 @@ private struct AnalyticsDeviceRing: View {
                         HStack(spacing: Theme.Space.sm) {
                             Circle().fill(Self.palette[index]).frame(width: 9, height: 9)
                             Image(systemName: VisitorFormat.deviceIcon(row.key))
-                                .font(.caption)
+                                .font(.app(.caption))
                                 .foregroundStyle(Theme.Palette.labelSecondary)
                                 .frame(width: 16)
                             Text(AnalyticsFormat.unknown(VisitorFormat.device(row.key, language: language), language))
-                                .font(.subheadline)
+                                .font(.app(.subheadline))
                                 .lineLimit(1)
                             Spacer(minLength: Theme.Space.xs)
                             Text(AnalyticsFormat.percent(Double(row.sessions) / Double(total), language))
-                                .font(.subheadline.weight(.semibold))
+                                .font(.app(.subheadline, .semibold))
                                 .monospacedDigit()
                         }
                         .accessibilityElement(children: .combine)
@@ -523,7 +523,7 @@ struct AnalyticsEventsSection: View {
 
     private func metric(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.xxs) {
-            Text(value).font(.body.weight(.semibold)).monospacedDigit()
+            Text(value).font(.app(.body, .semibold)).monospacedDigit()
             Text(label).font(Theme.Typo.meta).foregroundStyle(Theme.Palette.labelSecondary)
         }
     }
@@ -541,10 +541,10 @@ struct AnalyticsCard<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.md) {
             Label {
-                Text(title).font(.headline)
+                Text(title).font(.app(.headline))
             } icon: {
                 Image(systemName: icon)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.app(.subheadline, .semibold))
                     .foregroundStyle(tint)
             }
             .accessibilityAddTraits(.isHeader)
@@ -629,20 +629,20 @@ private struct AnalyticsBarList: View {
                             }
                             if let symbol {
                                 Image(systemName: symbol(item.id))
-                                    .font(.caption)
+                                    .font(.app(.caption))
                                     .foregroundStyle(Theme.Palette.labelSecondary)
                                     .frame(width: 16)
                                     .accessibilityHidden(true)
                             }
                             Text(item.label)
-                                .font(.subheadline)
+                                .font(.app(.subheadline))
                                 .foregroundStyle(Theme.Palette.label)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                                 .latin(item.latin)
                             Spacer(minLength: Theme.Space.sm)
                             Text(AnalyticsFormat.count(item.value, language))
-                                .font(.subheadline.weight(.semibold))
+                                .font(.app(.subheadline, .semibold))
                                 .monospacedDigit()
                             Text(AnalyticsFormat.percent(Double(item.value) / Double(total), language))
                                 .font(Theme.Typo.meta)
@@ -711,14 +711,14 @@ private struct AnalyticsInsightStrip: View {
     private func tile(icon: String, label: String, value: String, latin: Bool = false) -> some View {
         HStack(spacing: Theme.Space.sm) {
             Image(systemName: icon)
-                .font(.caption.weight(.semibold))
+                .font(.app(.caption, .semibold))
                 .foregroundStyle(tint)
                 .frame(width: 30, height: 30)
                 .background(RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous).fill(tint.opacity(0.14)))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                 Text(value)
-                    .font(.headline)
+                    .font(.app(.headline))
                     .monospacedDigit()
                     .lineLimit(1)
                     .truncationMode(.middle)

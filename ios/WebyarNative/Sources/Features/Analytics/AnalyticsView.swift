@@ -87,7 +87,7 @@ struct AnalyticsView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: Theme.Space.md) {
             Text(Str.analyticsSubtitle(language))
-                .font(.subheadline)
+                .font(.app(.subheadline))
                 .foregroundStyle(Theme.Palette.labelSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -111,12 +111,12 @@ struct AnalyticsView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(Theme.Palette.warning)
             Text(Str.analyticsLoadFailed(language))
-                .font(.subheadline)
+                .font(.app(.subheadline))
                 .frame(maxWidth: .infinity, alignment: .leading)
             Button(Str.retry(language)) {
                 model.refresh()
             }
-            .font(.subheadline.weight(.semibold))
+            .font(.app(.subheadline, .semibold))
         }
         .padding(Theme.Space.md)
         .background(
@@ -162,7 +162,7 @@ private struct LiveVisitorsPill: View {
             .accessibilityHidden(true)
 
             Text(Str.analyticsLiveNow(language).filling("count", with: AnalyticsFormat.count(count, language)))
-                .font(.subheadline.weight(.semibold))
+                .font(.app(.subheadline, .semibold))
                 .foregroundStyle(active ? Theme.Palette.success : Theme.Palette.labelSecondary)
                 .contentTransition(.numericText())
         }
@@ -215,7 +215,7 @@ private struct AnalyticsSectionStrip: View {
             selection = section
         } label: {
             Label(AnalyticsFormat.sectionTitle(section, language), systemImage: section.icon)
-                .font(.subheadline.weight(selected ? .semibold : .medium))
+                .font(.app(.subheadline, selected ? .semibold : .medium))
                 .lineLimit(1)
                 .padding(.horizontal, Theme.Space.md)
                 .frame(minHeight: 36)

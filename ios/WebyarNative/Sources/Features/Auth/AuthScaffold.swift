@@ -91,7 +91,7 @@ struct AuthFieldRow<Content: View, Trailing: View>: View {
                 .frame(width: AuthField.gutter)
 
             content
-                .font(.body)
+                .font(.app(.body))
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             trailing
@@ -128,7 +128,7 @@ struct AuthErrorBanner: View {
                 .foregroundStyle(Theme.Palette.danger)
 
             Text(message)
-                .font(.footnote)
+                .font(.app(.footnote))
                 .foregroundStyle(Theme.Palette.label)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .multilineTextAlignment(.leading)

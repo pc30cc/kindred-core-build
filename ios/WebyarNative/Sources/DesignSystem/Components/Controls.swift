@@ -114,11 +114,11 @@ struct EmptyStateView: View {
 
             VStack(spacing: Theme.Space.xs) {
                 Text(title)
-                    .font(.headline)
+                    .font(.app(.headline))
                     .foregroundStyle(Theme.Palette.label)
 
                 Text(message)
-                    .font(.subheadline)
+                    .font(.app(.subheadline))
                     .foregroundStyle(Theme.Palette.labelSecondary)
                     .multilineTextAlignment(.center)
                     // A measure this wide stays comfortable to read; full-width
@@ -147,9 +147,9 @@ struct ErrorStateView: View {
 
             VStack(spacing: Theme.Space.xs) {
                 Text(title)
-                    .font(.headline)
+                    .font(.app(.headline))
                 Text(message)
-                    .font(.subheadline)
+                    .font(.app(.subheadline))
                     .foregroundStyle(Theme.Palette.labelSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 280)
@@ -183,7 +183,7 @@ struct OfflineNotice: View {
     var body: some View {
         HStack(spacing: Theme.Space.xs) {
             Image(systemName: "icloud.slash")
-                .font(.caption)
+                .font(.app(.caption))
             Text(text)
                 .font(Theme.Typo.meta)
                 .lineLimit(2)
@@ -274,7 +274,7 @@ struct QuietRow: View {
 
     var body: some View {
         Text(text)
-            .font(.subheadline)
+            .font(.app(.subheadline))
             .foregroundStyle(Theme.Palette.labelSecondary)
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.vertical, Theme.Space.sm)

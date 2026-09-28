@@ -26,6 +26,10 @@ struct WebyarApp: App {
                 // easy to miss — but every row was built the wrong way round.
                 .environment(\.locale, appState.language.locale)
                 .environment(\.layoutDirection, appState.language.layoutDirection)
+                // The type every text without a font of its own is set in —
+                // IRANSans in Persian (see `Typeface`). `appState.language`
+                // is read above, so this is re-resolved when it changes.
+                .font(.app(.body))
                 // Changing the language rebuilds the interface instead of
                 // re-draping the one on screen.
                 //

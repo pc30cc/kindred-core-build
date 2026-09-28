@@ -171,13 +171,14 @@ private struct TabBadge: ViewModifier {
             // cut-out wider, taken out of the icon itself.
             .overlay(alignment: .topTrailing) {
                 if isShown {
-                    capsule
-                        .padding(cutout)
-                        .background(Capsule())
-                        .blendMode(.destinationOut)
-                        .alignmentGuide(.trailing) { d in d[.leading] + cutout + overlap }
-                        .alignmentGuide(.top) { d in d[VerticalAlignment.center] - drop }
-                        .transition(appearance)
+                    anchored(
+                        capsule
+                            .padding(cutout)
+                            .background(Capsule())
+                            .blendMode(.destinationOut),
+                        reach: overlap + cutout
+                    )
+                    .transition(appearance)
                 }
             }
             .compositingGroup()
@@ -192,8 +193,7 @@ private struct TabBadge: ViewModifier {
                                 SpringKeyframe(1.0, duration: 0.25, spring: .snappy)
                             }
                         }
-                        .alignmentGuide(.trailing) { d in d[.leading] + overlap }
-                        .alignmentGuide(.top) { d in d[VerticalAlignment.center] - drop }
+                        .modifier(Anchored(reach: overlap, drop: drop))
                         .transition(appearance)
                 }
             }
@@ -207,6 +207,11 @@ private struct TabBadge: ViewModifier {
                 guard new > old, old > 0, !reduceMotion else { return }
                 arrivals += 1
             }
+    }
+
+    /// The hole, placed exactly as the capsule is.
+    private func anchored(_ view: some View, reach: CGFloat) -> some View {
+        view.modifier(Anchored(reach: reach, drop: drop))
     }
 
     private var capsule: some View {
@@ -228,6 +233,28 @@ private struct TabBadge: ViewModifier {
 
     private var appearance: AnyTransition {
         reduceMotion ? .opacity : .scale(scale: 0.6).combined(with: .opacity)
+    }
+}
+
+/// Puts a badge beside the corner it is overlaid on: its near edge `reach`
+/// points in from the corner, its middle `drop` points below it.
+///
+/// A zero-sized frame pinned to the corner, with the badge hanging off its
+/// leading edge — so it grows outward, away from the icon, however many
+/// digits it has — and nudged back in by padding. Leading-edge padding and
+/// frame alignment both follow the layout direction, so the same code puts
+/// it top-right in English and top-left in Persian. (Custom alignment guides
+/// were the first way this was written; inside this overlay SwiftUI ignored
+/// them and sat the badge on top of the icon.)
+private struct Anchored: ViewModifier {
+    let reach: CGFloat
+    let drop: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.leading, -reach)
+            .padding(.top, drop * 2)
+            .frame(width: 0, height: 0, alignment: .leading)
     }
 }
 

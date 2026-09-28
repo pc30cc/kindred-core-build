@@ -8,7 +8,7 @@
  */
 import { Inbox, LayoutGrid, Settings2 } from 'lucide-react';
 import { useTranslation } from '@/i18n';
-import { SettingsSection, FieldGrid, SwitchField } from '@/components/admin/settings/SettingsFields';
+import { SettingsSection, FieldGrid, SwitchField, TextField } from '@/components/admin/settings/SettingsFields';
 import type { MobileAppSettings } from '@/hooks/useMobileApp';
 
 export function IosInAppTab({
@@ -81,6 +81,14 @@ export function IosInAppTab({
             hint={t('admin.mobileApp.iosInApp.showStorageHint')}
             checked={draft.ios_app_show_storage}
             onChange={(ios_app_show_storage) => set({ ios_app_show_storage })}
+          />
+          <TextField
+            label={t('admin.mobileApp.iosInApp.supportUrl')}
+            hint={t('admin.mobileApp.iosInApp.supportUrlHint')}
+            value={draft.ios_app_support_url ?? ''}
+            placeholder="https://t.me/…"
+            dir="ltr"
+            onChange={(value) => set({ ios_app_support_url: value || null })}
           />
         </FieldGrid>
       </SettingsSection>

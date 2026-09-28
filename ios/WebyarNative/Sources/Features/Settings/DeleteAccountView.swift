@@ -72,7 +72,7 @@ struct DeleteAccountView: View {
                     // instruction. Apple's rule is that deletion must be
                     // startable in the app, not that every case must finish
                     // there — but it must go somewhere.
-                    if let support = PlatformOrigin.supportURL {
+                    if let support = appState.supportURL {
                         Button {
                             openURL(support)
                         } label: {

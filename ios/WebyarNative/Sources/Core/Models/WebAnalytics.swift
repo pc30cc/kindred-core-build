@@ -257,12 +257,17 @@ struct MobileAppConfig: Hashable, Sendable {
     /// Settings → Storage: what the app keeps on the phone and the button
     /// that clears it. Hiding it hides the row, not the cache.
     var showStorage: Bool
+    /// Where Settings → About → Support opens, when Super Admin named one:
+    /// a page (https), an email (mailto:) or a phone number (tel:). `nil`
+    /// leaves the platform's own help centre in charge (`PlatformOrigin`).
+    var supportURL: URL?
 
     static let defaults = MobileAppConfig(showContacts: true, showVisitors: true, showWebAnalytics: true)
 
     init(
         showContacts: Bool, showVisitors: Bool, showWebAnalytics: Bool,
-        showAIQueue: Bool = true, showColleagues: Bool = true, showStorage: Bool = true
+        showAIQueue: Bool = true, showColleagues: Bool = true, showStorage: Bool = true,
+        supportURL: URL? = nil
     ) {
         self.showContacts = showContacts
         self.showVisitors = showVisitors
@@ -270,12 +275,27 @@ struct MobileAppConfig: Hashable, Sendable {
         self.showAIQueue = showAIQueue
         self.showColleagues = showColleagues
         self.showStorage = showStorage
+        self.supportURL = supportURL
+    }
+
+    /// A link fit to put behind a Support button: https, mailto: or tel:, and
+    /// nothing else — a Super Admin typo is not a reason to open whatever
+    /// scheme it happens to spell.
+    static func supportLink(_ raw: String?) -> URL? {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty,
+              let url = URL(string: raw),
+              let scheme = url.scheme?.lowercased(),
+              ["https", "mailto", "tel"].contains(scheme)
+        else { return nil }
+        if scheme == "https", url.host?.isEmpty ?? true { return nil }
+        return url
     }
 }
 
 extension MobileAppConfig: Decodable {
     enum CodingKeys: String, CodingKey {
         case showContacts, showVisitors, showWebAnalytics, showAIQueue, showColleagues, showStorage
+        case supportURL = "supportUrl"
     }
 
     /// Only an explicit `false` turns a section off; a missing or unreadable
@@ -292,5 +312,6 @@ extension MobileAppConfig: Decodable {
         showAIQueue = flag(.showAIQueue)
         showColleagues = flag(.showColleagues)
         showStorage = flag(.showStorage)
+        supportURL = Self.supportLink(try? c.decodeIfPresent(String.self, forKey: .supportURL))
     }
 }

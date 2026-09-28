@@ -45,6 +45,15 @@ const HTTPS_URL = z
   .transform((v) => (v === '' ? null : v))
   .nullable();
 
+/** A link an operator can be sent to for help: a page (https), an email or a phone number. */
+const SUPPORT_LINK = z
+  .string()
+  .trim()
+  .max(2000)
+  .refine((v) => v === '' || /^(https:\/\/|mailto:|tel:)\S+$/i.test(v), 'https, mailto: or tel: required')
+  .transform((v) => (v === '' ? null : v))
+  .nullable();
+
 const settingsSchema = z.object({
   app_name: z.string().trim().min(1).max(60).optional(),
   display_name: z.string().trim().min(1).max(30).optional(),
@@ -164,6 +173,7 @@ const settingsSchema = z.object({
   ios_app_show_ai_queue: z.boolean().optional(),
   ios_app_show_colleagues: z.boolean().optional(),
   ios_app_show_storage: z.boolean().optional(),
+  ios_app_support_url: SUPPORT_LINK.optional(),
 }).refine(
   (v) => v.android_min_sdk === undefined || v.android_target_sdk === undefined || v.android_min_sdk <= v.android_target_sdk,
   { message: 'minimum SDK above target SDK', path: ['android_min_sdk'] },

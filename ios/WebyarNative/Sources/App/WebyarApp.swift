@@ -151,12 +151,16 @@ struct RootView: View {
 /// it: same colour underneath, and everything this screen adds arrives by
 /// fading in on top of it. Anything already drawn at the first frame is a cut
 /// between two screens instead of one screen becoming another.
+///
+/// What it adds is the brand's own mark, not its name: the icon the operator
+/// has just tapped, carried from the home screen into the app, with a ring of
+/// the icon's two blues running round it. The name set in type read as a
+/// placeholder; the mark reads as the product, and the ring says "loading"
+/// without a second element saying it again underneath.
 struct LaunchView: View {
     @Environment(AppState.self) private var appState
 
     @State private var hasAppeared = false
-    /// Set once the restore has gone on long enough to be worth admitting to.
-    @State private var isTakingAWhile = false
 
     /// Whether this run was asked to stay on the launch screen.
     ///
@@ -179,84 +183,162 @@ struct LaunchView: View {
             // The exact colour the system's launch image is filled with —
             // `UILaunchScreen.UIColorName` in Info.plist names this asset.
             //
-            // It used to be `.systemBackground`, which is pure white and pure
-            // black, and this asset is neither: #F4F6F9 and #0C0E14. So the
-            // handoff the comment above claimed to be invisible was in fact a
-            // one-frame change of background colour, on every single launch.
+            // Not `.systemBackground`, which is pure white and pure black:
+            // this asset is neither (#F4F6F9 and #0C0E14), and the difference
+            // would be a one-frame change of background on every launch.
             Color("LaunchBackground")
                 .ignoresSafeArea()
 
-            // One soft pool of brand colour behind the mark. A launch screen
-            // has one thing on it and a lot of empty space; lighting the
-            // space is what stops the mark looking dropped onto a blank page.
-            RadialGradient(
-                colors: [Theme.Palette.brand.opacity(0.14), .clear],
-                center: .center,
-                startRadius: 0,
-                endRadius: 260
-            )
-            .ignoresSafeArea()
-            .opacity(hasAppeared ? 1 : 0)
-            .accessibilityHidden(true)
+            LaunchGlow()
+                .opacity(hasAppeared ? 1 : 0)
 
-            VStack(spacing: Theme.Space.xl) {
-                // The wordmark is the loading indicator. A spinner under it
-                // would be a second thing saying the same thing.
-                BrandWordmark(language: appState.language, size: 40, isLoading: true)
-
-                // Unless it is genuinely slow. The sweep is a shimmer on a
-                // logo: it reads as branding, and after a second or two of it
-                // an operator starts to wonder whether anything is happening.
-                // A restore that has taken longer than a moment has something
-                // to say, so it says it — and a fast launch, which is nearly
-                // all of them, never shows this at all.
-                LaunchProgress()
-                    .opacity(isTakingAWhile ? 1 : 0)
-            }
+            LaunchLoader()
+                .accessibilityElement()
+                .accessibilityLabel(Str.appName(appState.language))
+                .accessibilityAddTraits(.updatesFrequently)
         }
         .task {
-            withAnimation(.easeOut(duration: 0.55)) { hasAppeared = true }
-            try? await Task.sleep(for: .seconds(1.2))
-            withAnimation(.easeOut(duration: 0.35)) { isTakingAWhile = true }
+            withAnimation(.easeOut(duration: 0.6)) { hasAppeared = true }
         }
     }
 }
 
-/// A thin travelling segment: "still working", said quietly.
-///
-/// Pinned left-to-right like the wordmark above it. It sits under a Latin
-/// mark whose own sweep runs that way, and a bar running the other way in
-/// Persian would have the two moving against each other.
-private struct LaunchProgress: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var travel: CGFloat = -0.34
+/// The icon's two blues, as the loader draws them: the deep blue of its
+/// lower edge and the cyan of its highlight.
+private enum LaunchPalette {
+    static let deep = Color(red: 0.047, green: 0.314, blue: 0.914)
+    static let cyan = Color(red: 0.180, green: 0.839, blue: 1.000)
+}
 
-    private let width: CGFloat = 132
-    private let height: CGFloat = 3
-    private var segment: CGFloat { 0.34 }
+/// Light behind the mark: two soft pools, the icon's blue and its cyan, that
+/// breathe slowly. A launch screen has one thing on it and a lot of empty
+/// space; lighting the space is what keeps the mark from looking dropped onto
+/// a blank page.
+private struct LaunchGlow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var breathe = false
 
     var body: some View {
-        Capsule()
-            .fill(Theme.Palette.brand.opacity(0.16))
-            .frame(width: width, height: height)
-            .overlay(alignment: .leading) {
-                Capsule()
-                    .fill(Theme.Palette.brand.opacity(reduceMotion ? 0.5 : 1))
-                    .frame(width: width * segment, height: height)
-                    // Parked a third of the way along for anyone who has asked
-                    // the system to reduce motion: the shape still reads as a
-                    // progress track rather than as a stray line.
-                    .offset(x: (reduceMotion ? 0.33 : travel) * width)
-            }
-            .clipShape(Capsule())
-            .environment(\.layoutDirection, .leftToRight)
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeInOut(duration: 1.25).repeatForever(autoreverses: false)) {
-                    travel = 1
-                }
-            }
-            .accessibilityHidden(true)
+        ZStack {
+            RadialGradient(
+                colors: [LaunchPalette.deep.opacity(0.18), .clear],
+                center: .center, startRadius: 0, endRadius: 280
+            )
+            RadialGradient(
+                colors: [LaunchPalette.cyan.opacity(0.16), .clear],
+                center: UnitPoint(x: 0.62, y: 0.42), startRadius: 0, endRadius: 200
+            )
+            .opacity(breathe ? 1 : 0.45)
+            .animation(
+                reduceMotion ? nil : .easeInOut(duration: 2.4).repeatForever(autoreverses: true),
+                value: breathe
+            )
+        }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
+        .task { if !reduceMotion { breathe = true } }
+    }
+}
+
+/// The icon, breathing, inside a ring whose bright head runs round it.
+///
+/// Every loop is started once the mark has arrived, and each is scoped to the
+/// one modifier it drives: a repeating animation begun in the same
+/// transaction as the entrance would otherwise pick the entrance up too, and
+/// the mark would bob in and out for as long as the screen is up.
+private struct LaunchLoader: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hasAppeared = false
+    @State private var spin = false
+    @State private var breathe = false
+
+    private let markSize: CGFloat = 92
+    private let ringSize: CGFloat = 138
+    private let lineWidth: CGFloat = 3
+    /// How much of the circle the lit arc covers.
+    private let arc: CGFloat = 0.3
+
+    var body: some View {
+        ZStack {
+            // Where the arc runs, barely there: the ring reads as a ring even
+            // where the light is not.
+            Circle()
+                .stroke(Theme.Palette.brand.opacity(0.10), lineWidth: lineWidth)
+                .frame(width: ringSize, height: ringSize)
+
+            runner
+                .frame(width: ringSize, height: ringSize)
+                // Parked at the top for anyone who has asked the system to
+                // reduce motion: still a loading ring, just not a moving one.
+                .rotationEffect(.degrees(spin ? 270 : -90))
+                .animation(
+                    reduceMotion ? nil : .linear(duration: 1.15).repeatForever(autoreverses: false),
+                    value: spin
+                )
+
+            mark
+                .scaleEffect(breathe ? 1.035 : 1)
+                .animation(
+                    reduceMotion ? nil : .easeInOut(duration: 1.3).repeatForever(autoreverses: true),
+                    value: breathe
+                )
+        }
+        .opacity(hasAppeared ? 1 : 0)
+        .scaleEffect(hasAppeared ? 1 : 0.9)
+        // The ring turns the same way in every language: it is a clock, not text.
+        .environment(\.layoutDirection, .leftToRight)
+        .onAppear {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.82)) { hasAppeared = true }
+        }
+        .task {
+            guard !reduceMotion else { return }
+            // After the entrance has been handed its own transaction.
+            try? await Task.sleep(for: .milliseconds(60))
+            spin = true
+            breathe = true
+        }
+    }
+
+    /// The lit arc — a comet, bright cyan at its head and fading to nothing
+    /// at its tail — and a small glowing bead on its head.
+    private var runner: some View {
+        ZStack {
+            Circle()
+                .trim(from: 0, to: arc)
+                .stroke(
+                    AngularGradient(
+                        gradient: Gradient(stops: [
+                            .init(color: LaunchPalette.deep.opacity(0), location: 0),
+                            .init(color: LaunchPalette.deep, location: 0.55),
+                            .init(color: LaunchPalette.cyan, location: 1),
+                        ]),
+                        center: .center,
+                        startAngle: .degrees(0),
+                        endAngle: .degrees(arc * 360)
+                    ),
+                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                )
+
+            Circle()
+                .fill(LaunchPalette.cyan)
+                .frame(width: lineWidth * 2.4, height: lineWidth * 2.4)
+                .shadow(color: LaunchPalette.cyan.opacity(0.9), radius: 5)
+                .offset(x: ringSize / 2)
+                .rotationEffect(.degrees(arc * 360))
+        }
+    }
+
+    /// The home-screen icon, cut to the same continuous corner iOS gives it,
+    /// so the thing tapped is the thing that appears.
+    private var mark: some View {
+        let shape = RoundedRectangle(cornerRadius: markSize * 0.2237, style: .continuous)
+        return Image("LaunchMark")
+            .resizable()
+            .interpolation(.high)
+            .frame(width: markSize, height: markSize)
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(.white.opacity(0.22), lineWidth: 0.5))
+            .shadow(color: LaunchPalette.deep.opacity(0.32), radius: 18, y: 8)
     }
 }
 

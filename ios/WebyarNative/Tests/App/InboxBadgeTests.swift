@@ -40,7 +40,20 @@ private actor BadgeAPI: TestAPIBase {
     func colleagues(workspaceID: String) async throws -> ColleaguesResponse {
         teamReads += 1
         if failing { throw APIError.transport }
-        return ColleaguesResponse(colleagues: [], totalUnread: team, me: "u1")
+        // `team` colleagues with an unread thread, two messages each, and one
+        // whose thread is read — so a count of messages and a count of
+        // threads come out different.
+        let unread = (0..<team).map { index in
+            Colleague(
+                userId: "u\(index + 2)", role: "agent", fullName: nil, email: nil,
+                avatarURL: nil, unread: 2, lastMessage: nil
+            )
+        }
+        let read = Colleague(
+            userId: "u99", role: "agent", fullName: nil, email: nil,
+            avatarURL: nil, unread: 0, lastMessage: nil
+        )
+        return ColleaguesResponse(colleagues: unread + [read], totalUnread: team * 2, me: "u1")
     }
 }
 
@@ -74,7 +87,7 @@ final class InboxBadgeTests: XCTestCase {
         let task = try await tracking(badge)
         defer { task.cancel() }
         XCTAssertEqual(badge.conversations, 2, "c1 and c3 hold unread messages; c2 is read")
-        XCTAssertEqual(badge.teamMessages, 1)
+        XCTAssertEqual(badge.teamThreads, 1)
         XCTAssertEqual(badge.total, 3)
         let reads = await api.reads
         XCTAssertFalse(reads.contains(.ai), "the AI queue is never asked for: it does not light the dot")
@@ -82,6 +95,16 @@ final class InboxBadgeTests: XCTestCase {
 
     /// The point of it: nothing unread in Open or Colleagues, no dot — however
     /// busy the AI queue is.
+    /// Two messages from one colleague are one thing to answer.
+    func testColleaguesCountAsThreadsNotMessages() async throws {
+        await api.setTeam(2)
+        let badge = badge()
+        let task = try await tracking(badge)
+        defer { task.cancel() }
+        XCTAssertEqual(badge.teamThreads, 2, "two colleagues with unread threads, four messages between them")
+        XCTAssertEqual(badge.total, 4)
+    }
+
     func testEverythingReadMeansNoDot() async throws {
         await api.setOpen(["c1": 0, "c2": 0])
         await api.setTeam(0)
@@ -131,7 +154,7 @@ final class InboxBadgeTests: XCTestCase {
         await api.setTeam(4)
         sync.emit(.team(peerID: "u2"))
         try await settle()
-        XCTAssertEqual(badge.teamMessages, 4)
+        XCTAssertEqual(badge.teamThreads, 4)
         let after = await api.openReads
         XCTAssertEqual(after, before, "a team message says nothing about visitors' conversations")
     }
@@ -153,7 +176,7 @@ final class InboxBadgeTests: XCTestCase {
         let badge = badge()
         let task = try await tracking(badge, team: false)
         defer { task.cancel() }
-        XCTAssertEqual(badge.teamMessages, 0)
+        XCTAssertEqual(badge.teamThreads, 0)
         XCTAssertEqual(badge.total, 2)
         let teamReads = await api.teamReads
         XCTAssertEqual(teamReads, 0)

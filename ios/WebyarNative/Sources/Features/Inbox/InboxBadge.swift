@@ -1,16 +1,19 @@
 import Foundation
 import Observation
 
-/// Whether anything in the Inbox is waiting to be read — the dot on its tab.
+/// How many conversations in the Inbox are waiting to be read — the count on
+/// its tab.
 ///
 /// Exactly the two places an operator is expected to answer: the **Open** tab
 /// — its conversations holding a customer message nobody has opened
-/// (`unread_count` on the rows of that very list, so the dot and the tab can
-/// never disagree) — and **Colleagues** — team messages not read yet
-/// (`total_unread` of the colleagues list), when team chat is on. The AI
-/// queue is deliberately not counted: the AI is answering those, and a dot
-/// that never goes away is a dot nobody looks at. Once everything in both is
-/// read, there is no dot.
+/// (`unread_count` on the rows of that very list, so the badge and the tab
+/// can never disagree) — and **Colleagues** — the colleagues whose thread
+/// holds a message not read yet, when team chat is on. Conversations, not
+/// messages, on both sides: the inbox is worked a conversation at a time, and
+/// a colleague who sends five lines in a row is one thing to answer, not
+/// five. The AI queue is deliberately not counted: the AI is answering those,
+/// and a badge that never goes away is a badge nobody looks at. Once
+/// everything in both is read, there is no badge.
 ///
 /// Read again on every realtime event — a message, a conversation changing,
 /// a push, a read on this phone, a team message, coming back to the app —
@@ -23,10 +26,10 @@ final class InboxBadge {
     /// Conversations in the Open tab holding a customer message nobody has
     /// opened.
     private(set) var conversations = 0
-    /// Team messages from colleagues not read yet.
-    private(set) var teamMessages = 0
+    /// Colleagues whose thread holds a message not read yet.
+    private(set) var teamThreads = 0
 
-    var total: Int { conversations + teamMessages }
+    var total: Int { conversations + teamThreads }
     var hasUnread: Bool { total > 0 }
 
     @ObservationIgnored private let api: any WebyarAPI
@@ -48,11 +51,11 @@ final class InboxBadge {
         if workspaceID != self.workspaceID {
             // Another workspace's count is never shown under this one.
             conversations = 0
-            teamMessages = 0
+            teamThreads = 0
         }
         self.workspaceID = workspaceID
         self.includesTeam = includesTeam
-        if !includesTeam { teamMessages = 0 }
+        if !includesTeam { teamThreads = 0 }
         guard let workspaceID else { return }
 
         await refreshConversations(workspaceID)
@@ -128,8 +131,10 @@ final class InboxBadge {
               let response = try? await api.colleagues(workspaceID: workspaceID),
               self.workspaceID == workspaceID, includesTeam
         else { return }
-        let value = max(0, response.totalUnread
-            ?? response.colleagues.reduce(0) { $0 + max(0, $1.unread ?? 0) })
-        if value != teamMessages { teamMessages = value }
+        let threads = response.colleagues.filter { ($0.unread ?? 0) > 0 }.count
+        // A server that sends the total and not the rows still has something
+        // unread: one, rather than nothing.
+        let value = threads > 0 ? threads : ((response.totalUnread ?? 0) > 0 ? 1 : 0)
+        if value != teamThreads { teamThreads = value }
     }
 }

@@ -4467,6 +4467,8 @@ const en = {
         settingsCaption: "Which sections operators see in the iOS app's Settings. Applied live, like the tabs above.",
         showStorage: "Show \"Storage\"",
         showStorageHint: "What the app keeps on the phone and the button that clears it. Off hides the row; the cache itself keeps working.",
+        supportUrl: "Support link",
+        supportUrlHint: "Where Settings → About → Support opens: a page, a Telegram or WhatsApp link (https://…), an email (mailto:…) or a phone number (tel:…). Empty uses the Identity tab's \"Support URL\", then the platform's help centre.",
       },
       androidTabs: {
         overview: 'Overview',

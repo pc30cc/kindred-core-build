@@ -15,7 +15,25 @@ describe('iOS in-app config', () => {
       showAIQueue: true,
       showColleagues: true,
       showStorage: true,
+      supportUrl: null,
     });
+  });
+
+  it('points Support at the in-app link Super Admin set', () => {
+    const config = toIosAppConfig(normalize({
+      ios_app_support_url: 'https://t.me/webyar_support',
+      support_url: 'https://webyar.ai/support',
+    }));
+    expect(config.supportUrl).toBe('https://t.me/webyar_support');
+  });
+
+  it('falls back to the App Store support URL, then to nothing', () => {
+    expect(toIosAppConfig(normalize({ support_url: 'https://webyar.ai/support' })).supportUrl)
+      .toBe('https://webyar.ai/support');
+    // Nothing set anywhere: the app keeps the platform's own help centre.
+    expect(toIosAppConfig(normalize({})).supportUrl).toBeNull();
+    // An emptied field is not a link.
+    expect(toIosAppConfig(normalize({ ios_app_support_url: '' })).supportUrl).toBeNull();
   });
 
   it('keeps Settings → Storage on for rows written before migration 232', () => {

@@ -184,6 +184,28 @@ final class VisitorModelsTests: XCTestCase {
         XCTAssertTrue(config.showColleagues)
     }
 
+    func testSupportOpensTheLinkSuperAdminSet() throws {
+        let telegram = try decode(MobileAppConfig.self, #"{"platform":"ios","supportUrl":"https://t.me/webyar_support"}"#)
+        XCTAssertEqual(telegram.supportURL, URL(string: "https://t.me/webyar_support"))
+
+        let email = try decode(MobileAppConfig.self, #"{"platform":"ios","supportUrl":"mailto:help@webyar.ai"}"#)
+        XCTAssertEqual(email.supportURL?.scheme, "mailto")
+
+        let phone = try decode(MobileAppConfig.self, #"{"platform":"ios","supportUrl":"tel:+982100000000"}"#)
+        XCTAssertEqual(phone.supportURL?.scheme, "tel")
+    }
+
+    func testOnlyASupportLinkFitToOpenIsTaken() throws {
+        // Nothing set: the platform's own help centre stays in charge.
+        XCTAssertNil(try decode(MobileAppConfig.self, #"{"platform":"ios","supportUrl":null}"#).supportURL)
+        XCTAssertNil(try decode(MobileAppConfig.self, #"{"platform":"ios"}"#).supportURL)
+        XCTAssertNil(try decode(MobileAppConfig.self, #"{"platform":"ios","supportUrl":""}"#).supportURL)
+        // A scheme nobody meant to allow, or a page with no host, is not a link.
+        XCTAssertNil(try decode(MobileAppConfig.self, #"{"platform":"ios","supportUrl":"http://webyar.ai"}"#).supportURL)
+        XCTAssertNil(try decode(MobileAppConfig.self, #"{"platform":"ios","supportUrl":"javascript:alert(1)"}"#).supportURL)
+        XCTAssertNil(try decode(MobileAppConfig.self, #"{"platform":"ios","supportUrl":"https://"}"#).supportURL)
+    }
+
     func testAServerWithoutTheStorageSwitchKeepsItShown() throws {
         // Everything before migration 232 answers without the key.
         let config = try decode(MobileAppConfig.self, """

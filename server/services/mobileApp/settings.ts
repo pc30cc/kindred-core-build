@@ -166,6 +166,8 @@ export interface MobileAppSettings {
   ios_app_show_colleagues: boolean;
   // Settings → Storage, as android_app_show_storage is on Android.
   ios_app_show_storage: boolean;
+  // Where Settings → About → Support opens. Empty falls back to support_url.
+  ios_app_support_url: string | null;
 
   checklist: Record<string, { done: boolean; at?: string; by?: string }>;
   updated_at?: string | null;
@@ -289,6 +291,7 @@ export const MOBILE_APP_DEFAULTS: MobileAppSettings = {
   ios_app_show_ai_queue: true,
   ios_app_show_colleagues: true,
   ios_app_show_storage: true,
+  ios_app_support_url: null,
 
   checklist: {},
   updated_at: null,
@@ -403,6 +406,12 @@ export interface IosAppConfig {
   showColleagues: boolean;
   /** Settings → Storage: the cache sizes and the button that clears them. */
   showStorage: boolean;
+  /**
+   * Where Settings → About → Support opens: the in-app link Super Admin set,
+   * else the App Store support URL, else `null` — and then the app keeps
+   * using the platform's own help centre.
+   */
+  supportUrl: string | null;
 }
 
 export function toIosAppConfig(settings: MobileAppSettings): IosAppConfig {
@@ -414,5 +423,6 @@ export function toIosAppConfig(settings: MobileAppSettings): IosAppConfig {
     showAIQueue: settings.ios_app_show_ai_queue,
     showColleagues: settings.ios_app_show_colleagues,
     showStorage: settings.ios_app_show_storage,
+    supportUrl: settings.ios_app_support_url || settings.support_url || null,
   };
 }

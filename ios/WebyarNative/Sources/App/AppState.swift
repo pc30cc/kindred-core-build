@@ -542,6 +542,11 @@ final class AppState {
     /// a plan feature, and hiding it leaves the cache working as before.
     var storageVisible: Bool { appConfig.showStorage }
 
+    /// Where Support opens: the link Super Admin set for the app (Mobile App
+    /// → iOS → In-app settings, falling back server-side to the App Store
+    /// support URL), else the platform's own help centre.
+    var supportURL: URL? { appConfig.supportURL ?? PlatformOrigin.supportURL }
+
     /// Whether the mailbox belongs here: an owner/admin section (as in the
     /// console's sidebar) whose Email Inbox module is exactly `true`. An entry
     /// that opens onto a 403 is worse than no entry.

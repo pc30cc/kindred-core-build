@@ -80,7 +80,15 @@ async function bootstrap() {
   );
   logCallUiBuildVersion();
   // Reveal UI only after React has mounted with correct translations
-  requestAnimationFrame(() => { root.style.opacity = '1'; });
+  requestAnimationFrame(() => {
+    root.style.opacity = '1';
+    // Fade the static launch loader from index.html out over the app.
+    const splash = document.getElementById('boot-splash');
+    if (splash) {
+      splash.style.opacity = '0';
+      setTimeout(() => splash.remove(), 250);
+    }
+  });
 
   // Native shell only. Both of these belong HERE, not in the authenticated
   // layout: the launch image is configured not to auto-hide, so hiding it

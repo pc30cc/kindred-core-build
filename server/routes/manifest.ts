@@ -49,7 +49,7 @@ manifestRouter.get('/', async (req, res) => {
   const shortName = shortNameRaw.slice(0, 30);
   const iconUrl = (b.pwa_icon_url as string | null) || (b.favicon_url as string | null) || (b.logo_url as string | null) || '/favicon.png';
   const themeColor = (b.primary_color as string | null) || '#3B82F6';
-  const backgroundColor = (b.pwa_background_color as string | null) || '#ffffff';
+  const backgroundColor = (b.pwa_background_color as string | null) || '#F4F6F9';
 
   // The app may be served from a different host than this API
   // (app.example.com vs api.example.com). A manifest is only usable when its

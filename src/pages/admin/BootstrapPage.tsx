@@ -1,3 +1,4 @@
+import { BrandLoaderScreen } from '@/components/brand/BrandLoader';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useIsGlobalAdmin, useBootstrapAdmin } from '@/hooks/useAdmin';
 import { Button } from '@/components/ui/button';
@@ -14,11 +15,7 @@ export default function AdminBootstrapPage() {
   const bootstrap = useBootstrapAdmin();
 
   if (authLoading || roleLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-admin-accent border-t-transparent" />
-      </div>
-    );
+    return <BrandLoaderScreen />;
   }
 
   if (!user) return <Navigate to="/auth/login" replace />;

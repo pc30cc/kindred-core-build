@@ -1,3 +1,4 @@
+import { BrandLoaderScreen } from '@/components/brand/BrandLoader';
 /**
  * WorkspaceRedirect: Redirects /app to /:slug using the user's first workspace.
  * If user has no workspaces, auto-provisions one.
@@ -79,20 +80,7 @@ export function WorkspaceRedirect() {
   }, [isLoading, workspaces, user, provisioning, refetch, t]);
 
   if (isLoading || provisioning) {
-    return (
-      <div dir={dir} className="flex min-h-screen items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-4">
-          <div className="relative">
-            <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center">
-              <Building2 className="h-6 w-6 text-primary animate-pulse" />
-            </div>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {provisioning ? t('workspaceRedirect.provisioning') : t('workspaceRedirect.loading')}
-          </p>
-        </div>
-      </div>
-    );
+    return <BrandLoaderScreen />;
   }
 
   if (workspaces?.length) {

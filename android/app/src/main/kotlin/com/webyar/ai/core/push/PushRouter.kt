@@ -13,6 +13,8 @@ data class PushContext(
     val foreground: Boolean,
     /** The conversations on screen right now. */
     val openConversationIds: Set<String>,
+    /** The colleagues whose team thread is on screen right now. */
+    val openTeamPeerIds: Set<String> = emptySet(),
 )
 
 /**
@@ -36,6 +38,10 @@ data class PushContext(
  * that arrives before the workspaces are known, or names none: there is then
  * nothing to check it against, and "not yet known" must not read as "fine".
  * With the app in front, the inbox shows the message anyway.
+ *
+ * A colleague's message in team chat is the same, about a thread instead of
+ * a conversation: the screens that show team chat are told to read again,
+ * and it is shown unless that colleague's thread is the one on screen.
  */
 class PushRouter(
     private val sync: SyncCoordinator,
@@ -65,6 +71,17 @@ class PushRouter(
                 if (now.workspaceIds.isEmpty()) "push dropped: workspaces not known yet"
                 else "push dropped: workspace ${Diag.id(workspace)} is not this operator's",
             )
+            return
+        }
+        if (payload.isTeamMessage) {
+            val peer = payload.peerId ?: run {
+                diag.warn(AREA, "team push dropped: names no colleague")
+                return
+            }
+            diag.info(AREA, "team push from ${Diag.id(peer)}")
+            sync.onTeamPush(workspace, peer)
+            if (now.foreground && peer in now.openTeamPeerIds) return
+            show(payload, title, body, now.language)
             return
         }
         diag.info(AREA, "push-triggered sync (${payload.type ?: "?"}) for ${Diag.id(payload.conversationId)}")

@@ -1,4 +1,11 @@
-export { notifyInboundMessage, renderContent, type InboundPushInput } from './dispatch.js';
+export {
+  notifyInboundMessage,
+  notifyTeamMessage,
+  renderContent,
+  renderTeamContent,
+  type InboundPushInput,
+  type TeamPushInput,
+} from './dispatch.js';
 export {
   registerDevice,
   disableDevice,

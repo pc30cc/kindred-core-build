@@ -9,6 +9,13 @@ message committed → notifyInboundMessage() → recipient resolver (prefs, role
 assignment, actor exclusion) → mobile_push_devices → FCM v1 → APNs → device
 ```
 
+A colleague's direct message in team chat takes the same road from its own
+door: `POST /api/team-chat/messages` → `notifyTeamMessage()` → the recipient's
+own preferences (scope `none` and "disable all" silence it; quiet hours give way
+as for a mention) → their devices. Its `data` carries `type: team_message` and
+`peerId` (the colleague) instead of a `conversationId`; the apps open that
+colleague's thread on a tap.
+
 Delivery is best-effort and idempotent (`push_dispatch_log.dedupe_key`); a push
 failure can never fail or roll back message ingestion.
 

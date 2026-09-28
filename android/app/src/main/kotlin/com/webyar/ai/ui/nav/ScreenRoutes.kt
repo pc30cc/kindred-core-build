@@ -128,6 +128,7 @@ import com.webyar.ai.ui.components.EmptyState
 import com.webyar.ai.ui.components.bidiContent
 import com.webyar.ai.ui.components.rememberSearchState
 import com.webyar.ai.LocalAppGraph
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.LifecycleStartEffect
 import com.webyar.ai.core.cache.CacheScope
@@ -842,7 +843,10 @@ fun TeamThreadRoute(
     val sendFailed by thread.sendFailed.collectAsStateWithLifecycle()
     val notice by thread.notice.collectAsStateWithLifecycle()
 
-    val colleague = remember(peerId) { colleagues.colleague(peerId) }
+    // Read again as the list lands: a thread opened from a notification at
+    // a cold start is on screen before the colleagues have been read.
+    val colleaguesState by colleagues.state.collectAsStateWithLifecycle()
+    val colleague = remember(peerId, colleaguesState) { colleagues.colleague(peerId) }
     val context = LocalContext.current
     val graph = LocalAppGraph.current
     val session by appState.session.collectAsStateWithLifecycle()
@@ -853,7 +857,11 @@ fun TeamThreadRoute(
     }
 
     LaunchedEffect(workspace?.id, peerId) {
-        workspace?.let { thread.open(it.id, peerId) }
+        workspace?.let {
+            thread.open(it.id, peerId)
+            // Idempotent: the list itself binds the same way.
+            colleagues.bind(it.id)
+        }
     }
 
     // Polls only while this screen is resumed. `repeatOnLifecycle` and not a
@@ -865,6 +873,21 @@ fun TeamThreadRoute(
     LaunchedEffect(lifecycleOwner, peerId, teamSignals) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             thread.pollWhileVisible(teamSignals)
+        }
+    }
+
+    // On screen, this colleague's next message needs no notification — it is
+    // arriving here — and the one already in the tray has done its job.
+    val coordinator = remember(graph) { graph?.syncGraph()?.coordinator }
+    LaunchedEffect(lifecycleOwner, peerId, coordinator) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            com.webyar.ai.core.push.Notifications.cancelTeamThread(context, peerId)
+            coordinator?.openTeamThread(peerId)
+            try {
+                awaitCancellation()
+            } finally {
+                coordinator?.closeTeamThread(peerId)
+            }
         }
     }
 

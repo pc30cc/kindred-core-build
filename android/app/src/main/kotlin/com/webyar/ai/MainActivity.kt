@@ -136,7 +136,7 @@ class MainActivity : ComponentActivity() {
         // worth a crash at launch.
         val link = runCatching { PushPayload.from(intent) }.getOrNull() ?: return
         appState.openFromNotification(link)
-        link.conversationId?.let { Notifications.cancelConversation(this, it) }
+        Notifications.cancelFor(this, link)
     }
 }
 

@@ -164,6 +164,7 @@ class AppGraph(private val app: Application) {
                     language = session.language,
                     foreground = session.foreground,
                     openConversationIds = sync.openThreadIds(),
+                    openTeamPeerIds = sync.openTeamPeerIds(),
                 )
             }
         },

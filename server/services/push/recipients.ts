@@ -18,16 +18,27 @@ import type { PushPlatformSettings } from './platformSettings.js';
 import { getServiceClient } from '../../supabase.js';
 import { getConnectedOperators } from '../widget/operatorPresenceSource.js';
 
-export type PushEventType = 'new_message' | 'internal_note' | 'mention';
+/**
+ * `team_message` is a colleague's direct message in team chat: addressed to
+ * one operator, and about no conversation.
+ */
+export type PushEventType = 'new_message' | 'internal_note' | 'mention' | 'team_message';
 
 export interface RecipientContext {
   workspaceId: string;
-  conversationId: string;
+  /** The conversation the event is in; none for a team message. */
+  conversationId?: string | null;
   assignedTo: string | null;
   eventType: PushEventType;
   /** Operator who authored the note/mention; never notified. */
   actorId?: string | null;
   mentionedUserIds?: string[];
+  /**
+   * Only these members are considered at all — the one operator a team
+   * message is addressed to — so a direct message does not read the prefs,
+   * profiles and presence of the whole workspace to notify one person.
+   */
+  userIds?: string[];
   /**
    * Platform-wide policy (Super Admin → Notifications). Supplies the defaults
    * for an operator who never opened their own notification preferences, and
@@ -144,10 +155,12 @@ export async function resolveRecipients(
 ): Promise<Recipient[]> {
   const sb = getServiceClient(config);
 
-  const { data: members, error } = await sb
+  let memberQuery = sb
     .from('workspace_members')
     .select('user_id, suspended_at')
     .eq('workspace_id', ctx.workspaceId);
+  if (ctx.userIds) memberQuery = memberQuery.in('user_id', ctx.userIds);
+  const { data: members, error } = await memberQuery;
   if (error) {
     console.error('[push] member lookup failed', { code: error.code, message: error.message });
     return [];
@@ -216,11 +229,17 @@ export async function resolveRecipients(
     const isAssignee = ctx.assignedTo === userId;
 
     // Quiet hours: silenced unless the operator was personally mentioned AND
-    // the platform allows a mention to break the window.
+    // the platform allows a mention to break the window. A colleague's
+    // direct message is addressed to them just as personally, and is passed
+    // in as a mention of its recipient for exactly this.
     if (!(isMentioned && mentionBypassesQuietHours) && isWithinQuietHours(p, now)) continue;
 
-
     if (ctx.eventType === 'mention' && !isMentioned) continue;
+    // Addressed to one operator: the scope ("assigned to me", "mentions
+    // only") is about customers' conversations, and a direct message is
+    // theirs whatever it is set to — only 'none' and "disable all", above,
+    // silence it.
+    if (ctx.eventType === 'team_message' && !isMentioned) continue;
     if (ctx.eventType === 'internal_note') {
       if (!p.push_internal_notes && !isMentioned) continue;
       if (!isAssignee && !isMentioned && p.push_scope !== 'all') continue;

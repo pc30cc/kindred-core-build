@@ -39,8 +39,14 @@ const base = {
   data: { conversationId: 'c-1', workspaceId: 'w-1' },
 };
 
-function payloadOf(request: { body: Buffer }): any {
-  return JSON.parse(request.body.toString('utf8'));
+/** What Apple receives: its own `aps` dictionary beside our identifiers. */
+interface AlertPayload {
+  aps: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+function payloadOf(request: { body: Buffer }): AlertPayload {
+  return JSON.parse(request.body.toString('utf8')) as AlertPayload;
 }
 
 describe('APNs alert request', () => {

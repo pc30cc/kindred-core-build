@@ -153,6 +153,8 @@ open class ScriptedApi(base: WebyarApi = SampleApi()) : WebyarApi by base {
     val queues = HashMap<InboxFilter, MutableList<Conversation>>()
     val listReads = mutableListOf<Pair<InboxFilter, String?>>()
     val idReads = mutableListOf<List<String>>()
+    /** The queue each of [idReads] asked about, in the same order; null is "wherever it is". */
+    val idReadFilters = mutableListOf<InboxFilter?>()
     var failLists: Throwable? = null
     var idsSupported = true
 
@@ -201,6 +203,7 @@ open class ScriptedApi(base: WebyarApi = SampleApi()) : WebyarApi by base {
         filter: InboxFilter?,
     ): ConversationSlice {
         idReads += ids
+        idReadFilters += filter
         failLists?.let { throw it }
         val pool = (if (filter != null) queues[filter].orEmpty() else queues.values.flatten())
             .filter { it.workspaceId == workspaceId }

@@ -1,5 +1,14 @@
 package com.webyar.ai.ui.nav
 
+import androidx.compose.material3.Badge
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.webyar.ai.feature.inbox.badgeText
+import com.webyar.ai.feature.inbox.inboxBadgeCount
+import com.webyar.ai.feature.inbox.rememberTeamUnread
+import com.webyar.ai.ui.components.unreadDescription
+import com.webyar.ai.ui.design.WebyarTheme
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -157,6 +166,32 @@ fun AppShell(
     // stacks, so a process that died in one workspace and comes back in
     // another (it was left meanwhile) is cleared the same way.
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
+
+    // What the Inbox tab's badge counts, read whichever tab is open: the
+    // badge matters most when the Inbox is not the tab on screen. The inbox
+    // model is bound here too, not only by the inbox, so a workspace switched
+    // from another tab counts the new workspace's Open queue at once.
+    LaunchedEffect(workspace?.id) { workspace?.id?.let(conversations::bind) }
+    val openUnread by conversations.openUnread.collectAsStateWithLifecycle()
+    val plan by appState.entitlements.collectAsStateWithLifecycle()
+    val teamUnread = rememberTeamUnread(
+        api = api,
+        workspaceId = workspace?.id,
+        teamChat = plan.value?.featureEnabled("inbox_team_chat") == true,
+        signals = rememberTeamSignals(),
+    )
+    val inboxBadge = inboxBadgeCount(openUnread, teamUnread.value)
+
+    // A team thread is marked read as it is opened; the badge asks again as
+    // it closes, rather than at the next poll. Team threads live on the
+    // inbox's stack.
+    LaunchedEffect(navigator, teamUnread) {
+        var previous: NavKey? = null
+        snapshotFlow { navigator.stack(AppTab.INBOX).lastOrNull() }.collect { top ->
+            if (previous is TeamThreadKey && top !is TeamThreadKey) teamUnread.nudge()
+            previous = top
+        }
+    }
     var knownWorkspace by rememberSaveable { mutableStateOf<String?>(null) }
     fun enterWorkspace(id: String?) {
         if (id == null) return
@@ -196,7 +231,7 @@ fun AppShell(
                     onOpenEmail = { navigator.open(EmailKey) },
                     promotions = promotions,
                     bottomInset = 0.dp,
-                    api = api,
+                    teamUnread = teamUnread.value,
                 )
             }
         }
@@ -465,6 +500,27 @@ fun AppShell(
                         },
                         label = { Text(item.title, maxLines = 1) },
                         navigationSuiteType = suiteType,
+                        badge = if (tab == AppTab.INBOX && inboxBadge > 0) {
+                            {
+                                // The system's red badge, with the count in
+                                // the reader's digits, 99+ past that. The
+                                // number is said as "3 unread", not read out
+                                // bare after the tab's name.
+                                Badge(
+                                    containerColor = WebyarTheme.colors.badge,
+                                    contentColor = WebyarTheme.colors.onBadge,
+                                ) {
+                                    Text(
+                                        badgeText(inboxBadge, language),
+                                        modifier = Modifier.semantics {
+                                            contentDescription = unreadDescription(inboxBadge, language)
+                                        },
+                                    )
+                                }
+                            }
+                        } else {
+                            null
+                        },
                     )
                 }
             },

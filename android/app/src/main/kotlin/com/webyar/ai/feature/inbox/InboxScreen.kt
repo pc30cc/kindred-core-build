@@ -73,6 +73,8 @@ import com.webyar.ai.ui.components.SearchState
 import com.webyar.ai.ui.components.SkeletonList
 import com.webyar.ai.ui.components.StatusPill
 import com.webyar.ai.ui.components.UnreadBadge
+import com.webyar.ai.ui.components.UnreadDot
+import com.webyar.ai.ui.components.unreadDescription
 import com.webyar.ai.ui.components.bidiContent
 import com.webyar.ai.ui.design.Radius
 import com.webyar.ai.ui.design.Size
@@ -93,6 +95,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import com.webyar.ai.ui.components.Glyph
 import com.webyar.ai.ui.components.ChannelIcon
 import com.webyar.ai.ui.components.ChannelLabel
@@ -148,6 +151,15 @@ fun InboxScreen(
     /** Unread messages from colleagues, for the Colleagues button. */
     colleaguesUnread: Int? = null,
     /**
+     * What nobody has read yet, for the red dots: the Open queue's
+     * conversations (on Open, and on each channel inbox by its channel) and
+     * the colleagues whose thread holds a message (on Colleagues). The same
+     * counts as the Inbox tab's badge. Never the AI queue — the AI is
+     * answering those.
+     */
+    openUnread: OpenUnread = OpenUnread(),
+    colleagueThreadsUnread: Int = 0,
+    /**
      * A strip above the list. Null is the ordinary case — most workspaces
      * have no promotion, and every one of them has dismissed it eventually.
      */
@@ -192,6 +204,11 @@ fun InboxScreen(
             onSelect = onSelectFilter,
             onOpenColleagues = onOpenColleagues,
             colleaguesUnread = colleaguesUnread,
+            openUnread = openUnread.conversations,
+            colleagueThreadsUnread = colleagueThreadsUnread,
+            // A dot on the last button when a channel inbox behind it holds
+            // something unread: the strip has no button of its own for those.
+            menuUnread = channels.sumOf { openUnread.byChannel[it.key] ?: 0 },
             // Lit while the list is one the strip has no button for, so the
             // operator can see where they are.
             elsewhere = selectedChannel != null || filter !in chipFilters,
@@ -206,6 +223,7 @@ fun InboxScreen(
                 channels = channels,
                 selectedChannel = selectedChannel,
                 colleaguesUnread = colleaguesUnread,
+                openUnread = openUnread,
                 onSelectFilter = onSelectFilter,
                 onSelectChannel = onSelectChannel,
                 onOpenColleagues = onOpenColleagues,
@@ -468,6 +486,9 @@ private fun QueueGroup(
     onSelect: (InboxFilter) -> Unit,
     onOpenColleagues: (() -> Unit)?,
     colleaguesUnread: Int?,
+    openUnread: Int,
+    colleagueThreadsUnread: Int,
+    menuUnread: Int,
     elsewhere: Boolean,
     onOpenEveryInbox: () -> Unit,
 ) {
@@ -488,6 +509,8 @@ private fun QueueGroup(
                 language = language,
                 onClick = { onSelect(option) },
                 modifier = Modifier.testTag(A11y.inboxChip(option.wire)),
+                // Open alone: it is the queue the count is of. Never the AI's.
+                unread = if (option == InboxFilter.OPEN) openUnread else 0,
             )
         }
         if (onOpenColleagues != null) {
@@ -500,28 +523,40 @@ private fun QueueGroup(
                 language = language,
                 onClick = onOpenColleagues,
                 modifier = Modifier.testTag(A11y.INBOX_COLLEAGUES_CHIP),
+                unread = colleagueThreadsUnread,
             )
         }
-        EveryInboxButton(language, lit = elsewhere, onClick = onOpenEveryInbox)
+        EveryInboxButton(language, lit = elsewhere, unread = menuUnread, onClick = onOpenEveryInbox)
     }
 }
 
 /** The strip's last button: three lines, which open every inbox. */
 @Composable
-private fun EveryInboxButton(language: Language, lit: Boolean, onClick: () -> Unit) {
+private fun EveryInboxButton(language: Language, lit: Boolean, unread: Int, onClick: () -> Unit) {
     val label = StrAndroid.everyInbox(language)
+    val container = if (lit) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(Radius.lg),
-        color = if (lit) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = container,
         contentColor = if (lit) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier
             .size(width = 52.dp, height = 40.dp)
-            .semantics { contentDescription = label }
+            .semantics {
+                contentDescription = label
+                if (unread > 0) stateDescription = unreadDescription(unread, language)
+            }
             .testTag(A11y.INBOX_EVERY_INBOX),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(Glyph.Menu, contentDescription = null, modifier = Modifier.size(22.dp))
+            // On the glyph's top trailing corner, as a badge sits on an icon;
+            // ringed in the button's own colour so it reads as cut out of it.
+            UnreadDot(
+                visible = unread > 0,
+                ring = container,
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 7.dp, end = 11.dp),
+            )
         }
     }
 }
@@ -541,6 +576,7 @@ private fun EveryInboxSheet(
     channels: List<ChannelInbox>,
     selectedChannel: String?,
     colleaguesUnread: Int?,
+    openUnread: OpenUnread,
     onSelectFilter: (InboxFilter) -> Unit,
     onSelectChannel: (String?) -> Unit,
     onOpenColleagues: (() -> Unit)?,
@@ -576,6 +612,7 @@ private fun EveryInboxSheet(
                         label = option.title(language),
                         selected = option == filter && selectedChannel == null,
                         badge = counts.count(option)?.takeIf { it > 0 },
+                        unread = if (option == InboxFilter.OPEN) openUnread.conversations else 0,
                         language = language,
                         modifier = Modifier.testTag(A11y.everyInboxRow(option.wire)),
                     ) { onDismiss(); onSelectFilter(option) }
@@ -592,6 +629,7 @@ private fun EveryInboxSheet(
                             iconContent = { ChannelIcon(option.key, 22.dp) },
                             label = option.title(language),
                             selected = option.key == selectedChannel,
+                            unread = openUnread.byChannel[option.key] ?: 0,
                             language = language,
                         ) { onDismiss(); onSelectChannel(option.key) }
                     }
@@ -655,13 +693,17 @@ private fun SheetRow(
     icon: ImageVector? = null,
     iconContent: (@Composable () -> Unit)? = null,
     badge: Int? = null,
+    /** Conversations here nobody has read: a red dot after the label. */
+    unread: Int = 0,
     onClick: () -> Unit,
 ) {
     Surface(
         onClick = onClick,
         color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = segmentedShape(index, count),
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics { if (unread > 0) stateDescription = unreadDescription(unread, language) },
     ) {
         Row(
             Modifier
@@ -686,13 +728,19 @@ private fun SheetRow(
                     )
                 }
             }
-            Text(
-                label,
-                style = if (selected) WebyarType.titleMediumEmphasized else MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f).padding(horizontal = Space.lg),
-            )
+            Row(
+                Modifier.weight(1f).padding(horizontal = Space.lg),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    label,
+                    style = if (selected) WebyarType.titleMediumEmphasized else MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                UnreadDot(visible = unread > 0, modifier = Modifier.padding(start = Space.sm))
+            }
             if (badge != null) UnreadBadge(badge, language, Modifier.padding(end = Space.sm))
             if (selected) {
                 Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)

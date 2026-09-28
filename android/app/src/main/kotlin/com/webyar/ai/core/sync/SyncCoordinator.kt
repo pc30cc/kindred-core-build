@@ -471,6 +471,18 @@ class SyncCoordinator(
                 failed += ids
                 diag.warn(AREA, "targeted read failed ($reasons): ${it.javaClass.simpleName}")
             }
+        // Open is kept current whichever queue is on screen: the Inbox tab's
+        // badge and the strip's dots count it. The same ids, asked about in
+        // Open too — a new conversation there, or one that has left it —
+        // when Open is not the queue just read. A failure is the reconcile's
+        // to pay, as for any read it owes.
+        if (f.filter != InboxFilter.OPEN) {
+            runCatchingUnlessCancelled { conversations.refreshConversations(f.scope, ids, InboxFilter.OPEN, reasons) }
+                .onFailure {
+                    dirty = true
+                    diag.warn(AREA, "open-queue read failed ($reasons): ${it.javaClass.simpleName}")
+                }
+        }
         // A thread on screen is read by itself too, whatever queue it is in
         // now. The focused read only answers for its own queue — a chat
         // opened from the AI's that the AI has just handed over (or that the
@@ -613,6 +625,18 @@ class SyncCoordinator(
         val inbox = refreshInbox(f.scope, f.filter, force = false, reason = reason)
         var changed = inbox.getOrNull() is InboxRefresh.Replaced
         var failed = inbox.isFailure
+        // And Open, when another queue is on screen, for the badge that counts
+        // it — conditionally, so an unchanged Open costs a 304.
+        if (f.filter != InboxFilter.OPEN) {
+            val openQueue = runCatchingUnlessCancelled {
+                conversations.refreshInbox(f.scope, InboxFilter.OPEN, force = false, reason = reason)
+            }
+            if (openQueue.getOrNull() is InboxRefresh.Replaced) changed = true
+            openQueue.exceptionOrNull()?.let {
+                failed = true
+                diag.warn(AREA, "open-queue read failed ($reason): ${it.javaClass.simpleName}")
+            }
+        }
         for (id in open) {
             if (focus.value?.scope != f.scope) break
             val thread = runCatchingUnlessCancelled { messages.sync(f.scope, id, reason) }

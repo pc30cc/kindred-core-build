@@ -12,6 +12,10 @@ import com.webyar.ai.core.model.InboxFilter
 import com.webyar.ai.core.net.SampleApi
 import com.webyar.ai.feature.inbox.InboxScreen
 import com.webyar.ai.feature.inbox.InboxState
+import com.webyar.ai.feature.inbox.OpenUnread
+import com.webyar.ai.core.model.ChannelInbox
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import com.webyar.ai.i18n.Language
 import com.webyar.ai.ui.A11y
 import com.webyar.ai.ui.components.ConversationChannel
@@ -51,6 +55,9 @@ class InboxStripTest {
         conversations: List<Conversation> = runBlocking { SampleApi().conversations("ws-1", InboxFilter.OPEN) },
         onSelect: (InboxFilter) -> Unit = {},
         onColleagues: (() -> Unit)? = {},
+        openUnread: OpenUnread = OpenUnread(),
+        colleagueThreadsUnread: Int = 0,
+        channels: List<ChannelInbox> = emptyList(),
     ) = compose.setContent {
         InboxScreen(
             state = InboxState.Loaded(conversations),
@@ -58,10 +65,42 @@ class InboxStripTest {
             onOpen = {},
             allFilters = all,
             chipFilters = listOf(InboxFilter.OPEN, InboxFilter.AI),
+            channels = channels,
             onSelectFilter = onSelect,
             onOpenColleagues = onColleagues,
             onOpenEmail = {},
+            openUnread = openUnread,
+            colleagueThreadsUnread = colleagueThreadsUnread,
         )
+    }
+
+    private fun says(text: String) = SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, text)
+    private val saysNothing = SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription)
+
+    /**
+     * The red dot is drawn, not text, so this reads what TalkBack is told: a
+     * button with a dot says how many are unread, one without says nothing.
+     */
+    @Test
+    fun `Open and Colleagues carry the dot, and the AI's queue never does`() {
+        screen(
+            openUnread = OpenUnread(conversations = 2, byChannel = mapOf("telegram" to 1, "widget" to 1)),
+            colleagueThreadsUnread = 1,
+            channels = listOf(ChannelInbox("telegram"), ChannelInbox("bale")),
+        )
+        compose.onNodeWithTag(A11y.inboxChip("open")).assert(says("2 unread"))
+        compose.onNodeWithTag(A11y.INBOX_COLLEAGUES_CHIP).assert(says("1 unread"))
+        compose.onNodeWithTag(A11y.inboxChip("ai")).assert(saysNothing)
+        // Telegram is behind the three lines, and holds one of them.
+        compose.onNodeWithTag(A11y.INBOX_EVERY_INBOX).assert(says("1 unread"))
+    }
+
+    @Test
+    fun `nothing unread, no dot anywhere`() {
+        screen(channels = listOf(ChannelInbox("telegram")))
+        compose.onNodeWithTag(A11y.inboxChip("open")).assert(saysNothing)
+        compose.onNodeWithTag(A11y.INBOX_COLLEAGUES_CHIP).assert(saysNothing)
+        compose.onNodeWithTag(A11y.INBOX_EVERY_INBOX).assert(saysNothing)
     }
 
     @Test

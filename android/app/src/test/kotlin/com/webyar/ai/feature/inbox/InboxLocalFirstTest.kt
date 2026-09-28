@@ -60,6 +60,30 @@ class InboxLocalFirstTest {
         )
     }
 
+    /**
+     * The Inbox tab's badge and the strip's dots count the Open queue
+     * whatever queue is on screen, from the cache: a thread read here takes
+     * its dot away as it opens, not one refresh later.
+     */
+    @Test
+    fun `Open's unread is counted whichever queue is on screen`() = runTest(dispatcher) {
+        api.put(InboxFilter.OPEN, api.row("c-1", unread = 2), api.row("c-2"), api.row("c-3", unread = 1))
+        api.put(InboxFilter.RESOLVED, api.row("r-1", unread = 5))
+        val graph = SyncGraph.inMemory(api, store, appScope, clock = { api.now })
+        val inbox = InboxViewModel(api, graph) { Language.EN }
+        inbox.bind("ws-1")
+        testScheduler.advanceUntilIdle()
+        assertEquals(2, inbox.openUnread.value.conversations)
+
+        inbox.select(InboxFilter.RESOLVED)
+        testScheduler.advanceUntilIdle()
+        assertEquals("Open's count, not the queue on screen", 2, inbox.openUnread.value.conversations)
+
+        graph.conversations.clearUnread(CacheScope(SyncGraph.LOCAL_ACCOUNT, "ws-1"), "c-1")
+        testScheduler.advanceUntilIdle()
+        assertEquals(1, inbox.openUnread.value.conversations)
+    }
+
     @Test
     fun `a cold start with nothing cached shows the skeleton, then the rows`() = runTest(dispatcher) {
         api.put(InboxFilter.OPEN, api.row("c-1"))

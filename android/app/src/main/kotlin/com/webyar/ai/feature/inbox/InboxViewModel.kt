@@ -82,6 +82,16 @@ class InboxViewModel(
     private val _syncProblem = MutableStateFlow<String?>(null)
     val syncProblem: StateFlow<String?> = _syncProblem.asStateFlow()
 
+    /**
+     * What is waiting to be read in the Open queue, whatever queue is on
+     * screen: the Inbox tab's badge, and the dots on the strip's Open and on
+     * the channel inboxes. From the cache's copy of Open, which the
+     * coordinator keeps current whichever queue is in focus, so a thread read
+     * here takes its dot away the moment it is opened.
+     */
+    private val _openUnread = MutableStateFlow(OpenUnread())
+    val openUnread: StateFlow<OpenUnread> = _openUnread.asStateFlow()
+
     private var workspaceId: String? = null
     private var scope: CacheScope? = null
 
@@ -96,6 +106,7 @@ class InboxViewModel(
 
     private var listJob: Job? = null
     private var countsJob: Job? = null
+    private var unreadJob: Job? = null
 
     /** Rows whose visitor intel has been asked for, so a re-emission does not ask again. */
     private val intelAsked = HashSet<String>()
@@ -115,8 +126,12 @@ class InboxViewModel(
         intelAsked.clear()
         _counts.value = InboxCounts()
         _syncProblem.value = null
+        // Another workspace's count is never shown under this one, not even
+        // for the moment before its own cache answers.
+        _openUnread.value = OpenUnread()
         observe()
         observeCounts()
+        observeUnread()
         load()
         loadChannels()
     }
@@ -197,6 +212,16 @@ class InboxViewModel(
                 loaded = rows
                 publish()
                 loadIntel(rows)
+            }
+        }
+    }
+
+    private fun observeUnread() {
+        val scope = scope ?: return
+        unreadJob?.cancel()
+        unreadJob = viewModelScope.launch {
+            sync.conversations.observeInbox(scope, InboxFilter.OPEN).collect { rows ->
+                _openUnread.value = OpenUnread.of(rows)
             }
         }
     }

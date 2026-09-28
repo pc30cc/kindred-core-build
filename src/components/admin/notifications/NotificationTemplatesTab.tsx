@@ -11,9 +11,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { SettingsSection } from '@/components/admin/settings/SettingsFields';
-import type { PushEventType, PushPlatformSettings, PushTemplate } from '@/hooks/useAdminNotifications';
+import {
+  TEMPLATE_EVENT_TYPES,
+  type PushEventType, type PushPlatformSettings, type PushTemplate,
+} from '@/hooks/useAdminNotifications';
 
-const EVENT_TYPES: PushEventType[] = ['new_message', 'internal_note', 'mention'];
+const EVENT_TYPES: PushEventType[] = TEMPLATE_EVENT_TYPES;
 const LOCALES = ['en', 'fa', 'tr'] as const;
 
 /** `{{name}}` → sample value; an unknown placeholder is left visible. */
@@ -38,6 +41,7 @@ export function NotificationTemplatesTab({
     sender: t('admin.notifications.templates.sampleSender'),
     preview: t('admin.notifications.templates.samplePreview'),
     count: '1',
+    workspace: 'Webyar',
   };
 
   const update = (eventType: string, patch: Partial<PushTemplate>) =>

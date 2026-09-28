@@ -29,7 +29,7 @@ import { listWorkspacePresence } from './widget/operatorPresence.js';
 import { publishOperatorEvent, publishConversationEvent, buildMessageEnvelope } from './realtime/publish.js';
 import { dispatchOutboundIfChannelConversation } from './channels/outbound.js';
 import { maybeQueueTelegramOfflineScreen } from './channels/telegram/offlineDelivery.js';
-import { notifyAssignment } from './push/index.js';
+import { notifyAssignment, notifyHandoff } from './push/index.js';
 
 export type AssignmentMode = 'auto' | 'round_robin' | 'manual';
 
@@ -345,6 +345,30 @@ async function insertRoutingSystemMessage(
 }
 
 /**
+ * The AI let go of this conversation and routing gave it to nobody new — it
+ * stays with whoever already held it, or waits in the queue — so the phones
+ * hear it from here (a conversation routing DID give to someone is
+ * `notifyAssignment`). Routing runs again on every visitor message while a
+ * conversation waits, so the handoff's own stamp (`ai_handoff_at`) makes it
+ * one notification per handoff; without a stamp only the run that also sends
+ * the visitor notice pushes.
+ */
+function notifyHandoffOnce(
+  config: ServerConfig,
+  args: { workspaceId: string; conversationId: string },
+  metadata: Record<string, unknown>,
+  firstRun: boolean,
+): void {
+  const stamp = typeof metadata.ai_handoff_at === 'string' ? metadata.ai_handoff_at : null;
+  if (!stamp && !firstRun) return;
+  void notifyHandoff(config, {
+    workspaceId: args.workspaceId,
+    conversationId: args.conversationId,
+    handoffAt: stamp ?? new Date().toISOString(),
+  });
+}
+
+/**
  * Route a conversation that just entered `needs_human` to an operator.
  * Idempotent — a conversation that's already assigned is left untouched.
  * Never throws; the handoff must always succeed even if routing fails.
@@ -369,7 +393,8 @@ export async function routeConversationToOperator(
       // just been handed over from the AI and still needs to be told who
       // they are now talking to. The `routing_notice_sent` flag makes this
       // once per conversation, so a second handoff does not repeat it.
-      if (metadata.routing_notice_sent !== true) {
+      const firstRun = metadata.routing_notice_sent !== true;
+      if (firstRun) {
         const assignedName = await resolveAgentDisplayName(config, conv.assigned_to as string);
         await insertRoutingSystemMessage(
           config, args.workspaceId, args.conversationId,
@@ -381,6 +406,7 @@ export async function routeConversationToOperator(
           'already_assigned', { routing_notice_sent: true },
         );
       }
+      notifyHandoffOnce(config, args, metadata, firstRun);
       return { outcome: 'already_assigned', assignedTo: conv.assigned_to };
     }
     // If routing was deferred until pre-chat identification (see
@@ -397,6 +423,8 @@ export async function routeConversationToOperator(
     const { mode, cursor } = await loadAssignmentConfig(config, args.workspaceId);
 
     if (mode === 'manual') {
+      // The queue is the team's: everyone following all conversations.
+      notifyHandoffOnce(config, args, metadata, !noticeAlreadySent);
       if (!noticeAlreadySent) {
         await insertRoutingSystemMessage(
           config, args.workspaceId, args.conversationId,
@@ -488,6 +516,7 @@ export async function routeConversationToOperator(
         stamp: new Date().toISOString(),
       });
     } else {
+      notifyHandoffOnce(config, args, metadata, !noticeAlreadySent);
       // Team looked online but nobody was actually eligible/available —
       // never leave the visitor in a silent "connecting…" limbo (spec §16).
       if (!noticeAlreadySent) {

@@ -185,6 +185,16 @@ struct EmailThreadView: View {
             }
         }
         .task(id: thread.id) { await reload() }
+        .onAppear {
+            PushController.shared.viewingEmailThread = thread.id
+            if let workspaceID {
+                PushController.clearDelivered(.email(workspaceID: workspaceID, threadID: thread.id))
+            }
+        }
+        .onDisappear {
+            guard PushController.shared.viewingEmailThread == thread.id else { return }
+            PushController.shared.viewingEmailThread = nil
+        }
     }
 
     private func reload() async {

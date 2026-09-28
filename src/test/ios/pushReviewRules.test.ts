@@ -90,7 +90,11 @@ describe('the one permission prompt iOS ever gives us', () => {
 
   it('registers for remote notifications only once permission exists', () => {
     const controller = files.find((f) => f.path === 'Core/Push/PushController.swift')!.text;
-    for (const call of controller.split('registerForRemoteNotifications()').slice(0, -1)) {
+    // `unregisterForRemoteNotifications()` is giving the address up, which
+    // needs no permission — only the register calls are held to this.
+    const calls = controller.split(/(?<!un)registerForRemoteNotifications\(\)/).slice(0, -1);
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
       // Each call site is guarded by `granted` or by `isAllowed`.
       const tail = call.slice(-260);
       expect(tail, 'registerForRemoteNotifications must be guarded').toMatch(/granted|isAllowed/);

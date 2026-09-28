@@ -246,6 +246,7 @@ final class AppState {
     /// token is simply discarded and the login screen is told why it is
     /// being looked at.
     func accountWasDeleted() async {
+        PushController.shared.sessionEnded()
         await api.discardSession()
         sessionEndedMessage = Str.accountDeleted(language)
         await reset(purgeCache: true)
@@ -255,6 +256,9 @@ final class AppState {
     /// so stop pretending otherwise.
     func handleUnauthorized() async {
         guard session != .signedOut else { return }
+        // The phone stops receiving this account's notifications with the
+        // session, not whenever a send next happens to fail.
+        PushController.shared.sessionEnded()
         await api.discardSession()
         sessionEndedMessage = Str.sessionExpired(language)
         // Expired, not left: the saved copy stays for this same account's

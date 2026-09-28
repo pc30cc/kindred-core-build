@@ -10,7 +10,7 @@ package com.webyar.ai.i18n
 // product never reads the device language — the operator picks one and it
 // sticks — so locale resolution is not wanted here either.
 //
-// 393 of 409 strings are generated.
+// 399 of 415 strings are generated.
 // These are hand-written in StringsManual.kt because they are logic rather
 // than copy:
 //   resetSentDetail — takes more than a language
@@ -284,6 +284,50 @@ object Str {
         Language.EN -> "Internal notes"
         Language.FA -> "یادداشت‌های داخلی"
         Language.TR -> "Dahili notlar"
+    }
+
+    /**
+     * The kinds of event beyond a customer's message, each with its own
+     * switch on the server.
+     */
+    fun pushEventsTitle(l: Language): String = when (l) {
+        Language.EN -> "Also tell me about"
+        Language.FA -> "اعلان این موارد هم بیاید"
+        Language.TR -> "Bunları da bildir"
+    }
+
+    fun pushTeamChat(l: Language): String = when (l) {
+        Language.EN -> "Messages from colleagues"
+        Language.FA -> "پیام‌های همکاران"
+        Language.TR -> "Ekip arkadaşlarından mesajlar"
+    }
+
+    fun pushAssignments(l: Language): String = when (l) {
+        Language.EN -> "Conversations handed to me"
+        Language.FA -> "گفتگوهایی که به من سپرده می‌شود"
+        Language.TR -> "Bana devredilen konuşmalar"
+    }
+
+    fun pushEmail(l: Language): String = when (l) {
+        Language.EN -> "New emails"
+        Language.FA -> "ایمیل‌های جدید"
+        Language.TR -> "Yeni e-postalar"
+    }
+
+    /**
+     * "Handed to me" covers three different hands, and the AI's is the one
+     * nobody would guess.
+     */
+    fun pushAssignmentsFooter(l: Language): String = when (l) {
+        Language.EN -> "By a colleague, by automatic routing, or by the AI when a customer needs a person."
+        Language.FA -> "توسط همکار، تخصیص خودکار، یا هوش مصنوعی وقتی مشتری به اپراتور نیاز دارد."
+        Language.TR -> "Bir ekip arkadaşı, otomatik yönlendirme ya da müşteri bir temsilciye ihtiyaç duyduğunda yapay zekâ tarafından."
+    }
+
+    fun pushPrefsLoadFailed(l: Language): String = when (l) {
+        Language.EN -> "Your notification settings could not be loaded."
+        Language.FA -> "تنظیمات اعلان بارگذاری نشد."
+        Language.TR -> "Bildirim ayarlarınız yüklenemedi."
     }
 
     fun pushShowPreview(l: Language): String = when (l) {

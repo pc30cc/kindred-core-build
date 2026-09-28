@@ -203,8 +203,9 @@ describe('a colleague’s message is pushed', () => {
     expect(message.collapseKey).toBe(`team-${SENDER}`);
     expect(message.androidChannelId).toBe('webyar_messages');
     expect(sent.apns[0].apns?.threadId).toBe(`team-${SENDER}`);
-    // No Reply / Mark-as-read buttons: those act on a customer conversation.
-    expect(sent.apns[0].apns?.categoryId).toBeUndefined();
+    // Its own buttons, never the customer ones: the iOS app answers
+    // WEBYAR_TEAM's Reply and Mark-as-read in team chat, to the colleague.
+    expect(sent.apns[0].apns?.categoryId).toBe('WEBYAR_TEAM');
   });
 
   it('once, however many times it is asked', async () => {

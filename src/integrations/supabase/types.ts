@@ -14994,9 +14994,12 @@ export type Database = {
           id: string
           platform: string
           play_sound: boolean
+          push_assignments: boolean
+          push_email: boolean
           push_internal_notes: boolean
           push_preview: boolean
           push_scope: string
+          push_team_chat: boolean
           push_visitor_browsing: boolean
           push_when_offline: boolean
           push_when_online: boolean
@@ -15020,9 +15023,12 @@ export type Database = {
           id?: string
           platform?: string
           play_sound?: boolean
+          push_assignments?: boolean
+          push_email?: boolean
           push_internal_notes?: boolean
           push_preview?: boolean
           push_scope?: string
+          push_team_chat?: boolean
           push_visitor_browsing?: boolean
           push_when_offline?: boolean
           push_when_online?: boolean
@@ -15046,9 +15052,12 @@ export type Database = {
           id?: string
           platform?: string
           play_sound?: boolean
+          push_assignments?: boolean
+          push_email?: boolean
           push_internal_notes?: boolean
           push_preview?: boolean
           push_scope?: string
+          push_team_chat?: boolean
           push_visitor_browsing?: boolean
           push_when_offline?: boolean
           push_when_online?: boolean

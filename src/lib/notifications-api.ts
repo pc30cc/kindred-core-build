@@ -32,7 +32,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   };
   const res = await fetch(`${API_BASE}${path}`, { credentials: 'include', ...init, headers });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((body as any)?.error || `Request failed: ${res.status}`);
+  if (!res.ok) throw new Error((body as { error?: string } | null)?.error || `Request failed: ${res.status}`);
   return body as T;
 }
 
@@ -55,6 +55,12 @@ export interface NotificationPrefs {
   push_scope: NotificationScope;
   push_preview: boolean;
   push_internal_notes: boolean;
+  /** A colleague's direct message (phone only). */
+  push_team_chat: boolean;
+  /** A conversation handed to me — by a colleague, routing or the AI (phone only). */
+  push_assignments: boolean;
+  /** A new email in the shared inbox, for owners and admins (phone only). */
+  push_email: boolean;
   push_when_online: boolean;
   push_when_offline: boolean;
   play_sound: boolean;

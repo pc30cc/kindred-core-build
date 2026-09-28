@@ -13,11 +13,12 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { SettingsSection, FieldGrid } from '@/components/admin/settings/SettingsFields';
-import type {
-  PushCategory, PushCategoryAction, PushEventType, PushPlatformSettings,
+import {
+  PUSH_EVENT_TYPES,
+  type PushCategory, type PushCategoryAction, type PushEventType, type PushPlatformSettings,
 } from '@/hooks/useAdminNotifications';
 
-const EVENT_TYPES: PushEventType[] = ['new_message', 'internal_note', 'mention'];
+const EVENT_TYPES: PushEventType[] = PUSH_EVENT_TYPES;
 const LOCALES = ['en', 'fa', 'tr'] as const;
 
 export function NotificationCategoriesTab({

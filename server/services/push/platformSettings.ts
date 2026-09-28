@@ -89,7 +89,10 @@ export interface PushPlatformSettings {
 export const DEFAULT_CATEGORIES: PushCategory[] = [
   {
     id: 'WEBYAR_MESSAGE',
-    eventTypes: ['new_message'],
+    // Everything that is about one customer conversation the operator can
+    // answer from the banner: a new message, one handed to them, one the AI
+    // let go of.
+    eventTypes: ['new_message', 'assignment', 'handoff'],
     actions: [
       {
         id: 'REPLY',
@@ -113,6 +116,40 @@ export const DEFAULT_CATEGORIES: PushCategory[] = [
   {
     id: 'WEBYAR_MENTION',
     eventTypes: ['mention', 'internal_note'],
+    actions: [
+      {
+        id: 'OPEN',
+        titles: { default: 'Open', en: 'Open', fa: 'باز کردن', tr: 'Aç' },
+        foreground: true,
+        destructive: false,
+        textInput: false,
+      },
+    ],
+  },
+  {
+    // A colleague's message: answered to the colleague, not to a customer.
+    id: 'WEBYAR_TEAM',
+    eventTypes: ['team_message'],
+    actions: [
+      {
+        id: 'REPLY',
+        titles: { default: 'Reply', en: 'Reply', fa: 'پاسخ', tr: 'Yanıtla' },
+        foreground: true,
+        destructive: false,
+        textInput: true,
+      },
+      {
+        id: 'MARK_READ',
+        titles: { default: 'Mark as read', en: 'Mark as read', fa: 'خوانده شد', tr: 'Okundu işaretle' },
+        foreground: false,
+        destructive: false,
+        textInput: false,
+      },
+    ],
+  },
+  {
+    id: 'WEBYAR_EMAIL',
+    eventTypes: ['email_message'],
     actions: [
       {
         id: 'OPEN',

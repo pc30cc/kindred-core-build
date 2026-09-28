@@ -20,6 +20,12 @@ enum LoadState<Value>: Sendable where Value: Sendable {
         if case .loaded = self { return true }
         return false
     }
+
+    /// True once the read is over, however it went.
+    var isSettled: Bool {
+        if case .loading = self { return false }
+        return true
+    }
 }
 
 /// How the last attempt to bring what is on screen up to date went.

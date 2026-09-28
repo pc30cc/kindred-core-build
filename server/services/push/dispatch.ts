@@ -28,6 +28,7 @@ import { listActiveDevices, disableToken, type PushDeviceRow } from './devices.j
 import { resolveRecipients, unreadBadgeCount, type PushEventType, type Recipient } from './recipients.js';
 import { contactDisplayName, type NamedContact } from './contactName.js';
 import {
+  DEFAULT_CATEGORIES,
   loadPushPlatformSettings,
   renderTemplate,
   type PushPlatformSettings,
@@ -40,6 +41,8 @@ interface ConversationRow {
   assigned_to: string | null;
   status: string;
   contact_id: string | null;
+  is_spam?: boolean | null;
+  ai_state?: string | null;
 }
 
 export interface InboundPushInput {
@@ -55,6 +58,8 @@ export interface InboundPushInput {
   actorId?: string | null;
   mentionedUserIds?: string[];
   attachmentCount?: number;
+  /** The workspace's name, for templates that use `{{workspace}}`. */
+  workspaceName?: string | null;
 }
 
 /**
@@ -88,6 +93,9 @@ const COPY = {
     assignedTitle: 'Conversation assigned to you',
     assignedPrivacyBody: 'A conversation was assigned to you',
     assignedBy: (name: string) => `Assigned by ${name}`,
+    handoffTitle: 'Needs a person',
+    handoffBody: 'The AI handed this conversation to your team',
+    handoffPrivacyBody: 'A conversation needs a person',
     emailTitle: 'New email',
     emailPrivacyBody: 'New email in Webyar',
     callbackTitle: 'Callback request',
@@ -108,6 +116,9 @@ const COPY = {
     assignedTitle: 'گفتگو به شما سپرده شد',
     assignedPrivacyBody: 'گفتگویی به شما سپرده شد',
     assignedBy: (name: string) => `سپرده‌شده توسط ${name}`,
+    handoffTitle: 'نیاز به اپراتور',
+    handoffBody: 'هوش مصنوعی این گفتگو را به تیم شما سپرد',
+    handoffPrivacyBody: 'گفتگویی به اپراتور نیاز دارد',
     emailTitle: 'ایمیل تازه',
     emailPrivacyBody: 'ایمیل تازه در وب‌یار',
     callbackTitle: 'درخواست تماس',
@@ -128,6 +139,9 @@ const COPY = {
     assignedTitle: 'Görüşme size atandı',
     assignedPrivacyBody: 'Size bir görüşme atandı',
     assignedBy: (name: string) => `${name} tarafından atandı`,
+    handoffTitle: 'Bir temsilci gerekiyor',
+    handoffBody: 'Yapay zekâ bu görüşmeyi ekibinize devretti',
+    handoffPrivacyBody: 'Bir görüşme bir temsilci bekliyor',
     emailTitle: 'Yeni e-posta',
     emailPrivacyBody: 'Webyar\'da yeni e-posta',
     callbackTitle: 'Geri arama isteği',
@@ -203,11 +217,17 @@ export async function notifyInboundMessage(
     // treated as authority for who may be notified.
     const { data: conversationRow } = await sb
       .from('conversations')
-      .select('id, workspace_id, assigned_to, status, contact_id')
+      .select('id, workspace_id, assigned_to, status, contact_id, is_spam, ai_state')
       .eq('id', input.conversationId)
       .maybeSingle();
     const conv = conversationRow as ConversationRow | null;
     if (!conv || String(conv.workspace_id) !== input.workspaceId) return;
+    // Spam is hidden from every inbox; it does not get to buzz a phone.
+    if (conv.is_spam) return;
+    // The AI is answering this one and nobody holds it: the inbox keeps it
+    // in the AI's own queue, out of the operators' way, and so does the
+    // phone. When the AI hands it over, that is its own notification.
+    if (eventType === 'new_message' && conv.ai_state === 'ai_managed' && !conv.assigned_to) return;
 
     // A customer's message is signed with what the operator's app calls
     // them in its list, read from the conversation's contact now — not the
@@ -239,6 +259,10 @@ export async function notifyInboundMessage(
       conversationId: input.conversationId,
       messageId: input.messageId,
     };
+    // Read only when a template asks for it: most never do.
+    const content: InboundPushInput = usesPlaceholder(policy, 'workspace')
+      ? { ...input, workspaceName: await workspaceName(config, input.workspaceId) }
+      : input;
     if (input.channel) data.channel = String(input.channel).slice(0, 32);
 
     // One device lookup for every recipient, up front. A recipient with no
@@ -275,7 +299,7 @@ export async function notifyInboundMessage(
         ? await unreadBadgeCount(config, recipient.userId, input.workspaceId)
         : undefined;
       const { title, body } = renderContent(
-        { ...input, senderName: senderFor(recipient.locale) },
+        { ...content, senderName: senderFor(recipient.locale) },
         eventType,
         recipient.preview,
         policy,
@@ -633,6 +657,106 @@ export function renderAssignmentContent(
   return mark({ title: copy.assignedTitle, body: by ? `${who} · ${copy.assignedBy(by)}` : who });
 }
 
+export interface HandoffPushInput {
+  workspaceId: string;
+  conversationId: string;
+  /** When the AI let go of it: one notification per handoff, however often routing runs. */
+  handoffAt: string;
+}
+
+/**
+ * The AI stopped and handed a conversation to people, and routing did not
+ * give it to anyone new: it is still the AI queue's last owner's, or it is
+ * waiting in the queue. The customer's messages up to here were the AI's and
+ * reached no phone, so without this nobody would hear of it until the
+ * customer wrote again. A handoff routing DID assign is `notifyAssignment`.
+ */
+export async function notifyHandoff(config: ServerConfig, input: HandoffPushInput): Promise<void> {
+  try {
+    const policy = await pushPolicy(config);
+    if (!policy) return;
+    const eventType: PushEventType = 'handoff';
+    const sb = getServiceClient(config);
+    const { data: conversation } = await sb
+      .from('conversations')
+      .select('id, workspace_id, assigned_to, is_spam, contact_id')
+      .eq('id', input.conversationId)
+      .maybeSingle();
+    const conv = conversation as {
+      workspace_id: string;
+      assigned_to: string | null;
+      is_spam: boolean | null;
+      contact_id: string | null;
+    } | null;
+    if (!conv || String(conv.workspace_id) !== input.workspaceId || conv.is_spam) return;
+
+    const recipients = await resolveRecipients(config, {
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      assignedTo: conv.assigned_to ?? null,
+      eventType,
+      userIds: conv.assigned_to ? [conv.assigned_to] : undefined,
+      policy,
+    });
+    if (!recipients.length) return;
+
+    const contact = await loadContact(config, conv.contact_id);
+    await pushToRecipients(config, {
+      workspaceId: input.workspaceId,
+      eventType,
+      recipients,
+      dedupeKey: `${eventType}:${input.conversationId}:${input.handoffAt}`.slice(0, 200),
+      conversationId: input.conversationId,
+      data: { type: eventType, workspaceId: input.workspaceId, conversationId: input.conversationId },
+      render: (recipient) => renderHandoffContent(
+        { customer: contactDisplayName(contact, recipient.locale) },
+        recipient.preview,
+        recipient.locale,
+      ),
+      thread: `conv-${input.conversationId}`,
+      policy,
+    });
+  } catch (err) {
+    console.error('[push] handoff dispatch error', { message: String((err as Error)?.message ?? err) });
+  }
+}
+
+export function renderHandoffContent(
+  input: { customer: string | null },
+  preview: boolean,
+  locale = 'en',
+): { title: string; body: string } {
+  const lang = copyLocale(locale);
+  const copy = COPY[lang];
+  const mark = (result: { title: string; body: string }) => ({
+    title: directed(lang, result.title),
+    body: directed(lang, result.body),
+  });
+  if (!preview) return mark({ title: copy.privacyTitle, body: copy.handoffPrivacyBody });
+  const who = input.customer?.trim() || copy.customer;
+  return mark({ title: copy.handoffTitle, body: `${who} · ${copy.handoffBody}` });
+}
+
+/** Whether any of the platform's templates uses `{{name}}`. */
+function usesPlaceholder(policy: PushPlatformSettings, name: string): boolean {
+  return JSON.stringify(policy.templates ?? {}).includes(`{{${name}}}`);
+}
+
+/** The workspace's display name, for the `{{workspace}}` placeholder. */
+async function workspaceName(config: ServerConfig, workspaceId: string): Promise<string | null> {
+  try {
+    const { data } = await getServiceClient(config)
+      .from('workspaces')
+      .select('name')
+      .eq('id', workspaceId)
+      .maybeSingle();
+    const name = (data as { name?: string | null } | null)?.name;
+    return name ? String(name) : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface EmailPushInput {
   workspaceId: string;
   threadId: string;
@@ -874,10 +998,14 @@ export function renderContent(
   const fallback = input.attachmentCount ? copy.attachment : copy.newMessage;
 
   if (policy) {
-    const rendered = renderTemplate(policy, eventType, locale, preview, {
+    // Templates are keyed by bare language ("fa") and profiles store full
+    // tags ("fa-IR"): rendering with the raw tag gave every Persian operator
+    // the English template.
+    const rendered = renderTemplate(policy, eventType, lang, preview, {
       sender: name,
       preview: truncate(text || fallback),
       count: String(input.attachmentCount ?? 0),
+      workspace: (input.workspaceName || '').trim() || 'Webyar',
     });
     // A template edited down to nothing must not produce a blank banner.
     if (rendered.title.trim() && rendered.body.trim()) return mark(rendered);
@@ -903,7 +1031,11 @@ function apnsDeliveryFor(
   eventType: PushEventType,
   input: Pick<InboundPushInput, 'workspaceId' | 'conversationId'>,
 ): ApnsDelivery {
-  const category = (policy.categories ?? []).find((c) => c.eventTypes?.includes(eventType));
+  // A category list saved before an event type existed does not name it; the
+  // shipped categories answer for it, so its banner still has its buttons.
+  const category =
+    (policy.categories ?? []).find((c) => c.eventTypes?.includes(eventType)) ??
+    DEFAULT_CATEGORIES.find((c) => c.eventTypes.includes(eventType));
   const threadId =
     policy.thread_id_strategy === 'conversation'
       ? input.conversationId

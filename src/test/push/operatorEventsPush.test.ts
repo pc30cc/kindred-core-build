@@ -324,6 +324,12 @@ describe('a customer is named as the app lists them', () => {
     expect(sent.fcm[0].title).toContain('M D');
   });
 
+  it('an AI handoff names the customer the same way', async () => {
+    db.contacts = [{ id: 'contact-1', name: null, email: null, visitor_code: '4ZTK' }];
+    await dispatch.notifyHandoff(CONFIG, { workspaceId: WS, conversationId: 'conv-1', handoffAt: 't1' });
+    expect(sent.fcm[0].body).toContain('بازدیدکننده 4ZTK');
+  });
+
   it('a handover names the customer the same way', async () => {
     db.contacts = [{ id: 'contact-1', name: null, email: null, visitor_code: '4ZTK' }];
     await dispatch.notifyAssignment(CONFIG, { workspaceId: WS, conversationId: 'conv-1', assigneeId: ME, actorId: null, stamp: 't9' });

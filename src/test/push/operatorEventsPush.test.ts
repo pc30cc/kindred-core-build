@@ -258,6 +258,13 @@ describe('a call-centre call on an Android phone', () => {
     expect(sent.data[0].data.caller).toBe('');
   });
 
+  it('an anonymous caller carries their visitor code, which the list names them by', async () => {
+    db.contacts = [{ id: 'contact-1', name: null, email: null, visitor_code: '4ZTK' }];
+    await ringOperators(CONFIG, { workspaceId: WS, callSessionId: 'call-1', agentId: ME, channel: 'audio' });
+    expect(sent.data[0].data.caller).toBe('');
+    expect(sent.data[0].data.callerCode).toBe('4ZTK');
+  });
+
   it('broadcast rings every available operator, support agents included', async () => {
     await ringOperators(CONFIG, { workspaceId: WS, callSessionId: 'call-1', agentId: null, channel: 'audio' });
     expect(sent.data.map((m) => m.token).sort()).toEqual([`token-${ME}`, `token-${OTHER}`].sort());
@@ -278,5 +285,48 @@ describe('a call-centre call on an Android phone', () => {
     db.mobile_push_devices = [];
     await ringOperators(CONFIG, { workspaceId: WS, callSessionId: 'call-1', agentId: ME, channel: 'audio' });
     expect(sent.data).toHaveLength(0);
+  });
+});
+
+describe('a customer is named as the app lists them', () => {
+  const message = { workspaceId: WS, conversationId: 'conv-1', messageId: 'm-1', text: 'Hello', channel: 'widget' };
+
+  it('an anonymous visitor is "Visitor" and their code, in each operator\'s language', async () => {
+    db.contacts = [{ id: 'contact-1', name: null, email: null, visitor_code: '4ZTK' }];
+    db.conversations[0].assigned_to = null;
+    await dispatch.notifyInboundMessage(CONFIG, message);
+    const title = (token: string) => sent.fcm.find((m) => m.token === token)?.title;
+    expect(title(`token-${ME}`)).toBe('بازدیدکننده 4ZTK');
+    expect(title(`token-${COLLEAGUE}`)).toBe('Visitor 4ZTK');
+  });
+
+  it('never "Customer" for a visitor the widget sent no name for', async () => {
+    db.contacts = [{ id: 'contact-1', name: null, email: null, visitor_code: '4ZTK' }];
+    await dispatch.notifyInboundMessage(CONFIG, { ...message, senderName: null });
+    expect(sent.fcm[0].title).not.toContain('مشتری');
+  });
+
+  it('once they give a name, by that name', async () => {
+    db.contacts = [{ id: 'contact-1', name: 'سارا', email: 'sara@example.com', visitor_code: '4ZTK' }];
+    await dispatch.notifyInboundMessage(CONFIG, message);
+    expect(sent.fcm[0].title).toBe('سارا');
+  });
+
+  it('known only by email, by what comes before the @', async () => {
+    db.contacts = [{ id: 'contact-1', name: null, email: 'ali.rezaei@example.com', visitor_code: '4ZTK' }];
+    await dispatch.notifyInboundMessage(CONFIG, message);
+    expect(sent.fcm[0].title).toContain('ali.rezaei');
+  });
+
+  it('the contact, not whatever name came with the message', async () => {
+    db.contacts = [{ id: 'contact-1', name: 'M D', email: null, visitor_code: '8K2X' }];
+    await dispatch.notifyInboundMessage(CONFIG, { ...message, senderName: 'someone else' });
+    expect(sent.fcm[0].title).toContain('M D');
+  });
+
+  it('a handover names the customer the same way', async () => {
+    db.contacts = [{ id: 'contact-1', name: null, email: null, visitor_code: '4ZTK' }];
+    await dispatch.notifyAssignment(CONFIG, { workspaceId: WS, conversationId: 'conv-1', assigneeId: ME, actorId: null, stamp: 't9' });
+    expect(sent.fcm[0].body).toBe('بازدیدکننده 4ZTK');
   });
 });

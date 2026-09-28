@@ -95,7 +95,8 @@ class IncomingCallRouterTest {
 
     @Test
     fun `a caller with no name still rings, to be named on the phone`() = runTest {
-        router().onMessage(ring - "caller")
+        router().onMessage(ring - "caller" + ("callerCode" to "4ZTK"))
         assertEquals("", rung.single().caller)
+        assertEquals("4ZTK", rung.single().callerCode)
     }
 }

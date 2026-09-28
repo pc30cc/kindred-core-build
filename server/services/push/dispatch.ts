@@ -26,6 +26,7 @@ import { sendFcmMessage, isPushConfigured, type ApnsDelivery } from './fcm.js';
 import { sendApnsAlert, isApnsConfigured, nativeBundleId } from './apns.js';
 import { listActiveDevices, disableToken, type PushDeviceRow } from './devices.js';
 import { resolveRecipients, unreadBadgeCount, type PushEventType, type Recipient } from './recipients.js';
+import { contactDisplayName, type NamedContact } from './contactName.js';
 import {
   loadPushPlatformSettings,
   renderTemplate,
@@ -38,6 +39,7 @@ interface ConversationRow {
   workspace_id: string;
   assigned_to: string | null;
   status: string;
+  contact_id: string | null;
 }
 
 export interface InboundPushInput {
@@ -201,11 +203,23 @@ export async function notifyInboundMessage(
     // treated as authority for who may be notified.
     const { data: conversationRow } = await sb
       .from('conversations')
-      .select('id, workspace_id, assigned_to, status')
+      .select('id, workspace_id, assigned_to, status, contact_id')
       .eq('id', input.conversationId)
       .maybeSingle();
     const conv = conversationRow as ConversationRow | null;
     if (!conv || String(conv.workspace_id) !== input.workspaceId) return;
+
+    // A customer's message is signed with what the operator's app calls
+    // them in its list, read from the conversation's contact now — not the
+    // name the sender happened to pass, which an anonymous visitor never
+    // has. A note is signed by its author, who is passed in.
+    const contact = eventType === 'new_message' ? await loadContact(config, conv.contact_id) : null;
+    const senderFor = (locale: string): string | null | undefined =>
+      eventType !== 'new_message'
+        ? input.senderName
+        : contact || !input.senderName
+          ? contactDisplayName(contact, locale)
+          : input.senderName;
 
     const recipients = await resolveRecipients(config, {
       workspaceId: input.workspaceId,
@@ -260,7 +274,13 @@ export async function notifyInboundMessage(
       const badge = policy.badge_enabled
         ? await unreadBadgeCount(config, recipient.userId, input.workspaceId)
         : undefined;
-      const { title, body } = renderContent(input, eventType, recipient.preview, policy, recipient.locale);
+      const { title, body } = renderContent(
+        { ...input, senderName: senderFor(recipient.locale) },
+        eventType,
+        recipient.preview,
+        policy,
+        recipient.locale,
+      );
       const apns = apnsDeliveryFor(policy, eventType, input);
 
       const collapseId = policy.collapse_enabled ? `conv-${input.conversationId}` : undefined;
@@ -504,6 +524,17 @@ async function pushPolicy(config: ServerConfig): Promise<PushPlatformSettings | 
   return policy.push_enabled ? policy : null;
 }
 
+/** A conversation's contact, as much of it as naming them needs. */
+async function loadContact(config: ServerConfig, contactId: string | null | undefined): Promise<NamedContact | null> {
+  if (!contactId) return null;
+  const { data } = await getServiceClient(config)
+    .from('contacts')
+    .select('name, email, visitor_code')
+    .eq('id', contactId)
+    .maybeSingle();
+  return (data as NamedContact | null) ?? null;
+}
+
 async function displayName(config: ServerConfig, userId: string | null | undefined): Promise<string | null> {
   if (!userId) return null;
   const { data } = await getServiceClient(config)
@@ -562,16 +593,7 @@ export async function notifyAssignment(config: ServerConfig, input: AssignmentPu
     });
     if (!recipients.length) return;
 
-    let customer: string | null = null;
-    if (conv.contact_id) {
-      const { data: contact } = await sb
-        .from('contacts')
-        .select('name, email, visitor_code')
-        .eq('id', conv.contact_id)
-        .maybeSingle();
-      const row = contact as { name: string | null; email: string | null; visitor_code: string | null } | null;
-      customer = [row?.name, row?.email, row?.visitor_code].map((v) => v?.trim()).find(Boolean) ?? null;
-    }
+    const contact = await loadContact(config, conv.contact_id);
     const actorName = await displayName(config, input.actorId);
 
     await pushToRecipients(config, {
@@ -581,7 +603,11 @@ export async function notifyAssignment(config: ServerConfig, input: AssignmentPu
       dedupeKey: `${eventType}:${input.conversationId}:${input.stamp}`.slice(0, 200),
       conversationId: input.conversationId,
       data: { type: eventType, workspaceId: input.workspaceId, conversationId: input.conversationId },
-      render: (recipient) => renderAssignmentContent({ customer, actorName }, recipient.preview, recipient.locale),
+      render: (recipient) => renderAssignmentContent(
+        { customer: contactDisplayName(contact, recipient.locale), actorName },
+        recipient.preview,
+        recipient.locale,
+      ),
       thread: `conv-${input.conversationId}`,
       policy,
     });

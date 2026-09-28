@@ -9,11 +9,9 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -65,11 +63,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
@@ -78,7 +74,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.RoundedPolygon
-import com.webyar.ai.R
 import com.webyar.ai.core.net.ApiError
 import com.webyar.ai.i18n.Language
 import com.webyar.ai.i18n.Str
@@ -90,7 +85,6 @@ import com.webyar.ai.ui.components.BrandFooterClearance
 import com.webyar.ai.ui.components.BrandFooterOverlay
 import com.webyar.ai.ui.components.PrimaryButton
 import com.webyar.ai.ui.components.filledFieldColors
-import com.webyar.ai.ui.components.ShapeFrame
 import com.webyar.ai.ui.design.ExpressiveShapes
 import com.webyar.ai.ui.design.PolygonShape
 import com.webyar.ai.ui.design.Radius
@@ -118,13 +112,11 @@ import com.webyar.ai.ui.components.rememberLoop
  * Inside the scroll the padding would travel with the content and the field
  * would stay underneath.
  *
- * The look is Material 3 Expressive's: the brand mark in a scalloped shape,
- * two large soft shapes turning slowly behind the form, filled fields and a
- * pill button. The mark is the launcher's monochrome layer tinted with the
- * theme, so a white-label build and wallpaper colours both carry through
- * without a second asset. The form is capped at a readable width, so on a
- * tablet or an unfolded foldable it is a column in the middle rather than
- * fields a foot wide.
+ * The look is Material 3 Expressive's: two large soft shapes turning slowly
+ * behind the form, filled fields and a pill button, with no mark above the
+ * greeting — the brand signs the screen at its foot ("WEBYAR AI"), as on
+ * iOS. The form is capped at a readable width, so on a tablet or an unfolded
+ * foldable it is a column in the middle rather than fields a foot wide.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -187,22 +179,16 @@ fun LoginScreen(
         // screen before this one and the reset screen after it.
         BrandFooterOverlay()
 
-        BoxWithConstraints(
+        Box(
             Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing),
         ) {
-            // The mark is a welcome, not a control: on a short window — a
-            // phone in landscape, the keyboard up in split screen — it gives
-            // its room to the fields.
-            val roomy = maxHeight >= 560.dp
-
             // The keyboard comes up with the screen rather than waiting to be
             // asked. There is exactly one thing to do here and it needs
             // typing, so making somebody tap a field first is a tap that
-            // carries no information. Requested from in here, not from the
-            // top of the screen: this is a subcomposition, and an effect up
-            // there runs before the fields down here exist to take focus.
+            // carries no information. The effect runs once the fields below
+            // are composed, so the one it asks for is there to take focus.
             LaunchedEffect(Unit) {
                 emailFocus.requestFocus()
                 keyboard?.show()
@@ -224,10 +210,8 @@ fun LoginScreen(
                         .fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(Space.lg),
                 ) {
-                    if (roomy) {
-                        BrandMark(size = 104.dp)
-                        Spacer(Modifier.height(Space.sm))
-                    }
+                    // No mark above the greeting, as on iOS: the brand's one
+                    // signature on this screen is "WEBYAR AI" at its foot.
                     Text(
                         Str.loginTitle(language),
                         style = WebyarType.displaySmallEmphasized,
@@ -554,26 +538,6 @@ private val KeyGlyph: ImageVector by lazy {
             fill = SolidColor(Color.Black),
         )
         .build()
-}
-
-/** The app's mark in a scalloped cookie — the brand, in the theme's colours. */
-@Composable
-private fun BrandMark(size: Dp) {
-    ShapeFrame(
-        polygon = ExpressiveShapes.cookie9,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.size(size),
-    ) {
-        // The monochrome layer is laid out for an adaptive icon's 108dp
-        // canvas, with the mark inside its middle two thirds, so it fills the
-        // frame and the padding comes with it.
-        Image(
-            painter = painterResource(R.mipmap.ic_launcher_monochrome),
-            contentDescription = null,
-            colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onPrimary),
-            modifier = Modifier.fillMaxSize(),
-        )
-    }
 }
 
 /** A failed sign-in, as a tonal note rather than a line of red text. */

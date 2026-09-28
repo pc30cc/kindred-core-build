@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SOURCE = resolve(root, 'ios/WebyarNative/Sources/Localization/Strings.swift');
-const TARGET = resolve(root, 'android/app/src/main/kotlin/com/webyar/operator/i18n/Strings.kt');
+const TARGET = resolve(root, 'android/app/src/main/kotlin/com/webyar/ai/i18n/Strings.kt');
 
 const LANGS = ['en', 'fa', 'tr'];
 

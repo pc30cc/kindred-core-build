@@ -14,7 +14,7 @@ import Security
 /// not travel to a restored backup on another device, so it is device-only.
 enum TokenStore {
 
-    private static let service = "com.webyar.native.session"
+    private static let service = "com.webyar.ai.session"
     private static let account = "sessionToken"
 
     /// The Keychain refuses every write from an app without an
@@ -26,7 +26,7 @@ enum TokenStore {
     /// This file used to discard every status code, so that failure was
     /// invisible. It is now logged: whatever else goes wrong with a session,
     /// it will not be a mystery.
-    private static let log = Logger(subsystem: "com.webyar.native", category: "keychain")
+    private static let log = Logger(subsystem: "com.webyar.ai", category: "keychain")
 
     static func save(_ token: String) {
         guard let data = token.data(using: .utf8) else { return }

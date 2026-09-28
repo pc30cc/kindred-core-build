@@ -27,7 +27,7 @@ function testCredentials(overrides: Partial<ApnsCredentials> = {}): ApnsCredenti
     keyId: 'ABC123DEFG',
     teamId: 'TEAM123456',
     privateKey: privateKey as unknown as string,
-    bundleId: 'com.webyar.native',
+    bundleId: 'com.webyar.ai',
     sandbox: false,
     ...overrides,
   };
@@ -44,7 +44,7 @@ describe('VoIP push request', () => {
     const { headers } = buildVoipRequest(creds, { token: 'abc123', payload: {} });
     // Without the `.voip` suffix APNs accepts the push and PushKit never sees
     // it — the single most common reason a CallKit app never rings.
-    expect(headers['apns-topic']).toBe('com.webyar.native.voip');
+    expect(headers['apns-topic']).toBe('com.webyar.ai.voip');
   });
 
   it('declares itself a VoIP push at immediate priority', () => {

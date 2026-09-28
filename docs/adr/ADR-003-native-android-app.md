@@ -10,7 +10,7 @@ The platform currently ships two iOS surfaces:
 
 - `ios/App` — the Capacitor shell (`com.webyar.app`), a WKWebView hosting the
   same React bundle that ships to the web.
-- `ios/WebyarNative` — a native SwiftUI app (`com.webyar.native`), 80 Swift
+- `ios/WebyarNative` — a native SwiftUI app (`com.webyar.ai`), 80 Swift
   files / ~18,450 lines, iOS 17, iPhone-only and portrait-only, with exactly
   one external dependency (LiveKit).
 

@@ -118,7 +118,7 @@ targets:
         aps-environment: $(APS_ENVIRONMENT)
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.native
+        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.ai
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
@@ -145,7 +145,7 @@ targets:
       - target: WebyarNative
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.native.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.ai.uitests
         TEST_TARGET_NAME: WebyarNative
         TARGETED_DEVICE_FAMILY: "1"
         # The app writes its own Info.plist above, from `info:`. A test bundle
@@ -169,7 +169,7 @@ targets:
       - target: WebyarNative
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.native.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.ai.tests
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
 

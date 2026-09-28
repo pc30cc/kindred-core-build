@@ -11,25 +11,25 @@
 # Obfuscating the field names turns every response into a model of nulls —
 # which does not crash, and is far worse than crashing, because the app then
 # shows an inbox of blank rows and blames the server.
--keepclassmembers,allowobfuscation class com.webyar.operator.core.model.** {
+-keepclassmembers,allowobfuscation class com.webyar.ai.core.model.** {
     *** Companion;
     kotlinx.serialization.KSerializer serializer(...);
 }
--keepclasseswithmembers class com.webyar.operator.core.model.** {
+-keepclasseswithmembers class com.webyar.ai.core.model.** {
     public static ** INSTANCE;
 }
 -keepattributes *Annotation*, InnerClasses, Signature, RuntimeVisible*Annotations
 
 # The generated serializers themselves, which are referenced only from the
 # annotation the plugin writes.
--if @kotlinx.serialization.Serializable class com.webyar.operator.core.model.**
--keepclassmembers class com.webyar.operator.core.model.<1>$Companion {
+-if @kotlinx.serialization.Serializable class com.webyar.ai.core.model.**
+-keepclassmembers class com.webyar.ai.core.model.<1>$Companion {
     kotlinx.serialization.KSerializer serializer(...);
 }
 
 # Enum entries are matched against wire strings by `entries.firstOrNull`, so
 # the CONSTANTS are read by name at runtime even where the class is not.
--keepclassmembers enum com.webyar.operator.core.model.** {
+-keepclassmembers enum com.webyar.ai.core.model.** {
     public static **[] values();
     public static ** valueOf(java.lang.String);
 }

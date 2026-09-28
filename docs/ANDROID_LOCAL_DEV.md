@@ -47,7 +47,7 @@ rm -rf ~/.android/avd/Webyar_API36.avd/*.lock          # only if no emulator is 
 emulator -avd Webyar_API36 -gpu swiftshader_indirect \
   -no-snapshot-load -no-snapshot-save -no-boot-anim
 adb wait-for-device   # then wait for sys.boot_completed=1
-adb shell am start -n com.webyar.operator/.MainActivity
+adb shell am start -n com.webyar.ai/.MainActivity
 ```
 
 Four things have to be true, and each one cost a round of "the screen is
@@ -154,7 +154,7 @@ same machine, same emulator binary, same AVD settings:
 [02:11:11] boot=1  pkg=[Service package: found]  sf_crashes=0
 [02:11:43] sf crashes after settle: 0
 [02:11:43] installing -> Success
-[02:12:01] topResumedActivity=com.webyar.operator/.MainActivity
+[02:12:01] topResumedActivity=com.webyar.ai/.MainActivity
 ```
 
 API 36 is a device the app supports anyway — `minSdk` is 24 — so nothing
@@ -279,7 +279,7 @@ was idle while `system_server` was thrashing. Check that before rebuilding
 anything:
 
 ```sh
-P=$(adb shell pidof com.webyar.operator | tr -d '\r')
+P=$(adb shell pidof com.webyar.ai | tr -d '\r')
 adb shell cat /proc/$P/stat | awk '{print $14+$15}'   # twice, 5s apart
 adb shell cat /proc/meminfo | awk '/MemTotal|MemAvailable/{printf "%s %d MB\n", $1, $2/1024}'
 ```
@@ -321,9 +321,9 @@ variable through Android's `wrap.` debug property:
 
 ```
 adb root
-adb shell setprop wrap.com.webyar.operator "WEBYAR_SAMPLE=1"
-adb shell am force-stop com.webyar.operator
-adb shell am start -n com.webyar.operator/.MainActivity
+adb shell setprop wrap.com.webyar.ai "WEBYAR_SAMPLE=1"
+adb shell am force-stop com.webyar.ai
+adb shell am start -n com.webyar.ai/.MainActivity
 ```
 
 `adb root` is required — the property is SELinux-protected and the call
@@ -334,7 +334,7 @@ it took effect by reading the app's own environment rather than trusting the
 property:
 
 ```
-adb shell cat /proc/$(adb shell pidof com.webyar.operator)/environ | tr '\0' '\n' | grep -i webyar
+adb shell cat /proc/$(adb shell pidof com.webyar.ai)/environ | tr '\0' '\n' | grep -i webyar
 ```
 
 The property does not survive a reboot of the guest, so it has to be set
@@ -518,7 +518,7 @@ the same failure hit three processes, two of them Google's:
 
 ```
 ANR in com.google.android.apps.nexuslauncher
-ANR in com.webyar.operator (com.webyar.operator/.MainActivity)
+ANR in com.webyar.ai (com.webyar.ai/.MainActivity)
 ANR in com.google.android.googlequicksearchbox:search
   Reason: Input dispatching timed out ... Waited 12457ms for
   MotionEvent(... action=MOVE ...)

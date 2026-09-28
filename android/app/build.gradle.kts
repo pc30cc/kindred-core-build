@@ -38,16 +38,16 @@ val buildingAppBundle: Boolean = gradle.startParameter.taskNames.any {
 }
 
 android {
-    // NOT `com.webyar.ai`, which is what the iOS app is called.
-    // `native` is a reserved word in Java, and the namespace becomes a real
-    // package in generated sources (R, BuildConfig), so AGP rejects it. The
-    // app's own vocabulary supplies the replacement: every screen in the iOS
-    // source calls its user "the operator".
-    namespace = "com.webyar.operator"
+    // The same identifier as the iOS app (`PRODUCT_BUNDLE_IDENTIFIER` in
+    // ios/WebyarNative/project.yml): one name for the product on both stores.
+    // It was `com.webyar.operator` until 1.0.1; Android treats a new
+    // applicationId as a different app, so a phone with the old one installs
+    // this beside it rather than over it, and the old one is removed by hand.
+    namespace = "com.webyar.ai"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.webyar.operator"
+        applicationId = "com.webyar.ai"
         // Android 7.0. The market this ships to keeps devices far longer than
         // the Play Store's own charts suggest (ADR-003).
         minSdk = 24

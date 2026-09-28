@@ -1,0 +1,133 @@
+package com.webyar.ai.core.model
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+/**
+ * Which slice of the inbox is on screen.
+ *
+ * `queue` and `status` are two separate axes the server reads, not one —
+ * `needsHuman` and `open` are the same queue narrowed differently. The
+ * titles live in `Strings`, not here, so this stays free of UI.
+ */
+enum class InboxFilter(val wire: String) {
+    OPEN("open"),
+    NEEDS_HUMAN("needsHuman"),
+    PENDING("pending"),
+    AI("ai"),
+    RESOLVED("resolved"),
+    SPAM("spam");
+
+    val queue: String
+        get() = when (this) {
+            OPEN, NEEDS_HUMAN, PENDING, RESOLVED -> "main"
+            AI -> "automated"
+            SPAM -> "spam"
+        }
+
+    val status: String?
+        get() = when (this) {
+            OPEN, NEEDS_HUMAN -> "open"
+            // The main queue narrowed to threads the customer owes us a reply
+            // on — the same `status=pending` the console's tab sends.
+            PENDING -> "pending"
+            // Both finished states, as the console's Resolved tab asks for
+            // them: a thread the server auto-closed is as done as one an
+            // operator resolved, and used to vanish from every queue here.
+            RESOLVED -> "resolved,closed"
+            AI, SPAM -> null
+        }
+
+    /** Narrows Main Inbox to threads the AI has handed back. */
+    val needsHumanOnly: Boolean get() = this == NEEDS_HUMAN
+
+    companion object {
+        /**
+         * The queues this plan includes, in the order they should appear.
+         *
+         * A queue that leads to a permanently empty list because the plan
+         * excludes it reads as a broken app, not as an upsell — so it is left
+         * out entirely rather than shown and refused.
+         *
+         * The AI queue is the web's `aiQueueVisible`: the plan's
+         * `inbox_ai_queue` alone is not enough — the AI has to be switched on
+         * and shown to customers ([access]), and either answering by itself or
+         * already holding threads ([automated]). Unknown switches hide it.
+         */
+        fun available(
+            entitlements: Entitlements?,
+            access: WorkspaceAccess = WorkspaceAccess.UNKNOWN,
+            automated: Int? = null,
+        ): List<InboxFilter> = buildList {
+            add(OPEN)
+            if (entitlements?.featureEnabled("inbox_needs_human") == true) add(NEEDS_HUMAN)
+            // Every plan can put a thread on hold for the customer, so this
+            // one is core like Open and Resolved rather than an entitlement.
+            add(PENDING)
+            val aiInPlan = entitlements?.featureEnabled("inbox_ai_queue") == true
+            if (access.aiQueueVisible(aiInPlan, automated)) add(AI)
+            add(RESOLVED)
+            add(SPAM)
+        }
+
+        /**
+         * The queues on the strip above the list: Open, and the AI's queue
+         * where the plan and the switches give it one.
+         *
+         * The strip used to carry every queue. "Needs me" and "Awaiting
+         * customer" are places an operator visits rather than works in, and
+         * with them on the strip the two that ARE worked in all day scrolled
+         * off a Persian phone. The rest are one tap away behind the strip's
+         * last button, which opens every inbox — queues, channels, colleagues
+         * and email — and behind the title, as before.
+         */
+        fun chips(
+            entitlements: Entitlements?,
+            access: WorkspaceAccess = WorkspaceAccess.UNKNOWN,
+            automated: Int? = null,
+        ): List<InboxFilter> = available(entitlements, access, automated).filter { it == OPEN || it == AI }
+    }
+}
+
+/** The counters behind each inbox filter. `GET /api/conversations/inbox-tab-counts`. */
+@Serializable
+data class InboxCounts(
+    val open: Int? = null,
+    val pending: Int? = null,
+    val resolved: Int? = null,
+    val all: Int? = null,
+    @SerialName("needs_human") val needsHuman: Int? = null,
+    val automated: Int? = null,
+) {
+    fun count(filter: InboxFilter): Int? = when (filter) {
+        InboxFilter.OPEN -> open
+        InboxFilter.AI -> automated
+        InboxFilter.NEEDS_HUMAN -> needsHuman
+        InboxFilter.PENDING -> pending
+        InboxFilter.RESOLVED -> resolved
+        // `inbox-tab-counts` does not count the spam queue, and a queue you
+        // visit to empty it does not need a badge anyway.
+        InboxFilter.SPAM -> null
+    }
+}
+
+/**
+ * Who is answering a thread.
+ *
+ * Mirrors `AIState` in `Features/Chat/ComposerCapabilities.swift`.
+ */
+enum class AiState(val wire: String) {
+    /** The AI owns the thread and is replying on its own. */
+    AI_MANAGED("ai_managed"),
+    /** The AI has handed back and is waiting for a person. */
+    NEEDS_HUMAN("needs_human"),
+    /** A person has taken over. */
+    HUMAN_ACTIVE("human_active");
+
+    companion object {
+        fun resolve(conversation: Conversation): AiState? {
+            val raw = conversation.aiStateValue?.takeIf { it.isNotEmpty() } ?: return null
+            return entries.firstOrNull { it.wire == raw }
+        }
+    }
+}

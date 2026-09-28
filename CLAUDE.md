@@ -11,7 +11,7 @@ that is known to show a picture there:
 ```
 
 It starts `Webyar_API36` with `-gpu swiftshader_indirect` (flag, not
-`config.ini`), waits for boot and opens `com.webyar.operator`. Do not use
+`config.ini`), waits for boot and opens `com.webyar.ai`. Do not use
 `Webyar_API37` (SurfaceFlinger crash-loop) or `-gpu host` (black window), and
 keep `hw.display1.*` at 0 in the AVD (a second display halves the phone).
 Build from a separate worktree (`~/dev/kcb-ui-preview`), never from the

@@ -26,6 +26,7 @@ import { sendFcmMessage, isPushConfigured, type ApnsDelivery } from './fcm.js';
 import { sendApnsAlert, isApnsConfigured, nativeBundleId } from './apns.js';
 import { listActiveDevices, disableToken, type PushDeviceRow } from './devices.js';
 import { resolveRecipients, unreadBadgeCount, type PushEventType, type Recipient } from './recipients.js';
+import { contactDisplayName, type NamedContact } from './contactName.js';
 import {
   DEFAULT_CATEGORIES,
   loadPushPlatformSettings,
@@ -39,6 +40,7 @@ interface ConversationRow {
   workspace_id: string;
   assigned_to: string | null;
   status: string;
+  contact_id: string | null;
   is_spam?: boolean | null;
   ai_state?: string | null;
 }
@@ -215,7 +217,7 @@ export async function notifyInboundMessage(
     // treated as authority for who may be notified.
     const { data: conversationRow } = await sb
       .from('conversations')
-      .select('id, workspace_id, assigned_to, status, is_spam, ai_state')
+      .select('id, workspace_id, assigned_to, status, contact_id, is_spam, ai_state')
       .eq('id', input.conversationId)
       .maybeSingle();
     const conv = conversationRow as ConversationRow | null;
@@ -226,6 +228,18 @@ export async function notifyInboundMessage(
     // in the AI's own queue, out of the operators' way, and so does the
     // phone. When the AI hands it over, that is its own notification.
     if (eventType === 'new_message' && conv.ai_state === 'ai_managed' && !conv.assigned_to) return;
+
+    // A customer's message is signed with what the operator's app calls
+    // them in its list, read from the conversation's contact now — not the
+    // name the sender happened to pass, which an anonymous visitor never
+    // has. A note is signed by its author, who is passed in.
+    const contact = eventType === 'new_message' ? await loadContact(config, conv.contact_id) : null;
+    const senderFor = (locale: string): string | null | undefined =>
+      eventType !== 'new_message'
+        ? input.senderName
+        : contact || !input.senderName
+          ? contactDisplayName(contact, locale)
+          : input.senderName;
 
     const recipients = await resolveRecipients(config, {
       workspaceId: input.workspaceId,
@@ -284,7 +298,13 @@ export async function notifyInboundMessage(
       const badge = policy.badge_enabled
         ? await unreadBadgeCount(config, recipient.userId, input.workspaceId)
         : undefined;
-      const { title, body } = renderContent(content, eventType, recipient.preview, policy, recipient.locale);
+      const { title, body } = renderContent(
+        { ...content, senderName: senderFor(recipient.locale) },
+        eventType,
+        recipient.preview,
+        policy,
+        recipient.locale,
+      );
       const apns = apnsDeliveryFor(policy, eventType, input);
 
       const collapseId = policy.collapse_enabled ? `conv-${input.conversationId}` : undefined;
@@ -528,6 +548,17 @@ async function pushPolicy(config: ServerConfig): Promise<PushPlatformSettings | 
   return policy.push_enabled ? policy : null;
 }
 
+/** A conversation's contact, as much of it as naming them needs. */
+async function loadContact(config: ServerConfig, contactId: string | null | undefined): Promise<NamedContact | null> {
+  if (!contactId) return null;
+  const { data } = await getServiceClient(config)
+    .from('contacts')
+    .select('name, email, visitor_code')
+    .eq('id', contactId)
+    .maybeSingle();
+  return (data as NamedContact | null) ?? null;
+}
+
 async function displayName(config: ServerConfig, userId: string | null | undefined): Promise<string | null> {
   if (!userId) return null;
   const { data } = await getServiceClient(config)
@@ -586,16 +617,7 @@ export async function notifyAssignment(config: ServerConfig, input: AssignmentPu
     });
     if (!recipients.length) return;
 
-    let customer: string | null = null;
-    if (conv.contact_id) {
-      const { data: contact } = await sb
-        .from('contacts')
-        .select('name, email, visitor_code')
-        .eq('id', conv.contact_id)
-        .maybeSingle();
-      const row = contact as { name: string | null; email: string | null; visitor_code: string | null } | null;
-      customer = [row?.name, row?.email, row?.visitor_code].map((v) => v?.trim()).find(Boolean) ?? null;
-    }
+    const contact = await loadContact(config, conv.contact_id);
     const actorName = await displayName(config, input.actorId);
 
     await pushToRecipients(config, {
@@ -605,7 +627,11 @@ export async function notifyAssignment(config: ServerConfig, input: AssignmentPu
       dedupeKey: `${eventType}:${input.conversationId}:${input.stamp}`.slice(0, 200),
       conversationId: input.conversationId,
       data: { type: eventType, workspaceId: input.workspaceId, conversationId: input.conversationId },
-      render: (recipient) => renderAssignmentContent({ customer, actorName }, recipient.preview, recipient.locale),
+      render: (recipient) => renderAssignmentContent(
+        { customer: contactDisplayName(contact, recipient.locale), actorName },
+        recipient.preview,
+        recipient.locale,
+      ),
       thread: `conv-${input.conversationId}`,
       policy,
     });
@@ -674,7 +700,7 @@ export async function notifyHandoff(config: ServerConfig, input: HandoffPushInpu
     });
     if (!recipients.length) return;
 
-    const customer = await customerName(config, conv.contact_id);
+    const contact = await loadContact(config, conv.contact_id);
     await pushToRecipients(config, {
       workspaceId: input.workspaceId,
       eventType,
@@ -682,7 +708,11 @@ export async function notifyHandoff(config: ServerConfig, input: HandoffPushInpu
       dedupeKey: `${eventType}:${input.conversationId}:${input.handoffAt}`.slice(0, 200),
       conversationId: input.conversationId,
       data: { type: eventType, workspaceId: input.workspaceId, conversationId: input.conversationId },
-      render: (recipient) => renderHandoffContent({ customer }, recipient.preview, recipient.locale),
+      render: (recipient) => renderHandoffContent(
+        { customer: contactDisplayName(contact, recipient.locale) },
+        recipient.preview,
+        recipient.locale,
+      ),
       thread: `conv-${input.conversationId}`,
       policy,
     });
@@ -705,18 +735,6 @@ export function renderHandoffContent(
   if (!preview) return mark({ title: copy.privacyTitle, body: copy.handoffPrivacyBody });
   const who = input.customer?.trim() || copy.customer;
   return mark({ title: copy.handoffTitle, body: `${who} · ${copy.handoffBody}` });
-}
-
-/** The customer's name as the inbox shows it, or null. */
-async function customerName(config: ServerConfig, contactId: string | null): Promise<string | null> {
-  if (!contactId) return null;
-  const { data: contact } = await getServiceClient(config)
-    .from('contacts')
-    .select('name, email, visitor_code')
-    .eq('id', contactId)
-    .maybeSingle();
-  const row = contact as { name: string | null; email: string | null; visitor_code: string | null } | null;
-  return [row?.name, row?.email, row?.visitor_code].map((v) => v?.trim()).find(Boolean) ?? null;
 }
 
 /** Whether any of the platform's templates uses `{{name}}`. */

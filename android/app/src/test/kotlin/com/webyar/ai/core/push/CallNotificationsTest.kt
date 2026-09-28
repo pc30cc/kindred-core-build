@@ -56,6 +56,14 @@ class CallNotificationsTest {
         assertTrue(CallNotifications.isRinging(context, "call-1"))
     }
 
+    /** The name the inbox list gives an anonymous visitor: "Visitor" and their code. */
+    @Test
+    fun `an anonymous caller is named as the inbox list names them`() {
+        CallNotifications.showIncoming(context, call().copy(caller = "", callerCode = "4ZTK"), Language.FA, nowMillis = now)
+        val posted = shadowOf(manager).allNotifications.single()
+        assertEquals("بازدیدکننده 4ZTK", posted.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString())
+    }
+
     @Test
     fun `the calls channel rings in the operator's language`() {
         CallNotifications.ensureChannel(context, Language.FA)

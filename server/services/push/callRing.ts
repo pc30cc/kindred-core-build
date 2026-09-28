@@ -35,6 +35,7 @@ import { sendVoipPush, isVoipConfigured } from './apnsVoip.js';
 import { sendFcmData, isPushConfigured } from './fcm.js';
 import { createStorageUrlResolver, resolveContactAvatarUrl } from '../storage/urlResolver.js';
 import { disableToken } from './devices.js';
+import { contactOwnName } from './contactName.js';
 
 /** How long a ring is worth delivering. Past this it is a missed call. */
 const RING_TTL_SECONDS = 45;
@@ -155,9 +156,10 @@ export async function ringOperators(
         workspaceId: input.workspaceId,
         workspaceName: caller.workspaceName,
         channel: input.channel,
-        // Left empty when nobody is named, so the phone says "website
-        // visitor" in its operator's language rather than in English.
-        caller: caller.named ? caller.name : '',
+        // Named as the app's list names them: their own name, or — left
+        // empty — "Visitor" and their code in the phone's own language.
+        caller: caller.ownName ?? '',
+        callerCode: caller.visitorCode,
         callerId: caller.id,
         avatarUrl: caller.avatarUrl,
         expiresAt,
@@ -255,6 +257,8 @@ export function androidRingData(input: {
   workspaceName: string | null;
   channel: 'audio' | 'video';
   caller: string;
+  /** An anonymous caller's visitor code, for the phone to name them by. */
+  callerCode?: string | null;
   callerId: string;
   avatarUrl: string | null;
   expiresAt: number;
@@ -269,6 +273,7 @@ export function androidRingData(input: {
     expiresAt: String(input.expiresAt),
   };
   if (input.workspaceName) data.workspaceName = input.workspaceName.slice(0, 120);
+  if (input.callerCode) data.callerCode = input.callerCode.slice(0, 32);
   // FCM caps a message at 4 KB; a signed URL that would crowd that out is
   // left behind, and the app draws the caller without a face.
   if (input.avatarUrl && input.avatarUrl.length <= 1500) data.avatarUrl = input.avatarUrl;
@@ -408,6 +413,13 @@ interface CallerDescription {
   name: string;
   /** False when [name] is only the generic label, not anybody's name. */
   named: boolean;
+  /**
+   * What the apps' lists call them before "Visitor": their name, or their
+   * email's local part. Null for an anonymous visitor.
+   */
+  ownName: string | null;
+  /** The stable code an anonymous visitor is told apart by. */
+  visitorCode: string | null;
   id: string;
   avatarUrl: string | null;
   workspaceName: string | null;
@@ -429,6 +441,8 @@ async function describeCaller(
   const fallback: CallerDescription = {
     name: 'Website visitor',
     named: false,
+    ownName: null,
+    visitorCode: null,
     id: callSessionId,
     avatarUrl: null,
     workspaceName: null,
@@ -459,6 +473,8 @@ async function describeCaller(
         return {
           name: known ?? fallback.name,
           named: known !== null,
+          ownName: contactOwnName(row),
+          visitorCode: row.visitor_code?.trim() || null,
           id: String(row.id),
           // From the key through the provider in use now, like every other avatar.
           avatarUrl: await resolveContactAvatarUrl(createStorageUrlResolver(config), workspaceId, row),

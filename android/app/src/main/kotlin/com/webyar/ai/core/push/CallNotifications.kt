@@ -18,6 +18,7 @@ import com.webyar.ai.MainActivity
 import com.webyar.ai.R
 import com.webyar.ai.core.model.CallChannel
 import com.webyar.ai.i18n.Language
+import com.webyar.ai.i18n.Str
 import com.webyar.ai.i18n.StrAndroid
 
 /** From a ring's Answer, or from the ring itself. */
@@ -98,7 +99,8 @@ object CallNotifications {
         if (remaining <= 0) return
         ensureChannel(context, language, rename = false)
 
-        val name = call.caller.ifBlank { StrAndroid.websiteVisitor(language) }
+        // The name the inbox list gives them, anonymous visitors included.
+        val name = call.displayName(language)
         val caller = Person.Builder().setName(name).setImportant(true).build()
         val video = call.channel == CallChannel.VIDEO
         val answer = activityIntent(context, call, ACTION_ANSWER, name)
@@ -170,7 +172,7 @@ object CallNotifications {
         if (!missed || (active == null && remembered == null) || !Notifications.canPost(context)) return
         val name = active?.extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString()
             ?: remembered
-            ?: StrAndroid.websiteVisitor(language)
+            ?: Str.unknownVisitor(language)
         val open = PendingIntent.getActivity(
             context,
             requestCode(callId, MISSED_TAG),

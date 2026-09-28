@@ -1566,7 +1566,7 @@ fun IncomingCallRoute(
     CallScreen(
         phase = phase,
         channel = channel,
-        contactName = key.caller.ifBlank { StrAndroid.websiteVisitor(language) },
+        contactName = key.caller.ifBlank { Str.unknownVisitor(language) },
         language = language,
         connectedAt = connectedAt,
         muted = muted,

@@ -158,7 +158,7 @@ export default function LoginPage() {
           <LanguageSelector />
         </div>
 
-        <div className="flex-1 flex items-center justify-center px-6 pb-12">
+        <div className="flex-1 flex flex-col items-center justify-center px-6 pb-12">
           <div className="glass beam-border w-full max-w-[440px] space-y-8 rounded-3xl p-7 shadow-glow sm:p-9">
             <div className="space-y-2">
               <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">{t('auth.loginTitle')}</h1>

@@ -19,6 +19,9 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
  * What the chat's view model decides, as against what the screen draws.
@@ -29,6 +32,11 @@ import org.junit.Test
  * exactly the kind that gets lost, so it is pinned where it now lives.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
+// Robolectric for android.icu: the length notice formats its limit with the
+// operator's digits (Format.number), which the plain JVM's stubbed android.jar
+// cannot do — as TeamChatTest, which checks the same notice, already runs.
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class ChatViewModelTest {
 
     private val dispatcher = StandardTestDispatcher()

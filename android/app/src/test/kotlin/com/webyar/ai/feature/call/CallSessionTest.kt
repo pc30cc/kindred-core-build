@@ -7,8 +7,12 @@ import com.webyar.ai.core.net.ApiError
 import com.webyar.ai.core.net.SampleApi
 import com.webyar.ai.core.net.WebyarApi
 import com.webyar.ai.i18n.Language
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -88,6 +92,8 @@ class CallSessionTest {
         private val answers: List<CallInvitation>,
         private val token: CallToken? = SAMPLE_TOKEN,
         private val inviteFailure: Throwable? = null,
+        /** How long the room's token takes to arrive. */
+        private val tokenMillis: Long = 0,
         private val real: SampleApi = SampleApi(),
     ) : WebyarApi by real {
         var polls = 0; private set
@@ -127,8 +133,10 @@ class CallSessionTest {
             return answer
         }
 
-        override suspend fun callToken(callSessionId: String, displayName: String?): CallToken =
-            token ?: throw IllegalStateException("no token")
+        override suspend fun callToken(callSessionId: String, displayName: String?): CallToken {
+            if (tokenMillis > 0) delay(tokenMillis)
+            return token ?: throw IllegalStateException("no token")
+        }
 
         override suspend fun hangUp(callSessionId: String) { hungUp = callSessionId }
 
@@ -144,6 +152,16 @@ class CallSessionTest {
     )
 
     private fun session(api: WebyarApi, room: CallRoom) = CallSession(api, room)
+
+    /** A session held by [store], as a screen's is, so clearing the store is the screen going. */
+    private fun owned(store: ViewModelStore, api: WebyarApi, room: CallRoom): CallSession =
+        ViewModelProvider(
+            store,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T = session(api, room) as T
+            },
+        )[CallSession::class.java]
 
     private fun CallSession.dial(channel: CallChannel = CallChannel.AUDIO) = start(
         workspaceId = "ws-1",
@@ -463,6 +481,84 @@ class CallSessionTest {
         testScheduler.advanceUntilIdle()
 
         assertEquals(CallPhase.Ended(CallOutcome.VisitorLeft), call.phase.value)
+    }
+
+    /**
+     * The visitor answered and the room's token was on its way when the
+     * operator gave up. The call must stay ended: it used to be joined anyway,
+     * the phase going back from "call ended" to connected with the
+     * microphone live.
+     */
+    @Test
+    fun `hanging up while the call connects never joins the room afterwards`() = runTest(dispatcher) {
+        val room = FakeRoom()
+        val api = ScriptedApi(listOf(invitation("joined", sessionId = "cs-1")), tokenMillis = 1_000)
+        val call = session(api, room)
+        call.dial()
+        testScheduler.advanceTimeBy(1)
+        assertEquals(CallPhase.Connecting, call.phase.value)
+
+        call.hangUp()
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(CallPhase.Ended(CallOutcome.HungUp), call.phase.value)
+        assertFalse(room.connected)
+        assertEquals("cs-1", api.hungUp)
+    }
+
+    /**
+     * The red button becomes Done in the same place, so a hang-up is often
+     * followed at once by the screen closing. The hang-up still reaches the
+     * server — it used to be cancelled with the screen.
+     */
+    @Test
+    fun `closing the screen straight after hanging up still tells the server`() = runTest(dispatcher) {
+        val room = FakeRoom()
+        val api = ScriptedApi(listOf(invitation("joined", sessionId = "cs-1")))
+        val store = ViewModelStore()
+        val call = owned(store, api, room)
+        call.dial()
+        testScheduler.advanceUntilIdle()
+
+        call.hangUp()
+        store.clear()
+        testScheduler.advanceUntilIdle()
+
+        assertEquals("cs-1", api.hungUp)
+        assertTrue(room.released)
+    }
+
+    /** Back, with the call still on, is a hang-up — not a room quietly left. */
+    @Test
+    fun `leaving the screen mid-call hangs up`() = runTest(dispatcher) {
+        val room = FakeRoom()
+        val api = ScriptedApi(listOf(invitation("joined", sessionId = "cs-1")))
+        val store = ViewModelStore()
+        val call = owned(store, api, room)
+        call.dial()
+        testScheduler.advanceUntilIdle()
+        assertEquals(CallPhase.Connected, call.phase.value)
+
+        store.clear()
+        testScheduler.advanceUntilIdle()
+
+        assertTrue(room.disconnected)
+        assertTrue(room.released)
+        assertEquals("cs-1", api.hungUp)
+    }
+
+    /** And leaving while it still rings the visitor withdraws the offer. */
+    @Test
+    fun `leaving the screen while it rings the visitor withdraws the offer`() = runTest(dispatcher) {
+        val api = ScriptedApi(listOf(invitation("pending")))
+        val store = ViewModelStore()
+        owned(store, api, FakeRoom()).dial()
+        testScheduler.advanceTimeBy(1)
+
+        store.clear()
+        testScheduler.advanceUntilIdle()
+
+        assertEquals("inv-1", api.cancelled)
     }
 
     @Test

@@ -54,6 +54,35 @@ class IncomingCallRouterTest {
         assertTrue(rung.isEmpty())
     }
 
+    /**
+     * A phone whose clock is set a few minutes fast read every ring as long
+     * expired, and never rang at all. FCM's send time is on the server's
+     * side of that gap, and the ring gets its whole life from its arrival.
+     */
+    @Test
+    fun `a phone clock set fast still rings, for the ring's life`() = runTest {
+        // Sent at 1000 by the server's clock; this phone reads 1300.
+        assertTrue(router(now = 1_300).onMessage(ring, sentAtMillis = 1_000_000))
+        assertEquals(1_345L, rung.single().expiresAt)
+    }
+
+    /** And one set slow does not ring for an hour on the strength of it. */
+    @Test
+    fun `a phone clock set slow rings for the ring's life, not an hour`() = runTest {
+        assertTrue(router(now = 1_000L - 3_600).onMessage(ring, sentAtMillis = 1_000_000))
+        assertEquals(1_000L - 3_600 + 45, rung.single().expiresAt)
+    }
+
+    @Test
+    fun `with the clocks in step, the server's expiry stands`() = runTest {
+        assertTrue(router(now = 1_010).onMessage(ring, sentAtMillis = 1_000_000))
+        assertEquals(1_045L, rung.single().expiresAt)
+
+        rung.clear()
+        assertTrue(router(now = 1_045).onMessage(ring, sentAtMillis = 1_000_000))
+        assertTrue(rung.isEmpty())
+    }
+
     /** A phone somebody signed out of must not show a caller to whoever holds it next. */
     @Test
     fun `nobody signed in, nothing rings`() = runTest {

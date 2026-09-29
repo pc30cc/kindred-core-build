@@ -40,6 +40,18 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <!--
+      LiveKit's screen sharing, which this app never does. The SDK's manifest
+      brings a mediaProjection foreground service and its permission with it,
+      and a type-specific foreground-service permission in the manifest is
+      something Play makes a release declare and justify — screen sharing,
+      with a video of it — for a feature that is not there. Removed, with the
+      service below.
+    -->
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"
+        tools:node="remove" />
+
+    <!--
       A phone with no microphone is a tablet, and it should still be able to
       read an inbox. required="false" keeps this app installable on one.
     -->
@@ -128,6 +140,11 @@
         <receiver
             android:name=".core.push.CallActionReceiver"
             android:exported="false" />
+
+        <!-- LiveKit's screen-share service: see the permission above. -->
+        <service
+            android:name="io.livekit.android.room.track.screencapture.ScreenCaptureService"
+            tools:node="remove" />
 
         <!--
           FCM delivers here with the app in front; with it in the background

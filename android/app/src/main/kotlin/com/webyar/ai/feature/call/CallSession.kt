@@ -8,6 +8,10 @@ import com.webyar.ai.core.net.WebyarApi
 import com.webyar.ai.core.runCatchingUnlessCancelled
 import com.webyar.ai.i18n.Language
 import com.webyar.ai.i18n.displayText
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -97,6 +101,30 @@ class CallSession(
     private var centerWorkspaceId: String? = null
 
     /**
+     * The work that gets the call INTO the room: the invitation and its wait,
+     * or the answer — and, after either, the join.
+     *
+     * Held so that ending the call can stop it. Without that, a hang-up
+     * pressed while the answer, the token or the last poll was still on its
+     * way ended the call on screen and then watched it come back: the join
+     * went on, set the phase to connecting over "call ended", entered the
+     * room and switched the microphone on — for an operator who had pressed
+     * the red button and put the phone down.
+     */
+    private var callJob: Job? = null
+
+    /**
+     * Where the end of a call is told to the room and the server.
+     *
+     * Not [viewModelScope]: that ends the moment this screen does, and the
+     * red button is also the Done button — the operator's second tap on it
+     * closed the screen and cancelled the hang-up request still in flight,
+     * so the server never heard the call was over (and a call-centre call
+     * kept this operator's line busy). One request, then nothing holds it.
+     */
+    private val teardown by lazy { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
+
+    /**
      * Invites the visitor, then waits for them.
      *
      * The invitation is created HERE, on the session's own scope, and not by
@@ -127,7 +155,7 @@ class CallSession(
         this.language = language
         _cameraOn.value = channel == CallChannel.VIDEO
 
-        viewModelScope.launch {
+        callJob = viewModelScope.launch {
             val invitation = runCatchingUnlessCancelled {
                 // Named, because the two ids are both UUID strings and
                 // transposing them is exactly the mistake that made every
@@ -186,7 +214,7 @@ class CallSession(
         val workspaceId = centerWorkspaceId ?: return
         val sessionId = callSessionId ?: return
         _phase.value = CallPhase.Connecting
-        viewModelScope.launch {
+        callJob = viewModelScope.launch {
             runCatchingUnlessCancelled {
                 api.acceptCenterCall(workspaceId = workspaceId, callSessionId = sessionId)
             }.onFailure { error ->
@@ -273,7 +301,12 @@ class CallSession(
         val result = room.connect(url, credentials, wantsVideo = channel == CallChannel.VIDEO)
         when (result) {
             is CallRoom.Result.Failed -> {
-                _phase.value = CallPhase.Ended(CallOutcome.Failed(result.reason))
+                // Ended as any call ends — the room left, the server told —
+                // with the reason where a hang-up would be. The server hears
+                // of it here rather than from the room's own disconnect,
+                // which arrives with a failed join and is not acted on while
+                // connecting (see [onRoomEvent]).
+                finish(CallOutcome.Failed(result.reason))
                 return
             }
             is CallRoom.Result.Joined -> {
@@ -309,7 +342,11 @@ class CallSession(
                 }
             }
             is CallRoom.Event.Disconnected -> {
-                if (_phase.value.isLive) finish(CallOutcome.VisitorLeft)
+                // Only once in. While connecting, the join itself says how it
+                // went — a room that refuses us disconnects on the way out,
+                // and ending the call here would stop the join before it
+                // could say why, leaving "call ended" where the reason goes.
+                if (_phase.value == CallPhase.Connected) finish(CallOutcome.VisitorLeft)
             }
         }
     }
@@ -346,10 +383,15 @@ class CallSession(
             return
         }
         _phase.value = CallPhase.Ended(outcome)
+        // Whatever was still getting the call into the room stops here, so
+        // nothing afterwards can join it, or say it failed. A join already
+        // inside the room is cancelled with it and left by the disconnect
+        // below.
+        callJob?.cancel()
         val sessionId = callSessionId
         val invitation = invitationId
         val center = centerWorkspaceId
-        viewModelScope.launch {
+        teardown.launch {
             room.disconnect()
             // Told to the server last and best-effort: the local side is
             // already over, and a failed request must not leave the operator
@@ -373,6 +415,12 @@ class CallSession(
     }
 
     override fun onCleared() {
+        // Gone from the screen with the call still on — Back, or a sign-out —
+        // is a hang-up, and the server is told so like any other. Leaving it
+        // to the room's release alone left an invitation ringing the
+        // visitor's widget for its five minutes, and a call-centre call open
+        // with this operator's line still busy.
+        finish(CallOutcome.HungUp)
         // Whatever happened, the microphone and camera go back. A room left
         // open is a device the next app to ask for it is told no about.
         room.release()

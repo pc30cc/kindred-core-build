@@ -38,8 +38,9 @@ class WebyarMessagingService : FirebaseMessagingService() {
         val graph = (application as? WebyarApp)?.graph ?: return
         // A call-centre ring is data-only, so it lands here in every state
         // of the app — cold included. This runs on FCM's own worker thread,
-        // with seconds to spare; the two reads it waits on are local.
-        if (runBlocking { graph.incomingCalls.onMessage(message.data) }) return
+        // with seconds to spare; the two reads it waits on are local. FCM's
+        // own send time goes with it, for a phone whose clock is off.
+        if (runBlocking { graph.incomingCalls.onMessage(message.data, message.sentTime) }) return
         graph.pushRouter.onMessage(
             payload = PushPayload.from(message.data),
             title = message.notification?.title,

@@ -8,6 +8,7 @@ import com.webyar.ai.core.net.WebyarApi
 import com.webyar.ai.i18n.Language
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -16,6 +17,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -49,6 +51,8 @@ class IncomingCallSessionTest {
 
     private class CenterApi(
         private val acceptFailure: Throwable? = null,
+        /** How long the call centre takes to answer the accept. */
+        private val acceptMillis: Long = 0,
         private val real: SampleApi = SampleApi(),
     ) : WebyarApi by real {
         val accepted = mutableListOf<Pair<String, String>>()
@@ -57,6 +61,7 @@ class IncomingCallSessionTest {
 
         override suspend fun acceptCenterCall(workspaceId: String, callSessionId: String) {
             accepted += workspaceId to callSessionId
+            if (acceptMillis > 0) delay(acceptMillis)
             acceptFailure?.let { throw it }
         }
 
@@ -118,6 +123,30 @@ class IncomingCallSessionTest {
 
         assertEquals(listOf("ws-1" to "call-1"), api.ended)
         assertNull(api.hungUp)
+    }
+
+    /**
+     * Answer, then the red button before the call centre has replied. The
+     * call ended on screen used to come back: the answer landed, the room
+     * was joined and the microphone went live for somebody who had hung up.
+     */
+    @Test
+    fun `hanging up while the answer is on its way never joins the room`() = runTest(dispatcher) {
+        val api = CenterApi(acceptMillis = 1_000)
+        val room = Room()
+        val call = CallSession(api, room)
+        call.ringing()
+        call.answer()
+        testScheduler.advanceTimeBy(1)
+        assertEquals(CallPhase.Connecting, call.phase.value)
+
+        call.hangUp()
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(CallPhase.Ended(CallOutcome.HungUp), call.phase.value)
+        assertFalse(room.connected)
+        // The accept may have landed; the call centre is told it is over.
+        assertEquals(listOf("ws-1" to "call-1"), api.ended)
     }
 
     /**

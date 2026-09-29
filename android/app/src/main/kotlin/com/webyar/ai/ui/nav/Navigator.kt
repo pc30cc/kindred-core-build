@@ -45,6 +45,7 @@ class Navigator internal constructor(
      * to the list and not through every conversation looked at.
      */
     fun open(screen: Screen) {
+        if (screen.isCall()) callsThisProcess += screen
         if (screen.tab != tab) selectTab(screen.tab)
         val stack = stack(screen.tab)
         val last = stack.lastOrNull()
@@ -95,9 +96,25 @@ class Navigator internal constructor(
     }
 }
 
+/**
+ * The call screens opened in this process — the only ones a saved stack may
+ * bring back. See [rememberNavigator].
+ */
+private val callsThisProcess = mutableSetOf<Screen>()
+
+private fun Screen.isCall(): Boolean = this is CallKey || this is IncomingCallKey
+
 @Composable
 fun rememberNavigator(currentTab: () -> AppTab, selectTab: (AppTab) -> Unit): Navigator {
     val inbox = rememberNavBackStack(InboxKey)
+    // A call does not survive its process: the room, the microphone and the
+    // ring are gone with it. Brought back by the saved stack after the system
+    // killed the app in the background, a call screen would dial the visitor
+    // again (CallRoute starts a call; IncomingCallKey(answer = true) answers
+    // a ring long over). One opened in this process is still live — the stack
+    // came back from a configuration change and its call with it — and stays.
+    // Before anything composes the stack, so no call screen starts first.
+    remember(inbox) { inbox.removeAll { (it as? Screen)?.isCall() == true && it !in callsThisProcess } }
     val contacts = rememberNavBackStack(ContactsKey)
     val visitors = rememberNavBackStack(VisitorsKey)
     val analytics = rememberNavBackStack(AnalyticsKey)

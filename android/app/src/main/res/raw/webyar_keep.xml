@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Resources the release build's shrinker must not remove.
+
+  The font's licence is read by nobody in the code — it is there because
+  the SIL OFL asks every copy of the font to carry it — and a resource that
+  nothing references is exactly what `isShrinkResources` deletes. Without
+  this line the shipped APK had the Vazirmatn fonts and not their licence.
+  This file itself is not packaged.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@raw/license_vazirmatn" />

@@ -28,8 +28,14 @@ class IncomingCallRouter(
     private val nowEpochSeconds: () -> Long = { System.currentTimeMillis() / 1000 },
     private val diag: Diag = Diag.Android,
 ) {
-    /** Whether [data] was a call message — handled or dropped — and nothing else should look at it. */
-    suspend fun onMessage(data: Map<String, String>): Boolean {
+    /**
+     * Whether [data] was a call message — handled or dropped — and nothing
+     * else should look at it. [sentAtMillis] is when FCM says it was sent
+     * (0 when unknown), which is what a ring's expiry is read against when
+     * this phone's clock disagrees with the server's: see
+     * [IncomingCall.onPhoneClock].
+     */
+    suspend fun onMessage(data: Map<String, String>, sentAtMillis: Long = 0): Boolean {
         val type = data[PushPayload.KEY_TYPE]
         if (type != IncomingCall.TYPE_INCOMING && type != IncomingCall.TYPE_CANCEL) return false
         if (type == IncomingCall.TYPE_CANCEL) {
@@ -41,11 +47,12 @@ class IncomingCallRouter(
             stop(cancel, language())
             return true
         }
-        val call = IncomingCall.from(data) ?: run {
+        val now = nowEpochSeconds()
+        val call = IncomingCall.from(data)?.onPhoneClock(now, sentAtMillis / 1000) ?: run {
             diag.warn(AREA, "ring dropped: malformed")
             return true
         }
-        if (call.expired(nowEpochSeconds())) {
+        if (call.expired(now)) {
             diag.info(AREA, "ring dropped: arrived after it expired")
             return true
         }

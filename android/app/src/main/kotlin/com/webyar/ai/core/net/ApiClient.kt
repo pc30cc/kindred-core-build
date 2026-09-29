@@ -1240,7 +1240,10 @@ class ApiClient(
         build(
             HttpMethod.Post,
             "/api/calls/${callSessionId.urlPath()}/token",
-            body = TokenBody("operator", displayName),
+            // The route takes at most 100 characters and refuses the token
+            // outright past that; a profile name may be 120. The name is only
+            // what the visitor sees on the call, so it is cut, not the call.
+            body = TokenBody("operator", displayName?.take(100)),
         ).decode()
 
     override suspend fun hangUp(callSessionId: String) {

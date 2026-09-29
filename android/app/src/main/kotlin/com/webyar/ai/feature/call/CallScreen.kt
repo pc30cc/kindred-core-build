@@ -24,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -104,6 +106,23 @@ fun CallScreen(
     onAnswer: () -> Unit = {},
     onDecline: () -> Unit = {},
 ) {
+    // Awake for as long as the call is on, and not a moment longer.
+    //
+    // The call is a desk call on the loudspeaker, so nobody touches the glass
+    // while it runs — and when the screen timed out, the app went to the
+    // background and Android (9 and later) handed it silence for a
+    // microphone and no camera: the visitor went on talking to a phone that
+    // had quietly stopped sending. The screen staying lit is what keeps the
+    // app in front for the length of the call. From the moment there is a
+    // call to connect: a ring that nobody has answered holds no microphone,
+    // and one whose cancel never arrived must not keep a locked phone lit.
+    val view = LocalView.current
+    val awake = phase.isLive && phase != CallPhase.Ringing
+    DisposableEffect(view, awake) {
+        if (awake) view.keepScreenOn = true
+        onDispose { if (awake) view.keepScreenOn = false }
+    }
+
     Surface(
         // Its own dark surface whatever the theme is doing. A call is a
         // full-screen moment and a white one behind a video window reads as a

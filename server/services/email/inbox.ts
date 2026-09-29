@@ -146,7 +146,7 @@ export async function listThreads(
   config: ServerConfig,
   workspaceId: string,
   opts: { limit?: number; before?: string | null; unreadOnly?: boolean; starredOnly?: boolean; search?: string } = {},
-): Promise<{ threads: EmailThreadSummary[]; nextBefore: string | null }> {
+): Promise<{ threads: EmailThreadSummary[]; nextBefore: string | null; syncing: boolean }> {
   const sb = getServiceClient(config);
   const limit = Math.min(Math.max(opts.limit ?? 30, 1), 100);
 
@@ -194,7 +194,27 @@ export async function listThreads(
     lastMessageSnippet: snippetByThread.get(r.id) ?? null,
   }));
 
-  return { threads, nextBefore: hasMore ? page[page.length - 1].last_message_at : null };
+  return { threads, nextBefore: hasMore ? page[page.length - 1].last_message_at : null, syncing: await isInboxSyncing(sb, workspaceId) };
+}
+
+// A Gmail import still in flight (the post-connect initial sync or a push
+// delta; Yahoo is left out because its poll loop always has a job queued).
+// Lets the UI show a syncing state instead of an empty inbox. Bounded to recent jobs so a retrying failure cannot pin the
+// indicator on for its whole backoff schedule.
+const SYNC_JOB_TYPES = ['gmail_sync_inbox'];
+const SYNC_INDICATOR_WINDOW_MS = 10 * 60 * 1000;
+
+async function isInboxSyncing(sb: ReturnType<typeof getServiceClient>, workspaceId: string): Promise<boolean> {
+  const { count, error } = await sb
+    .from('channel_jobs')
+    .select('id', { count: 'exact', head: true })
+    .eq('workspace_id', workspaceId)
+    .in('job_type', SYNC_JOB_TYPES)
+    .in('status', ['pending', 'running'])
+    .lte('available_at', new Date().toISOString())
+    .gte('created_at', new Date(Date.now() - SYNC_INDICATOR_WINDOW_MS).toISOString());
+  if (error) return false;
+  return (count ?? 0) > 0;
 }
 
 async function resolveAttachmentUrls(

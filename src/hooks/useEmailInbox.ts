@@ -26,7 +26,8 @@ export function useEmailThreads(
     queryKey: ['email-inbox-threads', workspaceId, opts.unread, opts.starred, opts.q],
     queryFn: () => listEmailThreads(workspaceId!, opts),
     enabled: !!workspaceId,
-    refetchInterval: 30_000,
+    // Poll fast while a mailbox import is running so mail appears as it lands.
+    refetchInterval: (query) => (query.state.data?.syncing ? 3_000 : 30_000),
   });
 }
 

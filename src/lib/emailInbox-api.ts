@@ -93,7 +93,7 @@ export function listEmailThreads(
   workspaceId: string,
   opts: { limit?: number; before?: string; unread?: boolean; starred?: boolean; q?: string } = {},
 ) {
-  return api<{ threads: EmailThreadSummary[]; nextBefore: string | null }>(
+  return api<{ threads: EmailThreadSummary[]; nextBefore: string | null; syncing?: boolean }>(
     `/api/email-inbox/${workspaceId}/threads${qs(opts)}`,
   );
 }

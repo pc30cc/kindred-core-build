@@ -45,6 +45,7 @@ import { hasActiveOwnerWriteLeases } from '../storage/writerLease.js';
 import type { UserDeletionJobRow } from './types.js';
 import { IdleBackoff } from '../jobs/idleBackoff.js';
 import { reviveFailedWorkspaceDeletion } from '../workspaceDeletion/revive.js';
+import { resolveOwnerCdn, purgeOwnerFromCdn, logOwnerCdnPurge } from '../cdn/ownerPurge.js';
 
 const POLL_INTERVAL_MS = 5_000;
 /** Ceiling for the idle backoff — see the start function below. */
@@ -326,6 +327,11 @@ async function purgeUser(config: ServerConfig, job: UserDeletionJobRow): Promise
       return;
     }
   }
+
+  // The user's own objects (users/<id>/, the avatar) are gone from storage;
+  // evict the CDN's cached copies too. Owned workspaces purged theirs when
+  // their own deletion jobs completed.
+  logOwnerCdnPurge(`user ${job.user_id}`, await purgeOwnerFromCdn(await resolveOwnerCdn(config), userScopePrefix(job.user_id)));
 
   // Legacy Supabase Auth row. Identity lives in profiles/user_credentials
   // (just purged), but accounts created before that migration still have

@@ -87,6 +87,7 @@ import { livekitProvider, findActiveEgressForRoom } from '../calls/providers/liv
 import { hasActiveOwnerWriteLeases } from '../storage/writerLease.js';
 import type { WorkspaceDeletionJobRow } from './types.js';
 import { IdleBackoff } from '../jobs/idleBackoff.js';
+import { resolveOwnerCdn, purgeOwnerFromCdn, logOwnerCdnPurge } from '../cdn/ownerPurge.js';
 
 const POLL_INTERVAL_MS = 5_000;
 /** Ceiling for the idle backoff — see the start function below. */
@@ -447,6 +448,9 @@ async function reassertSafeToPurge(config: ServerConfig, job: WorkspaceDeletionJ
 export async function runDbCleanup(config: ServerConfig, job: WorkspaceDeletionJobRow): Promise<void> {
   if (!(await reassertSafeToPurge(config, job))) return;
 
+  // Before the purge: a workspace's own CDN override is one of the rows it deletes.
+  const cdn = await resolveOwnerCdn(config, job.workspace_id);
+
   const sb = getServiceClient(config);
   const { error } = await sb.rpc('admin_delete_workspace', {
     _actor_user_id: job.requested_by,
@@ -466,6 +470,10 @@ export async function runDbCleanup(config: ServerConfig, job: WorkspaceDeletionJ
       return;
     }
   }
+
+  // The objects are gone from storage, but the CDN would keep serving its
+  // cached copies of them for as long as its max-age allows.
+  logOwnerCdnPurge(`workspace ${job.workspace_id}`, await purgeOwnerFromCdn(cdn, workspaceScopePrefix(job.workspace_id)));
 
   const now = new Date().toISOString();
   await persistFenced(config, job.id, job.lease_token!, {

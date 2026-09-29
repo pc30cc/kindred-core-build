@@ -31,6 +31,7 @@ import { evaluateReadiness, summarize } from '../services/mobileApp/readiness.js
 import { inspectNativeProject } from '../services/mobileApp/project.js';
 import { buildGeneratedConfig } from '../services/mobileApp/generatedConfig.js';
 import { firebaseClientFields, firebaseProjectsMatch } from '../services/mobileApp/firebaseClient.js';
+import { androidLanguageMaintenanceFields } from '../services/mobileApp/androidMaintenance.js';
 
 export const adminMobileAppRouter = Router();
 
@@ -169,6 +170,9 @@ const settingsSchema = z.object({
   android_app_show_visitors: z.boolean().optional(),
   android_app_show_web_analytics: z.boolean().optional(),
   ...firebaseClientFields,
+  // The language the app opens in, and the maintenance notice — both read
+  // by the app before sign-in (GET /api/mobile-app/public-config).
+  ...androidLanguageMaintenanceFields,
   ios_app_show_contacts: z.boolean().optional(),
   ios_app_show_visitors: z.boolean().optional(),
   ios_app_show_web_analytics: z.boolean().optional(),

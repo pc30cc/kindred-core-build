@@ -1,14 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Android 12 and later always draw a splash of their own. Given the
-         launch colour and the brand mark it is the Mac app's loading screen
-         before the app's own takes over (feature/auth/RestoringScreen.kt),
-         instead of the round launcher icon on a different colour. -->
+         launch colour and the loader at rest it is the iOS app's launch
+         screen, and the app's own (feature/auth/RestoringScreen.kt) takes
+         over by starting it turning — instead of the round launcher icon on
+         a different colour. -->
     <style name="Theme.Webyar" parent="android:Theme.Material.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowBackground">@drawable/launch_window</item>
         <item name="android:windowSplashScreenBackground">@color/launch_background</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_mark</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/launch_loader</item>
     </style>
 </resources>

@@ -1194,6 +1194,13 @@ class ApiClient(
             listOf("platform" to "android"),
         ).decode()
 
+    override suspend fun publicAppConfig(): MobileAppConfig =
+        build(
+            HttpMethod.Get,
+            "/api/mobile-app/public-config",
+            listOf("platform" to "android"),
+        ).decode()
+
     // MARK: - Calls
 
     @Serializable

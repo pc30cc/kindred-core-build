@@ -3,6 +3,7 @@ package com.webyar.ai.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.webyar.ai.core.model.EntitlementsState
+import com.webyar.ai.core.model.MaintenanceNotice
 import com.webyar.ai.core.model.MobileAppConfig
 import com.webyar.ai.core.model.WorkspaceAccess
 import com.webyar.ai.core.model.User
@@ -63,6 +64,15 @@ class AppState(
     val appearance: StateFlow<Appearance> = _appearance.asStateFlow()
 
     /**
+     * Whether [appearance] is the operator's stored choice yet, rather than
+     * the default it starts on. Nothing should tell the system "follow the
+     * phone" in the moment before the choice is read, only to say "dark" a
+     * moment later.
+     */
+    private val _appearanceLoaded = MutableStateFlow(false)
+    val appearanceLoaded: StateFlow<Boolean> = _appearanceLoaded.asStateFlow()
+
+    /**
      * Super Admin's switches for this app — which Settings sections show,
      * what the profile lets an operator change. See [MobileAppConfig].
      */
@@ -77,6 +87,26 @@ class AppState(
 
     /** Set once the server has answered in this run; the stored copy then never overwrites it. */
     private var appConfigFromServer = false
+
+    /**
+     * Whether the operator has picked a language on this phone. Until they
+     * have, the app speaks Super Admin's default ([MobileAppConfig.defaultLanguage],
+     * Persian when the server names none); after, their choice is the only
+     * one that counts.
+     */
+    private var languageChosen = false
+
+    /**
+     * Super Admin's maintenance notice while it is on, else null. Only ever
+     * from a live answer: a notice kept from an earlier launch could lock an
+     * operator out of a platform that has long been back.
+     */
+    private val _maintenance = MutableStateFlow<MaintenanceNotice?>(null)
+    val maintenance: StateFlow<MaintenanceNotice?> = _maintenance.asStateFlow()
+
+    /** A maintenance check on its way — the notice's Try again shows it. */
+    private val _checkingPlatform = MutableStateFlow(false)
+    val checkingPlatform: StateFlow<Boolean> = _checkingPlatform.asStateFlow()
 
     /**
      * Wallpaper colours instead of the brand's — see [Preferences.dynamicColor].
@@ -206,22 +236,37 @@ class AppState(
             // Before restore(), so the login screen is already in the right
             // language and the right way round rather than flipping once the
             // preference arrives.
-            prefs.language()?.let { _language.value = it }
+            val storedLanguage = prefs.language()
+            val storedConfig = prefs.appConfig()
+            if (storedLanguage != null) {
+                languageChosen = true
+                _language.value = storedLanguage
+            } else if (!languageChosen) {
+                // Nobody has picked one: the platform's default, as the last
+                // answer named it, so a launch does not start in Persian and
+                // turn English a moment later.
+                Language.from(storedConfig.defaultLanguage)?.let { _language.value = it }
+            }
             hooks.languageChanged(_language.value)
             _appearance.value = prefs.appearance()
+            _appearanceLoaded.value = true
             // Stored values arrive from DataStore's own threads, possibly
             // after the operator has already chosen (or the server already
             // answered). The later, fresher value wins; the stored one only
             // fills in what nothing newer has set.
             val storedDynamic = prefs.dynamicColor()
             if (!dynamicColorChosen) _dynamicColor.value = storedDynamic
-            val storedConfig = prefs.appConfig()
             if (!appConfigFromServer) _appConfig.value = storedConfig
+            // Alongside the session, not before it: the sign-in screen needs
+            // to know whether the platform is down, and the language it
+            // starts in; neither is worth holding the launch for.
+            checkPlatform()
             restore()
         }
     }
 
     fun setLanguage(language: Language) {
+        languageChosen = true
         _language.value = language
         hooks.languageChanged(language)
         viewModelScope.launch {
@@ -236,6 +281,7 @@ class AppState(
 
     fun setAppearance(appearance: Appearance) {
         _appearance.value = appearance
+        _appearanceLoaded.value = true
         viewModelScope.launch { prefs.setAppearance(appearance) }
     }
 
@@ -316,6 +362,12 @@ class AppState(
      * it asked.
      */
     suspend fun logIn(email: String, password: String): Result<Unit> = runCatching {
+        // Nobody signs in while the platform is down for maintenance. Asked
+        // afresh rather than read from the last answer, which can be a
+        // minute old either way; a check that cannot be made does not stop
+        // anyone — the server is the one that knows.
+        checkPlatform().join()
+        if (_maintenance.value != null) throw ApiError.Server(503, "maintenance")
         val user = api.logIn(email.trim(), password)
         cache.save(user)
         recallWorkspace(user.id)
@@ -420,6 +472,7 @@ class AppState(
             // The Firebase project push arrives through rides in it: handed on
             // at every read, so a phone that missed it once takes it the next.
             runCatching { hooks.appConfigChanged(config) }
+            adoptPlatform(config)
             if (config != _appConfig.value) {
                 _appConfig.value = config
                 // Stored on the side, so this job ends when the answer is
@@ -428,6 +481,49 @@ class AppState(
                 viewModelScope.launch { prefs.setAppConfig(config) }
             }
         }
+    }
+
+    private var platformJob: Job? = null
+
+    /**
+     * Asks whether the platform is down for maintenance, and which language
+     * it starts a phone in — `GET /api/mobile-app/public-config`, which
+     * needs no session, so the sign-in screen asks it too. Called at launch,
+     * every minute while the app is on screen, and by the maintenance
+     * notice's Try again. A failure keeps what is in hand.
+     */
+    fun checkPlatform(): Job {
+        platformJob?.takeIf { it.isActive }?.let { return it }
+        return viewModelScope.launch {
+            _checkingPlatform.value = true
+            try {
+                val config = runCatching { api.publicAppConfig() }.getOrNull() ?: return@launch
+                adoptPlatform(config)
+                // The default language is kept with the rest of the config,
+                // for the next launch to start in.
+                val kept = _appConfig.value.copy(defaultLanguage = config.defaultLanguage)
+                if (kept != _appConfig.value) {
+                    _appConfig.value = kept
+                    viewModelScope.launch { prefs.setAppConfig(kept) }
+                }
+            } finally {
+                _checkingPlatform.value = false
+            }
+        }.also { platformJob = it }
+    }
+
+    /**
+     * What a live answer says about maintenance and the default language. An
+     * answer without a notice at all — a server from before the setting —
+     * says nothing about it, and leaves the one in hand.
+     */
+    private fun adoptPlatform(config: MobileAppConfig) {
+        config.maintenance?.let { notice -> _maintenance.value = notice.takeIf { it.isActive() } }
+        if (languageChosen) return
+        val language = Language.from(config.defaultLanguage) ?: return
+        if (language == _language.value) return
+        _language.value = language
+        hooks.languageChanged(language)
     }
 
     /** Advisory: no picture is a quiet circle, not an error to show. */

@@ -39,6 +39,14 @@ export function AndroidOverviewTab({
     { key: 'profilePhotoEditable', on: settings.android_app_profile_photo_editable, standard: true },
     { key: 'showVisitors', on: settings.android_app_show_visitors, standard: true },
     { key: 'showWebAnalytics', on: settings.android_app_show_web_analytics, standard: true },
+    // As phones see it: a notice past its end time is already over.
+    {
+      key: 'maintenanceEnabled',
+      on:
+        settings.android_maintenance_enabled &&
+        !(settings.android_maintenance_until && Date.parse(settings.android_maintenance_until) <= Date.now()),
+      standard: false,
+    },
   ] as const;
 
   return (

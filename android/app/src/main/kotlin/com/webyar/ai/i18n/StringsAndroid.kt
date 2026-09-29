@@ -16,14 +16,38 @@ package com.webyar.ai.i18n
  */
 object StrAndroid {
 
-    /** The back arrow's spoken label. Drawn as a glyph, never as text. */
-    /** Under the mark while a launch confirms the session — the Mac's `checkingSession`. */
+    /**
+     * The loader's spoken label while a launch confirms the session — the
+     * Mac's `checkingSession`. Not on screen: the loader says it alone.
+     */
     fun restoringSession(l: Language): String = when (l) {
         Language.EN -> "Restoring your session…"
         Language.FA -> "در حال بازیابی نشست…"
         Language.TR -> "Oturum geri yükleniyor…"
     }
 
+    // Super Admin's maintenance notice, in the Mac app's words.
+
+    fun maintenanceTitle(l: Language): String = when (l) {
+        Language.EN -> "Webyar is under maintenance"
+        Language.FA -> "وب‌یار در حال تعمیر و نگهداری است"
+        Language.TR -> "Webyar bakımda"
+    }
+
+    /** When Super Admin wrote no message of their own. */
+    fun maintenanceBody(l: Language): String = when (l) {
+        Language.EN -> "We are working on the service and will be back shortly. Your conversations are safe and waiting for you."
+        Language.FA -> "در حال کار روی سرویس هستیم و به‌زودی برمی‌گردیم. گفتگوهای شما محفوظ است و منتظرتان می‌ماند."
+        Language.TR -> "Hizmet üzerinde çalışıyoruz, kısa süre içinde geri döneceğiz. Konuşmalarınız güvende ve sizi bekliyor."
+    }
+
+    fun maintenanceUntil(l: Language, time: String): String = when (l) {
+        Language.EN -> "Expected back by $time"
+        Language.FA -> "بازگشت پیش‌بینی‌شده: $time"
+        Language.TR -> "Tahmini dönüş: $time"
+    }
+
+    /** The back arrow's spoken label. Drawn as a glyph, never as text. */
     fun back(l: Language): String = when (l) {
         Language.EN -> "Back"
         Language.FA -> "بازگشت"

@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -148,12 +149,13 @@ class LoginScreenTest {
         compose.onNodeWithTag(A11y.LOGIN_EMAIL).assertTextContains("operator@webyar.app")
     }
 
-    /** The launch's own screen: the Mac's splash, signed like iOS's. */
+    /** The launch's own screen: iOS's — the loader turning and the signature, no mark, no text. */
     @Test
-    fun `the restoring screen shows the mark's line and the signature`() {
+    fun `the restoring screen is the loader and the signature`() {
         compose.setContent { RestoringScreen(Language.EN) }
         compose.onNodeWithTag(A11y.RESTORING).assertIsDisplayed()
-        compose.onNodeWithText(StrAndroid.restoringSession(Language.EN)).assertIsDisplayed()
+        compose.onNodeWithContentDescription(StrAndroid.restoringSession(Language.EN)).assertIsDisplayed()
+        compose.onNodeWithText(StrAndroid.restoringSession(Language.EN)).assertDoesNotExist()
         compose.onNodeWithTag(A11y.BRAND_FOOTER).assertIsDisplayed()
     }
 }

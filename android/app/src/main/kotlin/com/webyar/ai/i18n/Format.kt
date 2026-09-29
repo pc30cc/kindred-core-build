@@ -111,6 +111,20 @@ object Format {
         return pattern(instant, template, locale)
     }
 
+    /**
+     * A moment ahead: the time alone when it is today, the date and the time
+     * otherwise — when maintenance is expected to end, as the Mac says it.
+     */
+    fun timeOrDateTime(
+        instant: Instant,
+        language: Language,
+        now: Instant = Instant.now(),
+    ): String {
+        val locale = calendarLocale(language)
+        val template = if (isSameDay(calendarAt(instant, locale), calendarAt(now, locale))) "jmm" else "dMMMMjmm"
+        return pattern(instant, template, locale)
+    }
+
     /** The clock time under a chat bubble. */
     fun bubbleTime(instant: Instant?, language: Language): String {
         if (instant == null) return ""

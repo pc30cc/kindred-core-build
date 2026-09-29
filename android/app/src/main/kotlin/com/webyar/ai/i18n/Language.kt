@@ -37,6 +37,11 @@ enum class Language(val code: String) {
 
     companion object {
         fun from(code: String?): Language? = entries.firstOrNull { it.code == code }
-        val DEFAULT = EN
+        /**
+         * What the app opens in until the operator picks a language — or
+         * until Super Admin names another default (`defaultLanguage` in the
+         * app's config).
+         */
+        val DEFAULT = FA
     }
 }

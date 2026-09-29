@@ -23,6 +23,8 @@ describe('Android in-app config', () => {
       showVisitors: true,
       showWebAnalytics: true,
       firebase: null,
+      defaultLanguage: 'fa',
+      maintenance: { enabled: false, message: {}, until: null },
     });
   });
 

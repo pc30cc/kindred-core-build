@@ -318,6 +318,15 @@ class ApiClient(
         val response = http.request("$at/api/platform/origins") {
             method = HttpMethod.Get
             header("Accept", "application/json")
+            // A few hundred bytes, asked at every launch: on a connection
+            // that hangs rather than fails, the client-wide 20 seconds was
+            // how long a signed-out launch waited to learn nothing. The
+            // address in hand serves until a later launch hears back.
+            timeout {
+                requestTimeoutMillis = ORIGIN_TIMEOUT_MS
+                connectTimeoutMillis = ORIGIN_TIMEOUT_MS
+                socketTimeoutMillis = ORIGIN_TIMEOUT_MS
+            }
         }
         if (response.status.isSuccess()) json.decodeFromString<PlatformOrigins>(response.bodyAsText()) else null
     } catch (e: kotlinx.coroutines.CancellationException) {
@@ -1492,6 +1501,9 @@ class ApiClient(
          * Never in that log, not even in debug: a password, or a body that
          * is itself a credential (realtime, push and call tokens).
          */
+        /** The launch's question of where the platform lives; see askOrigins. */
+        const val ORIGIN_TIMEOUT_MS = 5_000L
+
         val UNLOGGED_PATHS = listOf("/api/auth", "/api/realtime/", "/api/push/", "/token", "/api/account/change-password")
 
         /** Query parameters that carry what somebody typed, or a file's name. */

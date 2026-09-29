@@ -31,6 +31,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Whether anyone is signed in, and who.
@@ -311,7 +312,6 @@ class AppState(
                 runCatching { prefs.setPendingSignOut(null) }
             }
         }
-        runCatching { api.refreshOrigin() }
         if (!api.hasToken()) {
             // No token, yet an operator is remembered: their session ended
             // without this phone signing them out — the Keystore key that
@@ -329,8 +329,32 @@ class AppState(
             } else {
                 _session.value = Session.SignedOut
             }
+            // Where the platform lives is asked behind the sign-in screen,
+            // not in front of it: on a connection that hangs rather than
+            // fails, that one request held the loader up for its whole
+            // timeout before anyone could type. logIn() waits for it.
+            refreshOriginInBackground()
             return
         }
+        // Local first, as the inbox itself is: the operator this phone
+        // remembers opens straight onto their cached inbox, and the server's
+        // word on the session follows. It used to come first — the origin,
+        // then the account, each allowed its full timeout — so on a
+        // connection that hangs the loader stood for up to forty seconds
+        // before the very same cached inbox appeared. A session the server
+        // has ended still ends, the moment it says so.
+        cache.read()?.let { cached ->
+            recallWorkspace(cached.id)
+            hooks.signedIn(cached)
+            _session.value = Session.SignedIn(cached)
+            loadWorkspaces()
+            val epoch = sessionEpoch
+            viewModelScope.launch { confirmSession(cached, epoch) }
+            return
+        }
+        // A token and nobody remembered (a cache cleared under it): nothing
+        // to show until the server says who this is.
+        runCatching { api.refreshOrigin() }
         try {
             val user = api.currentUser()
             cache.save(user)
@@ -356,6 +380,71 @@ class AppState(
                 if (cached != null) loadWorkspaces()
             }
         }
+    }
+
+    /**
+     * Which session is current: moved on by every sign-in and every end of
+     * a session, so a late answer about an earlier one can tell it is late
+     * even when the same operator has signed in again since.
+     */
+    private var sessionEpoch = 0
+
+    /** The signed-out launch's question of where the platform lives; see [logIn]. */
+    private var originJob: Job? = null
+
+    private fun refreshOriginInBackground() {
+        originJob = viewModelScope.launch { runCatching { api.refreshOrigin() } }
+    }
+
+    private fun isStill(epoch: Int, userId: String): Boolean =
+        epoch == sessionEpoch && (_session.value as? Session.SignedIn)?.user?.id == userId
+
+    /**
+     * The server's word on the session [restore] opened from the cache.
+     *
+     * Only a 401 ends it, as everywhere: offline, or with the server down,
+     * the cached operator stays with their cache, which is what it is for.
+     * An answer is applied only to the session it was asked about ([epoch])
+     * — an operator who signed out, or signed in again, while it was on its
+     * way is not touched by it.
+     */
+    private suspend fun confirmSession(cached: User, epoch: Int) {
+        runCatching { api.refreshOrigin() }
+        val user = try {
+            api.currentUser()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ApiError) {
+            if (e.isAuthFailure && isStill(epoch, cached.id)) {
+                api.discardSession()
+                // Revoked elsewhere: whatever this phone cached for it goes,
+                // exactly as at a sign-out.
+                withContext(NonCancellable) { endSession(cached.id) }
+            }
+            return
+        }
+        if (!isStill(epoch, cached.id)) return
+        if (user.id != cached.id) {
+            // The token names somebody other than the operator remembered —
+            // nothing of the one on screen may stay for the other.
+            withContext(NonCancellable) { endSession(cached.id) }
+            runCatching { cache.save(user) }
+            recallWorkspace(user.id)
+            hooks.signedIn(user)
+            _session.value = Session.SignedIn(user)
+            loadWorkspaces()
+            loadAppConfig()
+            return
+        }
+        runCatching { cache.save(user) }
+        hooks.signedIn(user)
+        // The same person, perhaps renamed on the web since: the header
+        // follows. Keyed by id, so nothing on screen is rebuilt.
+        if (user != cached) _session.value = Session.SignedIn(user)
+        // The cached launch asked for the workspaces before the origin was
+        // confirmed; asked again, from the right place, if that found none.
+        if (_workspaces.value.isEmpty()) loadWorkspaces()
+        loadAppConfig()
     }
 
     /**
@@ -387,7 +476,12 @@ class AppState(
         // anyone — the server is the one that knows.
         checkPlatform().join()
         if (_maintenance.value != null) throw ApiError.Server(503, "maintenance")
+        // The credentials go where the platform now lives: the launch asked
+        // behind this screen, and on a slow connection may still be asking.
+        // Bounded — past it the address in hand is used, as it always was.
+        originJob?.takeIf { it.isActive }?.let { withTimeoutOrNull(ORIGIN_WAIT_MS) { it.join() } }
         val user = api.logIn(email.trim(), password)
+        sessionEpoch++
         cache.save(user)
         recallWorkspace(user.id)
         hooks.signedIn(user)
@@ -465,6 +559,9 @@ class AppState(
      * finishes it at the next launch ([restore]).
      */
     private suspend fun endSession(accountId: String?) {
+        // Whatever the launch's check brings back now belongs to a session
+        // that is over, and is not applied — see [confirmSession].
+        sessionEpoch++
         runCatching { prefs.setPendingSignOut(accountId.orEmpty()) }
         // Caught like every other step: a write that throws here (a full
         // disk) would otherwise end the sign-out before anything below it —
@@ -811,6 +908,13 @@ class AppState(
     private companion object {
         const val PLAN_RETRY_MS = 20_000L
         const val PLAN_REFRESH_NS = 3 * 60 * 1_000_000_000L
+
+        /**
+         * How long a sign-in waits for the launch's question of where the
+         * platform lives — a little over that question's own cap
+         * (ApiClient.ORIGIN_TIMEOUT_MS), so it only ever cuts a hung one.
+         */
+        const val ORIGIN_WAIT_MS = 6_000L
         /** 1, 2, 4, 8, 16, 30, 30… seconds: about five minutes in all. */
         const val RETRY_FIRST_MS = 1_000L
         const val RETRY_MAX_MS = 30_000L

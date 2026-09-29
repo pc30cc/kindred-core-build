@@ -7,6 +7,8 @@ import com.webyar.ai.core.model.EmailFolder
 import com.webyar.ai.core.model.EmailMessageView
 import com.webyar.ai.core.model.EmailThreadSummary
 import com.webyar.ai.core.model.EmailThreadsResponse
+import com.webyar.ai.core.model.StagedEmailAttachment
+import com.webyar.ai.core.net.ApiError
 import com.webyar.ai.core.net.SampleApi
 import com.webyar.ai.core.net.WebyarApi
 import com.webyar.ai.i18n.Language
@@ -144,6 +146,45 @@ class EmailComposeTest {
         assertEquals(listOf("a@x.com", "b@y.org"), sent.to)
         assertEquals(listOf("c@z.io"), sent.cc)
         assertTrue(model.form.value.sent)
+    }
+
+    /**
+     * A file that could not be uploaded is not quietly left behind: the mail
+     * it was attached to does not go until the operator has dealt with it.
+     */
+    @Test
+    fun `a file that failed to upload stops the send`() = runTest(dispatcher) {
+        val api = object : WebyarApi by SampleApi() {
+            var sent: EmailDraft? = null
+            override suspend fun stageEmailAttachment(
+                workspaceId: String,
+                bytes: ByteArray,
+                filename: String,
+                contentType: String,
+            ): StagedEmailAttachment = throw ApiError.Transport()
+            override suspend fun sendEmailDraft(workspaceId: String, draft: EmailDraft) {
+                sent = draft
+            }
+        }
+        val model = EmailComposeViewModel(api) { Language.EN }
+        model.start("ws-1", null, null, mailbox)
+        model.setTo("a@x.com")
+        model.setSubject("The contract")
+        model.setBody("Attached.")
+        model.attach(ByteArray(16), "contract.pdf", "application/pdf")
+        testScheduler.advanceUntilIdle()
+        assertTrue(model.form.value.attachments.single().failed)
+
+        model.send()
+        testScheduler.advanceUntilIdle()
+        assertNull("the mail left without its file", api.sent)
+        assertFalse(model.form.value.sent)
+
+        // Taken off, the rest goes.
+        model.removeAttachment(model.form.value.attachments.single().localId)
+        model.send()
+        testScheduler.advanceUntilIdle()
+        assertEquals(listOf("a@x.com"), api.sent?.to)
     }
 
     // MARK: - The quoted trail

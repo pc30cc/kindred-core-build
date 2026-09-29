@@ -171,6 +171,54 @@ class RealtimeClientTest {
         assertEquals(listOf(true), sink.reconnects)
     }
 
+    /**
+     * The first subscribe has nothing to recover from, so what was published
+     * before it is only found by a read — which the sink is told to make.
+     * A later session is a reconnect, reported as one and not as both.
+     */
+    @Test
+    fun `the first session of a run is reported as a connect, a later one only as a reconnect`() = runTest {
+        var connects = 0
+        val counting = object : RealtimeSink by sink {
+            override fun onConnected() {
+                connects++
+            }
+        }
+        val client = RealtimeClient(api, server.transport, counting, clock = { currentTime }, random = noJitter, diag = Diag.Silent)
+        backgroundScope.launch { client.run("ws-1") }
+        runCurrent()
+        assertEquals(1, connects)
+        assertTrue(sink.reconnects.isEmpty())
+
+        server.latest.drop()
+        advanceTimeBy(1_001)
+
+        assertEquals(1, connects)
+        assertEquals(listOf(true), sink.reconnects)
+    }
+
+    /** Failed attempts first, then a socket: still the run's first session. */
+    @Test
+    fun `a first session after failed attempts is still a connect`() = runTest {
+        var connects = 0
+        val counting = object : RealtimeSink by sink {
+            override fun onConnected() {
+                connects++
+            }
+        }
+        server.refuseOpen = IOException("offline")
+        val client = RealtimeClient(api, server.transport, counting, clock = { currentTime }, random = noJitter, diag = Diag.Silent)
+        backgroundScope.launch { client.run("ws-1") }
+        runCurrent()
+        assertEquals(0, connects)
+
+        server.refuseOpen = null
+        advanceTimeBy(1_001)
+
+        assertEquals(1, connects)
+        assertTrue(sink.reconnects.isEmpty())
+    }
+
     @Test
     fun `a reconnect the server could not recover is reported as such`() = runTest {
         start()

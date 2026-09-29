@@ -1,6 +1,10 @@
 package com.webyar.ai.ui.components
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
+import java.io.ByteArrayInputStream
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -45,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -251,8 +256,51 @@ internal fun decodeBounded(bytes: ByteArray, edge: Int, atLeast: Boolean = false
     if (longest <= 0) return null
 
     val options = BitmapFactory.Options().apply { inSampleSize = sampleSize(longest, edge, atLeast) }
-    return runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) }
-        .getOrNull()?.asImageBitmap()
+    val decoded = runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) }
+        .getOrNull() ?: return null
+    return upright(decoded, exifOrientation(bytes)).asImageBitmap()
+}
+
+/**
+ * The orientation a JPEG's EXIF asks for, or `ORIENTATION_NORMAL` when there
+ * is none — a PNG, a WebP, a photo a messenger already re-encoded.
+ *
+ * `BitmapFactory` ignores the tag, and a phone camera leans on it: Samsung's,
+ * among others, saves a portrait shot as landscape pixels with "turn a
+ * quarter" written beside them. Browsers, iOS and the console all honour the
+ * tag, so without this the photo an operator had just sent from their own
+ * gallery lay on its side in their own transcript while the visitor saw it
+ * upright. The platform reader has taken a stream since API 24, this app's
+ * floor, and a JPEG's tag sits in its header.
+ */
+private fun exifOrientation(bytes: ByteArray): Int = runCatching {
+    ExifInterface(ByteArrayInputStream(bytes))
+        .getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+}.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+
+/**
+ * [bitmap] turned the way [orientation] says, or [bitmap] itself when it is
+ * already upright — or when there is no memory for the turned copy, where a
+ * sideways photo beats no photo.
+ */
+private fun upright(bitmap: Bitmap, orientation: Int): Bitmap {
+    val matrix = Matrix()
+    when (orientation) {
+        ExifInterface.ORIENTATION_ROTATE_90 -> matrix.setRotate(90f)
+        ExifInterface.ORIENTATION_ROTATE_180 -> matrix.setRotate(180f)
+        ExifInterface.ORIENTATION_ROTATE_270 -> matrix.setRotate(-90f)
+        ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.setScale(-1f, 1f)
+        ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.setScale(1f, -1f)
+        // The two mirrored quarter turns — a front camera's.
+        ExifInterface.ORIENTATION_TRANSPOSE -> matrix.apply { setRotate(90f); postScale(-1f, 1f) }
+        ExifInterface.ORIENTATION_TRANSVERSE -> matrix.apply { setRotate(-90f); postScale(-1f, 1f) }
+        else -> return bitmap
+    }
+    val turned = runCatching {
+        Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+    }.getOrNull() ?: return bitmap
+    if (turned !== bitmap) bitmap.recycle()
+    return turned
 }
 
 /**
@@ -297,17 +345,34 @@ private fun PhotoPlaceholder(caption: String, onClick: (() -> Unit)? = null) {
 private fun ImageViewer(photo: ImageBitmap, language: Language, onClose: () -> Unit) {
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         var zoom by remember { mutableFloatStateOf(1f) }
+        // Where the enlarged picture has been dragged to. Without it a zoom
+        // could only ever show the middle of the photo — the corner of a
+        // screenshot or the total at the foot of a receipt, the reason to
+        // zoom at all, stayed off screen.
+        var pan by remember { mutableStateOf(Offset.Zero) }
         Box(
             Modifier
                 .fillMaxSize()
                 .background(Color.Black)
                 .pointerInput(Unit) {
-                    detectTransformGestures { _, _, gestureZoom, _ ->
+                    detectTransformGestures { _, move, gestureZoom, _ ->
                         zoom = (zoom * gestureZoom).coerceIn(1f, 6f)
+                        // As far as the enlarged picture reaches past the
+                        // screen on each side, and no further; none at all
+                        // at 1x.
+                        val reachX = size.width * (zoom - 1f) / 2f
+                        val reachY = size.height * (zoom - 1f) / 2f
+                        pan = Offset(
+                            (pan.x + move.x).coerceIn(-reachX, reachX),
+                            (pan.y + move.y).coerceIn(-reachY, reachY),
+                        )
                     }
                 }
                 .pointerInput(Unit) {
-                    detectTapGestures(onDoubleTap = { zoom = if (zoom > 1f) 1f else 2.5f })
+                    detectTapGestures(onDoubleTap = {
+                        zoom = if (zoom > 1f) 1f else 2.5f
+                        pan = Offset.Zero
+                    })
                 },
             contentAlignment = Alignment.Center,
         ) {
@@ -317,7 +382,12 @@ private fun ImageViewer(photo: ImageBitmap, language: Language, onClose: () -> U
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer(scaleX = zoom, scaleY = zoom),
+                    .graphicsLayer(
+                        scaleX = zoom,
+                        scaleY = zoom,
+                        translationX = pan.x,
+                        translationY = pan.y,
+                    ),
             )
             IconButton(
                 onClick = onClose,
@@ -355,10 +425,9 @@ private fun VoiceNote(
 ) {
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val fetch = rememberVoiceFile(attachment, source)
-    val player = rememberVoiceNotePlayer(
-        attachmentId = attachment.id,
-        file = (fetch.state as? VoiceFile.Ready)?.file,
-    )
+    val file = (fetch.state as? VoiceFile.Ready)?.file
+    val slot = rememberVoiceNoteSlot(attachmentId = attachment.id, file = file)
+    val player = slot.player
     // The first tap fetched the file; the player that arrives with it starts
     // playing, because that tap was a request to hear it.
     LaunchedEffect(player) {
@@ -368,21 +437,27 @@ private fun VoiceNote(
         }
     }
     val busy = fetch.state is VoiceFile.Fetching
+    // The file arrived and opening it has finished without a player: the
+    // file is fine, this phone has no codec for it. NOT merely "a file and
+    // no player yet" — that is also every note in the moment it is being
+    // opened, and it flashed the verdict under each one that scrolled in.
+    val undecodable = player == null && slot.isSettledFor(file)
 
     // Pinned around the row rather than inside it: the direction has to be
     // settled before the layout runs, and `rtl` is read above so the caption
     // can still be put on the side the language wants.
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-        val playable = !busy && !(fetch.state is VoiceFile.Ready && player == null)
+        // Still tappable while the player opens: the tap asks for playback
+        // ([VoiceFetch.request]) and the player starts it when it arrives.
+        val playable = !busy && !undecodable
         val caption = when {
             player != null -> Format.voiceTime(player.displayedSeconds, language)
             fetch.state is VoiceFile.Failed -> Str.attachmentFailed(language)
-            // The file arrived and still would not decode: the file is
-            // fine, this phone has no codec for it.
-            fetch.state is VoiceFile.Ready -> Str.playbackUnsupported(language)
+            undecodable -> Str.playbackUnsupported(language)
             busy -> Str.receivingFile(language)
             // Not fetched, and not going to be until it is played: what it
-            // costs to hear is what there is to say.
+            // costs to hear is what there is to say. Also the moment a
+            // fetched file is being opened, which ends in its length.
             else -> attachment.sizeBytes?.let { Format.fileSize(it.toLong(), language) }.orEmpty()
         }
         VoiceTransport(

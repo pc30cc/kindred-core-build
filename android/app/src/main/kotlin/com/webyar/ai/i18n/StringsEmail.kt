@@ -113,10 +113,19 @@ object StrEmail {
         Language.TR -> "Adresleri virgülle ayırın"
     }
 
-    fun invalidAddresses(l: Language, bad: String): String = when (l) {
-        Language.EN -> "Not an email address: $bad"
-        Language.FA -> "نشانی ایمیل معتبر نیست: $bad"
-        Language.TR -> "Geçerli bir e-posta adresi değil: $bad"
+    /**
+     * [bad] is what the operator typed, isolated: at the end of a Persian
+     * line a trailing `.` or `@` — the very typo being reported — is laid out
+     * on the far side of the address, so «ali@gmail.» read back as
+     * «.ali@gmail». Inside an isolate it keeps its place.
+     */
+    fun invalidAddresses(l: Language, bad: String): String {
+        val isolated = "\u2068$bad\u2069"
+        return when (l) {
+            Language.EN -> "Not an email address: $isolated"
+            Language.FA -> "نشانی ایمیل معتبر نیست: $isolated"
+            Language.TR -> "Geçerli bir e-posta adresi değil: $isolated"
+        }
     }
 
     fun needsRecipient(l: Language): String = when (l) {

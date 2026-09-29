@@ -158,6 +158,12 @@ import kotlinx.coroutines.Dispatchers
 import androidx.compose.foundation.layout.size
 import com.webyar.ai.core.sync.TeamSignal
 import kotlinx.coroutines.flow.Flow
+import android.content.ActivityNotFoundException
+import androidx.activity.result.ActivityResultLauncher
+import androidx.lifecycle.compose.LifecycleEventEffect
+import com.webyar.ai.feature.settings.AvailabilityState
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import com.webyar.ai.feature.team.followTeam
 import com.webyar.ai.feature.team.TEAM_LIST_POLL_MS
 
@@ -427,6 +433,19 @@ fun ChatRoute(
     var recorded by remember { mutableStateOf<RecordedVoice?>(null) }
     val pendingClip = rememberUpdatedState(recorded)
     DisposableEffect(Unit) { onDispose { pendingClip.value?.file?.delete() } }
+    // The app leaving the screen mid-recording ends the recording there,
+    // kept to be heard like any finished one. From Android 9 an app in the
+    // background hears only silence, and the note went on filling with it —
+    // its timer still counting — until the operator came back, up to the
+    // five-minute cap.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        if (recordingSeconds != null) {
+            recordingSeconds = null
+            recorder.finishToFile()?.let { file ->
+                recorded = RecordedVoice(file, recorder.fileName, recorder.mimeType)
+            }
+        }
+    }
 
     LaunchedEffect(recordingSeconds != null) {
         if (recordingSeconds == null) return@LaunchedEffect
@@ -482,11 +501,16 @@ fun ChatRoute(
             // Images only. `ImageAndVideo` offered a kind the server's
             // allowlist does not carry (`GLOBAL_ALLOWED_MIMES`), so every
             // video the operator picked was a wait followed by a 415.
-            photoPicker.launch(
+            val opened = photoPicker.launchPicker(
                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
             )
+            if (!opened) chatModel.report(Str.attachmentFailed(language))
         },
-        onAttachFile = { filePicker.launch(AttachmentRules.PICKABLE_MIME_TYPES) },
+        onAttachFile = {
+            if (!filePicker.launchPicker(AttachmentRules.PICKABLE_MIME_TYPES)) {
+                chatModel.report(Str.attachmentFailed(language))
+            }
+        },
         onOpenShortcuts = {
             showShortcuts = true
             chatModel.loadShortcuts()
@@ -518,12 +542,17 @@ fun ChatRoute(
         onSendRecorded = {
             recorded?.let { clip ->
                 recorded = null
-                val bytes = runCatching { clip.file.readBytes() }.getOrNull()
-                clip.file.delete()
-                if (bytes == null) {
-                    chatModel.report(Str.recordingFailed(language))
-                } else {
-                    chatModel.sendAttachment(bytes, clip.fileName, clip.mimeType)
+                // Read off the main thread: five minutes of a note is a few
+                // megabytes, and reading it here held the whole screen.
+                routeScope.launch {
+                    val bytes = withContext(Dispatchers.IO) {
+                        runCatching { clip.file.readBytes() }.getOrNull().also { clip.file.delete() }
+                    }
+                    if (bytes == null) {
+                        chatModel.report(Str.recordingFailed(language))
+                    } else {
+                        chatModel.sendAttachment(bytes, clip.fileName, clip.mimeType)
+                    }
                 }
             }
         },
@@ -722,6 +751,7 @@ fun VisitorContactRoute(
 @Composable
 fun ContactDetailRoute(
     contactId: String,
+    appState: AppState,
     contacts: ContactsViewModel,
     language: Language,
     onBack: () -> Unit,
@@ -729,7 +759,17 @@ fun ContactDetailRoute(
     // Taken from the list the view model already holds rather than re-fetched.
     // The address book has no by-id endpoint, so a refetch would mean pulling
     // the whole book again to find one row of it.
-    val contact = remember(contactId) { contacts.contact(contactId) }
+    //
+    // Read again as that list lands, and the list asked for here as well:
+    // a detail restored after the process was away is on screen before
+    // anything has loaded the book — on a phone the list is not composed
+    // under it — and a row read once, then, stayed empty for good.
+    val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
+    LaunchedEffect(workspace?.id) {
+        workspace?.let { contacts.bind(it.id) }
+    }
+    val book by contacts.state.collectAsStateWithLifecycle()
+    val contact = remember(contactId, book) { contacts.contact(contactId) }
     val intel by contacts.intel.collectAsStateWithLifecycle()
 
     Scaffold(
@@ -943,11 +983,16 @@ fun TeamThreadRoute(
                     sending = sending,
                     onSend = thread::send,
                     onAttachPhoto = {
-                        photoPicker.launch(
+                        val opened = photoPicker.launchPicker(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                         )
+                        if (!opened) thread.report(Str.attachmentFailed(language))
                     },
-                    onAttachFile = { filePicker.launch(AttachmentRules.PICKABLE_MIME_TYPES) },
+                    onAttachFile = {
+                        if (!filePicker.launchPicker(AttachmentRules.PICKABLE_MIME_TYPES)) {
+                            thread.report(Str.attachmentFailed(language))
+                        }
+                    },
                     // An internal thread has no saved replies and no AI voice:
                     // both are things you say to a customer.
                     onOpenShortcuts = {},
@@ -1103,7 +1148,15 @@ fun EmailThreadRoute(
     var menuOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(workspace?.id, threadId) {
-        workspace?.let { model.open(it.id, threadId, email.thread(threadId)) }
+        workspace?.let {
+            // The mailbox's model bound here too, not only by its list: a
+            // thread opened from a notification is on screen with the list
+            // never composed beneath it (a phone shows one at a time), and
+            // then nothing would ever learn the workspace's own address —
+            // which is what keeps a Reply all from copying it back in.
+            email.bind(it.id)
+            model.open(it.id, threadId, email.thread(threadId))
+        }
     }
     // Back from the composer: the reply just sent belongs in the trail.
     LifecycleResumeEffect(threadId) {
@@ -1257,7 +1310,21 @@ fun EmailComposeRoute(
     var confirmDiscard by remember { mutableStateOf(false) }
 
     LaunchedEffect(workspace?.id) {
-        workspace?.let { model.start(it.id, sourceThreadId, mode, mailbox) }
+        val ws = workspace ?: return@LaunchedEffect
+        // A reply is prefilled once, and the workspace's own address is what
+        // it leaves out of To and Cc. Read before the mailbox was known — a
+        // thread opened from a notification, the mailbox's list never shown,
+        // or Reply all tapped the moment the thread opened — Reply all put
+        // the workspace's own address back in Cc. So the model is bound here
+        // too, and a reply waits a moment for the address; one that never
+        // comes (a request that fails) is prefilled without it, as before.
+        email.bind(ws.id)
+        val own = if (sourceThreadId != null && (mode == EmailReplyMode.REPLY || mode == EmailReplyMode.REPLY_ALL)) {
+            withTimeoutOrNull(MAILBOX_WAIT_MS) { email.mailbox.first { it != null } }
+        } else {
+            null
+        }
+        model.start(ws.id, sourceThreadId, mode, own ?: email.mailbox.value)
     }
     LaunchedEffect(form.sent) {
         if (form.sent) {
@@ -1293,7 +1360,14 @@ fun EmailComposeRoute(
                 backLabel = StrAndroid.back(language),
                 onBack = close,
                 actions = {
-                    IconButton(onClick = { filePicker.launch(AttachmentRules.PICKABLE_MIME_TYPES) }, enabled = !form.sending) {
+                    IconButton(
+                        onClick = {
+                            if (!filePicker.launchPicker(AttachmentRules.PICKABLE_MIME_TYPES)) {
+                                model.report(Str.attachmentFailed(language))
+                            }
+                        },
+                        enabled = !form.sending,
+                    ) {
                         Icon(Glyph.Paperclip, contentDescription = StrEmail.addAttachment(language))
                     }
                     IconButton(
@@ -1602,6 +1676,15 @@ fun SettingsRoute(
     bottomInset: Dp,
 ) {
     val settings: SettingsViewModel = viewModel(factory = viewModelFactory { SettingsViewModel(api) })
+    // Asked again each time the page is shown. The model lives as long as the
+    // session, and it used to ask once: a first request that failed left
+    // "offline" in place of the switches until the app was killed, and the
+    // online/offline line never moved while the schedule turned it over. Not
+    // while its own first ask is still on the way.
+    LifecycleResumeEffect(settings) {
+        if (settings.availability.value !is AvailabilityState.Loading) settings.load()
+        onPauseOrDispose { }
+    }
     val appearance by appState.appearance.collectAsStateWithLifecycle()
     val workspaces by appState.workspaces.collectAsStateWithLifecycle()
     val selected by appState.selectedWorkspace.collectAsStateWithLifecycle()
@@ -1694,6 +1777,22 @@ inline fun <reified T : ViewModel> viewModelFactory(crossinline create: () -> T)
         override fun <V : ViewModel> create(modelClass: Class<V>): V = create() as V
     }
 
+/**
+ * Opens a picker; false when the phone has nothing that answers one — the
+ * documents app switched off, some kiosk and TV builds. `launch` throws
+ * then, from inside a tap, and that ended the app.
+ */
+internal fun <I> ActivityResultLauncher<I>.launchPicker(input: I): Boolean =
+    try {
+        launch(input)
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
+    }
+
+/** How long a reply waits for the workspace's own address before it is prefilled without it. */
+private const val MAILBOX_WAIT_MS = 5_000L
+
 @Composable
 fun ProfileRoute(
     api: WebyarApi,
@@ -1701,11 +1800,25 @@ fun ProfileRoute(
     onBack: () -> Unit,
     /** Super Admin's switches: which of these the operator may change here. */
     config: MobileAppConfig = MobileAppConfig.DEFAULT,
+    /**
+     * A save went through: the name the rest of the app shows (Settings'
+     * header, the sender on a message still sending) is read again.
+     */
+    onSaved: () -> Unit = {},
+    /** The photo as the server now has it — set, replaced or removed here. */
+    onAvatarChanged: (String?) -> Unit = {},
 ) {
     val model: AccountViewModel =
         viewModel(factory = liveLanguage(language).let { l -> viewModelFactory { AccountViewModel(api, l) } })
     val form by model.profile.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    // Settings' header and a colleague's thread keep their own copy of the
+    // photo, which nothing else refreshes: a new one changed here showed the
+    // old one there until the app was restarted. Once the form has read the
+    // account, its photo IS the server's, after every upload and removal.
+    LaunchedEffect(form.loaded, form.avatarUrl) {
+        if (form.loaded) onAvatarChanged(form.avatarUrl)
+    }
 
     // The system Photo Picker on Android 13+, and the documents UI below it —
     // `PickVisualMedia` chooses for us. Neither needs READ_MEDIA_IMAGES: the
@@ -1739,7 +1852,7 @@ fun ProfileRoute(
             onLastNameChange = model::setLastName,
             onPhoneChange = model::setPhone,
             onPickAvatar = {
-                picker.launch(
+                picker.launchPicker(
                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                 )
             },
@@ -1748,6 +1861,7 @@ fun ProfileRoute(
                 model.saveProfile(
                     nameEditable = config.profileNameEditable,
                     phoneEditable = config.profilePhoneEditable,
+                    onDone = onSaved,
                 )
             },
             modifier = Modifier.padding(padding),

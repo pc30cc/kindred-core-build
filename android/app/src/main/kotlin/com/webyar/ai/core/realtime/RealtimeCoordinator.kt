@@ -42,6 +42,7 @@ class RealtimeCoordinator(
     private val sink = object : RealtimeSink {
         override fun onMessage(workspaceId: String, message: Message) = sync.onRealtimeMessage(workspaceId, message)
         override fun onEvent(workspaceId: String, event: RealtimeEventPayload) = sync.onRealtimeEvent(workspaceId, event)
+        override fun onConnected() = sync.onRealtimeConnected()
         override fun onReconnected(recovered: Boolean) = sync.onRealtimeReconnected(recovered)
         override fun onHealth(health: RealtimeHealth) {
             sync.setRealtime(health)
@@ -79,8 +80,18 @@ class RealtimeCoordinator(
         workspace.value = workspaceId
     }
 
-    /** The network came back: a client waiting out a backoff tries now. */
+    /**
+     * The network came back: a client waiting out a backoff tries now, and
+     * a read the sync layer still owes is made now.
+     *
+     * The second half used to be missing — this is the only place the app
+     * hears about the network, and it told the socket alone. Where there is
+     * no socket to reconnect (a server on polling, or realtime refused), the
+     * owed read then waited for a poll that had backed off to five minutes
+     * while it was offline.
+     */
     fun onNetworkAvailable() {
         client?.nudge()
+        sync.onNetworkAvailable()
     }
 }

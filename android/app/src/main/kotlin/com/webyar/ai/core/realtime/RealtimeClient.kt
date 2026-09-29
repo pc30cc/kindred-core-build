@@ -26,6 +26,20 @@ interface RealtimeSink {
     fun onEvent(workspaceId: String, event: RealtimeEventPayload)
 
     /**
+     * The first session of this run is up and subscribed. There is no
+     * position to recover from yet, so whatever was published before the
+     * subscribe — in the second or two it took to negotiate, or during the
+     * failed attempts before this one — reached nobody, and only a read
+     * finds it.
+     *
+     * Not left to the screens' own first read: that one is made as the app
+     * comes to the front, before the socket exists, and once the socket is
+     * up the poll stops and the next safety read is ten minutes off. A
+     * message in that window sat unseen in the list for all of them.
+     */
+    fun onConnected() {}
+
+    /**
      * The socket is back after having been up in this run. [recovered] is
      * true only when Centrifugo replayed every publication missed while it
      * was down.
@@ -206,7 +220,7 @@ class RealtimeClient(
             connected()
             sink.onHealth(RealtimeHealth.CONNECTED)
             diag.info(AREA, "connected ($intent)${if (recovered) ", recovered" else ""}")
-            if (reconnecting) sink.onReconnected(recovered)
+            if (reconnecting) sink.onReconnected(recovered) else sink.onConnected()
 
             val rotateAt = rotationTime(tokens.earliestExpiry())
             return read(socket, workspaceId, inboxChannel, positions, rotateAt)

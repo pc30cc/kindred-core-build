@@ -40,7 +40,13 @@ object AttachmentFiles {
             .getOrNull() ?: return false
 
         val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, mimeType ?: "*/*")
+            // Normalised: intent filters match a type case-sensitively and
+            // with its parameters, so `Application/PDF` or a mail part's
+            // `application/pdf; name="invoice.pdf"` reached no viewer at all,
+            // and the operator was told nothing on the phone could open a
+            // PDF while a PDF reader sat installed. This lower-cases the type
+            // and drops what follows the `;`.
+            setDataAndTypeAndNormalize(uri, mimeType?.takeIf { it.isNotBlank() } ?: "*/*")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             // The chooser is started from a non-activity context in tests and
             // from an activity in the app; the flag is required for the first

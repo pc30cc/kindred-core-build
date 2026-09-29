@@ -405,7 +405,13 @@ private fun TrendChart(
             }
             xLabels.forEach { (i, text) ->
                 val label = measurer.measure(text, axis)
-                val cx = (x(i) - label.size.width / 2f).coerceIn(left - label.size.width / 2f, size.width - label.size.width)
+                // Clamped one side at a time, not with coerceIn: a canvas
+                // narrower than the axis plus half a label — a pane measured
+                // at its animated width as it opens — makes the range empty,
+                // and coerceIn throws on an empty range from inside draw.
+                val cx = (x(i) - label.size.width / 2f)
+                    .coerceAtMost(size.width - label.size.width)
+                    .coerceAtLeast(left - label.size.width / 2f)
                 drawText(label, topLeft = Offset(cx, size.height - label.size.height))
             }
 

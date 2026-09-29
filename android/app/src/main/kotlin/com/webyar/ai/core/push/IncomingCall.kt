@@ -32,6 +32,30 @@ data class IncomingCall(
     /** Past its time: nothing to answer any more. */
     fun expired(nowEpochSeconds: Long): Boolean = nowEpochSeconds >= expiresAt
 
+    /**
+     * The same ring, with its expiry on this phone's clock rather than the
+     * server's.
+     *
+     * [expiresAt] is the server's time, and a ring lives 45 seconds of it. A
+     * phone whose clock is a minute fast — set by hand, as plenty are —
+     * read every ring as long expired and dropped it, so it never rang at
+     * all; one set an hour slow would have rung for an hour with nothing to
+     * stop it but a cancel. [sentEpochSeconds] is FCM's own stamp of when the
+     * ring left, on the same side of that gap as [expiresAt]. When the
+     * phone's clock puts the ring's arrival inside its life the clocks agree
+     * as far as anything here can tell, and nothing changes; when it does
+     * not, the phone's clock is what is wrong — FCM drops a ring its life
+     * outlasted (`ttl` in `server/services/push/fcm.ts`) — and the ring gets
+     * its whole life from now.
+     */
+    fun onPhoneClock(nowEpochSeconds: Long, sentEpochSeconds: Long): IncomingCall {
+        if (sentEpochSeconds <= 0) return this
+        val life = expiresAt - sentEpochSeconds
+        if (life <= 0) return this
+        if (nowEpochSeconds - sentEpochSeconds in 0..life) return this
+        return copy(expiresAt = nowEpochSeconds + life)
+    }
+
     companion object {
         const val TYPE_INCOMING = "call_incoming"
         const val TYPE_CANCEL = "call_cancel"

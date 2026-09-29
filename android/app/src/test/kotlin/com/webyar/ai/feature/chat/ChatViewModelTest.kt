@@ -4,8 +4,10 @@ import com.webyar.ai.core.model.CannedResponse
 import com.webyar.ai.core.model.CannedText
 import com.webyar.ai.core.model.InboxFilter
 import com.webyar.ai.core.net.SampleApi
+import com.webyar.ai.core.net.WebyarApi
 import com.webyar.ai.i18n.Language
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -17,6 +19,9 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
  * What the chat's view model decides, as against what the screen draws.
@@ -27,6 +32,11 @@ import org.junit.Test
  * exactly the kind that gets lost, so it is pinned where it now lives.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
+// Robolectric for android.icu: the length notice formats its limit with the
+// operator's digits (Format.number), which the plain JVM's stubbed android.jar
+// cannot do — as TeamChatTest, which checks the same notice, already runs.
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class ChatViewModelTest {
 
     private val dispatcher = StandardTestDispatcher()
@@ -83,6 +93,30 @@ class ChatViewModelTest {
     }
 
     /**
+     * Past the server's limit a send is refused every time, so it is never
+     * made: the words stay in the box, with the reason, instead of going to
+     * a bubble whose Retry could never work.
+     */
+    @Test
+    fun `a message over the server's limit stays in the draft and is not sent`() = runTest(dispatcher) {
+        val api = SampleApi()
+        val conversation = api.conversations("ws-1", InboxFilter.OPEN).first()
+        val before = api.messages(conversation.id).size
+
+        val chat = model(api)
+        chat.open(conversation, "ws-1")
+        testScheduler.advanceUntilIdle()
+        val long = "a".repeat(MAX_BODY_CHARS + 1)
+        chat.setDraft(long)
+        chat.send()
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(before, api.messages(conversation.id).size)
+        assertEquals(long, chat.draft.value)
+        assertTrue(chat.notice.value != null)
+    }
+
+    /**
      * A saved reply is APPENDED, not substituted.
      *
      * An operator who has written half a sentence and then reaches for a
@@ -119,5 +153,36 @@ class ChatViewModelTest {
         assertEquals("Hello Maryam — Sample Workspace", chat.draft.value)
         // And nothing half-resolved is left behind.
         assertNotEquals(true, chat.draft.value.contains("{{"))
+    }
+
+    /**
+     * The picker searches as the operator types, one request per (debounced)
+     * query — and the answers do not come back in the order they were asked.
+     * The list on screen is the newest query's, whichever answer is slower.
+     */
+    @Test
+    fun `a slow answer to an older search does not replace the newer one`() = runTest(dispatcher) {
+        val api = SlowSearchApi()
+        val conversation = api.conversations("ws-1", InboxFilter.OPEN).first()
+        val chat = ChatViewModel(api) { Language.FA }
+        chat.open(conversation, "ws-1")
+        testScheduler.advanceUntilIdle()
+
+        chat.loadShortcuts("hel") // slow
+        chat.loadShortcuts("hello") // fast
+        testScheduler.advanceUntilIdle()
+
+        val shown = chat.shortcuts.value as ShortcutsState.Loaded
+        assertEquals(listOf("cr-hello"), shown.items.map { it.id })
+    }
+
+    /** The sample server, with a search whose shorter queries answer last. */
+    private class SlowSearchApi(private val real: SampleApi = SampleApi()) : WebyarApi by real {
+        override suspend fun cannedResponses(workspaceId: String, locale: String, query: String): List<CannedResponse> {
+            delay(if (query.length < 5) 2_000 else 10)
+            return listOf(
+                CannedResponse(id = "cr-$query", shortcut = query, title = query, body = query, locale = locale),
+            )
+        }
     }
 }

@@ -50,6 +50,11 @@ class SettingsViewModel(private val api: WebyarApi) : ViewModel() {
         viewModelScope.launch {
             val next = runCatching { api.availability() }
                 .fold({ AvailabilityState.Loaded(it) }, { AvailabilityState.Failed })
+            // A re-read that fails keeps the answer already on screen: the
+            // switches were right a moment ago, and "offline" in their place
+            // would take them away over one dropped request. Only a section
+            // with nothing to show says it could not be read.
+            if (next is AvailabilityState.Failed && _availability.value is AvailabilityState.Loaded) return@launch
             if (mine > shown) {
                 shown = mine
                 _availability.value = next

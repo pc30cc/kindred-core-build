@@ -121,6 +121,11 @@ class InboxViewModel(
         // nothing from the old one carries over — including the channel
         // filter, which may name a plugin this workspace has never installed.
         _channel.value = null
+        // And the channel inboxes themselves: the old workspace's plugins
+        // stayed in the menu until this one's answered — for good, offline —
+        // offering an inbox this workspace does not have, which filtered the
+        // list to nothing.
+        _channels.value = emptyList()
         _query.value = ""
         _intel.value = emptyMap()
         intelAsked.clear()
@@ -188,6 +193,11 @@ class InboxViewModel(
 
     /** Pull-to-refresh: a real request, not a conditional one. */
     fun refresh() {
+        // Nothing to read before a workspace is bound (the route pulls here
+        // too while the launch is still loading one), and [load] returns at
+        // once without a scope — so the spinner set here had nothing to
+        // clear it, and spun for good when no workspace came (offline).
+        if (scope == null) return
         _refreshing.value = true
         load(force = true)
     }

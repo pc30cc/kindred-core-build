@@ -94,6 +94,27 @@ class AccountViewModelTest {
         assertEquals("Karimi", account.profile.value.lastName)
     }
 
+    /**
+     * Typing before the account has arrived keeps what was typed — and only
+     * that. The family name nobody touched is filled in when the account
+     * lands, rather than left empty for the next save to erase.
+     */
+    @Test
+    fun `typing before the account arrives keeps the rest of the stored name`() = runTest(dispatcher) {
+        val api = StubAccountApi()
+        // Not settled: the account is still on its way.
+        val account = AccountViewModel(api) { Language.FA }
+        account.setFirstName("رضا")
+        testScheduler.advanceUntilIdle()
+
+        assertEquals("رضا", account.profile.value.firstName)
+        assertEquals("Karimi", account.profile.value.lastName)
+
+        account.saveProfile()
+        testScheduler.advanceUntilIdle()
+        assertEquals("Karimi", api.lastSavedLast)
+    }
+
     @Test
     fun `an empty name is not saved at all`() = runTest(dispatcher) {
         val api = StubAccountApi()

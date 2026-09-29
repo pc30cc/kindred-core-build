@@ -31,6 +31,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Whether anyone is signed in, and who.
@@ -270,7 +271,10 @@ class AppState(
         _language.value = language
         hooks.languageChanged(language)
         viewModelScope.launch {
-            prefs.setLanguage(language)
+            // A write that fails (a full disk) costs the choice at the next
+            // launch, not the app now: nothing handles an exception thrown in
+            // this scope, so it would end the process.
+            runCatching { prefs.setLanguage(language) }
             // Tell the server too, so the console and the emails this operator
             // receives agree with the app in their hand. A failure here is not
             // worth surfacing: the app is already in the new language, and the
@@ -282,13 +286,14 @@ class AppState(
     fun setAppearance(appearance: Appearance) {
         _appearance.value = appearance
         _appearanceLoaded.value = true
-        viewModelScope.launch { prefs.setAppearance(appearance) }
+        // Caught, as the language's is: a failed write is not worth the app.
+        viewModelScope.launch { runCatching { prefs.setAppearance(appearance) } }
     }
 
     fun setDynamicColor(on: Boolean) {
         dynamicColorChosen = true
         _dynamicColor.value = on
-        viewModelScope.launch { prefs.setDynamicColor(on) }
+        viewModelScope.launch { runCatching { prefs.setDynamicColor(on) } }
     }
 
     /**
@@ -304,14 +309,52 @@ class AppState(
         prefs.pendingSignOut()?.let { pending ->
             withContext(NonCancellable) {
                 runCatching { hooks.signedOut(pending.ifEmpty { null }) }
-                prefs.setPendingSignOut(null)
+                runCatching { prefs.setPendingSignOut(null) }
             }
         }
-        runCatching { api.refreshOrigin() }
         if (!api.hasToken()) {
-            _session.value = Session.SignedOut
+            // No token, yet an operator is remembered: their session ended
+            // without this phone signing them out — the Keystore key that
+            // sealed the token is gone (an OS update does that on some
+            // devices), or the token never reached the disk (a full one).
+            // Nothing cleaned up after them then, so it is done now, exactly
+            // as at a sign-out: their notifications left in the tray, their
+            // cached rows and files, and their push registration — which
+            // would otherwise go on drawing their customers' messages on a
+            // phone somebody else signs in to. A tap on one of those
+            // notifications, already waiting to be followed, goes with them.
+            val stale = cache.read()
+            if (stale != null) {
+                withContext(NonCancellable) { endSession(stale.id) }
+            } else {
+                _session.value = Session.SignedOut
+            }
+            // Where the platform lives is asked behind the sign-in screen,
+            // not in front of it: on a connection that hangs rather than
+            // fails, that one request held the loader up for its whole
+            // timeout before anyone could type. logIn() waits for it.
+            refreshOriginInBackground()
             return
         }
+        // Local first, as the inbox itself is: the operator this phone
+        // remembers opens straight onto their cached inbox, and the server's
+        // word on the session follows. It used to come first — the origin,
+        // then the account, each allowed its full timeout — so on a
+        // connection that hangs the loader stood for up to forty seconds
+        // before the very same cached inbox appeared. A session the server
+        // has ended still ends, the moment it says so.
+        cache.read()?.let { cached ->
+            recallWorkspace(cached.id)
+            hooks.signedIn(cached)
+            _session.value = Session.SignedIn(cached)
+            loadWorkspaces()
+            val epoch = sessionEpoch
+            viewModelScope.launch { confirmSession(cached, epoch) }
+            return
+        }
+        // A token and nobody remembered (a cache cleared under it): nothing
+        // to show until the server says who this is.
+        runCatching { api.refreshOrigin() }
         try {
             val user = api.currentUser()
             cache.save(user)
@@ -337,6 +380,71 @@ class AppState(
                 if (cached != null) loadWorkspaces()
             }
         }
+    }
+
+    /**
+     * Which session is current: moved on by every sign-in and every end of
+     * a session, so a late answer about an earlier one can tell it is late
+     * even when the same operator has signed in again since.
+     */
+    private var sessionEpoch = 0
+
+    /** The signed-out launch's question of where the platform lives; see [logIn]. */
+    private var originJob: Job? = null
+
+    private fun refreshOriginInBackground() {
+        originJob = viewModelScope.launch { runCatching { api.refreshOrigin() } }
+    }
+
+    private fun isStill(epoch: Int, userId: String): Boolean =
+        epoch == sessionEpoch && (_session.value as? Session.SignedIn)?.user?.id == userId
+
+    /**
+     * The server's word on the session [restore] opened from the cache.
+     *
+     * Only a 401 ends it, as everywhere: offline, or with the server down,
+     * the cached operator stays with their cache, which is what it is for.
+     * An answer is applied only to the session it was asked about ([epoch])
+     * — an operator who signed out, or signed in again, while it was on its
+     * way is not touched by it.
+     */
+    private suspend fun confirmSession(cached: User, epoch: Int) {
+        runCatching { api.refreshOrigin() }
+        val user = try {
+            api.currentUser()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ApiError) {
+            if (e.isAuthFailure && isStill(epoch, cached.id)) {
+                api.discardSession()
+                // Revoked elsewhere: whatever this phone cached for it goes,
+                // exactly as at a sign-out.
+                withContext(NonCancellable) { endSession(cached.id) }
+            }
+            return
+        }
+        if (!isStill(epoch, cached.id)) return
+        if (user.id != cached.id) {
+            // The token names somebody other than the operator remembered —
+            // nothing of the one on screen may stay for the other.
+            withContext(NonCancellable) { endSession(cached.id) }
+            runCatching { cache.save(user) }
+            recallWorkspace(user.id)
+            hooks.signedIn(user)
+            _session.value = Session.SignedIn(user)
+            loadWorkspaces()
+            loadAppConfig()
+            return
+        }
+        runCatching { cache.save(user) }
+        hooks.signedIn(user)
+        // The same person, perhaps renamed on the web since: the header
+        // follows. Keyed by id, so nothing on screen is rebuilt.
+        if (user != cached) _session.value = Session.SignedIn(user)
+        // The cached launch asked for the workspaces before the origin was
+        // confirmed; asked again, from the right place, if that found none.
+        if (_workspaces.value.isEmpty()) loadWorkspaces()
+        loadAppConfig()
     }
 
     /**
@@ -368,7 +476,12 @@ class AppState(
         // anyone — the server is the one that knows.
         checkPlatform().join()
         if (_maintenance.value != null) throw ApiError.Server(503, "maintenance")
+        // The credentials go where the platform now lives: the launch asked
+        // behind this screen, and on a slow connection may still be asking.
+        // Bounded — past it the address in hand is used, as it always was.
+        originJob?.takeIf { it.isActive }?.let { withTimeoutOrNull(ORIGIN_WAIT_MS) { it.join() } }
         val user = api.logIn(email.trim(), password)
+        sessionEpoch++
         cache.save(user)
         recallWorkspace(user.id)
         hooks.signedIn(user)
@@ -393,6 +506,7 @@ class AppState(
     fun logOut() {
         val user = (_session.value as? Session.SignedIn)?.user
         if (signOutJob?.isActive == true) return
+        _signOutFailed.value = false
         signOutJob = viewModelScope.launch {
             withContext(NonCancellable) {
                 user?.let { runCatching { hooks.beforeSignOut(it) } }
@@ -408,12 +522,23 @@ class AppState(
                     // try again — with this device registered for pushes
                     // again, which [SessionHooks.beforeSignOut] undid.
                     user?.let { runCatching { hooks.signOutFailed(it) } }
+                    // And told so. The confirmation had closed and nothing
+                    // changed, which read as a button that did nothing.
+                    _signOutFailed.value = true
                 }
             }
         }
     }
 
     private var signOutJob: Job? = null
+
+    /** A sign-out the server did not confirm, until the shell has said so. */
+    private val _signOutFailed = MutableStateFlow(false)
+    val signOutFailed: StateFlow<Boolean> = _signOutFailed.asStateFlow()
+
+    fun signOutFailureShown() {
+        _signOutFailed.value = false
+    }
 
     /** The server said 401 to the token in hand: signed out here too, as at a sign-out. */
     private fun onSessionLost() {
@@ -434,8 +559,14 @@ class AppState(
      * finishes it at the next launch ([restore]).
      */
     private suspend fun endSession(accountId: String?) {
+        // Whatever the launch's check brings back now belongs to a session
+        // that is over, and is not applied — see [confirmSession].
+        sessionEpoch++
         runCatching { prefs.setPendingSignOut(accountId.orEmpty()) }
-        cache.clear()
+        // Caught like every other step: a write that throws here (a full
+        // disk) would otherwise end the sign-out before anything below it —
+        // the caches, the notifications, the screens — and the process too.
+        runCatching { cache.clear() }
         runCatching { hooks.signedOut(accountId) }
         runCatching { prefs.setPendingSignOut(null) }
         // A different operator is a different set of workspaces: nothing
@@ -449,7 +580,9 @@ class AppState(
         _entitlements.value = EntitlementsState.Loading
         _access.value = WorkspaceAccess.UNKNOWN
         planLoadedAt = null
+        avatarJob?.cancel()
         _avatarUrl.value = null
+        _signOutFailed.value = false
         _pendingLink.value = null
         _pendingCall.value = null
         _selectedTab.value = AppTab.INBOX
@@ -478,7 +611,7 @@ class AppState(
                 // Stored on the side, so this job ends when the answer is
                 // in hand: a write still queued on DataStore's own threads
                 // must not make the next foreground skip its ask.
-                viewModelScope.launch { prefs.setAppConfig(config) }
+                viewModelScope.launch { runCatching { prefs.setAppConfig(config) } }
             }
         }
     }
@@ -504,7 +637,7 @@ class AppState(
                 val kept = _appConfig.value.copy(defaultLanguage = config.defaultLanguage)
                 if (kept != _appConfig.value) {
                     _appConfig.value = kept
-                    viewModelScope.launch { prefs.setAppConfig(kept) }
+                    viewModelScope.launch { runCatching { prefs.setAppConfig(kept) } }
                 }
             } finally {
                 _checkingPlatform.value = false
@@ -526,12 +659,56 @@ class AppState(
         hooks.languageChanged(language)
     }
 
-    /** Advisory: no picture is a quiet circle, not an error to show. */
+    private var avatarJob: Job? = null
+
+    /**
+     * Advisory: no picture is a quiet circle, not an error to show.
+     *
+     * Kept to the operator it was asked for. An answer that landed after a
+     * sign-out used to set the last operator's photo again — and when the
+     * next operator's own ask then failed (offline, or no photo read yet),
+     * their Settings and their team threads wore it.
+     */
     private fun loadAvatar() {
-        viewModelScope.launch {
+        val userId = (_session.value as? Session.SignedIn)?.user?.id ?: return
+        val asked = avatarSetByProfile
+        avatarJob?.cancel()
+        avatarJob = viewModelScope.launch {
             runCatching { api.account() }
-                .onSuccess { _avatarUrl.value = it.profile?.avatarUrl }
+                .onSuccess { account ->
+                    val user = (_session.value as? Session.SignedIn)?.user
+                    if (user?.id != userId) return@onSuccess
+                    // Profile set a photo while this was on its way: this
+                    // answer may be from before it.
+                    if (asked == avatarSetByProfile) _avatarUrl.value = account.profile?.avatarUrl
+                    // The name too, which the session only read at sign-in:
+                    // one changed in Profile, or on the web, stayed the old
+                    // one in Settings' header and on a message still sending.
+                    val name = account.profile?.fullName?.takeIf { it.isNotBlank() }
+                    if (name != null && name != user.fullName) {
+                        val renamed = user.copy(fullName = name)
+                        hooks.signedIn(renamed)
+                        _session.value = Session.SignedIn(renamed)
+                    }
+                }
         }
+    }
+
+    /**
+     * The operator's name and photo read again: Profile has just saved a
+     * change to them, and everything outside Profile holds the copy read at
+     * sign-in.
+     */
+    fun refreshAccount() = loadAvatar()
+
+    /** Counts the photos Profile has set, so an older read cannot put the last one back. */
+    private var avatarSetByProfile = 0
+
+    /** The photo as Profile now has it from the server — set, replaced or removed. */
+    fun avatarChanged(url: String?) {
+        if (_session.value !is Session.SignedIn) return
+        avatarSetByProfile++
+        _avatarUrl.value = url
     }
 
     private var workspacesJob: Job? = null
@@ -731,6 +908,13 @@ class AppState(
     private companion object {
         const val PLAN_RETRY_MS = 20_000L
         const val PLAN_REFRESH_NS = 3 * 60 * 1_000_000_000L
+
+        /**
+         * How long a sign-in waits for the launch's question of where the
+         * platform lives — a little over that question's own cap
+         * (ApiClient.ORIGIN_TIMEOUT_MS), so it only ever cuts a hung one.
+         */
+        const val ORIGIN_WAIT_MS = 6_000L
         /** 1, 2, 4, 8, 16, 30, 30… seconds: about five minutes in all. */
         const val RETRY_FIRST_MS = 1_000L
         const val RETRY_MAX_MS = 30_000L

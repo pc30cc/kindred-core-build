@@ -218,6 +218,23 @@ class InboxViewModelTest {
         inbox.bind("ws-2")
         assertEquals(null, inbox.channel.value)
         assertEquals("", inbox.query.value)
+        // Nor the old workspace's channel inboxes, before this one's answer:
+        // offline that answer never comes, and the menu kept offering them.
+        assertTrue(inbox.channels.value.isEmpty())
+    }
+
+    /**
+     * The route pulls here while the launch is still finding a workspace.
+     * With none bound there is nothing to read — and nothing to end a
+     * spinner that was started, so none is.
+     */
+    @Test
+    fun `pulling before a workspace is bound does not leave the spinner on`() = runTest(dispatcher) {
+        val inbox = model()
+        inbox.refresh()
+        testScheduler.advanceUntilIdle()
+
+        assertFalse(inbox.refreshing.value)
     }
 
     // MARK: - Which queues the plan allows

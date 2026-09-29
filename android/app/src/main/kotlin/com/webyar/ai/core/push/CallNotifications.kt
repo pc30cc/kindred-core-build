@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
@@ -85,7 +86,7 @@ object CallNotifications {
                     .build(),
             )
             enableVibration(true)
-            vibrationPattern = longArrayOf(0, 800, 600, 800, 600)
+            vibrationPattern = RING_VIBRATION
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
         runCatching { manager.createNotificationChannel(channel) }
@@ -129,6 +130,16 @@ object CallNotifications {
             .setTimeoutAfter(remaining)
             .setContentIntent(show)
             .addPerson(caller)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            // Android 7 has no channels, so the ringtone and the buzz that
+            // `webyar_calls` gives every later version are the notification's
+            // own to ask for. Without them a call rang in silence on exactly
+            // the older phones this app is built to keep serving (minSdk 24).
+            // Once, not insistently: see the flags below.
+            builder
+                .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE), AudioManager.STREAM_RING)
+                .setVibrate(RING_VIBRATION)
+        }
         if (canUseFullScreen(context)) {
             builder
                 .setFullScreenIntent(show, true)
@@ -142,8 +153,13 @@ object CallNotifications {
         }
         val notification = builder.build().apply {
             // Rings until something stops it, like a phone call; the expiry
-            // above is what stops it if nothing else does.
-            flags = flags or Notification.FLAG_INSISTENT
+            // above is what stops it if nothing else does. Not on Android 7,
+            // which has no such expiry (`setTimeoutAfter` is Android 8): a
+            // ring whose cancel never arrived would ring there for ever, so
+            // it rings once.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                flags = flags or Notification.FLAG_INSISTENT
+            }
         }
         NotificationManagerCompat.from(context).notify(TAG, call.callId.hashCode(), notification)
         unanswered[call.callId] = name
@@ -239,4 +255,7 @@ object CallNotifications {
 
     private const val TAG = "call"
     private const val MISSED_TAG = "missed-call"
+
+    /** A phone's ring: the channel's from Android 8, the notification's own before. */
+    private val RING_VIBRATION = longArrayOf(0, 800, 600, 800, 600)
 }

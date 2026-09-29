@@ -3,6 +3,7 @@ package com.webyar.ai.core.media
 import com.webyar.ai.core.Diag
 import com.webyar.ai.core.cache.CacheScope
 import com.webyar.ai.core.model.MessageAttachment
+import com.webyar.ai.core.net.ApiError
 import com.webyar.ai.ui.components.AttachmentCache
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -179,6 +180,26 @@ class AttachmentDiskCacheTest {
         }
 
         assertTrue(result.isFailure)
+        assertTrue("trimmed to make room", cache.sizeBytes() <= 500)
+    }
+
+    /**
+     * The same, the way the real download says it: `downloadAttachment`
+     * wraps every I/O failure, a failed write to the file included, in
+     * `ApiError.Transport` — and a check for a bare IOException never saw one.
+     */
+    @Test
+    fun `a full disk reported through the API's own error still makes room`() = runBlocking {
+        budget = 1_000
+        cache.file(scope, attachment("big")) { it.writeBytes(bytes(900)) }
+
+        val result = runCatching {
+            cache.file(scope, attachment("a1")) {
+                throw ApiError.Transport(IOException("write failed: ENOSPC (No space left on device)"))
+            }
+        }
+
+        assertTrue(result.exceptionOrNull() is ApiError.Transport)
         assertTrue("trimmed to make room", cache.sizeBytes() <= 500)
     }
 

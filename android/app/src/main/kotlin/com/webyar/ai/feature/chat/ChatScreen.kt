@@ -294,13 +294,19 @@ private data class TranscriptRow(
 
 private fun layout(messages: List<Message>): List<TranscriptRow> {
     val zone = ZoneId.systemDefault()
+    // Each message's own day, worked out once. A row compares its day with
+    // both neighbours', and doing the time-zone conversion per comparison
+    // was four of them a row — for the whole transcript, in composition, on
+    // every message that arrived or was confirmed. A long thread janked.
+    val days = messages.map { it.createdAt?.atZone(zone)?.toLocalDate() }
     return messages.mapIndexed { index, message ->
         val previous = messages.getOrNull(index - 1)
         val next = messages.getOrNull(index + 1)
+        val day = days[index]
+        val previousDay = days.getOrNull(index - 1)
+        val nextDay = days.getOrNull(index + 1)
 
-        val sameDayAsPrevious = previous?.createdAt != null && message.createdAt != null &&
-            previous.createdAt!!.atZone(zone).toLocalDate() ==
-            message.createdAt!!.atZone(zone).toLocalDate()
+        val sameDayAsPrevious = previousDay != null && day != null && previousDay == day
 
         TranscriptRow(
             message = message,
@@ -313,8 +319,7 @@ private fun layout(messages: List<Message>): List<TranscriptRow> {
             endsRun = next == null || next.senderType != message.senderType ||
                 (message.senderType == SenderType.AGENT && next.senderId != message.senderId) ||
                 next.senderType == SenderType.SYSTEM ||
-                (next.createdAt != null && message.createdAt != null &&
-                    next.createdAt!!.atZone(zone).toLocalDate() != message.createdAt!!.atZone(zone).toLocalDate()),
+                (nextDay != null && day != null && nextDay != day),
             startsRun = previous == null || previous.senderType != message.senderType ||
                 (message.senderType == SenderType.AGENT && previous.senderId != message.senderId) ||
                 !sameDayAsPrevious,

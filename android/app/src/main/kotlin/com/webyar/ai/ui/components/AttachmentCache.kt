@@ -1,9 +1,14 @@
 package com.webyar.ai.ui.components
 
 import com.webyar.ai.core.cache.CacheScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
  * Attachment bytes, fetched once and kept.
@@ -39,26 +44,67 @@ object AttachmentCache {
     private val inFlight = HashMap<String, CompletableDeferred<ByteArray?>>()
 
     suspend fun bytes(id: String, load: suspend (String) -> ByteArray?): ByteArray? {
-        val mine = CompletableDeferred<ByteArray?>()
-        // One lock acquisition decides all three cases: a hit returns, a
-        // request already running is joined, and anything else makes this
-        // call the one that fetches.
-        val running = lock.withLock {
-            entries[id]?.let { return it }
-            inFlight.getOrPut(id) { mine }
-        }
-        if (running !== mine) return running.await()
+        while (true) {
+            val mine = CompletableDeferred<ByteArray?>()
+            // One lock acquisition decides all three cases: a hit returns, a
+            // request already running is joined, and anything else makes this
+            // call the one that fetches.
+            val running = lock.withLock {
+                entries[id]?.let { return it }
+                inFlight.getOrPut(id) { mine }
+            }
+            if (running !== mine) {
+                val joined = running.await()
+                // The fetch this joined was given up by the view that started
+                // it — a bubble scrolled away mid-download. That says nothing
+                // about the file, so it is asked for again, by this caller.
+                if (joined === ABANDONED) continue
+                return joined
+            }
 
-        val loaded = runCatching { load(id) }.getOrNull()
-        lock.withLock {
-            inFlight.remove(id)
-            if (loaded != null) store(id, loaded)
+            var loaded: ByteArray? = null
+            var abandoned = true
+            try {
+                loaded = try {
+                    load(id)
+                } catch (cancelled: CancellationException) {
+                    // This caller's own cancellation goes on up; one thrown
+                    // from inside the load while this caller is still wanted
+                    // — a timeout — is a failed load like any other.
+                    currentCoroutineContext().ensureActive()
+                    null
+                } catch (_: Throwable) {
+                    null
+                }
+                abandoned = false
+            } finally {
+                // Whatever happened, the request is retired and its joiners
+                // are answered — even for a caller that was cancelled. This
+                // used to be `runCatching`, which read a cancelled download as
+                // "no such file" and told every view that had joined it the
+                // photo had failed; and a cleanup that could itself be
+                // cancelled would leave an entry in [inFlight] that every
+                // later request joined and waited on for good.
+                val result = loaded
+                withContext(NonCancellable) {
+                    lock.withLock {
+                        inFlight.remove(id)
+                        if (result != null) store(id, result)
+                    }
+                }
+                // Completed after the cache is written, so a joiner that wakes
+                // on it never races ahead of the entry it is about to look up.
+                mine.complete(if (abandoned) ABANDONED else result)
+            }
+            return loaded
         }
-        // Completed after the cache is written, so a joiner that wakes on it
-        // never races ahead of the entry it is about to look up.
-        mine.complete(loaded)
-        return loaded
     }
+
+    /**
+     * What a request's joiners are told when the caller that started it went
+     * away first. Compared by identity; never stored, never returned.
+     */
+    private val ABANDONED = ByteArray(0)
 
     /**
      * The key for an attachment in one account's workspace. Ids are unique

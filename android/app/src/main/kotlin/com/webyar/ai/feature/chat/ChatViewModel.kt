@@ -193,6 +193,14 @@ class ChatViewModel(
         if (value) {
             sync.coordinator.openThread(id)
             markSeenIfUnseen()
+            // What changed while it was covered. A visitor's message reaches
+            // the cache by itself, but an operator event — a colleague
+            // resolving the thread, a transfer — brings its system line only
+            // to a thread that is open, and this one was not: back from the
+            // contact page, the line saying who resolved or transferred it
+            // was missing until something else happened to read the thread.
+            // One delta, usually empty.
+            viewModelScope.launch { refresh("visible") }
         } else {
             seenJob?.cancel()
             sync.coordinator.closeThread(id)
@@ -294,6 +302,7 @@ class ChatViewModel(
         val id = conversationId ?: return
         val body = _draft.value.trim()
         if (body.isEmpty() || _sending.value) return
+        if (tooLong(body)) return
 
         _sending.value = true
         val typed = _draft.value
@@ -312,6 +321,19 @@ class ChatViewModel(
             _sending.value = false
             deliver(scope, localId, shortcutsUsed)
         }
+    }
+
+    /**
+     * Over the server's limit, said now and with the words left in the box.
+     * Past it every send is a 400, so a message that went to the outbox
+     * anyway sat there FAILED with a Retry that could never work — and the
+     * text had already left the draft for a bubble it could not be edited
+     * back out of.
+     */
+    private fun tooLong(body: String): Boolean {
+        if (body.length <= MAX_BODY_CHARS) return false
+        _notice.value = StrAndroid.messageTooLong(language(), MAX_BODY_CHARS)
+        return true
     }
 
     /** Sends a failed message again — the same message, with the same key. */
@@ -356,11 +378,14 @@ class ChatViewModel(
     fun sendAttachment(bytes: ByteArray, fileName: String, mimeType: String) {
         val scope = scope ?: return
         val id = conversationId ?: return
-        _sending.value = true
         // The caption is what was in the box when the file was picked, not
         // whatever has been typed by the time the upload finishes.
         val typed = _draft.value
         val caption = typed.trim()
+        // Before the upload, not after it: the file would go up only for its
+        // message to be refused.
+        if (tooLong(caption)) return
+        _sending.value = true
         work.launch {
             val attachmentId = runCatchingUnlessCancelled {
                 api.uploadAttachment(
@@ -398,10 +423,26 @@ class ChatViewModel(
 
     // MARK: - Saved replies
 
+    /** The picker's one search in flight, and what it asked; a newer query replaces it. */
+    private var shortcutsJob: Job? = null
+    private var shortcutsQuery: String? = null
+
     fun loadShortcuts(query: String = "") {
         val workspace = workspaceId ?: return
-        viewModelScope.launch {
-            runCatching { api.cannedResponses(workspace, language().code, query) }
+        // The same question already out is left to answer: opening the
+        // picker asks for everything, and so does its empty search field a
+        // moment later.
+        if (query == shortcutsQuery && shortcutsJob?.isActive == true) return
+        shortcutsQuery = query
+        // One answer at a time, and always the newest question's. Each
+        // keystroke (debounced) is a request, and a slow "hel" landing after
+        // a quick "hello" put the wider list back under the narrower query.
+        // Cancelled rather than ignored: runCatchingUnlessCancelled so that
+        // the superseded request does not report its cancellation as
+        // "could not load" over the answer that replaced it.
+        shortcutsJob?.cancel()
+        shortcutsJob = viewModelScope.launch {
+            runCatchingUnlessCancelled { api.cannedResponses(workspace, language().code, query) }
                 .onSuccess { _shortcuts.value = ShortcutsState.Loaded(it) }
                 .onFailure { error ->
                     _shortcuts.value = when {
@@ -559,3 +600,6 @@ class ChatViewModel(
 
 /** Several visitor messages in a burst are one "seen". */
 private const val SEEN_DEBOUNCE_MS = 700L
+
+/** The server's own limit on a message (`body` in `sendMessageSchema`, server/routes/conversations.ts). */
+internal const val MAX_BODY_CHARS = 50_000

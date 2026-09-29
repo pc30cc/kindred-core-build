@@ -70,7 +70,8 @@ class InboxScreenTest {
         val photo = resolved.first { it.id == "c-5" }
         assertEquals(null, photo.lastMessage?.body)
 
-        assertEquals("علی رضایی sent a photo", photo.preview(Language.EN))
+        // The name is isolated (FSI…PDI) so a Persian name cannot flip an English line.
+        assertEquals("\u2068علی رضایی\u2069 sent a photo", photo.preview(Language.EN))
         assertTrue(photo.preview(Language.FA).contains("تصویر"))
         assertTrue(photo.preview(Language.TR).contains("fotoğraf"))
     }

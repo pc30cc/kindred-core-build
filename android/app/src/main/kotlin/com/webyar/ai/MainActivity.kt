@@ -256,8 +256,15 @@ private fun RootScreen(appState: AppState, api: WebyarApi, language: Language) {
 
     // Signed out: every view model the session made is cleared now, so the
     // next operator starts from nothing — not from the last one's inbox.
+    // Nor is anything left over the lock screen: a ring's tap puts the app
+    // there for its call, and a session that ended before the call screen
+    // opened (revoked, or restored to nobody) never took it back off.
+    val activity = LocalContext.current as? MainActivity
     LaunchedEffect(session) {
-        if (session is Session.SignedOut) stores.release()
+        if (session is Session.SignedOut) {
+            stores.release()
+            activity?.showOverLockScreen(false)
+        }
     }
 
     // Super Admin's maintenance notice, asked for every minute the app is
@@ -296,6 +303,7 @@ private fun RootScreen(appState: AppState, api: WebyarApi, language: Language) {
                     // "Forgot password?" was never offered: nothing passed this,
                     // so the screen that asks for a link could not be reached.
                     onRequestReset = { email -> requestReset(api, email, language) },
+                    covered = maintenance != null,
                 )
 
                 is Session.SignedIn -> {

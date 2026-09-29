@@ -130,6 +130,16 @@ fun LoginScreen(
      * without somewhere to send the request.
      */
     onRequestReset: (suspend (String) -> Result<Unit>)? = null,
+    /**
+     * Something is over this screen — the maintenance notice — so the
+     * keyboard is not brought up under it. The notice clears focus as it
+     * appears, but it is often up BEFORE this screen is: a signed-out launch
+     * asks about maintenance and restores the session side by side, and the
+     * notice tends to win. Focusing then put the keyboard over the notice
+     * and every key into a field nobody could see. Uncovered, the field
+     * takes focus then, as it would have on arrival.
+     */
+    covered: Boolean = false,
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -189,7 +199,8 @@ fun LoginScreen(
             // typing, so making somebody tap a field first is a tap that
             // carries no information. The effect runs once the fields below
             // are composed, so the one it asks for is there to take focus.
-            LaunchedEffect(Unit) {
+            LaunchedEffect(covered) {
+                if (covered) return@LaunchedEffect
                 emailFocus.requestFocus()
                 keyboard?.show()
             }

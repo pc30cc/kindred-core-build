@@ -100,6 +100,9 @@ import com.webyar.ai.ui.design.ExpressiveShapes
 import com.webyar.ai.ui.design.Motion
 import com.webyar.ai.ui.design.Space
 import com.webyar.ai.feature.email.EmailReplyMode
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import com.webyar.ai.MainActivity
 
 /**
  * The signed-in shell.
@@ -234,8 +237,22 @@ fun AppShell(
     // the session and the workspaces are known and the call is this
     // operator's. Over whatever was on screen; Back returns to it.
     val pendingCall by appState.pendingCall.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val activity = context as? MainActivity
     LaunchedEffect(pendingCall, workspaces) {
-        val call = appState.resolvePendingCall() ?: return@LaunchedEffect
+        val call = appState.resolvePendingCall()
+        if (call == null) {
+            // Dropped rather than still waiting — rung for a workspace this
+            // operator's list does not have (joined since the list was read):
+            // no call screen will open, so none will take the app back off
+            // the lock screen, which the ring's tap put it over. Left there,
+            // whatever was open — an inbox, a customer's chat — showed to
+            // whoever held the locked phone.
+            val waiting = appState.pendingCall.value != null
+            val ringing = navigator.stack(AppTab.INBOX).any { it is IncomingCallKey }
+            if (!waiting && !ringing) activity?.showOverLockScreen(false)
+            return@LaunchedEffect
+        }
         enterWorkspace(appState.selectedWorkspace.value?.id)
         navigator.open(
             IncomingCallKey(
@@ -246,6 +263,16 @@ fun AppShell(
                 answer = call.answer,
             )
         )
+    }
+
+    // A sign-out the server did not confirm leaves the operator signed in —
+    // and says so, from whichever tab they are on by the time it fails,
+    // rather than leaving a confirmed Sign out to look like a dead button.
+    val signOutFailed by appState.signOutFailed.collectAsStateWithLifecycle()
+    LaunchedEffect(signOutFailed) {
+        if (!signOutFailed) return@LaunchedEffect
+        Toast.makeText(context.applicationContext, Str.signOutFailed(language), Toast.LENGTH_LONG).show()
+        appState.signOutFailureShown()
     }
 
     val entryProvider = entryProvider<NavKey> {
@@ -389,6 +416,7 @@ fun AppShell(
         entry<ContactKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = ContactsKey) + tabOf(AppTab.CONTACTS)) { key ->
             ContactDetailRoute(
                 contactId = key.contactId,
+                appState = appState,
                 contacts = contacts,
                 language = language,
                 onBack = { navigator.back() },
@@ -472,7 +500,14 @@ fun AppShell(
             )
         }
         entry<ProfileKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = SettingsKey) + tabOf(AppTab.SETTINGS)) {
-            ProfileRoute(api = api, language = language, onBack = { navigator.back() }, config = appConfig)
+            ProfileRoute(
+                api = api,
+                language = language,
+                onBack = { navigator.back() },
+                config = appConfig,
+                onSaved = appState::refreshAccount,
+                onAvatarChanged = appState::avatarChanged,
+            )
         }
         entry<SecurityKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = SettingsKey) + tabOf(AppTab.SETTINGS)) {
             SecurityRoute(api = api, language = language, onBack = { navigator.back() })

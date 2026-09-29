@@ -1,7 +1,11 @@
 package com.webyar.ai.feature.auth
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
@@ -58,6 +62,23 @@ class LoginScreenTest {
     @Test
     fun `the email field takes focus without being tapped`() {
         show()
+        compose.onNodeWithTag(A11y.LOGIN_EMAIL).assertIsFocused()
+    }
+
+    /**
+     * Under the maintenance notice the field waits: focused there, it put the
+     * keyboard over the notice and every key into a field nobody could see.
+     * It takes focus once the notice goes.
+     */
+    @Test
+    fun `the email field waits while the maintenance notice covers the screen`() {
+        var covered by mutableStateOf(true)
+        compose.setContent {
+            LoginScreen(language = Language.EN, onSubmit = { _, _ -> Result.success(Unit) }, covered = covered)
+        }
+        compose.onNodeWithTag(A11y.LOGIN_EMAIL).assertIsNotFocused()
+
+        covered = false
         compose.onNodeWithTag(A11y.LOGIN_EMAIL).assertIsFocused()
     }
 

@@ -270,7 +270,10 @@ class AppState(
         _language.value = language
         hooks.languageChanged(language)
         viewModelScope.launch {
-            prefs.setLanguage(language)
+            // A write that fails (a full disk) costs the choice at the next
+            // launch, not the app now: nothing handles an exception thrown in
+            // this scope, so it would end the process.
+            runCatching { prefs.setLanguage(language) }
             // Tell the server too, so the console and the emails this operator
             // receives agree with the app in their hand. A failure here is not
             // worth surfacing: the app is already in the new language, and the
@@ -282,13 +285,14 @@ class AppState(
     fun setAppearance(appearance: Appearance) {
         _appearance.value = appearance
         _appearanceLoaded.value = true
-        viewModelScope.launch { prefs.setAppearance(appearance) }
+        // Caught, as the language's is: a failed write is not worth the app.
+        viewModelScope.launch { runCatching { prefs.setAppearance(appearance) } }
     }
 
     fun setDynamicColor(on: Boolean) {
         dynamicColorChosen = true
         _dynamicColor.value = on
-        viewModelScope.launch { prefs.setDynamicColor(on) }
+        viewModelScope.launch { runCatching { prefs.setDynamicColor(on) } }
     }
 
     /**
@@ -304,12 +308,27 @@ class AppState(
         prefs.pendingSignOut()?.let { pending ->
             withContext(NonCancellable) {
                 runCatching { hooks.signedOut(pending.ifEmpty { null }) }
-                prefs.setPendingSignOut(null)
+                runCatching { prefs.setPendingSignOut(null) }
             }
         }
         runCatching { api.refreshOrigin() }
         if (!api.hasToken()) {
-            _session.value = Session.SignedOut
+            // No token, yet an operator is remembered: their session ended
+            // without this phone signing them out — the Keystore key that
+            // sealed the token is gone (an OS update does that on some
+            // devices), or the token never reached the disk (a full one).
+            // Nothing cleaned up after them then, so it is done now, exactly
+            // as at a sign-out: their notifications left in the tray, their
+            // cached rows and files, and their push registration — which
+            // would otherwise go on drawing their customers' messages on a
+            // phone somebody else signs in to. A tap on one of those
+            // notifications, already waiting to be followed, goes with them.
+            val stale = cache.read()
+            if (stale != null) {
+                withContext(NonCancellable) { endSession(stale.id) }
+            } else {
+                _session.value = Session.SignedOut
+            }
             return
         }
         try {
@@ -393,6 +412,7 @@ class AppState(
     fun logOut() {
         val user = (_session.value as? Session.SignedIn)?.user
         if (signOutJob?.isActive == true) return
+        _signOutFailed.value = false
         signOutJob = viewModelScope.launch {
             withContext(NonCancellable) {
                 user?.let { runCatching { hooks.beforeSignOut(it) } }
@@ -408,12 +428,23 @@ class AppState(
                     // try again — with this device registered for pushes
                     // again, which [SessionHooks.beforeSignOut] undid.
                     user?.let { runCatching { hooks.signOutFailed(it) } }
+                    // And told so. The confirmation had closed and nothing
+                    // changed, which read as a button that did nothing.
+                    _signOutFailed.value = true
                 }
             }
         }
     }
 
     private var signOutJob: Job? = null
+
+    /** A sign-out the server did not confirm, until the shell has said so. */
+    private val _signOutFailed = MutableStateFlow(false)
+    val signOutFailed: StateFlow<Boolean> = _signOutFailed.asStateFlow()
+
+    fun signOutFailureShown() {
+        _signOutFailed.value = false
+    }
 
     /** The server said 401 to the token in hand: signed out here too, as at a sign-out. */
     private fun onSessionLost() {
@@ -435,7 +466,10 @@ class AppState(
      */
     private suspend fun endSession(accountId: String?) {
         runCatching { prefs.setPendingSignOut(accountId.orEmpty()) }
-        cache.clear()
+        // Caught like every other step: a write that throws here (a full
+        // disk) would otherwise end the sign-out before anything below it —
+        // the caches, the notifications, the screens — and the process too.
+        runCatching { cache.clear() }
         runCatching { hooks.signedOut(accountId) }
         runCatching { prefs.setPendingSignOut(null) }
         // A different operator is a different set of workspaces: nothing
@@ -449,7 +483,9 @@ class AppState(
         _entitlements.value = EntitlementsState.Loading
         _access.value = WorkspaceAccess.UNKNOWN
         planLoadedAt = null
+        avatarJob?.cancel()
         _avatarUrl.value = null
+        _signOutFailed.value = false
         _pendingLink.value = null
         _pendingCall.value = null
         _selectedTab.value = AppTab.INBOX
@@ -478,7 +514,7 @@ class AppState(
                 // Stored on the side, so this job ends when the answer is
                 // in hand: a write still queued on DataStore's own threads
                 // must not make the next foreground skip its ask.
-                viewModelScope.launch { prefs.setAppConfig(config) }
+                viewModelScope.launch { runCatching { prefs.setAppConfig(config) } }
             }
         }
     }
@@ -504,7 +540,7 @@ class AppState(
                 val kept = _appConfig.value.copy(defaultLanguage = config.defaultLanguage)
                 if (kept != _appConfig.value) {
                     _appConfig.value = kept
-                    viewModelScope.launch { prefs.setAppConfig(kept) }
+                    viewModelScope.launch { runCatching { prefs.setAppConfig(kept) } }
                 }
             } finally {
                 _checkingPlatform.value = false
@@ -526,12 +562,56 @@ class AppState(
         hooks.languageChanged(language)
     }
 
-    /** Advisory: no picture is a quiet circle, not an error to show. */
+    private var avatarJob: Job? = null
+
+    /**
+     * Advisory: no picture is a quiet circle, not an error to show.
+     *
+     * Kept to the operator it was asked for. An answer that landed after a
+     * sign-out used to set the last operator's photo again — and when the
+     * next operator's own ask then failed (offline, or no photo read yet),
+     * their Settings and their team threads wore it.
+     */
     private fun loadAvatar() {
-        viewModelScope.launch {
+        val userId = (_session.value as? Session.SignedIn)?.user?.id ?: return
+        val asked = avatarSetByProfile
+        avatarJob?.cancel()
+        avatarJob = viewModelScope.launch {
             runCatching { api.account() }
-                .onSuccess { _avatarUrl.value = it.profile?.avatarUrl }
+                .onSuccess { account ->
+                    val user = (_session.value as? Session.SignedIn)?.user
+                    if (user?.id != userId) return@onSuccess
+                    // Profile set a photo while this was on its way: this
+                    // answer may be from before it.
+                    if (asked == avatarSetByProfile) _avatarUrl.value = account.profile?.avatarUrl
+                    // The name too, which the session only read at sign-in:
+                    // one changed in Profile, or on the web, stayed the old
+                    // one in Settings' header and on a message still sending.
+                    val name = account.profile?.fullName?.takeIf { it.isNotBlank() }
+                    if (name != null && name != user.fullName) {
+                        val renamed = user.copy(fullName = name)
+                        hooks.signedIn(renamed)
+                        _session.value = Session.SignedIn(renamed)
+                    }
+                }
         }
+    }
+
+    /**
+     * The operator's name and photo read again: Profile has just saved a
+     * change to them, and everything outside Profile holds the copy read at
+     * sign-in.
+     */
+    fun refreshAccount() = loadAvatar()
+
+    /** Counts the photos Profile has set, so an older read cannot put the last one back. */
+    private var avatarSetByProfile = 0
+
+    /** The photo as Profile now has it from the server — set, replaced or removed. */
+    fun avatarChanged(url: String?) {
+        if (_session.value !is Session.SignedIn) return
+        avatarSetByProfile++
+        _avatarUrl.value = url
     }
 
     private var workspacesJob: Job? = null

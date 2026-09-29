@@ -62,6 +62,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 
 /**
@@ -240,7 +241,15 @@ class AppGraph(private val app: Application) {
 
         override suspend fun signedOut(accountId: String?) {
             realtime.setWorkspace(null)
-            sync.clear()
+            // Stopped AND waited for, before the purge below: cancelled is
+            // not finished, and a read whose answer was being written as the
+            // session ended went on to write the last operator's rows back
+            // after they had been purged. Bounded, so a job that is slow to
+            // let go cannot hold the login screen back; past that, it is
+            // what `clear()` alone always was.
+            if (withTimeoutOrNull(SIGN_OUT_SYNC_WAIT_MS) { sync.clearAndJoin() } == null) {
+                diag.warn("Session", "sync still finishing at sign-out; purging anyway")
+            }
             session.user = null
             session.avatarUrl = null
             session.workspaceIds = emptySet()
@@ -254,7 +263,9 @@ class AppGraph(private val app: Application) {
                 runCatching { media.purgeAccount(accountId) }
                 runCatching { cache.purgeAccount(accountId) }
             }
-            push.afterSignOut()
+            // Caught: its state is written to disk, and a write that throws
+            // must not skip clearing the tray below.
+            runCatching { push.afterSignOut() }
             // After the token is gone, not before: a push landing in between
             // would otherwise draw one more of the last operator's
             // notifications on a tray just cleared for the next.
@@ -348,6 +359,9 @@ class AppGraph(private val app: Application) {
         appScope.launch { sync.reconcile("cache cleared") }
     }
 }
+
+/** How long a sign-out waits for the sync's last writes before purging (see [AppGraph.hooks]). */
+private const val SIGN_OUT_SYNC_WAIT_MS = 2_000L
 
 /** What the Storage section shows. */
 data class StorageUsage(

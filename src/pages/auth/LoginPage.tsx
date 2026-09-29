@@ -1,3 +1,4 @@
+import { toLatinKeyboard } from '@/lib/latinKeyboard';
 import { useState, useEffect, useMemo } from 'react';
 import { AuthHeroPanel } from '@/components/auth/AuthHeroPanel';
 import { BrandLogo } from '@/components/brand/BrandLogo';
@@ -179,7 +180,7 @@ export default function LoginPage() {
                       type="email"
                       placeholder="you@company.com"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => setEmail(toLatinKeyboard(e.target.value))}
                       onFocus={() => setFocused('email')}
                       onBlur={() => setFocused(null)}
                       required
@@ -219,7 +220,7 @@ export default function LoginPage() {
                       type={showPassword ? 'text' : 'password'}
                       placeholder="••••••••"
                       value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      onChange={(e) => setPassword(toLatinKeyboard(e.target.value))}
                       onFocus={() => setFocused('password')}
                       onBlur={() => setFocused(null)}
                       required

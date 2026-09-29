@@ -3,6 +3,7 @@ package com.webyar.ai.ui
 import android.content.Context
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.test.core.app.ApplicationProvider
+import com.webyar.ai.core.model.Account
 import com.webyar.ai.core.model.User
 import com.webyar.ai.core.net.ApiError
 import com.webyar.ai.core.net.SampleApi
@@ -76,6 +77,10 @@ class FastLaunchTest {
         override suspend fun refreshOrigin() = Unit
         override suspend fun currentUser(): User = account.await().getOrThrow()
         fun answer(result: Result<User>) = account.complete(result)
+
+        // The profile read that follows a workspace would rename the operator
+        // to the sample's own name; only the session's answer may, here.
+        override suspend fun account(): Account = throw ApiError.Transport()
     }
 
     /** Signed out, on a connection where the platform's address never arrives. */
@@ -124,7 +129,7 @@ class FastLaunchTest {
         val app = AppState(api, remember(remembered), Preferences(store))
         app.session.first { it is Session.SignedIn }
 
-        val renamed = remembered.copy(fullName = "Sara Karimi")
+        val renamed = remembered.copy(fullName = "Sara Rahimi")
         api.answer(Result.success(renamed))
 
         assertEquals(Session.SignedIn(renamed), app.session.first { it == Session.SignedIn(renamed) })

@@ -181,7 +181,7 @@ export default function SignupStepAccount({
           children: (
             <input
               id="email"
-              type="text" inputMode="email" autoCapitalize="none" spellCheck={false}
+              type="text" autoCapitalize="none" spellCheck={false}
               placeholder="you@company.com"
               value={email}
               onChange={(e) => setEmail(toLatinKeyboard(e.target.value))}

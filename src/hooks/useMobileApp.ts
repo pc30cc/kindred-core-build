@@ -41,6 +41,12 @@ export interface ReadinessSummary {
   submittable: boolean;
 }
 
+/** The languages the Android app is written in, Persian first — the one it starts in. */
+export const ANDROID_LANGUAGES = ['fa', 'en', 'tr'] as const;
+export type AndroidLanguage = (typeof ANDROID_LANGUAGES)[number];
+/** Per language; the server refuses a longer maintenance message. */
+export const ANDROID_MAINTENANCE_MESSAGE_MAX = 500;
+
 export interface MobileAppSettings {
   app_name: string;
   display_name: string;
@@ -158,6 +164,17 @@ export interface MobileAppSettings {
   android_firebase_api_key: string | null;
   android_firebase_project_id: string | null;
   android_firebase_sender_id: string | null;
+  /**
+   * Android: read by the app before sign-in (GET /api/mobile-app/public-config).
+   * The language it opens in until the operator picks one, and a maintenance
+   * notice that, while on and before `android_maintenance_until`, keeps
+   * everyone out of the app. A missing message language falls back to the
+   * app's own wording.
+   */
+  android_default_language: AndroidLanguage;
+  android_maintenance_enabled: boolean;
+  android_maintenance_message: Partial<Record<AndroidLanguage, string>>;
+  android_maintenance_until: string | null;
   ios_app_show_contacts: boolean;
   ios_app_show_visitors: boolean;
   ios_app_show_web_analytics: boolean;

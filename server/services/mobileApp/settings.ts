@@ -18,6 +18,11 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 
+/** The languages the Android app is written in. */
+export const ANDROID_LANGUAGES = ['fa', 'en', 'tr'] as const;
+export type AndroidLanguage = (typeof ANDROID_LANGUAGES)[number];
+export type AndroidMaintenanceMessage = Partial<Record<AndroidLanguage, string>>;
+
 export interface MobileAppSettings {
   app_name: string;
   display_name: string;
@@ -164,6 +169,16 @@ export interface MobileAppSettings {
   android_firebase_api_key: string | null;
   android_firebase_project_id: string | null;
   android_firebase_sender_id: string | null;
+  // What the app needs before anyone signs in — served publicly by
+  // GET /api/mobile-app/public-config (migration 237). The language it opens
+  // in until the operator picks one, and a maintenance notice that, while
+  // on, keeps everyone out of the app.
+  android_default_language: AndroidLanguage;
+  android_maintenance_enabled: boolean;
+  /// The notice per language: `{ fa, en, tr }`. A missing one falls back to the app's own wording.
+  android_maintenance_message: AndroidMaintenanceMessage;
+  /// Past this the notice is over by itself. Null keeps it until switched off.
+  android_maintenance_until: string | null;
   // The iOS app's tabs, read by GET /api/mobile-app/config?platform=ios.
   // Like Android's, a switch only takes a tab away.
   ios_app_show_contacts: boolean;
@@ -297,6 +312,10 @@ export const MOBILE_APP_DEFAULTS: MobileAppSettings = {
   android_firebase_api_key: null,
   android_firebase_project_id: null,
   android_firebase_sender_id: null,
+  android_default_language: 'fa',
+  android_maintenance_enabled: false,
+  android_maintenance_message: {},
+  android_maintenance_until: null,
   ios_app_show_contacts: true,
   ios_app_show_visitors: true,
   ios_app_show_web_analytics: true,
@@ -338,6 +357,17 @@ export async function loadMobileAppSettings(config: ServerConfig): Promise<Mobil
   return value;
 }
 
+/** Only the known languages, trimmed; a blank or non-text value is dropped, not served as "". */
+function maintenanceMessage(raw: unknown): AndroidMaintenanceMessage {
+  const out: AndroidMaintenanceMessage = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const language of ANDROID_LANGUAGES) {
+    const value = (raw as Record<string, unknown>)[language];
+    if (typeof value === 'string' && value.trim()) out[language] = value.trim();
+  }
+  return out;
+}
+
 /** Fills every missing field from DEFAULTS so callers never see undefined. */
 export function normalize(row: Record<string, unknown>): MobileAppSettings {
   const out = { ...MOBILE_APP_DEFAULTS } as Record<string, unknown>;
@@ -361,6 +391,15 @@ export function normalize(row: Record<string, unknown>): MobileAppSettings {
     row.android_release_notes && typeof row.android_release_notes === 'object' && !Array.isArray(row.android_release_notes)
       ? (row.android_release_notes as Record<string, string>)
       : {};
+  out.android_default_language = (ANDROID_LANGUAGES as readonly unknown[]).includes(row.android_default_language)
+    ? row.android_default_language
+    : MOBILE_APP_DEFAULTS.android_default_language;
+  out.android_maintenance_enabled = row.android_maintenance_enabled === true;
+  out.android_maintenance_message = maintenanceMessage(row.android_maintenance_message);
+  out.android_maintenance_until =
+    typeof row.android_maintenance_until === 'string' && !Number.isNaN(Date.parse(row.android_maintenance_until))
+      ? row.android_maintenance_until
+      : null;
   out.updated_at = (row.updated_at as string | null) ?? null;
   return out as unknown as MobileAppSettings;
 }
@@ -388,6 +427,29 @@ export interface AndroidAppConfig {
    * The app keeps the last ones it was given and starts Firebase with them.
    */
   firebase: AndroidFirebaseClient | null;
+  /** The language the app opens in until the operator picks one. */
+  defaultLanguage: AndroidLanguage;
+  /** While `enabled`, nobody can sign in and signed-in operators see the notice. */
+  maintenance: AndroidMaintenance;
+}
+
+/**
+ * The maintenance notice as the app applies it. `enabled` is already the
+ * verdict — the switch is on and the end time, if any, has not passed — so
+ * the app never has to compare clocks. `message` holds only the languages
+ * that were written; the app uses its own wording for the rest.
+ */
+export interface AndroidMaintenance {
+  enabled: boolean;
+  message: AndroidMaintenanceMessage;
+  until: string | null;
+}
+
+/** What the app reads before anyone signs in: GET /api/mobile-app/public-config?platform=android. */
+export interface AndroidPublicConfig {
+  platform: 'android';
+  defaultLanguage: AndroidLanguage;
+  maintenance: AndroidMaintenance;
 }
 
 /** The four values of the package's google-services.json that the app starts Firebase with. */
@@ -408,7 +470,41 @@ export function androidFirebaseClient(settings: MobileAppSettings): AndroidFireb
   return { appId, apiKey, projectId, senderId };
 }
 
-export function toAndroidAppConfig(settings: MobileAppSettings): AndroidAppConfig {
+/**
+ * A notice whose end time has passed is over, even if nobody switched it off.
+ * The end time goes out as UTC `…Z` whatever form Postgres returned, so the
+ * app parses one format.
+ */
+export function androidMaintenance(settings: MobileAppSettings, now: Date = new Date()): AndroidMaintenance {
+  const untilMs = settings.android_maintenance_until ? Date.parse(settings.android_maintenance_until) : Number.NaN;
+  const until = Number.isNaN(untilMs) ? null : new Date(untilMs).toISOString();
+  return {
+    enabled: settings.android_maintenance_enabled === true && (until === null || untilMs > now.getTime()),
+    message: maintenanceMessage(settings.android_maintenance_message),
+    until,
+  };
+}
+
+function androidLanguage(settings: MobileAppSettings): AndroidLanguage {
+  return ANDROID_LANGUAGES.includes(settings.android_default_language)
+    ? settings.android_default_language
+    : MOBILE_APP_DEFAULTS.android_default_language;
+}
+
+/**
+ * The part of the Android config the app needs before sign-in. Public:
+ * nothing in it is secret, and a phone that cannot sign in still has to be
+ * told why and in which language.
+ */
+export function toAndroidPublicConfig(settings: MobileAppSettings, now: Date = new Date()): AndroidPublicConfig {
+  return {
+    platform: 'android',
+    defaultLanguage: androidLanguage(settings),
+    maintenance: androidMaintenance(settings, now),
+  };
+}
+
+export function toAndroidAppConfig(settings: MobileAppSettings, now: Date = new Date()): AndroidAppConfig {
   return {
     platform: 'android',
     showStorage: settings.android_app_show_storage,
@@ -421,6 +517,8 @@ export function toAndroidAppConfig(settings: MobileAppSettings): AndroidAppConfi
     showVisitors: settings.android_app_show_visitors,
     showWebAnalytics: settings.android_app_show_web_analytics,
     firebase: androidFirebaseClient(settings),
+    defaultLanguage: androidLanguage(settings),
+    maintenance: androidMaintenance(settings, now),
   };
 }
 

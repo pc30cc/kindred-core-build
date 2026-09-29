@@ -359,6 +359,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/235_notification_prefs_event_switches.sql',
     hosted: 'supabase/migrations/20260928160000_notification_prefs_event_switches.sql',
   },
+  {
+    label: '237 — mobile_app_settings: the Android default language and maintenance notice',
+    selfHost: 'database/migrations/237_mobile_app_android_language_maintenance.sql',
+    hosted: 'supabase/migrations/20260929120000_mobile_app_android_language_maintenance.sql',
+  },
 
   // intentionally asymmetric, not a drift bug.
 

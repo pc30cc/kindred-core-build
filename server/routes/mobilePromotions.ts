@@ -27,7 +27,13 @@ import { Router } from 'express';
 import type { Request } from 'express';
 import type { ServerConfig } from '../config.js';
 import { authorizeWorkspaceAccess, requireUser } from '../lib/workspaceAuth.js';
-import { loadMobileAppSettings, toAndroidAppConfig, toIosAppConfig, MOBILE_APP_DEFAULTS } from '../services/mobileApp/settings.js';
+import {
+  loadMobileAppSettings,
+  toAndroidAppConfig,
+  toAndroidPublicConfig,
+  toIosAppConfig,
+  MOBILE_APP_DEFAULTS,
+} from '../services/mobileApp/settings.js';
 
 export const mobilePromotionsRouter = Router();
 
@@ -123,7 +129,9 @@ mobilePromotionsRouter.get('/promotions', async (req, res) => {
 /**
  * GET /api/mobile-app/config?platform=android|ios — how the installed app should
  * behave: which Settings sections it shows and which profile fields an
- * operator may change. Written in Super Admin → Mobile App → Android.
+ * operator may change. Written in Super Admin → Mobile App → Android. The
+ * Android shape also carries `defaultLanguage` and `maintenance`, the same
+ * values /public-config below serves before sign-in.
  *
  * Signed-in users only — it is not a secret, but it is not a public page
  * either. Like the promotions above it never fails the app: an error answers
@@ -143,5 +151,40 @@ mobilePromotionsRouter.get('/config', async (req, res) => {
     return res.json(shape(settings));
   } catch {
     return res.json(shape(MOBILE_APP_DEFAULTS));
+  }
+});
+
+/**
+ * GET /api/mobile-app/public-config?platform=android — what the Android app
+ * must know BEFORE anyone signs in: the language to open in until the
+ * operator picks one, and whether a maintenance notice is up (while it is,
+ * nobody can sign in, and the sign-in screen shows the notice instead).
+ *
+ *   → { platform: 'android',
+ *       defaultLanguage: 'fa' | 'en' | 'tr',
+ *       maintenance: { enabled, message: { fa?, en?, tr? }, until } }
+ *
+ * Unauthenticated on purpose, like GET /api/platform/desktop-app: the answer
+ * is needed on the sign-in screen, and nothing in it is secret. Auth in this
+ * server is per route, so no allow-list needs to know about it; the global
+ * IP block and abuse detection in server/index.ts still apply.
+ *
+ * Never fails the app: an error answers with the defaults (Persian, no
+ * notice), which is how the app behaved before these settings existed.
+ * `no-store`, so no proxy holds on to a notice after it is switched off; the
+ * row itself comes from loadMobileAppSettings' short in-process cache, which
+ * every Super Admin save drops, and the end time is judged per request.
+ */
+mobilePromotionsRouter.get('/public-config', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const platform = String(req.query.platform || 'android');
+  if (platform !== 'android') {
+    return res.status(400).json({ error: 'Unknown platform' });
+  }
+  try {
+    const settings = await loadMobileAppSettings(serverConfigOf(req));
+    return res.json(toAndroidPublicConfig(settings));
+  } catch {
+    return res.json(toAndroidPublicConfig(MOBILE_APP_DEFAULTS));
   }
 });

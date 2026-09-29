@@ -177,7 +177,7 @@ export default function LoginPage() {
                   children: (
                     <input
                       id="email"
-                      type="email"
+                      type="text" inputMode="email" autoCapitalize="none" spellCheck={false}
                       placeholder="you@company.com"
                       value={email}
                       onChange={(e) => setEmail(toLatinKeyboard(e.target.value))}

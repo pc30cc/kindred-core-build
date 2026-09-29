@@ -57,7 +57,7 @@ export default function ForgotPasswordPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">{t('auth.email')}</Label>
-                <Input id="email" type="email" placeholder="email@example.com" value={email} onChange={(e) => setEmail(toLatinKeyboard(e.target.value))} required dir="ltr" className="text-left" />
+                <Input id="email" type="text" inputMode="email" autoCapitalize="none" spellCheck={false} placeholder="email@example.com" value={email} onChange={(e) => setEmail(toLatinKeyboard(e.target.value))} required dir="ltr" className="text-left" />
               </div>
               <Button type="submit" className="btn-shimmer w-full" disabled={loading}>
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}

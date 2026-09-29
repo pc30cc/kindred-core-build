@@ -30,6 +30,7 @@ import { invalidateOriginHostCache, invalidateWorkspaceOriginCache } from '../se
 import { invalidateSignupPolicyCache } from '../services/auth/signupPolicy.js';
 import { invalidateSignupPlanCache } from '../services/billing/signupPlan.js';
 import { isParseableDate } from '../lib/dateInput.js';
+import { reviveFailedWorkspaceDeletion } from '../services/workspaceDeletion/revive.js';
 
 
 export const adminManagementRouter = Router();
@@ -198,15 +199,21 @@ adminManagementRouter.get('/users/:userId/deletion-status', async (req, res) => 
   if (!actorId) return;
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
-  const { data: job, error } = await sb
-    .from('user_deletion_jobs')
-    .select('*')
-    .eq('user_id', req.params.userId)
-    .order('requested_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const [{ data: job, error }, { data: profile, error: profileError }] = await Promise.all([
+    sb
+      .from('user_deletion_jobs')
+      .select('*')
+      .eq('user_id', req.params.userId)
+      .order('requested_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    sb.from('profiles').select('id').eq('id', req.params.userId).maybeSingle(),
+  ]);
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ job });
+  if (profileError) return res.status(500).json({ error: profileError.message });
+  // The final purge sweeps every user_id-keyed table, the job row included,
+  // so "no job and no profile" is what a finished deletion looks like.
+  return res.json({ job, user_exists: !!profile });
 });
 
 /**
@@ -231,6 +238,24 @@ adminManagementRouter.post('/users/:userId/deletion-retry', async (req, res) => 
     .maybeSingle();
   if (jobLookupError) return res.status(500).json({ error: jobLookupError.message });
   if (!job) return res.status(404).json({ error: 'No failed deletion job found for this user' });
+
+  // The account job usually failed BECAUSE an owned workspace's deletion
+  // failed; retrying only the parent would fail it again on the next tick.
+  const { data: owned, error: ownedError } = await sb.from('workspaces').select('id').eq('owner_id', req.params.userId);
+  if (ownedError) return res.status(500).json({ error: ownedError.message });
+  for (const w of owned ?? []) {
+    const { data: latest, error: latestError } = await sb
+      .from('workspace_deletion_jobs')
+      .select('status')
+      .eq('workspace_id', w.id)
+      .order('requested_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latestError) return res.status(500).json({ error: latestError.message });
+    if (latest?.status !== 'failed') continue;
+    const revived = await reviveFailedWorkspaceDeletion(config, w.id as string, actorId);
+    if (!revived.ok) return res.status(409).json({ error: `workspace ${w.id}: ${revived.error}` });
+  }
 
   const { data, error } = await sb.rpc('retry_user_deletion_job', {
     _job_id: job.id,

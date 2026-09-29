@@ -27,8 +27,9 @@ import {
   adminDeleteUserAvatar, adminGetUserMessages, adminGetUserBilling,
   adminUpdateUserProfile, adminSetUserEmailVerified,
   adminGetUserPhoneVerification, adminSetUserPhone, adminRemoveUserPhone,
-  adminDeleteUser,
+  adminDeleteUser, adminGetUserDeletionStatus,
 } from '@/lib/api';
+import { waitForUserDeletion } from '@/lib/adminUserDeletion';
 import { PHONE_COUNTRIES, countryFromE164, defaultPhoneCountry, phoneCountryLabel } from '@/lib/phone-countries';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -383,13 +384,27 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
   const handleDeleteUser = async () => {
     setDeleteLoading(true);
     try {
+      // The DELETE only queues the job; success is reported only once the
+      // worker has actually removed the user (files first, then the DB).
       await adminDeleteUser(userId);
-      toast.success(t('admin.users.deleteUserSuccess'));
-      setDeleteDialog(false);
+      const outcome = await waitForUserDeletion(() => adminGetUserDeletionStatus(userId));
       qc.invalidateQueries({ queryKey: ['admin-profiles'] });
       qc.invalidateQueries({ queryKey: ['admin-profile-count'] });
       qc.invalidateQueries({ queryKey: ['admin-workspaces'] });
-      onBack();
+      if (outcome.state === 'deleted') {
+        toast.success(t('admin.users.deleteUserSuccess'));
+        setDeleteDialog(false);
+        onBack();
+      } else if (outcome.state === 'failed') {
+        toast.error(
+          outcome.reason
+            ? t('admin.users.deleteUserFailedWithReason', { reason: outcome.reason })
+            : t('admin.users.deleteUserFailed'),
+        );
+      } else {
+        toast.info(t('admin.users.deleteUserInProgress'));
+        setDeleteDialog(false);
+      }
     } catch (err: any) {
       toast.error(err.message || t('admin.users.deleteUserFailed'));
     } finally {
@@ -560,6 +575,12 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
               autoComplete="off"
               dir="ltr"
             />
+            {deleteLoading && (
+              <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {t('admin.users.deleteUserRunning')}
+              </p>
+            )}
           </div>
           <AlertDialogFooter className={dir === 'rtl' ? 'sm:flex-row-reverse sm:justify-start' : undefined}>
             <AlertDialogCancel disabled={deleteLoading}>{t('admin.users.cancelAction')}</AlertDialogCancel>

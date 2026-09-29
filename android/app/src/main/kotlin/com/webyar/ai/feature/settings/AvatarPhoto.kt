@@ -27,7 +27,13 @@ object AvatarPhoto {
 
     suspend fun prepare(resolver: ContentResolver, uri: Uri): AvatarUpload? = withContext(Dispatchers.IO) {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return@withContext null
+        // Only a stream that could not be opened is a reason to stop here. A
+        // bounds-only decode returns null by design — the answer is in
+        // `bounds` — so `?: return` on the decode itself turned every photo
+        // away as unreadable, and no avatar could ever be set from the phone.
+        // Whether the file really was an image is the size check below.
+        val stream = resolver.openInputStream(uri) ?: return@withContext null
+        stream.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
 
         var sample = 1

@@ -100,12 +100,27 @@ class AccountViewModel(
                     // Only seed the field if the operator has not started
                     // typing: re-reading the account after a save must not
                     // overwrite a name they are halfway through changing.
+                    //
+                    // Except where the form has never been filled at all.
+                    // Typing into the first name before this first answer
+                    // landed used to keep the family name and the phone at
+                    // the empty they started as — and the next Save sent
+                    // them empty, which the route reads as "clear it": the
+                    // stored family name and number were erased by somebody
+                    // who only ever touched their first name. A field still
+                    // empty on the first answer takes the stored value; one
+                    // with something typed in it keeps what was typed.
+                    fun seed(typed: String, stored: String) = when {
+                        !it.touched -> stored
+                        !it.loaded && typed.isEmpty() -> stored
+                        else -> typed
+                    }
                     val (first, last) = splitFullName(account.profile?.fullName)
                     it.copy(
-                        firstName = if (it.touched) it.firstName else first,
-                        lastName = if (it.touched) it.lastName else last,
+                        firstName = seed(it.firstName, first),
+                        lastName = seed(it.lastName, last),
                         email = account.email,
-                        phone = if (it.touched) it.phone else account.phone.orEmpty(),
+                        phone = seed(it.phone, account.phone.orEmpty()),
                         avatarUrl = account.profile?.avatarUrl,
                         loaded = true,
                     )

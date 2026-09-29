@@ -162,12 +162,15 @@ class EmailThreadViewModel(
             runCatching {
                 // The server rewrites the subject from the thread when it is
                 // given a `thread_id`, so what goes up here is only a
-                // fallback for the case where it cannot find one.
+                // fallback for the case where it cannot find one. Never
+                // empty, though: the route validates `subject` (min 1)
+                // before it looks at the thread, so a thread with no
+                // subject — which mail allows — was a 400 on every reply.
                 api.sendEmail(
                     workspaceId = workspace,
                     threadId = current.id,
                     to = to,
-                    subject = current.subject.orEmpty(),
+                    subject = current.subject?.takeIf { it.isNotBlank() } ?: "Re:",
                     body = body,
                 )
             }

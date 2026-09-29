@@ -9120,6 +9120,10 @@ const en = {
           label: 'GMAIL_PUBSUB_PUSH_AUDIENCE',
           hint: 'The OIDC audience configured on that topic\'s push subscription, whose endpoint must be https://api.yourdomain.com/webhooks/gmail/push (a Core route, not the Channels Gateway). Conventionally set to that same endpoint URL.',
         },
+        pubsubPushServiceAccount: {
+          label: 'GMAIL_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL',
+          hint: 'Email of the user-managed service account selected for authenticated Pub/Sub push. It must match the OIDC token identity. This is separate from Gmail\'s fixed topic publisher account.',
+        },
         guideNote: 'Full step-by-step: SELF_HOST_GUIDE.md → "Gmail channel plugin".',
       },
       yahooSetup: {

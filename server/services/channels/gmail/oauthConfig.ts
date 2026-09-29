@@ -44,6 +44,7 @@ export interface GmailPlatformEnvStatus {
   gmailRedirectUriConfigured: boolean; // GOOGLE_GMAIL_OAUTH_REDIRECT_URI
   pubsubTopicConfigured: boolean; // GMAIL_PUBSUB_TOPIC
   pubsubPushAudienceConfigured: boolean; // GMAIL_PUBSUB_PUSH_AUDIENCE
+  pubsubPushServiceAccountConfigured: boolean; // GMAIL_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL
   fullyConfigured: boolean;
 }
 
@@ -53,12 +54,15 @@ export function getGmailPlatformEnvStatus(): GmailPlatformEnvStatus {
   const gmailRedirectUriConfigured = !!process.env.GOOGLE_GMAIL_OAUTH_REDIRECT_URI?.trim();
   const pubsubTopicConfigured = !!process.env.GMAIL_PUBSUB_TOPIC?.trim();
   const pubsubPushAudienceConfigured = !!process.env.GMAIL_PUBSUB_PUSH_AUDIENCE?.trim();
+  const pubsubPushServiceAccountConfigured = !!process.env.GMAIL_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL?.trim();
   return {
     googleOAuthClientConfigured,
     gmailRedirectUriConfigured,
     pubsubTopicConfigured,
     pubsubPushAudienceConfigured,
+    pubsubPushServiceAccountConfigured,
     fullyConfigured:
-      googleOAuthClientConfigured && gmailRedirectUriConfigured && pubsubTopicConfigured && pubsubPushAudienceConfigured,
+      googleOAuthClientConfigured && gmailRedirectUriConfigured && pubsubTopicConfigured &&
+      pubsubPushAudienceConfigured && pubsubPushServiceAccountConfigured,
   };
 }

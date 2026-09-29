@@ -219,7 +219,13 @@ On the **Backend** service:
   `https://api.yourdomain.com/webhooks/gmail/push` — this is a Core route,
   not the Channels Gateway. Configure the subscription's push authentication
   with an OIDC token and set its audience to that same URL; set
-  `GMAIL_PUBSUB_PUSH_AUDIENCE` to match.
+  `GMAIL_PUBSUB_PUSH_AUDIENCE` to match. Select a dedicated **user-managed**
+  service account for push authentication and set
+  `GMAIL_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL` to its exact email on Backend.
+  The Gmail publisher identity above cannot be used to authenticate the push
+  subscription. Pub/Sub's service agent must be able to mint an OIDC token for
+  this account (`roles/iam.serviceAccountTokenCreator` on that account), and
+  the operator creating the subscription needs `iam.serviceAccounts.actAs`.
 - `PLUGIN_SECRETS_MASTER_KEY` must also be set (shared with every other
   channel's encrypted credential storage).
 

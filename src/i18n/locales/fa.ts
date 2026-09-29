@@ -9102,6 +9102,10 @@ const fa: TranslationKeys = {
           label: 'GMAIL_PUBSUB_PUSH_AUDIENCE',
           hint: 'مقدار audience تنظیم‌شده روی push subscription همان تاپیک، که آدرس endpoint آن باید https://api.yourdomain.com/webhooks/gmail/push باشد (یک مسیر روی Core، نه Channels Gateway). معمولاً همین آدرس endpoint به عنوان audience تنظیم می‌شود.',
         },
+        pubsubPushServiceAccount: {
+          label: 'GMAIL_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL',
+          hint: 'ایمیل سرویس‌اکانت اختصاصی انتخاب‌شده برای احراز هویت Push در Pub/Sub. باید با هویت توکن OIDC یکسان باشد؛ این حساب با ناشر ثابت جیمیل روی تاپیک فرق دارد.',
+        },
         guideNote: 'راهنمای کامل مرحله‌به‌مرحله: SELF_HOST_GUIDE.md ← بخش «Gmail channel plugin».',
       },
       yahooSetup: {

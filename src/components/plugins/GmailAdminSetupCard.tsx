@@ -29,7 +29,7 @@ function EnvRow({ label, hint, ok }: { label: string; hint: string; ok: boolean 
         <div className="flex flex-wrap items-center gap-2">
           <code className="text-xs font-medium text-foreground">{label}</code>
           <Badge variant={ok ? 'default' : 'outline'} className="text-[10px]">
-            {ok ? t('plugins.admin.gmailSetup.configured' as any) : t('plugins.admin.gmailSetup.missing' as any)}
+            {ok ? t('plugins.admin.gmailSetup.configured') : t('plugins.admin.gmailSetup.missing')}
           </Badge>
         </div>
         <p className="text-xs text-muted-foreground">{hint}</p>
@@ -48,12 +48,13 @@ export function GmailAdminSetupCard() {
   return (
     <Card className="space-y-1 p-4">
       <div>
-        <h3 className="text-sm font-semibold text-foreground">{t('plugins.admin.gmailSetup.title' as any)}</h3>
-        <p className="mt-1 text-xs text-muted-foreground">{t('plugins.admin.gmailSetup.intro' as any)}</p>
+        <h3 className="text-sm font-semibold text-foreground">{t('plugins.admin.gmailSetup.title')}</h3>
+        <p className="mt-1 text-xs text-muted-foreground">{t('plugins.admin.gmailSetup.intro')}</p>
       </div>
 
       {isLoading ? (
         <div className="space-y-2 pt-3">
+          <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-full" />
@@ -63,34 +64,39 @@ export function GmailAdminSetupCard() {
         <>
           <div className="pt-2">
             <EnvRow
-              label={t('plugins.admin.gmailSetup.googleOAuthClient.label' as any)}
-              hint={t('plugins.admin.gmailSetup.googleOAuthClient.hint' as any)}
+              label={t('plugins.admin.gmailSetup.googleOAuthClient.label')}
+              hint={t('plugins.admin.gmailSetup.googleOAuthClient.hint')}
               ok={!!data?.googleOAuthClientConfigured}
             />
             <EnvRow
-              label={t('plugins.admin.gmailSetup.gmailRedirectUri.label' as any)}
-              hint={t('plugins.admin.gmailSetup.gmailRedirectUri.hint' as any)}
+              label={t('plugins.admin.gmailSetup.gmailRedirectUri.label')}
+              hint={t('plugins.admin.gmailSetup.gmailRedirectUri.hint')}
               ok={!!data?.gmailRedirectUriConfigured}
             />
             <EnvRow
-              label={t('plugins.admin.gmailSetup.pubsubTopic.label' as any)}
-              hint={t('plugins.admin.gmailSetup.pubsubTopic.hint' as any)}
+              label={t('plugins.admin.gmailSetup.pubsubTopic.label')}
+              hint={t('plugins.admin.gmailSetup.pubsubTopic.hint')}
               ok={!!data?.pubsubTopicConfigured}
             />
             <EnvRow
-              label={t('plugins.admin.gmailSetup.pubsubPushAudience.label' as any)}
-              hint={t('plugins.admin.gmailSetup.pubsubPushAudience.hint' as any)}
+              label={t('plugins.admin.gmailSetup.pubsubPushAudience.label')}
+              hint={t('plugins.admin.gmailSetup.pubsubPushAudience.hint')}
               ok={!!data?.pubsubPushAudienceConfigured}
+            />
+            <EnvRow
+              label={t('plugins.admin.gmailSetup.pubsubPushServiceAccount.label')}
+              hint={t('plugins.admin.gmailSetup.pubsubPushServiceAccount.hint')}
+              ok={!!data?.pubsubPushServiceAccountConfigured}
             />
           </div>
 
           <div className="border-t border-border pt-3 text-xs">
             <p className={data?.fullyConfigured ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}>
               {data?.fullyConfigured
-                ? t('plugins.admin.gmailSetup.allConfigured' as any)
-                : t('plugins.admin.gmailSetup.someMissing' as any)}
+                ? t('plugins.admin.gmailSetup.allConfigured')
+                : t('plugins.admin.gmailSetup.someMissing')}
             </p>
-            <p className="mt-1 text-muted-foreground">{t('plugins.admin.gmailSetup.guideNote' as any)}</p>
+            <p className="mt-1 text-muted-foreground">{t('plugins.admin.gmailSetup.guideNote')}</p>
           </div>
         </>
       )}

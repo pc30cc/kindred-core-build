@@ -38,6 +38,21 @@ export function BrandFooter() {
   );
 }
 
+/** The same "WEBYAR AI" mark, in normal flow (e.g. under the auth cards). */
+export function BrandWordmark({ className }: { className?: string }) {
+  return (
+    <div
+      dir="ltr"
+      aria-hidden
+      className={cn('flex justify-center gap-[4.8px] pl-[3px] text-xs font-semibold leading-none tracking-[3px] select-none', className)}
+      style={{ fontFamily: "ui-rounded, 'SF Pro Rounded', -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif" }}
+    >
+      <span className="text-muted-foreground">WEBYAR</span>
+      <span className="bg-clip-text text-transparent" style={{ backgroundImage: 'linear-gradient(90deg, #0c50e9, #2ed6ff)' }}>AI</span>
+    </div>
+  );
+}
+
 /** Full-viewport loading screen: identical to the iOS launch screen. */
 export function BrandLoaderScreen(_props: { logoUrl?: string | null } = {}) {
   return (

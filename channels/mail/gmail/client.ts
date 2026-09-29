@@ -157,7 +157,10 @@ export interface GmailHeader {
 }
 
 export interface GmailAttachmentRef {
+  /** Per-response token: Gmail issues a different one on every read of the message. */
   attachmentId: string;
+  /** MIME part id ("1", "1.2"): stable for the message, so it names the attachment. */
+  partId: string;
   filename: string;
   mimeType: string;
   sizeBytes: number;
@@ -249,6 +252,7 @@ function parseAddressHeader(headers: GmailHeader[], name: string): string[] {
 }
 
 interface GmailPayloadPart {
+  partId?: string;
   mimeType?: string;
   filename?: string;
   headers?: GmailHeader[];
@@ -275,6 +279,7 @@ function walkParts(
     const contentIdHeader = part.headers ? getHeader(part.headers, 'Content-ID') : null;
     acc.attachments.push({
       attachmentId: part.body.attachmentId,
+      partId: typeof part.partId === 'string' ? part.partId : '',
       filename,
       mimeType: mimeType || 'application/octet-stream',
       sizeBytes: typeof part.body.size === 'number' ? part.body.size : 0,
@@ -569,6 +574,8 @@ function textToHtmlFallback(text: string): string {
 export interface GmailHistoryResult {
   historyId: string | null;
   messageIds: string[];
+  /** Thread ids of the added messages, in history order (newest last). */
+  threadIds: string[];
   /** True when Google reports the requested startHistoryId is too old
    *  (410/404-shaped "historyId too old") — the caller must fall back to a
    *  fresh `messages.list` resync instead of retrying history.list. */
@@ -678,6 +685,7 @@ export function createGmailAdapter(config: GmailOAuthConfig, options: GmailAdapt
 
   async function listHistorySince(accessToken: string, startHistoryId: string): Promise<GmailHistoryResult> {
     const messageIds = new Set<string>();
+    const threadIds: string[] = [];
     let pageToken: string | undefined;
     let latestHistoryId: string | null = null;
 
@@ -700,7 +708,7 @@ export function createGmailAdapter(config: GmailOAuthConfig, options: GmailAdapt
         // message when startHistoryId has fallen outside the retention
         // window (~1 week) — the only recoverable signal in this call.
         if (err instanceof GmailError && err.code === 'gmail_provider_error' && /404/.test(err.detail || '')) {
-          return { historyId: null, messageIds: [], expired: true };
+          return { historyId: null, messageIds: [], threadIds: [], expired: true };
         }
         throw err;
       }
@@ -712,13 +720,15 @@ export function createGmailAdapter(config: GmailOAuthConfig, options: GmailAdapt
         for (const item of added as Record<string, unknown>[]) {
           const id = (item.message as Record<string, unknown> | undefined)?.id;
           if (typeof id === 'string') messageIds.add(id);
+          const threadId = (item.message as Record<string, unknown> | undefined)?.threadId;
+          if (typeof threadId === 'string') threadIds.push(threadId);
         }
       }
       pageToken = typeof json.nextPageToken === 'string' ? json.nextPageToken : undefined;
       if (!pageToken) break;
     }
 
-    return { historyId: latestHistoryId, messageIds: Array.from(messageIds), expired: false };
+    return { historyId: latestHistoryId, messageIds: Array.from(messageIds), threadIds, expired: false };
   }
 
   /** Fallback resync — the most recent INBOX messages, used when history has expired. */

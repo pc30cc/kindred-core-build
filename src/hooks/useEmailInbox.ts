@@ -14,6 +14,8 @@ import {
   cursorKey,
   dropEntries,
   dropLists,
+  dropThreads,
+  patchEntry,
   listKey,
   onEmailCacheMessage,
   readEntry,
@@ -41,9 +43,14 @@ import {
 
 type ThreadFilter = { unread?: boolean; starred?: boolean; q?: string };
 type ThreadDetail = Awaited<ReturnType<typeof getEmailThread>>;
+type ThreadFlags = Pick<EmailThreadSummary, 'isRead' | 'isStarred'>;
 
 const LIST_FRESH_MS = 15_000;
 const THREAD_FRESH_MS = 60_000;
+/** Table-backed (Yahoo) inbox: the server has the data, so polling it is cheap and is its only update signal. */
+const TABLE_INBOX_POLL_MS = 30_000;
+/** Live (Gmail) inbox without an open realtime connection: ask for changes (ids only) at this pace while visible. */
+const CHANGES_FALLBACK_MS = 60_000;
 
 function filterKeyOf(opts: ThreadFilter): string {
   return `${opts.unread ? 'u' : ''}${opts.starred ? 's' : ''}|${opts.q ?? ''}`;
@@ -64,10 +71,14 @@ function forgetOnRevoked(err: unknown, scope: string | null): void {
 }
 
 /**
- * Inbox pages: the device cache is shown first (placeholder), then Gmail's
- * current page replaces it. Pages are fetched on demand ("load more"); there
- * is no polling — realtime `email_mailbox_changed` events drive refreshes
+ * Inbox pages.
+ *
+ * Live (Gmail, `scope` set): the device cache is shown first (placeholder),
+ * then Gmail's current page replaces it. Pages load on demand; there is no
+ * polling — realtime `email_mailbox_changed` drives refreshes
  * (useEmailMailboxSync).
+ *
+ * Table-backed (Yahoo, `scope` null): read from the server and polled, as before.
  */
 export function useEmailThreads(workspaceId: string | undefined, scope: string | null, opts: ThreadFilter = {}) {
   const filter = filterKeyOf(opts);
@@ -104,7 +115,8 @@ export function useEmailThreads(workspaceId: string | undefined, scope: string |
     },
     getNextPageParam: (last) => last.nextPageToken || undefined,
     enabled: !!workspaceId,
-    staleTime: 30_000,
+    staleTime: scope ? 30_000 : 0,
+    refetchInterval: scope ? false : TABLE_INBOX_POLL_MS,
     placeholderData: cached.data
       ? ({ pages: [cached.data], pageParams: [''] } as InfiniteData<EmailThreadPage, string>)
       : undefined,
@@ -112,15 +124,18 @@ export function useEmailThreads(workspaceId: string | undefined, scope: string |
 }
 
 /**
- * One thread. A body cached on this device is reused without a request while
- * its version (see threadBodyVersion) matches the list row's.
+ * One thread. Live: a body cached on this device is reused without a request
+ * while its version (see threadBodyVersion) matches the current list row's;
+ * the row's read/star flags win over the cached copy's. Table-backed: read
+ * from the server whenever it is opened.
  */
 export function useEmailThread(
   workspaceId: string | undefined,
   scope: string | null,
   threadId: string | undefined,
-  expectVersion: string | null = null,
+  row: (ThreadFlags & { version: string | null }) | null = null,
 ) {
+  const expectVersion = row?.version ?? null;
   const key = scope && threadId ? threadKey(scope, threadId) : null;
   const cached = useQuery({
     queryKey: ['email-inbox-thread-cache', key],
@@ -131,7 +146,7 @@ export function useEmailThread(
   });
 
   return useQuery({
-    queryKey: ['email-inbox-thread', workspaceId, threadId, scope],
+    queryKey: ['email-inbox-thread', workspaceId, threadId, scope, expectVersion],
     queryFn: async () => {
       const fetchThread = async () => {
         const detail = await getEmailThread(workspaceId!, threadId!);
@@ -149,18 +164,22 @@ export function useEmailThread(
       }
     },
     enabled: !!workspaceId && !!threadId,
-    staleTime: Infinity,
+    staleTime: scope ? Infinity : 0,
     placeholderData: cached.data ?? undefined,
+    select: (data: ThreadDetail) =>
+      row ? { ...data, thread: { ...data.thread, isRead: row.isRead, isStarred: row.isStarred } } : data,
   });
 }
 
 /**
- * Keeps an open inbox current without polling: one realtime subscription
- * (the workspace inbox channel already used by the app) carries
+ * Keeps an open live inbox current without polling Gmail: one realtime
+ * subscription (the workspace inbox channel the app already uses) carries
  * `email_mailbox_changed` — a cursor, never content. One tab (the Web Lock
- * leader) asks `/changes` since the stored cursor; if anything changed, list
- * pages are dropped and every tab re-reads page one, the others getting the
- * leader's copy from IndexedDB instead of the network.
+ * leader) asks `/changes` since the stored cursor; changed threads lose their
+ * cached body, list pages are dropped, and every tab re-reads page one, the
+ * others getting the leader's copy from IndexedDB instead of the network.
+ * Without an open realtime connection, the same `/changes` check (ids only)
+ * runs every CHANGES_FALLBACK_MS while the page is visible.
  */
 export function useEmailMailboxSync(workspaceId: string | undefined, scope: string | null) {
   const qc = useQueryClient();
@@ -168,16 +187,27 @@ export function useEmailMailboxSync(workspaceId: string | undefined, scope: stri
   useEffect(() => {
     if (!workspaceId || !scope) return;
     const refreshLists = () => void qc.invalidateQueries({ queryKey: ['email-inbox-threads', workspaceId] });
+    const refreshThreads = (ids: string[] | null) =>
+      void qc.invalidateQueries({
+        queryKey: ['email-inbox-thread', workspaceId],
+        predicate: (q) => ids === null || ids.includes(String(q.queryKey[2])),
+      });
 
     const offCache = onEmailCacheMessage((msg) => {
       if (msg.type === 'stored') return;
       if (msg.scope === null || msg.scope === scope) {
         refreshLists();
-        if (msg.type === 'cleared') void qc.invalidateQueries({ queryKey: ['email-inbox-thread', workspaceId] });
+        if (msg.type === 'cleared') refreshThreads(null);
+        if (msg.type === 'dropped') {
+          const ids = msg.keys.filter((k) => k.startsWith(`${scope}|thread|`)).map((k) => k.slice(`${scope}|thread|`.length));
+          if (ids.length) refreshThreads(ids);
+        }
       }
     });
 
     let cancelled = false;
+    let realtimeOpen = false;
+    let everOpened = false;
     let subscription: RealtimeSubscription | undefined;
     let debounce: ReturnType<typeof setTimeout> | undefined;
 
@@ -195,9 +225,16 @@ export function useEmailMailboxSync(workspaceId: string | undefined, scope: stri
           try {
             const changes = await getEmailChanges(workspaceId, cursor);
             if (changes.historyId) await writeEntry(scope, cursorKey(scope), changes.historyId, changes.historyId);
-            if (changes.reset || changes.threadIds.length) {
+            if (changes.reset) {
+              await dropLists(scope);
+              await dropThreads(scope);
+              refreshLists();
+              refreshThreads(null);
+            } else if (changes.threadIds.length) {
+              await dropEntries(scope, changes.threadIds.map((id) => threadKey(scope, id)));
               await dropLists(scope);
               refreshLists();
+              refreshThreads(changes.threadIds);
             }
           } catch (err) {
             forgetOnRevoked(err, scope);
@@ -206,6 +243,10 @@ export function useEmailMailboxSync(workspaceId: string | undefined, scope: stri
       }, 1_500);
     };
 
+    const fallback = setInterval(() => {
+      if (!realtimeOpen && typeof document !== 'undefined' && document.visibilityState === 'visible') onChanged();
+    }, CHANGES_FALLBACK_MS);
+
     void (async () => {
       const provider = await resolveClientRealtimeProvider(workspaceId);
       if (cancelled) return;
@@ -213,26 +254,35 @@ export function useEmailMailboxSync(workspaceId: string | undefined, scope: stri
         onEvent: (payload) => {
           if (payload?.kind === 'email_mailbox_changed' && payload.workspace_id === workspaceId) onChanged();
         },
+        onStatus: (status) => {
+          const wasOpen = realtimeOpen;
+          realtimeOpen = status === 'open';
+          // Catch up on anything missed while the connection was down.
+          if (realtimeOpen && !wasOpen && everOpened) onChanged();
+          if (realtimeOpen) everOpened = true;
+        },
       });
       if (cancelled) sub.unsubscribe();
       else subscription = sub;
-    })().catch(() => { /* no realtime: the list still refreshes on focus and on demand */ });
+    })().catch(() => { /* no realtime: the fallback check above keeps the inbox current */ });
 
     return () => {
       cancelled = true;
       offCache();
+      clearInterval(fallback);
       if (debounce) clearTimeout(debounce);
       subscription?.unsubscribe();
     };
   }, [workspaceId, scope, qc]);
 }
 
-/** Applies a label change to the in-memory list and thread without refetching. */
+/** Applies a label change in memory and in this device's cached copy, without refetching. */
 function patchThreadEverywhere(
   qc: ReturnType<typeof useQueryClient>,
   workspaceId: string | undefined,
+  scope: string | null,
   threadId: string,
-  patch: Partial<Pick<EmailThreadSummary, 'isRead' | 'isStarred'>>,
+  patch: Partial<ThreadFlags>,
 ): void {
   qc.setQueriesData<InfiniteData<EmailThreadPage, string>>({ queryKey: ['email-inbox-threads', workspaceId] }, (data) =>
     data
@@ -242,26 +292,31 @@ function patchThreadEverywhere(
   qc.setQueriesData<ThreadDetail>({ queryKey: ['email-inbox-thread', workspaceId, threadId] }, (data) =>
     data ? { ...data, thread: { ...data.thread, ...patch } } : data,
   );
+  if (scope) {
+    void patchEntry<ThreadDetail>(scope, threadKey(scope, threadId), (v) => ({ ...v, thread: { ...v.thread, ...patch } }));
+  }
 }
 
-export function useSetEmailThreadRead(workspaceId?: string) {
+export function useSetEmailThreadRead(workspaceId?: string, scope: string | null = null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ threadId, isRead }: { threadId: string; isRead: boolean }) =>
       setEmailThreadRead(workspaceId!, threadId, isRead),
     onSuccess: (_data, { threadId, isRead }) => {
-      patchThreadEverywhere(qc, workspaceId, threadId, { isRead });
+      patchThreadEverywhere(qc, workspaceId, scope, threadId, { isRead });
+      if (!scope) qc.invalidateQueries({ queryKey: ['email-inbox-threads', workspaceId] });
     },
   });
 }
 
-export function useSetEmailThreadStarred(workspaceId?: string) {
+export function useSetEmailThreadStarred(workspaceId?: string, scope: string | null = null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ threadId, starred }: { threadId: string; starred: boolean }) =>
       setEmailThreadStarred(workspaceId!, threadId, starred),
     onSuccess: (_data, { threadId, starred }) => {
-      patchThreadEverywhere(qc, workspaceId, threadId, { isStarred: starred });
+      patchThreadEverywhere(qc, workspaceId, scope, threadId, { isStarred: starred });
+      if (!scope) qc.invalidateQueries({ queryKey: ['email-inbox-threads', workspaceId] });
     },
   });
 }

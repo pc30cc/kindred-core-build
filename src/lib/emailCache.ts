@@ -108,6 +108,18 @@ async function scopeEntries(db: IDBDatabase, scope: string): Promise<CacheEntry[
   return (all as CacheEntry[] | undefined) ?? [];
 }
 
+// ─── Clear epoch ───────────────────────────────────────────────────────
+//
+// Bumped by every clear (here or in another tab). A fetch that started before
+// a clear must not write its result back afterwards — that would re-store a
+// signed-out or disconnected mailbox.
+
+let epoch = 0;
+
+export function cacheEpoch(): number {
+  return epoch;
+}
+
 // ─── Cross-tab channel ─────────────────────────────────────────────────
 
 let channel: BroadcastChannel | null = null;
@@ -119,7 +131,9 @@ function getChannel(): BroadcastChannel | null {
     if (typeof BroadcastChannel === 'undefined') return null;
     channel = new BroadcastChannel(CHANNEL);
     channel.onmessage = (event) => {
-      for (const listener of listeners) listener(event.data as CacheMessage);
+      const msg = event.data as CacheMessage;
+      if (msg?.type === 'cleared') epoch++;
+      for (const listener of listeners) listener(msg);
     };
   } catch {
     channel = null;
@@ -165,16 +179,39 @@ export async function readEntry<T>(key: string): Promise<CacheEntry<T> | null> {
   }
 }
 
-export async function writeEntry<T>(scope: string, key: string, value: T, version: string | null): Promise<void> {
+export async function writeEntry<T>(
+  scope: string,
+  key: string,
+  value: T,
+  version: string | null,
+  startedAtEpoch: number = epoch,
+): Promise<void> {
   try {
+    if (startedAtEpoch !== epoch) return;
     const db = await openDb();
-    if (!db) return;
+    if (!db || startedAtEpoch !== epoch) return;
     const now = Date.now();
     const tx = db.transaction(STORE, 'readwrite');
     tx.objectStore(STORE).put({ key, scope, value, version, storedAt: now, accessedAt: now } satisfies CacheEntry<T>);
     await done(tx);
     broadcast({ type: 'stored', scope, key });
     void prune(scope);
+  } catch {
+    /* best effort */
+  }
+}
+
+/** Rewrites one entry in place (same version), e.g. a label change on a cached thread. */
+export async function patchEntry<T>(scope: string, key: string, patch: (value: T) => T): Promise<void> {
+  try {
+    const db = await openDb();
+    if (!db) return;
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    const entry = (await request(store.get(key))) as CacheEntry<T> | undefined;
+    if (entry) store.put({ ...entry, value: patch(entry.value) });
+    await done(tx);
+    if (entry) broadcast({ type: 'stored', scope, key });
   } catch {
     /* best effort */
   }
@@ -196,10 +233,19 @@ export async function dropEntries(scope: string, keys: string[]): Promise<void> 
 
 /** Drops every list page of a scope (thread bodies stay; they carry their own version). */
 export async function dropLists(scope: string): Promise<void> {
+  await dropByPrefix(scope, `${scope}|list|`);
+}
+
+/** Drops every cached thread body of a scope. */
+export async function dropThreads(scope: string): Promise<void> {
+  await dropByPrefix(scope, `${scope}|thread|`);
+}
+
+async function dropByPrefix(scope: string, prefix: string): Promise<void> {
   try {
     const db = await openDb();
     if (!db) return;
-    const keys = (await scopeEntries(db, scope)).map((e) => e.key).filter((k) => k.startsWith(`${scope}|list|`));
+    const keys = (await scopeEntries(db, scope)).map((e) => e.key).filter((k) => k.startsWith(prefix));
     await dropEntries(scope, keys);
   } catch {
     /* best effort */
@@ -227,6 +273,7 @@ async function prune(scope: string): Promise<void> {
 
 /** Clears one mailbox scope, or every scope whose key starts with `prefix` (e.g. `${userId}|`). */
 export async function clearEmailCache(prefix: string | null): Promise<void> {
+  epoch++;
   try {
     const db = await openDb();
     if (!db) return;
@@ -245,8 +292,11 @@ export async function clearEmailCache(prefix: string | null): Promise<void> {
   }
 }
 
-/** Clears every user's cache for one workspace (disconnect / access revoked on this device). */
-export async function clearWorkspaceEmailCache(workspaceId: string): Promise<void> {
+/**
+ * Clears this workspace's mailbox copies on this device (disconnect, access
+ * revoked, or a different mailbox connected), except `keepScope`.
+ */
+export async function clearWorkspaceEmailCache(workspaceId: string, keepScope: string | null = null): Promise<void> {
   try {
     const db = await openDb();
     if (!db) return;
@@ -255,12 +305,13 @@ export async function clearWorkspaceEmailCache(workspaceId: string): Promise<voi
     const all = ((await request(store.getAll())) as CacheEntry[] | undefined) ?? [];
     const scopes = new Set<string>();
     for (const entry of all) {
-      if (entry.scope.split('|')[1] === workspaceId) {
+      if (entry.scope.split('|')[1] === workspaceId && entry.scope !== keepScope) {
         store.delete(entry.key);
         scopes.add(entry.scope);
       }
     }
     await done(tx);
+    if (scopes.size) epoch++;
     for (const scope of scopes) broadcast({ type: 'cleared', scope });
   } catch {
     /* best effort */
@@ -284,21 +335,31 @@ export async function coordinatedFetch<T>(
   const attempt = async (): Promise<T> => {
     const cached = await readEntry<T>(key);
     if (cached) {
-      const versionOk = opts.expectVersion ? cached.version === opts.expectVersion : true;
-      const fresh = Date.now() - cached.storedAt < opts.freshMs;
-      if (versionOk && (fresh || opts.expectVersion)) return cached.value;
+      // A version match means the content is unchanged, however old; without
+      // a version to compare, only a recent copy counts.
+      if (opts.expectVersion ? cached.version === opts.expectVersion : Date.now() - cached.storedAt < opts.freshMs) {
+        return cached.value;
+      }
     }
+    const startedAt = cacheEpoch();
     const { value, version } = await fetcher();
-    await writeEntry(scope, key, value, version);
+    await writeEntry(scope, key, value, version, startedAt);
     return value;
   };
+  const locks = (navigator as Navigator & { locks?: LockManager }).locks;
+  if (!locks?.request) return attempt();
+  let ran = false;
   try {
-    const locks = (navigator as Navigator & { locks?: LockManager }).locks;
-    if (locks?.request) return (await locks.request(`email:${key}`, attempt)) as T;
-  } catch {
-    /* fall through without cross-tab coordination */
+    return (await locks.request(`email:${key}`, () => {
+      ran = true;
+      return attempt();
+    })) as T;
+  } catch (err) {
+    // A failed fetch is the caller's error; only a broken Locks API falls
+    // back to an uncoordinated attempt (so a failure is never sent twice).
+    if (ran) throw err;
+    return attempt();
   }
-  return attempt();
 }
 
 /** Runs `fn` only in the one tab currently holding `name`; others skip. */

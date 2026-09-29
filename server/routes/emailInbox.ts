@@ -33,6 +33,10 @@ import {
 
 export const emailInboxRouter = Router();
 
+// Live (Gmail) inbox: attachment bytes ride in the send request, never stored.
+const MAX_INLINE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+const INLINE_KEY_PREFIX = 'inline:';
+
 // Every route below also answers to the workspace plan: the Email Inbox is the
 // `email_inbox` module, and a plan without it gets a 403 here exactly as the
 // app hides the section.
@@ -43,6 +47,7 @@ function sendEmailInboxError(res: Response, err: unknown) {
       err.code === 'email_not_connected' ? 409 :
       err.code === 'email_thread_not_found' ? 404 :
       err.code === 'email_attachment_not_found' ? 404 :
+      err.code === 'email_rate_limited' ? 429 :
       err.code === 'email_missing_recipient' ? 400 :
       500;
     return res.status(status).json({ error: err.code, message: err.message });
@@ -174,14 +179,24 @@ emailInboxRouter.post('/:workspaceId/attachments', raw({ type: '*/*', limit: '25
   if (!auth) return;
   if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
   try {
-    // A live (Gmail) inbox stores nothing: attachments travel inline in /send.
-    if (await isLiveInbox(serverConfigOf(req), workspaceId)) {
-      return res.status(409).json({ error: 'email_attachments_inline_only' });
-    }
     const filename = typeof req.query.filename === 'string' ? req.query.filename : 'attachment';
     const contentType = typeof req.query.content_type === 'string' ? req.query.content_type : 'application/octet-stream';
     const bytes = Buffer.isBuffer(req.body) ? (req.body as Buffer) : Buffer.alloc(0);
     if (!bytes.byteLength) return res.status(400).json({ error: 'empty_body' });
+    // A live (Gmail) inbox stores nothing. Apps that stage before sending get
+    // their file handed straight back as the "key" (INLINE_KEY_PREFIX) and
+    // return it with /send; nothing is written anywhere in between.
+    if (await isLiveInbox(serverConfigOf(req), workspaceId)) {
+      if (bytes.byteLength > MAX_INLINE_ATTACHMENT_BYTES) return res.status(413).json({ error: 'attachments_too_large' });
+      const safeName = filename.replace(/[^\w.-]+/g, '_').slice(0, 150) || 'attachment';
+      const inline: StagedAttachment = {
+        storageKey: `${INLINE_KEY_PREFIX}${bytes.toString('base64')}`,
+        filename: safeName,
+        contentType,
+        sizeBytes: bytes.byteLength,
+      };
+      return res.json(inline);
+    }
     const staged = await stageComposeAttachment(serverConfigOf(req), workspaceId, filename, contentType, bytes);
     res.json(staged);
   } catch (err) {
@@ -212,8 +227,6 @@ const sendSchema = z.object({
   })).max(10).optional(),
 });
 
-const MAX_INLINE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
-
 emailInboxRouter.post('/:workspaceId/send', async (req, res) => {
   const { workspaceId } = req.params;
   const parsed = sendSchema.safeParse(req.body);
@@ -224,11 +237,24 @@ emailInboxRouter.post('/:workspaceId/send', async (req, res) => {
   const config = serverConfigOf(req);
   try {
     if (await isLiveInbox(config, workspaceId)) {
-      const inline = (parsed.data.inline_attachments ?? []).map((a) => ({
-        filename: a.filename.replace(/[\r\n\0"]+/g, '_'),
-        contentType: a.content_type,
-        bytes: Buffer.from(a.data_base64, 'base64'),
-      }));
+      // Staged attachments from apps that upload first carry their bytes in
+      // the key (see POST /attachments); a storage key means nothing here.
+      const staged = parsed.data.attachments ?? [];
+      if (staged.some((a) => !a.storageKey.startsWith(INLINE_KEY_PREFIX))) {
+        return res.status(400).json({ error: 'invalid_attachment' });
+      }
+      const inline = [
+        ...staged.map((a) => ({
+          filename: a.filename,
+          contentType: a.contentType,
+          bytes: Buffer.from(a.storageKey.slice(INLINE_KEY_PREFIX.length), 'base64'),
+        })),
+        ...(parsed.data.inline_attachments ?? []).map((a) => ({
+          filename: a.filename,
+          contentType: a.content_type,
+          bytes: Buffer.from(a.data_base64, 'base64'),
+        })),
+      ].map((a) => ({ ...a, filename: a.filename.replace(/[\r\n\0"]+/g, '_') }));
       const total = inline.reduce((sum, a) => sum + a.bytes.byteLength, 0);
       if (total > MAX_INLINE_ATTACHMENT_BYTES) return res.status(413).json({ error: 'attachments_too_large' });
       const result = await sendLiveGmail(config, workspaceId, {

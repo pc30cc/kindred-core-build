@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import DOMPurify from 'dompurify';
 import { Mail, Star, Paperclip, Send, X, RefreshCw, Loader2, AlertCircle, CheckCircle2, Clock, Search } from 'lucide-react';
@@ -29,7 +29,8 @@ import {
   threadBodyVersion,
 } from '@/hooks/useEmailInbox';
 import { useAuth } from '@/features/auth/AuthContext';
-import { emailCacheScope } from '@/lib/emailCache';
+import { emailCacheScope, clearWorkspaceEmailCache } from '@/lib/emailCache';
+import { API_BASE } from '@/lib/apiBase';
 import {
   uploadEmailAttachment,
   fileToBase64,
@@ -219,8 +220,14 @@ function ThreadListSkeleton() {
 }
 
 function ThreadList({
-  workspaceId, scope, activeThreadId, onSelect,
-}: { workspaceId: string; scope: string | null; activeThreadId: string | null; onSelect: (thread: EmailThreadSummary) => void }) {
+  workspaceId, scope, activeThreadId, onSelect, onRows,
+}: {
+  workspaceId: string;
+  scope: string | null;
+  activeThreadId: string | null;
+  onSelect: (thread: EmailThreadSummary) => void;
+  onRows: (threads: EmailThreadSummary[]) => void;
+}) {
   const { t } = useTranslation();
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -235,6 +242,9 @@ function ThreadList({
   const threads = useMemo(() => data?.pages.flatMap((p) => p.threads) ?? [], [data]);
   // Showing this device's copy while Gmail's current page loads.
   const syncing = isPlaceholderData || (isFetching && !isFetchingNextPage);
+  useEffect(() => {
+    onRows(threads);
+  }, [threads, onRows]);
 
   return (
     <div className="flex h-full w-[360px] min-w-0 shrink-0 flex-col border-e border-border">
@@ -361,7 +371,7 @@ function MessageCard({ message, defaultOpen }: { message: EmailMessageView; defa
               {message.attachments.map((att) => (
                 <a
                   key={att.id}
-                  href={att.url || '#'}
+                  href={att.downloadPath ? `${API_BASE || ''}${att.downloadPath}` : (att.url || '#')}
                   target="_blank"
                   rel="noreferrer"
                   className="flex items-center gap-1.5 rounded-md border border-border bg-secondary/40 px-2.5 py-1.5 text-xs text-foreground hover:bg-secondary"
@@ -413,8 +423,12 @@ function ReplyComposer({
     }
   };
 
+  const [sending, setSending] = useState(false);
   const handleSend = async () => {
-    if (!plainText) return;
+    // Reading attachments happens before the request starts, so the
+    // mutation's own pending flag would leave a window for a second click.
+    if (!plainText || sending) return;
+    setSending(true);
     try {
       await sendEmailMutation.mutateAsync({
         threadId,
@@ -436,6 +450,8 @@ function ReplyComposer({
       toast({ title: t('emailInbox.sent' as any) });
     } catch {
       toast({ title: t('emailInbox.sendFailed' as any), variant: 'destructive' });
+    } finally {
+      setSending(false);
     }
   };
 
@@ -464,8 +480,8 @@ function ReplyComposer({
           {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
           {t('emailInbox.attach' as any)}
         </Button>
-        <Button size="sm" className="gap-1.5" onClick={handleSend} disabled={!plainText || sendEmailMutation.isPending}>
-          {sendEmailMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+        <Button size="sm" className="gap-1.5" onClick={handleSend} disabled={!plainText || sending}>
+          {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
           {t('emailInbox.send' as any)}
         </Button>
       </div>
@@ -476,12 +492,18 @@ function ReplyComposer({
 // ─── Thread view ────────────────────────────────────────────────────────
 
 function ThreadView({
-  workspaceId, scope, live, threadId, expectVersion,
-}: { workspaceId: string; scope: string | null; live: boolean; threadId: string; expectVersion: string | null }) {
+  workspaceId, scope, live, threadId, row,
+}: {
+  workspaceId: string;
+  scope: string | null;
+  live: boolean;
+  threadId: string;
+  row: { isRead: boolean; isStarred: boolean; version: string | null } | null;
+}) {
   const { t } = useTranslation();
-  const { data, isLoading } = useEmailThread(workspaceId, scope, threadId, expectVersion);
-  const setRead = useSetEmailThreadRead(workspaceId);
-  const setStarred = useSetEmailThreadStarred(workspaceId);
+  const { data, isLoading } = useEmailThread(workspaceId, scope, threadId, row);
+  const setRead = useSetEmailThreadRead(workspaceId, scope);
+  const setStarred = useSetEmailThreadStarred(workspaceId, scope);
 
   useEffect(() => {
     if (data?.thread && !data.thread.isRead) {
@@ -596,8 +618,12 @@ export default function EmailInboxPage() {
   const { threadId } = useParams<{ threadId?: string }>();
   const [composeOpen, setComposeOpen] = useState(false);
   const { user } = useAuth();
-  // The list row picked last: its version lets an opened thread come from this device's cache.
-  const [selectedVersion, setSelectedVersion] = useState<{ id: string; version: string | null } | null>(null);
+  // The list's current rows: an open thread takes its cache version and
+  // read/star flags from its row, so it follows list refreshes.
+  const [rows, setRows] = useState<Map<string, EmailThreadSummary>>(() => new Map());
+  const onRows = useCallback((threads: EmailThreadSummary[]) => {
+    setRows(new Map(threads.map((t) => [t.id, t])));
+  }, []);
 
   const { data: gmailConnectionData, isLoading: gmailConnectionLoading } = useGmailConnection(workspaceId);
   const { data: yahooConnectionData, isLoading: yahooConnectionLoading } = useYahooConnection(workspaceId);
@@ -610,8 +636,24 @@ export default function EmailInboxPage() {
     : yahooConnectionData?.connection.connected
       ? yahooConnectionData.connection.emailAddress
       : null;
-  const scope = user?.id && workspaceId && connectedAccount ? emailCacheScope(user.id, workspaceId, connectedAccount) : null;
-  useEmailMailboxSync(workspaceId, gmailConnected ? scope : null);
+  // Only the live (Gmail) inbox keeps a device cache; Yahoo reads the server.
+  const scope = gmailConnected && user?.id && workspaceId && connectedAccount
+    ? emailCacheScope(user.id, workspaceId, connectedAccount)
+    : null;
+  useEmailMailboxSync(workspaceId, scope);
+
+  // Keep only the connected mailbox's copy on this device: a disconnect (seen
+  // from any device), a revoked grant or a different mailbox drops the rest.
+  const connectionsLoaded = !!workspaceId && !gmailConnectionLoading && !yahooConnectionLoading;
+  useEffect(() => {
+    if (connectionsLoaded && workspaceId) void clearWorkspaceEmailCache(workspaceId, scope);
+  }, [connectionsLoaded, workspaceId, scope]);
+
+  const openRow = threadId ? rows.get(threadId) : undefined;
+  const openRowView = useMemo(
+    () => (openRow ? { isRead: openRow.isRead, isStarred: openRow.isStarred, version: threadBodyVersion(openRow) } : null),
+    [openRow],
+  );
 
   if (!workspaceId || gmailConnectionLoading || yahooConnectionLoading) {
     return <div className="flex h-full items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
@@ -636,10 +678,8 @@ export default function EmailInboxPage() {
           workspaceId={workspaceId}
           scope={scope}
           activeThreadId={threadId || null}
-          onSelect={(thread) => {
-            setSelectedVersion({ id: thread.id, version: threadBodyVersion(thread) });
-            navigate(wsPath(`/email/${thread.id}`));
-          }}
+          onSelect={(thread) => navigate(wsPath(`/email/${thread.id}`))}
+          onRows={onRows}
         />
         {threadId ? (
           <ThreadView
@@ -648,7 +688,7 @@ export default function EmailInboxPage() {
             scope={scope}
             live={gmailConnected}
             threadId={threadId}
-            expectVersion={selectedVersion?.id === threadId ? selectedVersion.version : null}
+            row={openRowView}
           />
         ) : (
           <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">{t('emailInbox.selectThread' as any)}</div>

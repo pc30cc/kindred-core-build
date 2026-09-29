@@ -185,8 +185,12 @@ export async function listThreads(
   const gmail = await liveGmail(config, workspaceId);
   if (gmail) {
     try {
-      const page = await listGmailThreads(config, gmail, opts);
-      return { threads: page.threads, nextBefore: null, nextPageToken: page.nextPageToken, historyId: page.historyId, syncing: false };
+      // Apps built before Gmail went live page with `before`/`nextBefore`:
+      // carry Gmail's page token through those fields too. A timestamp from
+      // the old table-backed paging is not a token, so it means page one.
+      const legacyToken = opts.before && !/^\d{4}-\d{2}-\d{2}T/.test(opts.before) ? opts.before : null;
+      const page = await listGmailThreads(config, gmail, { ...opts, pageToken: opts.pageToken || legacyToken });
+      return { threads: page.threads, nextBefore: page.nextPageToken, nextPageToken: page.nextPageToken, historyId: page.historyId, syncing: false };
     } catch (err) {
       rethrowLive(err);
     }

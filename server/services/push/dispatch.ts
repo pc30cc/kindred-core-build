@@ -759,9 +759,12 @@ async function workspaceName(config: ServerConfig, workspaceId: string): Promise
 
 export interface EmailPushInput {
   workspaceId: string;
+  /** The thread the app opens; a live (Gmail) inbox names Gmail's thread id. */
   threadId: string;
-  /** The `email_messages` row just stored. */
-  messageId: string;
+  /** The stored `email_messages` row (a uuid), when there is one. */
+  messageId?: string | null;
+  /** Unique per notification; defaults to messageId. A live inbox has no row to name. */
+  dedupeId?: string;
   from?: string | null;
   subject?: string | null;
   snippet?: string | null;
@@ -789,12 +792,16 @@ export async function notifyEmailMessage(config: ServerConfig, input: EmailPushI
       workspaceId: input.workspaceId,
       eventType,
       recipients,
-      dedupeKey: `${eventType}:${input.messageId}`,
-      messageId: input.messageId,
-      // A live (Gmail) inbox has no stored thread to name: the app opens the inbox.
-      data: { type: eventType, workspaceId: input.workspaceId, ...(input.threadId ? { threadId: input.threadId } : {}), messageId: input.messageId },
+      dedupeKey: `${eventType}:${input.dedupeId ?? input.messageId}`,
+      messageId: input.messageId ?? null,
+      data: {
+        type: eventType,
+        workspaceId: input.workspaceId,
+        threadId: input.threadId,
+        ...(input.messageId ? { messageId: input.messageId } : {}),
+      },
       render: (recipient) => renderEmailContent(input, recipient.preview, recipient.locale),
-      thread: input.threadId ? `email-${input.threadId}` : `email-${input.workspaceId}`,
+      thread: `email-${input.threadId}`,
       policy,
     });
   } catch (err) {

@@ -53,10 +53,12 @@ async function processGmailChange(config: ServerConfig, integrationId: string): 
     const cursor = typeof integration.metadata?.gmail_history_id === 'string' ? integration.metadata.gmail_history_id : null;
 
     let newMessages = 0;
+    let newestThreadId: string | null = null;
     let historyId: string | null = null;
     if (cursor) {
       const delta = await ga.listHistorySince(accessToken, cursor);
       newMessages = delta.messageIds.length;
+      newestThreadId = delta.threadIds[delta.threadIds.length - 1] ?? null;
       historyId = delta.expired ? await ga.getProfileHistoryId(accessToken) : delta.historyId;
     } else {
       historyId = await ga.getProfileHistoryId(accessToken);
@@ -76,12 +78,13 @@ async function processGmailChange(config: ServerConfig, integrationId: string): 
       history_id: historyId,
     }, { skipConversationChannel: true });
 
-    if (newMessages > 0 && historyId) {
-      // No from/subject/snippet: the notification names no email content.
+    if (newMessages > 0 && historyId && newestThreadId) {
+      // No from/subject/snippet: the notification names no email content,
+      // only the (Gmail) thread id the app opens.
       await notifyEmailMessage(config, {
         workspaceId: integration.workspace_id,
-        threadId: '',
-        messageId: `gmail-${integration.id}-${historyId}`,
+        threadId: newestThreadId,
+        dedupeId: `gmail-${integration.id}-${historyId}`,
       });
     }
   } catch (err) {

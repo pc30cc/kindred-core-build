@@ -31,6 +31,8 @@ export interface EmailAttachmentView {
   sizeBytes: number | null;
   contentId: string | null;
   url: string | null;
+  /** Signed-in API path for the file (`/api/email-inbox/...`); Gmail attachments have only this. */
+  downloadPath?: string;
 }
 
 export interface EmailMessageView {

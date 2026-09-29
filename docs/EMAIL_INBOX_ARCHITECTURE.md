@@ -50,7 +50,7 @@ adaptive polling only while a client needs fresh data, and follow rules 2–8.
 | --- | --- |
 | Live reads (list, thread, attachment), label writes, `/changes`, send | `server/services/email/gmailLive.ts` |
 | Routing a workspace to the live path | `server/services/email/inbox.ts` (`liveGmail`) |
-| API | `server/routes/emailInbox.ts` — `GET threads?page_token=`, `GET threads/:id`, `GET changes?since=`, `GET attachments/:messageId.:attachmentId/file`, `POST send` with `inline_attachments` |
+| API | `server/routes/emailInbox.ts` — `GET threads?page_token=` (older apps: `before`/`nextBefore` carry the same token), `GET threads/:id`, `GET changes?since=`, `GET attachments/p<partId>~<messageId>/file`, `POST send` with `inline_attachments` |
 | Pub/Sub push → coalesced, content-free signal | `server/routes/gmailPush.ts` → `server/services/email/gmailChangeNotifier.ts` |
 | Watch renewal | `server/services/channels/gmail/watchRenewalTicker.ts` |
 | Retired import | Worker `gmail_sync_inbox` is a no-op; `/internal/channels/gmail/upsert-thread-message` and `/attachment-ingest` answer 410 |
@@ -61,8 +61,10 @@ Flow:
    (`INBOX`). Nothing is imported.
 2. **List:** `threads.list` (25 per page) + `threads.get?format=metadata` per
    row. The response carries `nextPageToken` and a `historyId` cursor.
-3. **Open:** `threads.get?format=full`. Attachments are listed with a
-   `downloadPath`; bytes are streamed from Gmail on request, never stored.
+3. **Open:** `threads.get?format=full` (drafts are left out). Attachments are
+   named by their MIME part id (Gmail's attachmentId changes on every read)
+   and listed with `url` = `downloadPath` = a signed-in API path; bytes are
+   streamed from Gmail on request, never stored.
 4. **Change:** Google pushes → Core waits 2 s per mailbox to coalesce →
    reads added-message ids from `history.list` (ids only) → advances
    `gmail_history_id` → publishes `email_mailbox_changed` on
@@ -71,8 +73,15 @@ Flow:
    threads changed (or `reset`), it reloads page one. Cached bodies stay valid
    while the thread's message count and last-message time are unchanged.
 6. **Send:** `messages.send` inside the `/send` request. Attachments travel
-   inline (base64, 20 MB total) and are not stored. `POST /attachments`
-   (staging) answers 409 `email_attachments_inline_only` for Gmail.
+   inline (base64, 20 MB total) and are not stored. Apps that stage first
+   (`POST /attachments`) get their bytes back as an `inline:` key and return
+   it with `/send`; nothing is written in between.
+7. **Errors:** a revoked grant (invalid_grant, 401, missing scope) answers
+   409 `email_not_connected` and marks the integration errored, so every app
+   shows it disconnected and drops its cache. Quota/rate limits answer 429
+   `email_rate_limited`. A non-Gmail id (an old UUID) answers 404.
+8. **Push:** content-free, `data.threadId` = the newest new mail's Gmail
+   thread id, `dedupeKey` from the history cursor (no uuid row exists).
 
 ## Clients
 
@@ -87,7 +96,10 @@ Flow:
 - `src/hooks/useEmailInbox.ts`: list = infinite query with the cached page as
   placeholder; thread = cache hit without a request when the version matches;
   `useEmailMailboxSync` = one realtime subscription, one leader tab calls
-  `/changes`. No `refetchInterval`.
+  `/changes`; changed threads lose their cached body. Without an open
+  realtime connection, the same ids-only `/changes` check runs once a minute
+  while the page is visible. A fetch that started before a clear never writes
+  back. The Yahoo inbox keeps its server polling and no device cache.
 
 ### Windows, macOS, iOS, Android (to do)
 
@@ -101,10 +113,10 @@ with text. Each app must now also:
 | iOS (`ios/WebyarNative`) | local store in `Core/Cache` | realtime in foreground; APNs alert (no content) | no reliance on silent push |
 | Android (`android/`) | Room | realtime in foreground; FCM (no content) | WorkManager only for required work |
 
-and: page with `page_token`; key the body cache on the thread version; send
-Gmail attachments as `inline_attachments` (staged uploads now return 409 for
-Gmail); clear the cache on sign-out, disconnect and `email_not_connected`;
-treat thread ids as opaque strings (Gmail ids are not UUIDs).
+and: key the body cache on the thread version; clear the cache on sign-out,
+disconnect and `email_not_connected`; treat thread ids as opaque strings
+(Gmail ids are not UUIDs). Paging (`before`/`nextBefore`), attachment
+staging and attachment `url` keep working unchanged in the meantime.
 
 ## Verification checklist
 

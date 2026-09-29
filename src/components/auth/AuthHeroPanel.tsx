@@ -2,6 +2,17 @@ import { MessageSquare, Phone, Sparkles, BarChart3, Zap, Bot, MicOff, Camera, Vi
 import { LoopVideo } from '@/components/site/LoopVideo';
 import callerWoman from '@/assets/caller-woman.jpg';
 import operatorMan from '@/assets/operator-man.jpg';
+import { siApple, siAndroid, siMacos, siPwa } from 'simple-icons';
+
+const WINDOWS_PATH = 'M0 3.449 9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801';
+
+const PLATFORMS = [
+  { label: 'iOS', path: siApple.path, color: '#000000' },
+  { label: 'Android', path: siAndroid.path, color: `#${siAndroid.hex}` },
+  { label: 'Windows', path: WINDOWS_PATH, color: '#0078D4' },
+  { label: 'macOS', path: siMacos.path, color: '#000000' },
+  { label: 'PWA', path: siPwa.path, color: `#${siPwa.hex}` },
+];
 
 interface Props {
   title: string;
@@ -77,11 +88,13 @@ export function AuthHeroPanel({ title, subtitle, className }: Props) {
           </div>
 
           {/* Native app badges */}
-          <div className="absolute -start-20 top-12 flex flex-col gap-3">
-            {['ios', 'android', 'windows'].map((p, i) => (
-              <div key={p} className="glass flex items-center gap-2 rounded-2xl px-3 py-2 shadow-sm" style={{ transform: `translateX(${i % 2 ? -12 : 0}px)` }}>
-                <img src={`/auth-media/${p}.png`} alt="" className="h-7 w-7 rounded-lg" loading="lazy" />
-                <span dir="ltr" className="text-xs font-semibold text-foreground">{p === 'ios' ? 'iOS' : p === 'android' ? 'Android' : 'Windows'}</span>
+          <div className="absolute -start-20 top-4 flex flex-col gap-3">
+            {PLATFORMS.map((p, i) => (
+              <div key={p.label} className="glass flex items-center gap-2 rounded-2xl px-3 py-2 shadow-sm" style={{ transform: `translateX(${i % 2 ? -12 : 0}px)` }}>
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-background">
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill={p.color} aria-hidden><path d={p.path} /></svg>
+                </span>
+                <span dir="ltr" className="text-xs font-semibold text-foreground">{p.label}</span>
               </div>
             ))}
           </div>

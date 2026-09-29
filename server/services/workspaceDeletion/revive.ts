@@ -13,7 +13,7 @@ export async function reviveFailedWorkspaceDeletion(
   config: ServerConfig,
   workspaceId: string,
   actorUserId: string,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: boolean; error?: string }> {
   const sb = getServiceClient(config);
   const { data: failed, error } = await sb
     .from('workspace_deletion_jobs')

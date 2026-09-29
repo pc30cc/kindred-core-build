@@ -472,6 +472,7 @@ const fa: TranslationKeys = {
     signupStep1Subtitle: 'حساب رایگان خود را برای ادامه بسازید.',
     signupStep2Title: 'اطلاعات شرکت شما',
     signupStep2Subtitle: 'اطلاعات شرکت خود را وارد کنید (بعداً می‌توانید ویرایش کنید).',
+    emailInvalid: 'لطفاً یک آدرس ایمیل معتبر وارد کنید',
     companyNameLabel: 'نام وب‌سایت شما چیست؟',
     companyNamePlaceholder: 'وب‌سایت من',
     websiteDomainLabel: 'دامنه وب‌سایت شما چیست؟',

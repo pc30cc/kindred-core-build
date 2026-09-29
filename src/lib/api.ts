@@ -569,30 +569,11 @@ export async function adminGetUserStatus(userId: string) {
   });
 }
 
-export interface AdminUserDeletionJob {
-  id: string;
-  status: 'collecting_workspaces' | 'awaiting_workspace_deletions' | 'purging_user' | 'completed' | 'failed';
-  error_message: string | null;
-  attempt_count: number;
-  next_retry_at: string | null;
-}
-
-/**
- * Queue a hard delete of a user and every trace of their data (platform
- * admin only). Only ENQUEUES — the server worker cleans storage and the
- * database afterwards; poll adminGetUserDeletionStatus for the outcome.
- * Calling it again after a failed job starts a fresh attempt.
- */
+/** Hard-delete a user and every trace of their data (platform admin only). */
 export async function adminDeleteUser(userId: string) {
-  return request<{ started: boolean; job: AdminUserDeletionJob | null }>(
+  return request<{ success: boolean; summary: unknown; storageFailures: number }>(
     `/api/admin/management/users/${userId}`,
     { method: 'DELETE' },
-  );
-}
-
-export async function adminGetUserDeletionStatus(userId: string) {
-  return request<{ job: AdminUserDeletionJob | null; user_exists: boolean }>(
-    `/api/admin/management/users/${userId}/deletion-status`,
   );
 }
 

@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { interpretUserDeletionStatus, waitForUserDeletion } from '@/lib/adminUserDeletion';
-import type { AdminUserDeletionJob } from '@/lib/api';
+import type { AdminUserDeletionJob } from '@/lib/adminUserDeletion';
 
 const job = (status: AdminUserDeletionJob['status'], error_message: string | null = null): AdminUserDeletionJob => ({
   id: 'job', status, error_message, attempt_count: 0, next_retry_at: null,

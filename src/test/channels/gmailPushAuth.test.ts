@@ -5,6 +5,7 @@ import { verifyPushAuth } from '../../../server/routes/gmailPush.js';
 
 const audience = 'https://api.webyar.ai/webhooks/gmail/push';
 const identity = 'gmail-push@webyar-de9b1.iam.gserviceaccount.com';
+type VerifiedTicket = Awaited<ReturnType<OAuth2Client['verifyIdToken']>>;
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -25,14 +26,14 @@ describe('authenticated Gmail Pub/Sub push', () => {
     vi.stubEnv('GMAIL_PUBSUB_PUSH_AUDIENCE', audience);
     vi.stubEnv('GMAIL_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL', identity);
     const verify = vi.spyOn(OAuth2Client.prototype, 'verifyIdToken');
-    verify.mockResolvedValue({ getPayload: () => ({ email: identity, email_verified: true }) } as any);
+    verify.mockResolvedValue({ getPayload: () => ({ email: identity, email_verified: true }) } as unknown as VerifiedTicket);
     expect((await verifyPushAuth('Bearer token')).ok).toBe(true);
     expect(verify).toHaveBeenCalledWith({ idToken: 'token', audience });
 
-    verify.mockResolvedValue({ getPayload: () => ({ email: 'gmail-api-push@system.gserviceaccount.com', email_verified: true }) } as any);
+    verify.mockResolvedValue({ getPayload: () => ({ email: 'gmail-api-push@system.gserviceaccount.com', email_verified: true }) } as unknown as VerifiedTicket);
     expect((await verifyPushAuth('Bearer token')).ok).toBe(false);
 
-    verify.mockResolvedValue({ getPayload: () => ({ email: identity, email_verified: false }) } as any);
+    verify.mockResolvedValue({ getPayload: () => ({ email: identity, email_verified: false }) } as unknown as VerifiedTicket);
     expect((await verifyPushAuth('Bearer token')).ok).toBe(false);
   });
 });

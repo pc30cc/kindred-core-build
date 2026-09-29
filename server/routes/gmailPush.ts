@@ -20,7 +20,7 @@
  * against a live push in this sandboxed environment (no network access to
  * Google). Re-verify on first live test.
  */
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { serverConfigOf } from '../lib/workspaceAuth.js';
 import { getServiceClient } from '../supabase.js';
@@ -69,7 +69,7 @@ interface GmailPushNotification {
   historyId: number | string;
 }
 
-gmailPushRouter.post('/gmail/push', async (req: any, res) => {
+gmailPushRouter.post('/gmail/push', async (req: Request, res) => {
   const verdict = await verifyPushAuth(req.headers?.authorization);
   if (!verdict.ok) {
     console.error(`[gmail-push] rejected: ${verdict.reason}`);

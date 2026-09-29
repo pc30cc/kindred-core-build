@@ -9,6 +9,7 @@ import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -16,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -48,8 +50,23 @@ class VoiceNotePlayer private constructor(
 
     private var focus: AudioFocusRequest? = null
 
-    val durationSeconds: Double
-        get() = player.duration.takeIf { it > 0 }?.let { it / 1000.0 } ?: 0.0
+    /**
+     * Set once the codec has gone back. Every call into a released
+     * `MediaPlayer` — `isPlaying`, `currentPosition`, `duration` — throws
+     * `IllegalStateException`, and a tap or a tick can still arrive in the
+     * frame between `onDispose` releasing this and the recomposition that
+     * drops the last reference to it. Those calls are made into no-ops here
+     * rather than trusted never to happen.
+     */
+    private var released = false
+
+    /**
+     * Read once, while the player is known to be prepared: [of] refuses a
+     * file with no length, and the length of a file does not change. Asked
+     * of the `MediaPlayer` on every read, it was a native call twelve times a
+     * second — and one that throws once the player has been released.
+     */
+    val durationSeconds: Double = player.duration.takeIf { it > 0 }?.let { it / 1000.0 } ?: 0.0
 
     /**
      * The number under the bar: how far in while playing, how long in total
@@ -62,10 +79,9 @@ class VoiceNotePlayer private constructor(
         get() = if (durationSeconds > 0) (elapsedSeconds / durationSeconds).toFloat() else 0f
 
     fun toggle() {
+        if (released) return
         if (player.isPlaying) {
-            player.pause()
-            isPlaying = false
-            abandonFocus()
+            pause()
             return
         }
         // Replaying after it finished starts from the top, not from the end.
@@ -73,12 +89,32 @@ class VoiceNotePlayer private constructor(
             player.seekTo(0)
             elapsedSeconds = 0.0
         }
+        // One voice at a time. Two notes talking over each other — a second
+        // tapped while the first still plays, or a thread's note under the
+        // recording being reviewed in the composer — is noise nobody can
+        // follow; the one already playing stops where it is, as it does in
+        // every messenger.
+        current?.takeIf { it !== this }?.pause()
         requestFocus()
-        runCatching { player.start() }.onFailure { return }
+        runCatching { player.start() }.onFailure {
+            abandonFocus()
+            return
+        }
         isPlaying = true
+        current = this
+    }
+
+    /** Stops where it is, keeping the place — the Pause button, or another note starting. */
+    private fun pause() {
+        if (released) return
+        runCatching { if (player.isPlaying) player.pause() }
+        isPlaying = false
+        abandonFocus()
+        if (current === this) current = null
     }
 
     fun seekTo(ratio: Float) {
+        if (released) return
         val clamped = ratio.coerceIn(0f, 1f)
         val target = (clamped * player.duration).toInt()
         runCatching { player.seekTo(target) }
@@ -87,10 +123,12 @@ class VoiceNotePlayer private constructor(
 
     /** Called from the composition's tick while playing. */
     internal fun sample() {
+        if (released) return
         elapsedSeconds = player.currentPosition / 1000.0
         if (!player.isPlaying) {
             isPlaying = false
             abandonFocus()
+            if (current === this) current = null
             // Finished rather than paused: park the bar at the end so it does
             // not look like it stopped halfway.
             if (player.currentPosition >= player.duration - 50) {
@@ -100,10 +138,13 @@ class VoiceNotePlayer private constructor(
     }
 
     fun release() {
+        if (released) return
+        released = true
         runCatching { player.stop() }
         player.release()
         isPlaying = false
         abandonFocus()
+        if (current === this) current = null
     }
 
     /**
@@ -155,6 +196,13 @@ class VoiceNotePlayer private constructor(
             .build()
 
         /**
+         * The note that is playing, if one is — so the next one to start can
+         * stop it. Touched only from the main thread: every caller is a tap
+         * or the composition's tick.
+         */
+        private var current: VoiceNotePlayer? = null
+
+        /**
          * Null when this phone has no decoder for the format — an Opus note
          * from Telegram on an older Android, say. The file is not broken and
          * the operator is told which of the two it is.
@@ -183,25 +231,52 @@ class VoiceNotePlayer private constructor(
  *
  * Null until there is a file — which for a voice note nobody has played yet
  * is never, because the file is fetched only when Play is tapped — and null
- * for good if nothing on this phone can decode it. The caller tells those
- * apart from its own state, which is why this returns a plain null rather
- * than a result type.
+ * for good if nothing on this phone can decode it. A caller that has to tell
+ * "still opening" from "cannot be played" asks [rememberVoiceNoteSlot].
  */
 @Composable
 internal fun rememberVoiceNotePlayer(
     attachmentId: String,
     file: File?,
-): VoiceNotePlayer? {
+): VoiceNotePlayer? = rememberVoiceNoteSlot(attachmentId, file).player
+
+/**
+ * The player for a file, and whether opening that file has finished.
+ *
+ * Opening is not instant — `MediaPlayer.prepare` reads the file's header on
+ * the IO pool — and until it finishes there is no player and no verdict.
+ * Reading the missing player as the verdict flashed "this phone cannot play
+ * it" under every note that had been played before, each time its bubble
+ * came into view, for as long as the prepare took.
+ */
+@Stable
+internal class VoiceNoteSlot {
+    var player by mutableStateOf<VoiceNotePlayer?>(null)
+        internal set
+
+    /** The file the last finished attempt was for, whatever it produced. */
+    internal var openedFor by mutableStateOf<File?>(null)
+
+    /** True once [file] has been tried: a null [player] is then the answer. */
+    fun isSettledFor(file: File?): Boolean = file != null && openedFor == file
+}
+
+@Composable
+internal fun rememberVoiceNoteSlot(
+    attachmentId: String,
+    file: File?,
+): VoiceNoteSlot {
     val context = LocalContext.current
-    var player by remember(attachmentId) { mutableStateOf<VoiceNotePlayer?>(null) }
+    val slot = remember(attachmentId) { VoiceNoteSlot() }
 
     DisposableEffect(attachmentId, file) {
         onDispose {
             // The bubble scrolled away, or the screen did. Either way the
             // codec goes back — a `MediaPlayer` left alive holds a hardware
             // decoder, and a phone has a small number of them.
-            player?.release()
-            player = null
+            slot.player?.release()
+            slot.player = null
+            slot.openedFor = null
         }
     }
 
@@ -209,12 +284,25 @@ internal fun rememberVoiceNotePlayer(
         if (file == null) return@LaunchedEffect
         // `MediaPlayer` reads from the file itself — never from the server's
         // URL, which would arrive without the operator's token.
-        player = withContext(Dispatchers.IO) { VoiceNotePlayer.of(context, file) }
+        //
+        // Held outside `withContext` so a bubble that goes away WHILE the
+        // file is being prepared still gives the codec back: `prepare` does
+        // not stop for a cancellation, and the player it made would otherwise
+        // be dropped with the discarded result, alive and holding a decoder.
+        var made: VoiceNotePlayer? = null
+        try {
+            withContext(Dispatchers.IO) { made = VoiceNotePlayer.of(context, file) }
+        } catch (cancelled: CancellationException) {
+            made?.release()
+            throw cancelled
+        }
+        slot.player = made
+        slot.openedFor = file
     }
 
     // The tick. 80ms is iOS's interval and is the slowest rate at which a
     // 4dp bar still looks like it is moving rather than stepping.
-    val active = player
+    val active = slot.player
     LaunchedEffect(active, active?.isPlaying) {
         if (active == null || !active.isPlaying) return@LaunchedEffect
         while (true) {
@@ -224,5 +312,5 @@ internal fun rememberVoiceNotePlayer(
         }
     }
 
-    return player
+    return slot
 }

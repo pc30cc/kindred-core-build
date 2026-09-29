@@ -42,36 +42,53 @@ object StrManual {
     //
     // The placeholders are braces rather than positional formats so that a
     // translator can move them, and so the two native apps share one spelling.
+    //
+    // A name goes in isolated (see [isolate]): it is whatever the person
+    // typed, in whatever script, and it opens most of these sentences.
+
+    /**
+     * [value] between FIRST STRONG ISOLATE and POP DIRECTIONAL ISOLATE.
+     *
+     * The inbox lays a preview out in the direction of its first strong
+     * letter (`bidiContent`), and these sentences start with a name. «John
+     * این گفتگو را به Sara منتقل کرد» therefore came out as a left-to-right
+     * line — read from the right it said the conversation went to John — and
+     * «علی sent a photo» in an English list flipped the same way. Inside an
+     * isolate the name is skipped when the line's direction is decided and
+     * cannot reorder the words around it. The marks draw nothing;
+     * `VisitorText` isolates its codes the same way.
+     */
+    private fun isolate(value: String): String = "⁨$value⁩"
 
     fun sysTransferred(l: Language, actor: String, to: String): String = when (l) {
         Language.EN -> "{actor} transferred this conversation to {to}"
         Language.FA -> "{actor} این گفتگو را به {to} منتقل کرد"
         Language.TR -> "{actor} bu görüşmeyi {to} kişisine aktardı"
-    }.replace("{actor}", actor).replace("{to}", to)
+    }.replace("{actor}", isolate(actor)).replace("{to}", isolate(to))
 
     fun sysUnassigned(l: Language, actor: String): String = when (l) {
         Language.EN -> "{actor} unassigned this conversation"
         Language.FA -> "{actor} این گفتگو را از حالت واگذارشده خارج کرد"
         Language.TR -> "{actor} bu görüşmenin atamasını kaldırdı"
-    }.replace("{actor}", actor)
+    }.replace("{actor}", isolate(actor))
 
     fun sysAgentJoined(l: Language, name: String): String = when (l) {
         Language.EN -> "{name} joined the conversation"
         Language.FA -> "{name} به گفتگو پیوست"
         Language.TR -> "{name} sohbete katıldı"
-    }.replace("{name}", name)
+    }.replace("{name}", isolate(name))
 
     fun sysCallInviteAudioFrom(l: Language, op: String): String = when (l) {
         Language.EN -> "{op} invited the visitor to an audio call"
         Language.FA -> "{op} کاربر را به تماس صوتی دعوت کرد"
         Language.TR -> "{op} ziyaretçiyi sesli aramaya davet etti"
-    }.replace("{op}", op)
+    }.replace("{op}", isolate(op))
 
     fun sysCallInviteVideoFrom(l: Language, op: String): String = when (l) {
         Language.EN -> "{op} invited the visitor to a video call"
         Language.FA -> "{op} کاربر را به تماس تصویری دعوت کرد"
         Language.TR -> "{op} ziyaretçiyi görüntülü aramaya davet etti"
-    }.replace("{op}", op)
+    }.replace("{op}", isolate(op))
 
     // MARK: - Call endings
 
@@ -102,25 +119,25 @@ object StrManual {
         Language.EN -> "{name} sent a photo"
         Language.FA -> "{name} یک تصویر ارسال کرد"
         Language.TR -> "{name} bir fotoğraf gönderdi"
-    }.replace("{name}", name)
+    }.replace("{name}", isolate(name))
 
     fun previewSentByAudio(l: Language, name: String): String = when (l) {
         Language.EN -> "{name} sent a voice message"
         Language.FA -> "{name} یک پیام صوتی ارسال کرد"
         Language.TR -> "{name} bir sesli mesaj gönderdi"
-    }.replace("{name}", name)
+    }.replace("{name}", isolate(name))
 
     fun previewSentByVideo(l: Language, name: String): String = when (l) {
         Language.EN -> "{name} sent a video"
         Language.FA -> "{name} یک ویدیو ارسال کرد"
         Language.TR -> "{name} bir video gönderdi"
-    }.replace("{name}", name)
+    }.replace("{name}", isolate(name))
 
     fun previewSentByFile(l: Language, name: String): String = when (l) {
         Language.EN -> "{name} sent a file"
         Language.FA -> "{name} یک فایل ارسال کرد"
         Language.TR -> "{name} bir dosya gönderdi"
-    }.replace("{name}", name)
+    }.replace("{name}", isolate(name))
 
     // MARK: - Android only
     //

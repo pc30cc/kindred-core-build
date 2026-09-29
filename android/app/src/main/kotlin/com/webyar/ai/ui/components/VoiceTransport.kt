@@ -4,9 +4,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -26,6 +25,7 @@ import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,6 +39,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -135,18 +136,25 @@ fun VoiceTransport(
             )
             Text(
                 caption,
-                style = MaterialTheme.typography.labelSmall,
+                // The row is pinned left to right, and a caption left to
+                // inherit that was laid out as English: «۸۷ کیلوبایت» read
+                // back as «کیلوبایت ۸۷», and «در حال دریافت…» and «این فایل
+                // بارگیری نشد.» led with their closing marks. The reading
+                // order comes from the caption's own words instead, and the
+                // side it sits on is stated physically below, because an End
+                // resolved against right-to-left words would be the left.
+                style = MaterialTheme.typography.labelSmall.copy(textDirection = TextDirection.Content),
                 color = tint.copy(alpha = 0.72f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                textAlign = if (captionAtEnd) TextAlign.End else TextAlign.Start,
+                textAlign = if (captionAtEnd) TextAlign.Right else TextAlign.Left,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
     }
 }
 
-/** Rounded bars, filled up to [progress]; a press jumps and a drag follows. */
+/** Rounded bars, filled up to [progress]; a tap jumps and a sideways drag follows. */
 @Composable
 private fun Waveform(
     seed: String,
@@ -157,17 +165,31 @@ private fun Waveform(
     modifier: Modifier = Modifier,
 ) {
     val levels = remember(seed) { waveformLevels(seed) }
+    // The gesture loops below start on the first touch and then run for as
+    // long as the bars are on screen, so they must not keep the [onSeek] they
+    // started with. That one closes over the player of its moment — none,
+    // when the bars were touched before Play, or a released one after the
+    // file changed — and every scrub after it went nowhere.
+    val seek by rememberUpdatedState(onSeek)
     Canvas(
-        modifier.pointerInput(Unit) {
-            awaitEachGesture {
-                val down = awaitFirstDown(requireUnconsumed = false)
-                if (size.width > 0) onSeek(down.position.x / size.width)
-                drag(down.id) { change ->
-                    if (size.width > 0) onSeek(change.position.x / size.width)
+        modifier
+            // A tap, and a drag once the finger has gone sideways — nothing
+            // else. Seeking on the first touch and holding every move after
+            // it meant a thumb that came down on the bars to scroll the
+            // transcript scrubbed the note instead, and the list stayed put:
+            // the bars run across most of a bubble. An up-or-down swipe is
+            // now left to the list.
+            .pointerInput(Unit) {
+                detectTapGestures { if (size.width > 0) seek(it.x / size.width) }
+            }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragStart = { if (size.width > 0) seek(it.x / size.width) },
+                ) { change, _ ->
+                    if (size.width > 0) seek(change.position.x / size.width)
                     change.consume()
                 }
-            }
-        },
+            },
     ) {
         val count = levels.size
         val step = size.width / count

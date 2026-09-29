@@ -7510,6 +7510,7 @@ export type Database = {
           connector_version: string | null
           created_at: string
           direct_live_read: boolean
+          external_store_id: string | null
           health: string
           hpos_enabled: boolean | null
           id: string
@@ -7517,16 +7518,19 @@ export type Database = {
           last_error_at: string | null
           last_error_code: string | null
           last_event_at: string | null
+          last_health_check_at: string | null
           last_live_read_at: string | null
           last_seen_at: string | null
           last_success_at: string | null
           last_sync_at: string | null
           permissions: Json
+          platform_version: string | null
           protocol_version: string
           provider_type: string
           revoked_at: string | null
           rotated_at: string | null
           store_id: string
+          store_name: string | null
           updated_at: string
           woocommerce_version: string | null
           wordpress_version: string | null
@@ -7539,6 +7543,7 @@ export type Database = {
           connector_version?: string | null
           created_at?: string
           direct_live_read?: boolean
+          external_store_id?: string | null
           health?: string
           hpos_enabled?: boolean | null
           id?: string
@@ -7546,16 +7551,19 @@ export type Database = {
           last_error_at?: string | null
           last_error_code?: string | null
           last_event_at?: string | null
+          last_health_check_at?: string | null
           last_live_read_at?: string | null
           last_seen_at?: string | null
           last_success_at?: string | null
           last_sync_at?: string | null
           permissions?: Json
+          platform_version?: string | null
           protocol_version?: string
           provider_type?: string
           revoked_at?: string | null
           rotated_at?: string | null
           store_id: string
+          store_name?: string | null
           updated_at?: string
           woocommerce_version?: string | null
           wordpress_version?: string | null
@@ -7568,6 +7576,7 @@ export type Database = {
           connector_version?: string | null
           created_at?: string
           direct_live_read?: boolean
+          external_store_id?: string | null
           health?: string
           hpos_enabled?: boolean | null
           id?: string
@@ -7575,16 +7584,19 @@ export type Database = {
           last_error_at?: string | null
           last_error_code?: string | null
           last_event_at?: string | null
+          last_health_check_at?: string | null
           last_live_read_at?: string | null
           last_seen_at?: string | null
           last_success_at?: string | null
           last_sync_at?: string | null
           permissions?: Json
+          platform_version?: string | null
           protocol_version?: string
           provider_type?: string
           revoked_at?: string | null
           rotated_at?: string | null
           store_id?: string
+          store_name?: string | null
           updated_at?: string
           woocommerce_version?: string | null
           wordpress_version?: string | null
@@ -7611,9 +7623,17 @@ export type Database = {
         Row: {
           connection_id: string
           created_at: string
+          customer_group_id: string | null
           expires_at: string
           external_customer_id: string
+          external_user_id: string | null
+          grant_ref: string | null
           id: string
+          private_cutoff_at: string | null
+          revoked_at: string | null
+          session_ref: string | null
+          subject_since: string | null
+          updated_at: string | null
           verified_at: string
           visitor_id: string | null
           workspace_id: string
@@ -7621,9 +7641,17 @@ export type Database = {
         Insert: {
           connection_id: string
           created_at?: string
+          customer_group_id?: string | null
           expires_at: string
           external_customer_id: string
+          external_user_id?: string | null
+          grant_ref?: string | null
           id?: string
+          private_cutoff_at?: string | null
+          revoked_at?: string | null
+          session_ref?: string | null
+          subject_since?: string | null
+          updated_at?: string | null
           verified_at?: string
           visitor_id?: string | null
           workspace_id: string
@@ -7631,9 +7659,17 @@ export type Database = {
         Update: {
           connection_id?: string
           created_at?: string
+          customer_group_id?: string | null
           expires_at?: string
           external_customer_id?: string
+          external_user_id?: string | null
+          grant_ref?: string | null
           id?: string
+          private_cutoff_at?: string | null
+          revoked_at?: string | null
+          session_ref?: string | null
+          subject_since?: string | null
+          updated_at?: string | null
           verified_at?: string
           visitor_id?: string | null
           workspace_id?: string
@@ -7776,9 +7812,13 @@ export type Database = {
           consumed_at: string | null
           created_at: string
           expires_at: string
+          external_store_id: string | null
           id: string
+          permissions: Json | null
+          platform_version: string | null
           provider_type: string
           redirect_uri: string
+          requested_base_url: string | null
           requested_origin: string
           state: string
           workspace_id: string | null
@@ -7791,9 +7831,13 @@ export type Database = {
           consumed_at?: string | null
           created_at?: string
           expires_at: string
+          external_store_id?: string | null
           id?: string
+          permissions?: Json | null
+          platform_version?: string | null
           provider_type?: string
           redirect_uri: string
+          requested_base_url?: string | null
           requested_origin: string
           state: string
           workspace_id?: string | null
@@ -7806,9 +7850,13 @@ export type Database = {
           consumed_at?: string | null
           created_at?: string
           expires_at?: string
+          external_store_id?: string | null
           id?: string
+          permissions?: Json | null
+          platform_version?: string | null
           provider_type?: string
           redirect_uri?: string
+          requested_base_url?: string | null
           requested_origin?: string
           state?: string
           workspace_id?: string | null
@@ -8412,6 +8460,7 @@ export type Database = {
           seen_at: string | null
           sender_id: string | null
           sender_type: Database["public"]["Enums"]["sender_type"]
+          updated_at: string
         }
         Insert: {
           body: string
@@ -8423,6 +8472,7 @@ export type Database = {
           seen_at?: string | null
           sender_id?: string | null
           sender_type: Database["public"]["Enums"]["sender_type"]
+          updated_at?: string
         }
         Update: {
           body?: string
@@ -8434,6 +8484,7 @@ export type Database = {
           seen_at?: string | null
           sender_id?: string | null
           sender_type?: Database["public"]["Enums"]["sender_type"]
+          updated_at?: string
         }
         Relationships: [
           {
@@ -9960,16 +10011,16 @@ export type Database = {
           realtime_enabled: boolean
           release_notes: string | null
           status_page_url: string | null
-          support_url: string | null
           storage_settings_visible: boolean
+          support_url: string | null
           terms_url: string | null
           update_channel: string
           update_check_interval_minutes: number
           updated_at: string
           video_calls_enabled: boolean
           visitors_enabled: boolean
-          web_analytics_enabled: boolean
           voice_notes_enabled: boolean
+          web_analytics_enabled: boolean
         }
         Insert: {
           appcast_url?: string | null
@@ -10004,16 +10055,16 @@ export type Database = {
           realtime_enabled?: boolean
           release_notes?: string | null
           status_page_url?: string | null
-          support_url?: string | null
           storage_settings_visible?: boolean
+          support_url?: string | null
           terms_url?: string | null
           update_channel?: string
           update_check_interval_minutes?: number
           updated_at?: string
           video_calls_enabled?: boolean
           visitors_enabled?: boolean
-          web_analytics_enabled?: boolean
           voice_notes_enabled?: boolean
+          web_analytics_enabled?: boolean
         }
         Update: {
           appcast_url?: string | null
@@ -10048,16 +10099,16 @@ export type Database = {
           realtime_enabled?: boolean
           release_notes?: string | null
           status_page_url?: string | null
-          support_url?: string | null
           storage_settings_visible?: boolean
+          support_url?: string | null
           terms_url?: string | null
           update_channel?: string
           update_check_interval_minutes?: number
           updated_at?: string
           video_calls_enabled?: boolean
           visitors_enabled?: boolean
-          web_analytics_enabled?: boolean
           voice_notes_enabled?: boolean
+          web_analytics_enabled?: boolean
         }
         Relationships: []
       }
@@ -10081,6 +10132,16 @@ export type Database = {
           android_app_show_notification_settings: boolean
           android_app_show_security: boolean
           android_app_show_storage: boolean
+          android_app_show_visitors: boolean
+          android_app_show_web_analytics: boolean
+          android_default_language: string
+          android_firebase_api_key: string | null
+          android_firebase_app_id: string | null
+          android_firebase_project_id: string | null
+          android_firebase_sender_id: string | null
+          android_maintenance_enabled: boolean
+          android_maintenance_message: Json
+          android_maintenance_until: string | null
           android_min_sdk: number
           android_package_name: string
           android_play_store_url: string | null
@@ -10128,6 +10189,13 @@ export type Database = {
           encryption_exempt: boolean
           encryption_notes: string | null
           id: string
+          ios_app_show_ai_queue: boolean
+          ios_app_show_colleagues: boolean
+          ios_app_show_contacts: boolean
+          ios_app_show_storage: boolean
+          ios_app_show_visitors: boolean
+          ios_app_show_web_analytics: boolean
+          ios_app_support_url: string | null
           marketing_url: string | null
           marketing_version: string
           minimum_os_version: string
@@ -10182,6 +10250,16 @@ export type Database = {
           android_app_show_notification_settings?: boolean
           android_app_show_security?: boolean
           android_app_show_storage?: boolean
+          android_app_show_visitors?: boolean
+          android_app_show_web_analytics?: boolean
+          android_default_language?: string
+          android_firebase_api_key?: string | null
+          android_firebase_app_id?: string | null
+          android_firebase_project_id?: string | null
+          android_firebase_sender_id?: string | null
+          android_maintenance_enabled?: boolean
+          android_maintenance_message?: Json
+          android_maintenance_until?: string | null
           android_min_sdk?: number
           android_package_name?: string
           android_play_store_url?: string | null
@@ -10229,6 +10307,13 @@ export type Database = {
           encryption_exempt?: boolean
           encryption_notes?: string | null
           id?: string
+          ios_app_show_ai_queue?: boolean
+          ios_app_show_colleagues?: boolean
+          ios_app_show_contacts?: boolean
+          ios_app_show_storage?: boolean
+          ios_app_show_visitors?: boolean
+          ios_app_show_web_analytics?: boolean
+          ios_app_support_url?: string | null
           marketing_url?: string | null
           marketing_version?: string
           minimum_os_version?: string
@@ -10283,6 +10368,16 @@ export type Database = {
           android_app_show_notification_settings?: boolean
           android_app_show_security?: boolean
           android_app_show_storage?: boolean
+          android_app_show_visitors?: boolean
+          android_app_show_web_analytics?: boolean
+          android_default_language?: string
+          android_firebase_api_key?: string | null
+          android_firebase_app_id?: string | null
+          android_firebase_project_id?: string | null
+          android_firebase_sender_id?: string | null
+          android_maintenance_enabled?: boolean
+          android_maintenance_message?: Json
+          android_maintenance_until?: string | null
           android_min_sdk?: number
           android_package_name?: string
           android_play_store_url?: string | null
@@ -10330,6 +10425,13 @@ export type Database = {
           encryption_exempt?: boolean
           encryption_notes?: string | null
           id?: string
+          ios_app_show_ai_queue?: boolean
+          ios_app_show_colleagues?: boolean
+          ios_app_show_contacts?: boolean
+          ios_app_show_storage?: boolean
+          ios_app_show_visitors?: boolean
+          ios_app_show_web_analytics?: boolean
+          ios_app_support_url?: string | null
           marketing_url?: string | null
           marketing_version?: string
           minimum_os_version?: string
@@ -11809,6 +11911,9 @@ export type Database = {
           default_quiet_hours_timezone: string | null
           default_scope: string
           default_sound: boolean
+          dispatch_log_auto_purge: boolean
+          dispatch_log_purged_at: string | null
+          dispatch_log_purged_count: number | null
           dispatch_log_retention_days: number
           id: string
           interruption_level: string
@@ -11841,6 +11946,9 @@ export type Database = {
           default_quiet_hours_timezone?: string | null
           default_scope?: string
           default_sound?: boolean
+          dispatch_log_auto_purge?: boolean
+          dispatch_log_purged_at?: string | null
+          dispatch_log_purged_count?: number | null
           dispatch_log_retention_days?: number
           id?: string
           interruption_level?: string
@@ -11873,6 +11981,9 @@ export type Database = {
           default_quiet_hours_timezone?: string | null
           default_scope?: string
           default_sound?: boolean
+          dispatch_log_auto_purge?: boolean
+          dispatch_log_purged_at?: string | null
+          dispatch_log_purged_count?: number | null
           dispatch_log_retention_days?: number
           id?: string
           interruption_level?: string
@@ -19996,6 +20107,7 @@ export type Database = {
         Returns: undefined
       }
       business_metrics_rollup_and_prune: { Args: never; Returns: Json }
+      call_queue_has_active_entries: { Args: never; Returns: boolean }
       change_password_and_revoke_sessions: {
         Args: {
           _except_session_id?: string
@@ -20840,6 +20952,14 @@ export type Database = {
           _workspace_id: string
         }
         Returns: Json
+      }
+      purge_push_dispatch_log: {
+        Args: { p_batch?: number; p_before: string }
+        Returns: number
+      }
+      push_unread_badge: {
+        Args: { p_user_id: string; p_workspace_id?: string }
+        Returns: number
       }
       reclaim_expired_invitation_jobs: { Args: never; Returns: number }
       redeem_email_verify_token: {

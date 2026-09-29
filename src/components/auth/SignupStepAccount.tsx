@@ -65,6 +65,7 @@ export default function SignupStepAccount({
     children: React.ReactNode;
     suffix?: React.ReactNode;
     state?: 'default' | 'success' | 'error';
+    ltr?: boolean;
   }) => {
     const isFocused = focused === args.id;
     const ringClass =
@@ -75,6 +76,7 @@ export default function SignupStepAccount({
         : 'border-border ring-primary/15';
     return (
       <div
+        dir={args.ltr ? 'ltr' : undefined}
         className={cn(
           'group relative flex items-center h-12 rounded-xl border bg-background transition-all duration-200',
           'shadow-sm hover:border-foreground/20',
@@ -168,6 +170,7 @@ export default function SignupStepAccount({
         {fieldShell({
           id: 'email',
           icon: <Mail className="w-4 h-4" />,
+          ltr: true,
           state: showEmailError ? 'error' : emailValid ? 'success' : 'default',
           suffix: emailValid ? (
             <Check className="w-4 h-4 text-success" />
@@ -208,6 +211,7 @@ export default function SignupStepAccount({
         {fieldShell({
           id: 'password',
           icon: <Lock className="w-4 h-4" />,
+          ltr: true,
           state: pwStrength && pwStrength.score >= 3 ? 'success' : 'default',
           suffix: (
             <button

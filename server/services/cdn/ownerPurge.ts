@@ -17,10 +17,20 @@ import { resolveCDNConfig, type CDNConfig } from './index.js';
 /** Stand-in workspace id for account-level files: no per-workspace CDN override applies to them, only the global one. */
 const NO_WORKSPACE = '00000000-0000-0000-0000-000000000000';
 
-export type OwnerCdnPurgeResult =
-  | { ok: true; url: string }
-  | { ok: false; skipped: true; reason: string }
-  | { ok: false; skipped: false; error: string };
+/**
+ * One flat shape rather than a discriminated union: the repo compiles with
+ * strictNullChecks off, where a union on `ok` never narrows.
+ *   ok             — the purge was accepted (`url` is what was purged)
+ *   skipped        — nothing to do (`reason`), not a failure
+ *   otherwise      — the purge failed (`error`)
+ */
+export interface OwnerCdnPurgeResult {
+  ok: boolean;
+  skipped?: boolean;
+  url?: string;
+  reason?: string;
+  error?: string;
+}
 
 /**
  * The CDN config that serves an owner's files. Resolve it BEFORE the DB

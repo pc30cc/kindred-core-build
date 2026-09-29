@@ -179,6 +179,13 @@ struct ProfileView: View {
                             Text(Str.removePhoto(language))
                                 .font(.app(.subheadline))
                         }
+                        // Borderless, like "Change photo" above it. Two
+                        // default-style buttons in one List row turn the
+                        // whole row into a single tap target that fires both:
+                        // tapping the photo, or "Change photo", opened the
+                        // gallery AND deleted the operator's photograph before
+                        // anything had been chosen.
+                        .buttonStyle(.borderless)
                         .disabled(model.isUploadingPhoto)
                     }
                 }
@@ -310,6 +317,8 @@ private struct ChangePhotoButton: View {
                 .foregroundStyle(Theme.Palette.brand)
                 .frame(minHeight: Theme.Size.minTouchTarget - 8)
         }
+        // Its own tap target, not the row's: see "Remove photo" beside it.
+        .buttonStyle(.borderless)
         .disabled(isDisabled)
     }
 }

@@ -570,9 +570,20 @@ actor SampleAPI: WebyarAPI {
 
     // MARK: - Account
 
+    /// The operator's photograph — present on the Profile screen's run, so
+    /// "Remove photo" is there to be pressed (or not) and removing it really
+    /// takes it away. Everywhere else the sample operator has none, as before.
+    private var sampleAvatarURL: String? = SampleRoute.current == .profile ? SampleAPI.sampleFace : nil
+
+    /// Inline, so nothing is fetched: the image loader only takes an HTTP
+    /// answer, so it draws the silhouette. What matters here is that the
+    /// operator HAS a photograph — the screen offers to remove it.
+    static let sampleFace =
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
     private var profile: AccountProfile {
         AccountProfile(id: Self.user.id, fullName: Self.user.fullName,
-                       avatarURL: nil, preferredLocale: "en")
+                       avatarURL: sampleAvatarURL, preferredLocale: "en")
     }
 
     func account() async throws -> Account {
@@ -586,10 +597,13 @@ actor SampleAPI: WebyarAPI {
     }
 
     func uploadAvatar(imageData: Data, contentType: String, fileName: String?) async throws -> AccountProfile? {
-        profile
+        sampleAvatarURL = Self.sampleFace
+        return profile
     }
 
-    func deleteAvatar() async throws {}
+    func deleteAvatar() async throws {
+        sampleAvatarURL = nil
+    }
 
     /// The sample backend has no files. A screenshot run that met one would
     /// draw the "could not load" card, which is the honest thing for a

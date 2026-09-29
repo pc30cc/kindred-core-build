@@ -2,16 +2,17 @@ import { MessageSquare, Phone, Sparkles, BarChart3, Zap, Bot, MicOff, Camera, Vi
 import { LoopVideo } from '@/components/site/LoopVideo';
 import callerWoman from '@/assets/caller-woman.jpg';
 import operatorMan from '@/assets/operator-man.jpg';
+import { useTranslation } from '@/i18n';
 import { siApple, siAndroid, siMacos, siPwa } from 'simple-icons';
 
 const WINDOWS_PATH = 'M0 3.449 9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801';
 
 const PLATFORMS = [
-  { label: 'iOS', path: siApple.path, color: '#000000' },
-  { label: 'Android', path: siAndroid.path, color: `#${siAndroid.hex}` },
-  { label: 'Windows', path: WINDOWS_PATH, color: '#0078D4' },
-  { label: 'macOS', path: siMacos.path, color: '#000000' },
-  { label: 'PWA', path: siPwa.path, color: `#${siPwa.hex}` },
+  { label: 'iOS', fa: 'آی‌اواس', path: siApple.path, color: '#000000' },
+  { label: 'Android', fa: 'اندروید', path: siAndroid.path, color: `#${siAndroid.hex}` },
+  { label: 'Windows', fa: 'ویندوز', path: WINDOWS_PATH, color: '#0078D4' },
+  { label: 'macOS', fa: 'مک‌اواس', path: siMacos.path, color: '#000000' },
+  { label: 'PWA', fa: 'وب‌اپ', path: siPwa.path, color: `#${siPwa.hex}` },
 ];
 
 interface Props {
@@ -21,17 +22,19 @@ interface Props {
 }
 
 const CHIPS = [
-  { icon: MessageSquare, label: 'Live Chat' },
-  { icon: Bot, label: 'AI Agent' },
-  { icon: Phone, label: 'Call Center' },
-  { icon: BarChart3, label: 'Analytics' },
-  { icon: Zap, label: 'Automation' },
-  { icon: Sparkles, label: 'Smart Inbox' },
+  { icon: MessageSquare, label: 'Live Chat', fa: 'چت زنده' },
+  { icon: Bot, label: 'AI Agent', fa: 'دستیار هوشمند' },
+  { icon: Phone, label: 'Call Center', fa: 'مرکز تماس' },
+  { icon: BarChart3, label: 'Analytics', fa: 'تحلیل و آمار' },
+  { icon: Zap, label: 'Automation', fa: 'خودکارسازی' },
+  { icon: Sparkles, label: 'Smart Inbox', fa: 'صندوق هوشمند' },
 ];
 
 
 /** Light aurora showcase panel for auth screens — same language as the WebYar landing hero. */
 export function AuthHeroPanel({ title, subtitle, className }: Props) {
+  const { locale } = useTranslation();
+  const isFa = locale === 'fa';
   return (
     <div className={`relative hidden overflow-hidden border-s border-border/60 bg-secondary/40 text-foreground lg:flex ${className ?? ''}`}>
       {/* Aurora backdrop */}
@@ -94,7 +97,7 @@ export function AuthHeroPanel({ title, subtitle, className }: Props) {
                 <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-background">
                   <svg viewBox="0 0 24 24" className="h-4 w-4" fill={p.color} aria-hidden><path d={p.path} /></svg>
                 </span>
-                <span dir="ltr" className="text-xs font-semibold text-foreground">{p.label}</span>
+                <span className="text-xs font-semibold text-foreground">{isFa ? p.fa : p.label}</span>
               </div>
             ))}
           </div>
@@ -103,10 +106,10 @@ export function AuthHeroPanel({ title, subtitle, className }: Props) {
 
         <div dir="ltr" className="relative mt-10 w-full max-w-lg overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_15%,black_85%,transparent)]">
           <div className="animate-marquee flex w-max gap-2" style={{ animationDirection: 'reverse' }}>
-            {[...CHIPS, ...CHIPS].map(({ icon: Icon, label }, i) => (
+            {[...CHIPS, ...CHIPS].map(({ icon: Icon, label, fa }, i) => (
               <span key={i} className="glass inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium text-foreground/80">
                 <Icon className="h-3.5 w-3.5 text-primary" />
-                {label}
+                {isFa ? fa : label}
               </span>
             ))}
           </div>

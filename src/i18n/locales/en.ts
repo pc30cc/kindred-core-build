@@ -470,6 +470,7 @@ const en = {
     signupStep1Subtitle: 'Create your free account to continue.',
     signupStep2Title: 'Some details about your company',
     signupStep2Subtitle: 'Fill in your company information to continue (you can edit it later).',
+    emailInvalid: 'Please enter a valid email address',
     companyNameLabel: 'What is the name of your website?',
     companyNamePlaceholder: 'Acme Inc.',
     websiteDomainLabel: 'What is your website domain?',

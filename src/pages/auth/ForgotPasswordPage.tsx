@@ -1,3 +1,4 @@
+import { BrandWordmark } from '@/components/brand/BrandLoader';
 import { toLatinKeyboard } from '@/lib/latinKeyboard';
 import { useState } from 'react';
 import { BrandLogo } from '@/components/brand/BrandLogo';
@@ -100,6 +101,7 @@ export default function ForgotPasswordPage() {
               </Link>
             </div>
           </div>
+          <BrandWordmark className="mt-6" />
         </div>
       </div>
 

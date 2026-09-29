@@ -1,3 +1,4 @@
+import { BrandWordmark } from '@/components/brand/BrandLoader';
 import { useState, useMemo } from 'react';
 import { AuthHeroPanel } from '@/components/auth/AuthHeroPanel';
 import { BrandLogo } from '@/components/brand/BrandLogo';
@@ -213,6 +214,7 @@ export default function SignupPage() {
               />
             )}
           </div>
+          <BrandWordmark className="mt-6" />
         </div>
       </div>
 

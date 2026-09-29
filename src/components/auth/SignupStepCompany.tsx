@@ -2,7 +2,7 @@ import { useTranslation } from '@/i18n';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { ArrowRight, Loader2, Building2, Globe } from 'lucide-react';
+import { Check, UserCheck, Loader2, Building2, Globe } from 'lucide-react';
 
 interface SignupStepCompanyProps {
   companyName: string;
@@ -10,13 +10,14 @@ interface SignupStepCompanyProps {
   websiteDomain: string;
   setWebsiteDomain: (v: string) => void;
   loading: boolean;
+  succeeded?: boolean;
   onSubmit: (e: React.FormEvent) => void;
   brandName: string;
 }
 
 export default function SignupStepCompany({
   companyName, setCompanyName, websiteDomain, setWebsiteDomain,
-  loading, onSubmit,
+  loading, succeeded = false, onSubmit,
 }: SignupStepCompanyProps) {
   const { t } = useTranslation();
 

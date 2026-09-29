@@ -65,7 +65,7 @@ export default function SignupStepCompany({
           <Loader2 className="w-4 h-4 animate-spin" />
         ) : (
           <>
-            {t('auth.continue')}
+            {t('auth.completeSignup')}
             <ArrowRight className="w-4 h-4" />
           </>
         )}

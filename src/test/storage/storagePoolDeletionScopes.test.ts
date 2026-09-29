@@ -231,9 +231,11 @@ describe('workspace deletion — every configured pool vendor is a scope', () =>
     seedPrimary(key);
     buckets.mirror_one.set(key, 'x');
 
-    // A mirror that cannot be emptied must stop the whole job: the walker
-    // reports an error and never returns 'advance', which is the only thing
-    // that would let a worker move on to the irreversible DB purge.
+    // A failed delete on a mirror stops this tick: the walker reports an
+    // error (the job retries) instead of returning 'advance', the only thing
+    // that would let a worker move on to the irreversible DB purge. Only a
+    // refused credential or repeated failures give the scope up as
+    // skipped_unreachable (see scopeCleanupEngine.test.ts).
     undeletableBuckets.add('mirror_one');
 
     const scopes = await workspaceStorageScopes(serverConfig, WS_A);

@@ -45,14 +45,33 @@
  *       StorageConfig fingerprint, dedup (`dedup_of`) instead of listing
  *       it at all. Otherwise start a fresh listing pass.
  *
+ *   A storage that cannot be reached never blocks the owner's deletion
+ *   forever. When listing or deleting fails, the scope is marked
+ *   `skipped_unreachable` (with the error recorded) either at once, if
+ *   the provider refused access (HTTP 401/403 — suspended account,
+ *   revoked or wrong key), or after MAX_SCOPE_FAILURES failed ticks for
+ *   any other error; below that it reports an error so the job retries.
+ *   Any objects still held there are left behind: the recorded error is
+ *   what an operator audits.
+ *
  *   Once every scope in the list is settled (skipped_not_configured,
- *   failed, done+verified, or dedup_of a settled target), returns
- *   `{kind:'advance'}` — the caller moves its job to the next status.
+ *   skipped_unreachable, failed, done+verified, or dedup_of a settled
+ *   target), returns `{kind:'advance'}` — the caller moves its job to
+ *   the next status.
  */
 import { listWithConfig, deleteWithConfig, type StorageConfig } from './index.js';
 import { storageConfigFingerprint } from './workspaceScopes.js';
 
-export type ScopeProgressStatus = 'pending' | 'in_progress' | 'done' | 'skipped_not_configured' | 'failed';
+export type ScopeProgressStatus =
+  | 'pending'
+  | 'in_progress'
+  | 'done'
+  | 'skipped_not_configured'
+  | 'skipped_unreachable'
+  | 'failed';
+
+/** Failed ticks (other than an access refusal, which skips at once) before a scope is given up as unreachable. */
+export const MAX_SCOPE_FAILURES = 3;
 
 export interface ScopeProgress {
   status: ScopeProgressStatus;
@@ -73,6 +92,8 @@ export interface ScopeProgress {
    * must never begin until every scope is done AND verified.
    */
   verified: boolean;
+  /** Consecutive failed ticks against this scope; reset by any successful listing. */
+  failures?: number;
 }
 
 export type ScopeCleanupState = Record<string, ScopeProgress>;
@@ -126,7 +147,7 @@ async function deleteKeysWithRetry(
   maxAttemptsPerKey: number,
   heartbeat: () => Promise<boolean>,
   heartbeatIntervalMs: number,
-): Promise<{ deleted: number; failedKey?: string; failedError?: string; fencedOut?: boolean }> {
+): Promise<{ deleted: number; failedKey?: string; failedError?: string; failedStatus?: number; fencedOut?: boolean }> {
   let deleted = 0;
   let lastHeartbeat = Date.now();
   for (const key of keys) {
@@ -137,15 +158,47 @@ async function deleteKeysWithRetry(
     }
     let ok = false;
     let lastError: string | undefined;
+    let lastStatus: number | undefined;
     for (let attempt = 1; attempt <= maxAttemptsPerKey && !ok; attempt++) {
       const del = await deleteWithConfig(config, key);
       ok = del.success;
       lastError = del.error;
+      lastStatus = del.httpStatus;
     }
-    if (!ok) return { deleted, failedKey: key, failedError: lastError };
+    if (!ok) return { deleted, failedKey: key, failedError: lastError, failedStatus: lastStatus };
     deleted++;
   }
   return { deleted };
+}
+
+/**
+ * Records a failed listing/delete against one scope. Returns true when the
+ * scope is now settled as `skipped_unreachable` (the caller moves on to the
+ * next scope), false when the caller should report the error and retry.
+ */
+async function recordScopeFailure(
+  state: ScopeCleanupState,
+  scopeName: string,
+  progress: ScopeProgress,
+  message: string,
+  httpStatus: number | undefined,
+  persist: (state: ScopeCleanupState) => Promise<void>,
+): Promise<boolean> {
+  const failures = (progress.failures ?? 0) + 1;
+  const refused = httpStatus === 401 || httpStatus === 403;
+  state[scopeName] = progress;
+  progress.failures = failures;
+  progress.error = message;
+  if (refused || failures >= MAX_SCOPE_FAILURES) {
+    progress.status = 'skipped_unreachable';
+    progress.cursor = null;
+    console.warn(
+      `[storage cleanup] skipping unreachable scope ${scopeName} after ${failures} failure(s)`
+      + `${refused ? ` (access refused, HTTP ${httpStatus})` : ''}: ${message}`,
+    );
+  }
+  await persist(state);
+  return progress.status === 'skipped_unreachable';
 }
 
 /** Re-resolves a scope's config and checks it against a previously-recorded fingerprint. Returns the mismatch message, or null if it matches (or there was nothing to compare against yet). */
@@ -168,7 +221,7 @@ export async function runScopeCleanupTick(ctx: ScopeCleanupContext): Promise<Sco
       if (target?.status === 'done' && target.verified) continue; // settled via its dedup target
       continue; // target not yet verified — nothing for the dupe to do itself; wait
     }
-    if (existing?.status === 'skipped_not_configured' || existing?.status === 'failed') continue;
+    if (existing?.status === 'skipped_not_configured' || existing?.status === 'skipped_unreachable' || existing?.status === 'failed') continue;
     if (existing?.status === 'done' && existing.verified) continue;
 
     let resolution;
@@ -198,8 +251,11 @@ export async function runScopeCleanupTick(ctx: ScopeCleanupContext): Promise<Sco
 
       const listing = await listWithConfig(resolution.config, prefix, undefined);
       if (!listing.success) {
-        return { kind: 'error', message: `scope ${scope.name} verification listing failed: ${listing.error ?? 'unknown'}` };
+        const message = `scope ${scope.name} verification listing failed: ${listing.error ?? 'unknown'}`;
+        if (await recordScopeFailure(state, scope.name, existing, message, listing.httpStatus, persist)) continue;
+        return { kind: 'error', message };
       }
+      existing.failures = 0;
       const keys = listing.keys ?? [];
       if (keys.length === 0 && !listing.nextCursor) {
         existing.verified = true;
@@ -212,7 +268,9 @@ export async function runScopeCleanupTick(ctx: ScopeCleanupContext): Promise<Sco
       if (delResult.fencedOut) return { kind: 'error', message: `scope ${scope.name}: lease lost during late-write verification cleanup` };
       existing.objects_deleted += delResult.deleted;
       if (delResult.failedKey) {
-        return { kind: 'error', message: `scope ${scope.name}: failed to delete late-written object ${delResult.failedKey}: ${delResult.failedError ?? 'unknown'}` };
+        const message = `scope ${scope.name}: failed to delete late-written object ${delResult.failedKey}: ${delResult.failedError ?? 'unknown'}`;
+        if (await recordScopeFailure(state, scope.name, existing, message, delResult.failedStatus, persist)) continue;
+        return { kind: 'error', message };
       }
       existing.objects_found += keys.length;
       existing.status = 'in_progress';
@@ -245,15 +303,20 @@ export async function runScopeCleanupTick(ctx: ScopeCleanupContext): Promise<Sco
 
     const listing = await listWithConfig(resolution.config, prefix, cur.cursor ?? undefined);
     if (!listing.success) {
-      return { kind: 'error', message: `scope ${scope.name} listing failed: ${listing.error ?? 'unknown'}` };
+      const message = `scope ${scope.name} listing failed: ${listing.error ?? 'unknown'}`;
+      if (await recordScopeFailure(state, scope.name, cur, message, listing.httpStatus, persist)) continue;
+      return { kind: 'error', message };
     }
+    cur.failures = 0;
 
     const keys = listing.keys ?? [];
     const delResult = await deleteKeysWithRetry(resolution.config, keys, maxDeleteAttemptsPerKey, heartbeat, heartbeatIntervalMs);
     if (delResult.fencedOut) return { kind: 'error', message: `scope ${scope.name}: lease lost mid-delete-loop` };
     cur.objects_deleted += delResult.deleted;
     if (delResult.failedKey) {
-      return { kind: 'error', message: `scope ${scope.name}: failed to delete ${delResult.failedKey}: ${delResult.failedError ?? 'unknown'}` };
+      const message = `scope ${scope.name}: failed to delete ${delResult.failedKey}: ${delResult.failedError ?? 'unknown'}`;
+      if (await recordScopeFailure(state, scope.name, cur, message, delResult.failedStatus, persist)) continue;
+      return { kind: 'error', message };
     }
     cur.objects_found += keys.length;
     cur.cursor = listing.nextCursor ?? null;

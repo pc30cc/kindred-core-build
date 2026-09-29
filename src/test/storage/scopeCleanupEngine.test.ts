@@ -328,3 +328,85 @@ describe('runScopeCleanupTick — error paths', () => {
     expect(state.attachment.status).toBe('in_progress'); // untouched, not silently marked done/skipped
   });
 });
+
+describe('runScopeCleanupTick — unreachable storage never blocks deletion forever', () => {
+  const run = (state: ScopeCleanupState, scopes: CleanupScope[]) =>
+    runScopeCleanupTick({ scopes, prefix: PREFIX, state, maxDeleteAttemptsPerKey: 3, heartbeat: async () => true, persist });
+
+  it('skips a scope at once when the provider refuses access (403 — suspended account, revoked key)', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    listWithConfigMock.mockResolvedValueOnce({ success: false, error: 'S3 list failed: 403 AccessDenied', httpStatus: 403 });
+    const state: ScopeCleanupState = {};
+
+    const outcome = await run(state, [scope('replica:arvan_storage', CFG_A)]);
+
+    expect(outcome.kind).toBe('advance');
+    expect(state['replica:arvan_storage'].status).toBe('skipped_unreachable');
+    expect(state['replica:arvan_storage'].error).toMatch(/403 AccessDenied/);
+    expect(persisted['replica:arvan_storage'].status).toBe('skipped_unreachable');
+  });
+
+  it('keeps cleaning the other scopes after skipping an unreachable one', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    listWithConfigMock
+      .mockResolvedValueOnce({ success: false, error: 'S3 list failed: 401', httpStatus: 401 })
+      .mockResolvedValueOnce({ success: true, keys: [`${PREFIX}a.pdf`], nextCursor: null });
+    const state: ScopeCleanupState = {};
+
+    const outcome = await run(state, [scope('replica:dead', CFG_A), scope('attachment', CFG_B)]);
+
+    expect(outcome.kind).toBe('progress');
+    expect(state['replica:dead'].status).toBe('skipped_unreachable');
+    expect(state.attachment.status).toBe('done');
+    expect(deleteWithConfigMock).toHaveBeenCalledWith(CFG_B, `${PREFIX}a.pdf`);
+  });
+
+  it('retries other failures, then skips the scope on the third consecutive failed tick', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    listWithConfigMock.mockResolvedValue({ success: false, error: 'provider_unreachable' });
+    const state: ScopeCleanupState = {};
+    const scopes = [scope('attachment', CFG_A)];
+
+    expect((await run(state, scopes)).kind).toBe('error');
+    expect(state.attachment.failures).toBe(1);
+    expect((await run(state, scopes)).kind).toBe('error');
+    expect(state.attachment.failures).toBe(2);
+    expect((await run(state, scopes)).kind).toBe('advance');
+    expect(state.attachment.status).toBe('skipped_unreachable');
+  });
+
+  it('a successful listing resets the failure count', async () => {
+    listWithConfigMock
+      .mockResolvedValueOnce({ success: false, error: 'timeout' })
+      .mockResolvedValueOnce({ success: true, keys: [], nextCursor: 'tok-2' });
+    const state: ScopeCleanupState = {};
+    const scopes = [scope('attachment', CFG_A)];
+
+    expect((await run(state, scopes)).kind).toBe('error');
+    expect((await run(state, scopes)).kind).toBe('progress');
+    expect(state.attachment.failures).toBe(0);
+    expect(state.attachment.status).toBe('in_progress');
+  });
+
+  it('skips a scope whose objects cannot be deleted because access is refused', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    listWithConfigMock.mockResolvedValueOnce({ success: true, keys: [`${PREFIX}stuck.pdf`], nextCursor: null });
+    deleteWithConfigMock.mockResolvedValue({ success: false, error: 'Delete failed: Forbidden', httpStatus: 403 } as unknown as { success: boolean });
+    const state: ScopeCleanupState = {};
+
+    const outcome = await run(state, [scope('replica:readonly', CFG_A)]);
+
+    expect(outcome.kind).toBe('advance');
+    expect(state['replica:readonly'].status).toBe('skipped_unreachable');
+    expect(state['replica:readonly'].error).toMatch(/stuck\.pdf/);
+  });
+
+  it('a skipped scope stays settled on later ticks — it is never listed again', async () => {
+    const state: ScopeCleanupState = { 'replica:dead': { ...emptyScopeProgress('skipped_unreachable'), error: '403' } };
+
+    const outcome = await run(state, [scope('replica:dead', CFG_A)]);
+
+    expect(outcome.kind).toBe('advance');
+    expect(listWithConfigMock).not.toHaveBeenCalled();
+  });
+});

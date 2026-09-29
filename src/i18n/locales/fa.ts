@@ -473,6 +473,7 @@ const fa: TranslationKeys = {
     signupStep2Title: 'اطلاعات شرکت شما',
     signupStep2Subtitle: 'اطلاعات شرکت خود را وارد کنید (بعداً می‌توانید ویرایش کنید).',
     completeSignup: 'تکمیل ثبت‌نام',
+    completingSignup: 'در حال ثبت‌نام…',
     emailInvalid: 'لطفاً یک آدرس ایمیل معتبر وارد کنید',
     companyNameLabel: 'نام وب‌سایت شما چیست؟',
     companyNamePlaceholder: 'وب‌سایت من',

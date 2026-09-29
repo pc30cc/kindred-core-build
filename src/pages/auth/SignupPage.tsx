@@ -36,6 +36,7 @@ export default function SignupPage() {
   const [websiteDomain, setWebsiteDomain] = useState('');
 
   const [loading, setLoading] = useState(false);
+  const [succeeded, setSucceeded] = useState(false);
 
   const brandName = useMemo(() => brand?.platform_name || 'App', [brand]);
 
@@ -100,14 +101,11 @@ export default function SignupPage() {
 
       toast.success(t('auth.signupSuccess'));
 
-      // WHERE the new user lands is the operator's choice, resolved
-      // server-side (Super Admin → Branding → Settings):
-      //   otp    → the 6-digit code screen (no link is ever mailed).
-      //   after  → straight into the app; the existing bottom banner
-      //            keeps asking them to verify.
-      //   before → the classic "check your inbox" screen, because no
-      //            workspace can exist until the link is clicked.
-      const policy = await fetchSignupPolicy();
+      // WHERE the new user lands is resolved server-side (otp/after/before).
+      const policyPromise = fetchSignupPolicy();
+      setLoading(false);
+      setSucceeded(true);
+      const [policy] = await Promise.all([policyPromise, new Promise(r => setTimeout(r, 1100))]);
       if (policy.gate === 'after') {
         // Gate `after` always lands in the workspace; the bottom banner
         // drives verification (code dialog in OTP mode, resend in link mode).
@@ -211,7 +209,7 @@ export default function SignupPage() {
               <SignupStepCompany
                 companyName={companyName} setCompanyName={setCompanyName}
                 websiteDomain={websiteDomain} setWebsiteDomain={setWebsiteDomain}
-                loading={loading} onSubmit={handleStep2} brandName={brandName}
+                loading={loading} succeeded={succeeded} onSubmit={handleStep2} brandName={brandName}
               />
             )}
           </div>

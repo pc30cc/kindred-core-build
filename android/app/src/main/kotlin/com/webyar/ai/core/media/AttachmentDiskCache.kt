@@ -154,15 +154,18 @@ class AttachmentDiskCache(
         val part = File(directory, "${final.name}$PART_SUFFIX${UUID.randomUUID().toString().take(8)}")
         try {
             download(part)
-        } catch (e: IOException) {
+        } catch (e: Throwable) {
             part.delete()
-            if (isDiskFull(e, directory)) {
+            // Looked for underneath as well as on top: the real download
+            // reports a failed write to [part] the way it reports any other
+            // transport failure, wrapped (`ApiError.Transport`), so matching
+            // a bare IOException alone never saw a full disk in production —
+            // only in the tests, which throw one bare.
+            val io = e as? IOException ?: e.cause as? IOException
+            if (io != null && isDiskFull(io, directory)) {
                 diag.warn(AREA, "disk full while caching ${Diag.id(attachment.id)}; trimming hard")
                 lock.withLock { trimTo((budget() * 0.5).toLong()) }
             }
-            throw e
-        } catch (e: Throwable) {
-            part.delete()
             throw e
         }
 
@@ -348,7 +351,9 @@ class AttachmentDiskCache(
 
     private fun isDiskFull(e: IOException, directory: File): Boolean =
         e.message?.contains("ENOSPC") == true || e.message?.contains("No space", ignoreCase = true) == true ||
-            directory.usableSpace < LOW_SPACE_BYTES
+            // A directory that is gone (a sign-out purged it mid-download)
+            // reports no usable space at all, which is not a full disk.
+            (directory.isDirectory && directory.usableSpace < LOW_SPACE_BYTES)
 
     companion object {
         private const val AREA = "Media"

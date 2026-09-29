@@ -74,6 +74,26 @@ class ChatOutboxTest {
         assertTrue("a delta, with a cursor", api.threadReads.last() != null)
     }
 
+    /**
+     * An operator event brings its system line only to a thread that is
+     * open. One that happened while another screen covered the chat is read
+     * as the chat comes back, not whenever something else next reads it.
+     */
+    @Test
+    fun `a chat back on screen reads what changed while it was covered`() = runTest(dispatcher) {
+        api.seed("c-1", 2)
+        val chat = model()
+        chat.open("c-1", "ws-1")
+        testScheduler.advanceUntilIdle()
+
+        chat.setVisible(false)
+        api.post("c-1", "Resolved by a colleague", SenderType.SYSTEM)
+        chat.setVisible(true)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(3, messages(chat).size)
+    }
+
     @Test
     fun `a message is on screen before the server has it, and the draft clears`() = runTest(dispatcher) {
         api.threads["c-1"] = mutableListOf()

@@ -471,6 +471,7 @@ const en = {
     signupStep2Title: 'Some details about your company',
     signupStep2Subtitle: 'Fill in your company information to continue (you can edit it later).',
     completeSignup: 'Complete sign up',
+    completingSignup: 'Signing you up…',
     emailInvalid: 'Please enter a valid email address',
     companyNameLabel: 'What is the name of your website?',
     companyNamePlaceholder: 'Acme Inc.',

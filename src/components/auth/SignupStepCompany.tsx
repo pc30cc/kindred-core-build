@@ -60,14 +60,29 @@ export default function SignupStepCompany({
         <p className="text-xs text-muted-foreground">{t('auth.websiteDomainHint')}</p>
       </div>
 
-      <Button type="submit" className="w-full h-12 text-base font-semibold gap-2" disabled={loading || !companyName.trim() || !websiteDomain.trim()}>
-        {loading ? (
-          <Loader2 className="w-4 h-4 animate-spin" />
+      <Button
+        type="submit"
+        className={`w-full h-12 text-base font-semibold gap-2 transition-all duration-300 disabled:opacity-100 ${succeeded ? 'bg-success hover:bg-success text-success-foreground' : ''}`}
+        disabled={loading || succeeded || !companyName.trim() || !websiteDomain.trim()}
+        aria-busy={loading}
+      >
+        {succeeded ? (
+          <span key="ok" className="flex items-center gap-2 animate-scale-in">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-success-foreground/20">
+              <Check className="w-4 h-4" strokeWidth={3} />
+            </span>
+            {t('auth.signupSuccess')}
+          </span>
+        ) : loading ? (
+          <span key="load" className="flex items-center gap-2 animate-fade-in">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            {t('auth.completingSignup')}
+          </span>
         ) : (
-          <>
+          <span key="idle" className="flex items-center gap-2">
+            <UserCheck className="w-5 h-5" />
             {t('auth.completeSignup')}
-            <ArrowRight className="w-4 h-4" />
-          </>
+          </span>
         )}
       </Button>
     </form>

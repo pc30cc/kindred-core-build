@@ -209,7 +209,7 @@ export default function SignupPage() {
               <SignupStepCompany
                 companyName={companyName} setCompanyName={setCompanyName}
                 websiteDomain={websiteDomain} setWebsiteDomain={setWebsiteDomain}
-                loading={loading} onSubmit={handleStep2} brandName={brandName}
+                loading={loading} succeeded={succeeded} onSubmit={handleStep2} brandName={brandName}
               />
             )}
           </div>

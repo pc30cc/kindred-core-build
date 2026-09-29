@@ -472,6 +472,7 @@ const tr: TranslationKeys = {
     signupStep1Subtitle: 'Devam etmek için ücretsiz hesabınızı oluşturun.',
     signupStep2Title: 'Şirketiniz hakkında bilgiler',
     signupStep2Subtitle: 'Şirket bilgilerinizi doldurun (daha sonra düzenleyebilirsiniz).',
+    completeSignup: 'Kaydı tamamla',
     emailInvalid: 'Lütfen geçerli bir e-posta adresi girin',
     companyNameLabel: 'Web sitenizin adı nedir?',
     companyNamePlaceholder: 'Şirketim A.Ş.',

@@ -9,7 +9,15 @@ WORKDIR /app
 # zip — used by scripts/build-woocommerce-plugin-zip.mjs (part of `npm run
 # build`) to package plugins/webyar-woocommerce/ into the downloadable
 # public/downloads/webyar-woocommerce.zip served by nginx.
-RUN apk add --no-cache zip
+# Retried with a fallback mirror: the deploy server's fetch of the
+# dl-cdn.alpinelinux.org index fails intermittently ("temporary error"),
+# which surfaced as "zip (no such package)" and failed the whole deploy.
+RUN for i in 1 2 3; do \
+      apk add --no-cache zip && exit 0; \
+      echo "apk add zip failed (attempt $i), retrying"; sleep 5; \
+    done; \
+    sed -i 's#https\?://dl-cdn.alpinelinux.org#https://mirror.leaseweb.com#' /etc/apk/repositories && \
+    apk add --no-cache zip
 
 COPY package.json bun.lockb* package-lock.json* ./
 RUN npm install --ignore-scripts

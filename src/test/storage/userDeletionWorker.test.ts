@@ -40,9 +40,17 @@ const WS_B = '33333333-3333-3333-3333-333333333333';
 const JOB_1 = '77777777-7777-7777-7777-777777777771';
 const ACTOR = '99999999-9999-9999-9999-999999999999';
 
-const { runScopeCleanupTickMock, userStorageScopesMock } = vi.hoisted(() => ({
+const { runScopeCleanupTickMock, userStorageScopesMock, resolveOwnerCdnMock, purgeOwnerFromCdnMock } = vi.hoisted(() => ({
   runScopeCleanupTickMock: vi.fn(),
   userStorageScopesMock: vi.fn(),
+  resolveOwnerCdnMock: vi.fn(async () => ({ provider: 'bunny', apiKey: 'k', hostname: 'cdn.example.com' })),
+  purgeOwnerFromCdnMock: vi.fn(async () => ({ ok: true as const, url: 'https://cdn.example.com/x*' })),
+}));
+
+vi.mock('../../../server/services/cdn/ownerPurge.js', () => ({
+  resolveOwnerCdn: resolveOwnerCdnMock,
+  purgeOwnerFromCdn: purgeOwnerFromCdnMock,
+  logOwnerCdnPurge: () => {},
 }));
 
 // runScopeCleanupTick already has full dedicated coverage
@@ -238,6 +246,8 @@ beforeEach(async () => {
   };
   runScopeCleanupTickMock.mockReset();
   runScopeCleanupTickMock.mockResolvedValue({ kind: 'advance' });
+  resolveOwnerCdnMock.mockClear();
+  purgeOwnerFromCdnMock.mockClear();
   userStorageScopesMock.mockReset();
   userStorageScopesMock.mockReturnValue([
     { name: 'default', resolve: async () => ({ configured: false, reason: 'not configured in this test' }) },
@@ -807,6 +817,36 @@ describe('lease fencing — a stale worker can never clobber a job reclaimed by 
     expect(currentJobRow().status).toBe('purging_user');
     expect(currentJobRow().purge_result).toBeNull(); // A never got to set this
     expect(currentJobRow().completed_at).toBeNull(); // A never got to set this
+  });
+});
+
+describe('CDN cache purge after the account purge', () => {
+  it('evicts the cached users/<id>/ objects (the avatar) once admin_delete_user has run', async () => {
+    const job = baseJob({ status: 'purging_user' });
+    db.user_deletion_jobs = [job as unknown as Row];
+    rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
+    rpcHandlers.admin_delete_user = () => ({ data: { deleted_user_id: USER_A }, error: null });
+
+    workerMod.startUserDeletionWorker({} as never);
+    await flush();
+
+    expect(resolveOwnerCdnMock).toHaveBeenCalledWith({});
+    expect(purgeOwnerFromCdnMock).toHaveBeenCalledWith(
+      { provider: 'bunny', apiKey: 'k', hostname: 'cdn.example.com' },
+      `users/${USER_A}/`,
+    );
+  });
+
+  it('never purges while storage cleanup is still in progress', async () => {
+    const job = baseJob({ status: 'purging_user' });
+    db.user_deletion_jobs = [job as unknown as Row];
+    rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
+    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'progress' });
+
+    workerMod.startUserDeletionWorker({} as never);
+    await flush();
+
+    expect(purgeOwnerFromCdnMock).not.toHaveBeenCalled();
   });
 });
 

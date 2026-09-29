@@ -45,7 +45,9 @@ const WS_A = '11111111-1111-1111-1111-111111111111';
 const JOB_1 = '77777777-7777-7777-7777-777777777771';
 const ACTOR = '99999999-9999-9999-9999-999999999999';
 
-const { runScopeCleanupTickMock, workspaceStorageScopesMock, stopRecordingMock, findActiveEgressForRoomMock } = vi.hoisted(() => ({
+const { runScopeCleanupTickMock, workspaceStorageScopesMock, stopRecordingMock, findActiveEgressForRoomMock, resolveOwnerCdnMock, purgeOwnerFromCdnMock } = vi.hoisted(() => ({
+  resolveOwnerCdnMock: vi.fn(async () => ({ provider: 'bunny', apiKey: 'k', hostname: 'cdn.example.com' })),
+  purgeOwnerFromCdnMock: vi.fn(async () => ({ ok: true as const, url: 'https://cdn.example.com/x*' })),
   runScopeCleanupTickMock: vi.fn<(ctx: ScopeCleanupContext) => Promise<ScopeCleanupOutcome>>(),
   workspaceStorageScopesMock: vi.fn<(config: unknown, workspaceId: string) => WorkspaceStorageScope[]>(),
   stopRecordingMock: vi.fn<(config: unknown, recordingId: string) => Promise<{ recordingId: string; status: string }>>(),
@@ -63,6 +65,12 @@ const { runScopeCleanupTickMock, workspaceStorageScopesMock, stopRecordingMock, 
 // real listing/dedup/verification/drift logic.
 vi.mock('../../../server/services/storage/scopeCleanupEngine.js', () => ({
   runScopeCleanupTick: runScopeCleanupTickMock,
+}));
+
+vi.mock('../../../server/services/cdn/ownerPurge.js', () => ({
+  resolveOwnerCdn: resolveOwnerCdnMock,
+  purgeOwnerFromCdn: purgeOwnerFromCdnMock,
+  logOwnerCdnPurge: () => {},
 }));
 
 vi.mock('../../../server/services/storage/workspaceScopes.js', () => ({
@@ -259,6 +267,8 @@ function currentJobRow(): Row {
 
 beforeEach(() => {
   for (const key of Object.keys(db)) delete db[key];
+  resolveOwnerCdnMock.mockClear();
+  purgeOwnerFromCdnMock.mockClear();
   runScopeCleanupTickMock.mockReset();
   workspaceStorageScopesMock.mockReset();
   workspaceStorageScopesMock.mockReturnValue([]);
@@ -783,6 +793,31 @@ describe('runDbCleanup', () => {
     expect(row.status).toBe('completed');
     expect(row.db_cleanup_completed_at).toBeTruthy();
     expect(row.completed_at).toBeTruthy();
+  });
+
+  it('purges the CDN cache for the workspace prefix after the DB purge, with the CDN config resolved before it', async () => {
+    db.workspace_deletion_jobs = [baseJob({ status: 'db_cleanup' })];
+
+    await runDbCleanup({} as never, baseJob({ status: 'db_cleanup' }));
+
+    expect(resolveOwnerCdnMock).toHaveBeenCalledWith({}, WS_A);
+    expect(purgeOwnerFromCdnMock).toHaveBeenCalledWith(
+      { provider: 'bunny', apiKey: 'k', hostname: 'cdn.example.com' },
+      `workspace/${WS_A}/`,
+    );
+    const resolveOrder = resolveOwnerCdnMock.mock.invocationCallOrder[0];
+    const purgeOrder = purgeOwnerFromCdnMock.mock.invocationCallOrder[0];
+    expect(resolveOrder).toBeLessThan(purgeOrder);
+  });
+
+  it('does not purge the CDN when the DB purge failed and the workspace still exists', async () => {
+    adminDeleteResponse = { data: null, error: { message: 'not authorized' } };
+    db.workspace_deletion_jobs = [baseJob({ status: 'db_cleanup', attempt_count: 1 })];
+    db.workspaces = [{ id: WS_A }];
+
+    await runDbCleanup({} as never, baseJob({ status: 'db_cleanup', attempt_count: 1 }));
+
+    expect(purgeOwnerFromCdnMock).not.toHaveBeenCalled();
   });
 
   it('retries with backoff (does not fail immediately) when the RPC errors and the workspace row still exists', async () => {

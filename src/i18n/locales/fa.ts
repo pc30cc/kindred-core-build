@@ -476,7 +476,7 @@ const fa: TranslationKeys = {
     companyNameLabel: 'نام وب‌سایت شما چیست؟',
     companyNamePlaceholder: 'وب‌سایت من',
     websiteDomainLabel: 'دامنه وب‌سایت شما چیست؟',
-    websiteDomainPlaceholder: 'www.yourcompany.com',
+    websiteDomainPlaceholder: 'yourcompany.com',
     websiteDomainHint: 'وارد کردن نام دامنه ضروری می‌باشد و بعد از ساخت فضای کاری قابل تغییر نخواهد بود.',
     goal_centralizeEmail: 'متمرکز کردن ایمیل‌هایم',
     goal_buildChatbot: 'ساخت چت‌بات',

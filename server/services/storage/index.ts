@@ -74,6 +74,8 @@ export interface StorageResult {
   url?: string;
   fileKey?: string;
   error?: string;
+  /** HTTP status of a failed provider call, when there was one (e.g. 403 for a refused credential). */
+  httpStatus?: number;
   /**
    * Per-replica outcome when the write was mirrored (see replicateUpload).
    * A failed mirror never fails the operation — the primary already holds
@@ -101,6 +103,8 @@ export interface ListResult {
    */
   nextCursor?: string | null;
   error?: string;
+  /** HTTP status of a failed provider call, when there was one (e.g. 403 for a refused credential). */
+  httpStatus?: number;
 }
 
 /**
@@ -333,7 +337,7 @@ async function bunnyDelete(config: StorageConfig, fileKey: string): Promise<Stor
     headers: { 'AccessKey': config.apiKey! },
   });
 
-  return { success: res.ok, error: res.ok ? undefined : `Delete failed: ${res.statusText}` };
+  return { success: res.ok, error: res.ok ? undefined : `Delete failed: ${res.statusText}`, httpStatus: res.ok ? undefined : res.status };
 }
 
 /**
@@ -382,7 +386,7 @@ async function bunnyList(config: StorageConfig, prefix: string): Promise<ListRes
     });
     if (!res.ok) {
       if (res.status === 404) continue; // empty/nonexistent directory — nothing under it
-      return { success: false, error: `BunnyCDN list failed: ${res.status} ${res.statusText}` };
+      return { success: false, error: `BunnyCDN list failed: ${res.status} ${res.statusText}`, httpStatus: res.status };
     }
     const entries = (await res.json().catch(() => [])) as BunnyListEntry[];
     for (const entry of entries) {
@@ -570,7 +574,7 @@ async function s3Delete(config: StorageConfig, fileKey: string): Promise<Storage
   const headers = signS3Request('DELETE', url, config);
 
   const res = await fetch(url, { method: 'DELETE', headers });
-  return { success: res.ok, error: res.ok ? undefined : `Delete failed: ${res.statusText}` };
+  return { success: res.ok, error: res.ok ? undefined : `Delete failed: ${res.statusText}`, httpStatus: res.ok ? undefined : res.status };
 }
 
 function s3GetUrl(config: StorageConfig, fileKey: string): string {
@@ -596,7 +600,7 @@ async function s3List(config: StorageConfig, prefix: string, cursor?: string): P
   const res = await fetch(url, { method: 'GET', headers });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    return { success: false, error: `S3 list failed: ${res.status} ${text.slice(0, 200)}` };
+    return { success: false, error: `S3 list failed: ${res.status} ${text.slice(0, 200)}`, httpStatus: res.status };
   }
   const xml = await res.text();
   const keys = extractXmlTags(xml, 'Key');

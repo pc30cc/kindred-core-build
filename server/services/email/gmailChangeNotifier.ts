@@ -54,11 +54,13 @@ async function processGmailChange(config: ServerConfig, integrationId: string): 
 
     let newMessages = 0;
     let newestThreadId: string | null = null;
+    let newestMessageId: string | null = null;
     let historyId: string | null = null;
     if (cursor) {
       const delta = await ga.listHistorySince(accessToken, cursor);
       newMessages = delta.messageIds.length;
       newestThreadId = delta.threadIds[delta.threadIds.length - 1] ?? null;
+      newestMessageId = delta.messageIds[delta.messageIds.length - 1] ?? null;
       historyId = delta.expired ? await ga.getProfileHistoryId(accessToken) : delta.historyId;
     } else {
       historyId = await ga.getProfileHistoryId(accessToken);
@@ -78,13 +80,14 @@ async function processGmailChange(config: ServerConfig, integrationId: string): 
       history_id: historyId,
     }, { skipConversationChannel: true });
 
-    if (newMessages > 0 && historyId && newestThreadId) {
+    if (newMessages > 0 && newestThreadId && newestMessageId) {
       // No from/subject/snippet: the notification names no email content,
       // only the (Gmail) thread id the app opens.
       await notifyEmailMessage(config, {
         workspaceId: integration.workspace_id,
         threadId: newestThreadId,
-        dedupeId: `gmail-${integration.id}-${historyId}`,
+        // Keyed on the mail itself: overlapping runs over the same new mail push once.
+        dedupeId: `gmail-${integration.id}-${newestMessageId}`,
       });
     }
   } catch (err) {

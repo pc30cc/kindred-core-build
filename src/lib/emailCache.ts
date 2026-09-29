@@ -41,6 +41,8 @@ export interface CacheEntry<T = unknown> {
 
 export type CacheMessage =
   | { type: 'stored'; scope: string; key: string }
+  /** Sent before a clear or drop starts, so other tabs stop in-flight writes first. */
+  | { type: 'invalidating' }
   | { type: 'dropped'; scope: string; keys: string[] }
   | { type: 'cleared'; scope: string | null };
 
@@ -120,6 +122,12 @@ export function cacheEpoch(): number {
   return epoch;
 }
 
+/** Stops every in-flight fetch, here and in other tabs, from writing its (now stale) result. */
+function invalidateInFlight(): void {
+  epoch++;
+  broadcast({ type: 'invalidating' });
+}
+
 // ─── Cross-tab channel ─────────────────────────────────────────────────
 
 let channel: BroadcastChannel | null = null;
@@ -132,7 +140,7 @@ function getChannel(): BroadcastChannel | null {
     channel = new BroadcastChannel(CHANNEL);
     channel.onmessage = (event) => {
       const msg = event.data as CacheMessage;
-      if (msg?.type === 'cleared') epoch++;
+      if (msg?.type === 'invalidating' || msg?.type === 'cleared' || msg?.type === 'dropped') epoch++;
       for (const listener of listeners) listener(msg);
     };
   } catch {
@@ -217,8 +225,24 @@ export async function patchEntry<T>(scope: string, key: string, patch: (value: T
   }
 }
 
+/** Rewrites every cached list page of a scope, e.g. to carry a label change. */
+export async function patchLists<T>(scope: string, patch: (value: T) => T): Promise<void> {
+  try {
+    const db = await openDb();
+    if (!db) return;
+    const entries = (await scopeEntries(db, scope)).filter((e) => e.key.startsWith(`${scope}|list|`));
+    if (!entries.length) return;
+    const tx = db.transaction(STORE, 'readwrite');
+    for (const entry of entries) tx.objectStore(STORE).put({ ...entry, value: patch(entry.value as T) });
+    await done(tx);
+  } catch {
+    /* best effort */
+  }
+}
+
 export async function dropEntries(scope: string, keys: string[]): Promise<void> {
   if (!keys.length) return;
+  invalidateInFlight();
   try {
     const db = await openDb();
     if (!db) return;
@@ -273,7 +297,7 @@ async function prune(scope: string): Promise<void> {
 
 /** Clears one mailbox scope, or every scope whose key starts with `prefix` (e.g. `${userId}|`). */
 export async function clearEmailCache(prefix: string | null): Promise<void> {
-  epoch++;
+  invalidateInFlight();
   try {
     const db = await openDb();
     if (!db) return;
@@ -297,6 +321,7 @@ export async function clearEmailCache(prefix: string | null): Promise<void> {
  * revoked, or a different mailbox connected), except `keepScope`.
  */
 export async function clearWorkspaceEmailCache(workspaceId: string, keepScope: string | null = null): Promise<void> {
+  invalidateInFlight();
   try {
     const db = await openDb();
     if (!db) return;
@@ -311,7 +336,6 @@ export async function clearWorkspaceEmailCache(workspaceId: string, keepScope: s
       }
     }
     await done(tx);
-    if (scopes.size) epoch++;
     for (const scope of scopes) broadcast({ type: 'cleared', scope });
   } catch {
     /* best effort */
@@ -335,11 +359,11 @@ export async function coordinatedFetch<T>(
   const attempt = async (): Promise<T> => {
     const cached = await readEntry<T>(key);
     if (cached) {
-      // A version match means the content is unchanged, however old; without
-      // a version to compare, only a recent copy counts.
-      if (opts.expectVersion ? cached.version === opts.expectVersion : Date.now() - cached.storedAt < opts.freshMs) {
-        return cached.value;
-      }
+      // A version match means the content is unchanged, however old. A copy
+      // another tab stored moments ago is current too, even if this tab's
+      // list row (and so its expected version) has not caught up yet.
+      const versionMatch = !!opts.expectVersion && cached.version === opts.expectVersion;
+      if (versionMatch || Date.now() - cached.storedAt < opts.freshMs) return cached.value;
     }
     const startedAt = cacheEpoch();
     const { value, version } = await fetcher();

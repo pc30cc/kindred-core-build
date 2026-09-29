@@ -220,7 +220,8 @@ extension WebyarAPI {
                 ["storageKey": a.storageKey, "filename": a.filename, "contentType": a.contentType, "sizeBytes": a.sizeBytes ?? 0]
             }
         }
-        try await client.call("POST", Self.mailbox(workspaceId) + "/send", body: payload)
+        // A Gmail reply is sent to Google within this request, attachments included.
+        try await client.call("POST", Self.mailbox(workspaceId) + "/send", body: payload, timeout: attachments.isEmpty ? 30 : 180)
     }
 
     /// The connected mailbox, for "connected as …"; nil when none (or no Gmail plugin).

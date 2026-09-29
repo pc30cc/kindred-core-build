@@ -240,8 +240,9 @@ function ThreadList({
   const { data, isLoading, isError, refetch, isFetching, isPlaceholderData, hasNextPage, fetchNextPage, isFetchingNextPage } =
     useEmailThreads(workspaceId, scope, { q: search || undefined, unread: unreadOnly || undefined });
   const threads = useMemo(() => data?.pages.flatMap((p) => p.threads) ?? [], [data]);
-  // Showing this device's copy while Gmail's current page loads.
-  const syncing = isPlaceholderData || (isFetching && !isFetchingNextPage);
+  // Live inbox: showing this device's copy while Gmail's current page loads.
+  // (Yahoo's background polls are not worth a label.)
+  const syncing = !!scope && (isPlaceholderData || (isFetching && !isFetchingNextPage));
   useEffect(() => {
     onRows(threads);
   }, [threads, onRows]);
@@ -424,6 +425,9 @@ function ReplyComposer({
   };
 
   const [sending, setSending] = useState(false);
+  // One id per reply, kept across retries until it goes out, so a retry after
+  // a timeout cannot send it twice.
+  const requestIdRef = useRef<string>(crypto.randomUUID());
   const handleSend = async () => {
     // Reading attachments happens before the request starts, so the
     // mutation's own pending flag would leave a window for a second click.
@@ -431,6 +435,7 @@ function ReplyComposer({
     setSending(true);
     try {
       await sendEmailMutation.mutateAsync({
+        clientRequestId: requestIdRef.current,
         threadId,
         to: defaultTo,
         subject: defaultSubject,
@@ -447,6 +452,7 @@ function ReplyComposer({
       });
       setHtml('');
       setAttachments([]);
+      requestIdRef.current = crypto.randomUUID();
       toast({ title: t('emailInbox.sent' as any) });
     } catch {
       toast({ title: t('emailInbox.sendFailed' as any), variant: 'destructive' });
@@ -565,14 +571,22 @@ function ComposeDialog({ workspaceId, scope, open, onOpenChange }: { workspaceId
   const [subject, setSubject] = useState('');
   const [html, setHtml] = useState('');
   const sendEmailMutation = useSendEmail(workspaceId, scope);
+  const requestIdRef = useRef<string>(crypto.randomUUID());
 
   const plainText = useMemo(() => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), [html]);
   const toList = useMemo(() => to.split(',').map((s) => s.trim()).filter(Boolean), [to]);
 
   const handleSend = async () => {
-    if (!toList.length || !subject.trim() || !plainText) return;
+    if (!toList.length || !subject.trim() || !plainText || sendEmailMutation.isPending) return;
     try {
-      await sendEmailMutation.mutateAsync({ to: toList, subject: subject.trim(), textBody: plainText, htmlBody: html });
+      await sendEmailMutation.mutateAsync({
+        clientRequestId: requestIdRef.current,
+        to: toList,
+        subject: subject.trim(),
+        textBody: plainText,
+        htmlBody: html,
+      });
+      requestIdRef.current = crypto.randomUUID();
       setTo(''); setSubject(''); setHtml('');
       onOpenChange(false);
       toast({ title: t('emailInbox.sent' as any) });
@@ -625,8 +639,8 @@ export default function EmailInboxPage() {
     setRows(new Map(threads.map((t) => [t.id, t])));
   }, []);
 
-  const { data: gmailConnectionData, isLoading: gmailConnectionLoading } = useGmailConnection(workspaceId);
-  const { data: yahooConnectionData, isLoading: yahooConnectionLoading } = useYahooConnection(workspaceId);
+  const { data: gmailConnectionData, isLoading: gmailConnectionLoading, isSuccess: gmailConnectionKnown } = useGmailConnection(workspaceId);
+  const { data: yahooConnectionData, isLoading: yahooConnectionLoading, isSuccess: yahooConnectionKnown } = useYahooConnection(workspaceId);
 
   // A workspace connects at most one provider at a time today; Gmail wins the
   // (currently impossible) tie-break. A connected Gmail inbox is read live.
@@ -644,10 +658,12 @@ export default function EmailInboxPage() {
 
   // Keep only the connected mailbox's copy on this device: a disconnect (seen
   // from any device), a revoked grant or a different mailbox drops the rest.
-  const connectionsLoaded = !!workspaceId && !gmailConnectionLoading && !yahooConnectionLoading;
+  // Only on answers the server actually gave: a failed or offline lookup
+  // says nothing about the connection and must not wipe the cache.
+  const connectionsKnown = !!workspaceId && gmailConnectionKnown && yahooConnectionKnown && !!user?.id;
   useEffect(() => {
-    if (connectionsLoaded && workspaceId) void clearWorkspaceEmailCache(workspaceId, scope);
-  }, [connectionsLoaded, workspaceId, scope]);
+    if (connectionsKnown && workspaceId) void clearWorkspaceEmailCache(workspaceId, scope);
+  }, [connectionsKnown, workspaceId, scope]);
 
   const openRow = threadId ? rows.get(threadId) : undefined;
   const openRowView = useMemo(

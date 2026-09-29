@@ -228,6 +228,15 @@ describe('a new email', () => {
     expect(`${mine.title} ${mine.body}`).not.toContain('Invoice');
     expect(`${mine.title} ${mine.body}`).not.toContain('ali@');
   });
+
+  it('from a live Gmail inbox: no stored row, no content, still names the thread', async () => {
+    await dispatch.notifyEmailMessage(CONFIG, { workspaceId: WS, threadId: '18c3f4a5b6c7d8e9', dedupeId: 'gmail-int-1-18c3f4a5b6c7d8ea' });
+    const mine = sent.fcm.find((m) => m.token === `token-${ME}`)!;
+    expect(mine.data).toEqual({ type: 'email_message', workspaceId: WS, threadId: '18c3f4a5b6c7d8e9' });
+    const log = db.push_dispatch_log.find((r: { user_id?: string }) => r.user_id === ME) as { message_id?: unknown; dedupe_key?: string } | undefined;
+    expect(log?.message_id ?? null).toBeNull();
+    expect(log?.dedupe_key).toBe('email_message:gmail-int-1-18c3f4a5b6c7d8ea');
+  });
 });
 
 describe('a callback request', () => {

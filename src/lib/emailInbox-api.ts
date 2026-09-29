@@ -113,7 +113,7 @@ export function listEmailThreads(
 }
 
 export function getEmailChanges(workspaceId: string, since: string) {
-  return api<{ historyId: string | null; threadIds: string[]; reset: boolean }>(
+  return api<{ historyId: string | null; threadIds: string[]; contentThreadIds?: string[]; reset: boolean }>(
     `/api/email-inbox/${workspaceId}/changes${qs({ since })}`,
   );
 }
@@ -161,6 +161,8 @@ export interface SendEmailInput {
   textBody: string;
   htmlBody?: string | null;
   attachments?: StagedEmailAttachment[];
+  /** Live (Gmail) inbox: the same id on a retry keeps one reply from going out twice. */
+  clientRequestId?: string;
   /** Live (Gmail) inbox: files sent with the reply itself, never stored. */
   inlineAttachments?: Array<{ filename: string; contentType: string; dataBase64: string }>;
 }
@@ -177,6 +179,7 @@ export function sendEmail(workspaceId: string, input: SendEmailInput) {
       text_body: input.textBody,
       html_body: input.htmlBody,
       attachments: input.attachments,
+      client_request_id: input.clientRequestId,
       inline_attachments: input.inlineAttachments?.map((a) => ({
         filename: a.filename,
         content_type: a.contentType,

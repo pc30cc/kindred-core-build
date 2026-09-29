@@ -2,12 +2,13 @@
  * React Query hooks for the Email Inbox feature (Gmail today, Yahoo Mail
  * planned) — mirrors useSeo.ts's shape.
  */
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { resolveClientRealtimeProvider } from '@/realtime';
 import type { RealtimeSubscription } from '@/realtime/types';
 import {
   asLeader,
+  cacheEpoch,
   clearEmailCache,
   clearWorkspaceEmailCache,
   coordinatedFetch,
@@ -16,6 +17,7 @@ import {
   dropLists,
   dropThreads,
   patchEntry,
+  patchLists,
   listKey,
   onEmailCacheMessage,
   readEntry,
@@ -102,10 +104,11 @@ export function useEmailThreads(workspaceId: string | undefined, scope: string |
       };
       try {
         if (!scope) return (await fetchPage()).value;
+        const startedAt = cacheEpoch();
         const page = await coordinatedFetch(scope, listKey(scope, `${filter}|${pageParam}`), fetchPage, { freshMs: LIST_FRESH_MS });
         if (!pageParam && page.historyId) {
           const current = await readEntry<string>(cursorKey(scope));
-          if (!current) await writeEntry(scope, cursorKey(scope), page.historyId, page.historyId);
+          if (!current) await writeEntry(scope, cursorKey(scope), page.historyId, page.historyId, startedAt);
         }
         return page;
       } catch (err) {
@@ -136,6 +139,11 @@ export function useEmailThread(
   row: (ThreadFlags & { version: string | null }) | null = null,
 ) {
   const expectVersion = row?.version ?? null;
+  // Read by the query function at fetch time: the key stays stable when the
+  // row changes, so an open thread (and a reply being typed under it) is never
+  // swapped for an empty query — it refetches in place instead (below).
+  const expectVersionRef = useRef(expectVersion);
+  expectVersionRef.current = expectVersion;
   const key = scope && threadId ? threadKey(scope, threadId) : null;
   const cached = useQuery({
     queryKey: ['email-inbox-thread-cache', key],
@@ -145,8 +153,8 @@ export function useEmailThread(
     gcTime: 60_000,
   });
 
-  return useQuery({
-    queryKey: ['email-inbox-thread', workspaceId, threadId, scope, expectVersion],
+  const query = useQuery({
+    queryKey: ['email-inbox-thread', workspaceId, threadId, scope],
     queryFn: async () => {
       const fetchThread = async () => {
         const detail = await getEmailThread(workspaceId!, threadId!);
@@ -156,7 +164,7 @@ export function useEmailThread(
         if (!scope) return (await fetchThread()).value;
         return await coordinatedFetch(scope, threadKey(scope, threadId!), fetchThread, {
           freshMs: THREAD_FRESH_MS,
-          expectVersion,
+          expectVersion: expectVersionRef.current,
         });
       } catch (err) {
         forgetOnRevoked(err, scope);
@@ -169,6 +177,21 @@ export function useEmailThread(
     select: (data: ThreadDetail) =>
       row ? { ...data, thread: { ...data.thread, isRead: row.isRead, isStarred: row.isStarred } } : data,
   });
+
+  // The list row now says the thread has other messages than the ones shown:
+  // re-read it (from another tab's fresh copy, or Gmail) without blanking it.
+  // Once per new row version, so a row that never matches cannot loop.
+  const shownVersion = query.data ? threadBodyVersion(query.data.thread) : null;
+  const refetchedFor = useRef<string | null>(null);
+  const { refetch, isFetching } = query;
+  useEffect(() => {
+    if (!scope || !expectVersion || !shownVersion || expectVersion === shownVersion || isFetching) return;
+    if (refetchedFor.current === expectVersion) return;
+    refetchedFor.current = expectVersion;
+    void refetch();
+  }, [scope, expectVersion, shownVersion, isFetching, refetch]);
+
+  return query;
 }
 
 /**
@@ -194,7 +217,7 @@ export function useEmailMailboxSync(workspaceId: string | undefined, scope: stri
       });
 
     const offCache = onEmailCacheMessage((msg) => {
-      if (msg.type === 'stored') return;
+      if (msg.type === 'stored' || msg.type === 'invalidating') return;
       if (msg.scope === null || msg.scope === scope) {
         refreshLists();
         if (msg.type === 'cleared') refreshThreads(null);
@@ -223,18 +246,27 @@ export function useEmailMailboxSync(workspaceId: string | undefined, scope: stri
             return;
           }
           try {
+            const startedAt = cacheEpoch();
             const changes = await getEmailChanges(workspaceId, cursor);
-            if (changes.historyId) await writeEntry(scope, cursorKey(scope), changes.historyId, changes.historyId);
+            if (changes.historyId) await writeEntry(scope, cursorKey(scope), changes.historyId, changes.historyId, startedAt);
             if (changes.reset) {
               await dropLists(scope);
               await dropThreads(scope);
               refreshLists();
               refreshThreads(null);
-            } else if (changes.threadIds.length) {
-              await dropEntries(scope, changes.threadIds.map((id) => threadKey(scope, id)));
+              return;
+            }
+            // Only added/removed messages outdate a cached body; read/star
+            // (including this app's own mark-as-read echoing back) only
+            // change list rows, which carry those flags.
+            const contentIds = changes.contentThreadIds ?? changes.threadIds;
+            if (contentIds.length) {
+              await dropEntries(scope, contentIds.map((id) => threadKey(scope, id)));
+              refreshThreads(contentIds);
+            }
+            if (changes.threadIds.length) {
               await dropLists(scope);
               refreshLists();
-              refreshThreads(changes.threadIds);
             }
           } catch (err) {
             forgetOnRevoked(err, scope);
@@ -250,13 +282,16 @@ export function useEmailMailboxSync(workspaceId: string | undefined, scope: stri
     void (async () => {
       const provider = await resolveClientRealtimeProvider(workspaceId);
       if (cancelled) return;
+      // The polling/disabled adapters report 'open' but deliver no events:
+      // only a push transport replaces the fallback check.
+      const pushCapable = provider.vendor === 'centrifugo' || provider.vendor === 'supabase';
       const sub = await provider.subscribe(`ws:${workspaceId}:inbox`, {
         onEvent: (payload) => {
           if (payload?.kind === 'email_mailbox_changed' && payload.workspace_id === workspaceId) onChanged();
         },
         onStatus: (status) => {
           const wasOpen = realtimeOpen;
-          realtimeOpen = status === 'open';
+          realtimeOpen = pushCapable && status === 'open';
           // Catch up on anything missed while the connection was down.
           if (realtimeOpen && !wasOpen && everOpened) onChanged();
           if (realtimeOpen) everOpened = true;
@@ -294,6 +329,10 @@ function patchThreadEverywhere(
   );
   if (scope) {
     void patchEntry<ThreadDetail>(scope, threadKey(scope, threadId), (v) => ({ ...v, thread: { ...v.thread, ...patch } }));
+    void patchLists<EmailThreadPage>(scope, (page) => ({
+      ...page,
+      threads: page.threads.map((t) => (t.id === threadId ? { ...t, ...patch } : t)),
+    }));
   }
 }
 

@@ -171,10 +171,16 @@ function rethrowLive(err: unknown): never {
   throw err;
 }
 
-/** Gmail's live integration for this workspace, or null when the inbox is table-backed (Yahoo). */
+/**
+ * Gmail's live integration for this workspace, or null when the inbox is
+ * table-backed (Yahoo connected). With no mailbox connected — including a
+ * Gmail grant marked errored — nothing is served: rows imported from Gmail
+ * before it went live are never an inbox.
+ */
 async function liveGmail(config: ServerConfig, workspaceId: string): Promise<ChannelIntegration | null> {
   const integration = await connectedIntegrationOrNull(config, workspaceId);
-  return integration?.provider === 'gmail' ? integration : null;
+  if (!integration) throw new EmailInboxError('email_not_connected');
+  return integration.provider === 'gmail' ? integration : null;
 }
 
 export async function listThreads(
@@ -430,9 +436,9 @@ export async function listChanges(
   config: ServerConfig,
   workspaceId: string,
   sinceHistoryId: string,
-): Promise<{ historyId: string | null; threadIds: string[]; reset: boolean }> {
+): Promise<{ historyId: string | null; threadIds: string[]; contentThreadIds: string[]; reset: boolean }> {
   const gmail = await liveGmail(config, workspaceId);
-  if (!gmail) return { historyId: null, threadIds: [], reset: true };
+  if (!gmail) return { historyId: null, threadIds: [], contentThreadIds: [], reset: true };
   try {
     return await listGmailChanges(config, gmail, sinceHistoryId);
   } catch (err) {
@@ -455,13 +461,14 @@ export interface InlineAttachment {
 export async function sendLiveGmail(
   config: ServerConfig,
   workspaceId: string,
-  input: Omit<ComposeReplyInput, 'attachments'> & { attachments?: InlineAttachment[] },
+  input: Omit<ComposeReplyInput, 'attachments'> & { attachments?: InlineAttachment[]; clientRequestId?: string | null },
 ): Promise<{ messageId: string; threadId: string }> {
   if (!input.to.length) throw new EmailInboxError('email_missing_recipient');
   const gmail = await liveGmail(config, workspaceId);
   if (!gmail) throw new EmailInboxError('email_not_connected');
   try {
     return await sendGmail(config, gmail, {
+      clientRequestId: input.clientRequestId,
       threadId: input.threadId,
       to: input.to,
       cc: input.cc,

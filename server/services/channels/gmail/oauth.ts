@@ -256,4 +256,9 @@ export async function getGmailAccessToken(config: ServerConfig, installationId: 
   return tokens.accessToken;
 }
 
+/** Forgets a cached access token (e.g. after Gmail rejected it with a 401). */
+export function evictGmailAccessToken(installationId: string): void {
+  accessTokenCache.delete(installationId);
+}
+
 export { pluginCryptoReady };

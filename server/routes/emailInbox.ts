@@ -219,6 +219,8 @@ const sendSchema = z.object({
     contentType: z.string(),
     sizeBytes: z.number(),
   })).optional(),
+  // Live (Gmail) inbox only: a retry with the same id does not send twice.
+  client_request_id: z.string().min(8).max(100).regex(/^[A-Za-z0-9-]+$/).optional(),
   // Live (Gmail) inbox only: bytes sent with the reply, never stored.
   inline_attachments: z.array(z.object({
     filename: z.string().min(1).max(200),
@@ -258,6 +260,7 @@ emailInboxRouter.post('/:workspaceId/send', async (req, res) => {
       const total = inline.reduce((sum, a) => sum + a.bytes.byteLength, 0);
       if (total > MAX_INLINE_ATTACHMENT_BYTES) return res.status(413).json({ error: 'attachments_too_large' });
       const result = await sendLiveGmail(config, workspaceId, {
+        clientRequestId: parsed.data.client_request_id ?? null,
         threadId: parsed.data.thread_id ?? null,
         to: parsed.data.to,
         cc: parsed.data.cc,

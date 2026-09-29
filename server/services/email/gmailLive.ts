@@ -18,7 +18,8 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { updateIntegration, type ChannelIntegration } from '../channels/integrations.js';
-import { getGmailAccessToken } from '../channels/gmail/oauth.js';
+import { createHash } from 'node:crypto';
+import { getGmailAccessToken, evictGmailAccessToken } from '../channels/gmail/oauth.js';
 import { getGmailOAuthConfig } from '../channels/gmail/oauthConfig.js';
 import { GmailError } from '../channels/gmail/types.js';
 import {
@@ -87,7 +88,8 @@ const METADATA_CONCURRENCY = 8;
 
 function adapter(): GmailAdapter {
   const cfg = getGmailOAuthConfig();
-  if (!cfg) throw new GmailLiveError('email_not_connected');
+  // A platform without Google OAuth configured is an outage, not this mailbox's fault.
+  if (!cfg) throw new GmailLiveError('email_provider_error', 'gmail_not_configured');
   return createGmailAdapter(cfg);
 }
 
@@ -119,13 +121,20 @@ function isQuota(err: GmailError): boolean {
   return err.code === 'gmail_rate_limited' || /rate ?limit|quota|limit exceeded/i.test(err.detail || '');
 }
 
-function isRevoked(err: GmailError): boolean {
+/**
+ * The user's grant is gone: the refresh token was revoked or expired
+ * (token endpoint `invalid_grant`), or the Gmail scope was not granted.
+ * Platform-side failures (`invalid_client`, a missing config) are not this.
+ */
+function isGrantRevoked(err: GmailError): boolean {
   const detail = err.detail || '';
   if (err.code === 'gmail_not_connected' || err.code === 'gmail_token_revoked' || err.code === 'gmail_insufficient_scope') return true;
-  // The token endpoint answers a revoked/expired refresh token with 400 invalid_grant.
-  if (/oauth2\.googleapis\.com\/token/.test(detail) && /invalid_grant/.test(detail)) return true;
-  // A 401 from Gmail right after minting a token means the grant is gone.
-  return err.code === 'gmail_auth_failed' && /^Google 401\b/.test(detail);
+  return /oauth2\.googleapis\.com\/token/.test(detail) && /invalid_grant/.test(detail);
+}
+
+/** Gmail rejected the access token itself (401 from the API, not the token endpoint). */
+function isApiUnauthorized(err: unknown): boolean {
+  return err instanceof GmailError && err.code === 'gmail_auth_failed' && /^Google 401 @ https:\/\/gmail\.googleapis\.com/.test(err.detail || '');
 }
 
 function classify(err: unknown): GmailLiveError {
@@ -133,7 +142,7 @@ function classify(err: unknown): GmailLiveError {
   if (err instanceof GmailError) {
     const detail = err.detail || '';
     if (isQuota(err)) return new GmailLiveError('email_rate_limited');
-    if (isRevoked(err)) return new GmailLiveError('email_not_connected', err.message);
+    if (isGrantRevoked(err) || isApiUnauthorized(err)) return new GmailLiveError('email_not_connected', err.message);
     if (/^Gmail 404\b/.test(detail) || (/^Gmail 400\b/.test(detail) && /invalid id value/i.test(detail))) {
       return new GmailLiveError('email_thread_not_found');
     }
@@ -142,9 +151,13 @@ function classify(err: unknown): GmailLiveError {
 }
 
 /**
- * Runs one Gmail operation with a fresh access token and maps its failure.
- * A revoked grant also marks the integration as errored, so every app sees
- * the mailbox as disconnected (and clears what it cached) instead of retrying.
+ * Runs one Gmail operation with an access token and maps its failure.
+ *
+ * A 401 from Gmail on a cached token (revoked elsewhere, or reissued after a
+ * reconnect on another instance) drops that token and retries once with a
+ * fresh one. Only a grant the token endpoint itself refuses marks the
+ * integration errored, so every app shows the mailbox disconnected and clears
+ * its cache instead of retrying.
  */
 async function withGmail<T>(
   config: ServerConfig,
@@ -153,11 +166,16 @@ async function withGmail<T>(
 ): Promise<T> {
   try {
     const ga = adapter();
-    const accessToken = await getGmailAccessToken(config, integration.installation_id);
-    return await run(ga, accessToken);
+    try {
+      return await run(ga, await getGmailAccessToken(config, integration.installation_id));
+    } catch (err) {
+      if (!isApiUnauthorized(err)) throw err;
+      evictGmailAccessToken(integration.installation_id);
+      return await run(ga, await getGmailAccessToken(config, integration.installation_id));
+    }
   } catch (err) {
     const mapped = classify(err);
-    if (mapped.code === 'email_not_connected') {
+    if (err instanceof GmailError && isGrantRevoked(err)) {
       await updateIntegration(config, integration.id, {
         status: 'error',
         last_error_code: 'gmail_token_revoked',
@@ -172,13 +190,20 @@ function isNotFound(err: unknown): boolean {
   return err instanceof GmailError && /^Gmail 404\b/.test(err.detail || '');
 }
 
+/** Bounded fan-out; the first failure stops the remaining work. */
 async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
   let next = 0;
+  let failed = false;
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
+    while (next < items.length && !failed) {
       const index = next++;
-      out[index] = await fn(items[index]);
+      try {
+        out[index] = await fn(items[index]);
+      } catch (err) {
+        failed = true;
+        throw err;
+      }
     }
   });
   await Promise.all(workers);
@@ -190,10 +215,12 @@ function toIso(internalDate: string | null): string | null {
   return internalDate && Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
 
-/** Messages the inbox shows: drafts are the user's unsent work, not mail. */
+/** Messages the inbox shows: not drafts (unsent work), not trashed or spam messages of an inbox thread. */
+const HIDDEN_LABELS = ['DRAFT', 'TRASH', 'SPAM'];
+
 function visibleMessages(raw: Record<string, unknown>): ParsedGmailMessage[] {
   const rawMessages = (Array.isArray(raw.messages) ? raw.messages : []) as Record<string, unknown>[];
-  return rawMessages.map(parseGmailMessage).filter((m) => !m.labelIds.includes('DRAFT'));
+  return rawMessages.map(parseGmailMessage).filter((m) => !m.labelIds.some((l) => HIDDEN_LABELS.includes(l)));
 }
 
 function summarize(raw: Record<string, unknown>, fallbackSnippet: string | null): LiveThreadSummary | null {
@@ -260,16 +287,19 @@ export async function listGmailThreads(
   }));
 }
 
-// Attachment ids: `p<partId>~<messageId>`. The MIME part id is stable for a
-// message, unlike Gmail's attachmentId, which is reissued on every read. It
-// comes first so ids of different attachments differ from the first
-// characters (apps key file caches on a prefix). '~' never appears in either.
+// Attachment ids: `<hash>-p<partId>~<messageId>`. The MIME part id is stable
+// for a message, unlike Gmail's attachmentId, which is reissued on every
+// read; the root part of a single-part message has partId "". The short hash
+// of both comes first so ids differ from their first characters (Android
+// keys its file cache on a 12-character prefix). '~' and '-p' never appear
+// in the parts they separate.
 function attachmentKey(gmailMessageId: string, partId: string): string {
-  return `p${partId}~${gmailMessageId}`;
+  const hash = createHash('sha256').update(`${gmailMessageId}:${partId}`).digest('hex').slice(0, 12);
+  return `${hash}-p${partId}~${gmailMessageId}`;
 }
 
 function parseAttachmentKey(id: string): { gmailMessageId: string; partId: string } | null {
-  const match = /^p([0-9.]+)~([0-9a-f]{1,32})$/i.exec(id);
+  const match = /^(?:[0-9a-f]{12}-)?p([0-9.]*)~([0-9a-f]{1,32})$/i.exec(id);
   return match ? { partId: match[1], gmailMessageId: match[2] } : null;
 }
 
@@ -293,7 +323,7 @@ function messageView(workspaceId: string, m: ParsedGmailMessage): LiveMessageVie
     deliveryStatus: 'sent',
     deliveryError: null,
     sentAt: toIso(m.internalDate) || new Date(0).toISOString(),
-    attachments: m.attachments.filter((a) => a.partId).map((a) => {
+    attachments: m.attachments.map((a) => {
       const id = attachmentKey(m.id, a.partId);
       const path = attachmentPath(workspaceId, id);
       return {
@@ -366,26 +396,36 @@ export async function setGmailThreadStarred(config: ServerConfig, integration: C
 // ─── Incremental changes ───────────────────────────────────────────────
 
 /**
- * Thread ids changed since the client's cursor. `reset` means the cursor is
- * too old (or the delta too large): the client reloads page one.
+ * Thread ids changed since the client's cursor: `threadIds` for any change,
+ * `contentThreadIds` for those whose messages were added or removed (only
+ * these invalidate a cached body; label changes such as read/star do not).
+ * `reset` means the cursor is too old (or the delta too large): the client
+ * reloads page one.
  */
 export async function listGmailChanges(
   config: ServerConfig,
   integration: ChannelIntegration,
   sinceHistoryId: string,
-): Promise<{ historyId: string | null; threadIds: string[]; reset: boolean }> {
+): Promise<{ historyId: string | null; threadIds: string[]; contentThreadIds: string[]; reset: boolean }> {
   return singleFlight(`changes:${integration.id}:${sinceHistoryId}`, () => withGmail(config, integration, async (ga, accessToken) => {
     const result = await ga.listChangedThreadIds(accessToken, sinceHistoryId);
     if (result.expired || result.truncated) {
-      return { historyId: await ga.getProfileHistoryId(accessToken), threadIds: [], reset: true };
+      return { historyId: await ga.getProfileHistoryId(accessToken), threadIds: [], contentThreadIds: [], reset: true };
     }
-    return { historyId: result.historyId ?? sinceHistoryId, threadIds: result.threadIds, reset: false };
+    return {
+      historyId: result.historyId ?? sinceHistoryId,
+      threadIds: result.threadIds,
+      contentThreadIds: result.contentThreadIds,
+      reset: false,
+    };
   }));
 }
 
 // ─── Send (synchronous; the reply exists only in the request) ──────────
 
 export interface GmailSendInput {
+  /** Client-chosen key for this reply: a retry with the same key within SEND_REPLAY_MS gets the first result, not a second email. */
+  clientRequestId?: string | null;
   threadId: string | null;
   to: string[];
   cc?: string[];
@@ -396,7 +436,33 @@ export interface GmailSendInput {
   attachments?: Array<{ filename: string; contentType: string; bytes: Buffer }>;
 }
 
+// A send the client gave up on (timeout, dropped connection) may still have
+// gone out; its retry must not send the mail twice. Results are kept by
+// client request id for a few minutes, in this process only — ids, not content.
+const SEND_REPLAY_MS = 10 * 60 * 1000;
+const recentSends = new Map<string, { at: number; result: Promise<{ messageId: string; threadId: string }> }>();
+
 export async function sendGmail(
+  config: ServerConfig,
+  integration: ChannelIntegration,
+  input: GmailSendInput,
+  subjectForReply: (subject: string) => string,
+): Promise<{ messageId: string; threadId: string }> {
+  const now = Date.now();
+  for (const [key, entry] of recentSends) if (now - entry.at > SEND_REPLAY_MS) recentSends.delete(key);
+  const replayKey = input.clientRequestId ? `${integration.id}:${input.clientRequestId}` : null;
+  const previous = replayKey ? recentSends.get(replayKey) : undefined;
+  if (previous) return previous.result;
+  const result = sendGmailOnce(config, integration, input, subjectForReply);
+  if (replayKey) {
+    recentSends.set(replayKey, { at: now, result });
+    // A definite failure may be retried for real.
+    result.catch(() => recentSends.delete(replayKey));
+  }
+  return result;
+}
+
+async function sendGmailOnce(
   config: ServerConfig,
   integration: ChannelIntegration,
   input: GmailSendInput,

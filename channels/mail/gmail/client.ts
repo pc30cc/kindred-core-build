@@ -848,8 +848,10 @@ export function createGmailAdapter(config: GmailOAuthConfig, options: GmailAdapt
     accessToken: string,
     startHistoryId: string,
     maxPages = 5,
-  ): Promise<{ historyId: string | null; threadIds: string[]; expired: boolean; truncated: boolean }> {
+  ): Promise<{ historyId: string | null; threadIds: string[]; contentThreadIds: string[]; expired: boolean; truncated: boolean }> {
     const threadIds = new Set<string>();
+    // Threads whose messages were added or removed; the rest only changed labels.
+    const contentThreadIds = new Set<string>();
     let pageToken: string | undefined;
     let latestHistoryId: string | null = null;
     for (let page = 0; page < maxPages; page++) {
@@ -862,7 +864,7 @@ export function createGmailAdapter(config: GmailOAuthConfig, options: GmailAdapt
         }, fetchImpl, timeoutMs)) as Record<string, unknown>;
       } catch (err) {
         if (err instanceof GmailError && err.code === 'gmail_provider_error' && /404/.test(err.detail || '')) {
-          return { historyId: null, threadIds: [], expired: true, truncated: false };
+          return { historyId: null, threadIds: [], contentThreadIds: [], expired: true, truncated: false };
         }
         throw err;
       }
@@ -871,14 +873,18 @@ export function createGmailAdapter(config: GmailOAuthConfig, options: GmailAdapt
         for (const key of ['messages', 'messagesAdded', 'messagesDeleted', 'labelsAdded', 'labelsRemoved']) {
           for (const item of (Array.isArray(entry[key]) ? entry[key] : []) as Record<string, unknown>[]) {
             const msg = (key === 'messages' ? item : item.message) as Record<string, unknown> | undefined;
-            if (typeof msg?.threadId === 'string') threadIds.add(msg.threadId);
+            if (typeof msg?.threadId !== 'string') continue;
+            threadIds.add(msg.threadId);
+            if (key === 'messagesAdded' || key === 'messagesDeleted') contentThreadIds.add(msg.threadId);
           }
         }
       }
       pageToken = typeof json.nextPageToken === 'string' ? json.nextPageToken : undefined;
-      if (!pageToken) return { historyId: latestHistoryId, threadIds: Array.from(threadIds), expired: false, truncated: false };
+      if (!pageToken) {
+        return { historyId: latestHistoryId, threadIds: Array.from(threadIds), contentThreadIds: Array.from(contentThreadIds), expired: false, truncated: false };
+      }
     }
-    return { historyId: latestHistoryId, threadIds: Array.from(threadIds), expired: false, truncated: true };
+    return { historyId: latestHistoryId, threadIds: Array.from(threadIds), contentThreadIds: Array.from(contentThreadIds), expired: false, truncated: true };
   }
 
   return {

@@ -3,15 +3,17 @@ import { LoopVideo } from '@/components/site/LoopVideo';
 import callerWoman from '@/assets/caller-woman.jpg';
 import operatorMan from '@/assets/operator-man.jpg';
 import { useTranslation } from '@/i18n';
-import { siApple, siAndroid, siMacos, siPwa, siWoocommerce, siWordpress } from 'simple-icons';
-import { ShoppingCart, Server, PhoneCall } from 'lucide-react';
+import { siApple, siAndroid, siMacos, siPwa, siWoocommerce, siWordpress, siTelegram, siWhatsapp, siInstagram } from 'simple-icons';
+import { ShoppingCart, Server } from 'lucide-react';
 
 const PLUGINS = [
   { label: 'WordPress', fa: 'وردپرس', path: siWordpress.path, color: `#${siWordpress.hex}` },
   { label: 'WooCommerce', fa: 'ووکامرس', path: siWoocommerce.path, color: `#${siWoocommerce.hex}` },
   { label: 'OpenCart', fa: 'اپن‌کارت', Icon: ShoppingCart, color: '#23A1D1' },
   { label: 'WHMCS', fa: 'WHMCS', Icon: Server, color: '#4B8C2C' },
-  { label: 'DaftareShoma', fa: 'دفتر شما', Icon: PhoneCall, color: '#E4572E' },
+  { label: 'Telegram', fa: 'تلگرام', path: siTelegram.path, color: `#${siTelegram.hex}` },
+  { label: 'WhatsApp', fa: 'واتس‌اپ', path: siWhatsapp.path, color: `#${siWhatsapp.hex}` },
+  { label: 'Instagram', fa: 'اینستاگرام', path: siInstagram.path, color: `#${siInstagram.hex}` },
 ];
 
 const WINDOWS_PATH = 'M0 3.449 9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801';

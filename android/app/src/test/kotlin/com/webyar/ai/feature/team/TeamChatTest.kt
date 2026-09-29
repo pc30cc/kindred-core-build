@@ -237,6 +237,38 @@ class TeamChatTest {
         poll.cancel()
     }
 
+    /**
+     * Back on screen — through the notification a message raised while the
+     * phone was in a pocket — the thread is read at once. Nobody was
+     * listening for the signal while it was paused, and the notification
+     * has just been cleared: the message must be there, and read.
+     */
+    @Test
+    fun `coming back to the thread reads it at once, and the first showing does not read it twice`() = runTest(dispatcher) {
+        val api = CountingApi()
+        val team = TeamThreadViewModel(api) { Language.FA }
+        team.open("ws-1", "u-2")
+        testScheduler.advanceUntilIdle()
+        val readsAfterOpen = api.threadReads
+
+        // First time on screen: open's own load was the read.
+        val first = backgroundScope.launch { team.pollWhileVisible() }
+        testScheduler.runCurrent()
+        assertEquals(readsAfterOpen, api.threadReads)
+        first.cancel()
+
+        // Paused; a message arrives; the operator taps its notification.
+        api.incoming = TeamMessage(id = "tm-away", senderId = "u-2", recipientId = "u-1", body = "کجایی؟", createdAt = Instant.now())
+        val marksBefore = api.readMarks
+        val again = backgroundScope.launch { team.pollWhileVisible() }
+        testScheduler.runCurrent()
+
+        assertEquals(readsAfterOpen + 1, api.threadReads)
+        assertEquals("کجایی؟", (team.state.value as TeamThreadState.Loaded).messages.last().body)
+        assertTrue("what the notification announced was left unread", api.readMarks > marksBefore)
+        again.cancel()
+    }
+
     @Test
     fun `the colleague list follows the team channel, and polls when it hears nothing`() = runTest(dispatcher) {
         val api = CountingApi()

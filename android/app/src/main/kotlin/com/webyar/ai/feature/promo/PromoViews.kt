@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -113,7 +114,7 @@ fun PromoBanner(
                 val label = creative.ctaLabel
                 if (link != null && !label.isNullOrEmpty()) {
                     TextButton(
-                        onClick = { uriHandler.openUri(link) },
+                        onClick = { openLink(uriHandler, link) },
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(
                             horizontal = 0.dp,
                             vertical = Space.xxs,
@@ -232,7 +233,7 @@ fun PromoFullScreen(
                     PrimaryButton(
                         label = label,
                         onClick = {
-                            uriHandler.openUri(link)
+                            openLink(uriHandler, link)
                             onDismiss()
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -274,4 +275,17 @@ fun PromoFullScreen(
             }
         }
     }
+}
+
+/**
+ * Opens a promotion's link, or quietly does nothing.
+ *
+ * Compose's handler starts the browser with a bare `startActivity`, and on a
+ * phone with no browser to take an https link — a managed work profile, a
+ * kiosk build, Chrome switched off — that throws (`ActivityNotFoundException`,
+ * rethrown by recent Compose as `IllegalArgumentException`). Uncaught in a
+ * click, it closed the whole app over a button in a promotion.
+ */
+private fun openLink(uriHandler: UriHandler, link: String) {
+    runCatching { uriHandler.openUri(link) }
 }

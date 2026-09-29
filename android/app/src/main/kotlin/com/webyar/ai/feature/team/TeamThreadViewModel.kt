@@ -69,6 +69,9 @@ class TeamThreadViewModel(
     private var workspaceId: String? = null
     private var peerId: String? = null
 
+    /** Whether [pollWhileVisible] has run before: the next run is a return. */
+    private var visibleBefore = false
+
     fun open(workspaceId: String, peerId: String) {
         if (this.workspaceId == workspaceId && this.peerId == peerId) return
         this.workspaceId = workspaceId
@@ -98,7 +101,13 @@ class TeamThreadViewModel(
         val workspace = workspaceId ?: return
         val peer = peerId ?: return
         viewModelScope.launch {
-            runCatching { api.teamThread(workspace, peer) }
+            val result = runCatching { api.teamThread(workspace, peer) }
+            // Opened again under another workspace while this was on its
+            // way — a notification tap that switches workspace keeps the
+            // same colleague's screen, and this model with it. The answer is
+            // the old workspace's thread, and the new one's own load has the say.
+            if (workspace != workspaceId || peer != peerId) return@launch
+            result
                 .onSuccess {
                     _me.value = it.me
                     _state.value = TeamThreadState.Loaded(it.messages)
@@ -127,6 +136,8 @@ class TeamThreadViewModel(
         val workspace = workspaceId ?: return
         val peer = peerId ?: return
         runCatching { api.teamThread(workspace, peer) }.onSuccess {
+            // As in [load]: an answer for the workspace this was, not the one it is.
+            if (workspace != workspaceId || peer != peerId) return
             _me.value = it.me
             _state.value = TeamThreadState.Loaded(it.messages)
             // New from them, and on screen: read. Otherwise the colleagues'
@@ -155,13 +166,23 @@ class TeamThreadViewModel(
      * rather than a failure — the worst kind to debug.
      */
     suspend fun pollWhileVisible(signals: Flow<TeamSignal>? = null) {
+        // The first time on screen, [open]'s own load is the read, and one
+        // more straight after it would be the same request twice. Every time
+        // after that — back from the background, or back through the very
+        // notification this colleague's new message raised — the thread is
+        // read at once. The screen was paused, so nothing was listening to
+        // [signals] while that message arrived: without this it stayed out
+        // of the transcript, and unread on the server, for up to a whole
+        // poll after the operator tapped through to see it.
+        val returning = visibleBefore
+        visibleBefore = true
         // [signals] is the operator's own realtime channel: a message in this
         // thread re-reads it at once rather than at the next tick.
         followTeam(
             signals = signals,
             pollMs = POLL_MILLIS,
             wanted = { signal -> peerId?.let(signal::involves) == true },
-            immediately = false,
+            immediately = returning,
         ) {
             // Not while a send is in flight: the reload that follows the send
             // is the authoritative one, and a poll landing in between puts the

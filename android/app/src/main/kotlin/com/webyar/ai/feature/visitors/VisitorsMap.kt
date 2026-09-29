@@ -62,7 +62,15 @@ fun VisitorsMap(
     val online = WebyarTheme.colors.success.toArgb()
     val brand = MaterialTheme.colorScheme.primary.toArgb()
     val pick = rememberUpdatedState(onPick)
-    val overlay = remember(density) { PinsOverlay(density) { pick.value(it) } }
+    // One overlay for the life of the map, its density set as the colours
+    // are rather than keyed on it. The activity handles a density change
+    // itself (a display-size change, a foldable moving to its other screen),
+    // so this composition carries on through one — and an overlay remembered
+    // per density was a new one the map had never been given, while the map
+    // kept drawing the old one: dots frozen where they were, new visitors
+    // never appearing.
+    val overlay = remember { PinsOverlay { pick.value(it) } }
+    overlay.density = density
     overlay.colors = PinColors(online = online, idle = 0xFFF5A524.toInt(), offline = 0xFF98A2B3.toInt(), ring = brand)
     // Framed once, on the first dots; after that the operator's pan and zoom are theirs.
     val fitted = remember { booleanArrayOf(false) }
@@ -79,6 +87,14 @@ fun VisitorsMap(
                     osmdroidTileCache = File(context.cacheDir, "osmdroid/tiles")
                 }
                 MapView(context).apply {
+                    // Torn down by [onRelease] alone, not by leaving the
+                    // window. Navigation moves a screen's content between
+                    // panes — a phone turned to landscape goes from one pane
+                    // to list and detail side by side — which takes this view
+                    // out of the window and puts it back. By default osmdroid
+                    // reads that as the end and shuts its tile loaders down,
+                    // and the map came back grey and never loaded another tile.
+                    setDestroyMode(false)
                     setTileSource(TemplateTileSource(setup.tileUrl, setup.minZoom, setup.maxZoom, setup.attribution))
                     setMultiTouchControls(true)
                     zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
@@ -94,7 +110,7 @@ fun VisitorsMap(
                     // The first framing needs a size, which `update` — run as
                     // the view attaches, before layout — does not have yet.
                     addOnFirstLayoutListener { _, _, _, _, _ ->
-                        if (!fitted[0] && overlay.pins.isNotEmpty()) {
+                        if (!fitted[0] && canFrame(this, overlay.pins)) {
                             fitted[0] = true
                             frame(this, overlay.pins)
                         }
@@ -106,7 +122,7 @@ fun VisitorsMap(
                 overlay.pins = pins
                 overlay.selected = selectedId
                 map.overlayManager.tilesOverlay.setColorFilter(if (dark) DIM else null)
-                if (!fitted[0] && pins.isNotEmpty() && map.width > 0) {
+                if (!fitted[0] && canFrame(map, pins)) {
                     fitted[0] = true
                     frame(map, pins)
                 }
@@ -131,6 +147,27 @@ fun VisitorsMap(
     }
 }
 
+/** The margin [frame] keeps around the dots, in pixels, on every side. */
+private const val FRAME_BORDER_PX = 48
+
+/**
+ * Whether [frame] can frame [pins] in the map as it is laid out now.
+ *
+ * Several dots are framed by fitting their box inside the map less the
+ * border, and osmdroid computes that zoom from the logarithm of what is left:
+ * a map no taller (or wider) than the two borders — a phone in landscape,
+ * where the header, the numbers and the filters leave the map a sliver, or
+ * none — gets a NaN zoom. osmdroid keeps it: the map is blank from then on,
+ * pinch and all, and being framed once it is never framed again. Until the
+ * map has the room, it is left at its opening view and the next update tries
+ * again.
+ */
+private fun canFrame(map: MapView, pins: List<VisitorPin>): Boolean = when {
+    pins.isEmpty() || map.width <= 0 -> false
+    pins.size == 1 -> true
+    else -> map.width > 2 * FRAME_BORDER_PX && map.height > 2 * FRAME_BORDER_PX
+}
+
 /** Frames every dot, no closer than a country. */
 private fun frame(map: MapView, pins: List<VisitorPin>) {
     if (pins.size == 1) {
@@ -139,7 +176,7 @@ private fun frame(map: MapView, pins: List<VisitorPin>) {
         return
     }
     val box = BoundingBox.fromGeoPoints(pins.map { GeoPoint(it.lat, it.lng) })
-    map.zoomToBoundingBox(box.increaseByScale(1.4f), false, 48)
+    map.zoomToBoundingBox(box.increaseByScale(1.4f), false, FRAME_BORDER_PX)
     if (map.zoomLevelDouble > 6.0) map.controller.setZoom(6.0)
 }
 
@@ -152,9 +189,10 @@ private class PinColors(val online: Int, val idle: Int, val offline: Int, val ri
 
 /** The dots, drawn straight onto the map and tapped by distance. */
 private class PinsOverlay(
-    private val density: Float,
     private val onTap: (String) -> Unit,
 ) : Overlay() {
+    /** Pixels per dp, set by the composable as it composes. */
+    var density: Float = 1f
     var pins: List<VisitorPin> = emptyList()
     var selected: String? = null
     var colors = PinColors(0xFF22C55E.toInt(), 0xFFF5A524.toInt(), 0xFF98A2B3.toInt(), 0xFF3B82F6.toInt())

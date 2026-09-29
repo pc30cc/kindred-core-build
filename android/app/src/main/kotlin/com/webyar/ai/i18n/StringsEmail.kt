@@ -120,7 +120,7 @@ object StrEmail {
      * «.ali@gmail». Inside an isolate it keeps its place.
      */
     fun invalidAddresses(l: Language, bad: String): String {
-        val isolated = "⁨$bad⁩"
+        val isolated = "\u2068$bad\u2069"
         return when (l) {
             Language.EN -> "Not an email address: $isolated"
             Language.FA -> "نشانی ایمیل معتبر نیست: $isolated"

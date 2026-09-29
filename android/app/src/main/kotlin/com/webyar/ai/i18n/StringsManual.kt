@@ -58,7 +58,7 @@ object StrManual {
      * cannot reorder the words around it. The marks draw nothing;
      * `VisitorText` isolates its codes the same way.
      */
-    private fun isolate(value: String): String = "⁨$value⁩"
+    private fun isolate(value: String): String = "\u2068$value\u2069"
 
     fun sysTransferred(l: Language, actor: String, to: String): String = when (l) {
         Language.EN -> "{actor} transferred this conversation to {to}"

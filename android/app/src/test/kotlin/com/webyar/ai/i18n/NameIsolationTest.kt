@@ -16,7 +16,7 @@ import org.junit.Test
  */
 class NameIsolationTest {
 
-    private fun isolated(value: String) = "⁨$value⁩"
+    private fun isolated(value: String) = "\u2068$value\u2069"
 
     @Test
     fun `a sender's name is isolated in the attachment previews`() {

@@ -11,12 +11,21 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n, useTranslation, type TranslationKey } from '@/i18n';
-import { useDispatchLog } from '@/hooks/useAdminNotifications';
+import { useDispatchLog, type PushPlatformSettings } from '@/hooks/useAdminNotifications';
 import { cn } from '@/lib/utils';
+import { NotificationLogCleanup } from './NotificationLogCleanup';
 
 const FILTERS = ['all', 'sent', 'failed', 'attempted'] as const;
 
-export function NotificationDiagnosticsTab({ active }: { active: boolean }) {
+export function NotificationDiagnosticsTab({
+  active,
+  draft,
+  set,
+}: {
+  active: boolean;
+  draft: PushPlatformSettings;
+  set: (patch: Partial<PushPlatformSettings>) => void;
+}) {
   const { t } = useTranslation();
   const { locale } = useI18n();
   const [status, setStatus] = useState<string>('all');
@@ -27,6 +36,7 @@ export function NotificationDiagnosticsTab({ active }: { active: boolean }) {
 
   return (
     <div className="space-y-4">
+      <NotificationLogCleanup draft={draft} set={set} />
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-center justify-between gap-3">

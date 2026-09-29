@@ -27,6 +27,8 @@ import { listActiveDevices } from '../services/push/devices.js';
 import { isApnsConfigured, nativeBundleId, sendApnsAlert } from '../services/push/apns.js';
 import { isVoipConfigured, getApnsCredentials } from '../services/push/apnsVoip.js';
 import { ringTestDevice } from '../services/push/callRing.js';
+import { dispatchLogStats, purgeDispatchLog } from '../services/push/logRetention.js';
+import { insertAuditLogRows } from '../services/auditLog.js';
 import {
   loadPushPlatformSettings,
   invalidatePushPlatformSettingsCache,
@@ -94,6 +96,7 @@ const settingsSchema = z.object({
 
   throttle_per_user_per_minute: z.coerce.number().int().min(1).max(600).optional(),
   dispatch_log_retention_days: z.coerce.number().int().min(1).max(365).optional(),
+  dispatch_log_auto_purge: z.boolean().optional(),
 
   categories: z.array(categorySchema).max(10).optional(),
   templates: z.record(templateSchema).optional(),
@@ -253,6 +256,64 @@ adminNotificationsRouter.get('/log', async (req, res) => {
       { devices: 0, accepted: 0, failed: 0 },
     );
     return res.json({ entries: rows, totals });
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+const statsQuerySchema = z.object({
+  // "How many would go at N days", for a retention not saved yet.
+  days: z.coerce.number().int().min(1).max(365).optional(),
+});
+
+/** What the notification log holds, and the last cleanup. */
+adminNotificationsRouter.get('/log/stats', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const parsed = statsQuerySchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid query' });
+  try {
+    return res.json(await dispatchLogStats(serverConfigOf(req), parsed.data.days));
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+const purgeLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 4,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const purgeSchema = z.object({
+  // Defaults to the saved retention; the screen sends what it shows.
+  days: z.coerce.number().int().min(1).max(365).optional(),
+});
+
+/**
+ * "Clean up now": removes every notification log row older than the
+ * retention, for the iPhone and Android apps alike.
+ */
+adminNotificationsRouter.post('/log/purge', purgeLimiter, async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  const parsed = purgeSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const config = serverConfigOf(req);
+  try {
+    const days = parsed.data.days ?? (await dispatchLogStats(config)).retentionDays;
+    const removed = await purgeDispatchLog(config, days);
+    // Deleting is recorded, whoever did it.
+    await insertAuditLogRows(config, getServiceClient(config), {
+      action: 'push.dispatch_log.purge',
+      entity_type: 'push_dispatch_log',
+      entity_id: null,
+      user_id: actorId,
+      workspace_id: null,
+      old_value: null,
+      new_value: { older_than_days: days, removed },
+    }).then(() => {}, () => {});
+    return res.json({ success: true, removed, days, stats: await dispatchLogStats(config, days) });
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
   }

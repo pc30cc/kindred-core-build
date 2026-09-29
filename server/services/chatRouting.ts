@@ -345,13 +345,25 @@ async function insertRoutingSystemMessage(
 }
 
 /**
+ * Whether this routing run should tell the phones about the handoff.
+ *
+ * Routing runs again on every visitor message while a conversation waits, so
+ * the handoff's own stamp (`ai_handoff_at`) makes it one notification per
+ * handoff: once it has been told (`handoff_push_at` holds the same stamp), a
+ * later run does not even look up who to tell. Without a stamp only the run
+ * that also sends the visitor notice pushes.
+ */
+export function handoffPushStamp(metadata: Record<string, unknown>, firstRun: boolean): string | null {
+  const stamp = typeof metadata.ai_handoff_at === 'string' ? metadata.ai_handoff_at : null;
+  if (stamp) return metadata.handoff_push_at === stamp ? null : stamp;
+  return firstRun ? new Date().toISOString() : null;
+}
+
+/**
  * The AI let go of this conversation and routing gave it to nobody new — it
  * stays with whoever already held it, or waits in the queue — so the phones
  * hear it from here (a conversation routing DID give to someone is
- * `notifyAssignment`). Routing runs again on every visitor message while a
- * conversation waits, so the handoff's own stamp (`ai_handoff_at`) makes it
- * one notification per handoff; without a stamp only the run that also sends
- * the visitor notice pushes.
+ * `notifyAssignment`).
  */
 function notifyHandoffOnce(
   config: ServerConfig,
@@ -359,13 +371,20 @@ function notifyHandoffOnce(
   metadata: Record<string, unknown>,
   firstRun: boolean,
 ): void {
-  const stamp = typeof metadata.ai_handoff_at === 'string' ? metadata.ai_handoff_at : null;
-  if (!stamp && !firstRun) return;
+  const stamp = handoffPushStamp(metadata, firstRun);
+  if (!stamp) return;
   void notifyHandoff(config, {
     workspaceId: args.workspaceId,
     conversationId: args.conversationId,
-    handoffAt: stamp ?? new Date().toISOString(),
+    handoffAt: stamp,
   });
+  // Remembered on the conversation, so the next visitor message's routing
+  // run skips straight past this.
+  if (typeof metadata.ai_handoff_at === 'string') {
+    void patchConversationMetadata(
+      config, args.conversationId, { handoff_push_at: stamp }, args.workspaceId,
+    ).catch(() => {});
+  }
 }
 
 /**

@@ -94,6 +94,7 @@ import { startInProcessSourceWorker } from './services/ai-agent/sourceWorker.js'
 import { startCallQueueTicker } from './services/calls/queueTicker.js';
 import { startInvitationExpirySweeper } from './services/calls/invitations.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
+import { startDispatchLogJanitor } from './services/push/logRetention.js';
 import { startRecordingRetentionJanitor } from './services/recordings/retentionJanitor.js';
 import { startPrivacyWorker } from './services/privacy/worker.js';
 import { startInvitationWorker } from './services/invitations/worker.js';
@@ -679,6 +680,8 @@ app.listen(config.port, () => {
 
   // Phase 3 — start best-effort orphan-attachment sweeper.
   startAttachmentJanitor(config);
+  // The notification log's retention (Super Admin → Notifications).
+  startDispatchLogJanitor(config);
   // recording_retention_days — sole enforcement path for call-recording
   // retention. See server/services/recordings/retentionJanitor.ts and
   // docs/CALL_RECORDING_RETENTION.md.

@@ -76,6 +76,11 @@ export interface PushPlatformSettings {
 
   throttle_per_user_per_minute: number;
   dispatch_log_retention_days: number;
+  /**
+   * Whether the server removes notification log rows older than the
+   * retention on its own (`logRetention.ts`). Migration 236.
+   */
+  dispatch_log_auto_purge: boolean;
 
   categories: PushCategory[];
   templates: Record<string, PushTemplate>;
@@ -242,6 +247,7 @@ export const PUSH_PLATFORM_DEFAULTS: PushPlatformSettings = {
 
   throttle_per_user_per_minute: 20,
   dispatch_log_retention_days: 30,
+  dispatch_log_auto_purge: true,
 
   categories: DEFAULT_CATEGORIES,
   templates: DEFAULT_TEMPLATES,

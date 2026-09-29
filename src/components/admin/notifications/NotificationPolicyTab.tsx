@@ -122,16 +122,6 @@ export function NotificationPolicyTab({
               set({ throttle_per_user_per_minute: Math.min(600, Math.max(1, Number(value) || 1)) })
             }
           />
-          <TextField
-            label={t('admin.notifications.policy.logRetention')}
-            hint={t('admin.notifications.policy.logRetentionHint')}
-            value={String(draft.dispatch_log_retention_days)}
-            dir="ltr"
-            type="number"
-            onChange={(value) =>
-              set({ dispatch_log_retention_days: Math.min(365, Math.max(1, Number(value) || 1)) })
-            }
-          />
         </FieldGrid>
       </SettingsSection>
     </div>

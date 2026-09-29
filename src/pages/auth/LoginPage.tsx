@@ -196,18 +196,9 @@ export default function LoginPage() {
               </div>
 
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="password" className="text-xs font-medium text-muted-foreground tracking-wide uppercase">
-                    {t('auth.password')}
-                  </Label>
-                  <Link
-                    to={forgotHref}
-
-                    className="text-xs text-primary hover:underline font-medium"
-                  >
-                    {t('auth.forgotPassword')}
-                  </Link>
-                </div>
+                <Label htmlFor="password" className="text-xs font-medium text-muted-foreground tracking-wide uppercase">
+                  {t('auth.password')}
+                </Label>
                 {fieldShell({
                   id: 'password',
                   icon: <Lock className="w-4 h-4" />,
@@ -272,13 +263,16 @@ export default function LoginPage() {
               </Button>
             </form>
 
-            <div className="pt-2 text-center">
+            <div className="pt-2 text-center space-y-2">
               <p className="text-sm text-muted-foreground">
                 {t('auth.noAccount')}{' '}
                 <Link to="/auth/signup" className="text-primary hover:underline font-semibold">
                   {t('auth.signup')}
                 </Link>
               </p>
+              <Link to={forgotHref} className="inline-block text-sm text-primary hover:underline font-medium">
+                {t('auth.forgotPassword')}
+              </Link>
             </div>
           </div>
         </div>

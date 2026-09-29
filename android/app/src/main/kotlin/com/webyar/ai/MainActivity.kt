@@ -28,6 +28,7 @@ import com.webyar.ai.core.push.Notifications
 import com.webyar.ai.core.push.PushPayload
 import com.webyar.ai.core.push.from
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
@@ -259,7 +260,7 @@ private fun RootScreen(appState: AppState, api: WebyarApi, language: Language) {
     // Nor is anything left over the lock screen: a ring's tap puts the app
     // there for its call, and a session that ended before the call screen
     // opened (revoked, or restored to nobody) never took it back off.
-    val activity = LocalContext.current as? MainActivity
+    val activity = LocalActivity.current as? MainActivity
     LaunchedEffect(session) {
         if (session is Session.SignedOut) {
             stores.release()

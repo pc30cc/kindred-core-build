@@ -55,11 +55,12 @@ export default function SignupStepCompany({
           dir="ltr"
           className="h-12 text-left bg-background border-border"
           maxLength={255}
+          required
         />
         <p className="text-xs text-muted-foreground">{t('auth.websiteDomainHint')}</p>
       </div>
 
-      <Button type="submit" className="w-full h-12 text-base font-semibold gap-2" disabled={loading || !companyName.trim()}>
+      <Button type="submit" className="w-full h-12 text-base font-semibold gap-2" disabled={loading || !companyName.trim() || !websiteDomain.trim()}>
         {loading ? (
           <Loader2 className="w-4 h-4 animate-spin" />
         ) : (

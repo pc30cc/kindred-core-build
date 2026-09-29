@@ -15,5 +15,7 @@ const MAP: Record<string, string> = {
 export function toLatinKeyboard(value: string): string {
   return value
     .replace(/[\u200B-\u200F\u061C\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
-    .replace(/[^\x00-\x7F]/g, (c) => MAP[c] ?? '');
+    // Anything outside ASCII, one UTF-16 unit at a time: the same set as
+    // /[^\x00-\x7F]/, written without a control character in the pattern.
+    .replace(/[\u0080-\uFFFF]/g, (c) => MAP[c] ?? '');
 }

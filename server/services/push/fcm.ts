@@ -175,11 +175,40 @@ export async function sendFcmMessage(msg: FcmMessage): Promise<FcmSendOutcome> {
         notification: {
           channel_id: msg.androidChannelId ?? 'webyar_messages',
           sound: msg.sound === false ? undefined : 'default',
+          tag: androidNotificationTag(msg.data),
         },
       },
       apns: buildApns(msg),
     },
   });
+}
+
+/**
+ * Which notification on the phone this one replaces — the conversation, the
+ * colleague, the email thread or the callback it is about — so the drawer
+ * holds one per conversation rather than one per message.
+ *
+ * The same key the Android app posts under when it draws a notification
+ * itself (`Notifications.keyOf`), with the same id (0) Firebase uses for the
+ * ones it draws: so a message that arrives with the app open replaces one
+ * that arrived with it closed, and opening the conversation clears either.
+ * It is also what the icon's number counts on launchers that show one
+ * (Samsung, Xiaomi…): one per conversation with something new, as the iOS
+ * badge counts them — not one per message, and not left behind once read.
+ */
+export function androidNotificationTag(data: Record<string, string>): string | undefined {
+  switch (data.type) {
+    case 'team_message':
+      return data.peerId ? `team:${data.peerId}` : undefined;
+    case 'email_message':
+      return data.threadId ? `email:${data.threadId}` : undefined;
+    case 'callback_request':
+      return data.callbackId ? `callback:${data.callbackId}` : undefined;
+    case 'test':
+      return 'push-test';
+    default:
+      return data.conversationId || undefined;
+  }
 }
 
 export interface FcmDataMessage {

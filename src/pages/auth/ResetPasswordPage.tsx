@@ -1,3 +1,4 @@
+import { toLatinKeyboard } from '@/lib/latinKeyboard';
 import { useState, useMemo } from 'react';
 import { BrandLogo } from '@/components/brand/BrandLogo';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -83,7 +84,7 @@ export default function ResetPasswordPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="password">{t('auth.newPassword')}</Label>
-              <Input id="password" type="password" placeholder={t('auth.passwordPlaceholder')} value={password} onChange={(e) => setPassword(e.target.value)} required dir="ltr" className="text-left" />
+              <Input id="password" type="password" placeholder={t('auth.passwordPlaceholder')} value={password} onChange={(e) => setPassword(toLatinKeyboard(e.target.value))} required dir="ltr" className="text-left" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="confirm">{t('auth.confirmPassword')}</Label>
@@ -93,7 +94,7 @@ export default function ResetPasswordPage() {
                   type="password"
                   placeholder={t('auth.confirmPasswordPlaceholder')}
                   value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  onChange={(e) => setConfirmPassword(toLatinKeyboard(e.target.value))}
                   required
                   dir="ltr"
                   className={`text-left ${confirmPassword && !passwordsMatch ? 'border-destructive/50' : ''}`}

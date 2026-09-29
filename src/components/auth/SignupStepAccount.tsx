@@ -1,3 +1,4 @@
+import { toLatinKeyboard } from '@/lib/latinKeyboard';
 import { useState, useMemo } from 'react';
 import { useTranslation } from '@/i18n';
 import { Label } from '@/components/ui/label';
@@ -183,7 +184,7 @@ export default function SignupStepAccount({
               type="email"
               placeholder="you@company.com"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => setEmail(toLatinKeyboard(e.target.value))}
               onFocus={() => setFocused('email')}
               onBlur={() => { setFocused(null); setEmailTouched(true); }}
               dir="ltr"
@@ -230,7 +231,7 @@ export default function SignupStepAccount({
               type={showPassword ? 'text' : 'password'}
               placeholder={t('auth.passwordPlaceholder')}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => setPassword(toLatinKeyboard(e.target.value))}
               onFocus={() => setFocused('password')}
               onBlur={() => setFocused(null)}
               dir="ltr"

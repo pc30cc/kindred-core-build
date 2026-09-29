@@ -13,7 +13,9 @@ import com.webyar.ai.core.storage.SessionCache
 import com.webyar.ai.i18n.Language
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -63,19 +65,30 @@ class PlatformNoticeTest {
         }
     }
 
+    /**
+     * Until the launch has read what is stored and asked the platform. The
+     * stored values come from DataStore's own threads, which the test
+     * scheduler does not wait on — so first the launch's end, then its
+     * queued check.
+     */
+    private suspend fun TestScope.launched(app: AppState) {
+        app.session.first { it !is Session.Restoring }
+        testScheduler.advanceUntilIdle()
+    }
+
     private val down = MaintenanceNotice(enabled = true, message = mapOf("fa" to "به‌زودی برمی‌گردیم"))
 
     @Test
     fun `a first launch speaks Persian when the platform names no language`() = runTest(dispatcher) {
         val app = state(PlatformApi())
-        testScheduler.advanceUntilIdle()
+        launched(app)
         assertEquals(Language.FA, app.language.value)
     }
 
     @Test
     fun `a first launch speaks the language Super Admin set`() = runTest(dispatcher) {
         val app = state(PlatformApi(MobileAppConfig(defaultLanguage = "en")))
-        testScheduler.advanceUntilIdle()
+        launched(app)
         assertEquals(Language.EN, app.language.value)
     }
 
@@ -83,7 +96,7 @@ class PlatformNoticeTest {
     fun `an operator's own choice outranks the platform's default`() = runTest(dispatcher) {
         val api = PlatformApi(MobileAppConfig(defaultLanguage = "en"))
         val app = state(api)
-        testScheduler.advanceUntilIdle()
+        launched(app)
         app.setLanguage(Language.TR)
         testScheduler.advanceUntilIdle()
 
@@ -97,7 +110,7 @@ class PlatformNoticeTest {
     fun `nobody signs in while the platform is down for maintenance`() = runTest(dispatcher) {
         val api = PlatformApi()
         val app = state(api)
-        testScheduler.advanceUntilIdle()
+        launched(app)
         assertNull(app.maintenance.value)
 
         // Switched on after the launch's own check: the sign-in asks again.
@@ -114,7 +127,7 @@ class PlatformNoticeTest {
     fun `the notice goes when maintenance ends, and signing in works again`() = runTest(dispatcher) {
         val api = PlatformApi(MobileAppConfig(maintenance = down))
         val app = state(api)
-        testScheduler.advanceUntilIdle()
+        launched(app)
         assertNotNull(app.maintenance.value)
 
         api.config = MobileAppConfig(maintenance = MaintenanceNotice(enabled = false))
@@ -130,7 +143,7 @@ class PlatformNoticeTest {
     fun `a notice already past its end time is no notice`() = runTest(dispatcher) {
         val past = down.copy(until = "2020-01-01T00:00:00Z")
         val app = state(PlatformApi(MobileAppConfig(maintenance = past)))
-        testScheduler.advanceUntilIdle()
+        launched(app)
         assertNull(app.maintenance.value)
     }
 }

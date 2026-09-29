@@ -1,3 +1,4 @@
+import { BrandWordmark } from '@/components/brand/BrandLoader';
 import { toLatinKeyboard } from '@/lib/latinKeyboard';
 import { useState, useEffect, useMemo } from 'react';
 import { AuthHeroPanel } from '@/components/auth/AuthHeroPanel';
@@ -276,6 +277,7 @@ export default function LoginPage() {
               </Link>
             </div>
           </div>
+          <BrandWordmark className="mt-6" />
         </div>
       </div>
 

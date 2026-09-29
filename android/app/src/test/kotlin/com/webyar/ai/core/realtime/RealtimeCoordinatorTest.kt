@@ -1,8 +1,12 @@
 package com.webyar.ai.core.realtime
 
 import com.webyar.ai.core.Diag
+import com.webyar.ai.core.cache.CacheScope
 import com.webyar.ai.core.cache.MemoryCacheStore
+import com.webyar.ai.core.model.InboxFilter
+import com.webyar.ai.core.model.RealtimeConnect
 import com.webyar.ai.core.model.RealtimeSubscribe
+import com.webyar.ai.core.net.ApiError
 import com.webyar.ai.core.sync.ConversationRepository
 import com.webyar.ai.core.sync.MessageRepository
 import com.webyar.ai.core.sync.RealtimeHealth
@@ -17,6 +21,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.IOException
 
 /**
  * When there is a socket at all: in front, signed in, with a workspace —
@@ -56,6 +61,47 @@ class RealtimeCoordinatorTest {
 
         assertEquals(1, server.sockets.size)
         assertEquals(RealtimeHealth.CONNECTED, sync.realtime.value)
+    }
+
+    /**
+     * The socket's first subscribe recovers nothing: a message published
+     * while it was being negotiated is found only by a read, so the queue on
+     * screen is asked about once the socket is up — conditionally.
+     */
+    @Test
+    fun `a socket coming up reads the queue on screen once`() = runTest {
+        val (realtime, sync) = coordinator()
+        sync.focusInbox(CacheScope("user-a", "ws-1"), InboxFilter.OPEN)
+        runCurrent()
+        val before = api.listReads.size
+
+        realtime.setWorkspace("ws-1")
+        realtime.setForeground(true)
+        runCurrent()
+
+        assertEquals(RealtimeHealth.CONNECTED, sync.realtime.value)
+        assertEquals(before + 1, api.listReads.size)
+    }
+
+    /** Where no socket is coming back, the network returning pays what is owed. */
+    @Test
+    fun `the network coming back makes the read the sync layer owes`() = runTest {
+        api.connectAnswer = RealtimeConnect(vendor = "polling_builtin")
+        api.failLists = ApiError.Transport(IOException("offline"))
+        val (realtime, sync) = coordinator()
+        sync.focusInbox(CacheScope("user-a", "ws-1"), InboxFilter.OPEN)
+        realtime.setWorkspace("ws-1")
+        realtime.setForeground(true)
+        // The return to the front reads, fails, and so owes that read.
+        sync.setForeground(true)
+        runCurrent()
+        api.failLists = null
+        val before = api.listReads.size
+
+        realtime.onNetworkAvailable()
+        runCurrent()
+
+        assertEquals(before + 1, api.listReads.size)
     }
 
     @Test

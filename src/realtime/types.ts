@@ -35,7 +35,9 @@ export type OperatorEventKind =
   | 'conversation_reopened'
   | 'note_added'
   | 'note_deleted'
-  | 'timeline_event';
+  | 'timeline_event'
+  // Email Inbox: a mailbox changed (a cursor, never content).
+  | 'email_mailbox_changed';
 
 export interface OperatorEventPayload {
   kind: OperatorEventKind;

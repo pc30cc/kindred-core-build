@@ -19,6 +19,9 @@ export interface EmailThreadSummary {
   isStarred: boolean;
   labels: string[];
   lastMessageSnippet: string | null;
+  /** Gmail only: the thread's historyId — a cached body is valid while it is unchanged. */
+  historyId?: string | null;
+  messageCount?: number;
 }
 
 export interface EmailAttachmentView {
@@ -89,12 +92,27 @@ function qs(params: Record<string, string | number | boolean | undefined>): stri
   return '?' + entries.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&');
 }
 
+export interface EmailThreadPage {
+  threads: EmailThreadSummary[];
+  nextBefore: string | null;
+  /** Gmail pagination cursor for the next page. */
+  nextPageToken?: string | null;
+  /** Gmail mailbox cursor for `/changes`. */
+  historyId?: string | null;
+  syncing?: boolean;
+}
+
 export function listEmailThreads(
   workspaceId: string,
-  opts: { limit?: number; before?: string; unread?: boolean; starred?: boolean; q?: string } = {},
+  opts: { limit?: number; before?: string; pageToken?: string; unread?: boolean; starred?: boolean; q?: string } = {},
 ) {
-  return api<{ threads: EmailThreadSummary[]; nextBefore: string | null; syncing?: boolean }>(
-    `/api/email-inbox/${workspaceId}/threads${qs(opts)}`,
+  const { pageToken, ...rest } = opts;
+  return api<EmailThreadPage>(`/api/email-inbox/${workspaceId}/threads${qs({ ...rest, page_token: pageToken })}`);
+}
+
+export function getEmailChanges(workspaceId: string, since: string) {
+  return api<{ historyId: string | null; threadIds: string[]; reset: boolean }>(
+    `/api/email-inbox/${workspaceId}/changes${qs({ since })}`,
   );
 }
 
@@ -141,10 +159,12 @@ export interface SendEmailInput {
   textBody: string;
   htmlBody?: string | null;
   attachments?: StagedEmailAttachment[];
+  /** Live (Gmail) inbox: files sent with the reply itself, never stored. */
+  inlineAttachments?: Array<{ filename: string; contentType: string; dataBase64: string }>;
 }
 
 export function sendEmail(workspaceId: string, input: SendEmailInput) {
-  return api<{ messageId: string }>(`/api/email-inbox/${workspaceId}/send`, {
+  return api<{ messageId: string; threadId?: string }>(`/api/email-inbox/${workspaceId}/send`, {
     method: 'POST',
     body: JSON.stringify({
       thread_id: input.threadId ?? null,
@@ -155,6 +175,11 @@ export function sendEmail(workspaceId: string, input: SendEmailInput) {
       text_body: input.textBody,
       html_body: input.htmlBody,
       attachments: input.attachments,
+      inline_attachments: input.inlineAttachments?.map((a) => ({
+        filename: a.filename,
+        content_type: a.contentType,
+        data_base64: a.dataBase64,
+      })),
     }),
   });
 }
@@ -216,5 +241,18 @@ export function disconnectYahoo(workspaceId: string) {
   return api<{ ok: true }>('/api/plugins/yahoo/disconnect', {
     method: 'POST',
     body: JSON.stringify({ workspace_id: workspaceId }),
+  });
+}
+
+/** Reads a file as base64 for an inline (not staged) attachment. */
+export function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      resolve(result.slice(result.indexOf(',') + 1));
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
   });
 }

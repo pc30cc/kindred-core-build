@@ -15,6 +15,11 @@
  * came from Gmail or Yahoo Mail — only `resolveConnectedIntegration` (which
  * of the two, if either, is connected for this workspace) and `composeReply`
  * (which job type/payload shape to enqueue) branch on `integration.provider`.
+ *
+ * GMAIL IS THE EXCEPTION: a connected Gmail mailbox is read live from Gmail
+ * and nothing of its content is stored here (./gmailLive.ts,
+ * docs/EMAIL_INBOX_ARCHITECTURE.md). Every exported function below routes a
+ * Gmail workspace there first; the table-backed path serves Yahoo only.
  */
 import { randomBytes } from 'node:crypto';
 import type { ServerConfig } from '../../config.js';
@@ -26,6 +31,16 @@ import { uploadFile, getFileUrl, downloadFile } from '../storage/index.js';
 import { emailAttachmentKey } from '../storage/keys.js';
 import { GMAIL_PLUGIN_ID } from '../channels/gmail/oauth.js';
 import { YAHOO_PLUGIN_ID } from '../../../shared/channels/yahooKeys.js';
+import {
+  GmailLiveError,
+  listGmailThreads,
+  getGmailThread,
+  getGmailAttachment,
+  setGmailThreadRead,
+  setGmailThreadStarred,
+  listGmailChanges,
+  sendGmail,
+} from './gmailLive.js';
 
 export class EmailInboxError extends Error {
   constructor(readonly code: string, message?: string) {
@@ -142,11 +157,40 @@ async function resolveConnectedIntegration(config: ServerConfig, workspaceId: st
   throw new EmailInboxError('email_not_connected');
 }
 
+async function connectedIntegrationOrNull(config: ServerConfig, workspaceId: string): Promise<ChannelIntegration | null> {
+  try {
+    return await resolveConnectedIntegration(config, workspaceId);
+  } catch (err) {
+    if (err instanceof EmailInboxError && err.code === 'email_not_connected') return null;
+    throw err;
+  }
+}
+
+function rethrowLive(err: unknown): never {
+  if (err instanceof GmailLiveError) throw new EmailInboxError(err.code, err.message);
+  throw err;
+}
+
+/** Gmail's live integration for this workspace, or null when the inbox is table-backed (Yahoo). */
+async function liveGmail(config: ServerConfig, workspaceId: string): Promise<ChannelIntegration | null> {
+  const integration = await connectedIntegrationOrNull(config, workspaceId);
+  return integration?.provider === 'gmail' ? integration : null;
+}
+
 export async function listThreads(
   config: ServerConfig,
   workspaceId: string,
-  opts: { limit?: number; before?: string | null; unreadOnly?: boolean; starredOnly?: boolean; search?: string } = {},
-): Promise<{ threads: EmailThreadSummary[]; nextBefore: string | null; syncing: boolean }> {
+  opts: { limit?: number; before?: string | null; pageToken?: string | null; unreadOnly?: boolean; starredOnly?: boolean; search?: string } = {},
+): Promise<{ threads: EmailThreadSummary[]; nextBefore: string | null; nextPageToken?: string | null; historyId?: string | null; syncing: boolean }> {
+  const gmail = await liveGmail(config, workspaceId);
+  if (gmail) {
+    try {
+      const page = await listGmailThreads(config, gmail, opts);
+      return { threads: page.threads, nextBefore: null, nextPageToken: page.nextPageToken, historyId: page.historyId, syncing: false };
+    } catch (err) {
+      rethrowLive(err);
+    }
+  }
   const sb = getServiceClient(config);
   const limit = Math.min(Math.max(opts.limit ?? 30, 1), 100);
 
@@ -194,27 +238,7 @@ export async function listThreads(
     lastMessageSnippet: snippetByThread.get(r.id) ?? null,
   }));
 
-  return { threads, nextBefore: hasMore ? page[page.length - 1].last_message_at : null, syncing: await isInboxSyncing(sb, workspaceId) };
-}
-
-// A Gmail import still in flight (the post-connect initial sync or a push
-// delta; Yahoo is left out because its poll loop always has a job queued).
-// Lets the UI show a syncing state instead of an empty inbox. Bounded to recent jobs so a retrying failure cannot pin the
-// indicator on for its whole backoff schedule.
-const SYNC_JOB_TYPES = ['gmail_sync_inbox'];
-const SYNC_INDICATOR_WINDOW_MS = 10 * 60 * 1000;
-
-async function isInboxSyncing(sb: ReturnType<typeof getServiceClient>, workspaceId: string): Promise<boolean> {
-  const { count, error } = await sb
-    .from('channel_jobs')
-    .select('id', { count: 'exact', head: true })
-    .eq('workspace_id', workspaceId)
-    .in('job_type', SYNC_JOB_TYPES)
-    .in('status', ['pending', 'running'])
-    .lte('available_at', new Date().toISOString())
-    .gte('created_at', new Date(Date.now() - SYNC_INDICATOR_WINDOW_MS).toISOString());
-  if (error) return false;
-  return (count ?? 0) > 0;
+  return { threads, nextBefore: hasMore ? page[page.length - 1].last_message_at : null, syncing: false };
 }
 
 async function resolveAttachmentUrls(
@@ -248,6 +272,14 @@ export async function getAttachmentFile(
   workspaceId: string,
   attachmentId: string,
 ): Promise<{ data: Buffer; filename: string; contentType: string } | null> {
+  const gmail = await liveGmail(config, workspaceId);
+  if (gmail) {
+    try {
+      return await getGmailAttachment(config, gmail, attachmentId);
+    } catch (err) {
+      rethrowLive(err);
+    }
+  }
   const sb = getServiceClient(config);
   const { data: row } = await sb
     .from('email_attachments')
@@ -271,6 +303,14 @@ export async function getThread(
   workspaceId: string,
   threadId: string,
 ): Promise<{ thread: EmailThreadSummary; messages: EmailMessageView[] }> {
+  const gmail = await liveGmail(config, workspaceId);
+  if (gmail) {
+    try {
+      return await getGmailThread(config, workspaceId, gmail, threadId);
+    } catch (err) {
+      rethrowLive(err);
+    }
+  }
   const sb = getServiceClient(config);
   const { data: thread, error: threadError } = await sb
     .from('email_threads')
@@ -340,6 +380,14 @@ export async function getThread(
 }
 
 export async function setThreadRead(config: ServerConfig, workspaceId: string, threadId: string, isRead: boolean): Promise<void> {
+  const gmail = await liveGmail(config, workspaceId);
+  if (gmail) {
+    try {
+      return await setGmailThreadRead(config, gmail, threadId, isRead);
+    } catch (err) {
+      rethrowLive(err);
+    }
+  }
   const sb = getServiceClient(config);
   const { error } = await sb
     .from('email_threads')
@@ -353,6 +401,14 @@ export async function setThreadRead(config: ServerConfig, workspaceId: string, t
 }
 
 export async function setThreadStarred(config: ServerConfig, workspaceId: string, threadId: string, starred: boolean): Promise<void> {
+  const gmail = await liveGmail(config, workspaceId);
+  if (gmail) {
+    try {
+      return await setGmailThreadStarred(config, gmail, threadId, starred);
+    } catch (err) {
+      rethrowLive(err);
+    }
+  }
   const sb = getServiceClient(config);
   const { error } = await sb
     .from('email_threads')
@@ -360,6 +416,60 @@ export async function setThreadStarred(config: ServerConfig, workspaceId: string
     .eq('id', threadId)
     .eq('workspace_id', workspaceId);
   if (error) throw new EmailInboxError('email_provider_error', error.message);
+}
+
+/**
+ * Incremental changes since a client's cursor (Gmail only). Yahoo answers
+ * `reset` so its clients simply reload the first page.
+ */
+export async function listChanges(
+  config: ServerConfig,
+  workspaceId: string,
+  sinceHistoryId: string,
+): Promise<{ historyId: string | null; threadIds: string[]; reset: boolean }> {
+  const gmail = await liveGmail(config, workspaceId);
+  if (!gmail) return { historyId: null, threadIds: [], reset: true };
+  try {
+    return await listGmailChanges(config, gmail, sinceHistoryId);
+  } catch (err) {
+    rethrowLive(err);
+  }
+}
+
+/** Whether this workspace's inbox is read live (no staged uploads, inline attachments on send). */
+export async function isLiveInbox(config: ServerConfig, workspaceId: string): Promise<boolean> {
+  return !!(await liveGmail(config, workspaceId));
+}
+
+export interface InlineAttachment {
+  filename: string;
+  contentType: string;
+  bytes: Buffer;
+}
+
+/** Gmail: send now, in this request. Nothing of the reply is written on our side. */
+export async function sendLiveGmail(
+  config: ServerConfig,
+  workspaceId: string,
+  input: Omit<ComposeReplyInput, 'attachments'> & { attachments?: InlineAttachment[] },
+): Promise<{ messageId: string; threadId: string }> {
+  if (!input.to.length) throw new EmailInboxError('email_missing_recipient');
+  const gmail = await liveGmail(config, workspaceId);
+  if (!gmail) throw new EmailInboxError('email_not_connected');
+  try {
+    return await sendGmail(config, gmail, {
+      threadId: input.threadId,
+      to: input.to,
+      cc: input.cc,
+      bcc: input.bcc,
+      subject: sanitizeEmailSubject(input.subject),
+      textBody: input.textBody,
+      htmlBody: input.htmlBody,
+      attachments: input.attachments,
+    }, subjectWithReplyPrefix);
+  } catch (err) {
+    rethrowLive(err);
+  }
 }
 
 // ─── Attachment staging (compose) ──────────────────────────────────────

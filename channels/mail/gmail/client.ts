@@ -777,7 +777,105 @@ export function createGmailAdapter(config: GmailOAuthConfig, options: GmailAdapt
     };
   }
 
+  // ── Live-read surface (Email Inbox without server-side content storage) ──
+  //
+  // The inbox reads Gmail on demand instead of mirroring it: a paginated
+  // thread list, one thread's messages when it is opened, label changes for
+  // read/star, and history deltas so clients refresh only what changed.
+
+  async function listThreads(
+    accessToken: string,
+    opts: { pageToken?: string | null; q?: string | null; labelIds?: string[]; maxResults?: number } = {},
+  ): Promise<{ threads: Array<{ id: string; snippet: string | null; historyId: string | null }>; nextPageToken: string | null }> {
+    const params = new URLSearchParams({ maxResults: String(Math.min(Math.max(opts.maxResults ?? 25, 1), 100)) });
+    for (const label of opts.labelIds ?? ['INBOX']) params.append('labelIds', label);
+    if (opts.q) params.set('q', opts.q);
+    if (opts.pageToken) params.set('pageToken', opts.pageToken);
+    const json = (await requestJson(`${GMAIL_API_BASE}/threads?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }, fetchImpl, timeoutMs)) as Record<string, unknown>;
+    const threads = (Array.isArray(json.threads) ? json.threads : []) as Record<string, unknown>[];
+    return {
+      threads: threads
+        .filter((t) => typeof t.id === 'string')
+        .map((t) => ({
+          id: t.id as string,
+          snippet: typeof t.snippet === 'string' ? t.snippet : null,
+          historyId: t.historyId != null ? String(t.historyId) : null,
+        })),
+      nextPageToken: typeof json.nextPageToken === 'string' ? json.nextPageToken : null,
+    };
+  }
+
+  /** Raw `users.threads.get`. `metadata` for list rows, `full` for the reader. */
+  async function getThreadRaw(
+    accessToken: string,
+    threadId: string,
+    format: 'metadata' | 'full',
+    metadataHeaders: string[] = [],
+  ): Promise<Record<string, unknown>> {
+    const params = new URLSearchParams({ format });
+    for (const h of metadataHeaders) params.append('metadataHeaders', h);
+    return (await requestJson(`${GMAIL_API_BASE}/threads/${encodeURIComponent(threadId)}?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }, fetchImpl, timeoutMs)) as Record<string, unknown>;
+  }
+
+  async function modifyThread(accessToken: string, threadId: string, addLabelIds: string[], removeLabelIds: string[]): Promise<void> {
+    await requestJson(`${GMAIL_API_BASE}/threads/${encodeURIComponent(threadId)}/modify`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ addLabelIds, removeLabelIds }),
+    }, fetchImpl, timeoutMs);
+  }
+
+  /**
+   * Thread ids touched since `startHistoryId` (added/deleted messages and
+   * label changes). Bounded to `maxPages`; `truncated` tells the caller the
+   * delta was cut short and a list refresh is the safe fallback.
+   */
+  async function listChangedThreadIds(
+    accessToken: string,
+    startHistoryId: string,
+    maxPages = 5,
+  ): Promise<{ historyId: string | null; threadIds: string[]; expired: boolean; truncated: boolean }> {
+    const threadIds = new Set<string>();
+    let pageToken: string | undefined;
+    let latestHistoryId: string | null = null;
+    for (let page = 0; page < maxPages; page++) {
+      const params = new URLSearchParams({ startHistoryId, maxResults: '500' });
+      if (pageToken) params.set('pageToken', pageToken);
+      let json: Record<string, unknown>;
+      try {
+        json = (await requestJson(`${GMAIL_API_BASE}/history?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }, fetchImpl, timeoutMs)) as Record<string, unknown>;
+      } catch (err) {
+        if (err instanceof GmailError && err.code === 'gmail_provider_error' && /404/.test(err.detail || '')) {
+          return { historyId: null, threadIds: [], expired: true, truncated: false };
+        }
+        throw err;
+      }
+      if (json.historyId != null) latestHistoryId = String(json.historyId);
+      for (const entry of (Array.isArray(json.history) ? json.history : []) as Record<string, unknown>[]) {
+        for (const key of ['messages', 'messagesAdded', 'messagesDeleted', 'labelsAdded', 'labelsRemoved']) {
+          for (const item of (Array.isArray(entry[key]) ? entry[key] : []) as Record<string, unknown>[]) {
+            const msg = (key === 'messages' ? item : item.message) as Record<string, unknown> | undefined;
+            if (typeof msg?.threadId === 'string') threadIds.add(msg.threadId);
+          }
+        }
+      }
+      pageToken = typeof json.nextPageToken === 'string' ? json.nextPageToken : undefined;
+      if (!pageToken) return { historyId: latestHistoryId, threadIds: Array.from(threadIds), expired: false, truncated: false };
+    }
+    return { historyId: latestHistoryId, threadIds: Array.from(threadIds), expired: false, truncated: true };
+  }
+
   return {
+    listThreads,
+    getThreadRaw,
+    modifyThread,
+    listChangedThreadIds,
     exchangeCodeForTokens,
     refreshAccessToken,
     revokeToken,

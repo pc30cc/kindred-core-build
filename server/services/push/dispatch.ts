@@ -791,9 +791,10 @@ export async function notifyEmailMessage(config: ServerConfig, input: EmailPushI
       recipients,
       dedupeKey: `${eventType}:${input.messageId}`,
       messageId: input.messageId,
-      data: { type: eventType, workspaceId: input.workspaceId, threadId: input.threadId, messageId: input.messageId },
+      // A live (Gmail) inbox has no stored thread to name: the app opens the inbox.
+      data: { type: eventType, workspaceId: input.workspaceId, ...(input.threadId ? { threadId: input.threadId } : {}), messageId: input.messageId },
       render: (recipient) => renderEmailContent(input, recipient.preview, recipient.locale),
-      thread: `email-${input.threadId}`,
+      thread: input.threadId ? `email-${input.threadId}` : `email-${input.workspaceId}`,
       policy,
     });
   } catch (err) {

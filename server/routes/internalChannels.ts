@@ -515,6 +515,9 @@ const gmailUpsertSchema = z.object({
  * duplicate it.
  */
 internalChannelsRouter.post('/gmail/upsert-thread-message', async (req: Request, res) => {
+  // Retired: Gmail content is never stored (docs/EMAIL_INBOX_ARCHITECTURE.md).
+  // A Worker still running the old import gets a permanent refusal.
+  return res.status(410).json({ error: 'gmail_content_storage_disabled' });
   const parsed = gmailUpsertSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
   const data = parsed.data;
@@ -616,6 +619,8 @@ internalChannelsRouter.post(
   '/gmail/attachment-ingest',
   raw({ type: '*/*', limit: '25mb' }),
   async (req: Request, res) => {
+    // Retired with /gmail/upsert-thread-message above.
+    return res.status(410).json({ error: 'gmail_content_storage_disabled' });
     try {
       const config = serverConfigOf(req);
       const messageId = String(req.query.message_id || '');

@@ -3,6 +3,7 @@ import type { AuthProvider, AuthSession, AuthUser } from '@/types/providers';
 import { selfHostedAuthProvider } from '@/providers/selfHosted/auth';
 import { unregisterNativePush } from '@/lib/push/nativePush';
 import { toast } from '@/lib/toast';
+import { clearEmailCache } from '@/lib/emailCache';
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -57,6 +58,8 @@ export function AuthContextProvider({
       toast.error(error.message || 'Failed to sign out. Please try again.');
       return;
     }
+    // Mailbox copies kept on this device belong to the signed-in user only.
+    void clearEmailCache(null);
     setSession(null);
   }, [provider]);
 

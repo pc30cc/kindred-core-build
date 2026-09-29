@@ -25,8 +25,18 @@ import {
   useStartGmailOAuth,
   useYahooConnection,
   useStartYahooOAuth,
+  useEmailMailboxSync,
+  threadBodyVersion,
 } from '@/hooks/useEmailInbox';
-import { uploadEmailAttachment, type StagedEmailAttachment, type EmailMessageView } from '@/lib/emailInbox-api';
+import { useAuth } from '@/features/auth/AuthContext';
+import { emailCacheScope } from '@/lib/emailCache';
+import {
+  uploadEmailAttachment,
+  fileToBase64,
+  type StagedEmailAttachment,
+  type EmailMessageView,
+  type EmailThreadSummary,
+} from '@/lib/emailInbox-api';
 
 // Stored addresses can be a raw header value ("Facebook <x@facebookmail.com>",
 // quoted names included), so split out a display name before rendering.
@@ -209,14 +219,22 @@ function ThreadListSkeleton() {
 }
 
 function ThreadList({
-  workspaceId, activeThreadId, onSelect,
-}: { workspaceId: string; activeThreadId: string | null; onSelect: (id: string) => void }) {
+  workspaceId, scope, activeThreadId, onSelect,
+}: { workspaceId: string; scope: string | null; activeThreadId: string | null; onSelect: (thread: EmailThreadSummary) => void }) {
   const { t } = useTranslation();
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [unreadOnly, setUnreadOnly] = useState(false);
-  const { data, isLoading, isError, refetch, isFetching } = useEmailThreads(workspaceId, { q: search || undefined, unread: unreadOnly || undefined });
-  const threads = data?.threads ?? [];
-  const syncing = !!data?.syncing;
+  // Each keystroke would be a Gmail search; wait for a pause in typing.
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput.trim()), 400);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+  const { data, isLoading, isError, refetch, isFetching, isPlaceholderData, hasNextPage, fetchNextPage, isFetchingNextPage } =
+    useEmailThreads(workspaceId, scope, { q: search || undefined, unread: unreadOnly || undefined });
+  const threads = useMemo(() => data?.pages.flatMap((p) => p.threads) ?? [], [data]);
+  // Showing this device's copy while Gmail's current page loads.
+  const syncing = isPlaceholderData || (isFetching && !isFetchingNextPage);
 
   return (
     <div className="flex h-full w-[360px] min-w-0 shrink-0 flex-col border-e border-border">
@@ -224,14 +242,14 @@ function ThreadList({
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             placeholder={t('emailInbox.searchPlaceholder' as any)}
             className="h-8 ps-8 text-sm"
           />
         </div>
         <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => refetch()} disabled={isFetching}>
-          <RefreshCw className={cn('h-3.5 w-3.5', (isFetching || syncing) && 'animate-spin')} />
+          <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
         </Button>
       </div>
       <div className="flex items-center gap-1.5 border-b border-border px-3 py-1.5">
@@ -242,7 +260,7 @@ function ThreadList({
         >
           {t('emailInbox.unreadFilter' as any)}
         </Badge>
-        {syncing && (
+        {syncing && threads.length > 0 && (
           <span className="ms-auto flex items-center gap-1.5 text-xs text-muted-foreground">
             <Loader2 className="h-3 w-3 animate-spin" />
             {t('emailInbox.syncing' as any)}
@@ -252,9 +270,9 @@ function ThreadList({
       {/* Radix's viewport wraps children in a display:table div, which lets long
           rows overflow instead of truncating; force it back to block. */}
       <ScrollArea className="flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block">
-        {isLoading || (syncing && threads.length === 0) ? (
+        {isLoading && threads.length === 0 ? (
           <ThreadListSkeleton />
-        ) : isError ? (
+        ) : isError && threads.length === 0 ? (
           <div className="flex flex-col items-center gap-2 p-8 text-center text-sm text-muted-foreground">
             <AlertCircle className="h-5 w-5 text-destructive" />
             {t('emailInbox.loadFailed' as any)}
@@ -263,9 +281,19 @@ function ThreadList({
         ) : threads.length === 0 ? (
           <div className="p-8 text-center text-sm text-muted-foreground">{t('emailInbox.noThreads' as any)}</div>
         ) : (
-          threads.map((thread) => (
-            <ThreadListItem key={thread.id} thread={thread} active={thread.id === activeThreadId} onClick={() => onSelect(thread.id)} />
-          ))
+          <>
+            {threads.map((thread) => (
+              <ThreadListItem key={thread.id} thread={thread} active={thread.id === activeThreadId} onClick={() => onSelect(thread)} />
+            ))}
+            {hasNextPage && (
+              <div className="p-3">
+                <Button variant="ghost" size="sm" className="w-full gap-1.5" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+                  {isFetchingNextPage && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {t('emailInbox.loadMore' as any)}
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </ScrollArea>
     </div>
@@ -352,24 +380,32 @@ function MessageCard({ message, defaultOpen }: { message: EmailMessageView; defa
 
 // ─── Reply composer (inline, bottom of thread) ─────────────────────────
 
+type ComposerAttachment = { filename: string; staged?: StagedEmailAttachment; file?: File };
+
 function ReplyComposer({
-  workspaceId, threadId, defaultTo, defaultSubject,
-}: { workspaceId: string; threadId: string; defaultTo: string[]; defaultSubject: string }) {
+  workspaceId, scope, live, threadId, defaultTo, defaultSubject,
+}: { workspaceId: string; scope: string | null; live: boolean; threadId: string; defaultTo: string[]; defaultSubject: string }) {
   const { t } = useTranslation();
   const [html, setHtml] = useState('');
-  const [attachments, setAttachments] = useState<StagedEmailAttachment[]>([]);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const sendEmailMutation = useSendEmail(workspaceId);
+  const sendEmailMutation = useSendEmail(workspaceId, scope);
 
   const plainText = useMemo(() => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), [html]);
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || !files.length) return;
+    // A live (Gmail) inbox stores nothing: files stay in the browser and go
+    // out with the reply itself.
+    if (live) {
+      setAttachments((prev) => [...prev, ...Array.from(files).map((file) => ({ filename: file.name, file }))]);
+      return;
+    }
     setUploading(true);
     try {
       const staged = await Promise.all(Array.from(files).map((f) => uploadEmailAttachment(workspaceId, f)));
-      setAttachments((prev) => [...prev, ...staged]);
+      setAttachments((prev) => [...prev, ...staged.map((a) => ({ filename: a.filename, staged: a }))]);
     } catch {
       toast({ title: t('emailInbox.attachmentUploadFailed' as any), variant: 'destructive' });
     } finally {
@@ -386,7 +422,14 @@ function ReplyComposer({
         subject: defaultSubject,
         textBody: plainText,
         htmlBody: html,
-        attachments,
+        attachments: attachments.flatMap((a) => (a.staged ? [a.staged] : [])),
+        inlineAttachments: await Promise.all(
+          attachments.flatMap((a) => (a.file ? [a.file] : [])).map(async (file) => ({
+            filename: file.name,
+            contentType: file.type || 'application/octet-stream',
+            dataBase64: await fileToBase64(file),
+          })),
+        ),
       });
       setHtml('');
       setAttachments([]);
@@ -432,9 +475,11 @@ function ReplyComposer({
 
 // ─── Thread view ────────────────────────────────────────────────────────
 
-function ThreadView({ workspaceId, threadId }: { workspaceId: string; threadId: string }) {
+function ThreadView({
+  workspaceId, scope, live, threadId, expectVersion,
+}: { workspaceId: string; scope: string | null; live: boolean; threadId: string; expectVersion: string | null }) {
   const { t } = useTranslation();
-  const { data, isLoading } = useEmailThread(workspaceId, threadId);
+  const { data, isLoading } = useEmailThread(workspaceId, scope, threadId, expectVersion);
   const setRead = useSetEmailThreadRead(workspaceId);
   const setStarred = useSetEmailThreadStarred(workspaceId);
 
@@ -483,7 +528,7 @@ function ThreadView({ workspaceId, threadId }: { workspaceId: string; threadId: 
       </ScrollArea>
       {replyTo.length > 0 && (
         <div className="p-4 pt-0">
-          <ReplyComposer workspaceId={workspaceId} threadId={threadId} defaultTo={replyTo} defaultSubject={thread.subject || ''} />
+          <ReplyComposer workspaceId={workspaceId} scope={scope} live={live} threadId={threadId} defaultTo={replyTo} defaultSubject={thread.subject || ''} />
         </div>
       )}
     </div>
@@ -492,12 +537,12 @@ function ThreadView({ workspaceId, threadId }: { workspaceId: string; threadId: 
 
 // ─── Compose (new thread) dialog ────────────────────────────────────────
 
-function ComposeDialog({ workspaceId, open, onOpenChange }: { workspaceId: string; open: boolean; onOpenChange: (v: boolean) => void }) {
+function ComposeDialog({ workspaceId, scope, open, onOpenChange }: { workspaceId: string; scope: string | null; open: boolean; onOpenChange: (v: boolean) => void }) {
   const { t } = useTranslation();
   const [to, setTo] = useState('');
   const [subject, setSubject] = useState('');
   const [html, setHtml] = useState('');
-  const sendEmailMutation = useSendEmail(workspaceId);
+  const sendEmailMutation = useSendEmail(workspaceId, scope);
 
   const plainText = useMemo(() => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), [html]);
   const toList = useMemo(() => to.split(',').map((s) => s.trim()).filter(Boolean), [to]);
@@ -550,24 +595,29 @@ export default function EmailInboxPage() {
   const navigate = useNavigate();
   const { threadId } = useParams<{ threadId?: string }>();
   const [composeOpen, setComposeOpen] = useState(false);
+  const { user } = useAuth();
+  // The list row picked last: its version lets an opened thread come from this device's cache.
+  const [selectedVersion, setSelectedVersion] = useState<{ id: string; version: string | null } | null>(null);
 
   const { data: gmailConnectionData, isLoading: gmailConnectionLoading } = useGmailConnection(workspaceId);
   const { data: yahooConnectionData, isLoading: yahooConnectionLoading } = useYahooConnection(workspaceId);
+
+  // A workspace connects at most one provider at a time today; Gmail wins the
+  // (currently impossible) tie-break. A connected Gmail inbox is read live.
+  const gmailConnected = !!gmailConnectionData?.connection.connected;
+  const connectedAccount = gmailConnected
+    ? gmailConnectionData?.connection.emailAddress ?? null
+    : yahooConnectionData?.connection.connected
+      ? yahooConnectionData.connection.emailAddress
+      : null;
+  const scope = user?.id && workspaceId && connectedAccount ? emailCacheScope(user.id, workspaceId, connectedAccount) : null;
+  useEmailMailboxSync(workspaceId, gmailConnected ? scope : null);
 
   if (!workspaceId || gmailConnectionLoading || yahooConnectionLoading) {
     return <div className="flex h-full items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
-  // A workspace connects at most one provider at a time today — whichever
-  // is connected drives the inbox; Gmail wins the (currently impossible,
-  // since disconnecting is required before connecting the other) tie-break.
-  const connectedEmailAddress = gmailConnectionData?.connection.connected
-    ? gmailConnectionData.connection.emailAddress
-    : yahooConnectionData?.connection.connected
-      ? yahooConnectionData.connection.emailAddress
-      : null;
-
-  if (!connectedEmailAddress) {
+  if (!connectedAccount) {
     return <ConnectEmailCard workspaceId={workspaceId} />;
   }
 
@@ -575,7 +625,7 @@ export default function EmailInboxPage() {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-3 border-b border-border px-4 py-2.5">
         <Mail className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium text-foreground">{connectedEmailAddress}</span>
+        <span className="text-sm font-medium text-foreground">{connectedAccount}</span>
         <Button size="sm" className="ms-auto gap-1.5" onClick={() => setComposeOpen(true)}>
           <Send className="h-3.5 w-3.5" />
           {t('emailInbox.compose' as any)}
@@ -584,16 +634,27 @@ export default function EmailInboxPage() {
       <div className="flex min-h-0 flex-1">
         <ThreadList
           workspaceId={workspaceId}
+          scope={scope}
           activeThreadId={threadId || null}
-          onSelect={(id) => navigate(wsPath(`/email/${id}`))}
+          onSelect={(thread) => {
+            setSelectedVersion({ id: thread.id, version: threadBodyVersion(thread) });
+            navigate(wsPath(`/email/${thread.id}`));
+          }}
         />
         {threadId ? (
-          <ThreadView workspaceId={workspaceId} threadId={threadId} />
+          <ThreadView
+            key={threadId}
+            workspaceId={workspaceId}
+            scope={scope}
+            live={gmailConnected}
+            threadId={threadId}
+            expectVersion={selectedVersion?.id === threadId ? selectedVersion.version : null}
+          />
         ) : (
           <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">{t('emailInbox.selectThread' as any)}</div>
         )}
       </div>
-      <ComposeDialog workspaceId={workspaceId} open={composeOpen} onOpenChange={setComposeOpen} />
+      <ComposeDialog workspaceId={workspaceId} scope={scope} open={composeOpen} onOpenChange={setComposeOpen} />
     </div>
   );
 }

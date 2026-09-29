@@ -24,7 +24,7 @@ import { Router, type Request } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { serverConfigOf } from '../lib/workspaceAuth.js';
 import { getServiceClient } from '../supabase.js';
-import { enqueueChannelJob } from '../services/channels/jobs.js';
+import { scheduleGmailChange } from '../services/email/gmailChangeNotifier.js';
 
 export const gmailPushRouter = Router();
 
@@ -103,23 +103,15 @@ gmailPushRouter.post('/gmail/push', async (req: Request, res) => {
       return res.status(204).end();
     }
 
-    const metadata = (integration.metadata ?? {}) as Record<string, unknown>;
-    const startHistoryId = typeof metadata.gmail_history_id === 'string' ? metadata.gmail_history_id : null;
-
-    await enqueueChannelJob(sb, {
-      provider: 'gmail',
-      jobType: 'gmail_sync_inbox',
-      workspaceId: integration.workspace_id,
-      integrationId: integration.id,
-      payload: { start_history_id: startHistoryId },
-    });
+    // No import: the push becomes a content-free "mailbox changed" signal
+    // (coalesced per mailbox) — see services/email/gmailChangeNotifier.ts.
+    scheduleGmailChange(config, integration.id);
 
     res.status(204).end();
   } catch (err) {
     console.error('[gmail-push] handling failed:', err);
-    // Still acknowledge — a durable enqueue failure here would otherwise
-    // make Pub/Sub retry the same push forever with no way to recover; the
-    // watch-renewal ticker and any later push both re-trigger a sync anyway.
+    // Still acknowledge — a failure here would otherwise make Pub/Sub retry
+    // the same push forever; the next push re-signals the mailbox anyway.
     res.status(204).end();
   }
 });

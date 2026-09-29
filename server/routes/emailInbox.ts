@@ -25,6 +25,9 @@ import {
   stageComposeAttachment,
   composeReply,
   getAttachmentFile,
+  listChanges,
+  isLiveInbox,
+  sendLiveGmail,
   type StagedAttachment,
 } from '../services/email/inbox.js';
 
@@ -39,6 +42,7 @@ function sendEmailInboxError(res: Response, err: unknown) {
     const status =
       err.code === 'email_not_connected' ? 409 :
       err.code === 'email_thread_not_found' ? 404 :
+      err.code === 'email_attachment_not_found' ? 404 :
       err.code === 'email_missing_recipient' ? 400 :
       500;
     return res.status(status).json({ error: err.code, message: err.message });
@@ -56,6 +60,7 @@ emailInboxRouter.get('/:workspaceId/threads', async (req, res) => {
     const result = await listThreads(serverConfigOf(req), workspaceId, {
       limit: req.query.limit ? Number(req.query.limit) : undefined,
       before: typeof req.query.before === 'string' ? req.query.before : null,
+      pageToken: typeof req.query.page_token === 'string' ? req.query.page_token : null,
       unreadOnly: req.query.unread === 'true',
       starredOnly: req.query.starred === 'true',
       search: typeof req.query.q === 'string' ? req.query.q : undefined,
@@ -74,6 +79,25 @@ emailInboxRouter.get('/:workspaceId/threads/:threadId', async (req, res) => {
   try {
     const result = await getThread(serverConfigOf(req), workspaceId, threadId);
     res.json(result);
+  } catch (err) {
+    sendEmailInboxError(res, err);
+  }
+});
+
+/**
+ * GET /:workspaceId/changes?since=<historyId> — thread ids changed since a
+ * client's cursor, so apps refresh only those. Carries ids only, no content.
+ */
+emailInboxRouter.get('/:workspaceId/changes', async (req, res) => {
+  const { workspaceId } = req.params;
+  const since = typeof req.query.since === 'string' && /^\d{1,30}$/.test(req.query.since) ? req.query.since : null;
+  if (!since) return res.status(400).json({ error: 'invalid_since' });
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await listChanges(serverConfigOf(req), workspaceId, since));
   } catch (err) {
     sendEmailInboxError(res, err);
   }
@@ -150,6 +174,10 @@ emailInboxRouter.post('/:workspaceId/attachments', raw({ type: '*/*', limit: '25
   if (!auth) return;
   if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
   try {
+    // A live (Gmail) inbox stores nothing: attachments travel inline in /send.
+    if (await isLiveInbox(serverConfigOf(req), workspaceId)) {
+      return res.status(409).json({ error: 'email_attachments_inline_only' });
+    }
     const filename = typeof req.query.filename === 'string' ? req.query.filename : 'attachment';
     const contentType = typeof req.query.content_type === 'string' ? req.query.content_type : 'application/octet-stream';
     const bytes = Buffer.isBuffer(req.body) ? (req.body as Buffer) : Buffer.alloc(0);
@@ -162,7 +190,8 @@ emailInboxRouter.post('/:workspaceId/attachments', raw({ type: '*/*', limit: '25
 });
 
 const sendSchema = z.object({
-  thread_id: z.string().uuid().nullable().optional(),
+  // Gmail thread ids are provider ids (hex), Yahoo's are our UUIDs.
+  thread_id: z.string().min(1).max(200).regex(/^[A-Za-z0-9-]+$/).nullable().optional(),
   to: z.array(z.string().email()).min(1),
   cc: z.array(z.string().email()).optional(),
   bcc: z.array(z.string().email()).optional(),
@@ -175,7 +204,15 @@ const sendSchema = z.object({
     contentType: z.string(),
     sizeBytes: z.number(),
   })).optional(),
+  // Live (Gmail) inbox only: bytes sent with the reply, never stored.
+  inline_attachments: z.array(z.object({
+    filename: z.string().min(1).max(200),
+    content_type: z.string().min(1).max(200),
+    data_base64: z.string().min(1),
+  })).max(10).optional(),
 });
+
+const MAX_INLINE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
 emailInboxRouter.post('/:workspaceId/send', async (req, res) => {
   const { workspaceId } = req.params;
@@ -184,14 +221,38 @@ emailInboxRouter.post('/:workspaceId/send', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
   if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
+  const config = serverConfigOf(req);
   try {
+    if (await isLiveInbox(config, workspaceId)) {
+      const inline = (parsed.data.inline_attachments ?? []).map((a) => ({
+        filename: a.filename.replace(/[\r\n\0"]+/g, '_'),
+        contentType: a.content_type,
+        bytes: Buffer.from(a.data_base64, 'base64'),
+      }));
+      const total = inline.reduce((sum, a) => sum + a.bytes.byteLength, 0);
+      if (total > MAX_INLINE_ATTACHMENT_BYTES) return res.status(413).json({ error: 'attachments_too_large' });
+      const result = await sendLiveGmail(config, workspaceId, {
+        threadId: parsed.data.thread_id ?? null,
+        to: parsed.data.to,
+        cc: parsed.data.cc,
+        bcc: parsed.data.bcc,
+        subject: parsed.data.subject,
+        textBody: parsed.data.text_body,
+        htmlBody: parsed.data.html_body,
+        attachments: inline,
+      });
+      return res.json(result);
+    }
+    if (parsed.data.thread_id && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parsed.data.thread_id)) {
+      return res.status(400).json({ error: 'invalid_payload' });
+    }
     const attachments: StagedAttachment[] | undefined = parsed.data.attachments?.map((a) => ({
       storageKey: a.storageKey,
       filename: a.filename,
       contentType: a.contentType,
       sizeBytes: a.sizeBytes,
     }));
-    const result = await composeReply(serverConfigOf(req), workspaceId, auth.userId, {
+    const result = await composeReply(config, workspaceId, auth.userId, {
       threadId: parsed.data.thread_id ?? null,
       to: parsed.data.to,
       cc: parsed.data.cc,

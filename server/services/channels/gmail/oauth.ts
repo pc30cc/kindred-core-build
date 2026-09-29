@@ -31,7 +31,6 @@ import {
   type ChannelIntegration,
 } from '../../channels/integrations.js';
 import { getGmailOAuthConfig } from './oauthConfig.js';
-import { enqueueChannelJob } from '../jobs.js';
 import { buildGmailAuthUrl, createGmailAdapter, type GmailAdapter } from '../../../../channels/mail/gmail/client.js';
 import { GmailError, type GmailConnectionInfo } from './types.js';
 import { GMAIL_PLUGIN_ID, GMAIL_REFRESH_TOKEN_KEY } from '../../../../shared/channels/gmailKeys.js';
@@ -183,22 +182,6 @@ export async function handleGmailOAuthCallback(
   });
 
   accessTokenCache.delete(installationId);
-
-  // Initial import. Pub/Sub only reports mail that arrives AFTER the watch
-  // starts, so without this a freshly connected inbox stays empty until the
-  // next new email. A null start_history_id makes the Worker import the most
-  // recent INBOX messages and seed the history checkpoint from the profile.
-  try {
-    await enqueueChannelJob(sb, {
-      provider: 'gmail',
-      jobType: 'gmail_sync_inbox',
-      workspaceId,
-      integrationId: integration.id,
-      payload: { start_history_id: null },
-    });
-  } catch (err) {
-    console.error(`[gmail] initial sync enqueue failed for workspace ${workspaceId}: ${(err as Error)?.message}`);
-  }
 
   return { workspaceId };
 }

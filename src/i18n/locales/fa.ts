@@ -2561,6 +2561,7 @@ const fa: TranslationKeys = {
     connectFailed: 'اتصال به جیمیل شروع نشد — دوباره تلاش کنید',
     searchPlaceholder: 'جستجو در ایمیل‌ها',
     unreadFilter: 'خوانده‌نشده',
+    loadMore: 'ایمیل‌های بیشتر',
     syncing: 'در حال همگام‌سازی ایمیل‌ها…',
     loadFailed: 'بارگذاری ایمیل‌ها ناموفق بود',
     retry: 'تلاش دوباره',

@@ -3,7 +3,16 @@ import { LoopVideo } from '@/components/site/LoopVideo';
 import callerWoman from '@/assets/caller-woman.jpg';
 import operatorMan from '@/assets/operator-man.jpg';
 import { useTranslation } from '@/i18n';
-import { siApple, siAndroid, siMacos, siPwa } from 'simple-icons';
+import { siApple, siAndroid, siMacos, siPwa, siWoocommerce, siWordpress } from 'simple-icons';
+import { ShoppingCart, Server, PhoneCall } from 'lucide-react';
+
+const PLUGINS = [
+  { label: 'WordPress', fa: 'وردپرس', path: siWordpress.path, color: `#${siWordpress.hex}` },
+  { label: 'WooCommerce', fa: 'ووکامرس', path: siWoocommerce.path, color: `#${siWoocommerce.hex}` },
+  { label: 'OpenCart', fa: 'اپن‌کارت', Icon: ShoppingCart, color: '#23A1D1' },
+  { label: 'WHMCS', fa: 'WHMCS', Icon: Server, color: '#4B8C2C' },
+  { label: 'DaftareShoma', fa: 'دفتر شما', Icon: PhoneCall, color: '#E4572E' },
+];
 
 const WINDOWS_PATH = 'M0 3.449 9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801';
 
@@ -113,6 +122,19 @@ export function AuthHeroPanel({ title, subtitle, className }: Props) {
               </span>
             ))}
           </div>
+        </div>
+
+        <div className="mt-4 flex max-w-lg flex-wrap items-center justify-center gap-1.5">
+          {PLUGINS.map((p) => (
+            <span key={p.label} className="glass inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-medium text-muted-foreground">
+              {p.Icon ? (
+                <p.Icon className="h-3 w-3" style={{ color: p.color }} />
+              ) : (
+                <svg viewBox="0 0 24 24" className="h-3 w-3" fill={p.color} aria-hidden><path d={p.path} /></svg>
+              )}
+              {isFa ? p.fa : p.label}
+            </span>
+          ))}
         </div>
       </div>
     </div>

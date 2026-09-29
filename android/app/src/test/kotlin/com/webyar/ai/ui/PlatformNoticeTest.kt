@@ -1,6 +1,7 @@
 package com.webyar.ai.ui
 
 import android.content.Context
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.test.core.app.ApplicationProvider
 import com.webyar.ai.core.model.MaintenanceNotice
 import com.webyar.ai.core.model.MobileAppConfig
@@ -14,6 +15,7 @@ import com.webyar.ai.i18n.Language
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.resetMain
@@ -42,7 +44,20 @@ class PlatformNoticeTest {
 
     private val dispatcher = StandardTestDispatcher()
 
-    @Before fun setUp() = Dispatchers.setMain(dispatcher)
+    /**
+     * DataStore lives for the whole test process, not for one test, so what
+     * one test stored — Super Admin's "en", an operator's "tr" — would be
+     * the next one's launch. Each starts from a phone nobody has used.
+     */
+    @Before fun setUp() {
+        Dispatchers.setMain(dispatcher)
+        val store = SecureStore(ApplicationProvider.getApplicationContext())
+        runBlocking {
+            store.remove(stringPreferencesKey("prefs.language"))
+            store.remove(stringPreferencesKey("prefs.appConfig"))
+        }
+    }
+
     @After fun tearDown() = Dispatchers.resetMain()
 
     private fun state(api: WebyarApi): AppState {

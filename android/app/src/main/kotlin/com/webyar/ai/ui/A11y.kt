@@ -19,6 +19,8 @@ object A11y {
     const val BRAND_FOOTER = "brand.footer"
     const val RESTORING = "session.restoring"
     const val RESET_BACK = "reset.back"
+    const val MAINTENANCE = "maintenance"
+    const val MAINTENANCE_RETRY = "maintenance.retry"
 
     const val INBOX_LIST = "inbox.list"
     const val INBOX_EMPTY = "inbox.empty"

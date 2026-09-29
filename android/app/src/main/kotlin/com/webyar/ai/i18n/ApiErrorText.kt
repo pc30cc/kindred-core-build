@@ -79,6 +79,8 @@ private val MACHINE_CODE = Regex("^[a-z][a-z0-9]*(?:[_.-][a-z0-9]+)*$")
 private fun knownCodeText(code: String?, language: Language): String? = when (code) {
     "email_missing_recipient" -> StrEmail.needsRecipient(language)
     "email_attachment_upload_failed" -> StrEmail.uploadFailed(language)
+    // A sign-in refused while Super Admin has the platform down.
+    "maintenance" -> StrAndroid.maintenanceTitle(language)
     else -> null
 }
 

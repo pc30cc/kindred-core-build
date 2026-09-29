@@ -1,6 +1,9 @@
 package com.webyar.ai.core.model
 
+import com.webyar.ai.i18n.Language
 import kotlinx.serialization.Serializable
+import java.time.Instant
+import java.time.OffsetDateTime
 
 /**
  * How this app should behave, as Super Admin → Mobile App → Android sets it.
@@ -46,10 +49,58 @@ data class MobileAppConfig(
      * Firebase with it at every launch from then on.
      */
     val firebase: FirebaseClientConfig? = null,
+    /**
+     * The language the app opens in until the operator picks one: `fa`, `en`
+     * or `tr`. Null from a server that predates the setting — and then the
+     * app's own default, Persian.
+     */
+    val defaultLanguage: String? = null,
+    /** Super Admin's maintenance notice; null from a server without one. */
+    val maintenance: MaintenanceNotice? = null,
 ) {
     companion object {
         val DEFAULT = MobileAppConfig()
     }
+}
+
+/**
+ * Super Admin → Mobile App → Android → Maintenance: while it is on nobody
+ * signs in, and a signed-in operator sees the notice over the app — the Mac
+ * app's maintenance overlay.
+ *
+ * Also read before sign-in, from `GET /api/mobile-app/public-config`, since
+ * the sign-in screen is the first thing it has to cover.
+ */
+@Serializable
+data class MaintenanceNotice(
+    val enabled: Boolean = false,
+    /** What to say, per language: `{ fa, en, tr }`, any of them missing. */
+    val message: Map<String, String> = emptyMap(),
+    /** ISO 8601; past it the notice is off by itself. */
+    val until: String? = null,
+) {
+    val untilInstant: Instant?
+        get() = until?.let { raw ->
+            runCatching { OffsetDateTime.parse(raw).toInstant() }.getOrNull()
+                ?: runCatching { Instant.parse(raw) }.getOrNull()
+        }
+
+    /** On, and not past its end time. */
+    fun isActive(now: Instant = Instant.now()): Boolean {
+        if (!enabled) return false
+        val end = untilInstant ?: return true
+        return end.isAfter(now)
+    }
+
+    /**
+     * The notice in [language], else in whichever language it was written
+     * in — a notice only in English still says something to a Persian
+     * operator — else null, and the app's own wording.
+     */
+    fun message(language: Language): String? =
+        sequenceOf(language.code, "fa", "en", "tr")
+            .mapNotNull { message[it]?.trim()?.takeIf { text -> text.isNotEmpty() } }
+            .firstOrNull()
 }
 
 /**

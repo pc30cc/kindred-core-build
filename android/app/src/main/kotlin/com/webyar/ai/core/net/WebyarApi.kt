@@ -437,6 +437,13 @@ interface WebyarApi {
      */
     suspend fun mobileAppConfig(): MobileAppConfig = MobileAppConfig.DEFAULT
 
+    /**
+     * What the app needs before anyone signs in: the language a first launch
+     * starts in and whether the platform is down for maintenance. Public —
+     * the sign-in screen asks it. Defaulted like [mobileAppConfig].
+     */
+    suspend fun publicAppConfig(): MobileAppConfig = MobileAppConfig.DEFAULT
+
     // MARK: - Calls
 
     /**

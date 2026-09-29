@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import android.content.Intent
 import android.view.WindowManager
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
@@ -28,9 +29,19 @@ import com.webyar.ai.core.push.PushPayload
 import com.webyar.ai.core.push.from
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import com.webyar.ai.feature.auth.MaintenanceOverlay
+import kotlinx.coroutines.delay
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -101,13 +112,40 @@ class MainActivity : ComponentActivity() {
             // same thing needs a window-level override AND a UIKit appearance
             // proxy, because menus are drawn in a window SwiftUI's environment
             // never reaches; Compose has no such split.
+            // Read from the configuration, so it changes the moment the phone
+            // does — switched by hand, or by its own schedule at sunset.
+            val systemDark = isSystemInDarkTheme()
+            val dark = when (appearance) {
+                Appearance.SYSTEM -> systemDark
+                Appearance.LIGHT -> false
+                Appearance.DARK -> true
+            }
+            // The system bars follow the app's own light or dark, and follow it
+            // again every time it changes. Set once at launch, as they were,
+            // they kept the shade the phone had then: dark icons on a dark bar
+            // after the phone went dark, or under an app set to Dark on a
+            // light phone.
+            DisposableEffect(dark) {
+                enableEdgeToEdge(
+                    statusBarStyle = SystemBarStyle.auto(
+                        android.graphics.Color.TRANSPARENT,
+                        android.graphics.Color.TRANSPARENT,
+                    ) { dark },
+                    navigationBarStyle = SystemBarStyle.auto(LIGHT_SCRIM, DARK_SCRIM) { dark },
+                )
+                onDispose {}
+            }
+            // The app's choice made the system's too (Android 12 and later), so
+            // what the system draws for the app — the splash at the next
+            // launch above all — is in the same light or dark as the app.
+            val appearanceLoaded by appState.appearanceLoaded.collectAsState()
+            LaunchedEffect(appearance, appearanceLoaded) {
+                if (appearanceLoaded) applyNightMode(appearance)
+            }
+
             WebyarTheme(
                 language = language,
-                dark = when (appearance) {
-                    Appearance.SYSTEM -> isSystemInDarkTheme()
-                    Appearance.LIGHT -> false
-                    Appearance.DARK -> true
-                },
+                dark = dark,
                 dynamicColor = dynamicColor,
             ) {
                 val languageSource = remember(appState) { { appState.language.value } }
@@ -118,6 +156,22 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Tells the system which of light and dark this app is in, so that what
+     * it draws on the app's behalf matches: the launch splash, above all.
+     * "System" hands the choice back to the phone.
+     */
+    private fun applyNightMode(appearance: Appearance) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        val manager = getSystemService(android.app.UiModeManager::class.java) ?: return
+        val mode = when (appearance) {
+            Appearance.SYSTEM -> android.app.UiModeManager.MODE_NIGHT_AUTO
+            Appearance.LIGHT -> android.app.UiModeManager.MODE_NIGHT_NO
+            Appearance.DARK -> android.app.UiModeManager.MODE_NIGHT_YES
+        }
+        runCatching { manager.setApplicationNightMode(mode) }
     }
 
     /**
@@ -206,38 +260,75 @@ private fun RootScreen(appState: AppState, api: WebyarApi, language: Language) {
         if (session is Session.SignedOut) stores.release()
     }
 
-    when (val current = session) {
-        // The Mac app's splash: the mark, a small spinner and one line.
-        is Session.Restoring -> RestoringScreen(language)
-
-        // No `statusBarsPadding` here: the screen takes `safeDrawing`, which
-        // is the status bar AND the cutout AND the keyboard. Passing the
-        // first as well would pad the top twice.
-        is Session.SignedOut -> LoginScreen(
-            language = language,
-            onSubmit = appState::logIn,
-            // "Forgot password?" was never offered: nothing passed this, so
-            // the screen that asks for a link could not be reached at all.
-            onRequestReset = { email -> requestReset(api, email, language) },
-        )
-
-        is Session.SignedIn -> {
-            val owner = remember(current.user.id) {
-                object : ViewModelStoreOwner {
-                    override val viewModelStore: ViewModelStore = stores.storeFor(current.user.id)
-                }
-            }
-            // Keyed by the operator: the stacks and scroll positions are
-            // saved state, and a process restored to the login screen must
-            // not hand the last operator's open chats to the next one.
-            key(current.user.id) {
-                CompositionLocalProvider(LocalViewModelStoreOwner provides owner) {
-                    SignedInScreen(appState, api, language)
-                }
+    // Super Admin's maintenance notice, asked for every minute the app is
+    // on screen and at once when it comes back to it — the sign-in screen
+    // included, since nobody signs in while it is on.
+    val maintenance by appState.maintenance.collectAsState()
+    val checkingPlatform by appState.checkingPlatform.collectAsState()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(appState, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                appState.checkPlatform()
+                delay(PLATFORM_CHECK_MS)
             }
         }
     }
+
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                // Under the notice the app stays in view, blurred (Android 12
+                // and later), and out of TalkBack's reach as it is of a tap.
+                .then(if (maintenance != null) Modifier.blur(12.dp).clearAndSetSemantics {} else Modifier),
+        ) {
+            when (val current = session) {
+                // The iOS app's launch: the loader turning, the signature below.
+                is Session.Restoring -> RestoringScreen(language)
+
+                // No `statusBarsPadding` here: the screen takes `safeDrawing`,
+                // which is the status bar AND the cutout AND the keyboard.
+                // Passing the first as well would pad the top twice.
+                is Session.SignedOut -> LoginScreen(
+                    language = language,
+                    onSubmit = appState::logIn,
+                    // "Forgot password?" was never offered: nothing passed this,
+                    // so the screen that asks for a link could not be reached.
+                    onRequestReset = { email -> requestReset(api, email, language) },
+                )
+
+                is Session.SignedIn -> {
+                    val owner = remember(current.user.id) {
+                        object : ViewModelStoreOwner {
+                            override val viewModelStore: ViewModelStore = stores.storeFor(current.user.id)
+                        }
+                    }
+                    // Keyed by the operator: the stacks and scroll positions
+                    // are saved state, and a process restored to the login
+                    // screen must not hand the last operator's open chats to
+                    // the next one.
+                    key(current.user.id) {
+                        CompositionLocalProvider(LocalViewModelStoreOwner provides owner) {
+                            SignedInScreen(appState, api, language)
+                        }
+                    }
+                }
+            }
+        }
+        maintenance?.let { notice ->
+            MaintenanceOverlay(
+                notice = notice,
+                language = language,
+                checking = checkingPlatform,
+                onRetry = { appState.checkPlatform() },
+            )
+        }
+    }
 }
+
+/** How often a screen that is open asks whether the platform is down. */
+private const val PLATFORM_CHECK_MS = 60_000L
 
 /**
  * The view models of one signed-in session, in a store of their own.
@@ -396,3 +487,11 @@ private fun ChatPersianPreview() {
         Surface { ChatScreen(ChatState.Loaded(emptyList()), Language.FA, {}) }
     }
 }
+
+/**
+ * The navigation bar's scrims under three-button navigation — the platform's
+ * own defaults for `enableEdgeToEdge`, which it keeps private. Gesture
+ * navigation draws no scrim at all.
+ */
+private val LIGHT_SCRIM = android.graphics.Color.argb(0xe6, 0xFF, 0xFF, 0xFF)
+private val DARK_SCRIM = android.graphics.Color.argb(0x80, 0x1b, 0x1b, 0x1b)

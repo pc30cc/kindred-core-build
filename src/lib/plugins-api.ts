@@ -353,6 +353,7 @@ export const adminPluginsApi = {
       gmailRedirectUriConfigured: boolean;
       pubsubTopicConfigured: boolean;
       pubsubPushAudienceConfigured: boolean;
+      pubsubPushServiceAccountConfigured: boolean;
       fullyConfigured: boolean;
     }>('/api/plugins/admin/gmail/env-status'),
 

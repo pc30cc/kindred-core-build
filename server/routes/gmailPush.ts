@@ -28,8 +28,6 @@ import { enqueueChannelJob } from '../services/channels/jobs.js';
 
 export const gmailPushRouter = Router();
 
-const GOOGLE_PUBSUB_SERVICE_ACCOUNT = 'gmail-api-push@system.gserviceaccount.com';
-
 let verifierClient: OAuth2Client | null = null;
 function getVerifierClient(): OAuth2Client {
   if (!verifierClient) verifierClient = new OAuth2Client();
@@ -41,9 +39,14 @@ interface PushAuthVerdict {
   reason: string | null;
 }
 
-async function verifyPushAuth(authorizationHeader: string | undefined): Promise<PushAuthVerdict> {
+export async function verifyPushAuth(authorizationHeader: string | undefined): Promise<PushAuthVerdict> {
   const audience = process.env.GMAIL_PUBSUB_PUSH_AUDIENCE?.trim();
   if (!audience) return { ok: false, reason: 'GMAIL_PUBSUB_PUSH_AUDIENCE is not configured' };
+  // Gmail publishes to the topic as gmail-api-push@system.gserviceaccount.com.
+  // Pub/Sub signs push requests as the user-managed account chosen on the
+  // subscription. These are two distinct identities.
+  const pushServiceAccount = process.env.GMAIL_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL?.trim().toLowerCase();
+  if (!pushServiceAccount) return { ok: false, reason: 'GMAIL_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL is not configured' };
 
   const bearer = authorizationHeader?.startsWith('Bearer ') ? authorizationHeader.slice(7) : null;
   if (!bearer) return { ok: false, reason: 'missing bearer token' };
@@ -52,7 +55,7 @@ async function verifyPushAuth(authorizationHeader: string | undefined): Promise<
     const ticket = await getVerifierClient().verifyIdToken({ idToken: bearer, audience });
     const claims = ticket.getPayload();
     if (!claims) return { ok: false, reason: 'empty token payload' };
-    if (claims.email !== GOOGLE_PUBSUB_SERVICE_ACCOUNT || claims.email_verified !== true) {
+    if (claims.email?.toLowerCase() !== pushServiceAccount || claims.email_verified !== true) {
       return { ok: false, reason: 'unexpected token subject' };
     }
     return { ok: true, reason: null };

@@ -58,6 +58,7 @@ export function GmailAdminSetupCard() {
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
         </div>
       ) : (
         <>
@@ -81,6 +82,11 @@ export function GmailAdminSetupCard() {
               label={t('plugins.admin.gmailSetup.pubsubPushAudience.label' as any)}
               hint={t('plugins.admin.gmailSetup.pubsubPushAudience.hint' as any)}
               ok={!!data?.pubsubPushAudienceConfigured}
+            />
+            <EnvRow
+              label={t('plugins.admin.gmailSetup.pubsubPushServiceAccount.label' as any)}
+              hint={t('plugins.admin.gmailSetup.pubsubPushServiceAccount.hint' as any)}
+              ok={!!data?.pubsubPushServiceAccountConfigured}
             />
           </div>
 

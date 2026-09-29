@@ -9105,6 +9105,10 @@ const tr: TranslationKeys = {
           label: 'GMAIL_PUBSUB_PUSH_AUDIENCE',
           hint: 'O konunun push aboneliğinde yapılandırılan OIDC hedef kitlesi (audience); bu aboneliğin uç noktası https://api.yourdomain.com/webhooks/gmail/push olmalıdır (Channels Gateway değil, bir Core rotası). Genellikle bu aynı uç nokta URL\'si olarak ayarlanır.',
         },
+        pubsubPushServiceAccount: {
+          label: 'GMAIL_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL',
+          hint: 'Kimliği doğrulanmış Pub/Sub push için seçilen kullanıcı tarafından yönetilen hizmet hesabının e-postası. OIDC belirteci kimliğiyle eşleşmelidir; Gmail\'in konuya yayın yapan sabit hesabından ayrıdır.',
+        },
         guideNote: 'Tam adım adım kılavuz: SELF_HOST_GUIDE.md → "Gmail channel plugin".',
       },
       yahooSetup: {

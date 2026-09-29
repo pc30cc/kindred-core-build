@@ -440,7 +440,50 @@ function publicBase(base: string): string {
   return /^https?:\/\//i.test(base) ? base : `https://${base}`;
 }
 
-function signS3Request(
+/** RFC 3986 percent-encoding, as SigV4 requires (encodeURIComponent leaves !'()* bare). */
+function sigV4Encode(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+/**
+ * SigV4 canonical query string: every name and value RFC 3986-encoded, then
+ * sorted by name (and value). The server rebuilds this from the request it
+ * receives, so the order the URL happened to be written in must not matter.
+ * Signing `parsed.search` verbatim — the previous behaviour — only matched
+ * when the parameters were already sorted, which ListObjectsV2's
+ * `list-type, prefix, max-keys` is not: every S3 list was rejected with
+ * 403 SignatureDoesNotMatch, and since workspace/account deletion lists each
+ * storage scope before deleting, no deletion touching an S3 scope could finish.
+ */
+export function sigV4CanonicalQuery(search: string): string {
+  const pairs: Array<[string, string]> = [];
+  for (const [name, value] of new URLSearchParams(search)) pairs.push([sigV4Encode(name), sigV4Encode(value)]);
+  pairs.sort(([an, av], [bn, bv]) => (an < bn ? -1 : an > bn ? 1 : av < bv ? -1 : av > bv ? 1 : 0));
+  return pairs.map(([name, value]) => `${name}=${value}`).join('&');
+}
+
+/** SigV4 canonical URI for S3: each path segment encoded exactly once (S3 does not normalise paths). */
+function sigV4CanonicalPath(pathname: string): string {
+  return pathname
+    .split('/')
+    .map((segment) => {
+      try {
+        return sigV4Encode(decodeURIComponent(segment));
+      } catch {
+        return segment;
+      }
+    })
+    .join('/');
+}
+
+/** Builds a query string exactly as it will be signed, so what is sent and what is signed cannot drift. */
+function s3QueryString(params: Record<string, string>): string {
+  return Object.entries(params)
+    .map(([name, value]) => `${sigV4Encode(name)}=${sigV4Encode(value)}`)
+    .join('&');
+}
+
+export function signS3Request(
   method: string,
   url: string,
   config: StorageConfig,
@@ -473,8 +516,8 @@ function signS3Request(
 
   const canonicalRequest = [
     method,
-    parsed.pathname,
-    parsed.search?.slice(1) || '',
+    sigV4CanonicalPath(parsed.pathname),
+    sigV4CanonicalQuery(parsed.search),
     canonicalHeaders,
     signedHeaders,
     headers['x-amz-content-sha256'],
@@ -545,9 +588,9 @@ function extractXmlTags(xml: string, tag: string): string[] {
 }
 
 async function s3List(config: StorageConfig, prefix: string, cursor?: string): Promise<ListResult> {
-  const params = new URLSearchParams({ 'list-type': '2', prefix, 'max-keys': '1000' });
-  if (cursor) params.set('continuation-token', cursor);
-  const url = `${s3BucketBase(config)}?${params.toString()}`;
+  const params: Record<string, string> = { 'list-type': '2', prefix, 'max-keys': '1000' };
+  if (cursor) params['continuation-token'] = cursor;
+  const url = `${s3BucketBase(config)}?${s3QueryString(params)}`;
   const headers = signS3Request('GET', url, config);
 
   const res = await fetch(url, { method: 'GET', headers });

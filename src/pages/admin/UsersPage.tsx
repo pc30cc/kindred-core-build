@@ -1,4 +1,5 @@
 import { useState, useDeferredValue, useCallback } from 'react';
+import type { ElementType } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
@@ -29,6 +30,7 @@ import {
   adminGetUserPhoneVerification, adminSetUserPhone, adminRemoveUserPhone,
   adminDeleteUser,
 } from '@/lib/api';
+import { adminGetUserDeletionStatus, waitForUserDeletion } from '@/lib/adminUserDeletion';
 import { PHONE_COUNTRIES, countryFromE164, defaultPhoneCountry, phoneCountryLabel } from '@/lib/phone-countries';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -41,6 +43,16 @@ import {
   KeyRound, Send, Ban, ScrollText, CheckCircle2, XCircle, Clock, LogIn, CreditCard,
   MessageSquare, Trash2, Pencil,
 } from 'lucide-react';
+
+type AppRole = 'admin' | 'moderator' | 'user';
+type BadgeVariant = 'secondary' | 'destructive' | 'outline';
+interface LoginAttempt {
+  id: string;
+  email: string;
+  ip_address: string;
+  success: boolean;
+  created_at: string;
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -298,7 +310,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
     try {
       await adminSendResetLink(detail.profile.email);
       toast.success(t('admin.users.resetLinkSent'));
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err.message || t('admin.users.resetLinkFailed'));
     } finally {
       setResetLinkLoading(false);
@@ -316,7 +328,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
       toast.success(t('admin.users.passwordChanged'));
       setPasswordDialog(false);
       setNewPassword('');
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err.message || t('admin.users.passwordChangeFailed'));
     } finally {
       setPasswordLoading(false);
@@ -330,7 +342,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
       const result = await adminBlockUser(userId, !isBanned);
       toast.success(result.blocked ? t('admin.users.userBlocked') : t('admin.users.userUnblocked'));
       refetchStatus();
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err.message || t('admin.users.blockFailed'));
     } finally {
       setBlockLoading(false);
@@ -344,7 +356,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
       await adminDeleteUserAvatar(userId);
       toast.success(t('admin.users.avatarRemoved'));
       refetch();
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err.message || t('admin.users.avatarRemoveFailed'));
     } finally {
       setAvatarLoading(false);
@@ -373,7 +385,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
       setEditDialog(false);
       refetch();
       refetchStatus();
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err.message || t('admin.users.userUpdateFailed'));
     } finally {
       setEditLoading(false);
@@ -383,14 +395,28 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
   const handleDeleteUser = async () => {
     setDeleteLoading(true);
     try {
+      // The DELETE only queues the job; success is reported only once the
+      // worker has actually removed the user (files first, then the DB).
       await adminDeleteUser(userId);
-      toast.success(t('admin.users.deleteUserSuccess'));
-      setDeleteDialog(false);
+      const outcome = await waitForUserDeletion(() => adminGetUserDeletionStatus(userId));
       qc.invalidateQueries({ queryKey: ['admin-profiles'] });
       qc.invalidateQueries({ queryKey: ['admin-profile-count'] });
       qc.invalidateQueries({ queryKey: ['admin-workspaces'] });
-      onBack();
-    } catch (err: any) {
+      if (outcome.state === 'deleted') {
+        toast.success(t('admin.users.deleteUserSuccess'));
+        setDeleteDialog(false);
+        onBack();
+      } else if (outcome.state === 'failed') {
+        toast.error(
+          outcome.reason
+            ? t('admin.users.deleteUserFailedWithReason', { reason: outcome.reason })
+            : t('admin.users.deleteUserFailed'),
+        );
+      } else {
+        toast.info(t('admin.users.deleteUserInProgress'));
+        setDeleteDialog(false);
+      }
+    } catch (err) {
       toast.error(err.message || t('admin.users.deleteUserFailed'));
     } finally {
       setDeleteLoading(false);
@@ -403,7 +429,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
       await adminSetUserEmailVerified(userId, next);
       toast.success(t('admin.users.emailVerificationUpdated'));
       refetchStatus();
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err.message || t('admin.users.userUpdateFailed'));
     } finally {
       setEmailVerifyLoading(false);
@@ -522,7 +548,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
               setImpersonateLoading(true);
               const { url } = await adminImpersonateUser(userId);
               window.open(url, '_blank');
-            } catch (err: any) {
+            } catch (err) {
               toast.error(err.message || t('admin.users.impersonateFailed'));
             } finally {
               setImpersonateLoading(false);
@@ -560,6 +586,12 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
               autoComplete="off"
               dir="ltr"
             />
+            {deleteLoading && (
+              <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {t('admin.users.deleteUserRunning')}
+              </p>
+            )}
           </div>
           <AlertDialogFooter className={dir === 'rtl' ? 'sm:flex-row-reverse sm:justify-start' : undefined}>
             <AlertDialogCancel disabled={deleteLoading}>{t('admin.users.cancelAction')}</AlertDialogCancel>
@@ -770,7 +802,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
                 key={role}
                 variant={role === 'admin' ? 'destructive' : 'secondary'}
                 className="cursor-pointer gap-1"
-                onClick={() => removeRole.mutate({ userId, role: role as any })}
+                onClick={() => removeRole.mutate({ userId, role: role as AppRole })}
               >
                 {role} ×
               </Badge>
@@ -793,7 +825,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
               <p className="text-xs text-muted-foreground mt-0.5">{t('admin.users.plansHint')}</p>
             </div>
             <div className="space-y-2">
-              {detail.workspaces.map((ws: any) => (
+              {detail.workspaces.map((ws) => (
                 <WorkspacePlanCard key={ws.id} workspace={ws} />
               ))}
             </div>
@@ -811,7 +843,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
             {(!detail.workspaces || detail.workspaces.length === 0) && (
               <p className="text-sm text-muted-foreground">{t('admin.users.noWorkspaces')}</p>
             )}
-            {detail.workspaces?.map((ws: any) => (
+            {detail.workspaces?.map((ws) => (
               <div key={ws.id} className="flex items-center justify-between rounded-lg border px-3 py-2">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -986,7 +1018,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
               disabled={!selectedRole || currentRoles.includes(selectedRole)}
               onClick={() => {
                 if (selectedRole) {
-                  assignRole.mutate({ userId, role: selectedRole as any });
+                  assignRole.mutate({ userId, role: selectedRole as AppRole });
                   setSelectedRole('');
                   setRoleDialog(false);
                 }
@@ -1014,16 +1046,10 @@ function LoginLogsDialog({ open, onClose, email }: { open: boolean; onClose: () 
   const { data: logs, isLoading } = useQuery({
     queryKey: ['admin-login-logs', email],
     queryFn: async () => {
-      const body = await adminFetch<{ attempts: any[] }>(
+      const body = await adminFetch<{ attempts: LoginAttempt[] }>(
         `/api/admin/management/login-attempts?email=${encodeURIComponent(email)}&limit=50`,
       );
-      return body.attempts as Array<{
-        id: string;
-        email: string;
-        ip_address: string;
-        success: boolean;
-        created_at: string;
-      }>;
+      return body.attempts;
     },
     enabled: open && !!email,
   });
@@ -1049,7 +1075,7 @@ function LoginLogsDialog({ open, onClose, email }: { open: boolean; onClose: () 
           <p className="text-center text-muted-foreground py-8">{t('admin.users.noLoginAttempts')}</p>
         ) : (
           <div className="max-h-[50vh] overflow-y-auto space-y-2">
-            {logs.map((log: any) => (
+            {logs.map((log) => (
               <div
                 key={log.id}
                 className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
@@ -1107,7 +1133,7 @@ function WorkspacePlanCard({ workspace }: { workspace: { id: string; name: strin
       });
       toast.success(t('admin.users.planAssigned'));
       setDialogOpen(false);
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err.message || t('admin.users.planAssignFailed'));
     }
   };
@@ -1117,7 +1143,7 @@ function WorkspacePlanCard({ workspace }: { workspace: { id: string; name: strin
     try {
       await revokePlan.mutateAsync(workspace.id);
       toast.success(t('admin.users.planRevoked'));
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err.message || t('admin.users.planRevokeFailed'));
     }
   };
@@ -1202,7 +1228,7 @@ function WorkspacePlanCard({ workspace }: { workspace: { id: string; name: strin
               <Select value={selectedPlanId} onValueChange={setSelectedPlanId}>
                 <SelectTrigger><SelectValue placeholder={t('admin.users.selectPlan')} /></SelectTrigger>
                 <SelectContent>
-                  {allPlans?.map((pl: any) => (
+                  {allPlans?.map((pl) => (
                     <SelectItem key={pl.id} value={pl.id}>{pl.name} ({pl.slug})</SelectItem>
                   ))}
                 </SelectContent>
@@ -1227,7 +1253,7 @@ function WorkspacePlanCard({ workspace }: { workspace: { id: string; name: strin
 }
 
 /* ─── Small helpers ─── */
-function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: string | number }) {
+function StatCard({ icon: Icon, label, value }: { icon: ElementType; label: string; value: string | number }) {
   return (
     <div className="rounded-lg border bg-card p-3 text-center">
       <Icon className="h-4 w-4 text-muted-foreground mx-auto mb-1" />
@@ -1246,7 +1272,7 @@ function InfoRow({ label, value }: { label: string; value: string | null | undef
   );
 }
 
-function DetailRow({ icon: Icon, label, value, onCopy }: { icon: any; label: string; value: string | null | undefined; onCopy?: () => void }) {
+function DetailRow({ icon: Icon, label, value, onCopy }: { icon: ElementType; label: string; value: string | null | undefined; onCopy?: () => void }) {
   return (
     <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
       <span className="flex items-center gap-2 text-muted-foreground">
@@ -1277,13 +1303,14 @@ function UserMessagesCard({ userId }: { userId: string }) {
   });
 
   const fmt = (v: string | null) => (v ? format(new Date(v), 'yyyy-MM-dd HH:mm') : '—');
-  const statusVariant = (s: string | null) =>
+  const statusVariant = (s: string | null): BadgeVariant =>
     s === 'sent' || s === 'delivered' ? 'secondary' : s === 'failed' || s === 'error' ? 'destructive' : 'outline';
   const [detail, setDetail] = useState<{ title: string; rows: { label: string; value: string | null | undefined }[]; json?: unknown } | null>(null);
 
-  const bodyOf = (meta: any): string | null => {
+  const bodyOf = (meta: unknown): string | null => {
     if (!meta || typeof meta !== 'object') return null;
-    const raw = meta.text || meta.body || meta.message || meta.content || meta.html;
+    const m = meta as Record<string, unknown>;
+    const raw = m.text || m.body || m.message || m.content || m.html;
     if (typeof raw !== 'string') return null;
     return raw.replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() || null;
   };
@@ -1348,7 +1375,7 @@ function UserMessagesCard({ userId }: { userId: string }) {
                           <TableCell className="text-sm max-w-[260px] truncate">{m.subject || '—'}</TableCell>
                           <TableCell className="text-xs text-muted-foreground">{m.template_slug || '—'}</TableCell>
                           <TableCell>
-                            <Badge variant={statusVariant(m.status) as any} className="text-xs">{m.status || '—'}</Badge>
+                            <Badge variant={statusVariant(m.status)} className="text-xs">{m.status || '—'}</Badge>
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">{m.provider_name || '—'}</TableCell>
                           <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{fmt(m.sent_at || m.created_at)}</TableCell>
@@ -1394,7 +1421,7 @@ function UserMessagesCard({ userId }: { userId: string }) {
                           <TableCell className="text-sm whitespace-nowrap" dir="ltr">{m.phone_masked || '—'}</TableCell>
                           <TableCell className="text-xs text-muted-foreground">{m.purpose || '—'}</TableCell>
                           <TableCell>
-                            <Badge variant={statusVariant(m.delivery_status) as any} className="text-xs">{m.delivery_status || '—'}</Badge>
+                            <Badge variant={statusVariant(m.delivery_status)} className="text-xs">{m.delivery_status || '—'}</Badge>
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">{m.provider_name || '—'}</TableCell>
                           <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{fmt(m.sent_at || m.created_at)}</TableCell>
@@ -1520,7 +1547,7 @@ function UserFinanceCard({ userId }: { userId: string }) {
 
   const isPaid = (s: string | null) => ['succeeded', 'paid', 'completed', 'success'].includes((s || '').toLowerCase());
   const isRefund = (s: string | null) => ['refunded', 'partially_refunded'].includes((s || '').toLowerCase());
-  const statusVariant = (s: string | null) =>
+  const statusVariant = (s: string | null): BadgeVariant =>
     isPaid(s) ? 'secondary' : isRefund(s) ? 'outline' : ['failed', 'canceled', 'cancelled', 'error'].includes((s || '').toLowerCase()) ? 'destructive' : 'outline';
 
   if (isLoading) {
@@ -1539,7 +1566,7 @@ function UserFinanceCard({ userId }: { userId: string }) {
     if (!id) return '—';
     const plan = data.plans.find(p => p.id === id);
     if (!plan) return '—';
-    const loc = (plan.localized as any)?.[locale]?.name;
+    const loc = plan.localized?.[locale]?.name;
     return loc || plan.name;
   };
 
@@ -1568,9 +1595,9 @@ function UserFinanceCard({ userId }: { userId: string }) {
     const failed = attempts - success;
     const lastAt = [...pays.map(p => p.created_at), ...evts.map(e => e.created_at)]
       .filter(Boolean).sort().reverse()[0] as string | undefined;
-    const lastErrorItem = [...pays, ...evts].find(x => !isPaid((x as any).status) && (x as any).status);
+    const lastErrorItem = [...pays, ...evts].find(x => !isPaid(x.status) && x.status);
     const lastError = lastErrorItem
-      ? `${(lastErrorItem as any).status}${(lastErrorItem as any).metadata?.error ? ` — ${String((lastErrorItem as any).metadata.error)}` : ''}`
+      ? `${lastErrorItem.status}${lastErrorItem.metadata?.error ? ` — ${String(lastErrorItem.metadata.error)}` : ''}`
       : null;
     return { name, cfg, attempts, success, failed, lastAt, lastError };
   });
@@ -1744,7 +1771,7 @@ function UserFinanceCard({ userId }: { userId: string }) {
                       <TableCell className="text-xs">{p.provider_name || '—'}</TableCell>
                       <TableCell className="text-xs font-medium">{money(p.amount, p.currency)}</TableCell>
                       <TableCell className="text-xs">{p.refund_amount ? money(p.refund_amount, p.currency) : '—'}</TableCell>
-                      <TableCell><Badge variant={statusVariant(p.status) as any}>{p.status || '—'}</Badge></TableCell>
+                      <TableCell><Badge variant={statusVariant(p.status)}>{p.status || '—'}</Badge></TableCell>
                       <TableCell className="text-[11px] font-mono max-w-[160px] truncate">{p.provider_payment_id || '—'}</TableCell>
                     </TableRow>
                   ))}
@@ -1800,7 +1827,7 @@ function UserFinanceCard({ userId }: { userId: string }) {
                   </div>
                   <div className="text-end shrink-0 space-y-1">
                     {e.amount != null && <p className="font-medium">{money(e.amount, e.currency)}</p>}
-                    <Badge variant={statusVariant(e.status) as any}>{e.status || '—'}</Badge>
+                    <Badge variant={statusVariant(e.status)}>{e.status || '—'}</Badge>
                     <p className="text-muted-foreground">{fmt(e.created_at)}</p>
                   </div>
                 </div>

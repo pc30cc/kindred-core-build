@@ -44,6 +44,7 @@ import { runScopeCleanupTick, type ScopeCleanupState } from '../storage/scopeCle
 import { hasActiveOwnerWriteLeases } from '../storage/writerLease.js';
 import type { UserDeletionJobRow } from './types.js';
 import { IdleBackoff } from '../jobs/idleBackoff.js';
+import { reviveFailedWorkspaceDeletion } from '../workspaceDeletion/revive.js';
 
 const POLL_INTERVAL_MS = 5_000;
 /** Ceiling for the idle backoff — see the start function below. */
@@ -151,22 +152,48 @@ async function collectWorkspaces(config: ServerConfig, job: UserDeletionJobRow):
     // workspace was already deleted between our listing query and this
     // enqueue call (workspace_not_found) is not a failure — there is
     // nothing left to wait for.
-    if (!data?.ok && data?.error !== 'workspace_not_found') {
-      await retryOrFail(config, job, `enqueue_workspace_deletion for workspace ${workspaceId} returned ok:false (${data?.error ?? 'unknown'})`);
+    if (data?.ok || data?.error === 'workspace_not_found') continue;
+    // A workspace left 'deleting' by an earlier attempt that exhausted its
+    // retries has no active job, and enqueue refuses it. An admin asking to
+    // delete the owner IS asking to finish that deletion, so revive its
+    // failed job (resumes from its saved scope progress) instead of failing
+    // the whole account deletion on it forever.
+    if (data?.error === 'workspace_stuck_no_active_job') {
+      const revived = await reviveFailedWorkspaceDeletion(config, workspaceId, job.requested_by);
+      if (revived.ok) continue;
+      await retryOrFail(config, job, `workspace ${workspaceId} is stuck deleting and its failed job could not be retried: ${revived.error}`);
       return;
     }
+    await retryOrFail(config, job, `enqueue_workspace_deletion for workspace ${workspaceId} returned ok:false (${data?.error ?? 'unknown'})`);
+    return;
   }
 
   await releaseLease(config, job, { status: 'awaiting_workspace_deletions', workspace_ids: workspaceIds });
 }
 
 async function checkWorkspaceDeletionsComplete(config: ServerConfig, job: UserDeletionJobRow): Promise<void> {
+  const sb = getServiceClient(config);
+
+  // retry_user_deletion_job always resumes here, even when the failure
+  // happened while collecting — workspace_ids is then incomplete (often
+  // empty), and advancing on it would let admin_delete_user purge a
+  // workspace's DB rows while its storage was never cleaned. Anything the
+  // user still owns that this job never enqueued sends it back to collect.
+  const { data: owned, error: ownedError } = await sb.from('workspaces').select('id').eq('owner_id', job.user_id);
+  if (ownedError) {
+    await retryOrFail(config, job, `failed to list owned workspaces: ${ownedError.message}`);
+    return;
+  }
+  if ((owned ?? []).some((w) => !job.workspace_ids.includes(w.id as string))) {
+    await releaseLease(config, job, { status: 'collecting_workspaces' });
+    return;
+  }
+
   if (job.workspace_ids.length === 0) {
     await releaseLease(config, job, { status: 'purging_user' });
     return;
   }
 
-  const sb = getServiceClient(config);
   const { data: remaining, error } = await sb.from('workspaces').select('id').in('id', job.workspace_ids);
   if (error) {
     await retryOrFail(config, job, `failed to check workspace deletion progress: ${error.message}`);
@@ -300,10 +327,34 @@ async function purgeUser(config: ServerConfig, job: UserDeletionJobRow): Promise
     }
   }
 
+  // Legacy Supabase Auth row. Identity lives in profiles/user_credentials
+  // (just purged), but accounts created before that migration still have
+  // an auth.users row carrying their email. Best effort: a self-hosted
+  // stack without GoTrue has nothing to delete here.
+  try {
+    const { error: authError } = await sb.auth.admin.deleteUser(job.user_id);
+    if (authError && !/not.?found/i.test(authError.message)) {
+      console.warn('[user deletion] legacy auth user delete failed for', job.user_id, authError.message);
+    }
+  } catch (err) {
+    console.warn('[user deletion] legacy auth user delete failed for', job.user_id, errMessage(err));
+  }
+
   const now = new Date().toISOString();
-  await persistFenced(config, job.id, leaseToken, {
-    status: 'completed', purge_result: data ?? null, completed_at: now, locked_by: null, lease_expires_at: null,
-  });
+  try {
+    await persistFenced(config, job.id, leaseToken, {
+      status: 'completed', purge_result: data ?? null, completed_at: now, locked_by: null, lease_expires_at: null,
+    });
+  } catch (err) {
+    // admin_delete_user sweeps every table with a user_id column, this
+    // job's own row included, so the row is normally gone by now: the purge
+    // succeeded and there is simply nothing left to mark. A row that still
+    // exists means another worker really holds the lease — surface that.
+    if (!(err instanceof LeaseFencedError)) throw err;
+    const { data: row, error: rowError } = await sb.from('user_deletion_jobs').select('id').eq('id', job.id).maybeSingle();
+    if (row || rowError) throw err;
+    console.log('[user deletion] user', job.user_id, 'purged (job row removed by the purge)');
+  }
 }
 
 async function tick(config: ServerConfig): Promise<boolean> {

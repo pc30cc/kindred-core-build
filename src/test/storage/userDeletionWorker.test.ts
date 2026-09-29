@@ -8,7 +8,8 @@
  *     scopeCleanupEngine.ts walker, not a single-scope best-effort sweep
  *   - collectWorkspaces inspects enqueue_workspace_deletion's BUSINESS
  *     result ({ok:false, error:...}), not just a transport error —
- *     'workspace_stuck_no_active_job' is a real failure,
+ *     'workspace_stuck_no_active_job' revives that workspace's failed job
+ *     (a real failure only if it cannot be revived),
  *     'workspace_not_found' is a benign race, not a failure
  *   - checkWorkspaceDeletionsComplete inspects an owned workspace's own
  *     latest deletion job status (not just whether the workspace row still
@@ -311,21 +312,44 @@ describe('collecting_workspaces (via a single tick)', () => {
     expect(currentJobRow().workspace_ids).toEqual([]);
   });
 
-  it('treats a SQL-successful enqueue that reports {ok:false, error:"workspace_stuck_no_active_job"} as a real failure — retries, never advances', async () => {
+  it('revives a workspace stuck deleting ({ok:false, error:"workspace_stuck_no_active_job"}) by retrying its latest failed job, then advances', async () => {
     const job = baseJob({ status: 'collecting_workspaces', attempt_count: 0 });
     db.user_deletion_jobs = [job as unknown as Row];
     db.workspaces = [{ id: WS_A, owner_id: USER_A }];
+    db.workspace_deletion_jobs = [
+      { id: 'ws-job-old', workspace_id: WS_A, status: 'failed', requested_at: '2026-01-01T00:00:00.000Z' },
+      { id: 'ws-job-new', workspace_id: WS_A, status: 'failed', requested_at: '2026-01-02T00:00:00.000Z' },
+    ];
+    rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
+    rpcHandlers.enqueue_workspace_deletion = () => ({ data: { ok: false, error: 'workspace_stuck_no_active_job' }, error: null });
+    rpcHandlers.retry_workspace_deletion_job = () => ({ data: { ok: true }, error: null });
+
+    workerMod.startUserDeletionWorker({} as never);
+    await flush();
+
+    expect(rpcCalls.filter((c) => c.fn === 'retry_workspace_deletion_job').map((c) => c.args)).toEqual([
+      { _job_id: 'ws-job-new', _actor_user_id: ACTOR },
+    ]);
+    expect(currentJobRow().status).toBe('awaiting_workspace_deletions');
+    expect(currentJobRow().workspace_ids).toEqual([WS_A]);
+    expect(currentJobRow().attempt_count).toBe(0);
+  });
+
+  it('treats a stuck workspace whose failed job cannot be retried as a real failure — retries, never advances', async () => {
+    const job = baseJob({ status: 'collecting_workspaces', attempt_count: 0 });
+    db.user_deletion_jobs = [job as unknown as Row];
+    db.workspaces = [{ id: WS_A, owner_id: USER_A }];
+    db.workspace_deletion_jobs = [];
     rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
     rpcHandlers.enqueue_workspace_deletion = () => ({ data: { ok: false, error: 'workspace_stuck_no_active_job' }, error: null });
 
     workerMod.startUserDeletionWorker({} as never);
     await flush();
 
-    // No RPC transport error at all — the RPC call itself succeeded; the
-    // worker must inspect the BUSINESS result, not just `error`.
+    expect(rpcCalls.filter((c) => c.fn === 'retry_workspace_deletion_job')).toHaveLength(0);
     expect(currentJobRow().status).toBe('collecting_workspaces'); // never advanced
     expect(currentJobRow().attempt_count).toBe(1);
-    expect(currentJobRow().error_message).toMatch(/workspace_stuck_no_active_job/);
+    expect(currentJobRow().error_message).toMatch(/stuck deleting/);
     expect(currentJobRow().next_retry_at).toBeTruthy();
     expect(currentJobRow().locked_by).toBeNull();
   });
@@ -452,16 +476,32 @@ describe('awaiting_workspace_deletions (via a single tick)', () => {
     expect(currentJobRow().attempt_count).toBe(5);
   });
 
-  it('goes straight to purging_user without ever querying workspaces when workspace_ids is empty', async () => {
+  it('goes straight to purging_user when workspace_ids is empty and the user owns nothing', async () => {
     const job = baseJob({ status: 'awaiting_workspace_deletions', workspace_ids: [] });
     db.user_deletion_jobs = [job as unknown as Row];
+    db.workspaces = [{ id: WS_B, owner_id: 'someone-else' }];
     rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
 
     workerMod.startUserDeletionWorker({} as never);
     await flush();
 
-    expect(fromCalls).not.toContain('workspaces');
     expect(currentJobRow().status).toBe('purging_user');
+  });
+
+  it('goes back to collecting_workspaces when the user still owns a workspace this job never enqueued (a retried collect-phase failure) — never purges past it', async () => {
+    // retry_user_deletion_job always resumes at awaiting_workspace_deletions,
+    // even when the job failed while collecting with workspace_ids still [].
+    const job = baseJob({ status: 'awaiting_workspace_deletions', workspace_ids: [], attempt_count: 5 });
+    db.user_deletion_jobs = [job as unknown as Row];
+    db.workspaces = [{ id: WS_A, owner_id: USER_A }];
+    rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
+
+    workerMod.startUserDeletionWorker({} as never);
+    await flush();
+
+    expect(currentJobRow().status).toBe('collecting_workspaces');
+    expect(currentJobRow().attempt_count).toBe(5); // not a failure
+    expect(rpcCalls.filter((c) => c.fn === 'admin_delete_user')).toHaveLength(0);
   });
 });
 
@@ -767,5 +807,25 @@ describe('lease fencing — a stale worker can never clobber a job reclaimed by 
     expect(currentJobRow().status).toBe('purging_user');
     expect(currentJobRow().purge_result).toBeNull(); // A never got to set this
     expect(currentJobRow().completed_at).toBeNull(); // A never got to set this
+  });
+});
+
+describe('completion after the purge removed the job row', () => {
+  it('admin_delete_user sweeps user_id-keyed tables (this job row included): the missing row is success, not a fencing warning', async () => {
+    const job = baseJob({ status: 'purging_user' });
+    db.user_deletion_jobs = [job as unknown as Row];
+    rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
+    rpcHandlers.admin_delete_user = () => {
+      db.user_deletion_jobs.length = 0;
+      return { data: { deleted_user_id: USER_A }, error: null };
+    };
+
+    workerMod.startUserDeletionWorker({} as never);
+    await flush();
+
+    expect(rpcCalls.filter((c) => c.fn === 'admin_delete_user')).toHaveLength(1);
+    const fencingWarning = vi.mocked(console.warn).mock.calls.find((c) => String(c[1] ?? '').includes('lease no longer held'));
+    expect(fencingWarning).toBeUndefined();
+    expect(console.log).toHaveBeenCalledWith('[user deletion] user', USER_A, 'purged (job row removed by the purge)');
   });
 });

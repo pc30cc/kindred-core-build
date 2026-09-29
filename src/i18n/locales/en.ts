@@ -474,7 +474,7 @@ const en = {
     companyNameLabel: 'What is the name of your website?',
     companyNamePlaceholder: 'Acme Inc.',
     websiteDomainLabel: 'What is your website domain?',
-    websiteDomainPlaceholder: 'www.yourcompany.com',
+    websiteDomainPlaceholder: 'yourcompany.com',
     websiteDomainHint: 'Entering a domain is required and it cannot be changed after the workspace is created.',
     goal_centralizeEmail: 'Centralize my email',
     goal_buildChatbot: 'Build a chatbot',

@@ -476,7 +476,7 @@ const tr: TranslationKeys = {
     companyNameLabel: 'Web sitenizin adı nedir?',
     companyNamePlaceholder: 'Şirketim A.Ş.',
     websiteDomainLabel: 'Web sitenizin domaini nedir?',
-    websiteDomainPlaceholder: 'www.sirketiniz.com',
+    websiteDomainPlaceholder: 'sirketiniz.com',
     websiteDomainHint: 'Domain girmek zorunludur ve çalışma alanı oluşturulduktan sonra değiştirilemez.',
     goal_centralizeEmail: 'E-postalarımı merkezileştirmek',
     goal_buildChatbot: 'Chatbot oluşturmak',

@@ -146,7 +146,7 @@ export default function SignupPage() {
         </div>
 
         {/* Form area */}
-        <div className="flex-1 flex items-center justify-center px-6 pb-12">
+        <div className="flex-1 flex flex-col items-center justify-center px-6 pb-12">
           <div className="glass beam-border w-full max-w-[460px] space-y-7 rounded-3xl p-7 shadow-glow sm:p-9">
             {/* Step indicator */}
             <div className="space-y-4">

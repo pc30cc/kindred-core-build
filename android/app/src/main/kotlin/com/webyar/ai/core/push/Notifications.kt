@@ -85,6 +85,14 @@ object Notifications {
      * conversation, and one per colleague: a second message replaces the
      * first, as the server's `collapse_key` does for the ones it has not
      * delivered yet.
+     *
+     * Posted under the key itself with id [SYSTEM_ID] — exactly as Firebase
+     * posts the ones it draws with the app closed, whose `tag` the server
+     * sets to the same key (`androidNotificationTag` in
+     * server/services/push/fcm.ts). So either kind replaces the other,
+     * opening the conversation clears whichever is there, and the icon's
+     * number, on launchers that show one, counts conversations with
+     * something new — as the iOS badge does — rather than messages.
      */
     @SuppressLint("MissingPermission") // canPost() is the check, and it runs first.
     fun showMessage(context: Context, payload: PushPayload, title: String?, body: String?, language: Language) {
@@ -107,22 +115,28 @@ object Notifications {
             .setAutoCancel(true)
             .setContentIntent(tap)
             .build()
-        NotificationManagerCompat.from(context).notify(TAG, key.hashCode(), notification)
+        val manager = NotificationManagerCompat.from(context)
+        // One posted by an earlier version, under the old tag and id.
+        runCatching { manager.cancel(LEGACY_TAG, key.hashCode()) }
+        manager.notify(key, SYSTEM_ID, notification)
     }
 
     /** The operator opened the conversation: its notification has done its job. */
-    fun cancelConversation(context: Context, conversationId: String) {
-        runCatching { NotificationManagerCompat.from(context).cancel(TAG, conversationId.hashCode()) }
-    }
+    fun cancelConversation(context: Context, conversationId: String) = cancelKey(context, conversationId)
 
     /** The operator opened the thread with this colleague. */
-    fun cancelTeamThread(context: Context, peerId: String) {
-        runCatching { NotificationManagerCompat.from(context).cancel(TAG, teamKey(peerId).hashCode()) }
-    }
+    fun cancelTeamThread(context: Context, peerId: String) = cancelKey(context, teamKey(peerId))
 
     /** Whatever [payload]'s notification is about has been opened. */
     fun cancelFor(context: Context, payload: PushPayload) {
-        keyOf(payload)?.let { key -> runCatching { NotificationManagerCompat.from(context).cancel(TAG, key.hashCode()) } }
+        keyOf(payload)?.let { key -> cancelKey(context, key) }
+    }
+
+    /** Whichever is there: the one this app drew, the one Firebase drew, or one from an earlier version. */
+    private fun cancelKey(context: Context, key: String) {
+        val manager = NotificationManagerCompat.from(context)
+        runCatching { manager.cancel(key, SYSTEM_ID) }
+        runCatching { manager.cancel(LEGACY_TAG, key.hashCode()) }
     }
 
     /** Sign-out: nothing one operator was told stays on screen for the next. */
@@ -155,6 +169,13 @@ object Notifications {
     // is marked so that the two can never share a notification.
     private fun teamKey(peerId: String) = "team:$peerId"
 
-    private const val TAG = "conversation"
+    /**
+     * The id Firebase gives every notification it draws; the tag tells them
+     * apart. This app uses the same, so the two kinds are one.
+     */
+    private const val SYSTEM_ID = 0
+
+    /** How notifications were keyed before 1.0.12: tag "conversation", id the key's hash. */
+    private const val LEGACY_TAG = "conversation"
     private const val TEST_KEY = "push-test"
 }

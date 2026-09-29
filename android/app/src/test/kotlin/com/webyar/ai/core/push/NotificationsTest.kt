@@ -47,6 +47,42 @@ class NotificationsTest {
         assertEquals(1, shadowOf(manager).allNotifications.size)
     }
 
+    /**
+     * What Firebase draws with the app closed: tag the server's
+     * (`androidNotificationTag`, the conversation), id 0.
+     */
+    private fun postAsFirebaseDoes(tag: String) {
+        val drawn = androidx.core.app.NotificationCompat.Builder(context, Notifications.CHANNEL_MESSAGES)
+            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setContentTitle("Maryam")
+            .build()
+        manager.notify(tag, 0, drawn)
+    }
+
+    @Test
+    fun `a message with the app open replaces the one Firebase drew for the conversation`() {
+        shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        Notifications.ensureChannels(context, Language.EN)
+        postAsFirebaseDoes("c-1")
+
+        Notifications.showMessage(context, payload, "Maryam", "Are you there?", Language.EN)
+
+        assertEquals(1, shadowOf(manager).allNotifications.size)
+    }
+
+    @Test
+    fun `opening the conversation clears the notification Firebase drew for it`() {
+        shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        Notifications.ensureChannels(context, Language.EN)
+        postAsFirebaseDoes("c-1")
+        postAsFirebaseDoes("team:user-sara")
+
+        Notifications.cancelConversation(context, "c-1")
+        assertEquals(1, shadowOf(manager).allNotifications.size)
+        Notifications.cancelTeamThread(context, "user-sara")
+        assertTrue(shadowOf(manager).allNotifications.isEmpty())
+    }
+
     @Test
     fun `without permission nothing is posted`() {
         shadowOf(context as Application).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)

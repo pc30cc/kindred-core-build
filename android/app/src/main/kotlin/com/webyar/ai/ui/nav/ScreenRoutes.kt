@@ -832,6 +832,7 @@ fun ColleaguesRoute(
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
     val state by colleagues.state.collectAsStateWithLifecycle()
     val refreshing by colleagues.refreshing.collectAsStateWithLifecycle()
+    val total by colleagues.total.collectAsStateWithLifecycle()
 
     val search = rememberSearchState(resetOn = workspace?.id ?: "-")
     LaunchedEffect(search) {
@@ -853,6 +854,8 @@ fun ColleaguesRoute(
         topBar = {
             SearchableBar(
                 title = Str.colleagues(language),
+                // How big the team is, under its name.
+                subtitle = total.takeIf { it > 0 }?.let { StrAndroid.colleaguesCount(language, it) },
                 language = language,
                 search = search,
                 onBack = onBack,

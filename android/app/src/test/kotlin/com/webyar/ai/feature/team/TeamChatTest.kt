@@ -8,6 +8,7 @@ import androidx.compose.ui.test.performClick
 import com.webyar.ai.core.net.SampleApi
 import com.webyar.ai.i18n.Language
 import com.webyar.ai.i18n.Str
+import com.webyar.ai.i18n.StrAndroid
 import com.webyar.ai.ui.A11y
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -306,6 +307,31 @@ class TeamChatTest {
         compose.onNodeWithTag(A11y.COLLEAGUES_LIST).assertIsDisplayed()
         compose.onNodeWithTag(A11y.colleagueRow("u-2")).assertIsDisplayed()
         compose.onNodeWithTag(A11y.colleagueRow("u-9")).assertIsDisplayed()
+    }
+
+    @Test
+    fun `chats come first, newest on top, then the colleagues nobody has written to, by name`() {
+        fun at(minutes: Long) = com.webyar.ai.core.model.Colleague.LastTeamMessage(body = "x", createdAt = java.time.Instant.now().minusSeconds(minutes * 60))
+        val team = listOf(
+            com.webyar.ai.core.model.Colleague(userId = "old", fullName = "Old", lastMessage = at(600)),
+            com.webyar.ai.core.model.Colleague(userId = "zed", fullName = "Zed"),
+            com.webyar.ai.core.model.Colleague(userId = "new", fullName = "New", lastMessage = at(5)),
+            com.webyar.ai.core.model.Colleague(userId = "amy", fullName = "Amy"),
+        )
+        val (chats, others) = groups(team)
+        assertEquals(listOf("new", "old"), chats.map { it.userId })
+        assertEquals(listOf("amy", "zed"), others.map { it.userId })
+    }
+
+    @Test
+    fun `the two groups are headed when there are both`() = runTest {
+        val team = SampleApi().colleagues("ws-1").colleagues
+        compose.setContent { ColleaguesScreen(ColleaguesState.Loaded(team), Language.FA, {}) }
+
+        compose.onNodeWithText(StrAndroid.colleaguesChats(Language.FA)).assertIsDisplayed()
+        compose.onNodeWithText(StrAndroid.colleaguesStartChat(Language.FA)).assertIsDisplayed()
+        // The admin is marked as one.
+        compose.onNodeWithText(StrAndroid.colleagueRole(Language.FA, "admin")!!).assertIsDisplayed()
     }
 
     @Test

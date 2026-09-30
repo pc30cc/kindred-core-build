@@ -260,6 +260,22 @@ class EmailTest {
         assertTrue(email.state.value is EmailInboxState.Loaded)
     }
 
+    /**
+     * The screen's search box says "" as it opens. That used to replace the
+     * loader with an empty list — "no mail" — until the mail arrived.
+     */
+    @Test
+    fun `an empty search while the mailbox is read keeps the loader`() = runTest(dispatcher) {
+        val email = inbox()
+        email.bind("ws-1")
+        email.setQuery("")
+        email.setStarredLocally("t-1", true)
+        email.markReadLocally("t-1")
+        assertTrue(email.state.value is EmailInboxState.Loading)
+        testScheduler.advanceUntilIdle()
+        assertTrue(ids(email.state.value).isNotEmpty())
+    }
+
     @Test
     fun `the folder menu shows a loader until its folders arrive`() {
         compose.setContent { EmailFolderDrawer(Language.FA, emptyList(), selected = "inbox", onSelect = {}, loading = true) }

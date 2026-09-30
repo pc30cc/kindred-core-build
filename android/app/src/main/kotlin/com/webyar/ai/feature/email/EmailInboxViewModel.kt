@@ -322,12 +322,12 @@ class EmailInboxViewModel(
 
     private fun update(threadId: String, change: (EmailThreadSummary) -> EmailThreadSummary) {
         loaded = loaded.map { if (it.id == threadId) change(it) else it }
-        publish()
+        republish()
     }
 
     fun setQuery(value: String) {
         _query.value = value
-        publish()
+        republish()
     }
 
     fun refresh() {
@@ -493,7 +493,7 @@ class EmailInboxViewModel(
             adjustUnread(-1)
             recountOutsideInbox()
         }
-        publish()
+        republish()
     }
 
     fun thread(id: String): EmailThreadSummary? = loaded.firstOrNull { it.id == id }
@@ -579,6 +579,16 @@ class EmailInboxViewModel(
     private fun publishAddress() {
         val list = _mailboxes.value
         _mailbox.value = (list.firstOrNull { it.provider == _provider.value } ?: list.firstOrNull())?.address
+    }
+
+    /**
+     * The list on screen drawn again after a change made here — a search, a
+     * star, a row read. Only a list already shown: while the mailbox is still
+     * being read, redrawing would put "no mail" where the loader is, and the
+     * mail would then appear all at once.
+     */
+    private fun republish() {
+        if (_state.value is EmailInboxState.Loaded) publish()
     }
 
     private fun publish() {

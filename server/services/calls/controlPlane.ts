@@ -118,7 +118,7 @@ export async function saveCallControlPlane(
   const { error } = await sb
     .from('app_runtime_config')
     .upsert(
-      { key: RUNTIME_KEY, value: merged as any, updated_at: new Date().toISOString() },
+      { key: RUNTIME_KEY, value: merged as unknown as Record<string, unknown>, updated_at: new Date().toISOString() },
       { onConflict: 'key' },
     );
   if (error) throw new Error(error.message);
@@ -201,7 +201,7 @@ export async function saveWorkspaceCallOverrides(
         provider_type: 'call',
         provider_name: 'call_channel',
         enabled: true,
-        config: merged as any,
+        config: merged as unknown as Record<string, unknown>,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'workspace_id,provider_type' },

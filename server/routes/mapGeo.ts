@@ -16,25 +16,35 @@
  * `geoipupdate` can simply leave auto-update off — the mounted file is
  * hot-reloaded either way.
  */
-import { Router } from 'express';
+import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import type { ServerConfig } from '../config.js';
 import { insertAuditLogRows } from '../services/auditLog.js';
 import { getServiceClient } from '../supabase.js';
-import { getMapGeoSettings, patchMapGeoSettings } from '../services/geo/settings.js';
+import { getMapGeoSettings, patchMapGeoSettings, type MapGeoSettings } from '../services/geo/settings.js';
 import { checkMaxmindLocalHealth, lookupMaxmindLocal } from '../services/geo/maxmindLocal.js';
 import { purgeExpiredIpCache } from '../services/geo/ipCache.js';
 import { resolveMapTilesConfig } from '../services/maptiles/index.js';
 import { runMaxmindUpdateNow, MIN_INTERVAL_HOURS } from '../services/geo/maxmindUpdater.js';
-import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
+import { requirePlatformAdmin, serverConfigOf } from '../lib/workspaceAuth.js';
 
 export const mapGeoRouter = Router();
 
-async function requireAdmin(req: any, res: any, next: any) {
+type AdminRequest = Request & { adminUser?: { id: string } };
+
+function adminIdOf(req: Request): string {
+  return (req as AdminRequest).adminUser?.id ?? '';
+}
+
+function errorMessage(err: unknown, fallback: string): string {
+  return (err instanceof Error && err.message) || fallback;
+}
+
+async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const userId = await requirePlatformAdmin(req, res);
   if (!userId) return;
-  (req as any).adminUser = { id: userId };
+  (req as AdminRequest).adminUser = { id: userId };
   next();
 }
 
@@ -43,7 +53,7 @@ mapGeoRouter.use(requireAdmin);
 // ─── GET settings ────────────────────────────────────────────────
 mapGeoRouter.get('/settings', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const settings = await getMapGeoSettings(config);
     // Never expose the license key in API reads — return a redacted marker.
     const safe = {
@@ -54,8 +64,8 @@ mapGeoRouter.get('/settings', async (req, res) => {
       },
     };
     res.json({ settings: safe });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Failed to load settings' });
+  } catch (err) {
+    res.status(500).json({ error: errorMessage(err, 'Failed to load settings') });
   }
 });
 
@@ -116,20 +126,21 @@ const settingsPatchSchema = z.object({
 
 mapGeoRouter.put('/settings', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const patch = settingsPatchSchema.parse(req.body);
     // If client sends the redacted marker, drop it so we don't overwrite the real key.
     if (patch.maxmind_update?.license_key === '••••••••') {
       delete patch.maxmind_update.license_key;
     }
-    const merged = await patchMapGeoSettings(config, patch as any);
+    // The route schema is a deep partial; patchMapGeoSettings deep-merges it.
+    const merged = await patchMapGeoSettings(config, patch as unknown as Partial<MapGeoSettings>);
     // Audit
     const sb = getServiceClient(config);
     await insertAuditLogRows(config, sb, {
       action: 'map_geo.settings.update',
       entity_type: 'app_runtime_config',
       entity_id: null,
-      user_id: (req as any).adminUser.id,
+      user_id: adminIdOf(req),
       workspace_id: '00000000-0000-0000-0000-000000000000',
       new_value: { keys: Object.keys(patch) },
     }).then(() => {}, () => {});
@@ -138,15 +149,15 @@ mapGeoRouter.put('/settings', async (req, res) => {
       maxmind_update: { ...merged.maxmind_update, license_key: merged.maxmind_update.license_key ? '••••••••' : '' },
     };
     res.json({ settings: safe });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Invalid settings' });
+  } catch (err) {
+    res.status(400).json({ error: errorMessage(err, 'Invalid settings') });
   }
 });
 
 // ─── Health ──────────────────────────────────────────────────────
 mapGeoRouter.get('/health', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const settings = await getMapGeoSettings(config);
     const enabled = settings.maxmind_local.enabled;
     const dbPath = settings.maxmind_local.db_path;
@@ -193,8 +204,8 @@ mapGeoRouter.get('/health', async (req, res) => {
         fallback_reason: tiles.fallback_reason,
       },
     });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Health check failed' });
+  } catch (err) {
+    res.status(500).json({ error: errorMessage(err, 'Health check failed') });
   }
 });
 
@@ -203,7 +214,7 @@ const testSchema = z.object({ ip: z.string().min(1) });
 
 mapGeoRouter.post('/test-resolve', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const { ip } = testSchema.parse(req.body);
     const settings = await getMapGeoSettings(config);
     if (!settings.maxmind_local.enabled || !settings.maxmind_local.db_path) {
@@ -220,20 +231,20 @@ mapGeoRouter.post('/test-resolve', async (req, res) => {
       ip_hash: createHash('sha256').update(ip).digest('hex').slice(0, 16) + '…',
       ...result,
     });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Test failed' });
+  } catch (err) {
+    res.status(400).json({ error: errorMessage(err, 'Test failed') });
   }
 });
 
 // ─── MaxMind manual update — guidance only (host-side cron is the recommended path) ──
 mapGeoRouter.post('/maxmind/run-update', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const settings = await getMapGeoSettings(config);
   const sb = getServiceClient(config);
   await insertAuditLogRows(config, sb, {
     action: 'map_geo.maxmind.update_requested',
     entity_type: 'app_runtime_config',
-    user_id: (req as any).adminUser.id,
+    user_id: adminIdOf(req),
     workspace_id: '00000000-0000-0000-0000-000000000000',
     new_value: { edition_id: settings.maxmind_update.edition_id },
   }).then(() => {}, () => {});
@@ -254,10 +265,10 @@ mapGeoRouter.post('/maxmind/run-update', async (req, res) => {
 // ─── Cache purge ─────────────────────────────────────────────────
 mapGeoRouter.post('/cache/purge', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const purged = await purgeExpiredIpCache(config);
     res.json({ ok: true, purged });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Purge failed' });
+  } catch (err) {
+    res.status(500).json({ error: errorMessage(err, 'Purge failed') });
   }
 });

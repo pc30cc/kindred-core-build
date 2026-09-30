@@ -46,13 +46,25 @@ export type CustomerAvailabilityReason =
   | 'always_available'
   | 'no_prefs';
 
+/** One interval of a personal schedule day, as the Availability page stores it. */
+export interface ScheduleInterval {
+  from?: string;
+  to?: string;
+}
+
+/** One day of a personal weekly schedule. */
+export interface ScheduleDay {
+  enabled?: boolean;
+  intervals?: unknown;
+}
+
 export interface AvailabilityPrefsRow {
   user_id?: string;
   force_offline: boolean | null;
   available_when_using_app: boolean | null;
   schedule_enabled: boolean | null;
   timezone: string | null;
-  weekly_schedule: any;
+  weekly_schedule: Partial<Record<DayKey, ScheduleDay>> | null;
 }
 
 export const AVAILABILITY_PREFS_COLUMNS =
@@ -82,10 +94,10 @@ export function partsInTz(date: Date, tz: string): { h: number; m: number; dow: 
   };
 }
 
-export function isWithinIntervals(intervals: any, h: number, m: number): boolean {
+export function isWithinIntervals(intervals: unknown, h: number, m: number): boolean {
   const cur = h * 60 + m;
   if (!Array.isArray(intervals)) return false;
-  for (const it of intervals) {
+  for (const it of intervals as Array<ScheduleInterval | null>) {
     const f = /^(\d{1,2}):(\d{2})$/.exec(it?.from || '');
     const t = /^(\d{1,2}):(\d{2})$/.exec(it?.to || '');
     if (!f || !t) continue;
@@ -158,7 +170,9 @@ export async function loadWorkspaceAvailabilityPrefs(
     .from('workspace_members')
     .select('user_id')
     .eq('workspace_id', workspaceId);
-  const memberIds = (members || []).map((m: any) => m.user_id).filter(Boolean);
+  const memberIds = ((members || []) as Array<{ user_id: string | null }>)
+    .map((m) => m.user_id)
+    .filter((id): id is string => !!id);
   const prefsByUser = new Map<string, AvailabilityPrefsRow>();
   if (!memberIds.length) return { memberIds, prefsByUser };
 
@@ -169,7 +183,9 @@ export async function loadWorkspaceAvailabilityPrefs(
     .select(AVAILABILITY_PREFS_COLUMNS)
     .in('user_id', memberIds)
     .is('workspace_id', null);
-  for (const r of (prefRows || []) as any[]) prefsByUser.set(r.user_id, r);
+  for (const r of (prefRows || []) as AvailabilityPrefsRow[]) {
+    if (r.user_id) prefsByUser.set(r.user_id, r);
+  }
   return { memberIds, prefsByUser };
 }
 

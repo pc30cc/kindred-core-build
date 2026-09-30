@@ -178,11 +178,11 @@ export async function resolveWidgetEntitlements(
 }
 
 /** Force every plan-denied behaviour flag off in an outgoing settings row. */
-export function applyWidgetEntitlementsToSettings<T extends Record<string, any>>(
+export function applyWidgetEntitlementsToSettings<T extends Record<string, unknown>>(
   settings: T,
   ent: WidgetEntitlements,
 ): T {
-  const out: Record<string, any> = { ...settings };
+  const out: Record<string, unknown> = { ...settings };
   for (const [column, capability] of Object.entries(WIDGET_SETTING_CAPABILITY)) {
     if (!(column in out)) continue;
     if (ent.features[capability] === false) out[column] = false;
@@ -193,7 +193,7 @@ export function applyWidgetEntitlementsToSettings<T extends Record<string, any>>
     if (ent.features[def.capability] === false) out[column] = def.reset;
   }
   if (ent.features.widget_business_hours === false && out.business_hours) {
-    out.business_hours = { ...(out.business_hours as any), enabled: false };
+    out.business_hours = { ...(out.business_hours as Record<string, unknown>), enabled: false };
   }
   // Plans without the domain allowlist do not get embed restrictions at all —
   // the stored list is ignored everywhere (operator UI, bootstrap, origin
@@ -221,7 +221,7 @@ export interface PatchGuardResult {
  * grows the embed allowlist past the plan's cap.
  */
 export function guardWidgetSettingsPatch(
-  patch: Record<string, any>,
+  patch: Record<string, unknown>,
   ent: WidgetEntitlements,
 ): PatchGuardResult {
   const denied: string[] = [];
@@ -246,7 +246,7 @@ export function guardWidgetSettingsPatch(
     denied.push('widget_assignment_routing');
   }
 
-  if (patch.business_hours && (patch.business_hours as any).enabled === true
+  if (patch.business_hours && (patch.business_hours as { enabled?: unknown }).enabled === true
       && ent.features.widget_business_hours === false) {
     denied.push('widget_business_hours');
   }

@@ -1875,14 +1875,22 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
   const supabase = getServiceClient(config);
   // The page-context check and the chat-enabled gate below read the same
   // widget_settings row: one read, shared (awaited at most once).
-  let widgetRowRead: Promise<{ data: any; error: any }> | null = null;
+  type WidgetGateRow = {
+    enabled: boolean | null;
+    chat_enabled: boolean | null;
+    allowed_domains: string[] | null;
+    allow_subdomains: boolean | null;
+  };
+  let widgetRowRead: Promise<{ data: WidgetGateRow | null }> | null = null;
   const readWidgetRow = () =>
-    (widgetRowRead ??= (async () =>
-      supabase
+    (widgetRowRead ??= (async () => {
+      const { data } = await supabase
         .from('widget_settings')
         .select('enabled, chat_enabled, allowed_domains, allow_subdomains')
         .eq('workspace_id', workspaceId)
-        .maybeSingle())());
+        .maybeSingle();
+      return { data: (data as WidgetGateRow | null) ?? null };
+    })());
 
   // ─── E2C — sanitize + validate visitor page context ──────────────────
   // We only trust pageContext if its origin matches the request Origin OR is

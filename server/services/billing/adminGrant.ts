@@ -15,7 +15,11 @@ import type { ServerConfig } from '../../config.js';
 
 type Interval = 'monthly' | 'yearly';
 
-function allowanceIrr(plan: any, interval: Interval): number {
+interface PlanRow {
+  limits?: Record<string, unknown> | null;
+}
+
+function allowanceIrr(plan: PlanRow | null, interval: Interval): number {
   const monthly = Number(plan?.limits?.included_ai_allowance_irr ?? plan?.limits?.ai_credits_per_month ?? 0);
   if (!Number.isFinite(monthly) || monthly <= 0) return 0;
   return Math.round(interval === 'yearly' ? monthly * 12 : monthly);
@@ -60,7 +64,7 @@ export async function adminGrantPlanV2(
     .from('billing_subscription_periods')
     .insert({
       workspace_id: input.workspaceId,
-      subscription_id: (sub as any)?.id ?? null,
+      subscription_id: (sub as { id?: string } | null)?.id ?? null,
       plan_id: input.planId,
       invoice_id: null,
       billing_interval: interval,
@@ -69,7 +73,7 @@ export async function adminGrantPlanV2(
       status: 'scheduled',
       source: 'admin',
       plan_snapshot: plan,
-      limits_snapshot: (plan as any).limits ?? {},
+      limits_snapshot: (plan as PlanRow).limits ?? {},
       ai_allowance_irr: allowanceIrr(plan, interval),
     })
     .select()
@@ -77,7 +81,7 @@ export async function adminGrantPlanV2(
   if (periodError || !period) throw new Error(periodError?.message || 'period_insert_failed');
 
   const { error: activateError } = await sb.rpc('billing_activate_period', {
-    p_period_id: (period as any).id,
+    p_period_id: (period as { id: string }).id,
   });
   if (activateError) throw new Error(activateError.message);
 
@@ -87,7 +91,8 @@ export async function adminGrantPlanV2(
     .eq('workspace_id', input.workspaceId)
     .maybeSingle();
 
-  if (!updated || (updated as any).plan_id !== input.planId || (updated as any).current_period_id !== (period as any).id) {
+  const projected = updated as { plan_id?: string; current_period_id?: string } | null;
+  if (!projected || projected.plan_id !== input.planId || projected.current_period_id !== (period as { id: string }).id) {
     throw new Error('subscription_projection_not_updated');
   }
 

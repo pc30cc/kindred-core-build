@@ -24,7 +24,7 @@
 import { Router } from 'express';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { requireUser } from '../lib/workspaceAuth.js';
+import { requireUser, serverConfigOf } from '../lib/workspaceAuth.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import { invalidateGlobalAdminCache } from '../lib/globalAdminCache.js';
 import { findIdentityById } from '../services/auth/identity.js';
@@ -34,14 +34,14 @@ export const adminBootstrapRouter = Router();
 adminBootstrapRouter.get('/is-admin', async (req, res) => {
   const userId = await requireUser(req, res);
   if (!userId) return;
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   return res.json({ isAdmin: await isGlobalAdmin(config, userId) });
 });
 
 adminBootstrapRouter.post('/bootstrap', async (req, res) => {
   const userId = await requireUser(req, res);
   if (!userId) return;
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
 
   if (!config.initialAdminEmail) {
     return res.status(403).json({

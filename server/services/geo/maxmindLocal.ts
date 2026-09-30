@@ -150,7 +150,7 @@ export async function checkMaxmindLocalHealth(dbPath: string): Promise<MaxmindLo
   }
   try {
     const reader = await open<CityResponse>(dbPath);
-    const meta: any = (reader as any).metadata ?? {};
+    const meta = ((reader as { metadata?: { databaseType?: unknown; buildEpoch?: unknown } }).metadata ?? {});
     base.usable = true;
     base.ok = true;
     if (meta.databaseType) base.database_type = String(meta.databaseType);

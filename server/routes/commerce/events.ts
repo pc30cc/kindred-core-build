@@ -16,8 +16,8 @@ import { COMMERCE_PROTOCOL_VERSION } from '../../../shared/commerce/types.js';
 
 export const commerceEventsRouter = Router();
 
-function serverConfigOf(req: any): ServerConfig {
-  return req.serverConfig as ServerConfig;
+function serverConfigOf(req: object): ServerConfig {
+  return (req as { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
 }
 
 // Unsigned requests carry no installation header, so they fall back to the

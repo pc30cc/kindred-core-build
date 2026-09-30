@@ -121,8 +121,8 @@ export async function reopenConversationIfResolved(
       actor_id: null,
       changes: { status: { from: 'resolved', to: 'open' } },
       reason: 'customer_replied_after_resolution',
-      updated_at: (data as any).updated_at,
-    } as any);
+      updated_at: (data as { updated_at?: string }).updated_at,
+    });
 
     return { reopened: true, reason: 'customer_replied_after_resolution' };
   } catch {

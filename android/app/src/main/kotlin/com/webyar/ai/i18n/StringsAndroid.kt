@@ -480,6 +480,7 @@ object StrAndroid {
         Language.TR -> "Canlı destek"
     }
 
+    /** The chat's title when the team's workspace has no name. */
     fun supportTitle(l: Language): String = when (l) {
         Language.EN -> "Support"
         Language.FA -> "پشتیبانی"
@@ -498,136 +499,212 @@ object StrAndroid {
         Language.TR -> "Çevrimiçi"
     }
 
-    fun supportOffline(l: Language): String = when (l) {
-        Language.EN -> "Offline"
-        Language.FA -> "آفلاین"
-        Language.TR -> "Çevrimdışı"
+    /** Nobody on the team now: a message still reaches them. */
+    fun supportOfflineLeaveMessage(l: Language): String = when (l) {
+        Language.EN -> "Offline · Leave a message"
+        Language.FA -> "آفلاین · پیغام بگذارید"
+        Language.TR -> "Çevrimdışı · Mesaj bırakın"
     }
 
-    fun supportNewTicket(l: Language): String = when (l) {
-        Language.EN -> "Submit a ticket"
-        Language.FA -> "ثبت تیکت"
-        Language.TR -> "Destek talebi oluştur"
+    /** The chat's banner while nobody on the team is online. */
+    fun supportOfflineBanner(l: Language): String = when (l) {
+        Language.EN -> "Nobody is online right now. Leave a message — we'll answer right here as soon as we can."
+        Language.FA -> "الان کسی آنلاین نیست. پیغام بگذارید؛ در اولین فرصت همین‌جا پاسخ می‌دهیم."
+        Language.TR -> "Şu anda kimse çevrimiçi değil. Mesaj bırakın; en kısa sürede buradan yanıt vereceğiz."
     }
 
-    fun supportMyRequests(l: Language): String = when (l) {
-        Language.EN -> "My requests"
-        Language.FA -> "درخواست‌های من"
-        Language.TR -> "Taleplerim"
+    /** Over the team's week, in the offline banner. */
+    fun supportHoursTitle(l: Language): String = when (l) {
+        Language.EN -> "Hours"
+        Language.FA -> "ساعات پاسخگویی"
+        Language.TR -> "Çalışma saatleri"
     }
 
-    fun supportOnlineHint(l: Language): String = when (l) {
-        Language.EN -> "The team is online and usually answers within minutes."
-        Language.FA -> "تیم پشتیبانی آنلاین است و معمولاً در چند دقیقه پاسخ می‌دهد."
-        Language.TR -> "Destek ekibi çevrimiçi ve genellikle birkaç dakika içinde yanıt verir."
-    }
-
-    fun supportOfflineHint(l: Language): String = when (l) {
-        Language.EN -> "The team is not online right now. Submit a ticket — the reply comes here and to your email."
-        Language.FA -> "تیم پشتیبانی الان آنلاین نیست. تیکت ثبت کنید؛ پاسخ همین‌جا و در ایمیلتان می‌رسد."
-        Language.TR -> "Destek ekibi şu an çevrimiçi değil. Talep oluşturun; yanıt buraya ve e-postanıza gelir."
-    }
-
-    fun supportStartChat(l: Language): String = when (l) {
-        Language.EN -> "Start a chat"
-        Language.FA -> "شروع گفتگو"
-        Language.TR -> "Sohbet başlat"
-    }
-
-    fun supportTicketNumber(l: Language, number: String): String = when (l) {
-        Language.EN -> "Ticket #$number"
-        Language.FA -> "تیکت #$number"
-        Language.TR -> "Talep #$number"
-    }
-
-    fun supportChatLabel(l: Language): String = when (l) {
-        Language.EN -> "Chat"
-        Language.FA -> "گفتگو"
-        Language.TR -> "Sohbet"
-    }
-
-    /** A thread's state, as the operator sees it. */
-    fun supportStatus(l: Language, status: String): String = when (status) {
-        "pending" -> when (l) {
-            Language.EN -> "Waiting for you"
-            Language.FA -> "منتظر پاسخ شما"
-            Language.TR -> "Yanıtınız bekleniyor"
+    /** A day of the team's week, by the key `/status` files it under (`sat`…`fri`). */
+    fun supportWeekday(l: Language, key: String): String = when (key) {
+        "sat" -> when (l) {
+            Language.EN -> "Saturday"
+            Language.FA -> "شنبه"
+            Language.TR -> "Cumartesi"
         }
-        "resolved" -> when (l) {
-            Language.EN -> "Resolved"
-            Language.FA -> "حل‌شده"
-            Language.TR -> "Çözüldü"
+        "sun" -> when (l) {
+            Language.EN -> "Sunday"
+            Language.FA -> "یکشنبه"
+            Language.TR -> "Pazar"
         }
-        "closed" -> when (l) {
-            Language.EN -> "Closed"
-            Language.FA -> "بسته"
-            Language.TR -> "Kapandı"
+        "mon" -> when (l) {
+            Language.EN -> "Monday"
+            Language.FA -> "دوشنبه"
+            Language.TR -> "Pazartesi"
+        }
+        "tue" -> when (l) {
+            Language.EN -> "Tuesday"
+            Language.FA -> "سه‌شنبه"
+            Language.TR -> "Salı"
+        }
+        "wed" -> when (l) {
+            Language.EN -> "Wednesday"
+            Language.FA -> "چهارشنبه"
+            Language.TR -> "Çarşamba"
+        }
+        "thu" -> when (l) {
+            Language.EN -> "Thursday"
+            Language.FA -> "پنجشنبه"
+            Language.TR -> "Perşembe"
         }
         else -> when (l) {
-            Language.EN -> "Open"
-            Language.FA -> "باز"
-            Language.TR -> "Açık"
+            Language.EN -> "Friday"
+            Language.FA -> "جمعه"
+            Language.TR -> "Cuma"
         }
     }
 
-    fun supportEmpty(l: Language): String = when (l) {
-        Language.EN -> "No requests yet"
-        Language.FA -> "هنوز درخواستی ندارید"
-        Language.TR -> "Henüz talebiniz yok"
+    /** Several days in a row with the same hours: "Saturday–Wednesday". */
+    fun supportDayRange(l: Language, first: String, last: String): String = when (l) {
+        Language.EN -> "$first–$last"
+        Language.FA -> "$first تا $last"
+        Language.TR -> "$first–$last"
     }
 
-    fun supportGreeting(l: Language): String = when (l) {
-        Language.EN -> "Hi! How can we help?"
-        Language.FA -> "سلام! چطور می‌توانیم کمکتان کنیم؟"
-        Language.TR -> "Merhaba! Size nasıl yardımcı olabiliriz?"
+    /** One opening: "9:00–17:00". */
+    fun supportInterval(l: Language, from: String, to: String): String = when (l) {
+        Language.EN -> "$from–$to"
+        Language.FA -> "$from تا $to"
+        Language.TR -> "$from–$to"
     }
 
-    fun supportSubject(l: Language): String = when (l) {
-        Language.EN -> "Subject"
-        Language.FA -> "موضوع"
-        Language.TR -> "Konu"
+    /** A line of the week: the days, then their hours. */
+    fun supportHoursLine(l: Language, days: String, times: String): String = when (l) {
+        Language.EN -> "$days: $times"
+        Language.FA -> "$days $times"
+        Language.TR -> "$days: $times"
     }
 
-    fun supportMessage(l: Language): String = when (l) {
-        Language.EN -> "Describe the problem"
-        Language.FA -> "مشکل را توضیح دهید"
-        Language.TR -> "Sorunu açıklayın"
+    fun supportClosedDays(l: Language, days: String): String = when (l) {
+        Language.EN -> "$days: closed"
+        Language.FA -> "$days تعطیل"
+        Language.TR -> "$days: kapalı"
     }
 
-    fun supportSubmit(l: Language): String = when (l) {
-        Language.EN -> "Submit ticket"
-        Language.FA -> "ثبت تیکت"
-        Language.TR -> "Talebi gönder"
+    /** Under the week, when the team keeps another clock than this phone's. */
+    fun supportTimeZone(l: Language, zone: String): String = when (l) {
+        Language.EN -> "Time zone: $zone"
+        Language.FA -> "منطقهٔ زمانی: $zone"
+        Language.TR -> "Saat dilimi: $zone"
     }
 
-    fun supportTicketSent(l: Language, number: String): String = when (l) {
-        Language.EN -> "Ticket #$number submitted. The reply comes here and to your email."
-        Language.FA -> "تیکت #$number ثبت شد. پاسخ همین‌جا و در ایمیلتان می‌رسد."
-        Language.TR -> "Talep #$number oluşturuldu. Yanıt buraya ve e-postanıza gelir."
+    /**
+     * When the hours open again. [day] is "tomorrow", a weekday or a date,
+     * and null for later today.
+     */
+    fun supportNextOpen(l: Language, day: String?, time: String): String = when (l) {
+        Language.EN -> if (day == null) "We'll be back at $time" else "We'll be back $day at $time"
+        Language.FA -> if (day == null) "از ساعت $time پاسخگو هستیم" else "از $day ساعت $time پاسخگو هستیم"
+        Language.TR -> if (day == null) {
+            "Saat $time itibarıyla yanıt veriyoruz"
+        } else {
+            "${day.replaceFirstChar { it.titlecase(java.util.Locale.forLanguageTag("tr")) }} saat $time itibarıyla yanıt veriyoruz"
+        }
     }
 
-    fun supportClosed(l: Language): String = when (l) {
-        Language.EN -> "This conversation is closed. Start a new one from Support."
-        Language.FA -> "این گفتگو بسته شده است. از بخش پشتیبانی گفتگوی تازه‌ای شروع کنید."
-        Language.TR -> "Bu görüşme kapandı. Destek bölümünden yenisini başlatın."
+    /** Before each conversation after the first, with the day it began. */
+    fun supportNewConversation(l: Language, date: String?): String {
+        val label = when (l) {
+            Language.EN -> "New conversation"
+            Language.FA -> "گفتگوی تازه"
+            Language.TR -> "Yeni görüşme"
+        }
+        return if (date.isNullOrBlank()) label else "$label · $date"
     }
 
+    /** An agent was assigned, or the conversation transferred to them. */
+    fun supportJoined(l: Language, name: String?): String {
+        val who = name?.takeIf { it.isNotBlank() } ?: supportTeam(l)
+        return when (l) {
+            Language.EN -> "$who joined the conversation"
+            Language.FA -> "$who به گفتگو پیوست"
+            Language.TR -> "$who görüşmeye katıldı"
+        }
+    }
+
+    /** Who joined, when the join names nobody. */
     fun supportTeam(l: Language): String = when (l) {
         Language.EN -> "Support team"
         Language.FA -> "تیم پشتیبانی"
         Language.TR -> "Destek ekibi"
     }
 
-    fun supportFile(l: Language): String = when (l) {
-        Language.EN -> "📎 A file — open it from your email or the web"
-        Language.FA -> "📎 یک فایل — از ایمیل یا نسخهٔ وب باز کنید"
-        Language.TR -> "📎 Bir dosya — e-postanızdan veya webden açın"
+    /** The line under an ended conversation, by its status. */
+    fun supportEnded(l: Language, status: String): String = if (status == "closed") {
+        when (l) {
+            Language.EN -> "This conversation was closed"
+            Language.FA -> "این گفتگو بسته شد"
+            Language.TR -> "Bu görüşme kapatıldı"
+        }
+    } else {
+        when (l) {
+            Language.EN -> "This conversation was resolved"
+            Language.FA -> "این گفتگو حل شد"
+            Language.TR -> "Bu görüşme çözüldü"
+        }
+    }
+
+    /** Above the composer while the next message will start a new conversation. */
+    fun supportNewConversationHint(l: Language): String = when (l) {
+        Language.EN -> "The last conversation has ended; your message starts a new one."
+        Language.FA -> "گفتگوی قبلی تمام شده؛ پیام شما گفتگوی تازه‌ای شروع می‌کند."
+        Language.TR -> "Önceki görüşme sona erdi; mesajınız yeni bir görüşme başlatır."
+    }
+
+    fun supportRateTitle(l: Language): String = when (l) {
+        Language.EN -> "Rate this conversation"
+        Language.FA -> "به این گفتگو امتیاز دهید"
+        Language.TR -> "Bu görüşmeyi değerlendirin"
+    }
+
+    /** One star's spoken label: "4 stars". */
+    fun supportStars(l: Language, count: Int): String = when (l) {
+        Language.EN -> if (count == 1) "1 star" else "$count stars"
+        Language.FA -> "${Format.number(count, l)} ستاره"
+        Language.TR -> "$count yıldız"
+    }
+
+    fun supportRateComment(l: Language): String = when (l) {
+        Language.EN -> "Anything to add? (optional)"
+        Language.FA -> "نظر شما (اختیاری)"
+        Language.TR -> "Eklemek istedikleriniz (isteğe bağlı)"
+    }
+
+    fun supportRateSubmit(l: Language): String = when (l) {
+        Language.EN -> "Submit rating"
+        Language.FA -> "ثبت امتیاز"
+        Language.TR -> "Puanı gönder"
+    }
+
+    fun supportYourRating(l: Language): String = when (l) {
+        Language.EN -> "Your rating"
+        Language.FA -> "امتیاز شما"
+        Language.TR -> "Puanınız"
+    }
+
+    /** An empty chat, before the first message. */
+    fun supportGreeting(l: Language): String = when (l) {
+        Language.EN -> "Hi! How can we help?"
+        Language.FA -> "سلام! چطور می‌توانیم کمکتان کنیم؟"
+        Language.TR -> "Merhaba! Size nasıl yardımcı olabiliriz?"
     }
 
     fun supportNotSent(l: Language): String = when (l) {
         Language.EN -> "Not sent — tap to try again"
         Language.FA -> "ارسال نشد — برای تلاش دوباره بزنید"
         Language.TR -> "Gönderilmedi — tekrar denemek için dokunun"
+    }
+
+    /** A file over the support limit (2 MB), refused before the upload. */
+    fun supportFileTooLarge(l: Language): String = when (l) {
+        Language.EN -> "The file must be 2 MB or smaller"
+        Language.FA -> "حجم فایل باید حداکثر ۲ مگابایت باشد"
+        Language.TR -> "Dosya en fazla 2 MB olmalı"
     }
 
     fun supportRateLimited(l: Language): String = when (l) {
@@ -640,12 +717,6 @@ object StrAndroid {
         Language.EN -> "Support isn't available right now."
         Language.FA -> "پشتیبانی در حال حاضر در دسترس نیست."
         Language.TR -> "Destek şu anda kullanılamıyor."
-    }
-
-    fun supportMeLabel(l: Language): String = when (l) {
-        Language.EN -> "You"
-        Language.FA -> "شما"
-        Language.TR -> "Siz"
     }
 
     /** Before a preview the operator wrote themselves: "You: …". */

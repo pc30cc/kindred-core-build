@@ -190,6 +190,56 @@ object Format {
         return clock(listOf(hours, minutes), padFirst = true, language = language)
     }
 
+    /**
+     * An opening time the server stores as `HH:mm`, as a sign on a door
+     * reads it: the hour unpadded, the minutes padded — "9:00", «۹:۰۰».
+     * Anything that is not `HH:mm` comes back untouched, as in [clockLabel].
+     */
+    fun openingTime(value: String, language: Language): String {
+        val parts = value.split(':')
+        if (parts.size != 2) return value
+        val hours = parts[0].toIntOrNull() ?: return value
+        val minutes = parts[1].toIntOrNull() ?: return value
+        if (hours !in 0..24 || minutes !in 0..59) return value
+        return clock(listOf(hours, minutes), padFirst = false, language = language)
+    }
+
+    /**
+     * The day part of a moment ahead, for "we're back ‹day› at ‹time›":
+     * null for later today, "tomorrow", a weekday inside the coming week,
+     * a date beyond that. The time is [bubbleTime]'s.
+     */
+    fun comingDay(
+        instant: Instant,
+        language: Language,
+        now: Instant = Instant.now(),
+    ): String? {
+        val locale = calendarLocale(language)
+        val then = calendarAt(instant, locale)
+        val today = calendarAt(now, locale)
+        if (isSameDay(then, today)) return null
+        val tomorrow = Calendar.getInstance(locale).apply {
+            timeInMillis = today.timeInMillis
+            add(Calendar.DAY_OF_YEAR, 1)
+        }
+        if (isSameDay(then, tomorrow)) {
+            return relative(language, RelativeDateTimeFormatter.Direction.NEXT, RelativeDateTimeFormatter.AbsoluteUnit.DAY)
+        }
+        val weekAhead = today.timeInMillis + 6 * 86_400_000L
+        return pattern(instant, if (then.timeInMillis < weekAhead) "EEEE" else "dMMMM", locale)
+    }
+
+    /**
+     * A time zone as a person names it — "Iran Time", «وقت ایران» — or its
+     * IANA id when the platform has no name for it.
+     */
+    fun zoneName(id: String, language: Language): String = runCatching {
+        val zone = android.icu.util.TimeZone.getTimeZone(id)
+        // An id ICU does not know comes back as "Etc/Unknown", not as a failure.
+        if (zone.id == android.icu.util.TimeZone.UNKNOWN_ZONE_ID) null
+        else zone.getDisplayName(false, android.icu.util.TimeZone.GENERIC_LOCATION, calendarLocale(language))
+    }.getOrNull()?.takeIf { it.isNotBlank() } ?: id
+
     /** How long a call has been running, as a call timer reads it. */
     fun callDuration(start: Instant, now: Instant, language: Language): String {
         val total = maxOf(0L, now.epochSecond - start.epochSecond).toInt()

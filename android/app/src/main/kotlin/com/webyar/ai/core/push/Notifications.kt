@@ -131,8 +131,19 @@ object Notifications {
     /** The operator opened this email thread. */
     fun cancelEmailThread(context: Context, threadId: String) = cancelKey(context, emailKey(threadId))
 
-    /** The operator opened this support thread. */
-    fun cancelSupportThread(context: Context, threadId: String) = cancelKey(context, supportKey(threadId))
+    /**
+     * The operator opened the support chat: every support notification has
+     * done its job, whichever conversation it was about. Found by the tag's
+     * prefix, since the chat does not know which conversations have one up.
+     */
+    fun cancelSupport(context: Context) {
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        runCatching {
+            manager.activeNotifications
+                .filter { it.tag?.startsWith(SUPPORT_PREFIX) == true }
+                .forEach { manager.cancel(it.tag, it.id) }
+        }
+    }
 
     /** Whatever [payload]'s notification is about has been opened. */
     fun cancelFor(context: Context, payload: PushPayload) {
@@ -182,7 +193,9 @@ object Notifications {
     private fun emailKey(threadId: String) = "email:$threadId"
 
     /** The server's tag for a support reply (`androidNotificationTag`, `fcm.ts`). */
-    private fun supportKey(threadId: String) = "support:$threadId"
+    private fun supportKey(threadId: String) = "$SUPPORT_PREFIX$threadId"
+
+    private const val SUPPORT_PREFIX = "support:"
 
     /**
      * The id Firebase gives every notification it draws; the tag tells them

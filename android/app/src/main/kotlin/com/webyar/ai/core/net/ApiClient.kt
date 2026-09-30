@@ -1,11 +1,11 @@
 package com.webyar.ai.core.net
 
 import com.webyar.ai.BuildConfig
+import com.webyar.ai.core.model.SupportConversation
+import com.webyar.ai.core.model.SupportHistory
 import com.webyar.ai.core.model.SupportPostResult
+import com.webyar.ai.core.model.SupportRatingResult
 import com.webyar.ai.core.model.SupportStatus
-import com.webyar.ai.core.model.SupportThread
-import com.webyar.ai.core.model.SupportThreadDetail
-import com.webyar.ai.core.model.SupportThreadsResponse
 import com.webyar.ai.core.model.NotificationPrefs
 import com.webyar.ai.core.model.NotificationPrefsResponse
 import com.webyar.ai.core.model.NotificationPrefsUpdate
@@ -986,48 +986,70 @@ class ApiClient(
     override suspend fun supportStatus(): SupportStatus =
         build(HttpMethod.Get, "/api/platform-support/status").decode()
 
-    override suspend fun supportThreads(): List<SupportThread> =
-        build(HttpMethod.Get, "/api/platform-support/threads").decode<SupportThreadsResponse>().threads
-
-    override suspend fun supportThread(threadId: String): SupportThreadDetail =
-        build(HttpMethod.Get, "/api/platform-support/threads/${threadId.urlPath()}").decode()
+    override suspend fun supportHistory(): SupportHistory =
+        build(HttpMethod.Get, "/api/platform-support/history").decode()
 
     @Serializable
-    private data class SupportWriteBody(
+    private data class SupportMessageBody(
         val body: String,
         val clientMessageId: String,
-        val subject: String? = null,
         val workspaceId: String? = null,
     )
 
-    override suspend fun sendSupportChat(body: String, clientMessageId: String, workspaceId: String?): SupportPostResult =
+    override suspend fun sendSupportMessage(body: String, clientMessageId: String, workspaceId: String?): SupportPostResult =
         build(
             HttpMethod.Post,
-            "/api/platform-support/chat",
-            body = SupportWriteBody(body, clientMessageId, workspaceId = workspaceId),
+            "/api/platform-support/messages",
+            body = SupportMessageBody(body, clientMessageId, workspaceId),
         ).decode()
 
-    override suspend fun createSupportTicket(
-        subject: String,
-        body: String,
+    @Serializable
+    private data class SupportAttachmentBody(
+        val fileName: String,
+        val mimeType: String,
+        /** The bytes in base64; the server takes up to 2 MB of them. */
+        val data: String,
+        val clientMessageId: String,
+        val workspaceId: String? = null,
+    )
+
+    override suspend fun sendSupportAttachment(
+        fileName: String,
+        mimeType: String,
+        bytes: ByteArray,
         clientMessageId: String,
         workspaceId: String?,
     ): SupportPostResult =
         build(
             HttpMethod.Post,
-            "/api/platform-support/tickets",
-            body = SupportWriteBody(body, clientMessageId, subject = subject, workspaceId = workspaceId),
+            "/api/platform-support/attachments",
+            body = SupportAttachmentBody(
+                fileName = fileName,
+                mimeType = mimeType,
+                data = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP),
+                clientMessageId = clientMessageId,
+                workspaceId = workspaceId,
+            ),
+            transfer = true,
         ).decode()
 
-    override suspend fun replySupportThread(threadId: String, body: String, clientMessageId: String): SupportPostResult =
+    override suspend fun supportAttachmentData(id: String): ByteArray =
+        build(HttpMethod.Get, "/api/platform-support/attachments/${id.urlPath()}", transfer = true)
+            .orThrow()
+            .readRawBytes()
+
+    @Serializable
+    private data class SupportRatingBody(val score: Int, val comment: String? = null)
+
+    override suspend fun rateSupportConversation(conversationId: String, score: Int, comment: String?): SupportConversation =
         build(
             HttpMethod.Post,
-            "/api/platform-support/threads/${threadId.urlPath()}/messages",
-            body = SupportWriteBody(body, clientMessageId),
-        ).decode()
+            "/api/platform-support/conversations/${conversationId.urlPath()}/rating",
+            body = SupportRatingBody(score, comment),
+        ).decode<SupportRatingResult>().conversation
 
-    override suspend fun markSupportThreadRead(threadId: String) {
-        build(HttpMethod.Post, "/api/platform-support/threads/${threadId.urlPath()}/read").orThrow()
+    override suspend fun markSupportRead() {
+        build(HttpMethod.Post, "/api/platform-support/read").orThrow()
     }
 
     override suspend fun teamThread(workspaceId: String, peerId: String): TeamThreadResponse =

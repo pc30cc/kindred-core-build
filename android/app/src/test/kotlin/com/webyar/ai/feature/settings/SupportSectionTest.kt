@@ -20,9 +20,9 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Settings → Online support: a chat while the team is online, a ticket while
- * it is not, the operator's requests with what is new in them — and nothing
- * at all where support is not offered.
+ * Settings → Online support: one row into the chat, saying whether the team
+ * is there and how much it wrote that is unread — and nothing at all where
+ * support is not offered, or Super Admin hides it from the app.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -30,7 +30,7 @@ class SupportSectionTest {
 
     @get:Rule val compose = createComposeRule()
 
-    private val online = SupportStatus(enabled = true, available = true, online = true, ticketsEnabled = true, teamName = "پشتیبانی")
+    private val online = SupportStatus(enabled = true, available = true, online = true, teamName = "پشتیبانی")
     private val offline = online.copy(online = false)
 
     private val opened = mutableListOf<String>()
@@ -41,66 +41,71 @@ class SupportSectionTest {
                 SupportSection(
                     summary = summary,
                     language = language,
-                    onStartChat = { opened += "chat" },
-                    onNewTicket = { opened += "ticket" },
-                    onOpenRequests = { opened += "requests" },
+                    onOpenChat = { opened += "chat" },
                 )
             }
         }
     }
 
     @Test
-    fun `while the team is online, the row starts a chat`() {
-        show(SupportSummary(online, requests = 0, unread = 0))
+    fun `one row opens the chat, and says the team is online`() {
+        show(SupportSummary(online))
 
         compose.onNodeWithText(StrAndroid.supportSection(Language.EN)).assertIsDisplayed()
+        compose.onNodeWithText(StrAndroid.supportOnline(Language.EN)).assertIsDisplayed()
+        compose.onNodeWithText(StrAndroid.supportOfflineLeaveMessage(Language.EN)).assertDoesNotExist()
         compose.onNodeWithTag(A11y.SETTINGS_SUPPORT_CHAT).assertIsDisplayed().performClick()
-        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT_TICKET).assertDoesNotExist()
-        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT_REQUESTS).assertDoesNotExist()
+        assertEquals(listOf("chat"), opened)
+    }
+
+    /** Offline is the same row: a message still reaches the team. */
+    @Test
+    fun `offline, the row asks for a message`() {
+        show(SupportSummary(offline), Language.FA)
+
+        compose.onNodeWithText(StrAndroid.supportOfflineLeaveMessage(Language.FA)).assertIsDisplayed()
+        compose.onNodeWithText(StrAndroid.supportOnline(Language.FA)).assertDoesNotExist()
+        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT_CHAT).assertIsDisplayed().performClick()
         assertEquals(listOf("chat"), opened)
     }
 
     @Test
-    fun `while nobody is online, the row files a ticket`() {
-        show(SupportSummary(offline, requests = 0, unread = 0))
+    fun `the team's unread messages are counted on the row`() {
+        show(SupportSummary(offline.copy(unread = 3)))
 
-        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT_CHAT).assertDoesNotExist()
-        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT_TICKET).assertIsDisplayed().performClick()
-        assertEquals(listOf("ticket"), opened)
-    }
-
-    @Test
-    fun `earlier requests are listed with the count of what is new`() {
-        show(SupportSummary(offline, requests = 2, unread = 3))
-
-        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT_REQUESTS).assertIsDisplayed()
         compose.onNodeWithText("3").assertIsDisplayed()
-        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT_REQUESTS).performClick()
-        assertEquals(listOf("requests"), opened)
-    }
-
-    /** Offline with tickets off: no way in, but the requests to follow up stay. */
-    @Test
-    fun `with tickets off and nobody online, only the requests remain`() {
-        show(SupportSummary(offline.copy(ticketsEnabled = false), requests = 1, unread = 0))
-
-        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT_CHAT).assertDoesNotExist()
-        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT_TICKET).assertDoesNotExist()
-        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT_REQUESTS).assertIsDisplayed()
     }
 
     @Test
-    fun `support that is off, or the team's own operator, shows nothing`() {
-        val off = SupportSummary(SupportStatus(), requests = 0, unread = 0)
-        val member = SupportSummary(online.copy(available = false), requests = 1, unread = 1)
+    fun `nothing unread, no badge`() {
+        show(SupportSummary(online))
+
+        compose.onNodeWithText("0").assertDoesNotExist()
+    }
+
+    @Test
+    fun `support that is off, or not offered to this operator, shows nothing`() {
+        val off = SupportSummary(SupportStatus())
+        val notOffered = SupportSummary(online.copy(available = false, unread = 1))
         assertFalse(off.shown)
-        assertFalse(member.shown)
-        assertTrue(SupportSummary(online, 0, 0).shown)
+        assertFalse(notOffered.shown)
+        assertTrue(SupportSummary(online).shown)
 
-        show(member)
+        show(notOffered)
 
         compose.onNodeWithText(StrAndroid.supportSection(Language.EN)).assertDoesNotExist()
         compose.onNodeWithTag(A11y.SETTINGS_SUPPORT_CHAT).assertDoesNotExist()
-        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT_REQUESTS).assertDoesNotExist()
+    }
+
+    /** Super Admin → Mobile App → Android → Show "Online support", switched off. */
+    @Test
+    fun `hidden from the app by Super Admin, it shows nothing`() {
+        val hidden = SupportSummary(online, showSupport = false)
+        assertFalse(hidden.shown)
+
+        show(hidden)
+
+        compose.onNodeWithText(StrAndroid.supportSection(Language.EN)).assertDoesNotExist()
+        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT_CHAT).assertDoesNotExist()
     }
 }

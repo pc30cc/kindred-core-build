@@ -48,9 +48,16 @@ import com.webyar.ai.i18n.Language
 object ConversationChannel {
     const val WEB = "widget"
 
+    /**
+     * An operator of the platform writing to its support team, from Settings
+     * in one of the apps (docs/PLATFORM_SUPPORT.md) — only ever in the
+     * support workspace's own inbox.
+     */
+    const val PLATFORM_SUPPORT = "platform_support"
+
     /** Every channel a label is drawn for; the rest read as the website. */
     private val KNOWN = setOf(
-        "telegram", "bale", "whatsapp", "instagram", "x", "email", "phone", "messenger", "sms",
+        "telegram", "bale", "whatsapp", "instagram", "x", "email", "phone", "messenger", "sms", PLATFORM_SUPPORT,
     )
 
     fun of(conversation: Conversation?): String {
@@ -61,6 +68,27 @@ object ConversationChannel {
             if (key in KNOWN) return key
         }
         return WEB
+    }
+
+    /**
+     * The app a support conversation was written from — "Android", "iOS",
+     * "macOS", "Windows" or "Web" — as the server stamps it
+     * (`client_platform`) on the conversation, and on the contact as well.
+     * Null for any other channel, and for a value it does not know.
+     */
+    fun clientPlatform(conversation: Conversation?): String? {
+        conversation ?: return null
+        if (of(conversation) != PLATFORM_SUPPORT) return null
+        for (meta in listOf(conversation.metadata, conversation.contact?.metadata)) {
+            when (meta.string("client_platform")?.trim()?.lowercase()) {
+                "android" -> return "Android"
+                "ios" -> return "iOS"
+                "macos" -> return "macOS"
+                "windows" -> return "Windows"
+                "web" -> return "Web"
+            }
+        }
+        return null
     }
 
     /** Lower-cased and trimmed, with a provider's other names folded into one. */
@@ -79,6 +107,11 @@ object ConversationChannel {
      * translated; the website is, because "the website" is not a product.
      */
     fun title(key: String, language: Language): String = when (key) {
+        PLATFORM_SUPPORT -> when (language) {
+            Language.EN -> "Site user"
+            Language.FA -> "کاربر سایت"
+            Language.TR -> "Site kullanıcısı"
+        }
         WEB -> when (language) {
             Language.EN -> "Website"
             Language.FA -> "وب‌سایت"
@@ -96,6 +129,16 @@ object ConversationChannel {
         }
         else -> ChannelInbox(key).title(language)
     }
+
+    /**
+     * The label's words: the channel's name, and for a support conversation
+     * the app it came from — "Site user · Android". Product names are not
+     * translated.
+     */
+    fun label(key: String, language: Language, platform: String? = null): String {
+        val title = title(key, language)
+        return if (key == PLATFORM_SUPPORT && !platform.isNullOrBlank()) "$title · $platform" else title
+    }
 }
 
 /** A channel's mark and its colour, light and dark. */
@@ -110,6 +153,7 @@ private fun lookOf(key: String, primary: Color, neutral: Color): ChannelLook = w
     "x" -> ChannelLook(ChannelGlyph.X, neutral, neutral)
     "email" -> ChannelLook(Icons.Filled.Email, neutral, neutral)
     "phone" -> ChannelLook(Icons.Filled.Phone, neutral, neutral)
+    ConversationChannel.PLATFORM_SUPPORT -> ChannelLook(Glyph.Headset, Color(0xFF6A4BD6), Color(0xFFB9A8FF))
     else -> ChannelLook(ChannelGlyph.Bubble, neutral, neutral)
 }
 
@@ -128,6 +172,8 @@ fun ChannelLabel(
     modifier: Modifier = Modifier,
     /** A shorter pill for a dense row; the bar gets the fuller one. */
     compact: Boolean = false,
+    /** For a support conversation: the app it was written from ([ConversationChannel.clientPlatform]). */
+    platform: String? = null,
 ) {
     // The app's theme, not the phone's: Settings can pin light or dark
     // whatever the system says, and a tint chosen for the other one
@@ -137,7 +183,7 @@ fun ChannelLabel(
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
     val look = remember(key, primary, neutral) { lookOf(key, primary, neutral) }
     val tint = if (dark) look.dark else look.light
-    val title = ConversationChannel.title(key, language)
+    val title = ConversationChannel.label(key, language, platform)
 
     Surface(
         color = tint.copy(alpha = 0.12f),

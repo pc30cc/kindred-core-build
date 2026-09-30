@@ -123,12 +123,15 @@ class SyncCoordinator(
     )
 
     /**
-     * Platform support: the team answered one of the operator's threads, or
-     * they read or wrote in one on another device. Heard on their own channel
-     * or by push; ids only — whoever shows support reads it again.
+     * Platform support: the team wrote, a conversation was resolved, closed,
+     * reopened or passed on, or the operator read or wrote on another device.
+     * Heard on their own channel or by push; ids only — whoever shows support
+     * reads it again.
      */
     val support: SharedFlow<SupportSignal> = _support.asSharedFlow()
-    private val openSupportThreads = MutableStateFlow<Set<String>>(emptySet())
+
+    /** How many support chat screens are resumed — one, in practice, or none. */
+    private val supportChatsOpen = MutableStateFlow(0)
     private val openThreads = MutableStateFlow<Set<String>>(emptySet())
     private val openTeamThreads = MutableStateFlow<Set<String>>(emptySet())
     private val openEmailThreads = MutableStateFlow<Set<String>>(emptySet())
@@ -288,16 +291,17 @@ class SyncCoordinator(
     /** Which email threads are on screen, for a push deciding whether to notify. */
     fun openEmailThreadIds(): Set<String> = openEmailThreads.value
 
-    /** A support thread came on screen; the team's reply in it needs no notification. */
-    fun openSupportThread(threadId: String) {
-        openSupportThreads.update { it + threadId }
+    /** The support chat came on screen; the team's next reply needs no notification. */
+    fun openSupportChat() {
+        supportChatsOpen.update { it + 1 }
     }
 
-    fun closeSupportThread(threadId: String) {
-        openSupportThreads.update { it - threadId }
+    fun closeSupportChat() {
+        supportChatsOpen.update { (it - 1).coerceAtLeast(0) }
     }
 
-    fun openSupportThreadIds(): Set<String> = openSupportThreads.value
+    /** Whether the support chat is on screen, for a push deciding whether to notify. */
+    fun supportChatOpen(): Boolean = supportChatsOpen.value > 0
 
     /**
      * Signed out: nothing is in focus and nothing may be written for anyone.
@@ -781,7 +785,7 @@ class SyncCoordinator(
         /** The realtime event a sent team message is announced with. */
         const val TEAM_MESSAGE_KIND = "team_message"
 
-        /** `support_message`, `support_read`: the operator's own channel (`publishSupportEvent`). */
+        /** `support_message`, `support_update`, `support_read`: the operator's own channel. */
         const val SUPPORT_KIND_PREFIX = "support_"
         const val SUPPORT_MESSAGE_KIND = "support_message"
 
@@ -820,14 +824,13 @@ data class TeamSignal(
 }
 
 /**
- * Something moved in one of the operator's platform-support threads: the
- * team answered (`support_message`), or they read it elsewhere
- * (`support_read`). [threadId] is null when a push did not say which.
+ * Something moved in the operator's support chat: a message
+ * (`support_message`), a conversation resolved, closed, reopened or passed
+ * on (`support_update`), or the chat read on another device
+ * (`support_read`). [threadId] is the conversation, when the event named one;
+ * there is one chat, so nobody filters on it.
  */
-data class SupportSignal(val kind: String, val threadId: String?) {
-    /** Whether this may be about [thread]; a signal that names none is about any. */
-    fun about(thread: String): Boolean = threadId == null || threadId == thread
-}
+data class SupportSignal(val kind: String, val threadId: String?)
 
 /** The counters the inbox badges show, with the scope and queue they belong to. */
 data class CountsSnapshot(val scope: CacheScope, val queue: String, val counts: InboxCounts) {

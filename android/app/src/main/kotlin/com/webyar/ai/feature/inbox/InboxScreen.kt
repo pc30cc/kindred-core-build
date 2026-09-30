@@ -903,6 +903,9 @@ private fun ConversationRow(
                     // console's badge, on every row, the website's included.
                     ChannelLabel(
                         key = remember(conversation.metadata, conversation.contact) { ConversationChannel.of(conversation) },
+                        platform = remember(conversation.metadata, conversation.contact) {
+                            ConversationChannel.clientPlatform(conversation)
+                        },
                         language = language,
                         compact = true,
                         modifier = Modifier.padding(start = Space.sm),

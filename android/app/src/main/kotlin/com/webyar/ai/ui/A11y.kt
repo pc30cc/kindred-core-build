@@ -143,17 +143,17 @@ object A11y {
     fun messageStatus(id: String) = "message.status.$id"
     const val SETTINGS_LIST = "settings.list"
     const val SETTINGS_SUPPORT = "settings.support"
-    /** Settings › Online support: the live chat, a new ticket, the operator's requests. */
+    /** Settings › Online support: the one row, which opens the chat. */
     const val SETTINGS_SUPPORT_CHAT = "settings.support.chat"
-    const val SETTINGS_SUPPORT_TICKET = "settings.support.ticket"
-    const val SETTINGS_SUPPORT_REQUESTS = "settings.support.requests"
-    const val SUPPORT_HOME = "support.home"
-    const val SUPPORT_START = "support.start"
+    /** The support chat: its transcript, its composer, and what sits around them. */
     const val SUPPORT_TRANSCRIPT = "support.transcript"
-    const val SUPPORT_TICKET_SUBJECT = "support.ticket.subject"
-    const val SUPPORT_TICKET_BODY = "support.ticket.body"
-    const val SUPPORT_TICKET_SUBMIT = "support.ticket.submit"
-    fun supportThread(id: String) = "support.thread.$id"
+    const val SUPPORT_COMPOSER = "support.composer"
+    const val SUPPORT_OFFLINE_BANNER = "support.offline"
+    const val SUPPORT_NEW_CONVERSATION_HINT = "support.newConversation"
+    /** A rating card's parts, by the conversation it rates — two can be on screen. */
+    fun supportRatingStar(conversationId: String, star: Int) = "support.rating.$conversationId.star.$star"
+    fun supportRatingComment(conversationId: String) = "support.rating.$conversationId.comment"
+    fun supportRatingSubmit(conversationId: String) = "support.rating.$conversationId.submit"
     const val SETTINGS_STORAGE = "settings.storage"
     const val SETTINGS_CLEAR_CACHE = "settings.clearCache"
     const val SETTINGS_CLEAR_CACHE_CONFIRM = "settings.clearCache.confirm"

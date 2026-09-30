@@ -229,11 +229,16 @@ export async function resolveAvailability(
   const now = input.now || new Date();
 
   const supabase = getServiceClient(config);
-  const { data: row } = await supabase
+  const { data: row, error: rowError } = await supabase
     .from('widget_settings')
     .select('business_hours, offline_mode, availability_labels, offline_message, offline_message_localized, live_chat_enabled')
     .eq('workspace_id', workspaceId)
     .maybeSingle();
+  // A failed read must not look like "no settings": every field below would
+  // silently fall back to its default (no business hours, default labels).
+  if (rowError) {
+    console.warn('[widget availability] widget_settings read failed:', rowError.message);
+  }
 
   const offlineMode = normalizeOfflineMode((row as any)?.offline_mode);
   const labelsSrc = (row as any)?.availability_labels as Record<string, { online?: string; offline?: string }> | null;

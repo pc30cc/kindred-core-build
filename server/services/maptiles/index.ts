@@ -11,7 +11,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { getMapGeoSettings } from '../geo/settings.js';
+import { getMapGeoSettingsCached } from '../geo/settings.js';
 
 export interface MapTilesConfig {
   enabled: boolean;
@@ -197,7 +197,7 @@ export async function resolveMapTilesConfig(
   // This is the canonical self-host configuration surface. If `tiles.url_template`
   // is set, it overrides everything else and is used as a self-hosted custom source.
   try {
-    const mapGeo = await getMapGeoSettings(config);
+    const mapGeo = await getMapGeoSettingsCached(config);
     if (mapGeo.tiles.url_template) {
       requested = mapGeo.tiles.provider || 'custom';
       built = {

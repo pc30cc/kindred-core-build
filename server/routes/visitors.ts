@@ -549,8 +549,8 @@ visitorsAdminRouter.get('/map-config', async (req: Request, res: Response) => {
       stale_after_ms: 60_000,
     };
     try {
-      const { getMapGeoSettings } = await import('../services/geo/settings.js');
-      const s = await getMapGeoSettings(config);
+      const { getMapGeoSettingsCached } = await import('../services/geo/settings.js');
+      const s = await getMapGeoSettingsCached(config);
       display = {
         height_px: s.display?.height_px ?? 600,
         fill_viewport: s.display?.fill_viewport ?? true,

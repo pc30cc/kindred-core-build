@@ -163,6 +163,36 @@ export async function getMapGeoSettings(config: ServerConfig): Promise<MapGeoSet
   return deepMerge(DEFAULTS, data?.value);
 }
 
+// Hot-path reads (geo enrichment on every visitor session, the Visitors
+// list, map tiles) go through a short in-process cache: these settings
+// change only through patchMapGeoSettings below, which refreshes it, so the
+// only staleness is another node's cache for at most CACHE_TTL_MS. Admin
+// surfaces and the read-modify-write in patchMapGeoSettings keep reading
+// the row directly.
+const CACHE_TTL_MS = 30_000;
+let cached: { value: MapGeoSettings; at: number } | null = null;
+let inFlight: Promise<MapGeoSettings> | null = null;
+
+export async function getMapGeoSettingsCached(config: ServerConfig): Promise<MapGeoSettings> {
+  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.value;
+  if (!inFlight) {
+    inFlight = getMapGeoSettings(config)
+      .then((value) => {
+        cached = { value, at: Date.now() };
+        return value;
+      })
+      .finally(() => {
+        inFlight = null;
+      });
+  }
+  return inFlight;
+}
+
+/** Test/maintenance hook: drop the cached copy. */
+export function invalidateMapGeoSettingsCache(): void {
+  cached = null;
+}
+
 export async function patchMapGeoSettings(
   config: ServerConfig,
   patch: Partial<MapGeoSettings>,
@@ -179,7 +209,9 @@ export async function patchMapGeoSettings(
     .select('value')
     .single();
   if (error) throw new Error(`Failed to save map and geo settings: ${error.message}`);
-  return deepMerge(DEFAULTS, data?.value);
+  const saved = deepMerge(DEFAULTS, data?.value);
+  cached = { value: saved, at: Date.now() };
+  return saved;
 }
 
 export const MAP_GEO_DEFAULTS = DEFAULTS;

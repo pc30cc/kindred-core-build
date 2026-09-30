@@ -44,12 +44,13 @@ vi.mock('../../../server/services/geo/ipCache.js', () => ({
   readIpCache: async (_cfg: any, hash: string) => cache[hash] ?? null,
   writeIpCache: async () => {},
 }));
-vi.mock('../../../server/services/geo/settings.js', () => ({
-  getMapGeoSettings: async () => ({
+vi.mock('../../../server/services/geo/settings.js', () => {
+  const settings = async () => ({
     geo: { default_provider: 'maxmind_local', allow_centroid_fallback: false, cache_ttl_seconds: 3600 },
     maxmind_local: { enabled: false, db_path: null, auto_reload: false },
-  }),
-}));
+  });
+  return { getMapGeoSettings: settings, getMapGeoSettingsCached: settings };
+});
 vi.mock('../../../server/services/realtime/publish.js', () => ({
   publishVisitorEvent: async () => {},
 }));

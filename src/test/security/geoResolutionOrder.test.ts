@@ -24,6 +24,7 @@ const state = {
 
 vi.mock('../../../server/services/geo/settings', () => ({
   getMapGeoSettings: async () => state.settings,
+  getMapGeoSettingsCached: async () => state.settings,
   patchMapGeoSettings: async () => state.settings,
 }));
 

@@ -1818,6 +1818,35 @@ const messageSchema = z.object({
   { message: 'message, body, or attachment_id required' }
 );
 
+/**
+ * The visitor's current session in this workspace, from the signed HttpOnly
+ * `dvsid` cookie (never from a client-supplied id). The widget sends no
+ * session_id on POST /message, so without this every widget conversation
+ * was stored with visitor_session_id = NULL and the operator's presence
+ * panel answered "unknown" for all of them.
+ */
+async function resolveCookieVisitorSessionId(
+  supabase: ReturnType<typeof getServiceClient>,
+  req: Request,
+  workspaceId: string,
+): Promise<string | null> {
+  const visitorId = readVisitorCookie(req, workspaceId)?.v;
+  if (!visitorId) return null;
+  const { data, error } = await supabase
+    .from('visitor_sessions')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('visitor_id', visitorId)
+    .order('last_seen_at', { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.warn('[widget] visitor session lookup failed:', error.message);
+    return null;
+  }
+  return (data?.id as string | undefined) ?? null;
+}
+
 widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);
   const parsed = messageSchema.safeParse(req.body);
@@ -1988,6 +2017,17 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         convId = null; // Will create new conversation
       } else {
         const conv = ownership.conversation;
+        // Threads created before the session link existed carry no
+        // visitor_session_id. Fill it (never overwrite) from this visitor's
+        // own cookie session so the operator's presence panel can find them.
+        if (!conv.visitor_session_id && conv.status !== 'closed') {
+          const linkSessionId = await resolveCookieVisitorSessionId(supabase, req, workspaceId);
+          if (linkSessionId) {
+            await supabase.from('conversations')
+              .update({ visitor_session_id: linkSessionId })
+              .eq('id', convId).is('visitor_session_id', null);
+          }
+        }
         // Shared lifecycle: `closed` is archived and must never be revived —
         // the message below starts a brand new conversation instead.
         // `pending`/`resolved` stay untouched here: those transitions are
@@ -2134,6 +2174,12 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       // visitor/session identity would.
       const widgetThreadKey = clientMessageId ? `widget_cmid:${clientMessageId}` : null;
       const lockKey = clientMessageId || body.session_id || body.visitor_id || contactId || `anon:${Date.now()}:${Math.random()}`;
+      // The link (not a match key): which session this conversation belongs
+      // to, so presence-by-conversation and the Visitors list can pair them.
+      // Taken from the signed cookie because the widget sends no session_id.
+      // It stays out of p_match_session_id on purpose — see above: a new
+      // compose must never reattach to an older open thread by identity.
+      const linkSessionId = body.session_id || await resolveCookieVisitorSessionId(supabase, req, workspaceId);
       const { data: ensured, error: convErr } = await supabase.rpc('ensure_active_conversation', {
         p_workspace_id: workspaceId,
         p_lock_key: lockKey,
@@ -2141,7 +2187,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         p_match_session_id: body.session_id || null,
         p_match_contact_id: contactId,
         p_contact_id: contactId,
-        p_visitor_session_id: body.session_id || null,
+        p_visitor_session_id: linkSessionId,
         p_subject: subjectText,
         p_metadata: widgetThreadKey ? { channel_thread_key: widgetThreadKey } : {},
       });

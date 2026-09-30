@@ -972,21 +972,33 @@ const urlHandlers: Record<string, (config: StorageConfig, key: string) => string
 export async function resolveStorageConfig(serverConfig: ServerConfig, workspaceId: string): Promise<StorageConfig | null> {
   const sb = getServiceClient(serverConfig);
 
+  // Both candidates are read at once: the workspace override wins when it
+  // exists, the global default otherwise. Issued in parallel so the common
+  // case (no override) costs one round-trip of latency, not two.
+  //
+  // .maybeSingle(), not .single(), for BOTH: "no override" and "no global
+  // default configured" are normal states, and .single() answers 0 rows with
+  // PostgREST 406 — one rejected transaction per call, on every conversation
+  // list and message read that derives an attachment or avatar URL.
+  const [wsResult, globalResult] = await Promise.all([
+    sb
+      .from('provider_configs')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .eq('provider_type', 'storage')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    sb
+      .from('app_runtime_config')
+      .select('value')
+      .eq('key', 'default_storage_provider')
+      .maybeSingle(),
+  ]);
+
   // 1. Workspace override
-  // .maybeSingle(), not .single(): "this workspace has no override" is the
-  // NORMAL case (provider_configs is empty on a fresh install), and .single()
-  // answers 0 rows with PostgREST 406 — one rejected transaction per call.
-  // The error was also dropped, so a genuine read failure was indistinguishable
-  // from "no override" and fell through to the global default unnoticed.
-  const { data: wsConfig, error: wsConfigError } = await sb
-    .from('provider_configs')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .eq('provider_type', 'storage')
-    .eq('is_active', true)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { data: wsConfig, error: wsConfigError } = wsResult;
   if (wsConfigError) {
     // Fall through to the global default (intended behaviour) but say so.
     console.error('[storage] provider_configs lookup failed:', wsConfigError.message);
@@ -997,11 +1009,10 @@ export async function resolveStorageConfig(serverConfig: ServerConfig, workspace
   }
 
   // 2. Global default
-  const { data: globalConfig } = await sb
-    .from('app_runtime_config')
-    .select('value')
-    .eq('key', 'default_storage_provider')
-    .single();
+  const { data: globalConfig, error: globalConfigError } = globalResult;
+  if (globalConfigError) {
+    console.error('[storage] default_storage_provider lookup failed:', globalConfigError.message);
+  }
 
   if (globalConfig?.value) {
     const { providerName, providerConfig } = splitProviderNameAndConfig(globalConfig.value);

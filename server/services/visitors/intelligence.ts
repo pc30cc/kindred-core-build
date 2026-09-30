@@ -182,8 +182,8 @@ export async function listVisitorIntelligence(
   // Visitors page can be tuned without redeploying. Falls back to 30 min.
   let staleMs = (opts.staleMinutes ?? 30) * 60_000;
   try {
-    const { getMapGeoSettings } = await import('../geo/settings.js');
-    const s = await getMapGeoSettings(config);
+    const { getMapGeoSettingsCached } = await import('../geo/settings.js');
+    const s = await getMapGeoSettingsCached(config);
     if (s.presence?.stale_after_ms) {
       staleMs = Math.max(15_000, s.presence.stale_after_ms);
     }

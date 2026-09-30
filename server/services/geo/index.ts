@@ -33,7 +33,7 @@ import { getServiceClient } from '../../supabase.js';
 import { lookupCentroid } from './centroids.js';
 import { lookupMaxmindLocal } from './maxmindLocal.js';
 import { readIpCache, writeIpCache } from './ipCache.js';
-import { getMapGeoSettings } from './settings.js';
+import { getMapGeoSettingsCached } from './settings.js';
 import { countryNameFromCode, toCountryCode } from './countryNames.js';
 import { publishVisitorEvent } from '../realtime/publish.js';
 
@@ -333,7 +333,7 @@ export async function resolveVisitorGeo(
   const ipHash = session.ip_hash ?? '';
   // Load admin runtime settings (cached cheaply by Postgres). These take
   // precedence over the legacy provider_configs row for self-host defaults.
-  const mapGeo = await getMapGeoSettings(config).catch(() => null);
+  const mapGeo = await getMapGeoSettingsCached(config).catch(() => null);
   const provider = await resolveProviderConfig(config, workspaceId);
   const defaultProvider = mapGeo?.geo.default_provider ?? provider?.provider_name ?? 'maxmind_local';
   const externalDisabled = defaultProvider === 'none' || provider?.provider_name === 'none';

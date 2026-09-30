@@ -251,8 +251,8 @@ fun AppShell(
         }
         val peer = link.peerId
         if (link.opensTeamThread && peer != null) {
-            val top = navigator.stack(AppTab.INBOX).lastOrNull()
-            if (top !is TeamThreadKey && top != ColleaguesKey) navigator.open(ColleaguesKey)
+            // The inbox under it shows the colleagues' chats.
+            conversations.showColleagues()
             navigator.open(TeamThreadKey(peer))
             return@LaunchedEffect
         }
@@ -315,7 +315,8 @@ fun AppShell(
                     conversations = conversations,
                     language = language,
                     onOpenConversation = { navigator.open(ChatKey(it)) },
-                    onOpenColleagues = { navigator.open(ColleaguesKey) },
+                    colleagues = colleagues,
+                    onOpenTeamThread = { navigator.open(TeamThreadKey(it)) },
                     onOpenEmail = { provider ->
                         provider?.let(email::selectMailbox)
                         navigator.open(EmailKey)
@@ -370,21 +371,7 @@ fun AppShell(
                 onDone = { navigator.back() },
             )
         }
-        entry<ColleaguesKey>(
-            metadata = ListDetailSceneStrategy.listPane(
-                sceneKey = ColleaguesKey,
-                detailPlaceholder = { DetailPlaceholder(StrAndroid.pickItem(language)) },
-            ) + tabOf(AppTab.INBOX),
-        ) {
-            ColleaguesRoute(
-                appState = appState,
-                colleagues = colleagues,
-                language = language,
-                onOpenThread = { navigator.open(TeamThreadKey(it)) },
-                onBack = { navigator.back() },
-            )
-        }
-        entry<TeamThreadKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = ColleaguesKey) + tabOf(AppTab.INBOX)) { key ->
+        entry<TeamThreadKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = InboxKey) + tabOf(AppTab.INBOX)) { key ->
             TeamThreadRoute(
                 peerId = key.peerId,
                 appState = appState,

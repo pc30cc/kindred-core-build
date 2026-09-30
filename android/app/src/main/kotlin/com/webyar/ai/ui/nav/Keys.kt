@@ -46,12 +46,10 @@ sealed interface Screen : NavKey {
 }
 
 /**
- * The internal inbox lives in the Inbox tab, not a tab of its own — which is
- * where the console keeps it, and what makes Back from a colleague's thread
- * land on the conversation list.
+ * A colleague's thread. The colleagues' chats are an inbox in the Inbox tab
+ * (the strip's Colleagues), not a screen of their own — which is where the
+ * console keeps them, and what makes Back from a thread land on that list.
  */
-@Serializable data object ColleaguesKey : Screen { override val tab get() = AppTab.INBOX }
-
 @Serializable data class TeamThreadKey(val peerId: String) : Screen {
     override val tab get() = AppTab.INBOX
 }

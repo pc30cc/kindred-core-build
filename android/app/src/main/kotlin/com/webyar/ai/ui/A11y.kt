@@ -30,6 +30,9 @@ object A11y {
     const val INBOX_TITLE_MENU = "inbox.title.menu"
     const val INBOX_COLLEAGUES_CHIP = "inbox.chip.colleagues"
     const val INBOX_EVERY_INBOX = "inbox.everyInbox"
+    const val INBOX_EMAIL_BUTTON = "inbox.email"
+    /** The colleagues' list, drawn in the inbox in place of a queue's rows. */
+    const val INBOX_COLLEAGUES = "inbox.colleagues"
     const val INBOX_EVERY_INBOX_SHEET = "inbox.everyInbox.sheet"
     fun inboxChip(wire: String) = "inbox.chip.$wire"
     fun everyInboxRow(wire: String) = "inbox.everyInbox.$wire"

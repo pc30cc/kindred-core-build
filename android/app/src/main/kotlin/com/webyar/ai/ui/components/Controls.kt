@@ -189,6 +189,12 @@ fun ChoiceButton(
      * case, shows nothing.
      */
     unread: Int = 0,
+    /**
+     * Whether a selected button wears a tick before its label. Off on the
+     * inbox strip, where the filled pill already says which inbox is open
+     * and a tick on each would only push the labels along.
+     */
+    tick: Boolean = true,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -235,7 +241,7 @@ fun ChoiceButton(
             // an invisible tick would push the label off-centre.
             horizontalArrangement = Arrangement.Center,
         ) {
-            AnimatedVisibility(visible = selected) {
+            AnimatedVisibility(visible = tick && selected) {
                 Row {
                     Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.size(Space.sm))

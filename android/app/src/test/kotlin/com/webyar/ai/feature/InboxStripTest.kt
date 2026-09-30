@@ -1,7 +1,10 @@
 package com.webyar.ai.feature
 
 import androidx.compose.ui.test.assert
+import androidx.compose.material3.Text
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -34,8 +37,9 @@ import com.webyar.ai.core.model.ConversationContact
 import com.webyar.ai.core.model.ConversationPriority
 
 /**
- * The strip above the inbox — Open, AI, Colleagues, and the button that
- * opens every inbox — and the channel each thread is written from.
+ * The strip above the inbox — Open, AI, Colleagues, the envelope that opens
+ * the mailbox, and the button that opens every inbox — and the channel each
+ * thread is written from.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w420dp-h1200dp")
@@ -59,6 +63,9 @@ class InboxStripTest {
         openUnread: OpenUnread = OpenUnread(),
         colleagueThreadsUnread: Int = 0,
         channels: List<ChannelInbox> = emptyList(),
+        colleaguesShown: Boolean = false,
+        emailUnread: Int = 0,
+        onEmail: (String?) -> Unit = {},
     ) = compose.setContent {
         InboxScreen(
             state = InboxState.Loaded(conversations),
@@ -69,7 +76,10 @@ class InboxStripTest {
             channels = channels,
             onSelectFilter = onSelect,
             onOpenColleagues = onColleagues,
-            onOpenEmail = {},
+            colleaguesShown = colleaguesShown,
+            colleagues = { modifier -> Text("The team's chats", modifier) },
+            onOpenEmail = onEmail,
+            emailUnread = emailUnread,
             openUnread = openUnread,
             colleagueThreadsUnread = colleagueThreadsUnread,
         )
@@ -110,17 +120,46 @@ class InboxStripTest {
         compose.onNodeWithTag(A11y.inboxChip("open")).assertIsDisplayed()
         compose.onNodeWithTag(A11y.inboxChip("ai")).assertIsDisplayed()
         compose.onNodeWithTag(A11y.INBOX_COLLEAGUES_CHIP).assertIsDisplayed()
+        compose.onNodeWithTag(A11y.INBOX_EMAIL_BUTTON).assertIsDisplayed()
         compose.onNodeWithTag(A11y.INBOX_EVERY_INBOX).assertIsDisplayed()
         compose.onNodeWithTag(A11y.inboxChip("needsHuman")).assertDoesNotExist()
         compose.onNodeWithTag(A11y.inboxChip("pending")).assertDoesNotExist()
     }
 
     @Test
-    fun `Colleagues opens the team chat`() {
-        var opened = 0
-        screen(onColleagues = { opened++ })
+    fun `Colleagues is chosen as a queue is`() {
+        var chosen = 0
+        screen(onColleagues = { chosen++ })
+        compose.onNodeWithTag(A11y.inboxChip("open")).assertIsSelected()
+        compose.onNodeWithTag(A11y.INBOX_COLLEAGUES_CHIP).assertIsNotSelected()
+        compose.onNodeWithTag(A11y.INBOX_COLLEAGUES).assertDoesNotExist()
         compose.onNodeWithTag(A11y.INBOX_COLLEAGUES_CHIP).performClick()
-        assertEquals(1, opened)
+        assertEquals(1, chosen)
+    }
+
+    /** Not a screen of its own: the strip stays, Colleagues is the one chosen, and the rows are theirs. */
+    @Test
+    fun `with Colleagues chosen, their chats are the inbox`() {
+        screen(colleaguesShown = true)
+        compose.onNodeWithTag(A11y.INBOX_COLLEAGUES_CHIP).assertIsSelected()
+        compose.onNodeWithTag(A11y.inboxChip("open")).assertIsNotSelected()
+        compose.onNodeWithTag(A11y.inboxChip("ai")).assertIsNotSelected()
+        compose.onNodeWithTag(A11y.INBOX_COLLEAGUES).assertIsDisplayed()
+        compose.onNodeWithTag(A11y.INBOX_LIST).assertDoesNotExist()
+        // The three lines are not lit: the list is one the strip has a button for.
+        compose.onNodeWithTag(A11y.INBOX_EVERY_INBOX).assertIsDisplayed()
+    }
+
+    @Test
+    fun `the envelope after Colleagues opens the mailbox, and carries the mail's dot`() {
+        var opened: String? = "never"
+        screen(emailUnread = 3, onEmail = { opened = it })
+        compose.onNodeWithTag(A11y.INBOX_EMAIL_BUTTON).assert(says("3 unread"))
+        // Mail is the envelope's to say, no longer the three lines'.
+        compose.onNodeWithTag(A11y.INBOX_EVERY_INBOX).assert(saysNothing)
+        compose.onNodeWithTag(A11y.INBOX_EMAIL_BUTTON).performClick()
+        // The mailbox last shown.
+        assertEquals(null, opened)
     }
 
     @Test

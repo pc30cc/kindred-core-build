@@ -193,7 +193,10 @@ fun InboxRoute(
     conversations: InboxViewModel,
     language: Language,
     onOpenConversation: (String) -> Unit,
-    onOpenColleagues: () -> Unit,
+    /** The colleagues' chats, drawn in the inbox when Colleagues is the inbox chosen. */
+    colleagues: ColleaguesViewModel,
+    /** A colleague's thread, opened from those chats. */
+    onOpenTeamThread: (String) -> Unit,
     /** Opens the mailbox — the given one (`gmail`, `yahoo`), or null for the one last shown. */
     onOpenEmail: (String?) -> Unit,
     promotions: PromotionCenter,
@@ -219,16 +222,36 @@ fun InboxRoute(
     val refreshing by conversations.refreshing.collectAsStateWithLifecycle()
     val syncProblem by conversations.syncProblem.collectAsStateWithLifecycle()
     val openUnread by conversations.openUnread.collectAsStateWithLifecycle()
+    val colleaguesShown by conversations.colleaguesShown.collectAsStateWithLifecycle()
 
     // Closing the field on a queue change is the same rule the view model
     // applies to the terms: a search box left open over a list it no longer
     // describes is worse than no search box. Another workspace is another
-    // list, too — and its model's terms are cleared by `bind`.
-    val search = rememberSearchState(resetOn = "${filter.name}|${workspace?.id}")
+    // list, too — and its model's terms are cleared by `bind`. The colleagues
+    // are another list as well.
+    val search = rememberSearchState(resetOn = "${filter.name}|${workspace?.id}|$colleaguesShown")
     // snapshotFlow rather than reading `search.text` here: a keystroke should
-    // recompose the field and the list, not this whole route.
-    LaunchedEffect(search) {
-        snapshotFlow { search.text }.collect(conversations::setQuery)
+    // recompose the field and the list, not this whole route. The terms go
+    // to whichever list is on screen.
+    LaunchedEffect(search, colleaguesShown) {
+        snapshotFlow { search.text }.collect(if (colleaguesShown) colleagues::setQuery else conversations::setQuery)
+    }
+
+    // The colleagues' chats, read and kept current while they are the inbox
+    // on screen — as their list did when it was a screen of its own.
+    val colleagueState by colleagues.state.collectAsStateWithLifecycle()
+    val colleaguesRefreshing by colleagues.refreshing.collectAsStateWithLifecycle()
+    LaunchedEffect(workspace?.id, colleaguesShown) {
+        if (colleaguesShown) workspace?.let { colleagues.bind(it.id) }
+    }
+    val teamSignals = rememberTeamSignals()
+    val listLifecycle = LocalLifecycleOwner.current
+    LaunchedEffect(workspace?.id, colleaguesShown, listLifecycle, teamSignals) {
+        val id = workspace?.id ?: return@LaunchedEffect
+        if (!colleaguesShown) return@LaunchedEffect
+        listLifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            colleagues.followWhileVisible(id, teamSignals)
+        }
     }
 
     LaunchedEffect(workspace?.id) {
@@ -256,6 +279,12 @@ fun InboxRoute(
     // A queue that has just gone away must not stay selected with nothing behind it.
     LaunchedEffect(allFilters, filter) {
         if (filter !in allFilters) conversations.select(InboxFilter.OPEN)
+    }
+    // Nor the colleagues, on a plan that has taken the team chat away — once
+    // the plan has said so, not while it is still being read.
+    val teamChat = plan.value?.featureEnabled("inbox_team_chat") == true
+    LaunchedEffect(teamChat, colleaguesShown, plan.isResolved) {
+        if (colleaguesShown && plan.isResolved && !teamChat) conversations.select(filter)
     }
 
     // Loaded here and offered here, and nowhere else in the app: the inbox is
@@ -304,8 +333,27 @@ fun InboxRoute(
         // `email` look like keys and are not. Only a key that is exactly
         // true opens a row, so a plan whose `email_inbox` is false shows no
         // mailbox.
-        onOpenColleagues = onOpenColleagues
-            .takeIf { plan.value?.featureEnabled("inbox_team_chat") == true },
+        onOpenColleagues = conversations::showColleagues.takeIf { teamChat },
+        colleaguesShown = colleaguesShown && teamChat,
+        colleagues = { listModifier ->
+            ColleaguesScreen(
+                state = colleagueState,
+                language = language,
+                onOpen = {
+                    // Before navigating, so the badge is gone by the time the
+                    // thread is on screen rather than one refresh later.
+                    colleagues.markRead(it.userId)
+                    onOpenTeamThread(it.userId)
+                },
+                modifier = listModifier,
+                contentPadding = PaddingValues(bottom = bottomInset),
+                refreshing = colleaguesRefreshing,
+                onRefresh = colleagues::refresh,
+                onRetry = colleagues::retry,
+                // Under the inbox's own field, which the list does not draw again.
+                searching = search.text.isNotBlank(),
+            )
+        },
         // The mailbox is also an owner/admin section, as in the console's sidebar.
         onOpenEmail = onOpenEmail
             .takeIf { access.isAdmin && plan.value?.moduleEnabled("email_inbox") == true },
@@ -817,65 +865,6 @@ fun ContactDetailRoute(
 internal fun rememberTeamSignals(): Flow<TeamSignal>? {
     val graph = LocalAppGraph.current
     return remember(graph) { graph?.syncGraph()?.coordinator?.team }
-}
-
-@Composable
-fun ColleaguesRoute(
-    appState: AppState,
-    colleagues: ColleaguesViewModel,
-    language: Language,
-    onOpenThread: (String) -> Unit,
-    onBack: () -> Unit,
-) {
-    val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
-    val state by colleagues.state.collectAsStateWithLifecycle()
-    val refreshing by colleagues.refreshing.collectAsStateWithLifecycle()
-    val total by colleagues.total.collectAsStateWithLifecycle()
-
-    val search = rememberSearchState(resetOn = workspace?.id ?: "-")
-    LaunchedEffect(search) {
-        snapshotFlow { search.text }.collect(colleagues::setQuery)
-    }
-    LaunchedEffect(workspace?.id) {
-        workspace?.let { colleagues.bind(it.id) }
-    }
-    val teamSignals = rememberTeamSignals()
-    val listLifecycle = LocalLifecycleOwner.current
-    LaunchedEffect(workspace?.id, listLifecycle, teamSignals) {
-        val id = workspace?.id ?: return@LaunchedEffect
-        listLifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            colleagues.followWhileVisible(id, teamSignals)
-        }
-    }
-
-    Scaffold(
-        topBar = {
-            SearchableBar(
-                title = Str.colleagues(language),
-                // How big the team is, under its name.
-                subtitle = total.takeIf { it > 0 }?.let { StrAndroid.colleaguesCount(language, it) },
-                language = language,
-                search = search,
-                onBack = onBack,
-            )
-        },
-    ) { padding ->
-        ColleaguesScreen(
-            state = state,
-            language = language,
-            onOpen = {
-                // Before navigating, so the badge is gone by the time the
-                // thread is on screen rather than one refresh later.
-                colleagues.markRead(it.userId)
-                onOpenThread(it.userId)
-            },
-            modifier = Modifier.padding(padding),
-            refreshing = refreshing,
-            search = search,
-            onRefresh = colleagues::refresh,
-            onRetry = colleagues::retry,
-        )
-    }
 }
 
 @Composable

@@ -89,6 +89,12 @@ fun ColleaguesScreen(
     search: SearchState? = null,
     onRefresh: () -> Unit = {},
     onRetry: () -> Unit = {},
+    /**
+     * Whether terms narrow the list: [search]'s, or — drawn in the inbox,
+     * under the inbox's own field and with no [search] of its own — that
+     * field's.
+     */
+    searching: Boolean = search?.text?.isNotBlank() == true,
 ) {
     Column(modifier.fillMaxSize()) {
         AnimatedVisibility(
@@ -121,7 +127,6 @@ fun ColleaguesScreen(
                 )
 
                 is ColleaguesState.Loaded -> if (state.colleagues.isEmpty()) {
-                    val searching = search?.text?.isNotBlank() == true
                     EmptyState(
                         icon = if (searching) Icons.Filled.Search else Icons.Filled.Person,
                         title = if (searching) {

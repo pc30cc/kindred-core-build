@@ -57,6 +57,12 @@ data class MobileAppConfig(
     val defaultLanguage: String? = null,
     /** Super Admin's maintenance notice; null from a server without one. */
     val maintenance: MaintenanceNotice? = null,
+    /**
+     * Where Settings → About → Support opens: the support link Super Admin →
+     * Mobile App → Android → Identity holds. Null leaves the platform's own
+     * help centre ([com.webyar.ai.core.storage.PlatformOrigin.supportUrl]).
+     */
+    val supportUrl: String? = null,
 ) {
     companion object {
         val DEFAULT = MobileAppConfig()

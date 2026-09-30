@@ -55,7 +55,7 @@ class AvatarIdentityTest {
     /** Narrow on purpose: a real name in any script is untouched. */
     @Test
     fun `a real name keeps a letter from each part`() {
-        assertEquals("مد", initialsOf("مجتبی داودی"))
+        assertEquals("زک", initialsOf("زهرا کریمی"))
         assertEquals("MH", initialsOf("Maryam Hosseini"))
         // Persian given name, Latin surname — two parts of one real name, and
         // the second is too short to be a visitor code anyway.

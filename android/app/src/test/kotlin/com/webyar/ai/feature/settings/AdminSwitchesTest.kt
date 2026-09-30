@@ -1,12 +1,12 @@
 package com.webyar.ai.feature.settings
 
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
-import com.webyar.ai.core.AppInfo
 import com.webyar.ai.core.model.MobileAppConfig
 import com.webyar.ai.core.model.Promotions
 import com.webyar.ai.core.storage.Appearance
@@ -46,6 +46,8 @@ class AdminSwitchesTest {
         showNotifications: Boolean = true,
         showSecurity: Boolean = true,
         onClearCache: (() -> Unit)? = {},
+        supportUrl: String? = null,
+        onOpenSupport: (String) -> Unit = {},
     ) = compose.setContent {
         SettingsScreen(
             language = en,
@@ -70,6 +72,8 @@ class AdminSwitchesTest {
             onClearCache = onClearCache,
             showNotifications = showNotifications,
             showSecurity = showSecurity,
+            supportUrl = supportUrl,
+            onOpenSupport = onOpenSupport,
         )
     }
 
@@ -107,13 +111,22 @@ class AdminSwitchesTest {
         compose.onNodeWithText(Str.notifications(en)).assertDoesNotExist()
     }
 
-    /** Settings › About names who the app is from, beside its version. */
+    /** About → Support opens the link Super Admin set. */
     @Test
-    fun `About names the developer`() {
-        settings()
-        compose.onNodeWithTag(A11y.SETTINGS_LIST).performScrollToNode(hasText(AppInfo.DEVELOPER))
-        compose.onNodeWithText(AppInfo.DEVELOPER).assertIsDisplayed()
-        compose.onNodeWithText(StrAndroid.developer(en)).assertIsDisplayed()
+    fun `Support opens Super Admin's link`() {
+        var opened: String? = null
+        settings(supportUrl = "https://webyar.ai/help", onOpenSupport = { opened = it })
+        compose.onNodeWithTag(A11y.SETTINGS_LIST).performScrollToNode(hasTestTag(A11y.SETTINGS_SUPPORT))
+        compose.onNodeWithText(Str.support(en)).assertIsDisplayed()
+        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT).performClick()
+        assertEquals("https://webyar.ai/help", opened)
+    }
+
+    /** With no link known there is nothing to open, and no row. */
+    @Test
+    fun `no link leaves Support out`() {
+        settings(supportUrl = null)
+        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT).assertDoesNotExist()
     }
 
     // MARK: - Profile

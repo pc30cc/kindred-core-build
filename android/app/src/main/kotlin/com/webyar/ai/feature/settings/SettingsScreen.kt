@@ -51,7 +51,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.webyar.ai.StorageUsage
-import com.webyar.ai.core.AppInfo
 import com.webyar.ai.core.model.Workspace
 import com.webyar.ai.core.storage.Appearance
 import com.webyar.ai.i18n.Format
@@ -61,6 +60,7 @@ import com.webyar.ai.i18n.StrAndroid
 import com.webyar.ai.ui.A11y
 import com.webyar.ai.ui.components.Avatar
 import com.webyar.ai.ui.components.ChoiceButton
+import com.webyar.ai.ui.components.Glyph
 import com.webyar.ai.ui.components.LatinText
 import com.webyar.ai.ui.components.SegmentGap
 import com.webyar.ai.ui.components.ShapeFrame
@@ -125,6 +125,12 @@ fun SettingsScreen(
     showNotifications: Boolean = true,
     /** …and the Security row. With both gone, so is their section. */
     showSecurity: Boolean = true,
+    /**
+     * Where About → Support opens, as Super Admin sets it; null leaves the
+     * row out.
+     */
+    supportUrl: String? = null,
+    onOpenSupport: (String) -> Unit = {},
 ) {
     var confirmingSignOut by remember { mutableStateOf(false) }
     var confirmingClear by remember { mutableStateOf(false) }
@@ -328,8 +334,18 @@ fun SettingsScreen(
         item { SectionHeader(Str.about(language)) }
         item {
             Group {
-                InfoRow(0, 2, Str.version(language), appVersion, latin = true)
-                InfoRow(1, 2, StrAndroid.developer(language), AppInfo.DEVELOPER, latin = true)
+                val rows = if (supportUrl != null) 2 else 1
+                InfoRow(0, rows, Str.version(language), appVersion, latin = true)
+                if (supportUrl != null) {
+                    NavRow(
+                        index = 1,
+                        count = rows,
+                        icon = Glyph.Help,
+                        title = Str.support(language),
+                        onClick = { onOpenSupport(supportUrl) },
+                        modifier = Modifier.testTag(A11y.SETTINGS_SUPPORT),
+                    )
+                }
             }
         }
 

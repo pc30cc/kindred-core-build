@@ -44,7 +44,7 @@ data class ProfileForm(
  *
  * The server composes `full_name` from the parts it is given and hands back
  * only the composed result, so the split has to happen here. The last space
- * is the seam: "مجتبی داودی" and "Ada Lovelace" both split the way a person
+ * is the seam: "مریم حسینی" and "Ada Lovelace" both split the way a person
  * would expect, and a single word is a first name with no family name yet
  * rather than a family name with no first.
  */

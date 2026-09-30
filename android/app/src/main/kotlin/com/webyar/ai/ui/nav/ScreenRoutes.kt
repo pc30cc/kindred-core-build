@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.webyar.ai.core.storage.PlatformOrigin
 import com.webyar.ai.feature.chat.ChatScreen
 import com.webyar.ai.feature.contacts.ContactDetailScreen
 import com.webyar.ai.feature.contacts.ContactsScreen
@@ -37,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TopAppBar
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import com.webyar.ai.feature.settings.AccountViewModel
 import com.webyar.ai.feature.settings.ProfileScreen
 import com.webyar.ai.feature.settings.SecurityScreen
@@ -1864,6 +1866,15 @@ fun SettingsRoute(
         if (config.showStorage) storage = graph?.storageUsage()
     }
 
+    // About → Support: the link Super Admin set for the Android app, else the
+    // platform's help centre (Super Admin → Branding → Domains).
+    var platformSupport by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(graph) {
+        platformSupport = graph?.let { PlatformOrigin(it.secureStore).supportUrl() }
+    }
+    val supportUrl = config.supportUrl?.takeIf { it.startsWith("https://") } ?: platformSupport
+    val uriHandler = LocalUriHandler.current
+
     SettingsScreen(
         language = language,
         appearance = appearance,
@@ -1898,6 +1909,9 @@ fun SettingsRoute(
         onSetDynamicColor = appState::setDynamicColor,
         showNotifications = config.showNotificationSettings,
         showSecurity = config.showSecurity,
+        supportUrl = supportUrl,
+        // A phone with no browser has nothing to open it with; the tap does nothing.
+        onOpenSupport = { url -> runCatching { uriHandler.openUri(url) } },
         storage = storage,
         // Null leaves the whole Storage section out; the cache keeps working.
         onClearCache = graph?.takeIf { config.showStorage }?.let { g ->

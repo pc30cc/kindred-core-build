@@ -471,13 +471,6 @@ object StrAndroid {
         Language.TR -> "Sohbet başlat"
     }
 
-    /** Settings › About: who the app is from. */
-    fun developer(l: Language): String = when (l) {
-        Language.EN -> "Developer"
-        Language.FA -> "توسعه‌دهنده"
-        Language.TR -> "Geliştirici"
-    }
-
     /** Before a preview the operator wrote themselves: "You: …". */
     fun youPrefix(l: Language): String = when (l) {
         Language.EN -> "You: "

@@ -80,11 +80,6 @@
         android:supportsRtl="true"
         android:enableOnBackInvokedCallback="true">
 
-        <!-- The app's developer, recorded in the package as Settings › About shows it. -->
-        <meta-data
-            android:name="com.webyar.ai.DEVELOPER"
-            android:value="m@davoudi.net" />
-
         <!--
           `configChanges` handles the whole set rather than letting Android
           recreate the Activity. Compose reads the configuration through

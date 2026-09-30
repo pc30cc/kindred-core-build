@@ -25,7 +25,15 @@ describe('Android in-app config', () => {
       firebase: null,
       defaultLanguage: 'fa',
       maintenance: { enabled: false, message: {}, until: null },
+      supportUrl: null,
     });
+  });
+
+  /** Settings → About → Support opens it; empty leaves the platform's help centre. */
+  it('hands the app the support link set in Mobile App → Android → Identity', () => {
+    expect(toAndroidAppConfig(normalize({ support_url: 'https://webyar.ai/support' })).supportUrl)
+      .toBe('https://webyar.ai/support');
+    expect(toAndroidAppConfig(normalize({ support_url: '' })).supportUrl).toBeNull();
   });
 
   /**

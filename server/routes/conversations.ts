@@ -66,6 +66,7 @@ import { deltaLowerBound, inThreadOrder, nextSyncCursor, parseSyncCursor } from 
 import { isConversationId, parseConversationIds } from '../services/conversationIds.js';
 import { queueTranscript } from '../services/notificationEmail/producers.js';
 import { notifyAssignment } from '../services/push/index.js';
+import { coalesce } from '../lib/inflight.js';
 
 
 export const conversationsRouter = Router();
@@ -1408,6 +1409,48 @@ async function listConversationRows(
   return { rows: result, error: null };
 }
 
+// ─── Inbox counters: one query for both counter endpoints ────────────
+// conversation_inbox_counters (migration 241 / 20260930100200) returns every
+// number /inbox-counts and /inbox-tab-counts report, in one pass. The
+// dashboard requests both at the same moment on each realtime invalidation,
+// so concurrent calls with the same arguments also share one execution. A
+// database without the function yet (or any error) falls back to the
+// per-counter queries below, which compute the same numbers.
+type InboxCounters = {
+  inbox_main: number; inbox_automated: number; inbox_needs_human: number; inbox_spam: number;
+  tab_open: number; tab_pending: number; tab_resolved: number; tab_all: number;
+  tab_needs_human: number; tab_automated: number;
+};
+
+async function loadInboxCounters(
+  sb: ReturnType<typeof getServiceClient>,
+  workspaceId: string,
+  userId: string,
+  seesAll: boolean,
+): Promise<InboxCounters | null> {
+  const { data, error } = await coalesce(`inbox_counters:${workspaceId}:${userId}:${seesAll}`, () =>
+    sb.rpc('conversation_inbox_counters', {
+      p_workspace_id: workspaceId,
+      p_user_id: userId,
+      p_sees_all: seesAll,
+    }),
+  );
+  const row = Array.isArray(data) ? data[0] : data;
+  if (error || !row) {
+    if (error && error.code !== 'PGRST202') {
+      console.warn('[conversations] inbox counters query failed, using per-counter fallback:', error.message);
+    }
+    return null;
+  }
+  const n = (v: unknown) => Number(v ?? 0) || 0;
+  return {
+    inbox_main: n(row.inbox_main), inbox_automated: n(row.inbox_automated),
+    inbox_needs_human: n(row.inbox_needs_human), inbox_spam: n(row.inbox_spam),
+    tab_open: n(row.tab_open), tab_pending: n(row.tab_pending), tab_resolved: n(row.tab_resolved),
+    tab_all: n(row.tab_all), tab_needs_human: n(row.tab_needs_human), tab_automated: n(row.tab_automated),
+  };
+}
+
 // ─── Sidebar inbox counters ─────────────────────────────────────────
 conversationsRouter.get('/inbox-counts', async (req, res) => {
   try {
@@ -1421,6 +1464,15 @@ conversationsRouter.get('/inbox-counts', async (req, res) => {
     const seesAll =
       (auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead')
       && String(req.query.scope || 'mine') === 'all';
+    const counters = await loadInboxCounters(sb, workspaceId, auth.userId, seesAll);
+    if (counters) {
+      return res.json({
+        main: counters.inbox_main,
+        automated: counters.inbox_automated,
+        needs_human: counters.inbox_needs_human,
+        spam: counters.inbox_spam,
+      });
+    }
     const base = () => {
       const q = sb.from('conversations').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId);
       return seesAll ? q : q.or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`);
@@ -1456,6 +1508,17 @@ conversationsRouter.get('/inbox-tab-counts', async (req, res) => {
     const seesAll =
       (auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead')
       && String(req.query.scope || 'mine') === 'all';
+    const counters = await loadInboxCounters(sb, workspaceId, auth.userId, seesAll);
+    if (counters) {
+      return res.json({
+        open: counters.tab_open,
+        pending: counters.tab_pending,
+        resolved: counters.tab_resolved,
+        all: counters.tab_all,
+        needs_human: counters.tab_needs_human,
+        automated: counters.tab_automated,
+      });
+    }
     const scopeAssignment = (q) =>
       seesAll ? q : q.or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`);
     const base = () =>

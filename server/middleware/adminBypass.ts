@@ -15,6 +15,7 @@
 
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { coalesce } from '../lib/inflight.js';
 
 export async function isGlobalAdmin(
   config: ServerConfig,
@@ -23,10 +24,14 @@ export async function isGlobalAdmin(
   if (!userId) return false;
   try {
     const sb = getServiceClient(config);
-    const { data, error } = await sb.rpc('has_role', {
-      _user_id: userId,
-      _role: 'admin',
-    });
+    // Concurrent requests from the same user share one lookup (lib/inflight
+    // — not a cache: a role change applies to the next request).
+    const { data, error } = await coalesce(`global_admin:${userId}`, () =>
+      sb.rpc('has_role', {
+        _user_id: userId,
+        _role: 'admin',
+      }),
+    );
     if (error) return false;
     return !!data;
   } catch {
@@ -65,9 +70,9 @@ export async function logGateBypass(
     console.info(
       `[gate-bypass] feature_gate_bypassed_by_global_admin user=${params.userId} ws=${params.workspaceId || '-'} module=${params.moduleKey} route=${params.route}`,
     );
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Never fail the request because of audit logging.
     // eslint-disable-next-line no-console
-    console.warn('[gate-bypass] audit log failed:', err?.message);
+    console.warn('[gate-bypass] audit log failed:', err instanceof Error ? err.message : err);
   }
 }

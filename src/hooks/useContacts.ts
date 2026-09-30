@@ -4,6 +4,7 @@ import type { RealtimeSubscription } from '@/realtime/types';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Contact } from '@/types/models';
 import { contactsApi } from '@/lib/contacts-api';
+import { invalidateThrottled } from '@/realtime/invalidationThrottle';
 
 // Reads/writes below go through server/routes/contacts.ts (gs_session
 // cookie + service_role) rather than direct supabase.from() calls — the
@@ -26,10 +27,13 @@ function useContactUpdates(workspaceId: string | undefined) {
       const sub = await provider.subscribe(`ws:${workspaceId}:inbox`, {
         onEvent: payload => {
           if (payload?.kind !== 'contact_updated' || payload.workspace_id !== workspaceId) return;
-          void qc.invalidateQueries({ queryKey: ['contacts', workspaceId] });
-          void qc.invalidateQueries({ queryKey: ['contact', payload.contact_id] });
-          void qc.invalidateQueries({ queryKey: ['contact-conversations', payload.contact_id] });
-          void qc.invalidateQueries({ queryKey: ['conversations', workspaceId] });
+          // Throttled like every other inbox invalidation: a commerce sync can
+          // emit a burst of contact_updated events, and invalidateQueries()
+          // does not dedupe — each one would refetch the lists again.
+          invalidateThrottled(qc, ['contacts', workspaceId]);
+          invalidateThrottled(qc, ['contact', payload.contact_id]);
+          invalidateThrottled(qc, ['contact-conversations', payload.contact_id]);
+          invalidateThrottled(qc, ['conversations', workspaceId]);
         },
       });
       if (cancelled) sub.unsubscribe();

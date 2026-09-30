@@ -137,16 +137,18 @@ const DEFAULTS: MapGeoSettings = {
   },
 };
 
-function deepMerge<T>(base: T, patch: any): T {
+function deepMerge<T>(base: T, patch: unknown): T {
   if (!patch || typeof patch !== 'object') return base;
-  const out: any = Array.isArray(base) ? [...(base as any)] : { ...base };
-  for (const k of Object.keys(patch)) {
-    const bv = (base as any)?.[k];
-    const pv = patch[k];
+  const src = patch as Record<string, unknown>;
+  const baseRec = base as unknown as Record<string, unknown> | null;
+  const out: Record<string, unknown> | unknown[] = Array.isArray(base) ? [...(base as unknown[])] : { ...baseRec };
+  for (const k of Object.keys(src)) {
+    const bv = baseRec?.[k];
+    const pv = src[k];
     if (bv && typeof bv === 'object' && !Array.isArray(bv) && pv && typeof pv === 'object' && !Array.isArray(pv)) {
-      out[k] = deepMerge(bv, pv);
+      (out as Record<string, unknown>)[k] = deepMerge(bv, pv);
     } else if (pv !== undefined) {
-      out[k] = pv;
+      (out as Record<string, unknown>)[k] = pv;
     }
   }
   return out as T;
@@ -163,6 +165,36 @@ export async function getMapGeoSettings(config: ServerConfig): Promise<MapGeoSet
   return deepMerge(DEFAULTS, data?.value);
 }
 
+// Hot-path reads (geo enrichment on every visitor session, the Visitors
+// list, map tiles) go through a short in-process cache: these settings
+// change only through patchMapGeoSettings below, which refreshes it, so the
+// only staleness is another node's cache for at most CACHE_TTL_MS. Admin
+// surfaces and the read-modify-write in patchMapGeoSettings keep reading
+// the row directly.
+const CACHE_TTL_MS = 30_000;
+let cached: { value: MapGeoSettings; at: number } | null = null;
+let inFlight: Promise<MapGeoSettings> | null = null;
+
+export async function getMapGeoSettingsCached(config: ServerConfig): Promise<MapGeoSettings> {
+  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.value;
+  if (!inFlight) {
+    inFlight = getMapGeoSettings(config)
+      .then((value) => {
+        cached = { value, at: Date.now() };
+        return value;
+      })
+      .finally(() => {
+        inFlight = null;
+      });
+  }
+  return inFlight;
+}
+
+/** Test/maintenance hook: drop the cached copy. */
+export function invalidateMapGeoSettingsCache(): void {
+  cached = null;
+}
+
 export async function patchMapGeoSettings(
   config: ServerConfig,
   patch: Partial<MapGeoSettings>,
@@ -173,13 +205,15 @@ export async function patchMapGeoSettings(
   const { data, error } = await sb
     .from('app_runtime_config')
     .upsert(
-      { key: 'map_geo_settings', value: merged as any, updated_at: new Date().toISOString() },
+      { key: 'map_geo_settings', value: merged as unknown as Record<string, unknown>, updated_at: new Date().toISOString() },
       { onConflict: 'key' },
     )
     .select('value')
     .single();
   if (error) throw new Error(`Failed to save map and geo settings: ${error.message}`);
-  return deepMerge(DEFAULTS, data?.value);
+  const saved = deepMerge(DEFAULTS, data?.value);
+  cached = { value: saved, at: Date.now() };
+  return saved;
 }
 
 export const MAP_GEO_DEFAULTS = DEFAULTS;

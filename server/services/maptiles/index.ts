@@ -11,7 +11,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { getMapGeoSettings } from '../geo/settings.js';
+import { getMapGeoSettingsCached } from '../geo/settings.js';
 
 export interface MapTilesConfig {
   enabled: boolean;
@@ -197,7 +197,7 @@ export async function resolveMapTilesConfig(
   // This is the canonical self-host configuration surface. If `tiles.url_template`
   // is set, it overrides everything else and is used as a self-hosted custom source.
   try {
-    const mapGeo = await getMapGeoSettings(config);
+    const mapGeo = await getMapGeoSettingsCached(config);
     if (mapGeo.tiles.url_template) {
       requested = mapGeo.tiles.provider || 'custom';
       built = {
@@ -225,7 +225,7 @@ export async function resolveMapTilesConfig(
       .eq('provider_type', 'map_tiles')
       .eq('is_active', true)
       .maybeSingle();
-    if (ws) { requested = ws.provider_name; built = buildFromConfig(ws.provider_name, ws.config as any); }
+    if (ws) { requested = ws.provider_name; built = buildFromConfig(ws.provider_name, ws.config as Record<string, unknown> | null); }
   }
   if (!built) {
     const { data: platform } = await sb
@@ -235,7 +235,7 @@ export async function resolveMapTilesConfig(
       .eq('provider_type', 'map_tiles')
       .eq('is_active', true)
       .maybeSingle();
-    if (platform) { requested = platform.provider_name; built = buildFromConfig(platform.provider_name, platform.config as any); }
+    if (platform) { requested = platform.provider_name; built = buildFromConfig(platform.provider_name, platform.config as Record<string, unknown> | null); }
   }
   // Self-host safe default: no public OSM, no external network call.
   // Operator must explicitly configure a self-hosted tile URL via

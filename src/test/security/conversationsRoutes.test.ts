@@ -19,6 +19,9 @@ import type { AddressInfo } from 'node:net';
 
 type Row = Record<string, unknown>;
 const db: Record<string, Row[]> = {};
+/** When set, the fake conversation_inbox_counters RPC answers with this row. */
+let inboxCounters: Row | null = null;
+const inboxCounterCalls: Row[] = [];
 
 /** What every fake query settles with. */
 type Result = { data: unknown; error: null; count?: number };
@@ -157,6 +160,14 @@ function fakeClient() {
           (m) => m.workspace_id === args._workspace_id && m.user_id === args._user_id,
         );
         return { data: !!member, error: null };
+      }
+      if (name === 'conversation_inbox_counters' && inboxCounters) {
+        inboxCounterCalls.push(args);
+        return { data: [inboxCounters], error: null };
+      }
+      if (name === 'conversation_inbox_counters') {
+        // A database without migration 241 answers "function not found".
+        return { data: null, error: { code: 'PGRST202', message: 'function not found' } };
       }
       return { data: null, error: null };
     },
@@ -332,6 +343,29 @@ describe('GET /api/conversations/inbox-counts and /inbox-tab-counts', () => {
   it('counts reject a non-member', async () => {
     const res = await call('GET', `/api/conversations/inbox-counts?workspace_id=${WS}`, { token: 'outsider-token' });
     expect(res.status).toBe(403);
+  });
+
+  it('both endpoints read the single conversation_inbox_counters query when it exists', async () => {
+    inboxCounters = {
+      inbox_main: 11, inbox_automated: 12, inbox_needs_human: 13, inbox_spam: 14,
+      tab_open: 21, tab_pending: 22, tab_resolved: 23, tab_all: 24, tab_needs_human: 25, tab_automated: 26,
+    };
+    inboxCounterCalls.length = 0;
+    try {
+      const counts = await call('GET', `/api/conversations/inbox-counts?workspace_id=${WS}`, { token: 'member-token' });
+      expect(counts.json).toEqual({ main: 11, automated: 12, needs_human: 13, spam: 14 });
+      const tabs = await call('GET', `/api/conversations/inbox-tab-counts?workspace_id=${WS}`, { token: 'member-token' });
+      expect(tabs.json).toEqual({ open: 21, pending: 22, resolved: 23, all: 24, needs_human: 25, automated: 26 });
+      // Scoped to the caller: the workspace, the caller's id, and their view.
+      expect(inboxCounterCalls.length).toBeGreaterThan(0);
+      for (const args of inboxCounterCalls) {
+        expect(args.p_workspace_id).toBe(WS);
+        expect(typeof args.p_user_id).toBe('string');
+        expect(typeof args.p_sees_all).toBe('boolean');
+      }
+    } finally {
+      inboxCounters = null;
+    }
   });
 });
 

@@ -127,6 +127,8 @@ describe('supabase migration chain — dependency order', () => {
   for (const t of baselineTables()) created.set(t, BASELINE);
   /** Offences: a table used before any migration created it. */
   const violations: string[] = [];
+  /** Table name → first HOSTED migration that creates it (baseline ignored). */
+  const createdInHosted = new Map<string, string>();
 
   for (const file of files) {
     const sql = readFileSync(`${dir}/${file}`, 'utf8').replace(/--[^\n]*/g, '');
@@ -136,6 +138,7 @@ describe('supabase migration chain — dependency order', () => {
     )) {
       const t = m[1].toLowerCase();
       if (!created.has(t)) created.set(t, file);
+      if (!createdInHosted.has(t)) createdInHosted.set(t, file);
     }
 
     const refs: Array<[RegExp, string]> = [
@@ -163,7 +166,9 @@ describe('supabase migration chain — dependency order', () => {
   });
 
   it('creates public.workspace_domains_extended before its first policy', () => {
-    const origin = created.get('workspace_domains_extended');
+    // Hosted files only: the self-host chain creates this table too (239), and
+    // leaning on that baseline would let this chain lose its own CREATE.
+    const origin = createdInHosted.get('workspace_domains_extended');
     expect(origin).toBeDefined();
     expect(origin! < '20260415082424').toBe(true);
   });

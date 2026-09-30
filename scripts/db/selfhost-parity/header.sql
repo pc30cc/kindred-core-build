@@ -1,0 +1,49 @@
+-- 239 — Self-host parity with the hosted chain.
+--
+-- WHY: database/migrations fell behind supabase/migrations. A database built
+-- from this chain alone was missing objects the server calls on every request
+-- — `is_ip_blocked` first among them, so every API request answered
+-- 503 IP_CHECK_UNAVAILABLE — plus 100+ tables (conversation_attachments,
+-- conversation_events, role_permissions, …), 110+ functions
+-- (get_workspace_role, mark_conversation_seen, claim_conversation, …),
+-- their indexes, constraints, triggers and RLS policies, the columns the
+-- hosted chain added to shared tables, and the seed rows hosted migrations
+-- insert (role_permissions, billing_plans, alert_rules, platform settings, …).
+-- It also still carried anon-facing policies the hosted chain removed in
+-- April 2026 — among them "Public can read runtime config", which let an
+-- anonymous PostgREST caller read app_runtime_config (provider credentials).
+--
+-- WHAT: generated mechanically by diffing a database built from each chain
+-- (pg_dump / pg_restore of every object present in the hosted build and
+-- absent from the self-host build, plus catalog comparisons for columns,
+-- enum values, privileges, policies and seed rows). It is ADD-ONLY with two
+-- deliberate exceptions, both hardening the hosted chain already shipped:
+--   * policies the hosted chain dropped are dropped here too, and policies it
+--     tightened are replaced with the hosted definition;
+--   * privileges on public objects are reset (REVOKE from PUBLIC/anon/
+--     authenticated/service_role, then GRANT) so a Supabase image's default
+--     privileges cannot leave a customer role holding EXECUTE on a SECURITY
+--     DEFINER function. An object new to this chain gets exactly the hosted
+--     grants. On an object this chain already had, service_role gets the
+--     hosted grants and PUBLIC/anon/authenticated keep only what BOTH chains
+--     give them — never a privilege an earlier migration here withheld (060
+--     gives authenticated SELECT only on kb_article_feedback and proves it).
+--     So this file never widens a customer role's access, and re-running an
+--     earlier migration after it still passes that migration's own checks.
+-- Objects that exist in both chains with different definitions (function
+-- bodies, check constraints, column nullability) are left untouched, and
+-- self-host-only objects (ai_agent_reply_now_claims,
+-- patch_conversation_runtime_flags, the billing wallet additions) are kept.
+-- The hosted billing gate is NOT added: check_workspace_entitlement and its
+-- callers check_module_access, check_channel_access and deduct_ai_credits.
+-- Self-host runs without it by design — with SELF_HOST_BILLING_MODE=unlimited
+-- the server treats a workspace as unlimited exactly when
+-- check_workspace_entitlement is absent — so adding it would put an
+-- "unlimited" install under plan limits.
+--
+-- pgvector is optional: stock postgres:16 does not ship it. The extension is
+-- created only where it is available, and ai_knowledge_chunks.embedding with
+-- its HNSW index only where it is installed; everything else applies anyway.
+--
+-- Idempotent: CREATE … IF NOT EXISTS / OR REPLACE, and constraints, policies
+-- and types wrapped so an object that already exists is skipped.

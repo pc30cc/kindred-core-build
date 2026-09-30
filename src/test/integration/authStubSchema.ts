@@ -111,16 +111,27 @@ export async function ensureAuthChainInstalled(db: PgQueryable): Promise<void> {
   // on the shared database: entitlementFanoutConsumer, for one, replaces
   // public.workspaces with a one-column stub. A schema whose workspaces has
   // no owner_id cannot take 001 (CREATE TABLE IF NOT EXISTS keeps the stub)
-  // or 026, so such a schema is reset and installed afresh.
+  // or 026, so such a schema is reset and installed afresh. The same goes for
+  // the AI-KB stubs aiKbMutationStateMachine and entitlementFanoutQueue put in
+  // place of knowledge_base_articles / ai_kb_generated_articles: 239 indexes
+  // their real columns (created_at among them), which the stubs lack.
   const { rows } = await db.query(`
     SELECT to_regclass('public.profiles') IS NOT NULL AS profiles,
            to_regclass('public.workspaces') IS NOT NULL AS workspaces,
            EXISTS (
              SELECT 1 FROM information_schema.columns
               WHERE table_schema = 'public' AND table_name = 'workspaces' AND column_name = 'owner_id'
-           ) AS owner_id`);
+           ) AS owner_id,
+           EXISTS (
+             SELECT 1 FROM (VALUES ('knowledge_base_articles'), ('ai_kb_generated_articles')) AS t(name)
+              WHERE to_regclass('public.' || t.name) IS NOT NULL
+                AND NOT EXISTS (
+                  SELECT 1 FROM information_schema.columns c
+                   WHERE c.table_schema = 'public' AND c.table_name = t.name AND c.column_name = 'created_at'
+                )
+           ) AS ai_kb_stub`);
   let baseAlreadyInstalled = !!rows[0]?.profiles && !!rows[0]?.owner_id;
-  if (rows[0]?.workspaces && !rows[0]?.owner_id) {
+  if ((rows[0]?.workspaces && !rows[0]?.owner_id) || rows[0]?.ai_kb_stub) {
     await db.query('DROP SCHEMA IF EXISTS public CASCADE; DROP SCHEMA IF EXISTS auth CASCADE; CREATE SCHEMA public;');
     await applyAuthSchemaStub(db);
     baseAlreadyInstalled = false;

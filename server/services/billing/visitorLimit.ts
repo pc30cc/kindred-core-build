@@ -64,6 +64,11 @@ function startOfCurrentUtcMonthIso(): string {
  * On read errors we fail OPEN (treat as in-month) to avoid blocking
  * legitimate revisits — the trigger remains the source of truth and
  * any drift will self-correct on the next true-new visitor.
+ *
+ * The month is judged on `started_at`, exactly as the counting trigger
+ * (tg_visitor_sessions_count_visitor) does. `visitor_sessions` has no
+ * `created_at`: filtering on it failed every read, and fail-open then
+ * waved every new visitor past the monthly cap.
  */
 async function hasInMonthVisitorSession(
   supabase: SupabaseClient,
@@ -76,7 +81,7 @@ async function hasInMonthVisitorSession(
       .select('id')
       .eq('workspace_id', workspaceId)
       .eq('visitor_id', visitorId)
-      .gte('created_at', startOfCurrentUtcMonthIso())
+      .gte('started_at', startOfCurrentUtcMonthIso())
       .limit(1)
       .maybeSingle();
     if (error) {

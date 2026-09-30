@@ -44,7 +44,10 @@ const sbMock: SbMock = {
     return { data: null, error: null };
   },
   from(name: string) {
-    const handler = tableState[name];
+    // The caller is a member (owner) of every workspace these tests touch —
+    // membership is the workspace_members row, as is_workspace_member defines.
+    const handler = tableState[name]
+      ?? (name === 'workspace_members' ? () => ({ data: { role: 'owner' }, error: null }) : undefined);
     const builder: QueryBuilder = {
       _eqs: [],
       select() { return builder; },

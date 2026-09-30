@@ -15,26 +15,41 @@
  */
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import crypto from 'node:crypto';
+import type { ServerConfig } from '../../../server/config';
 
-const sessionRows: Array<Record<string, any>> = [];
+type Row = Record<string, unknown>;
+const sessionRows: Row[] = [];
 /** Counts UPDATEs that actually matched a row — proves renewal write dedupe. */
 export const updateStats = { writes: 0 };
 
 vi.mock('../../../server/supabase.js', () => ({
   getServiceClient: () => ({
     from(table: string) {
-      const filters: Array<(r: any) => boolean> = [];
-      let updatePatch: Record<string, any> | null = null;
-      const builder: any = {
+      const filters: Array<(r: Row) => boolean> = [];
+      let updatePatch: Row | null = null;
+      const builder: Record<string, unknown> = {
         select: () => builder,
-        update(patch: Record<string, any>) { updatePatch = patch; return builder; },
-        eq(col: string, val: any) { filters.push((r) => r[col] === val); return builder; },
-        lt(col: string, val: any) {
+        update(patch: Row) { updatePatch = patch; return builder; },
+        eq(col: string, val: unknown) { filters.push((r) => r[col] === val); return builder; },
+        lt(col: string, val: unknown) {
           filters.push((r) => r[col] != null && String(r[col]) < String(val));
           return builder;
         },
-        is(col: string, val: any) {
+        is(col: string, val: unknown) {
           filters.push((r) => (val === null ? r[col] == null : r[col] === val));
+          return builder;
+        },
+        // Minimal PostgREST `or` for the renewal compare-and-set:
+        // "col.is.null,col.lt.\"<iso>\"".
+        or(expr: string) {
+          const clauses = expr.split(',').map((c) => {
+            const [col, op, ...rest] = c.split('.');
+            const val = rest.join('.').replace(/^"|"$/g, '');
+            if (op === 'is' && val === 'null') return (r: Row) => r[col] == null;
+            if (op === 'lt') return (r: Row) => r[col] != null && String(r[col]) < val;
+            throw new Error(`unsupported or clause: ${c}`);
+          });
+          filters.push((r) => clauses.some((f) => f(r)));
           return builder;
         },
         async maybeSingle() {
@@ -42,7 +57,7 @@ vi.mock('../../../server/supabase.js', () => ({
           const matched = sessionRows.filter((r) => filters.every((f) => f(r)));
           return { data: matched[0] ?? null, error: null };
         },
-        then(resolve: any) {
+        then(resolve: (v: { data: null; error: null }) => unknown) {
           // Awaiting the builder directly performs the pending update.
           if (updatePatch) {
             const matched = sessionRows.filter((r) => filters.every((f) => f(r)));
@@ -73,7 +88,7 @@ const {
 } = await import('../../../server/services/auth/sessions.js');
 const { requireUser } = await import('../../../server/lib/workspaceAuth.js');
 
-const config: any = { corsOrigins: ['https://app.example.com'] };
+const config = { corsOrigins: ['https://app.example.com'] } as unknown as ServerConfig;
 
 function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
@@ -118,17 +133,18 @@ function makeReqRes(opts: {
   const headers: Record<string, unknown> = {};
   if (opts.origin) headers.origin = opts.origin;
   if (opts.bearerToken) headers.authorization = `Bearer ${opts.bearerToken}`;
-  const req: any = {
+  const req = {
     method: opts.method ?? 'GET',
     headers,
     cookies: opts.cookieToken ? { gs_session: opts.cookieToken } : {},
     serverConfig: config,
   };
   let statusCode = 0;
-  let body: any;
-  const res: any = {
+  let body: unknown;
+  type MockRes = { status(c: number): MockRes; json(b: unknown): MockRes };
+  const res: MockRes = {
     status(c: number) { statusCode = c; return res; },
-    json(b: any) { body = b; return res; },
+    json(b: unknown) { body = b; return res; },
   };
   return { req, res, get: () => ({ statusCode, body }) };
 }
@@ -328,6 +344,25 @@ describe('mobile renewal concurrency — at most one write per 24h', () => {
     const first = await validateSessionToken(config, 'seq');
     await renewMobileSessionIfDue(config, first!);
     const second = await validateSessionToken(config, 'seq');
+    await renewMobileSessionIfDue(config, second!);
+    expect(updateStats.writes).toBe(1);
+  });
+
+  it('renews a never-renewed session (last_renewed_at NULL) once, then stops writing', async () => {
+    const row = seedSession({
+      token: 'never-renewed',
+      clientType: 'mobile',
+      expiresInMs: 10 * 24 * 60 * 60 * 1000,
+      absoluteInMs: MOBILE_SESSION_ABSOLUTE_MS,
+      lastRenewedAgoMs: MOBILE_SESSION_RENEW_THROTTLE_MS + 60_000,
+    });
+    row.last_renewed_at = null;
+    updateStats.writes = 0;
+    const first = await validateSessionToken(config, 'never-renewed');
+    await renewMobileSessionIfDue(config, first!);
+    expect(updateStats.writes).toBe(1);
+    expect(row.last_renewed_at).not.toBeNull();
+    const second = await validateSessionToken(config, 'never-renewed');
     await renewMobileSessionIfDue(config, second!);
     expect(updateStats.writes).toBe(1);
   });

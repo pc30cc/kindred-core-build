@@ -9,6 +9,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { verifySessionToken, verifyTokenForRefresh } from '../services/widget/security.js';
 import { verifyWidgetSession } from '../services/callCenter/widgetSession.js';
+import { readSessionToken } from '../lib/sessionTransport.js';
 
 /**
  * What earlier middleware — and express-rate-limit — attach to a request,
@@ -560,7 +561,15 @@ export async function verifyCaptcha(
 
 const requestCounters = new Map<string, { count: number; windowStart: number; reported?: boolean }>();
 const ABUSE_WINDOW = 5 * 60_000; // 5 min
-const ABUSE_THRESHOLD = 500; // requests per 5 min from single IP
+const ABUSE_THRESHOLD = 500; // anonymous requests per 5 min from single IP
+// Requests that carry a session credential (gs_session cookie or Bearer) are
+// counted in their own per-IP bucket with a larger budget: one signed-in
+// dashboard polls presence, visitors, contacts and both inbox counters on
+// timers and refetches on every realtime event (~1-3 req/s per operator),
+// so a team behind one office NAT crossed 500/5 min in about a minute.
+// The bucket stays keyed by IP — never by the unverified token — so rotating
+// fake tokens buys at most this bounded budget, not an unlimited one.
+const ABUSE_THRESHOLD_CREDENTIALED = 5000;
 
 /**
  * `report` is true only for the request that first crosses the threshold in
@@ -571,17 +580,20 @@ const ABUSE_THRESHOLD = 500; // requests per 5 min from single IP
  * slowed every one of those requests down.
  */
 export function checkAbusePattern(req: Request): { suspicious: boolean; report: boolean; reason?: string } {
+  const credentialed = !!readSessionToken(req).token;
   const ip = req.ip || 'unknown';
+  const key = credentialed ? `${ip}|session` : ip;
+  const threshold = credentialed ? ABUSE_THRESHOLD_CREDENTIALED : ABUSE_THRESHOLD;
   const now = Date.now();
 
-  const counter = requestCounters.get(ip);
+  const counter = requestCounters.get(key);
   if (counter) {
     if (now - counter.windowStart > ABUSE_WINDOW) {
-      requestCounters.set(ip, { count: 1, windowStart: now });
+      requestCounters.set(key, { count: 1, windowStart: now });
       return { suspicious: false, report: false };
     }
     counter.count++;
-    if (counter.count > ABUSE_THRESHOLD) {
+    if (counter.count > threshold) {
       const report = !counter.reported;
       counter.reported = true;
       return {
@@ -591,7 +603,7 @@ export function checkAbusePattern(req: Request): { suspicious: boolean; report: 
       };
     }
   } else {
-    requestCounters.set(ip, { count: 1, windowStart: now });
+    requestCounters.set(key, { count: 1, windowStart: now });
   }
 
   return { suspicious: false, report: false };

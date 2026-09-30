@@ -75,8 +75,8 @@ https://api.example.com/api → https://api.example.com/api/...
 | `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` | ✅ |
 | `CORS_ORIGINS` | `https://example.com` | ✅ |
 | `WIDGET_ASSET_BASE_URL` | `https://example.com` | ✅ (split deploy) |
-| `RATE_LIMIT_WINDOW_MS` | `60000` | ❌ |
-| `RATE_LIMIT_MAX` | `100` | ❌ |
+| `RATE_LIMIT_WINDOW_MS` | `60000` | ❌ (no effect — limits are fixed per route) |
+| `RATE_LIMIT_MAX` | `100` | ❌ (no effect — limits are fixed per route) |
 | `RESEND_API_KEY` | `re_xxx` | ❌ |
 | `SENDGRID_API_KEY` | `SG.xxx` | ❌ |
 | `SMTP_HOST` | `smtp.example.com` | ❌ |

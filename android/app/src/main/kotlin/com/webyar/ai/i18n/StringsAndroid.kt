@@ -649,11 +649,31 @@ object StrAndroid {
         }
     }
 
-    /** Above the composer while the next message will start a new conversation. */
+    /** Above the composer once the operator has chosen to start a new conversation. */
     fun supportNewConversationHint(l: Language): String = when (l) {
-        Language.EN -> "The last conversation has ended; your message starts a new one."
-        Language.FA -> "گفتگوی قبلی تمام شده؛ پیام شما گفتگوی تازه‌ای شروع می‌کند."
-        Language.TR -> "Önceki görüşme sona erdi; mesajınız yeni bir görüşme başlatır."
+        Language.EN -> "Your message starts a new conversation."
+        Language.FA -> "پیام شما گفتگوی جدیدی شروع می‌کند."
+        Language.TR -> "Mesajınız yeni bir görüşme başlatır."
+    }
+
+    /** Under an ended conversation, in place of the composer. */
+    fun supportEndedPanelBody(l: Language): String = when (l) {
+        Language.EN -> "It can't be continued. Need more help? Start a new conversation."
+        Language.FA -> "ادامهٔ این گفتگو ممکن نیست. اگر باز هم کمک لازم دارید، گفتگوی جدیدی شروع کنید."
+        Language.TR -> "Bu görüşme sürdürülemez. Yardıma mı ihtiyacınız var? Yeni bir görüşme başlatın."
+    }
+
+    fun supportStartNew(l: Language): String = when (l) {
+        Language.EN -> "Start a new conversation"
+        Language.FA -> "شروع گفتگوی جدید"
+        Language.TR -> "Yeni görüşme başlat"
+    }
+
+    /** The team ended the conversation while a message was on its way to it. */
+    fun supportConversationEnded(l: Language): String = when (l) {
+        Language.EN -> "This conversation has ended, so your message wasn't sent. Start a new conversation to send it."
+        Language.FA -> "این گفتگو بسته شده و پیام شما ارسال نشد. برای ارسال، گفتگوی جدیدی شروع کنید."
+        Language.TR -> "Bu görüşme sona erdi, mesajınız gönderilmedi. Göndermek için yeni bir görüşme başlatın."
     }
 
     fun supportRateTitle(l: Language): String = when (l) {

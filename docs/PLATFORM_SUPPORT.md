@@ -15,12 +15,21 @@ own inbox, with the tools it already has.
   through that link, never through the support workspace's membership.
 - **One chat, many conversations.** The operator sees a single chat: every
   conversation they have had, oldest first, then the current one.
-  - A message goes to the operator's **active** conversation — the newest one
-    that is `open` or `pending`.
-  - When there is none (never started, or the last one is `resolved` or
-    `closed`), the message starts a **new** conversation.
+  - The **active** conversation is the newest one that is `open` or
+    `pending` and belongs to today's support workspace
+    (`activeConversationId`). There is at most one.
+  - The app names the conversation it writes to (`conversationId`). A
+    message goes there while it is active, and is refused with
+    `conversation_ended` once it is not. It is never moved to another
+    conversation the operator is not looking at.
+  - When nothing is active (never started, or the last one is `resolved` or
+    `closed`), the app shows the conversation as ended with a **Start a new
+    conversation** button. The first message after it names no conversation
+    and starts a new one.
   - A `resolved` or `closed` conversation is never reopened by the operator.
     The team can still reopen it from the inbox, and it is active again.
+  - Conversations opened as tickets before tickets were removed are closed
+    (migration `244_platform_support_close_legacy_tickets`).
 - **Offline** is the website widget's own rule (`resolveAvailability`):
   business hours, plus whether anybody on the team is available. Offline, the
   app says "leave a message" and shows the business hours. The message is
@@ -62,8 +71,8 @@ the apps. Bodies and responses are camelCase JSON.
 | --- | --- | --- |
 | `GET /status` | — | `Status` |
 | `GET /history` | — | `History` |
-| `POST /messages` | `{ body, clientMessageId, workspaceId? }` | `{ conversation: Conversation, item: Item }` |
-| `POST /attachments` | `{ fileName, mimeType, data, clientMessageId, workspaceId? }` | `{ conversation: Conversation, item: Item }` |
+| `POST /messages` | `{ body, clientMessageId, conversationId?, workspaceId? }` | `{ conversation: Conversation, item: Item }` |
+| `POST /attachments` | `{ fileName, mimeType, data, clientMessageId, conversationId?, workspaceId? }` | `{ conversation: Conversation, item: Item }` |
 | `GET /attachments/:id` | — | the file's bytes (`Content-Type` is its type) |
 | `POST /conversations/:id/rating` | `{ score, comment? }` | `{ conversation: Conversation }` |
 | `POST /read` | — | `{ ok: true }` |
@@ -123,6 +132,11 @@ type Attachment = {
 ```
 
 **Request rules**
+- `conversationId` is the conversation the app shows, when it is active.
+  Leave it out to start a new one; when the operator's other device already
+  started one, the message joins that. An ended conversation is refused with
+  `conversation_ended` — unless this `clientMessageId` landed there before it
+  ended, which returns that item.
 - `workspaceId` is the workspace the operator is writing from, when the client
   knows it. The inbox shows its name next to the contact.
 - `clientMessageId` makes a retry safe: `[A-Za-z0-9_-]{8,64}`, minted once per
@@ -135,7 +149,7 @@ type Attachment = {
 | Code | Status |
 | --- | --- |
 | `support_disabled`, `support_not_configured`, `conversation_not_found`, `attachment_not_found` | 404 |
-| `already_rated`, `not_ratable` | 409 |
+| `conversation_ended`, `already_rated`, `not_ratable` | 409 |
 | `invalid_body`, `invalid_rating`, `invalid_file`, `file_type_not_allowed` | 400 |
 | `file_too_large` | 413 |
 | `rate_limited` | 429 |
@@ -193,6 +207,12 @@ hides the section in the Android app without a new build.
   - Offline, a banner says "leave a message" and lists the hours.
   - Earlier conversations are in the same chat, each ended one closed by a
     line, and a rating card while `canRate`.
+  - While a conversation is active, the composer writes to it. Once it has
+    ended, the composer gives way to "This conversation was resolved" and a
+    **Start a new conversation** button; nothing more can be written to it.
+    A message refused with `conversation_ended` (the team closed it while
+    the operator typed) goes back into the composer, and the chat shows the
+    end.
   - The composer takes text and a file (2 MB); no emoji.
   - Replies arrive live, and a `support_reply` push opens the chat.
 - **iOS, macOS, Windows, web:** the same endpoints and events.

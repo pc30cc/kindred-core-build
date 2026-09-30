@@ -384,6 +384,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/243_platform_support_chat.sql',
     hosted: 'supabase/migrations/20260930170000_platform_support_chat.sql',
   },
+  {
+    label: '244 — platform support: close conversations still open as tickets',
+    selfHost: 'database/migrations/244_platform_support_close_legacy_tickets.sql',
+    hosted: 'supabase/migrations/20260930180000_platform_support_close_legacy_tickets.sql',
+  },
 
   // intentionally asymmetric, not a drift bug.
 

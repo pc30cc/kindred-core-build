@@ -640,7 +640,8 @@ export async function supportHistory(config: ServerConfig, userId: string): Prom
   const threads = (await recentThreads(sb, userId)).reverse();
   if (!threads.length) return { conversations: [], items: [], activeConversationId: null };
   const ids = threads.map((t) => t.conversation_id);
-  const [conversations, { data }] = await Promise.all([
+  const [settings, conversations, { data }] = await Promise.all([
+    loadPlatformSupportSettings(config),
     conversationsById(sb, ids),
     sb
       .from('conversation_messages')
@@ -661,11 +662,15 @@ export async function supportHistory(config: ServerConfig, userId: string): Prom
       }),
   );
   const views = threads.map((t) => conversationView(t, conversations.get(t.conversation_id), answered.has(t.conversation_id)));
-  const active = [...views].reverse().find((v) => ACTIVE_STATUSES.has(v.status));
+  // The one the app writes to: the newest that is still open, with the team
+  // that answers now — the same one a message without a target would join.
+  const active = [...threads]
+    .reverse()
+    .find((t) => isWritable(t, conversations.get(t.conversation_id), settings.workspaceId));
   return {
     conversations: views,
     items: await itemViews(config, sb, rows),
-    activeConversationId: active?.id ?? null,
+    activeConversationId: active?.conversation_id ?? null,
   };
 }
 
@@ -698,36 +703,86 @@ function sourceWorkspace(raw: unknown): string | null {
   return typeof raw === 'string' && UUID.test(raw) ? raw : null;
 }
 
+/** The conversation the app names: null when it names none, as-is otherwise (an unknown one is not found). */
+function targetConversation(raw: unknown): string | null {
+  if (raw === undefined || raw === null || raw === '') return null;
+  return typeof raw === 'string' ? raw.trim() : String(raw);
+}
+
+/** The operator's message with this client id in this conversation, if it landed. */
+async function priorMessage(sb: ServiceClient, conversationId: string, clientMessageId: string): Promise<MessageRow | null> {
+  const { data } = await sb
+    .from('conversation_messages')
+    .select(MESSAGE_COLUMNS)
+    .eq('conversation_id', conversationId)
+    .filter('metadata->>client_message_id', 'eq', clientMessageId)
+    .maybeSingle();
+  return (data as MessageRow | null) ?? null;
+}
+
+/** Open or pending, and with the team that answers support now. */
+function isWritable(thread: ThreadRow, conv: ConversationRow | undefined, supportWorkspaceId: string | null): boolean {
+  return thread.support_workspace_id === supportWorkspaceId && ACTIVE_STATUSES.has(conv?.status || '');
+}
+
 /**
- * Where the operator's next message goes: their newest open or pending
- * conversation, else a new one. The client's id is in a new conversation's
- * key, so a retried first message finds the conversation it started.
+ * Where the operator's next message goes.
+ *
+ * - The app names the conversation it shows (`conversationId`): the message
+ *   goes there while it is open, and is refused with `conversation_ended`
+ *   once it is not — never quietly moved to another conversation the
+ *   operator is not looking at. A retry of a message that landed before the
+ *   end still returns it.
+ * - It names none: a new conversation — or, when one is open already (the
+ *   operator's other device started it), that one. The client's id is in a
+ *   new conversation's key, so a retried first message finds the
+ *   conversation it started.
  */
 async function prepareWrite(
   config: ServerConfig,
   userId: string,
-  input: { clientMessageId: string; sourceWorkspaceId: string | null; client: ClientPlatform; subject: string },
+  input: {
+    clientMessageId: string;
+    conversationId: string | null;
+    sourceWorkspaceId: string | null;
+    client: ClientPlatform;
+    subject: string;
+  },
 ): Promise<WriteContext> {
   const supportWorkspaceId = await requireSupportWorkspace(config);
   if (!writeLimiter.take(userId)) throw new SupportError(429, 'rate_limited');
   const sb = getServiceClient(config);
+
+  let chosen: { thread: ThreadRow; conv: ConversationRow | undefined } | null = null;
+  if (input.conversationId) {
+    const thread = await ownThread(sb, userId, input.conversationId);
+    const conv = (await conversationsById(sb, [thread.conversation_id])).get(thread.conversation_id);
+    if (
+      !isWritable(thread, conv, supportWorkspaceId) &&
+      !(await priorMessage(sb, thread.conversation_id, input.clientMessageId))
+    ) {
+      throw new SupportError(409, 'conversation_ended');
+    }
+    chosen = { thread, conv };
+  } else {
+    const threads = await recentThreads(sb, userId);
+    const conversations = await conversationsById(sb, threads.map((t) => t.conversation_id));
+    const active = threads.find((t) => isWritable(t, conversations.get(t.conversation_id), supportWorkspaceId));
+    if (active) chosen = { thread: active, conv: conversations.get(active.conversation_id) };
+  }
+
   const requester = await loadRequester(config, sb, userId, input.sourceWorkspaceId, input.client);
   const contactId = await ensureRequesterContact(sb, supportWorkspaceId, requester);
-
-  const threads = await recentThreads(sb, userId);
-  const conversations = await conversationsById(sb, threads.map((t) => t.conversation_id));
-  const active = threads.find(
-    (t) => t.support_workspace_id === supportWorkspaceId && ACTIVE_STATUSES.has(conversations.get(t.conversation_id)?.status || ''),
-  );
-  if (active) {
-    const meta = conversations.get(active.conversation_id)?.metadata || {};
-    if (meta.client_platform !== requester.client) {
+  if (chosen) {
+    const { thread, conv } = chosen;
+    const meta = conv?.metadata || {};
+    if (isWritable(thread, conv, supportWorkspaceId) && meta.client_platform !== requester.client) {
       await sb
         .from('conversations')
         .update({ metadata: { ...meta, client_platform: requester.client } })
-        .eq('id', active.conversation_id);
+        .eq('id', thread.conversation_id);
     }
-    return { sb, requester, contactId, thread: active, conversationId: active.conversation_id, supportWorkspaceId };
+    return { sb, requester, contactId, thread, conversationId: thread.conversation_id, supportWorkspaceId };
   }
 
   const threadKey = `${SUPPORT_CHANNEL}:${userId}:${input.clientMessageId}`;
@@ -791,13 +846,7 @@ async function postRequesterMessage(
   input: { body: string; clientMessageId: string; attachment?: { id: string } },
 ): Promise<SupportItemView> {
   const { sb, conversationId, supportWorkspaceId: workspaceId, requester } = ctx;
-  const findPrior = async () =>
-    (await sb
-      .from('conversation_messages')
-      .select(MESSAGE_COLUMNS)
-      .eq('conversation_id', conversationId)
-      .filter('metadata->>client_message_id', 'eq', input.clientMessageId)
-      .maybeSingle()).data as MessageRow | null;
+  const findPrior = () => priorMessage(sb, conversationId, input.clientMessageId);
 
   let row = await findPrior();
   const duplicate = Boolean(row);
@@ -907,12 +956,14 @@ async function conversationViewFor(sb: ServiceClient, thread: ThreadRow): Promis
 export interface WriteInput {
   body?: unknown;
   clientMessageId: unknown;
+  /** The conversation the app is showing and writing to; absent to start one. */
+  conversationId?: unknown;
   /** The workspace the operator is writing from, if the app knows it. */
   sourceWorkspaceId?: unknown;
   client: ClientPlatform;
 }
 
-/** A message in the operator's chat: to their open conversation, else a new one. */
+/** A message in the operator's chat: to the conversation the app names, else a new one. */
 export async function sendMessage(
   config: ServerConfig,
   userId: string,
@@ -923,6 +974,7 @@ export async function sendMessage(
   const clientMessageId = normalizeClientMessageId(input.clientMessageId) ?? randomUUID();
   const ctx = await prepareWrite(config, userId, {
     clientMessageId,
+    conversationId: targetConversation(input.conversationId),
     sourceWorkspaceId: sourceWorkspace(input.sourceWorkspaceId),
     client: input.client,
     subject: subjectFromBody(body),
@@ -959,20 +1011,16 @@ export async function sendAttachment(
   const clientMessageId = normalizeClientMessageId(input.clientMessageId) ?? randomUUID();
   const ctx = await prepareWrite(config, userId, {
     clientMessageId,
+    conversationId: targetConversation(input.conversationId),
     sourceWorkspaceId: sourceWorkspace(input.sourceWorkspaceId),
     client: input.client,
     subject: file.fileName,
   });
 
   // A retry of a file that already landed returns it, and stores nothing twice.
-  const { data: prior } = await ctx.sb
-    .from('conversation_messages')
-    .select(MESSAGE_COLUMNS)
-    .eq('conversation_id', ctx.conversationId)
-    .filter('metadata->>client_message_id', 'eq', clientMessageId)
-    .maybeSingle();
+  const prior = await priorMessage(ctx.sb, ctx.conversationId, clientMessageId);
   if (prior) {
-    const [item] = await itemViews(config, ctx.sb, [prior as MessageRow]);
+    const [item] = await itemViews(config, ctx.sb, [prior]);
     return { conversation: await conversationViewFor(ctx.sb, ctx.thread), item };
   }
 

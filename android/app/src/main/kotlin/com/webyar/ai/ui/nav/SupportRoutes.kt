@@ -30,6 +30,8 @@ import com.webyar.ai.core.sync.SupportSignal
 import com.webyar.ai.feature.chat.Composer
 import com.webyar.ai.feature.chat.ComposerCapabilities
 import com.webyar.ai.feature.support.SupportChatScreen
+import com.webyar.ai.feature.support.SupportChatState
+import com.webyar.ai.feature.support.SupportComposer
 import com.webyar.ai.feature.support.SupportChatViewModel
 import com.webyar.ai.feature.support.SupportTeamMark
 import com.webyar.ai.feature.support.presenceText
@@ -145,6 +147,7 @@ fun SupportChatRoute(
                 onRetryLoad = chat::refresh,
                 onRetryMessage = chat::retry,
                 onRate = chat::rate,
+                onStartNew = chat::startNewConversation,
                 ratingBusy = ratingBusy,
                 loadAttachment = chat::attachment,
                 myAvatarUrl = myAvatar,
@@ -170,6 +173,8 @@ fun SupportChatRoute(
                     },
                     onOpenShortcuts = {},
                     onStartRecording = {},
+                    // Back after "start a new conversation": straight to typing.
+                    focusOnOpen = (state as? SupportChatState.Loaded)?.composer == SupportComposer.New,
                 )
             }
             notice?.let { text ->

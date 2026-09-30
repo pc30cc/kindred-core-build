@@ -7,14 +7,14 @@
  *
  *   GET  /status                      { enabled, available, online, teamName, unread, hours, nextOpenAt }
  *   GET  /history                     { conversations, items, activeConversationId }
- *   POST /messages                    { body, clientMessageId, workspaceId? } → { conversation, item }
- *   POST /attachments                 { fileName, mimeType, data, clientMessageId, workspaceId? } → { conversation, item }
+ *   POST /messages                    { body, clientMessageId, conversationId?, workspaceId? } → { conversation, item }
+ *   POST /attachments                 { fileName, mimeType, data, clientMessageId, conversationId?, workspaceId? } → { conversation, item }
  *   GET  /attachments/:id             the file's bytes
  *   POST /conversations/:id/rating    { score, comment? } → { conversation }
  *   POST /read                        → { ok: true }
  *
  * Errors are `{ error: <code> }`: support_disabled, support_not_configured,
- * conversation_not_found, attachment_not_found, already_rated, not_ratable,
+ * conversation_not_found, conversation_ended, attachment_not_found, already_rated, not_ratable,
  * invalid_body, invalid_rating, invalid_file, file_type_not_allowed,
  * file_too_large, rate_limited.
  */
@@ -82,6 +82,7 @@ platformSupportRouter.post('/messages', async (req, res) => {
       await sendMessage(serverConfigOf(req), userId, {
         body: body.body,
         clientMessageId: body.clientMessageId,
+        conversationId: body.conversationId,
         sourceWorkspaceId: body.workspaceId,
         client: clientPlatformOf(req.headers['x-client-platform']),
       }),
@@ -102,6 +103,7 @@ platformSupportRouter.post('/attachments', async (req, res) => {
         mimeType: body.mimeType,
         data: body.data,
         clientMessageId: body.clientMessageId,
+        conversationId: body.conversationId,
         sourceWorkspaceId: body.workspaceId,
         client: clientPlatformOf(req.headers['x-client-platform']),
       }),

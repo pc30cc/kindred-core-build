@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.Instant
 import java.util.UUID
 
@@ -35,6 +37,7 @@ import java.util.UUID
 internal fun supportErrorText(error: Throwable, language: Language): String {
     val code = (error as? ApiError.Server)?.serverMessage.orEmpty()
     return when {
+        "conversation_ended" in code -> StrAndroid.supportConversationEnded(language)
         "rate_limited" in code -> StrAndroid.supportRateLimited(language)
         "file_too_large" in code -> StrAndroid.supportFileTooLarge(language)
         "file_type_not_allowed" in code -> Str.fileTypeNotAllowed(language)
@@ -82,6 +85,21 @@ class SupportStatusViewModel(private val api: WebyarApi) : ViewModel() {
     }
 }
 
+/** What the bottom of the support chat is. */
+enum class SupportComposer {
+    /** Nothing written yet: the composer, and the first message starts a conversation. */
+    First,
+
+    /** A conversation is open: the composer writes to it. */
+    Active,
+
+    /** The last conversation ended and the operator chose to start another: the composer, for the new one. */
+    New,
+
+    /** The last conversation ended: no composer — the end, and a button to start a new one. */
+    Ended,
+}
+
 sealed interface SupportChatState {
     data object Loading : SupportChatState
     data class Failed(val message: String) : SupportChatState
@@ -92,13 +110,24 @@ sealed interface SupportChatState {
         val items: List<SupportItem> = emptyList(),
         val activeConversationId: String? = null,
         val pending: List<PendingSupportItem> = emptyList(),
+        /** The operator tapped "Start a new conversation" and has not sent its first message yet. */
+        val startingNew: Boolean = false,
     ) : SupportChatState {
         /**
-         * Nothing is open and something has ended: the next message starts
-         * a new conversation, and the composer says so.
+         * An open conversation is written to; an ended one is not — ever. After
+         * the end, only the operator's own choice opens the composer again,
+         * for a conversation of its own.
          */
-        val startsNewConversation: Boolean
-            get() = activeConversationId == null && conversations.any { it.ended }
+        val composer: SupportComposer
+            get() = when {
+                activeConversationId != null -> SupportComposer.Active
+                conversations.isEmpty() -> SupportComposer.First
+                startingNew -> SupportComposer.New
+                else -> SupportComposer.Ended
+            }
+
+        /** The conversation the end panel speaks of: the newest one. */
+        val lastConversation: SupportConversation? get() = conversations.lastOrNull()
 
         val isEmpty: Boolean get() = items.isEmpty() && pending.isEmpty()
     }
@@ -111,8 +140,15 @@ sealed interface SupportChatState {
  * A message or a file shows at once as "sending" and becomes the server's
  * when it lands; one that fails stays, marked, with a retry. The client id
  * travels with every attempt — and a file's bytes stay with it — so a retry
- * never posts twice. Where it goes is the server's decision: the active
- * conversation, or a new one after an ended one.
+ * never posts twice. Messages go one at a time, in the order they were
+ * written.
+ *
+ * Each names the conversation it was written to: the open one, or none for
+ * the first message of a new one. Once a conversation has ended nothing more
+ * is written to it: the composer gives way to the end and a button that
+ * starts a new conversation, and a message the team's close overtook is
+ * refused by the server (`conversation_ended`) and handed back to the
+ * composer, never moved to another conversation.
  */
 class SupportChatViewModel(
     private val api: WebyarApi,
@@ -140,6 +176,9 @@ class SupportChatViewModel(
 
     private var opened = false
     private var workspaceId: String? = null
+
+    /** One message on the wire at a time: they arrive in the order they were written. */
+    private val sending = Mutex()
     private var historyJob: Job? = null
     private var statusJob: Job? = null
 
@@ -203,12 +242,15 @@ class SupportChatViewModel(
     private fun applyHistory(history: SupportHistory) {
         val delivered = history.items.mapNotNullTo(HashSet()) { it.clientMessageId }
         _state.update { current ->
-            val pending = (current as? SupportChatState.Loaded)?.pending.orEmpty()
+            val loaded = current as? SupportChatState.Loaded
             SupportChatState.Loaded(
                 conversations = history.conversations,
                 items = history.items,
                 activeConversationId = history.activeConversationId,
-                pending = pending.filterNot { it.clientMessageId in delivered },
+                pending = loaded?.pending.orEmpty().filterNot { it.clientMessageId in delivered },
+                // A conversation is open now — the new one, started here or
+                // on another device: that is what the composer writes to.
+                startingNew = loaded?.startingNew == true && history.activeConversationId == null,
             )
         }
         val team = history.items.filter { it.fromTeam && !it.isJoin }.mapTo(HashSet()) { it.id }
@@ -232,6 +274,17 @@ class SupportChatViewModel(
         viewModelScope.launch { runCatchingUnlessCancelled { api.markSupportRead() } }
     }
 
+    /**
+     * After an ended conversation: the operator starts a new one. The
+     * composer comes back, and its first message opens the conversation.
+     */
+    fun startNewConversation() {
+        _state.update { state ->
+            val loaded = state as? SupportChatState.Loaded ?: return@update state
+            if (loaded.composer == SupportComposer.Ended) loaded.copy(startingNew = true) else loaded
+        }
+    }
+
     fun send() {
         val body = _draft.value.trim()
         if (body.isEmpty()) return
@@ -239,8 +292,7 @@ class SupportChatViewModel(
             _notice.value = StrAndroid.messageTooLong(language(), MAX_BODY)
             return
         }
-        val entry = PendingSupportItem(newClientMessageId(), body, Instant.now())
-        if (!enqueue(entry)) return
+        if (!enqueue { target -> PendingSupportItem(newClientMessageId(), body, Instant.now(), conversationId = target) }) return
         _draft.value = ""
     }
 
@@ -258,7 +310,9 @@ class SupportChatViewModel(
             _notice.value = StrAndroid.supportFileTooLarge(language())
             return
         }
-        enqueue(PendingSupportItem(newClientMessageId(), "", Instant.now(), SupportUpload(bytes, fileName, mime)))
+        enqueue { target ->
+            PendingSupportItem(newClientMessageId(), "", Instant.now(), SupportUpload(bytes, fileName, mime), conversationId = target)
+        }
     }
 
     /** Tries a message or file that did not go through again, with the same id. */
@@ -270,8 +324,15 @@ class SupportChatViewModel(
         deliver(again)
     }
 
-    private fun enqueue(entry: PendingSupportItem): Boolean {
+    /**
+     * Adds what [make] writes — to the open conversation, or to a new one —
+     * and sends it. Nothing is written after an end until the operator has
+     * chosen to start a new conversation.
+     */
+    private fun enqueue(make: (target: String?) -> PendingSupportItem): Boolean {
         val current = _state.value as? SupportChatState.Loaded ?: return false
+        if (current.composer == SupportComposer.Ended) return false
+        val entry = make(current.activeConversationId)
         _state.value = current.copy(pending = current.pending + entry)
         deliver(entry)
         return true
@@ -280,11 +341,20 @@ class SupportChatViewModel(
     private fun deliver(entry: PendingSupportItem) {
         viewModelScope.launch {
             runCatchingUnlessCancelled {
-                val file = entry.file
-                if (file == null) {
-                    api.sendSupportMessage(entry.body, entry.clientMessageId, workspaceId)
-                } else {
-                    api.sendSupportAttachment(file.fileName, file.mimeType, file.bytes, entry.clientMessageId, workspaceId)
+                sending.withLock {
+                    val file = entry.file
+                    if (file == null) {
+                        api.sendSupportMessage(entry.body, entry.clientMessageId, entry.conversationId, workspaceId)
+                    } else {
+                        api.sendSupportAttachment(
+                            file.fileName,
+                            file.mimeType,
+                            file.bytes,
+                            entry.clientMessageId,
+                            entry.conversationId,
+                            workspaceId,
+                        )
+                    }
                 }
             }.onSuccess { result ->
                 _state.update { merge(it, result, entry.clientMessageId) }
@@ -292,6 +362,10 @@ class SupportChatViewModel(
                 // chat as the server has it.
                 loadHistory()
             }.onFailure { error ->
+                if (isConversationEnded(error)) {
+                    handBack(entry)
+                    return@onFailure
+                }
                 _state.update { state ->
                     val loaded = state as? SupportChatState.Loaded ?: return@update state
                     loaded.copy(
@@ -304,6 +378,30 @@ class SupportChatViewModel(
             }
         }
     }
+
+    /**
+     * The team ended the conversation while [entry] was on its way to it: it
+     * leaves the transcript, its words go back to the composer for a new
+     * conversation, and the chat is read again to show the end.
+     */
+    private fun handBack(entry: PendingSupportItem) {
+        _state.update { state ->
+            val loaded = state as? SupportChatState.Loaded ?: return@update state
+            loaded.copy(
+                pending = loaded.pending.filterNot { it.clientMessageId == entry.clientMessageId },
+                activeConversationId = loaded.activeConversationId?.takeIf { it != entry.conversationId },
+                startingNew = false,
+            )
+        }
+        if (entry.file == null) {
+            _draft.update { current -> if (current.isBlank()) entry.body else "$current\n${entry.body}" }
+        }
+        _notice.value = StrAndroid.supportConversationEnded(language())
+        loadHistory()
+    }
+
+    private fun isConversationEnded(error: Throwable): Boolean =
+        "conversation_ended" in (error as? ApiError.Server)?.serverMessage.orEmpty()
 
     private fun merge(state: SupportChatState, result: SupportPostResult, clientMessageId: String): SupportChatState {
         val loaded = state as? SupportChatState.Loaded ?: return state
@@ -319,6 +417,7 @@ class SupportChatViewModel(
             items = items,
             activeConversationId = if (conversation.ended) loaded.activeConversationId else conversation.id,
             pending = loaded.pending.filterNot { it.clientMessageId == clientMessageId },
+            startingNew = loaded.startingNew && conversation.ended,
         )
     }
 

@@ -180,9 +180,11 @@ describe('runtime wiring — retry exhaustion and realtime', () => {
     expect(core).toContain('publishOperatorEvent');
   });
 
-  it('the Inbox invalidates (not patches) on that reason, so the badge returns without refresh', () => {
+  it('the Inbox re-reads (not patches) the thread on that reason, so the badge returns without refresh', () => {
     expect(listHook).toContain("=== 'outbound_delivery_failed'");
-    expect(listHook).toMatch(/outbound_delivery_failed[\s\S]{0,400}invalidateQueries/);
+    // A server read of the row — the whole list, or just this conversation
+    // through the narrowed list read (hooks/inboxListCache) — never a patch.
+    expect(listHook).toMatch(/outbound_delivery_failed[\s\S]{0,400}(invalidateQueries|refreshConversations)/);
   });
 
   it('no denormalized needs_reply column was introduced', () => {

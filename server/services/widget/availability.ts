@@ -26,7 +26,7 @@
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { anyCustomerAvailableOperator } from './customerAvailability.js';
+import { anyCustomerAvailableOperator, type WorkspaceAvailabilityPrefs } from './customerAvailability.js';
 
 export type AvailabilityState = 'online' | 'offline';
 export type OfflineMode = 'hide_widget' | 'show_offline_message' | 'capture_message';
@@ -209,6 +209,14 @@ export interface ResolveAvailabilityInput {
   workspaceId: string;
   locale?: string;
   now?: Date;
+  /**
+   * The workspace's widget_settings row, when the caller already read it for
+   * this request (any row carrying the availability columns). Omitted: read
+   * here.
+   */
+  settingsRow?: Partial<WidgetAvailabilityRow> | null;
+  /** Members + availability prefs, when the caller already loaded them. */
+  availabilityPrefs?: WorkspaceAvailabilityPrefs;
 }
 
 /**
@@ -221,9 +229,10 @@ async function customerFacingState(
   config: ServerConfig,
   workspaceId: string,
   now: Date,
+  preloaded?: WorkspaceAvailabilityPrefs,
 ): Promise<{ offline: boolean }> {
   try {
-    const { anyAvailable, memberCount } = await anyCustomerAvailableOperator(config, workspaceId, now);
+    const { anyAvailable, memberCount } = await anyCustomerAvailableOperator(config, workspaceId, now, preloaded);
     return { offline: memberCount > 0 && !anyAvailable };
   } catch (err: unknown) {
     console.warn('[availability] operator availability lookup failed:', err instanceof Error ? err.message : err);
@@ -243,16 +252,20 @@ export async function resolveAvailability(
   const locale = (input.locale || 'en').toLowerCase().split('-')[0];
   const now = input.now || new Date();
 
-  const supabase = getServiceClient(config);
-  const { data: row, error: rowError } = await supabase
-    .from('widget_settings')
-    .select('business_hours, offline_mode, availability_labels, offline_message, offline_message_localized, live_chat_enabled')
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
-  // A failed read must not look like "no settings": every field below would
-  // silently fall back to its default (no business hours, default labels).
-  if (rowError) {
-    console.warn('[widget availability] widget_settings read failed:', rowError.message);
+  let row: unknown = input.settingsRow;
+  if (input.settingsRow === undefined) {
+    const supabase = getServiceClient(config);
+    const { data, error: rowError } = await supabase
+      .from('widget_settings')
+      .select('business_hours, offline_mode, availability_labels, offline_message, offline_message_localized, live_chat_enabled')
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+    // A failed read must not look like "no settings": every field below would
+    // silently fall back to its default (no business hours, default labels).
+    if (rowError) {
+      console.warn('[widget availability] widget_settings read failed:', rowError.message);
+    }
+    row = data;
   }
 
   const settings = (row ?? null) as WidgetAvailabilityRow | null;
@@ -281,7 +294,7 @@ export async function resolveAvailability(
   // schedules still decide reachability. Workspaces with zero members keep
   // failing open so a brand-new workspace stays usable.
   if (!enabled) {
-    const state = await customerFacingState(config, workspaceId, now);
+    const state = await customerFacingState(config, workspaceId, now, input.availabilityPrefs);
     return {
       state: state.offline ? 'offline' : 'online',
       reason: state.offline ? 'no_operators_online' : 'disabled',
@@ -336,7 +349,7 @@ export async function resolveAvailability(
     // Within business hours — but if every operator is force-offline,
     // invisible or outside their own personal schedule, flip the widget to
     // offline so visitors aren't promised "we're online".
-    if ((await customerFacingState(config, workspaceId, now)).offline) {
+    if ((await customerFacingState(config, workspaceId, now, input.availabilityPrefs)).offline) {
       return {
         state: 'offline',
         reason: 'no_operators_online',

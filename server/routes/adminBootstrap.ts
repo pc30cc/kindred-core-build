@@ -26,6 +26,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { requireUser } from '../lib/workspaceAuth.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
+import { invalidateGlobalAdminCache } from '../lib/globalAdminCache.js';
 import { findIdentityById } from '../services/auth/identity.js';
 
 export const adminBootstrapRouter = Router();
@@ -63,5 +64,6 @@ adminBootstrapRouter.post('/bootstrap', async (req, res) => {
   const sb = getServiceClient(config);
   const { data, error } = await sb.rpc('bootstrap_admin', { _user_id: userId });
   if (error) return res.status(400).json({ error: error.message });
+  invalidateGlobalAdminCache(userId);
   return res.json({ promoted: data as boolean });
 });

@@ -134,6 +134,12 @@ export async function reopenConversationIfResolved(
  * Single call site for every ingest path, executed AFTER the inbound message
  * row is committed. Both helpers are CAS-guarded on mutually exclusive
  * statuses, so at most one of them can transition the thread.
+ *
+ * `knownStatus`: the thread's status as a write made after the message was
+ * committed returned it (the widget's `updated_at` touch). Only the helper
+ * that can match is then run — each helper is a conditional UPDATE, and for
+ * the common open thread both used to be sent just to match nothing. Omitted
+ * or null: both run, as before.
  */
 export async function applyInboundConversationLifecycle(
   config: ServerConfig,
@@ -143,10 +149,19 @@ export async function applyInboundConversationLifecycle(
     source?: string;
     message: ResumeCandidate;
     messageId?: string | null;
+    knownStatus?: string | null;
   },
 ): Promise<{ transition: 'resumed_pending' | 'reopened_resolved' | 'none'; reason: string }> {
-  const resumed = await resumeConversationIfPending(config, params);
-  if (resumed.resumed) return { transition: 'resumed_pending', reason: resumed.reason };
+  const known = params.knownStatus ?? null;
+  if (known !== null && known !== 'pending' && known !== 'resolved') {
+    return { transition: 'none', reason: 'not_resolved' };
+  }
+
+  if (known === null || known === 'pending') {
+    const resumed = await resumeConversationIfPending(config, params);
+    if (resumed.resumed) return { transition: 'resumed_pending', reason: resumed.reason };
+    if (known === 'pending') return { transition: 'none', reason: resumed.reason };
+  }
 
   const reopened = await reopenConversationIfResolved(config, params);
   if (reopened.reopened) return { transition: 'reopened_resolved', reason: reopened.reason };

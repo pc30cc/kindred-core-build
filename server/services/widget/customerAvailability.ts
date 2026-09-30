@@ -143,11 +143,16 @@ export function computeCustomerAvailability(
     : { availability: 'unavailable', manual, reason: 'outside_schedule' };
 }
 
+export interface WorkspaceAvailabilityPrefs {
+  memberIds: string[];
+  prefsByUser: Map<string, AvailabilityPrefsRow>;
+}
+
 /** Member ids + their global availability prefs for a workspace. */
 export async function loadWorkspaceAvailabilityPrefs(
   config: ServerConfig,
   workspaceId: string,
-): Promise<{ memberIds: string[]; prefsByUser: Map<string, AvailabilityPrefsRow> }> {
+): Promise<WorkspaceAvailabilityPrefs> {
   const sb = getServiceClient(config);
   const { data: members } = await sb
     .from('workspace_members')
@@ -173,11 +178,13 @@ export async function listCustomerAvailableOperators(
   config: ServerConfig,
   workspaceId: string,
   now: Date = new Date(),
+  /** Already loaded by the caller for this request (saves two reads). */
+  preloaded?: WorkspaceAvailabilityPrefs,
 ): Promise<{
   memberCount: number;
   available: Array<{ user_id: string; manual: ManualAvailability; reason: CustomerAvailabilityReason }>;
 }> {
-  const { memberIds, prefsByUser } = await loadWorkspaceAvailabilityPrefs(config, workspaceId);
+  const { memberIds, prefsByUser } = preloaded ?? (await loadWorkspaceAvailabilityPrefs(config, workspaceId));
   const available: Array<{ user_id: string; manual: ManualAvailability; reason: CustomerAvailabilityReason }> = [];
   for (const id of memberIds) {
     const r = computeCustomerAvailability(prefsByUser.get(id) || null, now);
@@ -196,7 +203,8 @@ export async function anyCustomerAvailableOperator(
   config: ServerConfig,
   workspaceId: string,
   now: Date = new Date(),
+  preloaded?: WorkspaceAvailabilityPrefs,
 ): Promise<{ anyAvailable: boolean; memberCount: number }> {
-  const { memberCount, available } = await listCustomerAvailableOperators(config, workspaceId, now);
+  const { memberCount, available } = await listCustomerAvailableOperators(config, workspaceId, now, preloaded);
   return { anyAvailable: available.length > 0, memberCount };
 }

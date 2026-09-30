@@ -347,9 +347,6 @@ export async function resolveVisitorGeo(
   // Load admin runtime settings (cached cheaply by Postgres). These take
   // precedence over the legacy provider_configs row for self-host defaults.
   const mapGeo = await getMapGeoSettingsCached(config).catch(() => null);
-  const provider = await resolveProviderConfig(config, workspaceId);
-  const defaultProvider = mapGeo?.geo.default_provider ?? provider?.provider_name ?? 'maxmind_local';
-  const externalDisabled = defaultProvider === 'none' || provider?.provider_name === 'none';
   const allowCentroid = mapGeo?.geo.allow_centroid_fallback ?? true;
   const cacheTtl = mapGeo?.geo.cache_ttl_seconds ?? 30 * 24 * 60 * 60;
 
@@ -375,6 +372,12 @@ export async function resolveVisitorGeo(
       };
     }
   }
+
+  // The provider rows only matter once both caches missed: a cache hit used
+  // to pay two provider_configs reads first.
+  const provider = await resolveProviderConfig(config, workspaceId);
+  const defaultProvider = mapGeo?.geo.default_provider ?? provider?.provider_name ?? 'maxmind_local';
+  const externalDisabled = defaultProvider === 'none' || provider?.provider_name === 'none';
 
   // 2a. Self-hosted maxmind_local first (preferred default, no external call).
   if (session.raw_ip && mapGeo?.maxmind_local.enabled && mapGeo.maxmind_local.db_path && !externalDisabled) {

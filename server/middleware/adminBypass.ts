@@ -16,16 +16,18 @@
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { coalesce } from '../lib/inflight.js';
+import { isKnownNotGlobalAdmin, rememberNotGlobalAdmin } from '../lib/globalAdminCache.js';
 
 export async function isGlobalAdmin(
   config: ServerConfig,
   userId: string,
 ): Promise<boolean> {
   if (!userId) return false;
+  // Only "not an admin" is remembered, briefly (lib/globalAdminCache).
+  if (isKnownNotGlobalAdmin(userId)) return false;
   try {
     const sb = getServiceClient(config);
-    // Concurrent requests from the same user share one lookup (lib/inflight
-    // — not a cache: a role change applies to the next request).
+    // Concurrent requests from the same user share one lookup (lib/inflight).
     const { data, error } = await coalesce(`global_admin:${userId}`, () =>
       sb.rpc('has_role', {
         _user_id: userId,
@@ -33,7 +35,9 @@ export async function isGlobalAdmin(
       }),
     );
     if (error) return false;
-    return !!data;
+    if (data) return true;
+    rememberNotGlobalAdmin(userId);
+    return false;
   } catch {
     return false;
   }

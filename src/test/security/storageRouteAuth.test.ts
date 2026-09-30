@@ -9,6 +9,7 @@
  * All dependencies are mocked at module boundaries — no network, no real DB.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { invalidateGlobalAdminCache } from "../../../server/lib/globalAdminCache";
 
 const ANON_KEY = "anon-key-public";
 const SERVICE_KEY = "service-role-key";
@@ -154,6 +155,7 @@ beforeEach(() => {
   state.isMember = true;
   state.role = "owner";
   state.isAdmin = false;
+  invalidateGlobalAdminCache();
   uploadFileMock.mockClear();
   deleteFileMock.mockClear();
   getFileUrlMock.mockClear();
@@ -302,7 +304,9 @@ describe("storage routes — workspace authorization", () => {
     await getHandler("post", "/test")(denied.req, denied.res, () => {});
     expect(denied.get().statusCode).toBe(403);
 
+    // A grant goes through the role routes, which drop the remembered "no".
     state.isAdmin = true;
+    invalidateGlobalAdminCache("user-1");
     const allowed = makeReqRes({ token: "valid.jwt", body: { provider: "s3" } });
     await getHandler("post", "/test")(allowed.req, allowed.res, () => {});
     expect(allowed.get().statusCode).toBe(200);

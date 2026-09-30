@@ -309,6 +309,31 @@ class TeamChatTest {
     }
 
     @Test
+    fun `chats come first, newest on top, then the colleagues nobody has written to, by name`() {
+        fun at(minutes: Long) = com.webyar.ai.core.model.Colleague.LastTeamMessage(body = "x", createdAt = java.time.Instant.now().minusSeconds(minutes * 60))
+        val team = listOf(
+            com.webyar.ai.core.model.Colleague(userId = "old", fullName = "Old", lastMessage = at(600)),
+            com.webyar.ai.core.model.Colleague(userId = "zed", fullName = "Zed"),
+            com.webyar.ai.core.model.Colleague(userId = "new", fullName = "New", lastMessage = at(5)),
+            com.webyar.ai.core.model.Colleague(userId = "amy", fullName = "Amy"),
+        )
+        val (chats, others) = groups(team)
+        assertEquals(listOf("new", "old"), chats.map { it.userId })
+        assertEquals(listOf("amy", "zed"), others.map { it.userId })
+    }
+
+    @Test
+    fun `the two groups are headed when there are both`() = runTest {
+        val team = SampleApi().colleagues("ws-1").colleagues
+        compose.setContent { ColleaguesScreen(ColleaguesState.Loaded(team), Language.FA, {}) }
+
+        compose.onNodeWithText(Str.colleaguesChats(Language.FA)).assertIsDisplayed()
+        compose.onNodeWithText(Str.colleaguesStartChat(Language.FA)).assertIsDisplayed()
+        // The admin is marked as one.
+        compose.onNodeWithText(Str.colleagueRole(Language.FA, "admin")!!).assertIsDisplayed()
+    }
+
+    @Test
     fun `tapping a colleague opens their thread`() = runTest {
         val team = SampleApi().colleagues("ws-1").colleagues
         var opened: String? = null

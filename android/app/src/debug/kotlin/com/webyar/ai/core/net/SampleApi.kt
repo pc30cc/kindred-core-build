@@ -956,7 +956,7 @@ class SampleApi : WebyarApi {
                 ),
             ),
             Colleague(
-                userId = "u-3", role = "agent", fullName = "Mehdi Tavakoli",
+                userId = "u-3", role = "admin", fullName = "Mehdi Tavakoli",
                 email = "mehdi@webyar.app", unread = 0,
                 lastMessage = Colleague.LastTeamMessage(
                     body = null, createdAt = ago(300), outgoing = true, attachmentKind = "image",

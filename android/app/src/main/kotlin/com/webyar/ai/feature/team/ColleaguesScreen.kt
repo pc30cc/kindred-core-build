@@ -36,7 +36,6 @@ import com.webyar.ai.ui.components.SearchState
 import com.webyar.ai.ui.components.SkeletonList
 import com.webyar.ai.ui.components.UnreadBadge
 import com.webyar.ai.ui.components.bidiContent
-import com.webyar.ai.ui.design.Size
 import com.webyar.ai.ui.design.Space
 import com.webyar.ai.ui.design.WebyarTheme
 import androidx.compose.animation.AnimatedVisibility
@@ -54,14 +53,29 @@ import androidx.compose.ui.unit.dp
 import com.webyar.ai.ui.components.PullIndicator
 import com.webyar.ai.ui.design.Radius
 import com.webyar.ai.ui.components.OperatorAvatar
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.remember
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import com.webyar.ai.ui.components.GroupHeader
+import com.webyar.ai.ui.components.LatinText
+import com.webyar.ai.ui.components.PillTone
+import com.webyar.ai.ui.components.StatusPill
+import com.webyar.ai.ui.components.rowTextAlign
 
 /**
  * Everyone on the team, and what they last said.
  *
- * A smaller avatar than the inbox and the address book use, deliberately: a
- * colleague is somebody you already know, so the face is an aid to scanning
- * rather than the thing you identify them by — and the smaller row fits more
- * of a team on a screen.
+ * Two groups, the way a messenger keeps them: the colleagues there is a
+ * conversation with, newest first, and under them the ones nobody has written
+ * to yet, by name — so starting a chat is one tap, and the list of chats is
+ * not diluted by people you have never spoken to. A big face on every row,
+ * ringed in the brand's colour while something from them is unread.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -119,14 +133,27 @@ fun ColleaguesScreen(
                         modifier = Modifier.testTag(A11y.COLLEAGUES_EMPTY),
                     )
                 } else {
+                    val (chats, others) = remember(state.colleagues) { groups(state.colleagues) }
+                    // Headings only when there are two groups to tell apart.
+                    val headed = chats.isNotEmpty() && others.isNotEmpty()
                     LazyColumn(
                         Modifier.fillMaxSize().testTag(A11y.COLLEAGUES_LIST),
                         contentPadding = PaddingValues(
                             top = Space.xs + contentPadding.calculateTopPadding(),
-                            bottom = Space.lg + contentPadding.calculateBottomPadding(),
+                            bottom = Space.xl + contentPadding.calculateBottomPadding(),
                         ),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        items(state.colleagues, key = { it.userId }) { colleague ->
+                        if (headed) {
+                            item(key = "h-chats") { GroupHeader(Str.colleaguesChats(language), Modifier.animateItem()) }
+                        }
+                        items(chats, key = { it.userId }) { colleague ->
+                            ColleagueRow(colleague, language, Modifier.animateItem()) { onOpen(colleague) }
+                        }
+                        if (headed) {
+                            item(key = "h-others") { GroupHeader(Str.colleaguesStartChat(language), Modifier.animateItem()) }
+                        }
+                        items(others, key = { it.userId }) { colleague ->
                             ColleagueRow(colleague, language, Modifier.animateItem()) { onOpen(colleague) }
                         }
                     }
@@ -136,6 +163,17 @@ fun ColleaguesScreen(
     }
 }
 
+/**
+ * The chats, newest first, and the colleagues with none yet, by name.
+ */
+internal fun groups(colleagues: List<Colleague>): Pair<List<Colleague>, List<Colleague>> {
+    val (chats, others) = colleagues.partition { it.lastMessage != null }
+    return chats.sortedByDescending { it.lastMessage?.createdAt } to others.sortedBy { it.displayName.lowercase() }
+}
+
+/** A face big enough to know somebody by at a glance. */
+private val FaceSize = 56.dp
+
 @Composable
 private fun ColleagueRow(
     colleague: Colleague,
@@ -144,13 +182,15 @@ private fun ColleagueRow(
     onClick: () -> Unit,
 ) {
     val unread = colleague.unread ?: 0
+    val last = colleague.lastMessage
+    val role = Str.colleagueRole(language, colleague.role)
 
     // The inbox's rounded row: no dividers, and a tone under the rows that
     // have something unread, so they are found before they are read.
     Box(
         modifier
             .fillMaxWidth()
-            .padding(horizontal = Space.sm, vertical = 1.dp)
+            .padding(horizontal = Space.sm)
             .clip(RoundedCornerShape(Radius.xl))
             .background(
                 if (unread > 0) MaterialTheme.colorScheme.surfaceContainerLow else Color.Transparent,
@@ -161,46 +201,99 @@ private fun ColleagueRow(
         Row(
             Modifier
                 .fillMaxWidth()
-                .heightIn(min = Size.rowMinHeight)
-                .padding(horizontal = Space.md, vertical = Space.sm),
+                .heightIn(min = 80.dp)
+                .padding(horizontal = Space.md, vertical = Space.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            OperatorAvatar(imageUrl = colleague.avatarUrl, size = Size.avatarSmall)
-            Column(Modifier.weight(1f).padding(horizontal = Space.md)) {
+            Face(colleague.avatarUrl, ringed = unread > 0)
+            Column(
+                Modifier.weight(1f).padding(start = Space.md),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         colleague.displayName,
                         style = MaterialTheme.typography.titleMedium.bidiContent(),
-                        fontWeight = if (unread > 0) FontWeight.Bold else FontWeight.Medium,
+                        fontWeight = if (unread > 0) FontWeight.Bold else FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f, fill = false),
                     )
-                    colleague.lastMessage?.createdAt?.let {
+                    if (role != null) {
+                        StatusPill(role, tone = PillTone.BRAND, modifier = Modifier.padding(start = Space.xs))
+                    }
+                    Spacer(Modifier.weight(1f))
+                    last?.createdAt?.let {
                         Text(
                             Format.listTimestamp(it, language),
                             style = MaterialTheme.typography.labelMedium,
                             color = if (unread > 0) MaterialTheme.colorScheme.primary else WebyarTheme.colors.labelTertiary,
+                            fontWeight = if (unread > 0) FontWeight.SemiBold else null,
                             maxLines = 1,
                             modifier = Modifier.padding(start = Space.sm),
                         )
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        colleague.preview(language),
-                        style = MaterialTheme.typography.bodyMedium.bidiContent(),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
+                    if (last != null) {
+                        Text(
+                            buildAnnotatedString {
+                                // What the operator sent themselves is said so,
+                                // the way every messenger does.
+                                if (last.outgoing == true) {
+                                    withStyle(SpanStyle(color = WebyarTheme.colors.labelTertiary)) {
+                                        append(Str.youPrefix(language))
+                                    }
+                                }
+                                append(colleague.preview(language))
+                            },
+                            style = MaterialTheme.typography.bodyMedium.bidiContent(),
+                            color = if (unread > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (unread > 0) FontWeight.Medium else null,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                    } else {
+                        // Nobody has written yet: who they are, to know whom
+                        // a first message goes to.
+                        LatinText(
+                            colleague.email.orEmpty(),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = WebyarTheme.colors.labelTertiary,
+                            maxLines = 1,
+                            align = rowTextAlign(),
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                     if (unread > 0) {
                         UnreadBadge(unread, language, Modifier.padding(start = Space.sm))
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * A colleague's face, ringed in the brand's colour while something from them
+ * is unread — the ring is seen before the badge is read.
+ */
+@Composable
+private fun Face(imageUrl: String?, ringed: Boolean) {
+    Box(
+        Modifier
+            .size(FaceSize)
+            .then(
+                if (ringed) {
+                    Modifier.border(2.dp, MaterialTheme.colorScheme.primary, CircleShape).padding(3.dp)
+                } else {
+                    Modifier
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        OperatorAvatar(imageUrl = imageUrl, size = if (ringed) FaceSize - 6.dp else FaceSize)
     }
 }
 

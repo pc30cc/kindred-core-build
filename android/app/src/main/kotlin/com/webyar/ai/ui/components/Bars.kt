@@ -109,14 +109,15 @@ fun DetailTopBar(
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (!subtitle.isNullOrEmpty()) {
-                        // Whose mailbox, or which address: Latin in every
-                        // language, so it is laid out as such.
-                        LatinText(
+                        // Whose mailbox, or how many colleagues: in its own
+                        // direction — an address left to right, «۳ همکار»
+                        // right to left — standing on the title's side.
+                        Text(
                             subtitle,
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelMedium.bidiContent(),
                             color = WebyarTheme.colors.labelTertiary,
                             maxLines = 1,
-                            align = rowTextAlign(),
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }

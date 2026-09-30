@@ -42,6 +42,10 @@ class ColleaguesViewModel(
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
 
+    /** How many colleagues the workspace has, whatever the search shows. */
+    private val _total = MutableStateFlow(0)
+    val total: StateFlow<Int> = _total.asStateFlow()
+
     private var workspaceId: String? = null
     private var loaded: List<Colleague> = emptyList()
 
@@ -119,6 +123,7 @@ class ColleaguesViewModel(
     fun colleague(userId: String): Colleague? = loaded.firstOrNull { it.userId == userId }
 
     private fun publish() {
+        _total.value = loaded.size
         val needle = _query.value.trim().lowercase()
         _state.value = ColleaguesState.Loaded(
             if (needle.isEmpty()) {

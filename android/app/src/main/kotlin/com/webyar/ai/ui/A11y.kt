@@ -142,13 +142,15 @@ object A11y {
     fun attachmentFile(id: String) = "attachment.file.$id"
     fun messageStatus(id: String) = "message.status.$id"
     const val SETTINGS_LIST = "settings.list"
-    const val SETTINGS_SUPPORT = "settings.support"
+    const val SETTINGS_VERSION = "settings.version"
+    const val SETTINGS_SITE = "settings.site"
     /** Settings › Online support: the one row, which opens the chat. */
     const val SETTINGS_SUPPORT_CHAT = "settings.support.chat"
     /** The support chat: its transcript, its composer, and what sits around them. */
     const val SUPPORT_TRANSCRIPT = "support.transcript"
     const val SUPPORT_COMPOSER = "support.composer"
     const val SUPPORT_OFFLINE_BANNER = "support.offline"
+    const val SUPPORT_REQUESTER_CARD = "support.requester"
     const val SUPPORT_ENDED_PANEL = "support.ended"
     const val SUPPORT_START_NEW = "support.startNew"
     const val SUPPORT_CLOSED_BUTTON = "support.closed"

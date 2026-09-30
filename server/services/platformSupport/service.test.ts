@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeDb, fakeSupabase } from './testing/fakeSupabase.js';
 import type { ServerConfig } from '../../config.js';
 import type { PlatformSupportSettings } from './settings.js';
+import type { RequesterSnapshot } from './requester.js';
 
 /**
  * Platform support end to end against an in-memory database: an operator's
@@ -103,6 +104,11 @@ function teamSays(conversationId: string, body: string) {
     created_at: db.now(),
     metadata: { source: 'inbox' },
   });
+}
+
+/** The conversation's messages and notices, without the team's card of who is asking. */
+function messages() {
+  return db.table('conversation_messages').filter((m) => (m.metadata as { kind?: string } | null)?.kind !== 'platform_support_requester');
 }
 
 function setStatus(conversationId: string, status: string) {
@@ -221,7 +227,7 @@ describe('writing', () => {
     const again = await say(userId, 'one', 'client-retry');
     expect(again.item.id).toBe(first.item.id);
     expect(again.conversation.id).toBe(first.conversation.id);
-    expect(db.table('conversation_messages')).toHaveLength(1);
+    expect(messages()).toHaveLength(1);
     expect(db.table('conversations')).toHaveLength(1);
   });
 
@@ -254,7 +260,7 @@ describe('writing', () => {
     setStatus(first.conversation.id, 'resolved');
     await rejects(say(userId, 'three', nextId(), { conversationId: first.conversation.id }), 409, 'conversation_ended');
     expect(db.table('conversations')).toHaveLength(1);
-    expect(db.table('conversation_messages').map((m) => m.body)).toEqual(['one', 'two', 'Solved.']);
+    expect(messages().map((m) => m.body)).toEqual(['one', 'two', 'Solved.']);
     expect(db.table('conversations')[0].status).toBe('resolved');
 
     // Asked for a new conversation, the operator gets one.
@@ -271,7 +277,7 @@ describe('writing', () => {
     const again = await say(userId, 'two', 'client-late', { conversationId: first.conversation.id });
     expect(again.item.id).toBe(sent.item.id);
     expect(again.conversation.status).toBe('closed');
-    expect(db.table('conversation_messages')).toHaveLength(2);
+    expect(messages()).toHaveLength(2);
   });
 
   it('refuses a file for an ended conversation as it refuses a message', async () => {
@@ -300,7 +306,7 @@ describe('writing', () => {
     const hers = await say(sara.userId, 'mine');
     await rejects(say(ali.userId, 'hello', nextId(), { conversationId: hers.conversation.id }), 404, 'conversation_not_found');
     await rejects(say(ali.userId, 'hello', nextId(), { conversationId: 'not-a-uuid' }), 404, 'conversation_not_found');
-    expect(db.table('conversation_messages').map((m) => m.body)).toEqual(['mine']);
+    expect(messages().map((m) => m.body)).toEqual(['mine']);
   });
 
   it('treats a conversation left with the previous support team as ended', async () => {
@@ -313,6 +319,77 @@ describe('writing', () => {
     const fresh = await say(userId, 'two');
     expect(fresh.conversation.id).not.toBe(first.conversation.id);
     expect(db.table('conversations').find((c) => c.id === fresh.conversation.id)!.workspace_id).toBe('ws-support-2');
+  });
+
+  it('opens each new conversation with who is asking — account, workspaces, plan, usage — for the team alone', async () => {
+    const { userId, workspaceId, email } = operator('Sara Ahmadi');
+    const profile = db.table('profiles').find((p) => p.id === userId)!;
+    Object.assign(profile, { phone: '+989121234567', company_name: 'Sara Shop', created_at: '2026-08-01T09:00:00.000Z' });
+    db.table('workspace_members').push({ workspace_id: workspaceId, user_id: 'colleague-1', role: 'agent', created_at: db.now() });
+    db.table('billing_plans').push({
+      id: 'plan-pro',
+      name: 'Startup',
+      slug: 'pro',
+      is_free: false,
+      localized: { fa: { name: 'شروع' } },
+      limits: { max_agents: 3, max_conversations: 1000, max_visitors: -1, max_contacts: 500, ai_credits_per_month: 0, storage_gb: 1 },
+    });
+    db.table('workspace_subscriptions').push({
+      workspace_id: workspaceId,
+      plan_id: 'plan-pro',
+      status: 'active',
+      current_period_end: '2026-10-15T00:00:00.000Z',
+      trial_end: null,
+      cancel_at_period_end: false,
+    });
+    db.table('workspace_usage_counters').push({
+      workspace_id: workspaceId,
+      period: new Date().toISOString().slice(0, 7),
+      conversations_count: 42,
+      messages_count: 310,
+      visitors_count: 900,
+      ai_credits_used: 0,
+      storage_bytes: 1024,
+      call_minutes_used: 0,
+    });
+    db.table('contacts').push({ id: 'c-1', workspace_id: workspaceId, name: 'A customer' });
+
+    const first = await say(userId, 'hello', nextId(), { sourceWorkspaceId: workspaceId });
+    const rows = db.table('conversation_messages').filter((m) => m.conversation_id === first.conversation.id);
+    // The card comes first, then the operator's message.
+    expect(rows.map((m) => m.sender_type)).toEqual(['system', 'contact']);
+    const card = rows[0].metadata as unknown as RequesterSnapshot;
+    expect(card.kind).toBe('platform_support_requester');
+    expect(card.internal).toBe(true);
+    expect(card.user).toMatchObject({
+      name: 'Sara Ahmadi',
+      email,
+      phone: '+989121234567',
+      company: 'Sara Shop',
+      member_since: '2026-08-01T09:00:00.000Z',
+      client_platform: 'android',
+      source_workspace: expect.stringMatching(/^Shop /),
+    });
+    expect(card.workspace_count).toBe(1);
+    const ws = card.workspaces[0];
+    expect(ws).toMatchObject({ id: workspaceId, role: 'owner' });
+    expect(ws.plan).toMatchObject({ name: 'Startup', names: { fa: 'شروع' }, status: 'active', period_end: '2026-10-15T00:00:00.000Z' });
+    expect(ws.operators).toEqual({ used: 2, limit: 3 });
+    expect(ws.contacts).toEqual({ used: 1, limit: 500 });
+    expect(ws.usage.conversations).toEqual({ used: 42, limit: 1000 });
+    expect(ws.usage.visitors).toEqual({ used: 900, limit: -1 });
+    expect(String(rows[0].body)).toContain('Startup (active)');
+
+    // The operator never sees it, and the same conversation gets no second card.
+    await say(userId, 'more');
+    expect((await supportHistory(config, userId)).items.map((i) => i.body)).toEqual(['hello', 'more']);
+    expect(db.table('conversation_messages').filter((m) => m.sender_type === 'system')).toHaveLength(1);
+
+    // A new conversation after the end: a fresh card.
+    setStatus(first.conversation.id, 'resolved');
+    const next = await say(userId, 'again');
+    const cards = db.table('conversation_messages').filter((m) => m.sender_type === 'system');
+    expect(cards.map((m) => m.conversation_id)).toEqual([first.conversation.id, next.conversation.id]);
   });
 
   it('refuses an empty message', async () => {

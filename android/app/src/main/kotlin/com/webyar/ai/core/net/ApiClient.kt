@@ -273,15 +273,12 @@ class ApiClient(
         val appBaseUrl: String? = null,
         val publicBaseUrl: String? = null,
         val helpCenterUrl: String? = null,
-        /**
-         * Already resolved server-side, so no client appends a path of its
-         * own: clients that each append one disagree.
-         */
-        val supportUrl: String? = null,
+        /** The platform's own website (`platform_domains.canonical_base_url`). */
+        val canonicalBaseUrl: String? = null,
     ) {
         private fun https(raw: String?) = raw?.takeIf { it.startsWith("https://") }
         val api: String? get() = https(apiBaseUrl)
-        val support: String? get() = https(supportUrl) ?: https(helpCenterUrl) ?: https(publicBaseUrl)
+        val site: String? get() = https(canonicalBaseUrl) ?: https(publicBaseUrl)
     }
 
     /**
@@ -309,7 +306,7 @@ class ApiClient(
     }
 
     private suspend fun adopt(found: PlatformOrigins) {
-        origins.rememberSupport(found.support)
+        origins.rememberSite(found.site)
         val api = found.api ?: return
         if (api == origin()) return
         origins.remember(api)

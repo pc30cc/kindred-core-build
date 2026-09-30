@@ -46,8 +46,8 @@ class AdminSwitchesTest {
         showNotifications: Boolean = true,
         showSecurity: Boolean = true,
         onClearCache: (() -> Unit)? = {},
-        supportUrl: String? = null,
-        onOpenSupport: (String) -> Unit = {},
+        siteUrl: String? = null,
+        onOpenSite: (String) -> Unit = {},
     ) = compose.setContent {
         SettingsScreen(
             language = en,
@@ -72,8 +72,8 @@ class AdminSwitchesTest {
             onClearCache = onClearCache,
             showNotifications = showNotifications,
             showSecurity = showSecurity,
-            supportUrl = supportUrl,
-            onOpenSupport = onOpenSupport,
+            siteUrl = siteUrl,
+            onOpenSite = onOpenSite,
         )
     }
 
@@ -111,22 +111,31 @@ class AdminSwitchesTest {
         compose.onNodeWithText(Str.notifications(en)).assertDoesNotExist()
     }
 
-    /** About → Support opens the link Super Admin set. */
+    /**
+     * No About section: under the last row, the version in small type, the
+     * platform's website, and the name last of all.
+     */
     @Test
-    fun `Support opens Super Admin's link`() {
+    fun `the foot of Settings is the version, the website and the name`() {
         var opened: String? = null
-        settings(supportUrl = "https://webyar.ai/help", onOpenSupport = { opened = it })
-        compose.onNodeWithTag(A11y.SETTINGS_LIST).performScrollToNode(hasTestTag(A11y.SETTINGS_SUPPORT))
-        compose.onNodeWithText(Str.support(en)).assertIsDisplayed()
-        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT).performClick()
-        assertEquals("https://webyar.ai/help", opened)
+        settings(siteUrl = "https://webyar.ai", onOpenSite = { opened = it })
+        compose.onNodeWithText(Str.about(en)).assertDoesNotExist()
+        compose.onNodeWithTag(A11y.SETTINGS_LIST).performScrollToNode(hasTestTag(A11y.BRAND_FOOTER))
+        compose.onNodeWithTag(A11y.SETTINGS_VERSION).assertIsDisplayed()
+        compose.onNodeWithText("${Str.version(en)} 1.0 (1)").assertIsDisplayed()
+        compose.onNodeWithText("webyar.ai").assertIsDisplayed()
+        compose.onNodeWithTag(A11y.SETTINGS_SITE).performClick()
+        assertEquals("https://webyar.ai", opened)
+        compose.onNodeWithTag(A11y.BRAND_FOOTER).assertIsDisplayed()
     }
 
-    /** With no link known there is nothing to open, and no row. */
+    /** With no website known, the version and the name stand alone. */
     @Test
-    fun `no link leaves Support out`() {
-        settings(supportUrl = null)
-        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT).assertDoesNotExist()
+    fun `no website leaves only the version and the name`() {
+        settings(siteUrl = null)
+        compose.onNodeWithTag(A11y.SETTINGS_SITE).assertDoesNotExist()
+        compose.onNodeWithTag(A11y.SETTINGS_LIST).performScrollToNode(hasTestTag(A11y.BRAND_FOOTER))
+        compose.onNodeWithTag(A11y.SETTINGS_VERSION).assertIsDisplayed()
     }
 
     // MARK: - Profile

@@ -111,6 +111,10 @@ object Format {
         return pattern(instant, template, locale)
     }
 
+    /** A calendar date with its year, in the language's own calendar: «۵ مهر ۱۴۰۵». */
+    fun fullDate(instant: Instant, language: Language): String =
+        pattern(instant, "dMMMMyyyy", calendarLocale(language))
+
     /**
      * A moment ahead: the time alone when it is today, the date and the time
      * otherwise — when maintenance is expected to end, as the Mac says it.

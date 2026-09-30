@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.webyar.ai.core.storage.GeneratedConfig
 import com.webyar.ai.core.storage.PlatformOrigin
 import com.webyar.ai.feature.chat.ChatScreen
 import com.webyar.ai.feature.contacts.ContactDetailScreen
@@ -1883,13 +1884,11 @@ fun SettingsRoute(
         if (config.showStorage) storage = graph?.storageUsage()
     }
 
-    // About → Support: the link Super Admin set for the Android app, else the
-    // platform's help centre (Super Admin → Branding → Domains).
-    var platformSupport by remember { mutableStateOf<String?>(null) }
+    // The platform's website, at the foot of the list.
+    var siteUrl by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(graph) {
-        platformSupport = graph?.let { PlatformOrigin(it.secureStore).supportUrl() }
+        siteUrl = graph?.let { PlatformOrigin(it.secureStore).siteUrl() } ?: GeneratedConfig.SITE_URL
     }
-    val supportUrl = config.supportUrl?.takeIf { it.startsWith("https://") } ?: platformSupport
     val uriHandler = LocalUriHandler.current
 
     SettingsScreen(
@@ -1926,9 +1925,9 @@ fun SettingsRoute(
         onSetDynamicColor = appState::setDynamicColor,
         showNotifications = config.showNotificationSettings,
         showSecurity = config.showSecurity,
-        supportUrl = supportUrl,
+        siteUrl = siteUrl,
         // A phone with no browser has nothing to open it with; the tap does nothing.
-        onOpenSupport = { url -> runCatching { uriHandler.openUri(url) } },
+        onOpenSite = { url -> runCatching { uriHandler.openUri(url) } },
         support = supportSummary,
         onOpenSupportChat = onOpenSupportChat,
         storage = storage,

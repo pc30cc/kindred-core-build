@@ -47,6 +47,20 @@ own inbox, with the tools it already has.
   GIF, PDF or plain text. It is stored like any chat attachment of the support
   workspace (`conversation_attachments`). The team's files come back to the app
   the same way.
+- **Who is asking.** Every new conversation opens with an internal notice
+  (`metadata.kind = 'platform_support_requester'`, `internal: true`), written
+  before the operator's first message (`server/services/platformSupport/requester.ts`).
+  The inbox draws it as a card on the web and in the Android app; the operator
+  never sees it. It is a snapshot as of that first message:
+  - The person: name, email, phone, company, website, member since, the app
+    they wrote from, and the workspace they wrote from.
+  - Each workspace they belong to, owned ones first (at most 10; the total is
+    given): their role, the plan with its state and renewal or trial end,
+    operators, contacts, and this month's conversations, visitors, messages,
+    AI credits and storage, each against the plan's limit where it sets one
+    (`-1` is unlimited).
+  - The stored body is the same in plain English, for a client that does not
+    know the kind.
 - **The operator is the conversation's contact** in the support workspace:
   - Their name, email and photo come from their profile and follow it.
   - An existing contact with the same email is adopted rather than duplicated.
@@ -206,6 +220,9 @@ hides the section in the Android app without a new build.
 - **Android:** Settings → Online support, one row. It opens the chat.
   - The section appears when `enabled && available` and `showSupport`.
   - Offline, a banner says "leave a message" and lists the hours.
+  - Settings ends with the version in small type, the platform's website
+    (`canonicalBaseUrl` from `/api/platform/origins`) and «WEBYAR AI»; there
+    is no About section.
   - The bar shows the support workspace's logo (`teamAvatar`; a headset
     while it has none) and its presence.
   - On arrival, the chat shows the open conversation, or, with none open, a

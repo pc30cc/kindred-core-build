@@ -649,6 +649,168 @@ object StrAndroid {
         }
     }
 
+    // Who is asking — the card at the top of a platform-support conversation
+    // in the support team's inbox (docs/PLATFORM_SUPPORT.md).
+
+    fun requesterTitle(l: Language): String = when (l) {
+        Language.EN -> "Who is asking"
+        Language.FA -> "مشخصات درخواست‌کننده"
+        Language.TR -> "Talep eden"
+    }
+
+    fun requesterTeamOnly(l: Language): String = when (l) {
+        Language.EN -> "Only your team sees this"
+        Language.FA -> "فقط تیم شما این را می‌بیند"
+        Language.TR -> "Bunu yalnızca ekibiniz görür"
+    }
+
+    fun requesterMemberSince(l: Language, date: String): String = when (l) {
+        Language.EN -> "Member since $date"
+        Language.FA -> "عضو از $date"
+        Language.TR -> "$date tarihinden beri üye"
+    }
+
+    fun requesterVia(l: Language, app: String): String = when (l) {
+        Language.EN -> "Wrote from $app"
+        Language.FA -> "از $app نوشته"
+        Language.TR -> "$app üzerinden yazdı"
+    }
+
+    fun requesterFrom(l: Language, workspace: String): String = when (l) {
+        Language.EN -> "From $workspace"
+        Language.FA -> "از $workspace"
+        Language.TR -> "$workspace çalışma alanından"
+    }
+
+    fun requesterWorkspaces(l: Language, count: Int): String = when (l) {
+        Language.EN -> if (count == 1) "1 workspace" else "$count workspaces"
+        Language.FA -> "${Format.number(count, l)} ورک‌اسپیس"
+        Language.TR -> "$count çalışma alanı"
+    }
+
+    fun requesterMore(l: Language, count: Int): String = when (l) {
+        Language.EN -> "and $count more"
+        Language.FA -> "و ${Format.number(count, l)} مورد دیگر"
+        Language.TR -> "ve $count tane daha"
+    }
+
+    fun requesterNoPlan(l: Language): String = when (l) {
+        Language.EN -> "No plan"
+        Language.FA -> "بدون پلن"
+        Language.TR -> "Plan yok"
+    }
+
+    /** A member's role in their workspace; an unknown one as the server named it. */
+    fun requesterRole(l: Language, role: String): String = when (role) {
+        "owner" -> when (l) {
+            Language.EN -> "Owner"
+            Language.FA -> "مالک"
+            Language.TR -> "Sahip"
+        }
+        "admin" -> when (l) {
+            Language.EN -> "Admin"
+            Language.FA -> "مدیر"
+            Language.TR -> "Yönetici"
+        }
+        "agent" -> when (l) {
+            Language.EN -> "Operator"
+            Language.FA -> "اپراتور"
+            Language.TR -> "Operatör"
+        }
+        else -> role
+    }
+
+    /** A subscription's state in a word; an unknown one as the server named it. */
+    fun requesterPlanStatus(l: Language, status: String): String = when (status) {
+        "active" -> when (l) {
+            Language.EN -> "Active"
+            Language.FA -> "فعال"
+            Language.TR -> "Aktif"
+        }
+        "trialing" -> when (l) {
+            Language.EN -> "Trial"
+            Language.FA -> "آزمایشی"
+            Language.TR -> "Deneme"
+        }
+        "past_due" -> when (l) {
+            Language.EN -> "Past due"
+            Language.FA -> "معوق"
+            Language.TR -> "Gecikmiş"
+        }
+        "canceled" -> when (l) {
+            Language.EN -> "Canceled"
+            Language.FA -> "لغوشده"
+            Language.TR -> "İptal edildi"
+        }
+        else -> status
+    }
+
+    fun requesterRenews(l: Language, date: String): String = when (l) {
+        Language.EN -> "Renews $date"
+        Language.FA -> "تمدید $date"
+        Language.TR -> "Yenileme $date"
+    }
+
+    fun requesterEnds(l: Language, date: String): String = when (l) {
+        Language.EN -> "Ends $date"
+        Language.FA -> "پایان $date"
+        Language.TR -> "Bitiş $date"
+    }
+
+    fun requesterTrialEnds(l: Language, date: String): String = when (l) {
+        Language.EN -> "Trial ends $date"
+        Language.FA -> "پایان دورهٔ آزمایشی $date"
+        Language.TR -> "Deneme bitişi $date"
+    }
+
+    fun requesterOperators(l: Language): String = when (l) {
+        Language.EN -> "Operators"
+        Language.FA -> "اپراتورها"
+        Language.TR -> "Operatörler"
+    }
+
+    fun requesterConversations(l: Language): String = when (l) {
+        Language.EN -> "Conversations this month"
+        Language.FA -> "گفتگوهای این ماه"
+        Language.TR -> "Bu ayki görüşmeler"
+    }
+
+    fun requesterVisitors(l: Language): String = when (l) {
+        Language.EN -> "Visitors this month"
+        Language.FA -> "بازدیدکنندگان این ماه"
+        Language.TR -> "Bu ayki ziyaretçiler"
+    }
+
+    fun requesterContacts(l: Language): String = when (l) {
+        Language.EN -> "Contacts"
+        Language.FA -> "مخاطبان"
+        Language.TR -> "Kişiler"
+    }
+
+    fun requesterAiCredits(l: Language): String = when (l) {
+        Language.EN -> "AI credits this month"
+        Language.FA -> "اعتبار هوش مصنوعی این ماه"
+        Language.TR -> "Bu ayki yapay zekâ kredisi"
+    }
+
+    fun requesterMessages(l: Language): String = when (l) {
+        Language.EN -> "Messages this month"
+        Language.FA -> "پیام‌های این ماه"
+        Language.TR -> "Bu ayki mesajlar"
+    }
+
+    fun requesterStorage(l: Language): String = when (l) {
+        Language.EN -> "Storage"
+        Language.FA -> "فضای ذخیره‌سازی"
+        Language.TR -> "Depolama"
+    }
+
+    fun requesterAsOf(l: Language, date: String): String = when (l) {
+        Language.EN -> "As of $date"
+        Language.FA -> "در تاریخ $date"
+        Language.TR -> "$date itibarıyla"
+    }
+
     /** The screen of conversations that ended, and the chat's button to it. */
     fun supportClosedTitle(l: Language): String = when (l) {
         Language.EN -> "Closed conversations"

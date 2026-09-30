@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.ExitToApp
@@ -43,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -59,9 +61,11 @@ import com.webyar.ai.i18n.Str
 import com.webyar.ai.i18n.StrAndroid
 import com.webyar.ai.ui.A11y
 import com.webyar.ai.ui.components.Avatar
+import com.webyar.ai.ui.components.BrandFooter
 import com.webyar.ai.ui.components.ChoiceButton
 import com.webyar.ai.ui.components.Glyph
 import com.webyar.ai.ui.components.LatinText
+import com.webyar.ai.ui.components.OperatorAvatar
 import com.webyar.ai.ui.components.SegmentGap
 import com.webyar.ai.ui.components.ShapeFrame
 import com.webyar.ai.ui.components.segmentedShape
@@ -71,7 +75,6 @@ import com.webyar.ai.ui.design.Size
 import com.webyar.ai.ui.design.Space
 import com.webyar.ai.ui.design.WebyarTheme
 import com.webyar.ai.ui.design.WebyarType
-import com.webyar.ai.ui.components.OperatorAvatar
 
 /**
  * Everything the operator can change about their own account.
@@ -125,12 +128,9 @@ fun SettingsScreen(
     showNotifications: Boolean = true,
     /** …and the Security row. With both gone, so is their section. */
     showSecurity: Boolean = true,
-    /**
-     * Where About → Support opens, as Super Admin sets it; null leaves the
-     * row out.
-     */
-    supportUrl: String? = null,
-    onOpenSupport: (String) -> Unit = {},
+    /** The platform's website, at the foot of the list; null leaves it out. */
+    siteUrl: String? = null,
+    onOpenSite: (String) -> Unit = {},
     /** Online support: null (or nothing to offer) leaves the section out. */
     support: SupportSummary? = null,
     onOpenSupportChat: () -> Unit = {},
@@ -344,24 +344,6 @@ fun SettingsScreen(
             }
         }
 
-        item { SectionHeader(Str.about(language)) }
-        item {
-            Group {
-                val rows = if (supportUrl != null) 2 else 1
-                InfoRow(0, rows, Str.version(language), appVersion, latin = true)
-                if (supportUrl != null) {
-                    NavRow(
-                        index = 1,
-                        count = rows,
-                        icon = Glyph.Help,
-                        title = Str.support(language),
-                        onClick = { onOpenSupport(supportUrl) },
-                        modifier = Modifier.testTag(A11y.SETTINGS_SUPPORT),
-                    )
-                }
-            }
-        }
-
         item {
             Group(Modifier.padding(top = Space.xl)) {
                 NavRow(
@@ -375,6 +357,8 @@ fun SettingsScreen(
                 )
             }
         }
+
+        item(key = "footer") { SettingsFooter(appVersion, siteUrl, language, onOpenSite) }
     }
 
     if (confirmingClear && onClearCache != null) {
@@ -413,6 +397,42 @@ fun SettingsScreen(
                 TextButton(onClick = { confirmingSignOut = false }) { Text(Str.cancel(language)) }
             },
         )
+    }
+}
+
+/**
+ * The foot of Settings, under its last row: the version in small type, the
+ * platform's website, and — last of all — the name, as the loading screen
+ * signs itself.
+ */
+@Composable
+private fun SettingsFooter(appVersion: String, siteUrl: String?, language: Language, onOpenSite: (String) -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = Space.xl, bottom = Space.lg),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(Space.xs),
+    ) {
+        Text(
+            "${Str.version(language)} $appVersion",
+            style = MaterialTheme.typography.labelSmall,
+            color = WebyarTheme.colors.labelTertiary,
+            modifier = Modifier.testTag(A11y.SETTINGS_VERSION),
+        )
+        siteUrl?.let { url ->
+            Text(
+                url.removePrefix("https://").removePrefix("www.").trimEnd('/'),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(Radius.sm))
+                    .clickable(role = Role.Button) { onOpenSite(url) }
+                    .padding(horizontal = Space.sm, vertical = Space.xxs)
+                    .testTag(A11y.SETTINGS_SITE),
+            )
+        }
+        BrandFooter(Modifier.padding(top = Space.md))
     }
 }
 

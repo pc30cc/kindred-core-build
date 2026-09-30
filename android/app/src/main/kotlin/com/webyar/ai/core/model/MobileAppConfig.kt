@@ -43,6 +43,11 @@ data class MobileAppConfig(
      */
     val showWebAnalytics: Boolean = true,
     /**
+     * Settings → Online support. Can only take it away: the section still
+     * needs support to be on (Super Admin → Core settings → Support).
+     */
+    val showSupport: Boolean = true,
+    /**
      * The Firebase project push arrives through, as Super Admin → Mobile App
      * → Android → Identity sets it; null until all four values are there.
      * Kept apart by [com.webyar.ai.core.push.PushConfig], which starts

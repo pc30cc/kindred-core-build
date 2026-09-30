@@ -33,6 +33,7 @@ import { toast } from '@/hooks/use-toast';
 import { ContactImportWizard } from '@/features/contacts/ContactImportWizard';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { ChannelBadge, resolveChannelKey } from '@/components/inbox/ChannelBadge';
+import { resolveClientPlatform } from '@/components/inbox/clientPlatform';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   getDisplayName, timeAgo,
@@ -622,7 +623,9 @@ function SourceBadge({
   // External channels (Telegram, WhatsApp, …) win: they describe the real
   // origin more precisely than the generic chat/call derivation.
   const channel = resolveChannelKey(metadata);
-  if (channel !== 'widget') return <ChannelBadge channel={channel} t={t as (k: string) => string} />;
+  if (channel !== 'widget') {
+    return <ChannelBadge channel={channel} t={t as (k: string) => string} clientPlatform={resolveClientPlatform(metadata)} />;
+  }
   if (!info || (!info.chat && !info.call)) {
     return <span className="text-muted-foreground/50 italic text-xs">{t('contacts.sourceUnknown')}</span>;
   }

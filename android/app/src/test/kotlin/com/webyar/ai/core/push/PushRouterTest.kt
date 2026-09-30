@@ -261,7 +261,7 @@ class PushRouterTest {
 
     /**
      * The platform's team answered: the support screens read again, and the
-     * operator is told — unless that thread is the one on screen.
+     * operator is told — unless the chat is the one on screen.
      */
     @Test
     fun `a support reply signals the support screens and notifies`() = runTest {
@@ -280,9 +280,10 @@ class PushRouterTest {
         assertTrue(api.idReads.isEmpty())
     }
 
+    /** One chat for every conversation: open, it takes any reply, whichever conversation it is in. */
     @Test
-    fun `a support reply in the thread on screen does not notify`() = runTest {
-        context = context?.copy(openSupportThreadIds = setOf("st-1"))
+    fun `no support reply notifies while the chat is on screen`() = runTest {
+        context = context?.copy(supportChatOpen = true)
         val (router, sync) = router()
         val heard = mutableListOf<SupportSignal>()
         backgroundScope.launch { sync.support.collect { heard += it } }
@@ -293,9 +294,36 @@ class PushRouterTest {
         router.onMessage(reply.copy(messageId = "m-10", threadId = "st-2"), null, null)
         runCurrent()
 
-        assertEquals(listOf("st-2"), shown.map { it.threadId })
-        // Still heard: the thread on screen reads the reply.
+        assertTrue(shown.isEmpty())
+        // Still heard: the chat on screen reads the replies.
         assertEquals(listOf("st-1", "st-2"), heard.map { it.threadId })
+    }
+
+    /** In the background the chat is not being read, open or not. */
+    @Test
+    fun `a support reply with the app in the background notifies even over the chat`() = runTest {
+        context = context?.copy(supportChatOpen = true, foreground = false)
+        val (router, _) = router()
+        val reply = PushPayload(type = PushPayload.TYPE_SUPPORT, workspaceId = "ws-1", conversationId = null, messageId = "m-9", threadId = "st-1")
+
+        router.onMessage(reply, null, null)
+
+        assertEquals(listOf(reply), shown)
+    }
+
+    @Test
+    fun `the chat-open flag follows the chat screens`() = runTest {
+        val (_, sync) = router()
+        assertEquals(false, sync.supportChatOpen())
+
+        sync.openSupportChat()
+        assertEquals(true, sync.supportChatOpen())
+        sync.closeSupportChat()
+        assertEquals(false, sync.supportChatOpen())
+        // A close with nothing open leaves it closed, not below zero.
+        sync.closeSupportChat()
+        sync.openSupportChat()
+        assertEquals(true, sync.supportChatOpen())
     }
 
     @Test

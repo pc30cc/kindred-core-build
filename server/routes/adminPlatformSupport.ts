@@ -5,7 +5,7 @@
  * `requirePlatformAdmin`; each handler still asks for the actor's id.
  *
  *   GET /settings           { settings, workspace: { id, name } | null, suggestions }
- *   PUT /settings           { enabled?, workspaceId?, ticketsEnabled?, notifyEmails? }
+ *   PUT /settings           { enabled?, workspaceId? }
  *   GET /workspaces?search= { workspaces: [{ id, name, slug }] } — for the picker
  */
 import { Router } from 'express';
@@ -24,8 +24,6 @@ const settingsSchema = z
   .object({
     enabled: z.boolean().optional(),
     workspaceId: z.string().uuid().nullable().optional(),
-    ticketsEnabled: z.boolean().optional(),
-    notifyEmails: z.array(z.string().max(254)).max(20).optional(),
   })
   .strict();
 

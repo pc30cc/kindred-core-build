@@ -26,6 +26,7 @@ import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyAction
 import { useVisitorNetwork } from '@/hooks/useVisitorNetwork';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { ChannelBadge, ChannelIdentityCard, resolveChannelKey } from '@/components/inbox/ChannelBadge';
+import { resolveClientPlatform } from '@/components/inbox/clientPlatform';
 import { formatDateTime } from '@/lib/date';
 
 interface Props {
@@ -158,7 +159,12 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                   )}
                   <div className="flex flex-wrap gap-1 mt-2">
                     {resolveChannelKey(contactMetadata) !== 'widget' && (
-                      <ChannelBadge channel={resolveChannelKey(contactMetadata)} t={t as (k: string) => string} size="xs" />
+                      <ChannelBadge
+                        channel={resolveChannelKey(contactMetadata)}
+                        t={t as (k: string) => string}
+                        clientPlatform={resolveClientPlatform(contactMetadata)}
+                        size="xs"
+                      />
                     )}
                     {canTags && (contact.tags ?? []).slice(0, 3).map((tag) => (
                       <Badge key={tag} variant="secondary" className="text-[10px] h-5">{tag}</Badge>

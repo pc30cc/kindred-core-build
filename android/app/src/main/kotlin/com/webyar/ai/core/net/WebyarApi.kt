@@ -1,9 +1,9 @@
 package com.webyar.ai.core.net
 
+import com.webyar.ai.core.model.SupportConversation
+import com.webyar.ai.core.model.SupportHistory
 import com.webyar.ai.core.model.SupportPostResult
 import com.webyar.ai.core.model.SupportStatus
-import com.webyar.ai.core.model.SupportThread
-import com.webyar.ai.core.model.SupportThreadDetail
 import com.webyar.ai.core.model.NotificationPrefs
 import com.webyar.ai.core.model.NotificationPrefsUpdate
 import com.webyar.ai.core.model.Account
@@ -394,25 +394,36 @@ interface WebyarApi {
      * what a backend without it means.
      */
     suspend fun supportStatus(): SupportStatus = SupportStatus()
-    suspend fun supportThreads(): List<SupportThread> = emptyList()
-    suspend fun supportThread(threadId: String): SupportThreadDetail = throw ApiError.Server(404, "thread_not_found")
 
-    /** A message in the operator's live chat, which the first one opens. */
-    suspend fun sendSupportChat(body: String, clientMessageId: String, workspaceId: String?): SupportPostResult =
+    /** Every conversation the operator has had with the team, oldest first. */
+    suspend fun supportHistory(): SupportHistory = SupportHistory()
+
+    /**
+     * A message to the team: into the active conversation, or — when there
+     * is none — the first of a new one. [clientMessageId] makes a retry the
+     * same message.
+     */
+    suspend fun sendSupportMessage(body: String, clientMessageId: String, workspaceId: String?): SupportPostResult =
         throw ApiError.Server(404, "support_disabled")
 
-    /** A ticket, for when nobody on the team is available. */
-    suspend fun createSupportTicket(
-        subject: String,
-        body: String,
+    /** A file to the team, as a message of its own. */
+    suspend fun sendSupportAttachment(
+        fileName: String,
+        mimeType: String,
+        bytes: ByteArray,
         clientMessageId: String,
         workspaceId: String?,
     ): SupportPostResult = throw ApiError.Server(404, "support_disabled")
 
-    suspend fun replySupportThread(threadId: String, body: String, clientMessageId: String): SupportPostResult =
-        throw ApiError.Server(404, "thread_not_found")
+    /** A support file's bytes, either side's. */
+    suspend fun supportAttachmentData(id: String): ByteArray = throw ApiError.Server(404, "attachment_not_found")
 
-    suspend fun markSupportThreadRead(threadId: String) = Unit
+    /** Rates an ended conversation, once; answers with it as it now stands. */
+    suspend fun rateSupportConversation(conversationId: String, score: Int, comment: String?): SupportConversation =
+        throw ApiError.Server(404, "conversation_not_found")
+
+    /** The operator has read what the team wrote. */
+    suspend fun markSupportRead() = Unit
 
     // MARK: - Channels and email
 

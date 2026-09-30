@@ -192,6 +192,7 @@ fun ChatScreen(
                 avatarUrl = conversation?.contact?.avatarUrl,
                 visitor = visitor,
                 channel = conversation?.let { ConversationChannel.of(it) },
+                channelPlatform = ConversationChannel.clientPlatform(conversation),
                 onOpenVisitor = onOpenVisitor,
                 sharedKey = conversation?.id?.let(::avatarKey),
                 onBack = onBack,
@@ -500,6 +501,8 @@ private fun ChatTopBar(
     visitor: VisitorProfile? = null,
     /** Where the visitor is writing from; shown under their name. */
     channel: String? = null,
+    /** For a support conversation, the app it was written from. */
+    channelPlatform: String? = null,
     onOpenVisitor: (() -> Unit)? = null,
     sharedKey: String? = null,
 ) {
@@ -548,6 +551,7 @@ private fun ChatTopBar(
                             ChannelLabel(
                                 key = channel,
                                 language = language,
+                                platform = channelPlatform,
                                 compact = true,
                                 modifier = Modifier.padding(top = 2.dp),
                             )

@@ -122,15 +122,25 @@ class SyncCoordinatorTest {
             "ws-1",
             RealtimeEventPayload(kind = "support_message", workspaceId = "ws-1", conversationId = "st-1", threadId = "st-1", messageId = "m-1"),
         )
+        // Resolved, closed, reopened or passed on: the chat reads again too.
+        sync.onRealtimeEvent(
+            "ws-1",
+            RealtimeEventPayload(kind = "support_update", workspaceId = "ws-1", conversationId = "st-1", threadId = "st-1"),
+        )
+        sync.onRealtimeEvent("ws-1", RealtimeEventPayload(kind = "support_read", workspaceId = "ws-1", threadId = "st-1"))
         sync.onSupportPush(null)
         advanceTimeBy(1_000)
         runCurrent()
 
-        assertEquals(listOf(SupportSignal("support_message", "st-1"), SupportSignal("support_message", null)), heard)
-        assertTrue(heard[0].about("st-1"))
-        assertTrue(!heard[0].about("st-2"))
-        // A push that names no thread may be about any of them.
-        assertTrue(heard[1].about("st-2"))
+        assertEquals(
+            listOf(
+                SupportSignal("support_message", "st-1"),
+                SupportSignal("support_update", "st-1"),
+                SupportSignal("support_read", "st-1"),
+                SupportSignal("support_message", null),
+            ),
+            heard,
+        )
         assertTrue(api.idReads.isEmpty())
         assertTrue(api.listReads.isEmpty())
     }

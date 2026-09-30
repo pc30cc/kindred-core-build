@@ -1833,31 +1833,21 @@ fun SettingsRoute(
     onOpenSecurity: () -> Unit,
     onOpenNotifications: () -> Unit,
     bottomInset: Dp,
-    onStartSupportChat: () -> Unit = {},
-    onNewSupportTicket: () -> Unit = {},
-    onOpenSupportRequests: () -> Unit = {},
+    onOpenSupportChat: () -> Unit = {},
 ) {
     val settings: SettingsViewModel = viewModel(factory = viewModelFactory { SettingsViewModel(api) })
 
-    // Online support: the platform team's status and the operator's requests,
-    // read while the page is shown and on the team's news.
-    val supportHome: com.webyar.ai.feature.support.SupportHomeViewModel = viewModel(
+    // Online support: whether the platform's team is there, and what it
+    // wrote that is unread — read while the page is shown and on its news.
+    val supportModel: com.webyar.ai.feature.support.SupportStatusViewModel = viewModel(
         key = "settings-support",
-        factory = liveLanguage(language).let { l -> viewModelFactory { com.webyar.ai.feature.support.SupportHomeViewModel(api, l) } },
+        factory = viewModelFactory { com.webyar.ai.feature.support.SupportStatusViewModel(api) },
     )
-    val supportStatus by supportHome.status.collectAsStateWithLifecycle()
-    val supportThreads by supportHome.threads.collectAsStateWithLifecycle()
+    val supportStatus by supportModel.status.collectAsStateWithLifecycle()
     val supportSignals = rememberSupportSignals()
     val supportLifecycle = LocalLifecycleOwner.current
     LaunchedEffect(supportLifecycle, supportSignals) {
-        supportLifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { supportHome.follow(supportSignals) }
-    }
-    val supportSummary = supportStatus?.let { status ->
-        com.webyar.ai.feature.settings.SupportSummary(
-            status = status,
-            requests = supportThreads.size,
-            unread = supportThreads.sumOf { it.unread },
-        )
+        supportLifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { supportModel.follow(supportSignals) }
     }
     // Asked again each time the page is shown. The model lives as long as the
     // session, so asking once would let a first request that failed leave
@@ -1880,6 +1870,9 @@ fun SettingsRoute(
     val dynamicColor by appState.dynamicColor.collectAsStateWithLifecycle()
     // Super Admin → Mobile App → Android decides which sections are here.
     val config by appState.appConfig.collectAsStateWithLifecycle()
+    val supportSummary = supportStatus?.let {
+        com.webyar.ai.feature.settings.SupportSummary(status = it, showSupport = config.showSupport)
+    }
 
     // Measured each time the screen is shown; a size is only interesting
     // when somebody is looking at it — and not at all while it is hidden.
@@ -1937,9 +1930,7 @@ fun SettingsRoute(
         // A phone with no browser has nothing to open it with; the tap does nothing.
         onOpenSupport = { url -> runCatching { uriHandler.openUri(url) } },
         support = supportSummary,
-        onStartSupportChat = onStartSupportChat,
-        onNewSupportTicket = onNewSupportTicket,
-        onOpenSupportRequests = onOpenSupportRequests,
+        onOpenSupportChat = onOpenSupportChat,
         storage = storage,
         // Null leaves the whole Storage section out; the cache keeps working.
         onClearCache = graph?.takeIf { config.showStorage }?.let { g ->
@@ -2227,7 +2218,7 @@ private fun BackBar(
 internal sealed interface PickedFile {
     data class Ready(val bytes: ByteArray, val fileName: String, val mimeType: String) : PickedFile
 
-    /** Larger than the server's `HARD_MAX_BYTES`. */
+    /** Larger than the server takes: `HARD_MAX_BYTES`, or the caller's own limit. */
     data object TooLarge : PickedFile
 
     /** A type the server's allowlist does not carry. */
@@ -2247,16 +2238,19 @@ internal sealed interface PickedFile {
  * The size and the type are checked here too, against the same numbers the
  * server enforces. Sending a 40 MB video and letting the upload come back 400
  * costs the operator the wait and tells them nothing they can act on; iOS
- * refuses both before the upload too (`Composer.swift`).
+ * refuses both before the upload too (`Composer.swift`). [maxBytes] is for
+ * an endpoint with a lower limit of its own — platform support takes 2 MB.
  */
 internal suspend fun readPickedFileOffMain(
     context: android.content.Context,
     uri: android.net.Uri,
-): PickedFile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { readPickedFile(context, uri) }
+    maxBytes: Int = AttachmentRules.MAX_BYTES,
+): PickedFile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { readPickedFile(context, uri, maxBytes) }
 
 internal fun readPickedFile(
     context: android.content.Context,
     uri: android.net.Uri,
+    maxBytes: Int = AttachmentRules.MAX_BYTES,
 ): PickedFile {
     val resolver = context.contentResolver
     val mime = AttachmentRules.canonicalMime(resolver.getType(uri)) ?: return PickedFile.NotAllowed
@@ -2266,11 +2260,11 @@ internal fun readPickedFile(
     val declared = runCatching {
         resolver.openAssetFileDescriptor(uri, "r")?.use { it.length }
     }.getOrNull()
-    if (declared != null && declared > AttachmentRules.MAX_BYTES) return PickedFile.TooLarge
+    if (declared != null && declared > maxBytes) return PickedFile.TooLarge
 
     val bytes = runCatching { resolver.openInputStream(uri)?.use { it.readBytes() } }
         .getOrNull() ?: return PickedFile.Unreadable
-    if (bytes.size > AttachmentRules.MAX_BYTES) return PickedFile.TooLarge
+    if (bytes.size > maxBytes) return PickedFile.TooLarge
 
     return PickedFile.Ready(
         bytes = bytes,

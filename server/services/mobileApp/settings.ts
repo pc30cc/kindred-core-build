@@ -17,6 +17,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { readShippedAndroidRelease, withShippedVersion } from './androidRelease.js';
 
 /** The languages the Android app is written in. */
 export const ANDROID_LANGUAGES = ['fa', 'en', 'tr'] as const;
@@ -161,6 +162,9 @@ export interface MobileAppSettings {
   // whether it has the tab at all.
   android_app_show_visitors: boolean;
   android_app_show_web_analytics: boolean;
+  // Settings → Online support: the chat with the platform's support team,
+  // offered while Core settings → Support has it on.
+  android_app_show_support: boolean;
   // Firebase's client identifiers for the Android package — the four values
   // of its google-services.json. Served to the app, which starts Firebase
   // with them for push. Not credentials: the server's FCM service account
@@ -308,6 +312,7 @@ export const MOBILE_APP_DEFAULTS: MobileAppSettings = {
   android_app_profile_photo_editable: true,
   android_app_show_visitors: true,
   android_app_show_web_analytics: true,
+  android_app_show_support: true,
   android_firebase_app_id: null,
   android_firebase_api_key: null,
   android_firebase_project_id: null,
@@ -350,6 +355,8 @@ export async function loadMobileAppSettings(config: ServerConfig): Promise<Mobil
       .limit(1)
       .maybeSingle();
     if (!error && data) value = normalize(data as Record<string, unknown>);
+    // The Android version is the one the website hands out, not a number typed.
+    value = withShippedVersion(value, readShippedAndroidRelease());
   } catch {
     // A deployment that has not applied migration 195 yet still boots.
   }
@@ -422,6 +429,8 @@ export interface AndroidAppConfig {
   showVisitors: boolean;
   /** The Website analytics tab — still only for owners and admins on plans with `web_analytics`. */
   showWebAnalytics: boolean;
+  /** Settings → Online support — still only while support is on (docs/PLATFORM_SUPPORT.md). */
+  showSupport: boolean;
   /**
    * Firebase's client identifiers, for push; null until all four are set.
    * The app keeps the last ones it was given and starts Firebase with them.
@@ -522,6 +531,7 @@ export function toAndroidAppConfig(settings: MobileAppSettings, now: Date = new 
     profilePhotoEditable: settings.android_app_profile_photo_editable,
     showVisitors: settings.android_app_show_visitors,
     showWebAnalytics: settings.android_app_show_web_analytics,
+    showSupport: settings.android_app_show_support,
     firebase: androidFirebaseClient(settings),
     defaultLanguage: androidLanguage(settings),
     maintenance: androidMaintenance(settings, now),

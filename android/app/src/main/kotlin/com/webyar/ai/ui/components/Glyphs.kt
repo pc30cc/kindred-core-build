@@ -51,13 +51,16 @@ object Glyph {
         )
     }
 
-    /** A ticket stub: a support ticket filed while the team is away. */
-    val Ticket: ImageVector by lazy {
+    /**
+     * A headset with a microphone: the platform's support team — the row in
+     * Settings, the chat's bar, and the inbox label of the conversations it
+     * answers.
+     */
+    val Headset: ImageVector by lazy {
         vector(
-            "Ticket",
-            "M22 10V6c0-1.11-.9-2-2-2H4c-1.1 0-1.99.89-1.99 2v4c1.1 0 1.99.9 1.99 2s-.89 2-2 2v4c0 1.1.9 2 2 2h16" +
-                "c1.1 0 2-.9 2-2v-4c-1.1 0-2-.9-2-2s.9-2 2-2Zm-2-1.46c-1.19.69-2 1.99-2 3.46s.81 2.77 2 3.46V18H4v-2.54" +
-                "c1.19-.69 2-1.99 2-3.46 0-1.48-.8-2.77-1.99-3.46L4 6h16v2.54ZM11 15h2v2h-2Zm0-4h2v2h-2Zm0-4h2v2h-2Z",
+            "Headset",
+            "M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h4v1h-7v2h6" +
+                "c1.66 0 3-1.34 3-3V10c0-4.97-4.03-9-9-9Z",
         )
     }
 

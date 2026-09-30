@@ -46,12 +46,17 @@ data class PushPayload(
     /** A visitor asked to be called back. */
     val isCallback: Boolean get() = type == TYPE_CALLBACK
 
-    /** Somewhere for a tap to go. */
-    /** The platform's support team answered one of the operator's support threads. */
+    /** The platform's support team wrote in the operator's support chat. */
     val isSupport: Boolean get() = type == TYPE_SUPPORT
 
+    /**
+     * Enough to open the support chat: the reply names its conversation and
+     * a workspace to check against the operator's. The chat is one screen,
+     * whichever conversation it is.
+     */
     val opensSupportThread: Boolean get() = isSupport && !workspaceId.isNullOrBlank() && !threadId.isNullOrBlank()
 
+    /** Somewhere for a tap to go. */
     val opensSomething: Boolean get() = opensConversation || opensTeamThread || opensEmailThread || opensSupportThread
 
     /** Super Admin → Notifications → "Send test": a diagnostic, about no conversation. */
@@ -84,7 +89,7 @@ data class PushPayload(
         /** `notifyCallbackRequest`. */
         const val TYPE_CALLBACK = "callback_request"
 
-        /** `notifySupportReply` (server/services/push/dispatch.ts): names the thread, not a conversation. */
+        /** `notifySupportReply` (server/services/push/dispatch.ts): names the support conversation as `threadId`. */
         const val TYPE_SUPPORT = "support_reply"
 
         fun from(data: Map<String, String>): PushPayload = PushPayload(

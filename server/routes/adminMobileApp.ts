@@ -32,6 +32,7 @@ import { inspectNativeProject } from '../services/mobileApp/project.js';
 import { buildGeneratedConfig } from '../services/mobileApp/generatedConfig.js';
 import { firebaseClientFields, firebaseProjectsMatch } from '../services/mobileApp/firebaseClient.js';
 import { androidLanguageMaintenanceFields } from '../services/mobileApp/androidMaintenance.js';
+import { readShippedAndroidRelease, withShippedVersion } from '../services/mobileApp/androidRelease.js';
 
 export const adminMobileAppRouter = Router();
 
@@ -169,6 +170,7 @@ const settingsSchema = z.object({
   android_app_profile_photo_editable: z.boolean().optional(),
   android_app_show_visitors: z.boolean().optional(),
   android_app_show_web_analytics: z.boolean().optional(),
+  android_app_show_support: z.boolean().optional(),
   ...firebaseClientFields,
   // The language the app opens in, and the maintenance notice — both read
   // by the app before sign-in (GET /api/mobile-app/public-config).
@@ -225,8 +227,22 @@ function readinessFor(settings: ReturnType<typeof normalize>) {
 adminMobileAppRouter.get('/settings', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
-    const row = await readRow(serverConfigOf(req));
-    const settings = row ? normalize(row) : { ...MOBILE_APP_DEFAULTS };
+    const config = serverConfigOf(req);
+    const row = await readRow(config);
+    // The Android version is the one the website hands out: a row that says
+    // otherwise is brought up to it, so every reader of the row agrees.
+    const shipped = readShippedAndroidRelease();
+    if (
+      row && shipped &&
+      (row.android_version_name !== shipped.versionName || Number(row.android_version_code) !== shipped.versionCode)
+    ) {
+      await getServiceClient(config)
+        .from('mobile_app_settings')
+        .update({ android_version_name: shipped.versionName, android_version_code: shipped.versionCode })
+        .eq('id', row.id as string);
+      invalidateMobileAppSettingsCache();
+    }
+    const settings = withShippedVersion(row ? normalize(row) : { ...MOBILE_APP_DEFAULTS }, shipped);
     const { checks, summary, project } = readinessFor(settings);
     return res.json({
       settings,
@@ -236,6 +252,7 @@ adminMobileAppRouter.get('/settings', async (req, res) => {
         pushConfigured: isPushConfigured(),
         nativeProject: project,
         provisioned: Boolean(row),
+        androidRelease: shipped,
       },
     });
   } catch (err) {
@@ -252,7 +269,15 @@ adminMobileAppRouter.put('/settings', async (req, res) => {
   }
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
-  const payload = { ...parsed.data, updated_at: new Date().toISOString() };
+  // The shipped APK decides the Android version; a typed one is ignored.
+  const payload = withShippedVersion(
+    { ...parsed.data, updated_at: new Date().toISOString() } as typeof parsed.data & {
+      updated_at: string;
+      android_version_name: string;
+      android_version_code: number;
+    },
+    readShippedAndroidRelease(),
+  );
   try {
     const existing = await readRow(config);
     const query = existing

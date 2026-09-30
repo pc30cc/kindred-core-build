@@ -9,40 +9,49 @@ own inbox, with the tools it already has.
 - **The support workspace** is an ordinary workspace that Super Admin picks
   (Core settings → Support, stored in `platform_support_settings`). Its
   members are the support team.
-- **A thread** is one conversation in that workspace's inbox, with
-  `metadata.channel = 'platform_support'`. There are two kinds:
-  - `chat`: live, and one per operator while it is open, pending or resolved.
-    Once it is closed, the next message starts a new one.
-  - `ticket`: filed while nobody on the team is available. It has a subject
-    and a number, and it is tagged `ticket` in the inbox.
-- **The operator is the thread's contact** in the support workspace:
+- **A conversation** is one row of `conversations` in that workspace, with
+  `metadata.channel = 'platform_support'`. `platform_support_threads` links it
+  to the operator who opened it; every read or write for the operator goes
+  through that link, never through the support workspace's membership.
+- **One chat, many conversations.** The operator sees a single chat: every
+  conversation they have had, oldest first, then the current one.
+  - A message goes to the operator's **active** conversation — the newest one
+    that is `open` or `pending`.
+  - When there is none (never started, or the last one is `resolved` or
+    `closed`), the message starts a **new** conversation.
+  - A `resolved` or `closed` conversation is never reopened by the operator.
+    The team can still reopen it from the inbox, and it is active again.
+- **Offline** is the website widget's own rule (`resolveAvailability`):
+  business hours, plus whether anybody on the team is available. Offline, the
+  app says "leave a message" and shows the business hours. The message is
+  delivered the same way; the team answers when it is back.
+- **Joins.** When a conversation is assigned or transferred, the inbox writes
+  a system message (`metadata.kind` `routing_agent_joined` or
+  `conversation_transferred`). The app shows it as "‹name› joined the
+  conversation". Internal notices (`metadata.internal = true`) never reach the
+  operator.
+- **Rating.** Once a conversation is `resolved` or `closed` and the team had
+  answered in it, the operator may rate it once: 1–5 stars and an optional
+  comment. It is stored on `platform_support_threads`, and an internal system
+  message (`metadata.kind = 'support_rating'`) shows it in the inbox.
+- **Files.** The operator may attach a file up to **2 MB**: PNG, JPEG, WebP,
+  GIF, PDF or plain text. It is stored like any chat attachment of the support
+  workspace (`conversation_attachments`). The team's files come back to the app
+  the same way.
+- **The operator is the conversation's contact** in the support workspace:
   - Their name, email and photo come from their profile and follow it.
-  - An existing contact with the same email (for example, someone who wrote
-    through the website widget) is adopted.
-  - `contacts.metadata` records `platform_user_id`, `platform_workspace_id`
-    and `platform_workspace_name`.
-  - The inbox labels these conversations **"Site user"** (fa «کاربر سایت», tr
-    «Site kullanıcısı»).
-- **Any operator may use it, the support team's own members included.**
-  Super Admin can try it from their own account. Everything the operator reads
-  or writes goes through `platform_support_threads`, keyed on their own user
-  id, never through the support workspace's membership. A team member who
-  writes to support gets no push about their own message.
-
-## Delivery
-
-| Event | Support team | Operator |
-| --- | --- | --- |
-| The operator writes | Inbox realtime; push to the team (channel `platform_support`) | Their other devices: `support_message` on their user channel |
-| A new ticket | Mail `platform_support_ticket_created` to the workspace's owners and admins, and to the extra addresses in the settings | — |
-| An agent replies (`POST /api/conversations/send-message`) | As any reply | `support_message` on `ws:<their workspace>:user:<id>`; push `support_reply`; for a ticket, mail `platform_support_ticket_reply` |
-
-- **Online** follows the website widget's own rule
-  (`resolveAvailability`): business hours, plus whether anybody on the team is
-  available.
-- **AI:** the AI is not run on support threads.
-- **Mail:** templates are seeded in en, fa and tr and can be edited in Super
-  Admin → Branding → Email templates.
+  - An existing contact with the same email is adopted rather than duplicated.
+  - `contacts.metadata` records `platform_user_id`, `platform_workspace_id`,
+    `platform_workspace_name` and `client_platform`.
+  - The inbox labels these conversations **"Site user · ‹app›"** — fa
+    «کاربر سایت», tr «Site kullanıcısı» — where ‹app› is the client the
+    operator wrote from: `Android`, `iOS`, `macOS`, `Windows` or `Web`.
+- **Client.** Each write reads the `X-Client-Platform` header (`android`,
+  `ios`, `macos`, `windows`; anything else or nothing is `web`) and stores it
+  as `client_platform` on the message, the conversation and the contact.
+- **Anyone may use it,** the support team's own members included. A team
+  member who writes gets no push about their own message.
+- **AI:** the AI is not run on support conversations.
 
 ## HTTP — `/api/platform-support`
 
@@ -51,36 +60,65 @@ the apps. Bodies and responses are camelCase JSON.
 
 | Method and path | Body | Response |
 | --- | --- | --- |
-| `GET /status` | — | `{ enabled, available, online, ticketsEnabled, teamName }` |
-| `GET /threads` | — | `{ threads: Thread[] }`, newest activity first |
-| `GET /threads/:id` | — | `{ thread: Thread, messages: Message[] }`, oldest first, last 200 |
-| `POST /chat` | `{ body, clientMessageId?, workspaceId? }` | `{ thread, message }` |
-| `POST /tickets` | `{ subject, body, clientMessageId?, workspaceId? }` | `{ thread, message }` |
-| `POST /threads/:id/messages` | `{ body, clientMessageId? }` | `{ thread, message }` |
-| `POST /threads/:id/read` | — | `{ ok: true }` |
+| `GET /status` | — | `Status` |
+| `GET /history` | — | `History` |
+| `POST /messages` | `{ body, clientMessageId, workspaceId? }` | `{ conversation: Conversation, item: Item }` |
+| `POST /attachments` | `{ fileName, mimeType, data, clientMessageId, workspaceId? }` | `{ conversation: Conversation, item: Item }` |
+| `GET /attachments/:id` | — | the file's bytes (`Content-Type` is its type) |
+| `POST /conversations/:id/rating` | `{ score, comment? }` | `{ conversation: Conversation }` |
+| `POST /read` | — | `{ ok: true }` |
 
 ```ts
-type Thread = {
-  id: string;                 // the conversation id
-  kind: 'chat' | 'ticket';
-  number: number;             // shown as #1234
-  subject: string | null;     // tickets
-  status: 'open' | 'pending' | 'resolved' | 'closed';
-  createdAt: string;
-  updatedAt: string;
-  unread: number;             // the team's messages not read yet
-  lastMessage: { body: string; fromTeam: boolean; createdAt: string } | null;
+type Status = {
+  enabled: boolean;            // Super Admin has it on and a workspace chosen
+  available: boolean;          // this operator may use it (today: = enabled)
+  online: boolean;             // somebody on the team is reachable now
+  teamName: string | null;     // the support workspace's name
+  unread: number;              // the team's messages the operator has not read
+  hours: BusinessHours | null; // null when the workspace keeps no hours
+  nextOpenAt: string | null;   // ISO; set while closed by the hours
 };
 
-type Message = {
+type BusinessHours = {
+  timezone: string;            // IANA, e.g. "Asia/Tehran"
+  // Keys sat..fri; an absent or empty day is closed. Times are "HH:mm".
+  weekly: Partial<Record<'sat'|'sun'|'mon'|'tue'|'wed'|'thu'|'fri', { from: string; to: string }[]>>;
+};
+
+type History = {
+  conversations: Conversation[]; // oldest first; the last 20
+  items: Item[];                 // oldest first, across them; at most 500
+  activeConversationId: string | null;
+};
+
+type Conversation = {
   id: string;
-  body: string;
-  author: 'me' | 'team';
-  senderName: string | null;   // the agent's name
-  senderAvatar: string | null; // the agent's photo
+  status: 'open' | 'pending' | 'resolved' | 'closed';
+  createdAt: string;
+  endedAt: string | null;       // when it was resolved or closed
+  rating: { score: number; comment: string | null; ratedAt: string } | null;
+  canRate: boolean;             // ended, answered by the team, not rated yet
+};
+
+type Item = {
+  id: string;
+  conversationId: string;
+  kind: 'message' | 'joined';
+  author: 'me' | 'team';        // 'team' for a join
+  body: string;                 // for a join: empty
+  senderName: string | null;    // the agent's name; for a join: who joined
+  senderAvatar: string | null;
   createdAt: string;
   clientMessageId: string | null;
-  hasAttachment: boolean;      // an agent's file: shown as a placeholder
+  attachments: Attachment[];
+};
+
+type Attachment = {
+  id: string;                   // fetch with GET /attachments/:id
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  kind: 'image' | 'audio' | 'video' | 'file';
 };
 ```
 
@@ -88,22 +126,23 @@ type Message = {
 - `workspaceId` is the workspace the operator is writing from, when the client
   knows it. The inbox shows its name next to the contact.
 - `clientMessageId` makes a retry safe: `[A-Za-z0-9_-]{8,64}`, minted once per
-  message. The same id on `POST /tickets` returns the same ticket.
+  message. The same id returns the same item, and — for the message that
+  starts a conversation — the same conversation.
+- `data` is the file's bytes in base64. At most 2 MB once decoded.
 
 **Errors** are `{ error: code }`:
 
 | Code | Status |
 | --- | --- |
-| `support_disabled`, `support_not_configured`, `thread_not_found` | 404 |
-| `thread_closed` | 409 |
-| `tickets_disabled` | 403 |
-| `invalid_body`, `invalid_subject` | 400 |
+| `support_disabled`, `support_not_configured`, `conversation_not_found`, `attachment_not_found` | 404 |
+| `already_rated`, `not_ratable` | 409 |
+| `invalid_body`, `invalid_rating`, `invalid_file`, `file_type_not_allowed` | 400 |
+| `file_too_large` | 413 |
 | `rate_limited` | 429 |
 
 **Limits**
-- 30 messages per 5 minutes per operator.
-- 5 tickets per hour.
-- A body is at most 4000 characters, a subject at most 200.
+- 30 messages or files per 5 minutes per operator.
+- A body is at most 4000 characters; a rating comment at most 1000.
 
 ### Realtime
 
@@ -112,34 +151,48 @@ subscribes through `POST /api/realtime/operator-user-subscribe`, events have
 this shape:
 
 ```json
-{ "type": "event", "payload": { "kind": "support_message" | "support_read", "workspace_id": "…", "thread_id": "…", "message_id": "…" } }
+{ "type": "event", "payload": { "kind": "support_message" | "support_update" | "support_read", "workspace_id": "…", "thread_id": "…", "message_id": "…" } }
 ```
 
-Events carry ids only. The client re-reads the thread.
+- `support_message`: the team wrote, or the operator did on another device.
+- `support_update`: the conversation was resolved, closed, reopened,
+  assigned or transferred.
+- `support_read`: the operator read the chat on another device.
+
+Events carry ids only; `thread_id` is the conversation id. The client reads
+`/history` again.
 
 ### Push
 
 The data payload is `{ type: 'support_reply', workspaceId, threadId, messageId }`.
 - The Android tag is `support:<threadId>`.
 - `workspaceId` is a workspace the operator belongs to, which the app files
-  the notification under.
+  the notification under. A tap opens the support chat.
 
-## Super Admin — `/api/admin/platform-support`
+## Super Admin
+
+`/api/admin/platform-support`:
 
 | Method and path | Body | Response |
 | --- | --- | --- |
-| `GET /settings` | — | `{ settings: { enabled, workspaceId, ticketsEnabled, notifyEmails, updatedAt }, workspace, suggestions }` |
-| `PUT /settings` | `{ enabled?, workspaceId?, ticketsEnabled?, notifyEmails? }` | `{ success, settings }` |
+| `GET /settings` | — | `{ settings: { enabled, workspaceId, updatedAt }, workspace, suggestions }` |
+| `PUT /settings` | `{ enabled?, workspaceId? }` | `{ success, settings }` |
 | `GET /workspaces?search=` | — | `{ workspaces: [{ id, name, slug }] }` |
 
 `GET /settings` returns `suggestions`: the workspaces this Super Admin owns
 or administers.
 
+Mobile App → Android → In-app → **Show "Online support"**
+(`mobile_app_settings.android_app_show_support`, served as `showSupport`)
+hides the section in the Android app without a new build.
+
 ## Clients
 
-- **Android:** Settings → Support.
-  - The section appears when `enabled && available`.
-  - When the team is online it opens the chat; otherwise it offers a ticket.
-  - The operator's earlier threads are listed below.
-  - Replies arrive live, and a `support_reply` push opens the thread.
+- **Android:** Settings → Online support, one row. It opens the chat.
+  - The section appears when `enabled && available` and `showSupport`.
+  - Offline, a banner says "leave a message" and lists the hours.
+  - Earlier conversations are in the same chat, each ended one closed by a
+    line, and a rating card while `canRate`.
+  - The composer takes text and a file (2 MB); no emoji.
+  - Replies arrive live, and a `support_reply` push opens the chat.
 - **iOS, macOS, Windows, web:** the same endpoints and events.

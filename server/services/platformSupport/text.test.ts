@@ -1,15 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_BODY_LENGTH,
+  MAX_RATING_COMMENT_LENGTH,
+  attachmentKind,
+  clientPlatformOf,
   normalizeBody,
   normalizeClientMessageId,
-  normalizeSubject,
+  normalizeRatingComment,
+  normalizeScore,
   SlidingWindowLimiter,
   subjectFromBody,
-  templateValue,
+  supportFileName,
 } from './text.js';
-import { normalizeEmails, normalizeSettings } from './settings.js';
-import { emailLocale } from './emails.js';
+import { normalizeSettings } from './settings.js';
+import { businessHoursView } from './service.js';
 
 describe('what an operator may send', () => {
   it('trims a message and refuses an empty or oversized one', () => {
@@ -17,12 +21,6 @@ describe('what an operator may send', () => {
     expect(normalizeBody('   ')).toBeNull();
     expect(normalizeBody(42)).toBeNull();
     expect(normalizeBody('x'.repeat(MAX_BODY_LENGTH + 1))).toBeNull();
-  });
-
-  it('keeps a subject on one line', () => {
-    expect(normalizeSubject(' Invoice \n question ')).toBe('Invoice question');
-    expect(normalizeSubject('')).toBeNull();
-    expect(normalizeSubject('x'.repeat(201))).toBeNull();
   });
 
   it('accepts only an opaque client id', () => {
@@ -37,11 +35,60 @@ describe('what an operator may send', () => {
   });
 });
 
-describe('a mail value', () => {
-  it('is escaped as HTML and safe inside String.replace', () => {
-    expect(templateValue('<b>"hi"</b> & \'you\'')).toBe('&lt;b&gt;&quot;hi&quot;&lt;/b&gt; &amp; &#39;you&#39;');
-    // `replace` keeps each `$` literal instead of reading a back-reference.
-    expect('{v}'.replace(/\{v\}/g, templateValue('costs $1 and $&'))).toBe('costs $1 and $&amp;');
+describe('a rating', () => {
+  it('is one to five whole stars', () => {
+    expect(normalizeScore(1)).toBe(1);
+    expect(normalizeScore(5)).toBe(5);
+    expect(normalizeScore(0)).toBeNull();
+    expect(normalizeScore(4.5)).toBeNull();
+    expect(normalizeScore('5')).toBeNull();
+  });
+
+  it('takes an optional comment, trimmed, and refuses one that is too long', () => {
+    expect(normalizeRatingComment(undefined)).toBeNull();
+    expect(normalizeRatingComment('   ')).toBeNull();
+    expect(normalizeRatingComment(' thanks ')).toBe('thanks');
+    expect(normalizeRatingComment('x'.repeat(MAX_RATING_COMMENT_LENGTH + 1))).toBeUndefined();
+    expect(normalizeRatingComment(7)).toBeUndefined();
+  });
+});
+
+describe('a file', () => {
+  it('is named without its path, with the extension its type says', () => {
+    expect(supportFileName('../../etc/Screen Shot.PNG', 'image/png')).toBe('Screen Shot.png');
+    expect(supportFileName('report', 'application/pdf')).toBe('report.pdf');
+    expect(supportFileName('', 'text/plain')).toBe('file.txt');
+    expect(supportFileName('a"b\u0001.jpg', 'image/jpeg')).toBe('ab.jpg');
+  });
+
+  it('is drawn by its kind', () => {
+    expect(attachmentKind('image/webp')).toBe('image');
+    expect(attachmentKind('application/pdf')).toBe('file');
+  });
+});
+
+describe('the app a request came from', () => {
+  it('is what the app says, and the web when nothing does', () => {
+    expect(clientPlatformOf('android')).toBe('android');
+    expect(clientPlatformOf('iOS')).toBe('ios');
+    expect(clientPlatformOf(['macos'])).toBe('macos');
+    expect(clientPlatformOf(undefined)).toBe('web');
+    expect(clientPlatformOf('fridge')).toBe('web');
+  });
+});
+
+describe('business hours', () => {
+  it('are shown only while the workspace keeps them, and only well-formed', () => {
+    expect(businessHoursView(null)).toBeNull();
+    expect(businessHoursView({ business_hours: { enabled: false, weekly: { sat: [{ from: '09:00', to: '17:00' }] } } })).toBeNull();
+    expect(
+      businessHoursView({
+        business_hours: {
+          enabled: true,
+          weekly: { sat: [{ from: '09:00', to: '17:00' }, { from: '9', to: '10' }], sun: 'closed', mon: [] },
+        },
+      }),
+    ).toEqual({ timezone: 'UTC', weekly: { sat: [{ from: '09:00', to: '17:00' }] } });
   });
 });
 
@@ -58,20 +105,6 @@ describe('the rate limit', () => {
 
 describe('settings', () => {
   it('reads a missing row as off', () => {
-    expect(normalizeSettings(null)).toMatchObject({ enabled: false, workspaceId: null, ticketsEnabled: true });
-  });
-
-  it('keeps only valid, unique, lower-cased emails', () => {
-    expect(normalizeEmails([' Ops@Example.com', 'ops@example.com', 'not-an-email', 7, 'b@x.io'])).toEqual([
-      'ops@example.com',
-      'b@x.io',
-    ]);
-  });
-
-  it('mails in the three languages the templates exist in', () => {
-    expect(emailLocale('fa-IR')).toBe('fa');
-    expect(emailLocale('TR')).toBe('tr');
-    expect(emailLocale('de', 'fa')).toBe('fa');
-    expect(emailLocale(null)).toBe('en');
+    expect(normalizeSettings(null)).toEqual({ enabled: false, workspaceId: null, updatedAt: null });
   });
 });

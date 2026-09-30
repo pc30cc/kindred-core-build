@@ -2,13 +2,18 @@ package com.webyar.ai.feature.support
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.webyar.ai.core.model.SupportMessage
+import com.webyar.ai.core.media.AttachmentRules
+import com.webyar.ai.core.model.SupportConversation
+import com.webyar.ai.core.model.SupportHistory
+import com.webyar.ai.core.model.SupportItem
+import com.webyar.ai.core.model.SupportPostResult
 import com.webyar.ai.core.model.SupportStatus
-import com.webyar.ai.core.model.SupportThread
 import com.webyar.ai.core.net.ApiError
 import com.webyar.ai.core.net.WebyarApi
+import com.webyar.ai.core.runCatchingUnlessCancelled
 import com.webyar.ai.core.sync.SupportSignal
 import com.webyar.ai.i18n.Language
+import com.webyar.ai.i18n.Str
 import com.webyar.ai.i18n.StrAndroid
 import com.webyar.ai.i18n.displayText
 import kotlinx.coroutines.Job
@@ -31,46 +36,30 @@ internal fun supportErrorText(error: Throwable, language: Language): String {
     val code = (error as? ApiError.Server)?.serverMessage.orEmpty()
     return when {
         "rate_limited" in code -> StrAndroid.supportRateLimited(language)
-        "thread_closed" in code -> StrAndroid.supportClosed(language)
-        "support_disabled" in code || "support_not_configured" in code || "support_member" in code ->
-            StrAndroid.supportUnavailable(language)
+        "file_too_large" in code -> StrAndroid.supportFileTooLarge(language)
+        "file_type_not_allowed" in code -> Str.fileTypeNotAllowed(language)
+        "support_disabled" in code || "support_not_configured" in code -> StrAndroid.supportUnavailable(language)
         else -> error.displayText(language)
     }
 }
 
 /**
  * Settings' view of support: whether to offer it, whether the team is online
- * now, and the operator's earlier requests with what is new in them.
+ * now, and how much of what it wrote is unread.
  */
-class SupportHomeViewModel(
-    private val api: WebyarApi,
-    private val language: () -> Language,
-) : ViewModel() {
+class SupportStatusViewModel(private val api: WebyarApi) : ViewModel() {
 
     private val _status = MutableStateFlow<SupportStatus?>(null)
 
     /** Null until the first answer; then kept while a later read fails. */
     val status: StateFlow<SupportStatus?> = _status.asStateFlow()
 
-    private val _threads = MutableStateFlow<List<SupportThread>>(emptyList())
-    val threads: StateFlow<List<SupportThread>> = _threads.asStateFlow()
-
-    private val _loaded = MutableStateFlow(false)
-
-    /** The threads have been read at least once. */
-    val loaded: StateFlow<Boolean> = _loaded.asStateFlow()
-
     private var job: Job? = null
 
     fun refresh() {
         job?.cancel()
         job = viewModelScope.launch {
-            runCatching { api.supportStatus() }.onSuccess { _status.value = it }
-            // Earlier requests stay readable even while support is off.
-            runCatching { api.supportThreads() }.onSuccess {
-                _threads.value = it
-                _loaded.value = true
-            }
+            runCatchingUnlessCancelled { api.supportStatus() }.onSuccess { _status.value = it }
         }
     }
 
@@ -93,48 +82,50 @@ class SupportHomeViewModel(
     }
 }
 
-/** A message the operator sent that the server has not confirmed yet. */
-data class PendingSupportMessage(
-    val clientMessageId: String,
-    val body: String,
-    val createdAt: Instant,
-    val failed: Boolean = false,
-)
+sealed interface SupportChatState {
+    data object Loading : SupportChatState
+    data class Failed(val message: String) : SupportChatState
 
-sealed interface SupportThreadState {
-    data object Loading : SupportThreadState
-    data class Failed(val message: String) : SupportThreadState
-
-    /** [thread] is null for a chat that has not been started yet. */
+    /** The history as the server last told it, and what is still on its way. */
     data class Loaded(
-        val thread: SupportThread?,
-        val messages: List<SupportMessage>,
-        val pending: List<PendingSupportMessage> = emptyList(),
-    ) : SupportThreadState {
-        val closed: Boolean get() = thread?.isClosed == true
+        val conversations: List<SupportConversation> = emptyList(),
+        val items: List<SupportItem> = emptyList(),
+        val activeConversationId: String? = null,
+        val pending: List<PendingSupportItem> = emptyList(),
+    ) : SupportChatState {
+        /**
+         * Nothing is open and something has ended: the next message starts
+         * a new conversation, and the composer says so.
+         */
+        val startsNewConversation: Boolean
+            get() = activeConversationId == null && conversations.any { it.ended }
+
+        val isEmpty: Boolean get() = items.isEmpty() && pending.isEmpty()
     }
 }
 
 /**
- * One support thread — or the chat about to start — as the operator reads
- * and writes it.
+ * The support chat: every conversation the operator has had with the team,
+ * in one transcript, and the composer that writes the next message.
  *
- * A message shows at once as "sending" and becomes the server's when it
- * lands; one that fails stays, marked, with a retry. The client id travels
- * with every attempt, so a retry never posts twice.
+ * A message or a file shows at once as "sending" and becomes the server's
+ * when it lands; one that fails stays, marked, with a retry. The client id
+ * travels with every attempt — and a file's bytes stay with it — so a retry
+ * never posts twice. Where it goes is the server's decision: the active
+ * conversation, or a new one after an ended one.
  */
-class SupportThreadViewModel(
+class SupportChatViewModel(
     private val api: WebyarApi,
     private val language: () -> Language,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow<SupportThreadState>(SupportThreadState.Loading)
-    val state: StateFlow<SupportThreadState> = _state.asStateFlow()
+    private val _state = MutableStateFlow<SupportChatState>(SupportChatState.Loading)
+    val state: StateFlow<SupportChatState> = _state.asStateFlow()
 
-    private val _threadId = MutableStateFlow<String?>(null)
+    private val _status = MutableStateFlow<SupportStatus?>(null)
 
-    /** The thread on screen; set once a new chat's first message lands. */
-    val threadId: StateFlow<String?> = _threadId.asStateFlow()
+    /** Who answers and whether they are there: the bar, the offline banner, the hours. */
+    val status: StateFlow<SupportStatus?> = _status.asStateFlow()
 
     private val _draft = MutableStateFlow("")
     val draft: StateFlow<String> = _draft.asStateFlow()
@@ -142,21 +133,28 @@ class SupportThreadViewModel(
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice.asStateFlow()
 
+    private val _rating = MutableStateFlow<Set<String>>(emptySet())
+
+    /** Conversations whose rating is on its way; their button waits. */
+    val rating: StateFlow<Set<String>> = _rating.asStateFlow()
+
     private var opened = false
     private var workspaceId: String? = null
-    private var loadJob: Job? = null
+    private var historyJob: Job? = null
+    private var statusJob: Job? = null
 
-    /** [threadId] null: a new chat, which the first message opens. */
-    fun open(threadId: String?, workspaceId: String?) {
+    /** On screen and resumed: what the team writes is being read. */
+    private var visible = false
+
+    /** The team's messages as of the last read, to tell what is new since. */
+    private var knownTeamItems: Set<String>? = null
+    private var teamNewsUnread = false
+
+    fun open(workspaceId: String?) {
         this.workspaceId = workspaceId
         if (opened) return
         opened = true
-        _threadId.value = threadId
-        if (threadId == null) {
-            _state.value = SupportThreadState.Loaded(thread = null, messages = emptyList())
-        } else {
-            load()
-        }
+        refresh()
     }
 
     fun setDraft(value: String) {
@@ -167,90 +165,138 @@ class SupportThreadViewModel(
         _notice.value = null
     }
 
-    fun load() {
-        val id = _threadId.value ?: return
-        loadJob?.cancel()
-        loadJob = viewModelScope.launch {
-            runCatching { api.supportThread(id) }
-                .onSuccess { detail ->
-                    _state.update { current ->
-                        val pending = (current as? SupportThreadState.Loaded)?.pending.orEmpty()
-                        val delivered = detail.messages.mapNotNull { it.clientMessageId }.toSet()
-                        SupportThreadState.Loaded(
-                            thread = detail.thread,
-                            messages = detail.messages,
-                            pending = pending.filterNot { it.clientMessageId in delivered },
-                        )
-                    }
-                    if (detail.thread.unread > 0) markRead(id)
-                }
+    /** Something the screen could not do — a file that would not open. */
+    fun report(message: String) {
+        _notice.value = message
+    }
+
+    fun refresh() {
+        loadStatus()
+        loadHistory()
+    }
+
+    fun loadHistory() {
+        historyJob?.cancel()
+        historyJob = viewModelScope.launch {
+            runCatchingUnlessCancelled { api.supportHistory() }
+                .onSuccess(::applyHistory)
                 .onFailure { error ->
-                    // A read that fails over a thread on screen keeps it; only
-                    // a thread that never arrived shows the failure.
-                    if (_state.value !is SupportThreadState.Loaded) {
-                        _state.value = SupportThreadState.Failed(supportErrorText(error, language()))
+                    // A read that fails over a chat on screen keeps it; only a
+                    // chat that never arrived shows the failure.
+                    if (_state.value !is SupportChatState.Loaded) {
+                        _state.value = SupportChatState.Failed(supportErrorText(error, language()))
                     }
                 }
         }
     }
 
-    private fun markRead(id: String) {
-        viewModelScope.launch { runCatching { api.markSupportThreadRead(id) } }
+    private fun loadStatus() {
+        statusJob?.cancel()
+        statusJob = viewModelScope.launch {
+            runCatchingUnlessCancelled { api.supportStatus() }.onSuccess {
+                _status.value = it
+                markReadIfDue()
+            }
+        }
+    }
+
+    private fun applyHistory(history: SupportHistory) {
+        val delivered = history.items.mapNotNullTo(HashSet()) { it.clientMessageId }
+        _state.update { current ->
+            val pending = (current as? SupportChatState.Loaded)?.pending.orEmpty()
+            SupportChatState.Loaded(
+                conversations = history.conversations,
+                items = history.items,
+                activeConversationId = history.activeConversationId,
+                pending = pending.filterNot { it.clientMessageId in delivered },
+            )
+        }
+        val team = history.items.filter { it.fromTeam && !it.isJoin }.mapTo(HashSet()) { it.id }
+        val known = knownTeamItems
+        if (known != null && !known.containsAll(team)) teamNewsUnread = true
+        knownTeamItems = team
+        markReadIfDue()
+    }
+
+    /**
+     * Tells the server the chat has been read — while it is on screen, and
+     * only when there is something to read: an unread count, or a reply
+     * that arrived since the last look.
+     */
+    private fun markReadIfDue() {
+        if (!visible) return
+        val unread = (_status.value?.unread ?: 0) > 0
+        if (!unread && !teamNewsUnread) return
+        teamNewsUnread = false
+        _status.update { it?.copy(unread = 0) }
+        viewModelScope.launch { runCatchingUnlessCancelled { api.markSupportRead() } }
     }
 
     fun send() {
         val body = _draft.value.trim()
         if (body.isEmpty()) return
-        val current = _state.value as? SupportThreadState.Loaded ?: return
-        if (current.closed) return
-        val pending = PendingSupportMessage(UUID.randomUUID().toString(), body, Instant.now())
+        if (body.length > MAX_BODY) {
+            _notice.value = StrAndroid.messageTooLong(language(), MAX_BODY)
+            return
+        }
+        val entry = PendingSupportItem(newClientMessageId(), body, Instant.now())
+        if (!enqueue(entry)) return
         _draft.value = ""
-        _state.value = current.copy(pending = current.pending + pending)
-        deliver(pending)
     }
 
-    /** Tries a message that did not go through again, with the same id. */
+    /**
+     * A picked file. Refused here, before a byte is sent, when the server
+     * would refuse it: over [MAX_FILE_BYTES], or not one of the six types.
+     */
+    fun sendFile(bytes: ByteArray, fileName: String, mimeType: String) {
+        val mime = AttachmentRules.canonicalMime(mimeType)
+        if (mime == null || mime !in AttachmentRules.PICKABLE_MIME_TYPES) {
+            _notice.value = Str.fileTypeNotAllowed(language())
+            return
+        }
+        if (bytes.size > MAX_FILE_BYTES) {
+            _notice.value = StrAndroid.supportFileTooLarge(language())
+            return
+        }
+        enqueue(PendingSupportItem(newClientMessageId(), "", Instant.now(), SupportUpload(bytes, fileName, mime)))
+    }
+
+    /** Tries a message or file that did not go through again, with the same id. */
     fun retry(clientMessageId: String) {
-        val current = _state.value as? SupportThreadState.Loaded ?: return
-        val pending = current.pending.firstOrNull { it.clientMessageId == clientMessageId } ?: return
-        val again = pending.copy(failed = false)
+        val current = _state.value as? SupportChatState.Loaded ?: return
+        val entry = current.pending.firstOrNull { it.clientMessageId == clientMessageId && it.failed } ?: return
+        val again = entry.copy(failed = false)
         _state.value = current.copy(pending = current.pending.map { if (it.clientMessageId == clientMessageId) again else it })
         deliver(again)
     }
 
-    private fun deliver(pending: PendingSupportMessage) {
+    private fun enqueue(entry: PendingSupportItem): Boolean {
+        val current = _state.value as? SupportChatState.Loaded ?: return false
+        _state.value = current.copy(pending = current.pending + entry)
+        deliver(entry)
+        return true
+    }
+
+    private fun deliver(entry: PendingSupportItem) {
         viewModelScope.launch {
-            val id = _threadId.value
-            runCatching {
-                if (id == null) {
-                    api.sendSupportChat(pending.body, pending.clientMessageId, workspaceId)
+            runCatchingUnlessCancelled {
+                val file = entry.file
+                if (file == null) {
+                    api.sendSupportMessage(entry.body, entry.clientMessageId, workspaceId)
                 } else {
-                    api.replySupportThread(id, pending.body, pending.clientMessageId)
+                    api.sendSupportAttachment(file.fileName, file.mimeType, file.bytes, entry.clientMessageId, workspaceId)
                 }
             }.onSuccess { result ->
-                _threadId.value = result.thread.id
-                _state.update { state ->
-                    val loaded = state as? SupportThreadState.Loaded ?: return@update state
-                    val messages = if (loaded.messages.any { it.id == result.message.id }) {
-                        loaded.messages
-                    } else {
-                        loaded.messages + result.message
-                    }
-                    loaded.copy(
-                        thread = result.thread,
-                        messages = messages,
-                        pending = loaded.pending.filterNot { it.clientMessageId == pending.clientMessageId },
-                    )
-                }
-                // The team may have answered already (an auto-reply, a fast
-                // agent): read the thread as the server has it.
-                load()
+                _state.update { merge(it, result, entry.clientMessageId) }
+                // The team may have answered already, or joined: read the
+                // chat as the server has it.
+                loadHistory()
             }.onFailure { error ->
                 _state.update { state ->
-                    val loaded = state as? SupportThreadState.Loaded ?: return@update state
+                    val loaded = state as? SupportChatState.Loaded ?: return@update state
                     loaded.copy(
                         pending = loaded.pending.map {
-                            if (it.clientMessageId == pending.clientMessageId) it.copy(failed = true) else it
+                            if (it.clientMessageId == entry.clientMessageId) it.copy(failed = true) else it
                         },
                     )
                 }
@@ -259,89 +305,102 @@ class SupportThreadViewModel(
         }
     }
 
+    private fun merge(state: SupportChatState, result: SupportPostResult, clientMessageId: String): SupportChatState {
+        val loaded = state as? SupportChatState.Loaded ?: return state
+        val conversation = result.conversation
+        val conversations = if (loaded.conversations.any { it.id == conversation.id }) {
+            loaded.conversations.map { if (it.id == conversation.id) conversation else it }
+        } else {
+            loaded.conversations + conversation
+        }
+        val items = if (loaded.items.any { it.id == result.item.id }) loaded.items else loaded.items + result.item
+        return loaded.copy(
+            conversations = conversations,
+            items = items,
+            activeConversationId = if (conversation.ended) loaded.activeConversationId else conversation.id,
+            pending = loaded.pending.filterNot { it.clientMessageId == clientMessageId },
+        )
+    }
+
     /**
-     * While on screen: the team's replies arrive as signals, and — in case
-     * the channel is down — the thread is read every little while too.
+     * Rates an ended conversation, once. A second tap while the first is on
+     * its way, or after it landed, does nothing; a conversation the server
+     * says is rated already, or cannot be, is simply read again.
      */
-    suspend fun follow(signals: Flow<SupportSignal>?) {
-        coroutineScope {
-            if (signals != null) {
-                launch {
-                    signals.collect { signal ->
-                        val id = _threadId.value ?: return@collect
-                        if (signal.about(id)) load()
-                    }
+    fun rate(conversationId: String, score: Int, comment: String?) {
+        if (score !in 1..5 || conversationId in _rating.value) return
+        val current = _state.value as? SupportChatState.Loaded ?: return
+        val conversation = current.conversations.firstOrNull { it.id == conversationId } ?: return
+        if (!conversation.canRate) return
+        _rating.update { it + conversationId }
+        viewModelScope.launch {
+            runCatchingUnlessCancelled {
+                api.rateSupportConversation(conversationId, score, comment?.trim()?.take(MAX_COMMENT)?.ifBlank { null })
+            }.onSuccess { updated ->
+                _state.update { state ->
+                    val loaded = state as? SupportChatState.Loaded ?: return@update state
+                    loaded.copy(conversations = loaded.conversations.map { if (it.id == updated.id) updated else it })
+                }
+            }.onFailure { error ->
+                val code = (error as? ApiError.Server)?.serverMessage.orEmpty()
+                if ("already_rated" in code || "not_ratable" in code) {
+                    loadHistory()
+                } else {
+                    _notice.value = supportErrorText(error, language())
                 }
             }
-            while (true) {
-                delay(THREAD_POLL_MS)
-                load()
-            }
+            _rating.update { it - conversationId }
         }
     }
 
-    private companion object {
-        const val THREAD_POLL_MS = 15_000L
-    }
-}
-
-/** A new ticket: a subject and a message, for when nobody is online. */
-class SupportTicketViewModel(
-    private val api: WebyarApi,
-    private val language: () -> Language,
-) : ViewModel() {
-
-    private val _subject = MutableStateFlow("")
-    val subject: StateFlow<String> = _subject.asStateFlow()
-
-    private val _body = MutableStateFlow("")
-    val body: StateFlow<String> = _body.asStateFlow()
-
-    private val _submitting = MutableStateFlow(false)
-    val submitting: StateFlow<Boolean> = _submitting.asStateFlow()
-
-    private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error.asStateFlow()
-
-    private val _created = MutableStateFlow<SupportThread?>(null)
-
-    /** The ticket, once filed. */
-    val created: StateFlow<SupportThread?> = _created.asStateFlow()
-
-    /** One id for every attempt: a retried submit is the same ticket. */
-    private val clientMessageId = UUID.randomUUID().toString()
-
-    val canSubmit: Boolean
-        get() = _subject.value.isNotBlank() && _body.value.isNotBlank() && !_submitting.value
-
-    fun setSubject(value: String) {
-        _subject.value = value.take(MAX_SUBJECT)
-        _error.value = null
-    }
-
-    fun setBody(value: String) {
-        _body.value = value.take(MAX_BODY)
-        _error.value = null
-    }
-
-    fun submit(workspaceId: String?) {
-        if (!canSubmit || _created.value != null) return
-        _submitting.value = true
-        _error.value = null
-        viewModelScope.launch {
-            runCatching {
-                api.createSupportTicket(_subject.value.trim(), _body.value.trim(), clientMessageId, workspaceId)
-            }.onSuccess { result ->
-                _created.value = result.thread
-            }.onFailure { error ->
-                _error.value = supportErrorText(error, language())
+    /**
+     * While on screen: the chat is being read, the team's news arrives as
+     * signals, and — in case the channel is down — the history is read every
+     * little while too, the status every minute.
+     */
+    suspend fun follow(signals: Flow<SupportSignal>?) {
+        visible = true
+        try {
+            // Back from the background: what happened meanwhile. The first
+            // time, [open]'s own read is still on its way.
+            if (_state.value is SupportChatState.Loading) markReadIfDue() else refresh()
+            coroutineScope {
+                if (signals != null) {
+                    launch { signals.collect { if (it.kind in LIVE_KINDS) loadHistory() } }
+                }
+                var ticks = 0
+                while (true) {
+                    delay(HISTORY_POLL_MS)
+                    ticks++
+                    if (ticks % STATUS_EVERY_TICKS == 0) loadStatus()
+                    loadHistory()
+                }
             }
-            _submitting.value = false
+        } finally {
+            visible = false
         }
     }
 
-    private companion object {
-        const val MAX_SUBJECT = 200
+    /** A support file's bytes, or null when they cannot be had; either side's. */
+    suspend fun attachment(id: String): ByteArray? =
+        runCatchingUnlessCancelled { api.supportAttachmentData(id) }.getOrNull()
+
+    private fun newClientMessageId(): String = UUID.randomUUID().toString()
+
+    companion object {
+        /** The server's limit on a message body. */
         const val MAX_BODY = 4000
+
+        /** The server's limit on a rating comment. */
+        const val MAX_COMMENT = 1000
+
+        /** The server's limit on a support file, decoded. */
+        const val MAX_FILE_BYTES = 2 * 1024 * 1024
+
+        private const val HISTORY_POLL_MS = 15_000L
+        private const val STATUS_EVERY_TICKS = 4
+
+        /** The events that mean the history moved (docs/PLATFORM_SUPPORT.md, Realtime). */
+        private val LIVE_KINDS = setOf("support_message", "support_update", "support_read")
     }
 }

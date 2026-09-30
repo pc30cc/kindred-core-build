@@ -18,6 +18,7 @@ import { useConversations, useUpdateConversation, type InboxQueue } from '@/hook
 import { useInboxListRealtime } from '@/hooks/useInboxListRealtime';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { ChannelBadge, resolveChannelKey } from '@/components/inbox/ChannelBadge';
+import { resolveClientPlatform } from '@/components/inbox/clientPlatform';
 import { contactDisplayName, type ContactDisplayT } from '@/lib/contact-display';
 import { formatRelative } from '@/lib/date';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -131,6 +132,7 @@ export default function MobileInboxPage() {
             const unread = c.unread_count || 0;
             const last = c.last_message;
             const channel = resolveChannelKey(c.metadata, c.contacts?.metadata);
+            const clientPlatform = resolveClientPlatform(c.metadata, c.contacts?.metadata);
             return (
               <li key={c.id}>
                 <SwipeRow
@@ -202,7 +204,7 @@ export default function MobileInboxPage() {
                     </div>
 
                     <div className="mt-1.5 flex justify-end">
-                      <ChannelBadge channel={channel} t={displayT} size="xs" />
+                      <ChannelBadge channel={channel} t={displayT} clientPlatform={clientPlatform} size="xs" />
                     </div>
                   </div>
                 </button>

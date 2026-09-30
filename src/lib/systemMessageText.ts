@@ -30,6 +30,11 @@ export interface SystemMessageMeta {
   ended_by?: string | null;
   end_reason?: string | null;
   duration_seconds?: number | null;
+  // support_rating — the operator's rating of a platform-support conversation
+  // (docs/PLATFORM_SUPPORT.md); `internal`, so it is never shown to them.
+  score?: number | null;
+  comment?: string | null;
+  internal?: boolean | null;
 }
 
 /** The app's translate function. Returns the key itself when unresolved. */
@@ -130,6 +135,18 @@ export function systemMessageText(
         : endedBy === 'visitor' ? `Call ended by visitor · Duration ${duration}`
         : `Call ended · Duration ${duration}`;
       return line(t, key, fallback).replace('{duration}', duration);
+    }
+    case 'support_rating': {
+      const score = Number(meta?.score);
+      // Without a score there is nothing to say; the stored body is better.
+      if (!Number.isInteger(score) || score < 1 || score > 5) return null;
+      const rated = line(t, 'inbox.system.supportRating', 'Rated the conversation {score}/5')
+        .replace('{score}', String(score));
+      const comment = String(meta?.comment ?? '').trim();
+      if (!comment) return rated;
+      // One pass, so text the operator typed is never read as a placeholder.
+      return line(t, 'inbox.system.supportRatingComment', '{rating} — “{comment}”')
+        .replace(/\{(rating|comment)\}/g, (_, name: string) => (name === 'rating' ? rated : comment));
     }
     default:
       return null;

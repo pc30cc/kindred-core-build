@@ -3,7 +3,10 @@ import { render, screen } from '@testing-library/react';
 import en from '@/i18n/locales/en';
 import fa from '@/i18n/locales/fa';
 import tr from '@/i18n/locales/tr';
-import { ChannelIdentityCard, channelLabel, resolveChannelKey } from '@/components/inbox/ChannelBadge';
+import {
+  ChannelBadge, ChannelIdentityCard, channelLabel, resolveChannelKey,
+} from '@/components/inbox/ChannelBadge';
+import { resolveClientPlatform } from '@/components/inbox/clientPlatform';
 
 /**
  * An operator of another workspace writing to the platform's own team is a
@@ -64,6 +67,45 @@ describe('channelLabel', () => {
   });
 });
 
+describe('the app a site user wrote from', () => {
+  it('is read from the conversation first, then the contact', () => {
+    expect(resolveClientPlatform({ client_platform: 'android' })).toBe('android');
+    expect(resolveClientPlatform({ client_platform: 'ios' }, { client_platform: 'android' })).toBe('ios');
+    expect(resolveClientPlatform({}, { client_platform: 'macos' })).toBe('macos');
+    expect(resolveClientPlatform(null, { client_platform: ' Windows ' })).toBe('windows');
+    expect(resolveClientPlatform({ client_platform: 'linux' }, { client_platform: 'web' })).toBe('web');
+  });
+
+  it('is unknown rather than guessed', () => {
+    expect(resolveClientPlatform()).toBeNull();
+    expect(resolveClientPlatform({ client_platform: 'linux' })).toBeNull();
+    expect(resolveClientPlatform({ client_platform: 42 })).toBeNull();
+    expect(resolveClientPlatform({ client_platform: 'constructor' })).toBeNull();
+  });
+
+  it('follows "Site user", untranslated like any product name, in every language', () => {
+    expect(channelLabel('platform_support', T.en, 'android')).toBe('Site user · Android');
+    expect(channelLabel('platform_support', T.fa, 'android')).toBe('کاربر سایت · Android');
+    expect(channelLabel('platform_support', T.tr, 'android')).toBe('Site kullanıcısı · Android');
+    expect(channelLabel('platform_support', T.en, 'ios')).toBe('Site user · iOS');
+    expect(channelLabel('platform_support', T.en, 'macos')).toBe('Site user · macOS');
+    expect(channelLabel('platform_support', T.en, 'windows')).toBe('Site user · Windows');
+    expect(channelLabel('platform_support', T.en, 'web')).toBe('Site user · Web');
+  });
+
+  it('leaves the plain label when unknown, and other channels alone', () => {
+    expect(channelLabel('platform_support', T.en, null)).toBe('Site user');
+    expect(channelLabel('platform_support', T.en)).toBe('Site user');
+    expect(channelLabel('telegram', T.en, 'android')).toBe('Telegram');
+  });
+
+  it('is on the badge beside the name', () => {
+    render(<ChannelBadge channel="platform_support" t={T.fa} clientPlatform="android" size="xs" />);
+    expect(screen.getByText('کاربر سایت · Android')).toBeTruthy();
+    expect(screen.getByTitle('کاربر سایت · Android')).toBeTruthy();
+  });
+});
+
 describe('ChannelIdentityCard for a site user', () => {
   const metadata = {
     source: 'platform_support',
@@ -71,24 +113,34 @@ describe('ChannelIdentityCard for a site user', () => {
     platform_user_id: 'u-1',
     platform_workspace_id: 'w-1',
     platform_workspace_name: 'فروشگاه نمونه',
+    client_platform: 'ios',
   };
 
-  it('shows the workspace they wrote from', () => {
+  it('shows the workspace and the app they wrote from', () => {
     render(<ChannelIdentityCard metadata={metadata} t={T.en} />);
     expect(screen.getByText('Site user')).toBeTruthy();
     expect(screen.getByText('Workspace')).toBeTruthy();
     expect(screen.getByText('فروشگاه نمونه')).toBeTruthy();
+    expect(screen.getByText('App')).toBeTruthy();
+    expect(screen.getByText('iOS')).toBeTruthy();
   });
 
   it('labels the rows in the reader\'s language', () => {
     render(<ChannelIdentityCard metadata={metadata} t={T.fa} dir="rtl" />);
     expect(screen.getByText('کاربر سایت')).toBeTruthy();
     expect(screen.getByText('فضای کاری')).toBeTruthy();
+    expect(screen.getByText('اپ')).toBeTruthy();
   });
 
   it('leaves out what it does not know', () => {
     render(<ChannelIdentityCard metadata={{ channel: 'platform_support' }} t={T.tr} />);
     expect(screen.getByText('Site kullanıcısı')).toBeTruthy();
     expect(screen.queryByText('Çalışma alanı')).toBeNull();
+    expect(screen.queryByText('Uygulama')).toBeNull();
+  });
+
+  it('shows no app row for other channels', () => {
+    render(<ChannelIdentityCard metadata={{ channel: 'telegram', client_platform: 'android' }} t={T.en} />);
+    expect(screen.queryByText('App')).toBeNull();
   });
 });

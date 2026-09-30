@@ -32,6 +32,7 @@ import { ContactEditDialog, type ContactEditValues } from '@/features/contacts/C
 
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { ChannelBadge, ChannelIdentityCard, resolveChannelKey } from '@/components/inbox/ChannelBadge';
+import { resolveClientPlatform } from '@/components/inbox/clientPlatform';
 import { useContactIp } from '@/hooks/useContactIp';
 import { useVisitorNetwork } from '@/hooks/useVisitorNetwork';
 import { Globe, Lock } from 'lucide-react';
@@ -278,7 +279,11 @@ export default function ContactDetailPage() {
                 </p>
                 <div className="mb-3 flex flex-wrap items-center gap-1.5">
                   {resolveChannelKey(contact.metadata) !== 'widget' ? (
-                    <ChannelBadge channel={resolveChannelKey(contact.metadata)} t={t as (k: string) => string} />
+                    <ChannelBadge
+                      channel={resolveChannelKey(contact.metadata)}
+                      t={t as (k: string) => string}
+                      clientPlatform={resolveClientPlatform(contact.metadata)}
+                    />
                   ) : (
                     <Badge variant="secondary" className="text-[10px] gap-1">
                       {hasCalls ? <PhoneCall className="w-3 h-3" /> : <MessageSquare className="w-3 h-3" />}

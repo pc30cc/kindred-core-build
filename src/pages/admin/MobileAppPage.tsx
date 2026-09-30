@@ -292,7 +292,7 @@ export default function MobileAppPage() {
             <AndroidIdentityTab draft={draft} set={set} pushConfigured={data.environment.pushConfigured} />
           </TabsContent>
           <TabsContent value="release" className="space-y-4">
-            <AndroidReleaseTab draft={draft} set={set} />
+            <AndroidReleaseTab draft={draft} set={set} shipped={data.environment.androidRelease ?? null} />
           </TabsContent>
           <TabsContent value="inApp" className="space-y-4">
             <AndroidInAppTab draft={draft} set={set} />

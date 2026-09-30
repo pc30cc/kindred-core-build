@@ -243,12 +243,10 @@ fun AppShell(
             navigator.open(EmailThreadKey(thread, link.provider))
             return@LaunchedEffect
         }
-        if (link.opensSupportThread && thread != null) {
-            // The platform team's reply: the thread, over the operator's
-            // support requests, in Settings where support lives.
-            val top = navigator.stack(AppTab.SETTINGS).lastOrNull()
-            if (top !is SupportThreadKey && top != SupportKey) navigator.open(SupportKey)
-            navigator.open(SupportThreadKey(thread))
+        if (link.opensSupportThread) {
+            // The platform team's reply: the support chat, in Settings where
+            // support lives — one chat, whichever conversation it is in.
+            navigator.open(SupportChatKey)
             return@LaunchedEffect
         }
         val peer = link.peerId
@@ -533,9 +531,7 @@ fun AppShell(
                 onOpenProfile = { navigator.open(ProfileKey) },
                 onOpenSecurity = { navigator.open(SecurityKey) },
                 onOpenNotifications = { navigator.open(NotificationsKey) },
-                onStartSupportChat = { navigator.open(SupportThreadKey(null)) },
-                onNewSupportTicket = { navigator.open(SupportTicketKey) },
-                onOpenSupportRequests = { navigator.open(SupportKey) },
+                onOpenSupportChat = { navigator.open(SupportChatKey) },
                 bottomInset = 0.dp,
             )
         }
@@ -555,38 +551,12 @@ fun AppShell(
         entry<NotificationsKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = SettingsKey) + tabOf(AppTab.SETTINGS)) {
             NotificationsRoute(api = api, language = language, onBack = { navigator.back() })
         }
-        entry<SupportKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = SettingsKey) + tabOf(AppTab.SETTINGS)) {
-            SupportHomeRoute(
-                api = api,
-                language = language,
-                onBack = { navigator.back() },
-                onStartChat = { navigator.open(SupportThreadKey(null)) },
-                onNewTicket = { navigator.open(SupportTicketKey) },
-                onOpenThread = { id -> navigator.open(SupportThreadKey(id)) },
-            )
-        }
-        entry<SupportThreadKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = SettingsKey) + tabOf(AppTab.SETTINGS)) { key ->
-            SupportThreadRoute(
-                threadId = key.threadId,
+        entry<SupportChatKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = SettingsKey) + tabOf(AppTab.SETTINGS)) {
+            SupportChatRoute(
                 appState = appState,
                 api = api,
                 language = language,
                 onBack = { navigator.back() },
-            )
-        }
-        entry<SupportTicketKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = SettingsKey) + tabOf(AppTab.SETTINGS)) {
-            SupportTicketRoute(
-                appState = appState,
-                api = api,
-                language = language,
-                onBack = { navigator.back() },
-                // The form gives way to the ticket it filed, over the
-                // operator's requests: Back from it lands on their list.
-                onCreated = { id ->
-                    navigator.back()
-                    if (navigator.stack(AppTab.SETTINGS).lastOrNull() != SupportKey) navigator.open(SupportKey)
-                    navigator.open(SupportThreadKey(id))
-                },
             )
         }
     }

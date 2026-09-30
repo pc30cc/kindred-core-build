@@ -22,11 +22,18 @@ describe('Android in-app config', () => {
       profilePhotoEditable: true,
       showVisitors: true,
       showWebAnalytics: true,
+      showSupport: true,
       firebase: null,
       defaultLanguage: 'fa',
       maintenance: { enabled: false, message: {}, until: null },
       supportUrl: null,
     });
+  });
+
+  /** Super Admin hides Settings → Online support without a new build. */
+  it('hides Online support when Super Admin switches it off', () => {
+    expect(toAndroidAppConfig(normalize({ android_app_show_support: false })).showSupport).toBe(false);
+    expect(toAndroidAppConfig(normalize({})).showSupport).toBe(true);
   });
 
   /** Settings → About → Support opens it; empty leaves the platform's help centre. */

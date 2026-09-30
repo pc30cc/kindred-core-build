@@ -17,7 +17,8 @@ data class PushContext(
     val openTeamPeerIds: Set<String> = emptySet(),
     /** The email threads on screen right now. */
     val openEmailThreadIds: Set<String> = emptySet(),
-    val openSupportThreadIds: Set<String> = emptySet(),
+    /** The support chat is on screen right now; it is one chat, whatever conversation a reply is in. */
+    val supportChatOpen: Boolean = false,
 )
 
 /**
@@ -102,10 +103,10 @@ class PushRouter(
         }
         if (payload.isSupport) {
             // The platform's team answered: the support screens read again,
-            // and the notification is shown unless that thread is open.
+            // and the notification is shown unless the chat is open.
             sync.onSupportPush(payload.threadId)
-            if (now.foreground && payload.threadId != null && payload.threadId in now.openSupportThreadIds) {
-                diag.info(AREA, "support push: thread on screen")
+            if (now.foreground && now.supportChatOpen) {
+                diag.info(AREA, "support push: chat on screen")
                 return
             }
             diag.info(AREA, "push (${payload.type}) shown")

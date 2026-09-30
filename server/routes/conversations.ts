@@ -67,7 +67,7 @@ import { isConversationId, parseConversationIds } from '../services/conversation
 import { queueTranscript } from '../services/notificationEmail/producers.js';
 import { notifyAssignment } from '../services/push/index.js';
 import { coalesce } from '../lib/inflight.js';
-import { onTeamReply } from '../services/platformSupport/service.js';
+import { onSupportConversationChanged, onTeamReply } from '../services/platformSupport/service.js';
 
 
 export const conversationsRouter = Router();
@@ -966,6 +966,15 @@ conversationsRouter.patch('/:id', async (req, res) => {
           console.error('[conversations PATCH] transcript queue failed:', err);
         });
       }
+    }
+
+    // A platform-support conversation: the operator's chat shows it ended,
+    // reopened or taken by somebody.
+    if (
+      (parsed.data.status !== undefined && parsed.data.status !== before.status) ||
+      (parsed.data.assigned_to !== undefined && parsed.data.assigned_to !== before.assigned_to)
+    ) {
+      void onSupportConversationChanged(config, { workspaceId: parsed.data.workspace_id, conversationId });
     }
 
     return res.json({ ok: true, conversation: after });

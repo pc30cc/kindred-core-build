@@ -159,6 +159,7 @@ export interface MobileAppSettings {
   android_app_profile_photo_editable: boolean;
   android_app_show_visitors: boolean;
   android_app_show_web_analytics: boolean;
+  android_app_show_support: boolean;
   // Firebase's client identifiers for the Android package (google-services.json).
   android_firebase_app_id: string | null;
   android_firebase_api_key: string | null;
@@ -201,7 +202,20 @@ export interface MobileAppPayload {
       entitlementsFile: boolean;
     };
     provisioned: boolean;
+    /**
+     * The APK the website hands out (public/downloads/Webyar-Android.json);
+     * when present, the Android version is this one and is not typed.
+     */
+    androidRelease?: ShippedAndroidRelease | null;
   };
+}
+
+export interface ShippedAndroidRelease {
+  versionName: string;
+  versionCode: number;
+  sha256: string;
+  sizeBytes: number;
+  releasedAt: string | null;
 }
 
 export interface GeneratedConfig {

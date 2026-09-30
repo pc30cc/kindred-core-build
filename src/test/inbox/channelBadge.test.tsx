@@ -4,8 +4,9 @@ import en from '@/i18n/locales/en';
 import fa from '@/i18n/locales/fa';
 import tr from '@/i18n/locales/tr';
 import {
-  ChannelBadge, ChannelIdentityCard, channelLabel, resolveChannelKey, resolveClientPlatform,
+  ChannelBadge, ChannelIdentityCard, channelLabel, resolveChannelKey,
 } from '@/components/inbox/ChannelBadge';
+import { resolveClientPlatform } from '@/components/inbox/clientPlatform';
 
 /**
  * An operator of another workspace writing to the platform's own team is a

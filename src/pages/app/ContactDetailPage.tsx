@@ -31,7 +31,8 @@ import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyAction
 import { ContactEditDialog, type ContactEditValues } from '@/features/contacts/ContactEditDialog';
 
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
-import { ChannelBadge, ChannelIdentityCard, resolveChannelKey, resolveClientPlatform } from '@/components/inbox/ChannelBadge';
+import { ChannelBadge, ChannelIdentityCard, resolveChannelKey } from '@/components/inbox/ChannelBadge';
+import { resolveClientPlatform } from '@/components/inbox/clientPlatform';
 import { useContactIp } from '@/hooks/useContactIp';
 import { useVisitorNetwork } from '@/hooks/useVisitorNetwork';
 import { Globe, Lock } from 'lucide-react';

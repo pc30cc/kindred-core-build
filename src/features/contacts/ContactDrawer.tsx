@@ -25,7 +25,8 @@ import { getDisplayName, timeAgo, getCompanyFromMetadata, getLocalizedLocation }
 import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyActions';
 import { useVisitorNetwork } from '@/hooks/useVisitorNetwork';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
-import { ChannelBadge, ChannelIdentityCard, resolveChannelKey, resolveClientPlatform } from '@/components/inbox/ChannelBadge';
+import { ChannelBadge, ChannelIdentityCard, resolveChannelKey } from '@/components/inbox/ChannelBadge';
+import { resolveClientPlatform } from '@/components/inbox/clientPlatform';
 import { formatDateTime } from '@/lib/date';
 
 interface Props {

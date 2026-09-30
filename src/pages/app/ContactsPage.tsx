@@ -32,7 +32,8 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { ContactImportWizard } from '@/features/contacts/ContactImportWizard';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
-import { ChannelBadge, resolveChannelKey, resolveClientPlatform } from '@/components/inbox/ChannelBadge';
+import { ChannelBadge, resolveChannelKey } from '@/components/inbox/ChannelBadge';
+import { resolveClientPlatform } from '@/components/inbox/clientPlatform';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   getDisplayName, timeAgo,

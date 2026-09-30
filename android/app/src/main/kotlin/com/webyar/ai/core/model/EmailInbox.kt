@@ -23,7 +23,18 @@ data class EmailThreadSummary(
     val isStarred: Boolean? = null,
     val labels: List<String>? = null,
     val lastMessageSnippet: String? = null,
+    /** Gmail's cursor for this thread; it moves on every change, labels included. */
+    val historyId: String? = null,
+    val messageCount: Int? = null,
 ) {
+    /**
+     * What the thread's CONTENT is at: its message count and the time of its
+     * last message, which is how the web keys its body cache. The history id
+     * would also change on a read or a star, and those do not change what the
+     * thread says.
+     */
+    val version: String get() = "${messageCount ?: "-"}|${lastMessageAt ?: "-"}"
+
     /**
      * Who the row is about: everyone on the thread except, where we can tell,
      * the mailbox itself.
@@ -99,6 +110,47 @@ data class EmailThreadResponse(
 data class EmailThreadsResponse(
     val threads: List<EmailThreadSummary> = emptyList(),
     val nextBefore: String? = null,
+    /**
+     * The mailbox's change cursor as of this page (Gmail's `historyId`),
+     * handed back to `/changes` to learn what moved since. Absent for a
+     * mailbox the server polls instead (Yahoo).
+     */
+    val historyId: String? = null,
+)
+
+/**
+ * One connected mailbox of the workspace — a Gmail and a Yahoo can both be
+ * connected — with how many of its inbox threads are unread.
+ *
+ * `provider` is also what every `/api/email-inbox` call takes as
+ * `?provider=` to mean this mailbox rather than the default one.
+ */
+@Serializable
+data class EmailMailbox(
+    val provider: String,
+    val address: String? = null,
+    val status: String? = null,
+    /** Unread threads in the inbox; null when the provider could not say just now. */
+    val unread: Int? = null,
+)
+
+@Serializable
+data class EmailMailboxesResponse(val mailboxes: List<EmailMailbox> = emptyList())
+
+/**
+ * What changed in a mailbox since a cursor (`GET /changes?since=`).
+ *
+ * Ids only, never content. `contentThreadIds` are the threads whose messages
+ * changed — the only ones whose body a reader must fetch again; the rest
+ * changed a label. `reset` means the cursor is too old to answer from (or
+ * the provider has no cursors at all): reload the first page.
+ */
+@Serializable
+data class EmailChanges(
+    val historyId: String? = null,
+    val threadIds: List<String> = emptyList(),
+    val contentThreadIds: List<String>? = null,
+    val reset: Boolean = false,
 )
 
 /** The mailbox's three views: everything, what is unread, what is starred. */

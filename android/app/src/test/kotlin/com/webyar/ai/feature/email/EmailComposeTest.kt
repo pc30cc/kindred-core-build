@@ -108,7 +108,7 @@ class EmailComposeTest {
 
     private class RecordingApi(private val real: SampleApi = SampleApi()) : WebyarApi by real {
         var sent: EmailDraft? = null
-        override suspend fun sendEmailDraft(workspaceId: String, draft: EmailDraft) {
+        override suspend fun sendEmailDraft(workspaceId: String, draft: EmailDraft, mailbox: String?) {
             sent = draft
         }
     }
@@ -161,8 +161,9 @@ class EmailComposeTest {
                 bytes: ByteArray,
                 filename: String,
                 contentType: String,
+                mailbox: String?,
             ): StagedEmailAttachment = throw ApiError.Transport()
-            override suspend fun sendEmailDraft(workspaceId: String, draft: EmailDraft) {
+            override suspend fun sendEmailDraft(workspaceId: String, draft: EmailDraft, mailbox: String?) {
                 sent = draft
             }
         }
@@ -211,6 +212,7 @@ class EmailComposeTest {
             folder: EmailFolder,
             search: String?,
             before: String?,
+            mailbox: String?,
         ): EmailThreadsResponse {
             asked += folder to before
             return if (before == null) {
@@ -219,7 +221,7 @@ class EmailComposeTest {
                 EmailThreadsResponse(listOf(EmailThreadSummary("b"), EmailThreadSummary("c")), nextBefore = null)
             }
         }
-        override suspend fun setEmailThreadStarred(workspaceId: String, threadId: String, starred: Boolean) {
+        override suspend fun setEmailThreadStarred(workspaceId: String, threadId: String, starred: Boolean, mailbox: String?) {
             this.starred = threadId to starred
         }
     }

@@ -142,6 +142,7 @@ import com.webyar.ai.feature.email.EmailReplyMode
 import com.webyar.ai.feature.email.EmailComposeViewModel
 import com.webyar.ai.feature.email.EmailComposeScreen
 import com.webyar.ai.core.model.EmailAttachmentView
+import com.webyar.ai.core.model.EmailMailbox
 import com.webyar.ai.i18n.StrEmail
 import com.webyar.ai.ui.components.AttachmentFiles
 import com.webyar.ai.ui.components.Glyph
@@ -164,6 +165,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import com.webyar.ai.feature.settings.AvailabilityState
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.runBlocking
 import com.webyar.ai.feature.team.followTeam
 import com.webyar.ai.feature.team.TEAM_LIST_POLL_MS
 
@@ -184,7 +186,8 @@ fun InboxRoute(
     language: Language,
     onOpenConversation: (String) -> Unit,
     onOpenColleagues: () -> Unit,
-    onOpenEmail: () -> Unit,
+    /** Opens the mailbox — the given one (`gmail`, `yahoo`), or null for the one last shown. */
+    onOpenEmail: (String?) -> Unit,
     promotions: PromotionCenter,
     bottomInset: Dp,
     /**
@@ -192,6 +195,9 @@ fun InboxRoute(
      * Inbox tab's badge; null leaves the count and the dot off.
      */
     teamUnread: TeamUnread? = null,
+    /** The workspace's connected mailboxes and their unread threads, watched by the shell. */
+    mailboxes: List<EmailMailbox> = emptyList(),
+    emailUnread: Int = 0,
 ) {
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
     val plan by appState.entitlements.collectAsStateWithLifecycle()
@@ -295,6 +301,8 @@ fun InboxRoute(
         // The mailbox is also an owner/admin section, as in the console's sidebar.
         onOpenEmail = onOpenEmail
             .takeIf { access.isAdmin && plan.value?.moduleEnabled("email_inbox") == true },
+        mailboxes = mailboxes,
+        emailUnread = emailUnread,
         colleaguesUnread = teamUnread?.messages,
         openUnread = openUnread,
         colleagueThreadsUnread = teamUnread?.threads ?: 0,
@@ -1066,6 +1074,8 @@ fun EmailInboxRoute(
     val refreshing by email.refreshing.collectAsStateWithLifecycle()
     val folder by email.folder.collectAsStateWithLifecycle()
     val loadingMore by email.loadingMore.collectAsStateWithLifecycle()
+    val mailboxes by email.mailboxes.collectAsStateWithLifecycle()
+    val provider by email.provider.collectAsStateWithLifecycle()
 
     val search = rememberSearchState(resetOn = workspace?.id ?: "-")
     LaunchedEffect(search) {
@@ -1121,6 +1131,9 @@ fun EmailInboxRoute(
             onLoadMore = email::loadMore,
             onToggleStar = { email.toggleStar(it.id) },
             onToggleRead = { email.toggleRead(it.id) },
+            mailboxes = mailboxes,
+            selectedMailbox = provider,
+            onSelectMailbox = email::selectMailbox,
         )
     }
 }
@@ -1130,6 +1143,8 @@ fun EmailInboxRoute(
 fun EmailThreadRoute(
     threadId: String,
     appState: AppState,
+    /** The mailbox the thread is in (`gmail`, `yahoo`); null for the one the list shows. */
+    mailbox: String? = null,
     api: WebyarApi,
     email: EmailInboxViewModel,
     language: Language,
@@ -1144,49 +1159,85 @@ fun EmailThreadRoute(
     val draft by model.draft.collectAsStateWithLifecycle()
     val sending by model.sending.collectAsStateWithLifecycle()
     val sendFailed by model.sendFailed.collectAsStateWithLifecycle()
-    val mailbox by email.mailbox.collectAsStateWithLifecycle()
+    val ownAddress by email.mailbox.collectAsStateWithLifecycle()
     var menuOpen by remember { mutableStateOf(false) }
+    // Fixed when the screen opens: the list switching mailbox underneath
+    // (on a tablet's other pane) does not move a thread out of its own.
+    val provider = remember(threadId, mailbox) { mailbox ?: email.provider.value }
 
-    LaunchedEffect(workspace?.id, threadId) {
+    LaunchedEffect(workspace?.id, threadId, provider) {
         workspace?.let {
             // The mailbox's model bound here too, not only by its list: a
             // thread opened from a notification is on screen with the list
             // never composed beneath it (a phone shows one at a time), and
             // then nothing would ever learn the workspace's own address —
             // which is what keeps a Reply all from copying it back in.
-            email.bind(it.id)
-            model.open(it.id, threadId, email.thread(threadId))
+            email.bind(it.id, provider)
+            val known = email.thread(threadId)
+            model.open(
+                workspaceId = it.id,
+                threadId = threadId,
+                known = known,
+                mailbox = provider,
+                // Unchanged since this device last read it: no request.
+                cached = email.cachedThread(threadId, provider, known?.version),
+                remember = { response -> email.rememberThread(provider, response) },
+            )
         }
-    }
-    // Back from the composer: the reply just sent belongs in the trail.
-    LifecycleResumeEffect(threadId) {
-        model.reloadQuietly()
-        onPauseOrDispose { }
     }
 
     val context = LocalContext.current
     val graph = LocalAppGraph.current
+    val coordinator = remember(graph) { graph?.syncGraph()?.coordinator }
+    // On screen: its notification goes, a push about it stays quiet, and a
+    // change made while it was behind another screen — a reply just sent
+    // from the composer — is read now.
+    LifecycleResumeEffect(threadId) {
+        com.webyar.ai.core.push.Notifications.cancelEmailThread(context, threadId)
+        coordinator?.openEmailThread(threadId)
+        if (email.consumeStale(threadId)) model.reloadQuietly()
+        onPauseOrDispose { coordinator?.closeEmailThread(threadId) }
+    }
+    // New mail in this thread while it is open: read it again, in place.
+    LaunchedEffect(threadId) {
+        email.threadChanges.collect { changed ->
+            if (changed == null || threadId in changed) {
+                email.consumeStale(threadId)
+                model.reloadQuietly()
+            }
+        }
+    }
     val session by appState.session.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var notice by remember { mutableStateOf<String?>(null) }
     // A mail's file, fetched into this account's own cache folder (cleared
     // at sign-out with the rest of it) and handed to whatever opens it.
-    val openAttachment: (EmailAttachmentView) -> Unit = open@{ attachment ->
-        val ws = workspace?.id ?: return@open
-        val user = (session as? Session.SignedIn)?.user ?: return@open
-        val media = graph?.media ?: return@open
-        scope.launch {
-            val file = runCatching {
-                withContext(Dispatchers.IO) {
-                    val folder = java.io.File(media.directory(CacheScope(user.id, ws)), "email").apply { mkdirs() }
-                    val name = (attachment.filename ?: attachment.id).replace(Regex("[^A-Za-z0-9._-]"), "_").takeLast(80)
-                    val target = java.io.File(folder, "${attachment.id.take(12)}-$name")
-                    if (!target.exists() || target.length() == 0L) {
-                        target.writeBytes(api.emailAttachmentData(ws, attachment.id))
-                    }
-                    target
+    // The same file serves a picture drawn inside the mail (`cid:`).
+    val fetchFile: suspend (EmailAttachmentView) -> java.io.File? = fetch@{ attachment ->
+        val ws = workspace?.id ?: return@fetch null
+        val user = (session as? Session.SignedIn)?.user ?: return@fetch null
+        val media = graph?.media ?: return@fetch null
+        runCatching {
+            withContext(Dispatchers.IO) {
+                val folder = java.io.File(media.directory(CacheScope(user.id, ws)), "email").apply { mkdirs() }
+                val name = (attachment.filename ?: attachment.id).replace(Regex("[^A-Za-z0-9._-]"), "_").takeLast(80)
+                val target = java.io.File(folder, "${attachment.id.take(12)}-$name")
+                if (!target.exists() || target.length() == 0L) {
+                    target.writeBytes(api.emailAttachmentData(ws, attachment.id, provider))
                 }
-            }.getOrNull()
+                target
+            }
+        }.getOrNull()
+    }
+    val loadInline: (EmailAttachmentView) -> Pair<String, ByteArray>? = inline@{ attachment ->
+        // Asked on the WebView's own loading thread, never the main one.
+        if ((attachment.sizeBytes ?: 0L) > INLINE_PICTURE_MAX_BYTES) return@inline null
+        val file = runBlocking { withTimeoutOrNull(INLINE_PICTURE_WAIT_MS) { fetchFile(attachment) } } ?: return@inline null
+        (attachment.contentType?.takeIf { it.startsWith("image/") } ?: "image/*") to file.readBytes()
+    }
+    val openAttachment: (EmailAttachmentView) -> Unit = open@{ attachment ->
+        scope.launch {
+            val file = fetchFile(attachment)
             notice = when {
                 file == null -> StrEmail.downloadFailed(language)
                 !AttachmentFiles.openFile(context, file, attachment.contentType) -> StrEmail.openFailed(language)
@@ -1242,6 +1293,8 @@ fun EmailThreadRoute(
                                     // scope ends with the onBack() below and
                                     // would cancel the request on its way.
                                     email.setRead(threadId, read = false)
+                                    // The copy kept on the device says read; it no longer is.
+                                    email.noteChanged(threadId)
                                     // And back out, because the thread you
                                     // just marked unread is one you are done
                                     // with — staying on it would mark it read
@@ -1260,10 +1313,11 @@ fun EmailThreadRoute(
                 state = state,
                 thread = thread,
                 language = language,
-                mailbox = mailbox,
+                mailbox = ownAddress,
                 onRetry = model::retry,
                 onOpenAttachment = openAttachment,
                 onReply = onReply,
+                loadInline = loadInline,
             )
 
             notice?.let { text ->
@@ -1294,6 +1348,8 @@ fun EmailThreadRoute(
 @Composable
 fun EmailComposeRoute(
     sourceThreadId: String?,
+    /** The mailbox it is written from; null for the one the list shows. */
+    mailbox: String? = null,
     mode: EmailReplyMode?,
     appState: AppState,
     api: WebyarApi,
@@ -1304,7 +1360,7 @@ fun EmailComposeRoute(
     val model: EmailComposeViewModel =
         viewModel(factory = liveLanguage(language).let { l -> viewModelFactory { EmailComposeViewModel(api, l) } })
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
-    val mailbox by email.mailbox.collectAsStateWithLifecycle()
+    val ownAddress by email.mailbox.collectAsStateWithLifecycle()
     val form by model.form.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var confirmDiscard by remember { mutableStateOf(false) }
@@ -1318,17 +1374,20 @@ fun EmailComposeRoute(
         // the workspace's own address back in Cc. So the model is bound here
         // too, and a reply waits a moment for the address; one that never
         // comes (a request that fails) is prefilled without it, as before.
-        email.bind(ws.id)
+        val provider = mailbox ?: email.provider.value
+        email.bind(ws.id, provider)
         val own = if (sourceThreadId != null && (mode == EmailReplyMode.REPLY || mode == EmailReplyMode.REPLY_ALL)) {
             withTimeoutOrNull(MAILBOX_WAIT_MS) { email.mailbox.first { it != null } }
         } else {
             null
         }
-        model.start(ws.id, sourceThreadId, mode, own ?: email.mailbox.value)
+        model.start(ws.id, sourceThreadId, mode, own ?: email.mailbox.value, provider)
     }
     LaunchedEffect(form.sent) {
         if (form.sent) {
             android.widget.Toast.makeText(context, StrEmail.sent(language), android.widget.Toast.LENGTH_SHORT).show()
+            // The thread answered has a new message: read again when it is back on screen.
+            if (mode != EmailReplyMode.FORWARD) email.noteChanged(sourceThreadId)
             email.refresh()
             onClose()
         }
@@ -1356,7 +1415,7 @@ fun EmailComposeRoute(
                     EmailReplyMode.FORWARD -> StrEmail.forward(language)
                     null -> StrEmail.newMessage(language)
                 },
-                subtitle = mailbox,
+                subtitle = ownAddress,
                 backLabel = StrAndroid.back(language),
                 onBack = close,
                 actions = {
@@ -1792,6 +1851,12 @@ internal fun <I> ActivityResultLauncher<I>.launchPicker(input: I): Boolean =
 
 /** How long a reply waits for the workspace's own address before it is prefilled without it. */
 private const val MAILBOX_WAIT_MS = 5_000L
+
+/** A picture drawn inside a mail is fetched for the page up to this size… */
+private const val INLINE_PICTURE_MAX_BYTES = 10L * 1024 * 1024
+
+/** …and waited for this long before the page leaves it blank. */
+private const val INLINE_PICTURE_WAIT_MS = 20_000L
 
 @Composable
 fun ProfileRoute(

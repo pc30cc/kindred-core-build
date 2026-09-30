@@ -11,6 +11,7 @@ import com.webyar.ai.i18n.Str
 import com.webyar.ai.ui.A11y
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -222,7 +223,7 @@ class EmailTest {
     }
 
     @Test
-    fun `the trail draws a card per message`() = runTest {
+    fun `the thread is one page with every message on it`() = runTest {
         val api = SampleApi()
         val response = api.emailThread("ws-1", "t-1")
         compose.setContent {
@@ -234,9 +235,9 @@ class EmailTest {
         }
 
         compose.onNodeWithTag(A11y.EMAIL_THREAD).assertIsDisplayed()
-        response.messages.forEach {
-            compose.onNodeWithTag(A11y.emailMessage(it.id)).assertIsDisplayed()
-        }
+        val page = EmailReader.document(response.thread.subject, response.messages, mailbox = null, language = Language.FA)
+        assertTrue(page.contains("Please find attached the invoice for September."))
+        assertTrue(page.contains("We&#39;ll process it today."))
     }
 
     /**
@@ -258,15 +259,89 @@ class EmailTest {
 
     @Test
     fun `a thread with no subject is named rather than left blank`() = runTest {
-        // Fetched out here: `setContent` takes a composable, not a coroutine.
         val untitled = SampleApi().emailThreads("ws-1").first().copy(subject = "")
-        compose.setContent {
-            EmailThreadScreen(
-                EmailThreadState.Loaded(emptyList()),
-                thread = untitled,
-                language = Language.FA,
+        val page = EmailReader.document(untitled.subject, emptyList(), mailbox = null, language = Language.FA, snippet = untitled.lastMessageSnippet)
+        assertTrue(page.contains(EmailReader.escape(Str.emailNoSubject(Language.FA))))
+    }
+
+    // MARK: - Mailboxes, counts, and following them live
+
+    @Test
+    fun `every mailbox is counted, and another one is shown on request`() = runTest(dispatcher) {
+        val email = inbox()
+        email.bind("ws-1")
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(listOf("gmail", "yahoo"), email.mailboxes.value.map { it.provider })
+        assertEquals(2, email.unread.value)
+        assertEquals("gmail", email.provider.value)
+
+        email.selectMailbox("yahoo")
+        testScheduler.advanceUntilIdle()
+        assertEquals(listOf("y-1"), ids(email.state.value))
+        assertEquals("sales@webyar.app", email.mailbox.value)
+    }
+
+    @Test
+    fun `opening an unread thread takes it off the count`() = runTest(dispatcher) {
+        val email = inbox()
+        email.bind("ws-1")
+        testScheduler.advanceUntilIdle()
+
+        email.markReadLocally("t-1")
+        assertEquals(1, email.unread.value)
+        assertEquals(0, email.mailboxes.value.first { it.provider == "gmail" }.unread)
+    }
+
+    /**
+     * New mail: the signal says only that the mailbox changed. What changed
+     * is asked of the server by id, from the list's cursor, and the list and
+     * any open thread with new messages read again.
+     */
+    @Test
+    fun `a mailbox change reads what changed since the cursor, then the list`() = runTest(dispatcher) {
+        val signals = kotlinx.coroutines.flow.MutableSharedFlow<com.webyar.ai.core.sync.EmailSignal>()
+        val api = object : com.webyar.ai.core.net.WebyarApi by SampleApi() {
+            var pages = 0
+            val asked = mutableListOf<String>()
+            override suspend fun emailThreadsPage(
+                workspaceId: String,
+                folder: com.webyar.ai.core.model.EmailFolder,
+                search: String?,
+                before: String?,
+                mailbox: String?,
+            ) = com.webyar.ai.core.model.EmailThreadsResponse(
+                threads = listOf(com.webyar.ai.core.model.EmailThreadSummary("t-${++pages}")),
+                historyId = "10$pages",
             )
+            override suspend fun emailChanges(workspaceId: String, since: String, mailbox: String?) =
+                com.webyar.ai.core.model.EmailChanges(historyId = "200", threadIds = listOf("t-1", "t-9"), contentThreadIds = listOf("t-1")).also { asked += since }
         }
-        compose.onNodeWithText(Str.emailNoSubject(Language.FA)).assertIsDisplayed()
+        val email = EmailInboxViewModel(api, signals) { Language.FA }
+        val changed = mutableListOf<Set<String>?>()
+        backgroundScope.launch { email.threadChanges.collect { changed += it } }
+        email.bind("ws-1")
+        testScheduler.advanceUntilIdle()
+        assertEquals(1, api.pages)
+
+        signals.emit(com.webyar.ai.core.sync.EmailSignal("ws-1", "gmail", "200"))
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(listOf("101"), api.asked)
+        assertEquals(listOf<Set<String>?>(setOf("t-1")), changed)
+        assertEquals(2, api.pages)
+        assertTrue(email.consumeStale("t-1"))
+        assertFalse(email.consumeStale("t-1"))
+    }
+
+    @Test
+    fun `a thread read before is not asked for again while its content is unchanged`() = runTest(dispatcher) {
+        val email = inbox()
+        val response = SampleApi().emailThread("ws-1", "t-1")
+        email.rememberThread("gmail", response)
+
+        assertEquals(response, email.cachedThread("t-1", "gmail", response.thread.version))
+        // A new message is a new version: read again.
+        assertEquals(null, email.cachedThread("t-1", "gmail", response.thread.copy(messageCount = 9).version))
     }
 }

@@ -1,85 +1,65 @@
 package com.webyar.ai.feature.email
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.graphics.Color
+import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.webyar.ai.core.model.EmailAttachmentView
-import com.webyar.ai.core.model.EmailBody
-import com.webyar.ai.core.model.EmailMessageView
 import com.webyar.ai.core.model.EmailThreadSummary
-import com.webyar.ai.i18n.Format
 import com.webyar.ai.i18n.Language
 import com.webyar.ai.i18n.Str
 import com.webyar.ai.i18n.StrEmail
 import com.webyar.ai.ui.A11y
 import com.webyar.ai.ui.components.ErrorState
-import com.webyar.ai.ui.components.Glyph
-import com.webyar.ai.ui.components.LatinText
 import com.webyar.ai.ui.components.LoadingIndicator
-import com.webyar.ai.ui.components.bidiContent
-import com.webyar.ai.ui.components.rowTextAlign
-import com.webyar.ai.ui.design.Radius
-import com.webyar.ai.ui.design.Size
 import com.webyar.ai.ui.design.Space
-import com.webyar.ai.ui.design.WebyarTheme
-import com.webyar.ai.ui.design.WebyarType
+import java.io.ByteArrayInputStream
 
 /** How a reply is addressed. */
 enum class EmailReplyMode { REPLY, REPLY_ALL, FORWARD }
 
 /**
- * One email thread, the way a mail client shows it.
+ * One email thread, read the way the Windows app reads it.
  *
- * The subject on top; then the trail as cards, folded — each earlier mail
- * one line (who, the first words, when) and the newest open, along with any
- * that are unread; a tap opens or folds one. An open mail says who it went
- * to, keeps the text it quotes folded behind a button, and lists its files
- * as things to open. At the foot, Reply, Reply all and Forward, which open
- * the composer already addressed.
- *
- * Cards rather than bubbles: a mail has a sender line, a date, paragraphs
- * and attachments, and the outbound ones are tinted rather than moved to the
- * other side, which keeps a long trail one readable column.
+ * The whole thread is one white page ([EmailReader]): the subject, the
+ * newest mail open under who sent it, when and to whom, and the earlier ones
+ * folded below it, each a line that opens with a tap. A mail is shown as
+ * it was written — its own layout, colours, pictures and tables — rather than
+ * as its words with the HTML taken out. Files are chips on the page that
+ * open on the phone; links go to the browser. At the foot, Reply, Reply all
+ * and Forward, which open the composer already addressed.
  */
 @Composable
 fun EmailThreadScreen(
@@ -91,6 +71,8 @@ fun EmailThreadScreen(
     onRetry: () -> Unit = {},
     onOpenAttachment: (EmailAttachmentView) -> Unit = {},
     onReply: ((EmailReplyMode) -> Unit)? = null,
+    /** An inline picture's bytes and type, fetched for the page; null leaves it blank. */
+    loadInline: (EmailAttachmentView) -> Pair<String, ByteArray>? = { null },
 ) {
     Column(modifier.fillMaxSize()) {
         Box(Modifier.weight(1f)) {
@@ -107,57 +89,132 @@ fun EmailThreadScreen(
                 )
 
                 is EmailThreadState.Loaded -> {
-                    // The newest open, and whatever has not been read yet.
-                    var open by rememberSaveable(state.messages.size) {
-                        mutableStateOf(
-                            state.messages.filterIndexed { index, message ->
-                                index == state.messages.lastIndex || message.isRead == false
-                            }.map { it.id }.toSet(),
+                    val document = remember(state.messages, thread?.subject, mailbox, language) {
+                        EmailReader.document(
+                            subject = thread?.subject,
+                            messages = state.messages,
+                            mailbox = mailbox,
+                            language = language,
+                            snippet = thread?.lastMessageSnippet,
                         )
                     }
-                    LazyColumn(
-                        Modifier.fillMaxSize().testTag(A11y.EMAIL_THREAD),
-                        contentPadding = PaddingValues(Space.screenInset),
-                        verticalArrangement = Arrangement.spacedBy(Space.sm),
-                    ) {
-                        item(key = "subject") {
-                            Column(Modifier.fillMaxWidth().padding(bottom = Space.sm)) {
-                                Text(
-                                    thread?.subject?.takeIf { it.isNotEmpty() }
-                                        ?: Str.emailNoSubject(language),
-                                    style = WebyarType.headlineSmallEmphasized.bidiContent(),
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                                if (state.messages.size > 1) {
-                                    Text(
-                                        StrEmail.messagesCount(language, state.messages.size),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = WebyarTheme.colors.labelTertiary,
-                                        modifier = Modifier.padding(top = Space.xxs),
-                                    )
-                                }
-                            }
-                        }
-                        items(state.messages, key = { it.id }) { message ->
-                            val expanded = message.id in open
-                            EmailMessageCard(
-                                message = message,
-                                expanded = expanded,
-                                mailbox = mailbox,
-                                language = language,
-                                onToggle = {
-                                    open = if (expanded) open - message.id else open + message.id
-                                },
-                                onOpenAttachment = onOpenAttachment,
-                            )
-                        }
+                    val files = remember(state.messages) {
+                        state.messages.flatMap { it.attachments.orEmpty() }.associateBy { it.id }
                     }
+                    EmailReaderView(
+                        document = document,
+                        onAttachment = { id -> files[id]?.let(onOpenAttachment) },
+                        loadInline = { id -> files[id]?.let(loadInline) },
+                        modifier = Modifier.fillMaxSize().testTag(A11y.EMAIL_THREAD),
+                    )
                 }
             }
         }
         if (onReply != null && state is EmailThreadState.Loaded) {
             ReplyBar(language, onReply)
         }
+    }
+}
+
+/**
+ * The page, in a WebView that can only draw.
+ *
+ * JavaScript is off, files and content URIs are off, no second window can
+ * open, and nothing navigates inside it: a tapped link is handed to the
+ * browser (or, for a file chip, to the app), and a navigation nobody tapped
+ * — a mail trying to move the page by itself — goes nowhere.
+ */
+@Composable
+internal fun EmailReaderView(
+    document: String,
+    onAttachment: (String) -> Unit,
+    loadInline: (String) -> Pair<String, ByteArray>?,
+    modifier: Modifier = Modifier,
+) {
+    val attachment by rememberUpdatedState(onAttachment)
+    val inline by rememberUpdatedState(loadInline)
+    AndroidView(
+        factory = { context ->
+            WebView(context).apply {
+                // White before the first frame too, so a dark theme does not
+                // flash black behind a mail that is about to be white.
+                setBackgroundColor(Color.WHITE)
+                settings.apply {
+                    javaScriptEnabled = false
+                    javaScriptCanOpenWindowsAutomatically = false
+                    setSupportMultipleWindows(false)
+                    allowFileAccess = false
+                    allowContentAccess = false
+                    domStorageEnabled = false
+                    setGeolocationEnabled(false)
+                    mediaPlaybackRequiresUserGesture = true
+                    // Pinch to read a newsletter drawn for a desktop.
+                    builtInZoomControls = true
+                    displayZoomControls = false
+                    cacheMode = WebSettings.LOAD_DEFAULT
+                }
+                webViewClient = ReaderClient(
+                    onAttachment = { attachment(it) },
+                    loadInline = { inline(it) },
+                )
+            }
+        },
+        update = { view ->
+            // Only a new page is loaded: recomposing for anything else would
+            // throw away the reader's scroll and every card they opened.
+            if (view.tag != document) {
+                view.tag = document
+                view.loadDataWithBaseURL(null, document, "text/html", "utf-8", null)
+            }
+        },
+        onRelease = { view ->
+            view.stopLoading()
+            view.destroy()
+        },
+        modifier = modifier,
+    )
+}
+
+private class ReaderClient(
+    private val onAttachment: (String) -> Unit,
+    private val loadInline: (String) -> Pair<String, ByteArray>?,
+) : WebViewClient() {
+
+    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+        val url = request.url.toString()
+        if (url.startsWith("${EmailReader.ATTACHMENT_SCHEME}:")) {
+            EmailReader.attachmentIdOf(url)?.let(onAttachment)
+            return true
+        }
+        val scheme = request.url.scheme?.lowercase()
+        // Only a link somebody tapped leaves the app; a page that moves by
+        // itself (a refresh, a redirect) is simply stopped.
+        if (scheme in EXTERNAL && request.hasGesture()) {
+            try {
+                view.context.startActivity(
+                    Intent(Intent.ACTION_VIEW, request.url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            } catch (_: ActivityNotFoundException) {
+                // Nothing on the phone opens it: the tap does nothing, which
+                // is better than the page trying and showing an error.
+            }
+        }
+        return true
+    }
+
+    override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+        if (request.url.host != EmailReader.INLINE_HOST) return null
+        val part = EmailReader.attachmentIdOf(request.url.toString())
+            ?.let { id -> runCatching { loadInline(id) }.getOrNull() }
+            ?: return WebResourceResponse("text/plain", "utf-8", 404, "Not Found", emptyMap(), ByteArrayInputStream(ByteArray(0)))
+        return WebResourceResponse(part.first, null, ByteArrayInputStream(part.second))
+    }
+
+    /** A crashed renderer takes the page with it, not the app. */
+    override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean = true
+
+    private companion object {
+        val EXTERNAL = setOf("http", "https", "mailto", "tel")
     }
 }
 
@@ -197,220 +254,4 @@ private fun ReplyBar(language: Language, onReply: (EmailReplyMode) -> Unit) {
             }
         }
     }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun EmailMessageCard(
-    message: EmailMessageView,
-    expanded: Boolean,
-    mailbox: String?,
-    language: Language,
-    onToggle: () -> Unit,
-    onOpenAttachment: (EmailAttachmentView) -> Unit,
-) {
-    Surface(
-        color = if (message.isOutbound) {
-            // Tinted, not moved: a quoted trail stays one readable column.
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerLow
-        },
-        shape = RoundedCornerShape(Radius.xl),
-        modifier = Modifier
-            .fillMaxWidth()
-            .animateContentSize()
-            .testTag(A11y.emailMessage(message.id)),
-    ) {
-        Column(
-            Modifier.padding(Space.lg),
-            verticalArrangement = Arrangement.spacedBy(Space.md),
-        ) {
-            // The header is the fold: a tap on it opens or closes the mail.
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(Radius.md))
-                    .clickable(onClick = onToggle),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                MailAvatar(address = message.fromAddress.orEmpty(), size = Size.avatarSmall - 4.dp)
-                Column(Modifier.weight(1f).padding(horizontal = Space.sm)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        LatinText(
-                            message.fromAddress.orEmpty(),
-                            style = WebyarType.titleMediumEmphasized.copy(
-                                fontWeight = if (message.isRead == false) FontWeight.Bold else FontWeight.SemiBold,
-                            ),
-                            maxLines = 1,
-                            align = rowTextAlign(),
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            if (expanded) fullTime(message, language) else Format.listTimestamp(message.sentAt, language),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = WebyarTheme.colors.labelTertiary,
-                            maxLines = 1,
-                            modifier = Modifier.padding(start = Space.sm),
-                        )
-                    }
-                    if (expanded) {
-                        recipientsLine(message, mailbox, language)?.let { line ->
-                            // Not LatinText: the line is a sentence in the
-                            // operator's language ("به من، …") with addresses
-                            // in it, and forcing it left to right scrambled
-                            // the Persian words around them. The sentence
-                            // takes its direction from its first word; each
-                            // address is isolated left to right inside it.
-                            Text(
-                                line,
-                                style = MaterialTheme.typography.labelMedium.bidiContent(),
-                                color = WebyarTheme.colors.labelTertiary,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                    } else {
-                        // Folded: the first words, as a mail client shows it.
-                        Text(
-                            message.snippet?.takeIf { it.isNotBlank() } ?: message.displayBody.lineSequence().firstOrNull().orEmpty(),
-                            style = MaterialTheme.typography.bodySmall.bidiContent(),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
-                // A reply that never left is the one thing worth calling out
-                // in the trail; everything else the operator can read for
-                // themselves.
-                if (message.deliveryStatus == "failed") {
-                    Icon(
-                        Icons.Filled.Warning,
-                        contentDescription = Str.emailSendFailed(language),
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-            }
-
-            if (expanded) {
-                val (fresh, quoted) = remember(message.id, message.displayBody) {
-                    EmailBody.splitQuoted(message.displayBody)
-                }
-                var showQuoted by rememberSaveable(message.id) { mutableStateOf(false) }
-                Text(
-                    fresh,
-                    style = MaterialTheme.typography.bodyLarge.bidiContent(),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                if (quoted != null) {
-                    TextButton(
-                        onClick = { showQuoted = !showQuoted },
-                        contentPadding = PaddingValues(horizontal = Space.sm, vertical = 0.dp),
-                    ) {
-                        Text(
-                            if (showQuoted) StrEmail.hideQuoted(language) else StrEmail.showQuoted(language),
-                            style = MaterialTheme.typography.labelLarge,
-                        )
-                    }
-                    AnimatedVisibility(visible = showQuoted) {
-                        Row(Modifier.fillMaxWidth()) {
-                            Box(
-                                Modifier
-                                    .padding(end = Space.sm)
-                                    .size(width = 3.dp, height = 24.dp)
-                                    .background(MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(2.dp)),
-                            )
-                            Text(
-                                quoted,
-                                style = MaterialTheme.typography.bodyMedium.bidiContent(),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                }
-
-                // Each attachment as a tonal pill that opens the file.
-                val files = message.attachments.orEmpty()
-                if (files.isNotEmpty()) {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(Space.sm),
-                        verticalArrangement = Arrangement.spacedBy(Space.sm),
-                    ) {
-                        files.forEach { attachment ->
-                            AttachmentPill(attachment, language) { onOpenAttachment(attachment) }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AttachmentPill(attachment: EmailAttachmentView, language: Language, onOpen: () -> Unit) {
-    Row(
-        Modifier
-            .clip(RoundedCornerShape(Radius.lg))
-            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-            .clickable(onClick = onOpen)
-            .padding(horizontal = Space.md, vertical = Space.sm)
-            .testTag(A11y.emailAttachment(attachment.id)),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            if (attachment.contentType?.startsWith("image/") == true) Glyph.Paperclip else Glyph.Document,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(18.dp),
-        )
-        Column(Modifier.padding(start = Space.sm)) {
-            LatinText(
-                attachment.filename ?: Str.file(language),
-                style = MaterialTheme.typography.labelLarge,
-                maxLines = 1,
-            )
-            attachment.sizeBytes?.let {
-                Text(
-                    Format.fileSize(it, language),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = WebyarTheme.colors.labelTertiary,
-                )
-            }
-        }
-    }
-}
-
-/** "Today 14:30", "Thursday 2 Mehr 09:12" — the day and the time. */
-private fun fullTime(message: EmailMessageView, language: Language): String {
-    val at = message.sentAt ?: return ""
-    return "${Format.dayHeader(at, language)} ${Format.bubbleTime(at, language)}"
-}
-
-/**
- * "to me, sara@x.com · Cc ali@y.com" — the mailbox named as "me".
- *
- * Each address is wrapped in a left-to-right isolate (U+2066 … U+2069,
- * written as escapes: the characters are invisible, and lint refuses them
- * literally). Inside a Persian sentence an address is otherwise reordered
- * with its neighbours — the domain ends up first, and the commas between
- * addresses wander to the wrong ends.
- */
-internal fun recipientsLine(message: EmailMessageView, mailbox: String?, language: Language): String? {
-    fun name(address: String) =
-        if (mailbox != null && EmailComposeViewModel.sameAddress(address, mailbox)) {
-            StrEmail.me(language)
-        } else {
-            "\u2066$address\u2069"
-        }
-    val to = message.toAddresses.orEmpty().map { name(it.email) }
-    val cc = message.ccAddresses.orEmpty().map { name(it.email) }
-    if (to.isEmpty() && cc.isEmpty()) return null
-    val toPart = if (to.isNotEmpty()) StrEmail.toLine(language, to.joinToString(", ")) else null
-    val ccPart = if (cc.isNotEmpty()) "${StrEmail.cc(language)} ${cc.joinToString(", ")}" else null
-    return listOfNotNull(toPart, ccPart).joinToString(" · ")
 }

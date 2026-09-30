@@ -22,10 +22,10 @@ import org.robolectric.annotation.Config
 /**
  * Which shape an attachment gets.
  *
- * The bug these are about shipped and was reported: a recording came into
- * the thread drawn as `voice-note.m4a · ۸۷ کیلوبایت` with a document icon,
- * because `AttachmentView` drew everything that was not an image as a file
- * card. Nothing failed — there was simply no way to play it.
+ * A recording has to be playable. Drawn as a file card, as everything that
+ * is not an image otherwise would be, it arrives as
+ * `voice-note.m4a · ۸۷ کیلوبایت` with a document icon: nothing fails, and
+ * there is simply no way to play it.
  *
  * Robolectric has no codec, so the assertions stop where the platform
  * begins: a voice note gets the transport rather than a card, and while the

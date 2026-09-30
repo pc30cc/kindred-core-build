@@ -17,9 +17,9 @@ val LocalLanguageSource = staticCompositionLocalOf<(() -> Language)?> { null }
  * not captured when the model is made.
  *
  * A model outlives the screen that made it — it stays while the screen is
- * under another on the stack — so `Model(api) { language }` kept the
+ * under another on the stack — so `Model(api) { language }` would keep the
  * language of the moment it was made, and after a switch to English every
- * later error in that screen still came in Persian. Outside the app (a
+ * later error in that screen would still come in Persian. Outside the app (a
  * preview, a test composing one screen) the screen's own [language] stands in.
  */
 @Composable

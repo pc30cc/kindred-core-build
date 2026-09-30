@@ -71,10 +71,10 @@ class LiveKitRoom(private val context: Context) : CallRoom {
     /**
      * On the main thread, like every other caller of [refreshTracks].
      *
-     * The room's events used to be collected on a pool thread while
-     * [connect] and [setCamera] refreshed the same two flows from the main
-     * one, and whichever wrote last won — sometimes with the older answer.
-     * One thread makes "last" mean "latest".
+     * [connect] and [setCamera] refresh the same two flows from the main
+     * thread; with the room's events collected on a pool thread, whichever
+     * wrote last would win — sometimes with the older answer. One thread
+     * makes "last" mean "latest".
      */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val audio = AudioSwitchHandler(context.applicationContext)
@@ -114,8 +114,8 @@ class LiveKitRoom(private val context: Context) : CallRoom {
             room.connect(url = url, token = credentials.token, options = connectOptions(credentials))
         } catch (e: CancellationException) {
             // The operator hung up while this was connecting. That is not a
-            // failure, and reporting it as one rewrote "call ended" into
-            // "could not connect" on the screen of somebody who had just
+            // failure, and reporting it as one would rewrite "call ended"
+            // into "could not connect" on the screen of somebody who has just
             // pressed the red button.
             throw e
         } catch (e: Throwable) {
@@ -152,12 +152,12 @@ class LiveKitRoom(private val context: Context) : CallRoom {
 
         // Always a configuration of our own, never null. The SDK reads
         // `ConnectOptions.iceServers` only while merging them into an
-        // `rtcConfig` it was given; with none, it builds its own from the
+        // `rtcConfig` it is given; with none, it builds its own from the
         // server's list alone and the workspace's TURN is silently dropped —
-        // which is how every call not marked relay-only went out without it.
+        // every call not marked relay-only would go out without it.
         //
         // With no TURN of our own the list is empty, and the SDK then uses
-        // the servers LiveKit sent, exactly as it did before.
+        // only the servers LiveKit sent.
         val rtcConfig = PeerConnection.RTCConfiguration(iceServers.orEmpty()).apply {
             // Relay-only when the server says so. A workspace behind a strict
             // NAT connects through TURN or not at all, and offering host
@@ -215,8 +215,8 @@ class LiveKitRoom(private val context: Context) : CallRoom {
      * From `trackPublications`, not `videoTrackPublications`. The second is
      * derived from the first on the SDK's own dispatcher, so at the moment a
      * `TrackSubscribed` arrives it can still describe the room from before —
-     * and the refresh that event asked for read "no picture" about a visitor
-     * whose picture had just arrived. The first is the map itself.
+     * and the refresh that event asks for would read "no picture" about a
+     * visitor whose picture has just arrived. The first is the map itself.
      *
      * Main thread only; see [scope].
      */
@@ -233,8 +233,8 @@ class LiveKitRoom(private val context: Context) : CallRoom {
 
     /**
      * The picture a publication is actually sending: video, subscribed, and
-     * not muted. A muted camera keeps its track, and drawing it showed the
-     * visitor frozen on the last frame before they switched it off.
+     * not muted. A muted camera keeps its track, and drawing it would show
+     * the visitor frozen on the last frame before they switched it off.
      */
     private fun TrackPublication.liveVideo(): VideoTrack? =
         if (kind == Track.Kind.VIDEO && !muted) track as? VideoTrack else null

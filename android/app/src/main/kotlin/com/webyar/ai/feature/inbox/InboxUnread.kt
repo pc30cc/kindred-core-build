@@ -54,7 +54,7 @@ data class OpenUnread(
  *
  * [threads] is what the badge and the dot count: a colleague who sends five
  * lines in a row is one thing to answer, not five. [messages] is the number
- * the Colleagues button has always carried.
+ * the Colleagues button carries.
  */
 data class TeamUnread(val threads: Int = 0, val messages: Int = 0) {
     companion object {

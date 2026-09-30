@@ -79,12 +79,12 @@ object AttachmentCache {
                 abandoned = false
             } finally {
                 // Whatever happened, the request is retired and its joiners
-                // are answered — even for a caller that was cancelled. This
-                // used to be `runCatching`, which read a cancelled download as
-                // "no such file" and told every view that had joined it the
-                // photo had failed; and a cleanup that could itself be
-                // cancelled would leave an entry in [inFlight] that every
-                // later request joined and waited on for good.
+                // are answered — even for a caller that was cancelled. Not
+                // `runCatching`, which would read a cancelled download as
+                // "no such file" and tell every view that joined it the photo
+                // had failed; and a cleanup that could itself be cancelled
+                // would leave an entry in [inFlight] that every later request
+                // joined and waited on for good.
                 val result = loaded
                 withContext(NonCancellable) {
                     lock.withLock {

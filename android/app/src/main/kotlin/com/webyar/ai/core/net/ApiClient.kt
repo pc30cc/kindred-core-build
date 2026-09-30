@@ -160,11 +160,9 @@ class ApiClient(
          * What the app actually said and what actually came back — in the
          * debug build only.
          *
-         * Written after an afternoon spent inferring a request body from the
-         * server's source, because the app had no way to show its own
-         * traffic. The bug was a field that a serializer setting silently
-         * dropped, which no amount of reading the Kotlin would reveal: the
-         * code said `client = "mobile"` and the wire did not.
+         * Some faults only the traffic shows: a field that a serializer
+         * setting silently drops is invisible in the Kotlin — the code says
+         * `client = "mobile"` and the wire does not.
          *
          * `BuildConfig.DEBUG` is a compile-time constant, so R8 folds this
          * branch away and the shipped app neither logs nor carries the
@@ -187,8 +185,8 @@ class ApiClient(
                 level = LogLevel.HEADERS
                 sanitizeHeader { name -> name.equals(HttpHeaders.Authorization, ignoreCase = true) }
                 // Auth is not logged AT ALL, and the reason is the request
-                // body rather than the response. Should the level ever go
-                // back to `ALL`, that writes bodies, and the body of a
+                // body rather than the response. Should the level ever be
+                // raised to `ALL`, that writes bodies, and the body of a
                 // sign-in is somebody's password in plain
                 // text — in logcat, which every app with READ_LOGS and anyone
                 // holding the phone over adb can read. Redacting the
@@ -271,8 +269,8 @@ class ApiClient(
         val publicBaseUrl: String? = null,
         val helpCenterUrl: String? = null,
         /**
-         * Already resolved server-side. Every client used to append its own
-         * path here and they disagreed.
+         * Already resolved server-side, so no client appends a path of its
+         * own: clients that each append one disagree.
          */
         val supportUrl: String? = null,
     ) {
@@ -291,8 +289,9 @@ class ApiClient(
      * copy until the store shipped a new one.
      *
      * Forgotten only once the fallback has answered. A phone in a lift cannot
-     * reach either host, and used to forget a perfectly good origin on every
-     * cold start without signal — then sign in against the compiled one.
+     * reach either host; forgetting sooner would drop a perfectly good origin
+     * on every cold start without signal — then sign in against the compiled
+     * one.
      */
     override suspend fun refreshOrigin() {
         askOrigins(origin())?.let { return adopt(it) }
@@ -324,8 +323,8 @@ class ApiClient(
             method = HttpMethod.Get
             header("Accept", "application/json")
             // A few hundred bytes, asked at every launch: on a connection
-            // that hangs rather than fails, the client-wide 20 seconds was
-            // how long a signed-out launch waited to learn nothing. The
+            // that hangs rather than fails, the client-wide 20 seconds would
+            // be how long a signed-out launch waits to learn nothing. The
             // address in hand serves until a later launch hears back.
             timeout {
                 requestTimeoutMillis = ORIGIN_TIMEOUT_MS
@@ -364,7 +363,7 @@ class ApiClient(
         // serializer cannot drop it. `server/routes/auth.ts` accepts
         // either signal, and one of them living in a header means a
         // change to the JSON settings can never silently turn this
-        // app back into a cookie client.
+        // app into a cookie client.
         header("X-Client-Platform", "android")
         currentTokenHeader(this)
         headers.forEach { (name, value) -> header(name, value) }
@@ -395,9 +394,9 @@ class ApiClient(
 
     /**
      * A file going up or coming down: no cap on the whole request, only on
-     * silence. The 20 seconds that suit a JSON call cut a 10 MB video off
-     * half-way on a phone connection — every time, with the same error, so
-     * a retry could never succeed. A stalled socket still fails after the
+     * silence. The 20 seconds that suit a JSON call would cut a 10 MB video
+     * off half-way on a phone connection — every time, with the same error,
+     * so a retry could never succeed. A stalled socket still fails after the
      * minute [HttpTimeout] gives it.
      */
     private fun HttpRequestBuilder.longTransfer() {
@@ -412,8 +411,8 @@ class ApiClient(
         if (status.isSuccess()) return this
         // Only 401 means "this session is void". A 403 means the session is
         // fine and this particular thing is not allowed — treating the two the
-        // same signed an operator out of the whole app because one endpoint
-        // refused them.
+        // same would sign an operator out of the whole app because one
+        // endpoint refused them.
         if (status.value == 401) {
             reportIfCurrent(this)
             throw ApiError.Unauthorized
@@ -446,12 +445,12 @@ class ApiClient(
          * NO DEFAULT VALUE, and that is the whole point. `encodeDefaults` is
          * false — kotlinx's default — so a property that equals its declared
          * default is left out of the JSON entirely. Written as
-         * `val client: String = "mobile"` this field was never once sent.
+         * `val client: String = "mobile"` this field is never sent.
          *
          * `server/routes/auth.ts` reads it to decide `isMobileClient`, and
          * puts `sessionToken` in the response body only for a mobile client.
          * Without it the login SUCCEEDS, returns a user, sets a cookie this
-         * app cannot use, and omits the token — which arrived here as "the
+         * app cannot use, and omits the token — which reaches here as "the
          * server's answer couldn't be read".
          */
         val client: String,
@@ -514,9 +513,9 @@ class ApiClient(
     /**
      * The query that names one queue.
      *
-     * `needs_human`, in snake case, is what `listQuerySchema` reads. This used
-     * to send `needsHuman`, which zod drops as an unknown key — so the
-     * Needs-human queue silently answered with the whole open queue.
+     * `needs_human`, in snake case, is what `listQuerySchema` reads. zod
+     * drops `needsHuman` as an unknown key, and the Needs-human queue would
+     * silently answer with the whole open queue.
      */
     private fun inboxQuery(workspaceId: String, filter: InboxFilter): List<Pair<String, String>> = buildList {
         add("workspace_id" to workspaceId)
@@ -557,7 +556,7 @@ class ApiClient(
         val response = build(HttpMethod.Get, "/api/conversations", query).decode<ConversationsResponse>()
         val set = wanted.toSet()
         val rows = response.conversations.filter { it.id in set }
-        // No echo: an older server ignored `ids` and sent the whole queue.
+        // No echo: an older server ignores `ids` and sends the whole queue.
         return if (response.ids != null) ConversationSlice(rows) else ConversationSlice(rows, response.conversations)
     }
 
@@ -699,8 +698,8 @@ class ApiClient(
     @Serializable
     // No default, for the reason spelled out on `LoginBody.client`: one here
     // would never be serialised. This one happens to be harmless — the server
-    // also defaults `assign_to_me` to true — but the code read as though a
-    // value was being sent when none was.
+    // also defaults `assign_to_me` to true — but the code would read as
+    // though a value is sent when none is.
     private data class TakeOverBody(val workspaceId: String, val assign_to_me: Boolean)
 
     override suspend fun takeOverConversation(conversationId: String, workspaceId: String) {
@@ -737,9 +736,9 @@ class ApiClient(
         build(
             HttpMethod.Post,
             "/api/ai-agent/conversations/${conversationId.urlPath()}/ai-say-now",
-            // The server's field is still `attribution`; only the app's name
-            // for it changed, and renaming the wire format to match would be a
-            // server change for the sake of a label.
+            // The server's field is `attribution`; the app calls it a voice,
+            // and renaming the wire format to match would be a server change
+            // for the sake of a label.
             body = SayNowBody(body, voice.wireValue),
         ).orThrow()
     }
@@ -776,10 +775,10 @@ class ApiClient(
                 priority = priority?.wire,
                 assigned_to = when (assignedTo) {
                     is Assignee.To -> JsonPrimitive(assignedTo.userId)
-                    // A literal `null` on the wire: unassign. This used to be
-                    // a Kotlin null, which the encoder drops with the other
-                    // unset fields — so "Unassign" sent nothing and the
-                    // conversation stayed with whoever had it.
+                    // A literal `null` on the wire: unassign. A Kotlin null
+                    // is dropped by the encoder with the other unset fields,
+                    // so "Unassign" would send nothing and the conversation
+                    // would stay with whoever has it.
                     Assignee.Nobody -> JsonNull
                     // Omitted: the caller is not changing the assignee.
                     null -> null
@@ -1476,8 +1475,8 @@ class ApiClient(
     /**
      * The profile as stored after the upload, read back rather than taken
      * from the answer: the route replies `{success, url, fileKey}` and no
-     * profile, so decoding one gave null every time — and the screen kept
-     * showing the old picture as if the upload had not happened.
+     * profile, so decoding one would give null every time — and the screen
+     * would keep showing the old picture as if the upload had not happened.
      */
     override suspend fun uploadAvatar(
         bytes: ByteArray,
@@ -1546,13 +1545,13 @@ class ApiClient(
         /** `adb logcat -s WebyarApi` shows every request and its answer. */
         const val LOG_TAG = "WebyarApi"
 
+        /** The launch's question of where the platform lives; see askOrigins. */
+        const val ORIGIN_TIMEOUT_MS = 5_000L
+
         /**
          * Never in that log, not even in debug: a password, or a body that
          * is itself a credential (realtime, push and call tokens).
          */
-        /** The launch's question of where the platform lives; see askOrigins. */
-        const val ORIGIN_TIMEOUT_MS = 5_000L
-
         val UNLOGGED_PATHS = listOf("/api/auth", "/api/realtime/", "/api/push/", "/token", "/api/account/change-password")
 
         /** Query parameters that carry what somebody typed, or a file's name. */

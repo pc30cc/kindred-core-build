@@ -26,10 +26,10 @@ import org.robolectric.annotation.Config
 /**
  * What the chat's view model decides, as against what the screen draws.
  *
- * The split matters for one of these in particular: trimming used to happen in
- * the composer, and moved here when the draft was hoisted so a saved reply
- * could be inserted from outside. A behaviour that moves between layers is
- * exactly the kind that gets lost, so it is pinned where it now lives.
+ * The split matters for one of these in particular: trimming belongs here,
+ * not in the composer, because the draft is hoisted so a saved reply can be
+ * inserted from outside. A behaviour that sits between layers is exactly the
+ * kind that gets lost, so it is pinned where it lives.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 // Robolectric for android.icu: the length notice formats its limit with the

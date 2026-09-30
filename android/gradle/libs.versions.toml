@@ -1,6 +1,6 @@
-# Versions resolved from Google's Maven and Maven Central on 2026-09-21, not
-# from memory. Google's Maven answers only over IPv4 from the CI host — see
-# the note in gradle.properties.
+# Versions resolved from Google's Maven and Maven Central on 2026-09-21.
+# Google's Maven answers only over IPv4 from the CI host — see the note in
+# gradle.properties.
 
 [versions]
 agp = "9.4.1"
@@ -48,13 +48,11 @@ room = "2.8.5"
 # Kotlin is supported from 2.3.1.
 ksp = "2.3.12"
 # Deferred maintenance and push-registration retries, never polling. 2.11.2
-# rather than the 2.12.0 published two days before this was written: 2.11.x
-# is what the ecosystem has been running, and nothing here needs 2.12.
+# rather than the just-released 2.12.0: 2.11.x is what the ecosystem has been
+# running, and nothing here needs 2.12.
 work = "2.11.2"
 # FCM. The BoM decides firebase-messaging's version. 34.19.0 is the current
-# BoM as of 2026-09 (the 34.18.0 → 34.19.0 bumps across GitHub confirm it);
-# firebase.google.com itself is not reachable from the machine this was
-# written on.
+# BoM as of 2026-09.
 firebaseBom = "34.19.0"
 # Screenshot tests on the JVM (Robolectric's native graphics), the way
 # nowinandroid does them. Resolved from Maven Central 2026-09-25.

@@ -26,20 +26,14 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * The way in, and the one thing about it that has been reported twice.
- *
- * "The keyboard does not open when I tap the email field" came back after it
- * was first fixed, and the screen had no tests at all — so nothing could have
- * told us whether a change had broken it. These are the assertions that would
- * have.
+ * The way in: the keyboard must open on the email field.
  *
  * What a JVM test CAN pin: the field exists, it takes focus on arrival
  * without anybody tapping, a tap focuses it, and typing reaches it. Robolectric
  * has no real IME, so whether the soft keyboard physically appears is NOT
- * claimed here — that is the emulator's business, and twice it was the
- * emulator's fault (a hardware keyboard in the AVD, then Gboard left in
- * floating mode). Focus is the part the app controls, and the part that
- * breaks when a modifier order or an inset changes.
+ * claimed here — that depends on the device's own keyboard settings. Focus is
+ * the part the app controls, and the part that breaks when a modifier order
+ * or an inset changes.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -127,7 +121,7 @@ class LoginScreenTest {
         compose.onNodeWithTag(A11y.LOGIN_SUBMIT).assertIsEnabled()
     }
 
-    /** RTL must not change any of it. The first report was on a Persian screen. */
+    /** The direction of the layout must not change any of it. */
     @Test
     fun `the same holds in English`() {
         show(Language.EN)

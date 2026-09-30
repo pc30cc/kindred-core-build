@@ -84,11 +84,11 @@ class RealtimeCoordinator(
      * The network came back: a client waiting out a backoff tries now, and
      * a read the sync layer still owes is made now.
      *
-     * The second half used to be missing — this is the only place the app
-     * hears about the network, and it told the socket alone. Where there is
-     * no socket to reconnect (a server on polling, or realtime refused), the
-     * owed read then waited for a poll that had backed off to five minutes
-     * while it was offline.
+     * This is the only place the app hears about the network, so it tells
+     * the sync layer as well as the socket. Where there is no socket to
+     * reconnect (a server on polling, or realtime refused), telling the
+     * socket alone would leave the owed read waiting for a poll that backed
+     * off to five minutes while the phone was offline.
      */
     fun onNetworkAvailable() {
         client?.nudge()

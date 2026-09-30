@@ -94,13 +94,12 @@ import com.webyar.ai.ui.components.deleteBefore
 /**
  * The one place a message is written.
  *
- * **One field, and no bar above it.** Two earlier designs come back here if
- * nobody remembers why: the first stacked the console's guidance box over the
- * reply box, which is two places to type on one phone screen; the second kept
- * one field and put a row of mode chips above it, which pushed the field down
- * and made the operator choose a mode before every sentence. On an AI-answered
- * thread the composer means exactly one thing, and an operator who wants the
- * other takes the thread over from the header menu.
+ * **One field, and no bar above it.** The console's guidance box stacked over
+ * the reply box is two places to type on one phone screen; a row of mode
+ * chips above the field pushes it down and makes the operator choose a mode
+ * before every sentence. On an AI-answered thread the composer means exactly
+ * one thing, and an operator who wants the other takes the thread over from
+ * the header menu.
  *
  * Which controls appear is [ComposerCapabilities]' decision, and it says no
  * while the AI owns the thread — see its note.
@@ -474,10 +473,9 @@ internal fun ComposerGlyph(
  * else to do until the note is sent or thrown away, and a field you cannot
  * type into is worse than no field.
  *
- * The one thing it keeps is the ROW'S HEIGHT. An earlier iOS version dropped
- * the pill and laid out a bare row at a different height with a bigger button
- * in it, so the composer changed shape under the thumb that had just tapped
- * the microphone.
+ * The one thing it keeps is the ROW'S HEIGHT: a bare row at a different
+ * height, with a bigger button in it, would change the composer's shape under
+ * the thumb that has just tapped the microphone.
  */
 @Composable
 private fun RecordingBar(

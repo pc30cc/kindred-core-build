@@ -29,12 +29,11 @@ import org.robolectric.annotation.Config
  * A transcript has to end on its newest message, and stay there while that
  * message finishes measuring itself.
  *
- * This is the shape of a bug that shipped and was seen on device: a photo
- * bubble is short until its bytes decode and then grows by a couple of
- * hundred pixels, so a one-shot scroll left the bottom of every picture
- * under the composer. The first fix watched the last row's height, which
- * only works while that row is on screen — and an animated scroll past rows
- * that are still growing undershoots, so it stopped a bubble short and had
+ * A photo bubble is short until its bytes decode and then grows by a couple
+ * of hundred pixels, so a one-shot scroll leaves the bottom of every picture
+ * under the composer. Watching the last row's height is not enough either:
+ * that only works while the row is on screen, and an animated scroll past
+ * rows that are still growing undershoots, stopping a bubble short with
  * nothing to recover from.
  *
  * The test grows the last row after the list has settled, which is the part

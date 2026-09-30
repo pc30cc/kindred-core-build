@@ -425,7 +425,7 @@ private fun ScopeChoice(
     }
 }
 
-/** Midnight to seven, which is what "quiet hours" means to most people. */
+/** Ten at night to seven, which is what "quiet hours" means to most people. */
 private const val DEFAULT_QUIET_START = "22:00"
 private const val DEFAULT_QUIET_END = "07:00"
 

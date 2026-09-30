@@ -221,7 +221,7 @@ object StrEmail {
     /**
      * [bad] is what the operator typed, isolated: at the end of a Persian
      * line a trailing `.` or `@` — the very typo being reported — is laid out
-     * on the far side of the address, so «ali@gmail.» read back as
+     * on the far side of the address, so «ali@gmail.» reads back as
      * «.ali@gmail». Inside an isolate it keeps its place.
      */
     fun invalidAddresses(l: Language, bad: String): String {

@@ -266,13 +266,6 @@ object Glyph {
         )
     }
 
-    /**
-     * Turns SVG path data into an icon.
-     *
-     * `defaultWidth`/`Height` in dp and a 24-unit viewport is what every
-     * Material icon declares, and it is what lets `Icon` size and tint these
-     * exactly as it sizes and tints the ones from the library.
-     */
     // The mailbox's folders, for its menu.
 
     /** A tray: a mailbox's inbox. */
@@ -319,6 +312,13 @@ object Glyph {
         )
     }
 
+    /**
+     * Turns SVG path data into an icon.
+     *
+     * `defaultWidth`/`Height` in dp and a 24-unit viewport is what every
+     * Material icon declares, and it is what lets `Icon` size and tint these
+     * exactly as it sizes and tints the ones from the library.
+     */
     private fun vector(name: String, pathData: String): ImageVector =
         ImageVector.Builder(
             name = name,

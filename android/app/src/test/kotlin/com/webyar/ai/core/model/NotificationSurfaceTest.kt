@@ -15,9 +15,8 @@ import org.junit.Test
  * old way.
  *
  * So silence is not a default here, it is the wrong row: a phone that omits
- * `platform` reads and writes the browser's settings. This was live — the
- * response captured from a device read `"platform":"web"` — and these are the
- * assertions that stop it coming back.
+ * `platform` reads and writes the browser's settings, and the server answers
+ * `"platform":"web"`. These assertions keep the field on every request.
  */
 class NotificationSurfaceTest {
 

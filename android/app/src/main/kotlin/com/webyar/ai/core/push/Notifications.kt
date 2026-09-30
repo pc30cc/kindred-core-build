@@ -117,7 +117,7 @@ object Notifications {
             .setContentIntent(tap)
             .build()
         val manager = NotificationManagerCompat.from(context)
-        // One posted by an earlier version, under the old tag and id.
+        // Any still showing under the legacy tag and id ([LEGACY_TAG]).
         runCatching { manager.cancel(LEGACY_TAG, key.hashCode()) }
         manager.notify(key, SYSTEM_ID, notification)
     }
@@ -136,7 +136,7 @@ object Notifications {
         keyOf(payload)?.let { key -> cancelKey(context, key) }
     }
 
-    /** Whichever is there: the one this app drew, the one Firebase drew, or one from an earlier version. */
+    /** Whichever is there: the one this app drew, the one Firebase drew, or one under [LEGACY_TAG]. */
     private fun cancelKey(context: Context, key: String) {
         val manager = NotificationManagerCompat.from(context)
         runCatching { manager.cancel(key, SYSTEM_ID) }
@@ -170,8 +170,8 @@ object Notifications {
         else -> payload.conversationId
     }
 
-    // A conversation's key is its id, as it has always been; a colleague's
-    // is marked so that the two can never share a notification.
+    // A conversation's key is its bare id; a colleague's is marked so that
+    // the two can never share a notification.
     private fun teamKey(peerId: String) = "team:$peerId"
 
     /** The server's tag for new mail in a thread (`androidNotificationTag`, `fcm.ts`). */

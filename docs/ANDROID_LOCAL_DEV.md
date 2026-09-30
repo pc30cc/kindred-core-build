@@ -50,8 +50,8 @@ adb wait-for-device   # then wait for sys.boot_completed=1
 adb shell am start -n com.webyar.ai/.MainActivity
 ```
 
-Four things have to be true, and each one cost a round of "the screen is
-black" or "the screen is tiny" before it was found:
+Four things have to be true; getting any of them wrong leaves the window
+black or undersized:
 
 1. **`Webyar_API36`, not `Webyar_API37`.** The 37.0 image crash-loops
    SurfaceFlinger under this emulator build (next section). `-feature
@@ -66,11 +66,11 @@ black" or "the screen is tiny" before it was found:
    `height = 1280`, a secondary display the emulator draws beside the phone
    in the same window — the phone got half the width and the other half
    showed a wallpaper. It is now `hw.display1.* = 0` (the original is kept
-   as `config.ini.bak-before-claude`).
+   as `config.ini.bak-display1`).
 4. **`hw.ramSize = 4096`** — see "2GB inside the guest is not enough"
    below.
 
-If a later session sees the app "not responding" on this launch, that is the
+If the app shows "not responding" on this launch, that is the
 swiftshader cost measured further down (`-gpu swiftshader_indirect` is why
 the app kept "not responding"); the way out that keeps a picture is Android
 Studio's Running Devices panel over `-gpu host`, not a black native window.
@@ -82,8 +82,6 @@ AI queue. The app now retries (`AppState.loadWorkspaces`); on an older build,
 relaunch the app once the emulator has settled.
 
 ### Use a system image whose major.minor matches the emulator
-
-This is the finding most likely to cost someone a day, so it is stated first.
 
 `emulator -version` and the system image are **not independently choosable**.
 Emulator 37.1.11 against the `android-37.0` image produces a boot that looks
@@ -258,7 +256,8 @@ so a slow emulator on a loaded machine is usually this line, scrolled past.
 ### 2GB inside the guest is not enough for API 36
 
 `hw.ramSize=2048` in `Webyar_API36.avd/config.ini` was the setting that came
-with the AVD, and it holds until a session goes on for a while. Then:
+with the AVD, and it holds until the emulator has been running for a while.
+Then:
 
 ```
 Process system isn't responding      [Close app] [Wait]
@@ -390,11 +389,9 @@ landscape.
 every call against the declared minimum, and it is more thorough than
 clicking around an old emulator.
 
-**API 24 was not run,** and the reason was never established. An earlier note
-in this file blamed CPU emulation on an Apple Silicon Mac; that was simply
-wrong, and is corrected here rather than quietly deleted. The machine is an
-Intel Core i9-9880H, so an x86_64 guest runs natively and there is no
-emulation to be slow. Whatever hung it, it was something else.
+**API 24 was not run,** and the reason was never established. It is not CPU
+emulation: the machine is an Intel Core i9-9880H, so an x86_64 guest runs
+natively and there is no emulation to be slow.
 
 Lint covers the API surface in the meantime; what it cannot cover is font and
 vendor behaviour, which is why the flag badge asks `Paint.hasGlyph` rather
@@ -513,7 +510,7 @@ stream of `MOVE` events, the foreground window misses the 5-second input
 deadline, and ActivityManager force-finishes it — which looks exactly like the
 app crashing back to the launcher.
 
-It is not the app. `adb logcat -b crash` holds no exception, and in one session
+It is not the app. `adb logcat -b crash` holds no exception, and in one run
 the same failure hit three processes, two of them Google's:
 
 ```
@@ -542,9 +539,9 @@ forty signed-in sessions, fits in one screenshot with the
 Two smaller things that cost time:
 
 - **`adb exec-out screencap -p > file.png` is not finished when the shell
-  returns.** Reading the file too early gives whatever was there before — in
-  one case an unrelated screenshot from an earlier session, which reads as a
-  stale frame and sends you looking for a compositor bug. Check the byte count
+  returns.** Reading the file too early gives whatever was there before — a
+  stale screenshot from an earlier run, which reads as a stale frame and
+  sends you looking for a compositor bug. Check the byte count
   before trusting the image.
 - **`uiautomator dump` fails with `ERROR: could not get idle state`** whenever
   an animation is running, and on a loading screen the shimmer never stops.

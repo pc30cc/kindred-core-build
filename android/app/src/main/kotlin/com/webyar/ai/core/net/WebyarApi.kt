@@ -67,8 +67,8 @@ import com.webyar.ai.core.model.AnalyticsEvents
  *
  * The screens depend on this rather than on [ApiClient] directly, which is
  * what allows the sample backend to drive the whole UI with no network at all
- * — needed to lay out and screenshot every screen, and to run the UI tests
- * with no account and no credentials anywhere in the test target.
+ * — which lets every screen be previewed, and the UI tests run, with no
+ * account and no credentials anywhere in the test target.
  *
  * Narrower than its iOS counterpart on purpose. `WebyarAPI.swift` declares
  * around sixty methods because sixty screens exist there; ADR-003 sequences
@@ -97,8 +97,8 @@ interface WebyarApi {
     /**
      * Emails a reset link. [locale] is the interface language: the one message
      * the product writes to somebody not signed in has no stored preference
-     * to go by, so without it the email came in English whatever the screen
-     * it was asked for was written in.
+     * to go by, so without it the email arrives in English whatever language
+     * the screen it was asked from is in.
      */
     suspend fun requestPasswordReset(email: String, locale: String)
 
@@ -218,7 +218,7 @@ interface WebyarApi {
     /**
      * This operator's own channel (`ws:<workspace>:user:<id>`): team-chat
      * activity meant for them alone. A server that predates it answers 404,
-     * and the app keeps polling the team chat as before.
+     * and the app falls back to polling the team chat.
      */
     suspend fun realtimeUserSubscribe(workspaceId: String): RealtimeSubscribe =
         RealtimeSubscribe(vendor = "disabled")
@@ -406,7 +406,7 @@ interface WebyarApi {
 
     /**
      * One page of a folder, with the cursor for the next. Defaulted onto
-     * [emailThreads] so a fake that only knows the old call still answers —
+     * [emailThreads] so a fake that implements only that call still answers —
      * with one page and no more.
      */
     suspend fun emailThreadsPage(
@@ -483,12 +483,12 @@ interface WebyarApi {
     /**
      * Workspace first, as everywhere else in this interface.
      *
-     * It used to read `(conversationId, workspaceId)` — the Swift order, where
-     * the labels are part of the call and cannot be transposed. Kotlin has no
-     * such protection: both are `String`, both are UUIDs, and the one call
-     * site passed them the other way round. The server saw a conversation id
-     * where it wanted a workspace, answered `403 not_a_workspace_member`, and
-     * every call the operator placed failed.
+     * Not the Swift order, `(conversationId, workspaceId)`, which is safe
+     * there only because the labels are part of the call. Kotlin has no such
+     * protection: both are `String`, both are UUIDs, and nothing stops a call
+     * site transposing them. The server then sees a conversation id where it
+     * wants a workspace, answers `403 not_a_workspace_member`, and every call
+     * the operator places fails.
      */
     suspend fun inviteToCall(
         workspaceId: String,

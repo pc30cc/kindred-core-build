@@ -141,7 +141,7 @@ class TeamThreadViewModel(
             _me.value = it.me
             _state.value = TeamThreadState.Loaded(it.messages)
             // New from them, and on screen: read. Otherwise the colleagues'
-            // count went on counting what the operator was looking at.
+            // count would go on counting what the operator is looking at.
             if (it.messages.any { m -> m.senderId == peer && m.readAt == null }) {
                 runCatching { api.markTeamThreadRead(workspace, peer) }
             }
@@ -171,9 +171,9 @@ class TeamThreadViewModel(
         // after that — back from the background, or back through the very
         // notification this colleague's new message raised — the thread is
         // read at once. The screen was paused, so nothing was listening to
-        // [signals] while that message arrived: without this it stayed out
-        // of the transcript, and unread on the server, for up to a whole
-        // poll after the operator tapped through to see it.
+        // [signals] while that message arrived: without this it would stay
+        // out of the transcript, and unread on the server, for up to a whole
+        // poll after the operator taps through to see it.
         val returning = visibleBefore
         visibleBefore = true
         // [signals] is the operator's own realtime channel: a message in this

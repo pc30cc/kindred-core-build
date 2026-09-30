@@ -245,11 +245,10 @@ private fun AiFace(size: Dp) {
  * initials are marks filling a circle measured in `dp`, and scaling them
  * while the circle stays put clips them.
  *
- * Both the size AND the line height have to be pinned, which is the part
- * that took two goes. Fixing the size alone left the flag invisible at 2x:
- * the line height came from the ambient text style, was still in `sp`, and
- * laid the glyph out inside a line box twice the height of the circle
- * containing it. The trim is what removes the rest of the font's own
+ * Both the size AND the line height have to be pinned. Fixing the size
+ * alone leaves the flag invisible at 2x: the line height comes from the
+ * ambient text style, is still in `sp`, and lays the glyph out inside a
+ * line box twice the height of the circle containing it. The trim is what removes the rest of the font's own
  * leading, so the mark sits in the middle rather than near the top.
  */
 @Composable
@@ -288,7 +287,7 @@ private fun OsFace(kind: OsKind, size: Dp) {
 /**
  * No picture and nothing known about the device: a quiet circle in the
  * skeleton's own tone, with a figure in it — a visitor from a channel that
- * sends no photo is still a person, and an empty disc read as a picture that
+ * sends no photo is still a person, and an empty disc reads as a picture that
  * never loaded.
  *
  * Not initials, anywhere in the app. Two letters on a coloured disc read as
@@ -324,9 +323,9 @@ internal fun initialsOf(name: String): String {
 
     // A visitor nobody has named is not a person with a first name and a
     // surname — the label is a generated one, «بازدیدکننده 4ZTK», a word and
-    // an opaque code. Taking the first letter of each produced «ب4»: two
+    // an opaque code. Taking the first letter of each gives «ب4»: two
     // scripts jammed into one circle, identifying nothing, and every
-    // anonymous visitor in a Persian inbox looked like that.
+    // anonymous visitor in a Persian inbox would look like that.
     //
     // The code is the only part that tells one visitor from another, so the
     // code is what shows. Narrow on purpose: this fires only when a

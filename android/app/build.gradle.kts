@@ -40,9 +40,9 @@ val buildingAppBundle: Boolean = gradle.startParameter.taskNames.any {
 android {
     // The same identifier as the iOS app (`PRODUCT_BUNDLE_IDENTIFIER` in
     // ios/WebyarNative/project.yml): one name for the product on both stores.
-    // It was `com.webyar.operator` until 1.0.1; Android treats a new
-    // applicationId as a different app, so a phone with the old one installs
-    // this beside it rather than over it, and the old one is removed by hand.
+    // Releases up to 1.0.1 are `com.webyar.operator`, which Android treats as
+    // a different app: a phone with one installs this beside it rather than
+    // over it, and the old one is removed by hand.
     namespace = "com.webyar.ai"
     compileSdk = 37
 
@@ -83,8 +83,8 @@ android {
             // WebRTC and JNA between them ship native libraries for seven,
             // including mips, mips64 and armeabi — architectures Android
             // stopped supporting in 2019, 2019 and 2019 respectively. Nothing
-            // this app will ever be installed on can run them, and they were
-            // 51MB of the debug APK's 74.
+            // this app will ever be installed on can run them, and they are
+            // 51MB of a 74MB debug APK.
             //
             // x86 and x86_64 stay because they are what every emulator is,
             // and a developer build that cannot run on the machine it was
@@ -118,6 +118,9 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            // The package carries no record of the repository it was built
+            // from: no commit, no branch, no remote.
+            vcsInfo.include = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
 
             signingConfig = signingConfigs.getByName("release").takeIf {
@@ -151,8 +154,7 @@ android {
      * `SampleApi` is not on its classpath — that is what makes the sample
      * backend impossible to reach in a shipped app rather than merely
      * switched off in one. A minified build with the debug `Backend` would be
-     * testing the wrong app; a minified build with neither does not compile,
-     * which is how this was found.
+     * testing the wrong app; a minified build with neither does not compile.
      */
     sourceSets.getByName("minified") {
         kotlin.srcDir("src/release/kotlin")
@@ -305,7 +307,7 @@ dependencies {
     implementation(libs.osmdroid.android)
 
     // Installs the generated profile at first run. Already on the classpath
-    // transitively through Compose — named here because the app now ships a
+    // transitively through Compose — named here because the app ships a
     // profile of its own and depends on it being installed.
     implementation(libs.androidx.profileinstaller)
 

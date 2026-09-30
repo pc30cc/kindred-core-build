@@ -300,10 +300,10 @@ fun InboxRoute(
         // refuse is worse than no row.
         //
         // The keys are the registry's own, checked against
-        // `server/services/billing/capabilityRegistry.ts`. They used to be
-        // `team_chat` and `email`, which are not keys at all, and so both
-        // rows showed on every plan, including one whose `email_inbox` is
-        // false. Only a key that is exactly true opens a row.
+        // `server/services/billing/capabilityRegistry.ts`: `team_chat` and
+        // `email` look like keys and are not. Only a key that is exactly
+        // true opens a row, so a plan whose `email_inbox` is false shows no
+        // mailbox.
         onOpenColleagues = onOpenColleagues
             .takeIf { plan.value?.featureEnabled("inbox_team_chat") == true },
         // The mailbox is also an owner/admin section, as in the console's sidebar.
@@ -381,7 +381,7 @@ fun ChatRoute(
     // switches workspace while it is on the stack it is not re-read under a
     // workspace it is not part of — and not popped from here either: the
     // shell takes every tab back to its root on a switch, and a pop from
-    // here took whatever was on top, which need not be this chat.
+    // here would take whatever is on top, which need not be this chat.
     var openedIn by rememberSaveable(conversationId) { mutableStateOf<String?>(null) }
     LaunchedEffect(conversationId, workspace?.id) {
         val ws = workspace?.id ?: return@LaunchedEffect
@@ -417,7 +417,8 @@ fun ChatRoute(
     // Reading the bytes stays here rather than in the view model: a Uri is a
     // permission grant to one Activity, and a model that outlives the screen
     // would be holding a handle it is no longer allowed to open. Off the main
-    // thread: a 10 MB file from a cloud provider froze the chat while it came.
+    // thread: a 10 MB file from a cloud provider would freeze the chat while
+    // it comes.
     val routeScope = rememberCoroutineScope()
     val send: (android.net.Uri) -> Unit = { uri ->
         routeScope.launch {
@@ -451,9 +452,9 @@ fun ChatRoute(
     DisposableEffect(Unit) { onDispose { pendingClip.value?.file?.delete() } }
     // The app leaving the screen mid-recording ends the recording there,
     // kept to be heard like any finished one. From Android 9 an app in the
-    // background hears only silence, and the note went on filling with it —
-    // its timer still counting — until the operator came back, up to the
-    // five-minute cap.
+    // background hears only silence, and a note left recording would go on
+    // filling with it — its timer still counting — until the operator comes
+    // back, up to the five-minute cap.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         if (recordingSeconds != null) {
             recordingSeconds = null
@@ -502,8 +503,8 @@ fun ChatRoute(
         sending = sending,
         capabilities = capabilities,
         // NOT plan-gated, because there is no such entitlement: the registry
-        // has no `canned_responses` key, and fail-closed on a key that
-        // cannot exist hid the button on every plan there is. Whether a
+        // has no `canned_responses` key, and failing closed on a key that
+        // cannot exist would hide the button on every plan there is. Whether a
         // deployment carries the table is a separate question, and the
         // server answers it with a 501 that `ChatViewModel` already turns
         // into a "not set up on this server" empty state.
@@ -674,13 +675,7 @@ fun ChatRoute(
     }
 }
 
-/**
- * Contacts, until the contacts screen exists.
- *
- * An honest placeholder rather than a blank: the tab is plan-gated, so an
- * operator who can see it has paid for it, and a blank screen would read as
- * the feature being broken rather than as this build not having it yet.
- */
+/** The Contacts tab: the workspace's address book, searchable, with each contact's visitor intel. */
 @Composable
 fun ContactsRoute(
     appState: AppState,

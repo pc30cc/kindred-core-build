@@ -1,8 +1,8 @@
 # ADR-003: Native Android App — Stack, Build Order and Machine Allocation
 
-- Status: Accepted (stack and sequencing); implementation NOT started
+- Status: Accepted; implemented
 - Date: 2026-09-21
-- Owners: Platform / Kindred Core maintainers
+- Owner: m@davoudi.net
 
 ## Context
 
@@ -56,9 +56,8 @@ spent on work Linux can do.
 
 ## Constraints
 
-Three machines are attached to the account. The two Linux hosts were measured
-on 2026-09-21 — twice, because the first pass truncated the container listing
-at fifteen rows and so could not support any claim about which host was busier:
+Three machines are available to the project. The two Linux hosts were
+measured on 2026-09-21:
 
 | Host | OS | Cores | RAM total / **available** | Swap | Disk free | `/dev/kvm` | Containers |
 |---|---|---|---|---|---|---|---|
@@ -66,11 +65,9 @@ at fifteen rows and so could not support any claim about which host was busier:
 | `vps-50cc1602` | Ubuntu 24.04.5 | 4 | 7751 MB / **2944 MB** | **0 MB** | 25G | **present**, 8 flags | **24** |
 | `analyticsme.site` | Ubuntu 24.04.3 | 4 | 5925 MB / **2248 MB** | 511 MB, **0 free** | 60G | **absent**, 0 flags | **25** |
 
-Neither host is idle, and they are within one container of each other. The
-intuition that one of them was "the empty one" does not survive measurement:
-the host with the shorter-looking service list, `analyticsme.site`, is in fact
-the more constrained of the two — less available memory, and swap already
-100% consumed.
+Neither host is idle, and they are within one container of each other.
+Despite its shorter service list, `analyticsme.site` is the more constrained
+of the two — less available memory, and swap already 100% consumed.
 
 What each carries:
 

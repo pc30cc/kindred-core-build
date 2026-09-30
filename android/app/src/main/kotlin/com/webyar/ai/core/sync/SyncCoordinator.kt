@@ -546,9 +546,9 @@ class SyncCoordinator(
         // A thread on screen is read by itself too, whatever queue it is in
         // now. The focused read only answers for its own queue — a chat
         // opened from the AI's that the AI has just handed over (or that the
-        // operator took over, resolved, reassigned) left it, and only the
-        // queue's absence was recorded: the header and the composer kept the
-        // old state. By id, the row is rewritten wherever it went.
+        // operator took over, resolved, reassigned) has left it, and that
+        // read records only its absence: the header and the composer would
+        // keep the old state. By id, the row is rewritten wherever it went.
         val open = ids.filter { it in openNow }
         if (open.isNotEmpty()) {
             runCatchingUnlessCancelled {

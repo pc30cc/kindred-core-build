@@ -38,8 +38,8 @@ data class IncomingCall(
      *
      * [expiresAt] is the server's time, and a ring lives 45 seconds of it. A
      * phone whose clock is a minute fast — set by hand, as plenty are —
-     * read every ring as long expired and dropped it, so it never rang at
-     * all; one set an hour slow would have rung for an hour with nothing to
+     * would read every ring as long expired and drop it, so it never rings
+     * at all; one set an hour slow would ring for an hour with nothing to
      * stop it but a cancel. [sentEpochSeconds] is FCM's own stamp of when the
      * ring left, on the same side of that gap as [expiresAt]. When the
      * phone's clock puts the ring's arrival inside its life the clocks agree

@@ -164,8 +164,8 @@ fun PromoFullScreen(
 
     // Back closes it, as it closes anything else that covers the screen.
     // Composed over the navigation, this handler is the newest and so the
-    // one that answers — without it Back went to the screen underneath and
-    // navigated out from under a card that stayed up.
+    // one that answers — without it Back goes to the screen underneath and
+    // navigates out from under a card that stays up.
     BackHandler(onBack = onDismiss)
 
     Surface(
@@ -284,7 +284,7 @@ fun PromoFullScreen(
  * phone with no browser to take an https link — a managed work profile, a
  * kiosk build, Chrome switched off — that throws (`ActivityNotFoundException`,
  * rethrown by recent Compose as `IllegalArgumentException`). Uncaught in a
- * click, it closed the whole app over a button in a promotion.
+ * click, it would close the whole app over a button in a promotion.
  */
 private fun openLink(uriHandler: UriHandler, link: String) {
     runCatching { uriHandler.openUri(link) }

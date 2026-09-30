@@ -34,11 +34,9 @@ class ChatScreenTest {
     /**
      * A transcript opens on its NEWEST message, not its oldest.
      *
-     * This test asserted `m-1` first and failed, which was the test being
-     * wrong rather than the screen: `m-1` is the oldest of thirteen, a
-     * LazyColumn never composes what is scrolled away, and an inbox that
-     * opened two weeks up the thread would be useless. So the assertion is
-     * the behaviour that is actually wanted.
+     * `m-1` is the oldest of thirteen and a LazyColumn never composes what
+     * is scrolled away; an inbox that opened two weeks up the thread would be
+     * useless, so the newest row is the one that must be on screen.
      */
     @Test
     fun `the transcript opens on the newest message`() = runTest {

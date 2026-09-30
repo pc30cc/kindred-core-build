@@ -66,8 +66,8 @@ fun VisitorsMap(
     // are rather than keyed on it. The activity handles a density change
     // itself (a display-size change, a foldable moving to its other screen),
     // so this composition carries on through one — and an overlay remembered
-    // per density was a new one the map had never been given, while the map
-    // kept drawing the old one: dots frozen where they were, new visitors
+    // per density would be a new one the map has never been given, while the
+    // map keeps drawing the old one: dots frozen where they are, new visitors
     // never appearing.
     val overlay = remember { PinsOverlay { pick.value(it) } }
     overlay.density = density
@@ -93,7 +93,7 @@ fun VisitorsMap(
                     // to list and detail side by side — which takes this view
                     // out of the window and puts it back. By default osmdroid
                     // reads that as the end and shuts its tile loaders down,
-                    // and the map came back grey and never loaded another tile.
+                    // and the map comes back grey and never loads another tile.
                     setDestroyMode(false)
                     setTileSource(TemplateTileSource(setup.tileUrl, setup.minZoom, setup.maxZoom, setup.attribution))
                     setMultiTouchControls(true)

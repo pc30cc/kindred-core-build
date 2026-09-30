@@ -128,9 +128,8 @@ class AppState(
      *
      * Separate from [session] because the login response's `user` has no
      * avatar in it — `GET /api/account/me` is the only endpoint that carries
-     * one. Settings used to be handed a hard-coded null for this, so an
-     * operator who had set a photo on the web saw their initials on the
-     * phone for ever.
+     * one. Without it, an operator who has set a photo on the web sees only
+     * their initials on the phone.
      */
     private val _avatarUrl = MutableStateFlow<String?>(null)
     val avatarUrl: StateFlow<String?> = _avatarUrl.asStateFlow()
@@ -229,9 +228,9 @@ class AppState(
 
     init {
         // A session revoked elsewhere — the web's "sign out everywhere", an
-        // admin removing this operator — reaches here as the first 401. It
-        // used to reach nothing: every screen showed its own error, the
-        // socket kept retrying, and the operator had to find Sign out.
+        // admin removing this operator — reaches here as the first 401 and is
+        // handled once; otherwise every screen shows its own error, the socket
+        // keeps retrying, and the operator has to find Sign out.
         viewModelScope.launch { api.sessionLost.collect { onSessionLost() } }
         viewModelScope.launch {
             // Before restore(), so the login screen is already in the right
@@ -331,18 +330,18 @@ class AppState(
             }
             // Where the platform lives is asked behind the sign-in screen,
             // not in front of it: on a connection that hangs rather than
-            // fails, that one request held the loader up for its whole
+            // fails, that one request would hold the loader up for its whole
             // timeout before anyone could type. logIn() waits for it.
             refreshOriginInBackground()
             return
         }
         // Local first, as the inbox itself is: the operator this phone
         // remembers opens straight onto their cached inbox, and the server's
-        // word on the session follows. It used to come first — the origin,
-        // then the account, each allowed its full timeout — so on a
-        // connection that hangs the loader stood for up to forty seconds
-        // before the very same cached inbox appeared. A session the server
-        // has ended still ends, the moment it says so.
+        // word on the session follows. Asking first — the origin, then the
+        // account, each allowed its full timeout — would hold the loader for
+        // up to forty seconds on a connection that hangs, before the very
+        // same cached inbox appeared. A session the server has ended still
+        // ends, the moment it says so.
         cache.read()?.let { cached ->
             recallWorkspace(cached.id)
             hooks.signedIn(cached)
@@ -453,19 +452,19 @@ class AppState(
      * The line that sets [_session] is also the line that replaces the login
      * screen with the app — and the login screen's `rememberCoroutineScope`
      * dies with it. Anything still running in that scope is cancelled on the
-     * spot, which is what used to happen to the workspace load:
+     * spot; a workspace load caught there fails with
      *
      *     REQUEST /api/workspaces failed with exception:
      *     ForgottenCoroutineScopeException: rememberCoroutineScope left the
      *     composition
      *
-     * So a fresh sign-in reached an app with no workspace, and therefore no
+     * and a fresh sign-in reaches an app with no workspace, and therefore no
      * entitlements, no Contacts tab, no AI queues and no conversations — an
-     * app that looked empty rather than broken, silently, because
-     * [loadWorkspaces] swallows its failures. A restored session never showed
-     * it: that path runs in `viewModelScope` already.
+     * app that looks empty rather than broken, silently, because
+     * [loadWorkspaces] swallows its failures. A restored session is not
+     * affected: that path runs in `viewModelScope` already.
      *
-     * The load is handed to [viewModelScope], which outlives every screen.
+     * So the load is handed to [viewModelScope], which outlives every screen.
      * The caller learns only whether the credentials were good, which is all
      * it asked.
      */
@@ -478,7 +477,7 @@ class AppState(
         if (_maintenance.value != null) throw ApiError.Server(503, "maintenance")
         // The credentials go where the platform now lives: the launch asked
         // behind this screen, and on a slow connection may still be asking.
-        // Bounded — past it the address in hand is used, as it always was.
+        // Bounded — past it the address in hand is used.
         originJob?.takeIf { it.isActive }?.let { withTimeoutOrNull(ORIGIN_WAIT_MS) { it.join() } }
         val user = api.logIn(email.trim(), password)
         sessionEpoch++
@@ -499,9 +498,9 @@ class AppState(
      * signs in next.
      *
      * Not cancellable once begun: this model's scope ends with the activity,
-     * and a sign-out cut off half-way — Back pressed while it ran — left the
-     * token deleted and the last operator's notifications and push token in
-     * place.
+     * and a sign-out cut off half-way — Back pressed while it runs — leaves
+     * the token deleted and the last operator's notifications and push token
+     * in place.
      */
     fun logOut() {
         val user = (_session.value as? Session.SignedIn)?.user
@@ -522,8 +521,8 @@ class AppState(
                     // try again — with this device registered for pushes
                     // again, which [SessionHooks.beforeSignOut] undid.
                     user?.let { runCatching { hooks.signOutFailed(it) } }
-                    // And told so. The confirmation had closed and nothing
-                    // changed, which read as a button that did nothing.
+                    // And told so: the confirmation has closed and nothing
+                    // has changed, which otherwise reads as a dead button.
                     _signOutFailed.value = true
                 }
             }
@@ -664,10 +663,10 @@ class AppState(
     /**
      * Advisory: no picture is a quiet circle, not an error to show.
      *
-     * Kept to the operator it was asked for. An answer that landed after a
-     * sign-out used to set the last operator's photo again — and when the
-     * next operator's own ask then failed (offline, or no photo read yet),
-     * their Settings and their team threads wore it.
+     * Kept to the operator it was asked for. An answer that lands after a
+     * sign-out would otherwise set the last operator's photo again — and if
+     * the next operator's own ask then fails (offline, or no photo read yet),
+     * their Settings and their team threads wear it.
      */
     private fun loadAvatar() {
         val userId = (_session.value as? Session.SignedIn)?.user?.id ?: return
@@ -682,8 +681,9 @@ class AppState(
                     // answer may be from before it.
                     if (asked == avatarSetByProfile) _avatarUrl.value = account.profile?.avatarUrl
                     // The name too, which the session only read at sign-in:
-                    // one changed in Profile, or on the web, stayed the old
-                    // one in Settings' header and on a message still sending.
+                    // otherwise one changed in Profile, or on the web, stays
+                    // the old one in Settings' header and on a message still
+                    // sending.
                     val name = account.profile?.fullName?.takeIf { it.isNotBlank() }
                     if (name != null && name != user.fullName) {
                         val renamed = user.copy(fullName = name)
@@ -728,11 +728,11 @@ class AppState(
      * Loads the workspace list, and tries again until it lands.
      *
      * Everything else hangs off the workspace — the conversations, the plan,
-     * and through the plan the Contacts tab and the AI queues. A single
-     * attempt that failed used to be the end of it: an app opened a moment
-     * before the network was up (the emulator's DNS for its first seconds, a
-     * phone coming out of a lift) sat on grey placeholder rows with two tabs
-     * until it was killed, while every later request went through.
+     * and through the plan the Contacts tab and the AI queues. If a single
+     * failed attempt were the end of it, an app opened a moment before the
+     * network was up (a phone just switched on, or coming out of a lift)
+     * would sit on grey placeholder rows with two tabs until it was killed,
+     * while every later request went through.
      *
      * So a failure waits and tries again, the waits growing to half a minute,
      * for a few minutes; after that, pulling the list to refresh starts it

@@ -33,7 +33,8 @@ enum class InboxFilter(val wire: String) {
             PENDING -> "pending"
             // Both finished states, as the console's Resolved tab asks for
             // them: a thread the server auto-closed is as done as one an
-            // operator resolved, and used to vanish from every queue here.
+            // operator resolved, and without `closed` it would appear in no
+            // queue here at all.
             RESOLVED -> "resolved,closed"
             AI, SPAM -> null
         }
@@ -74,12 +75,12 @@ enum class InboxFilter(val wire: String) {
          * The queues on the strip above the list: Open, and the AI's queue
          * where the plan and the switches give it one.
          *
-         * The strip used to carry every queue. "Needs me" and "Awaiting
+         * The strip does not carry every queue. "Needs me" and "Awaiting
          * customer" are places an operator visits rather than works in, and
-         * with them on the strip the two that ARE worked in all day scrolled
+         * with them on the strip the two that ARE worked in all day scroll
          * off a Persian phone. The rest are one tap away behind the strip's
          * last button, which opens every inbox — queues, channels, colleagues
-         * and email — and behind the title, as before.
+         * and email — and behind the title.
          */
         fun chips(
             entitlements: Entitlements?,

@@ -63,8 +63,8 @@ class VoiceNotePlayer private constructor(
     /**
      * Read once, while the player is known to be prepared: [of] refuses a
      * file with no length, and the length of a file does not change. Asked
-     * of the `MediaPlayer` on every read, it was a native call twelve times a
-     * second — and one that throws once the player has been released.
+     * of the `MediaPlayer` on every read, it would be a native call twelve
+     * times a second — and one that throws once the player has been released.
      */
     val durationSeconds: Double = player.duration.takeIf { it > 0 }?.let { it / 1000.0 } ?: 0.0
 
@@ -245,9 +245,9 @@ internal fun rememberVoiceNotePlayer(
  *
  * Opening is not instant — `MediaPlayer.prepare` reads the file's header on
  * the IO pool — and until it finishes there is no player and no verdict.
- * Reading the missing player as the verdict flashed "this phone cannot play
- * it" under every note that had been played before, each time its bubble
- * came into view, for as long as the prepare took.
+ * Reading the missing player as the verdict would flash "this phone cannot
+ * play it" under every note played before, each time its bubble comes into
+ * view, for as long as the prepare takes.
  */
 @Stable
 internal class VoiceNoteSlot {

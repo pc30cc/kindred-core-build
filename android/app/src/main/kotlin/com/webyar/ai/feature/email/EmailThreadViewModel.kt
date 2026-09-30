@@ -201,7 +201,7 @@ class EmailThreadViewModel(
                 // fallback for the case where it cannot find one. Never
                 // empty, though: the route validates `subject` (min 1)
                 // before it looks at the thread, so a thread with no
-                // subject — which mail allows — was a 400 on every reply.
+                // subject — which mail allows — would 400 on every reply.
                 api.sendEmail(
                     workspaceId = workspace,
                     threadId = current.id,

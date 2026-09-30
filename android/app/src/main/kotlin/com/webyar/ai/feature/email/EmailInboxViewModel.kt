@@ -624,7 +624,7 @@ class EmailInboxViewModel(
  *
  * The server says so two ways depending on where in the stack the request
  * stopped — a 409 status, or a 400 whose body names the reason — so both are
- * read rather than only the one that happened to be seen first.
+ * read.
  */
 private val Throwable.isNotConnected: Boolean
     get() {

@@ -51,6 +51,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.webyar.ai.StorageUsage
+import com.webyar.ai.core.AppInfo
 import com.webyar.ai.core.model.Workspace
 import com.webyar.ai.core.storage.Appearance
 import com.webyar.ai.i18n.Format
@@ -131,7 +132,7 @@ fun SettingsScreen(
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
     LazyColumn(
-        modifier.fillMaxSize().background(page),
+        modifier.fillMaxSize().background(page).testTag(A11y.SETTINGS_LIST),
         contentPadding = PaddingValues(
             top = top,
             bottom = Space.xxl + contentPadding.calculateBottomPadding(),
@@ -161,11 +162,10 @@ fun SettingsScreen(
                             selected = isCurrent,
                             modifier = Modifier.testTag(A11y.workspaceRow(workspace.id)),
                         ) {
-                            // A logo, not a Picker. Settings used to put these
-                            // behind one tap and show names only, and an
-                            // operator with a second workspace could miss it
-                            // entirely — a name on its own is not how anyone
-                            // recognises their own company.
+                            // A logo, not a Picker. Behind one tap, with names
+                            // only, an operator with a second workspace could
+                            // miss it entirely — a name on its own is not how
+                            // anyone recognises their own company.
                             Avatar(name = workspace.name, imageUrl = workspace.logoUrl, size = 40.dp, person = false)
                             Text(
                                 workspace.name,
@@ -328,7 +328,8 @@ fun SettingsScreen(
         item { SectionHeader(Str.about(language)) }
         item {
             Group {
-                InfoRow(0, 1, Str.version(language), appVersion, latin = true)
+                InfoRow(0, 2, Str.version(language), appVersion, latin = true)
+                InfoRow(1, 2, StrAndroid.developer(language), AppInfo.DEVELOPER, latin = true)
             }
         }
 

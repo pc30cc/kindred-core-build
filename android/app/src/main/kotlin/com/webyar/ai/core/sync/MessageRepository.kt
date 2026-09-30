@@ -57,9 +57,8 @@ import java.util.concurrent.ConcurrentHashMap
  * the first, a retry after a failure, a resume after the process was killed
  * — sends that same key, and the server's unique index on it
  * (`070_post_send_action_guards.sql`) collapses a replay into the original
- * row. That is what makes a retry safe. The version this replaced minted a
- * fresh key per attempt, so a send whose response was lost and was then
- * retried posted twice.
+ * row. That is what makes a retry safe: a fresh key per attempt would post
+ * a send twice whenever its response was lost and it was retried.
  */
 class MessageRepository(
     private val api: WebyarApi,

@@ -141,6 +141,7 @@ object A11y {
     fun attachmentVoicePlay(id: String) = "attachment.voice.play.$id"
     fun attachmentFile(id: String) = "attachment.file.$id"
     fun messageStatus(id: String) = "message.status.$id"
+    const val SETTINGS_LIST = "settings.list"
     const val SETTINGS_STORAGE = "settings.storage"
     const val SETTINGS_CLEAR_CACHE = "settings.clearCache"
     const val SETTINGS_CLEAR_CACHE_CONFIRM = "settings.clearCache.confirm"

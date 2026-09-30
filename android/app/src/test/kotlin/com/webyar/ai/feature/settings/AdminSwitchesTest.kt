@@ -1,9 +1,12 @@
 package com.webyar.ai.feature.settings
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollToNode
+import com.webyar.ai.core.AppInfo
 import com.webyar.ai.core.model.MobileAppConfig
 import com.webyar.ai.core.model.Promotions
 import com.webyar.ai.core.storage.Appearance
@@ -102,6 +105,15 @@ class AdminSwitchesTest {
         compose.onNodeWithTag(A11y.SETTINGS_SECURITY).assertIsDisplayed()
         // The header is named for what is left, not for what was taken out.
         compose.onNodeWithText(Str.notifications(en)).assertDoesNotExist()
+    }
+
+    /** Settings › About names who the app is from, beside its version. */
+    @Test
+    fun `About names the developer`() {
+        settings()
+        compose.onNodeWithTag(A11y.SETTINGS_LIST).performScrollToNode(hasText(AppInfo.DEVELOPER))
+        compose.onNodeWithText(AppInfo.DEVELOPER).assertIsDisplayed()
+        compose.onNodeWithText(StrAndroid.developer(en)).assertIsDisplayed()
     }
 
     // MARK: - Profile
@@ -206,7 +218,7 @@ class AdminSwitchesTest {
         assertFalse(config.profilePhotoEditable)
     }
 
-    /** An older server that sends nothing leaves the app as it always was, name locked. */
+    /** An older server that sends nothing gets the defaults, name locked. */
     @Test
     fun `a missing key takes its default`() {
         val config = json.decodeFromString(MobileAppConfig.serializer(), """{"platform":"android"}""")
@@ -217,8 +229,8 @@ class AdminSwitchesTest {
 
     /**
      * `GET /api/mobile-app/promotions`, as `server/routes/mobilePromotions.ts`
-     * writes it. The model once read snake_case keys, which decoded without a
-     * complaint and dropped the button, the picture and the caps.
+     * writes it. The keys are camelCase: a model reading snake_case decodes
+     * without a complaint and drops the button, the picture and the caps.
      */
     @Test
     fun `promotions decode from the server's own keys`() {

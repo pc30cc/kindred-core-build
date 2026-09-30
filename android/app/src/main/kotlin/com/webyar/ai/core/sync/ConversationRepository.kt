@@ -154,15 +154,15 @@ class ConversationRepository(
                 }
                 return@withLock
             }
-            // A hundred at a time, the endpoint's own limit: ids beyond it used to
-            // be sent, silently not asked about, and marked absent from the list.
+            // A hundred at a time, the endpoint's own limit: ids beyond it are
+            // silently not asked about, and would be marked absent from the list.
             for (chunk in wanted.chunked(MAX_IDS_PER_READ)) {
                 val slice = api.conversationsByIds(scope.workspaceId, chunk, filter)
                 val whole = slice.wholeList
                 if (whole != null) {
-                    // An older server ignored the narrowing and sent the whole
+                    // An older server ignores the narrowing and sends the whole
                     // queue: that IS a full read, so it is stored as one. The
-                    // ETag is dropped because this response did not carry one.
+                    // ETag is dropped because this response does not carry one.
                     store.writeConversations(scope, whole, listKey = filter.listKey, replaceList = true, now = now)
                     val key = SyncKeys.list(filter.listKey)
                     store.putSyncState(

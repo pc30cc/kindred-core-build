@@ -24,10 +24,10 @@ import kotlinx.coroutines.withContext
 
 /**
  * A file that no longer reads — a crash mid-write on an old device, a full
- * disk — is started again empty rather than thrown on every read: that was
- * an app that crashed at launch, for ever, until its data was cleared by
- * hand. What is lost is a language, a theme and the session token, which is
- * a sign-in.
+ * disk — is started again empty rather than thrown on every read, which
+ * would be an app that crashes at launch, for ever, until its data is
+ * cleared by hand. What is lost is a language, a theme and the session
+ * token, which is a sign-in.
  */
 private val Context.dataStore by preferencesDataStore(
     name = "webyar",
@@ -104,10 +104,10 @@ class SecureStore(private val context: Context) {
     //
     // All on IO, whoever asks. DataStore runs an edit's transform in the
     // caller's context while it holds the file's one write lock, so an edit
-    // launched from a screen's scope needed that screen's dispatcher to come
-    // round again before anyone else could read or write — and a dispatcher
-    // that never did (a scope abandoned mid-write) held every later write in
-    // the process for good. On IO the lock is always let go; the caller only
+    // launched from a screen's scope would need that screen's dispatcher to
+    // come round again before anyone else could read or write — and one that
+    // never does (a scope abandoned mid-write) would hold every later write
+    // in the process for good. On IO the lock is always let go; the caller only
     // waits for the answer, and cancelling the caller still cancels the edit.
 
     /** A read that fails is an unset value, not a crash: the caller already handles "not set". */

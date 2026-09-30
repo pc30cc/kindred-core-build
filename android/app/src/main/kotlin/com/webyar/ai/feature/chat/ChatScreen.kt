@@ -105,7 +105,7 @@ sealed interface ChatState {
  * One conversation, and the field to answer it in.
  *
  * Two things here are the Android answers to problems the iOS app records at
- * length, and both are one line rather than the sagas they were there.
+ * length, and both are one line rather than the sagas they are there.
  *
  * The transcript follows the keyboard: `imePadding()` is the whole of it,
  * where `PinnedScrollView.swift` needs a frame notification, a settle loop and
@@ -296,8 +296,9 @@ private fun layout(messages: List<Message>): List<TranscriptRow> {
     val zone = ZoneId.systemDefault()
     // Each message's own day, worked out once. A row compares its day with
     // both neighbours', and doing the time-zone conversion per comparison
-    // was four of them a row — for the whole transcript, in composition, on
-    // every message that arrived or was confirmed. A long thread janked.
+    // would be four of them a row — for the whole transcript, in
+    // composition, on every message that arrives or is confirmed. A long
+    // thread would jank.
     val days = messages.map { it.createdAt?.atZone(zone)?.toLocalDate() }
     return messages.mapIndexed { index, message ->
         val previous = messages.getOrNull(index - 1)
@@ -315,7 +316,7 @@ private fun layout(messages: List<Message>): List<TranscriptRow> {
             // the face belongs at the foot of each day's run, not only the
             // last one.
             // Two colleagues answering in turn are two runs, each with its
-            // own face — the type alone would have made them one.
+            // own face — the type alone would make them one.
             endsRun = next == null || next.senderType != message.senderType ||
                 (message.senderType == SenderType.AGENT && next.senderId != message.senderId) ||
                 next.senderType == SenderType.SYSTEM ||
@@ -410,9 +411,9 @@ private fun Transcript(
                             // A visitor writes in whatever language they
                             // like, inside a transcript laid out in the
                             // operator's. Without this, a Turkish sentence
-                            // in a Persian transcript had its full stop
-                            // moved to the front — the same fault the inbox
-                            // rows had.
+                            // in a Persian transcript gets its full stop
+                            // moved to the front — the inbox rows need the
+                            // same.
                             // No fillMaxWidth: a bubble hugs its text, and
                             // stretching the Text would stretch every bubble
                             // to the 300dp cap.

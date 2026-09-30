@@ -225,19 +225,16 @@ private val BUBBLE_MAX_WIDTH = 300.dp
 /**
  * Keeps a transcript on its newest message while that message settles.
  *
- * `animateScrollToItem(last)` alone is not enough, and the reason is
- * measurable: a photo bubble is short until its bytes arrive and decode, and
- * then it grows by a couple of hundred pixels. The scroll ran on arrival, the
- * bubble grew afterwards, and the bottom half of every picture sat under the
- * composer — proved on device with a four-quadrant test image whose top half
- * measured a full 140px and whose bottom half measured 14.
+ * `animateScrollToItem(last)` alone is not enough: a photo bubble is short
+ * until its bytes arrive and decode, and then it grows by a couple of hundred
+ * pixels. A scroll fired on arrival leaves the bottom of the picture under
+ * the composer once the bubble grows.
  *
  * So the pin is held rather than fired once, and it is held against
- * [LazyListState.canScrollForward] rather than against any one row's height.
- * That was the second attempt's mistake: watching the last row only works
- * while the last row is on screen, and an animated scroll past rows that are
- * still growing undershoots — it stopped one bubble short and then had no way
- * back, because the row it was watching was no longer visible.
+ * [LazyListState.canScrollForward] rather than against any one row's height:
+ * watching the last row only works while the last row is on screen, and an
+ * animated scroll past rows that are still growing undershoots, stopping one
+ * bubble short with no way back once that row is out of view.
  *
  * A drag is the operator taking over, and the pin lets go until the next
  * message arrives. Reading back through a thread should not be fought.

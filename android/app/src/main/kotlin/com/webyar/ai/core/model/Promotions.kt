@@ -7,9 +7,9 @@ import kotlinx.serialization.Serializable
 // `GET /api/mobile-app/promotions`.
 //
 // The keys are the server's, which are camelCase with an upper-case URL
-// (`ctaURL`, `imageURL`) — see `server/routes/mobilePromotions.ts`. They
-// were once written here in snake_case, which decoded without complaint and
-// silently dropped the button, the picture and the frequency caps.
+// (`ctaURL`, `imageURL`) — see `server/routes/mobilePromotions.ts`. Written
+// in snake_case they still decode without complaint, but silently drop the
+// button, the picture and the frequency caps.
 //
 // Nothing here is an advert in the store sense: the words and the picture come
 // from the platform's own settings, no third-party SDK is involved, and no

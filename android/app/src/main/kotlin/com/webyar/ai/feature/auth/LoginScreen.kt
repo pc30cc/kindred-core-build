@@ -135,9 +135,9 @@ fun LoginScreen(
      * keyboard is not brought up under it. The notice clears focus as it
      * appears, but it is often up BEFORE this screen is: a signed-out launch
      * asks about maintenance and restores the session side by side, and the
-     * notice tends to win. Focusing then put the keyboard over the notice
-     * and every key into a field nobody could see. Uncovered, the field
-     * takes focus then, as it would have on arrival.
+     * notice tends to win. Focusing then would put the keyboard over the
+     * notice and every key into a field nobody can see. Uncovered, the field
+     * takes focus then, as it would on arrival.
      */
     covered: Boolean = false,
 ) {
@@ -319,7 +319,7 @@ fun LoginScreen(
  *
  * Mostly the one sentence for every refusal, for the reason in the class
  * comment. Two refusals are not about the password at all, and saying
- * "check your email and password" over them sent people round in circles:
+ * "check your email and password" over them sends people round in circles:
  * an account that has never had a password (migrated, or invited and never
  * finished) is told how to choose one, and a sign-in the server will only
  * take with a captcha — which this app cannot show — is told to wait or use

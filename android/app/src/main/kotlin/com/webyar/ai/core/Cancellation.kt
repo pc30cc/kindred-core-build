@@ -13,12 +13,12 @@ import kotlin.coroutines.cancellation.CancellationException
  * cancellation is this work going away, and there is nobody left to show
  * anything to.
  *
- * Conflating them is not theoretical. A `LaunchedEffect` whose key changed
- * while the invitation POST was in flight had that request cancelled, the
- * `runCatching` around it reported the cancellation as a failed call, and the
- * call screen latched on "the call could not connect" — while the invitation
- * the relaunched effect created went on to ring, be answered, and connect.
- * The operator sat watching a live call from behind an error message.
+ * Conflating them is not theoretical. A `LaunchedEffect` whose key changes
+ * while the invitation POST is in flight cancels that request; a
+ * `runCatching` around it reports the cancellation as a failed call, and the
+ * call screen latches on "the call could not connect" — while the invitation
+ * the relaunched effect creates rings, is answered and connects, leaving the
+ * operator watching a live call from behind an error message.
  *
  * Rethrowing lets cancellation do its job: the coroutine unwinds, and
  * whoever cancelled it gets the silence they asked for.

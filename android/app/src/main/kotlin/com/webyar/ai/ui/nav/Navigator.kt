@@ -13,7 +13,7 @@ import com.webyar.ai.ui.AppTab
  *
  * Each tab keeps its own stack, so a chat opened in the inbox is still open
  * after a visit to Settings — what Navigation Compose's nested graphs with
- * `saveState` gave, here as plain lists the app owns. The stacks are
+ * `saveState` give, here as plain lists the app owns. The stacks are
  * `rememberNavBackStack`s, so they survive the process being killed.
  *
  * Which tab is in front is not held here: [AppState] owns it, because the
@@ -76,9 +76,8 @@ class Navigator internal constructor(
 
     /**
      * Back. Pops the stack in front; at the root of a tab other than the
-     * inbox, goes to the inbox — the start of the app, where Back from any
-     * tab's root has always led. Returns false only at the inbox's root,
-     * where Back leaves the app.
+     * inbox, goes to the inbox — the start of the app. Returns false only at
+     * the inbox's root, where Back leaves the app.
      */
     fun back(): Boolean {
         val stack = current

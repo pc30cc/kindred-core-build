@@ -213,12 +213,9 @@ class SampleApi : WebyarApi {
      * Everything on, so no screen is hidden behind a plan while it is being
      * laid out.
      *
-     * And it has to be SAID rather than left empty, which is what this used to
-     * do. Every gate is fail-closed — only a key that is exactly true is on —
-     * so an empty snapshot turns everything OFF, the opposite of what the
-     * comment claimed. The symptom was quiet: the Contacts tab never appeared,
-     * in the one mode whose whole job is to show every screen without an
-     * account.
+     * And it has to be SAID rather than left empty. Every gate is
+     * fail-closed — only a key that is exactly true is on — so an empty
+     * snapshot would turn every module OFF and hide tabs such as Contacts.
      */
     override suspend fun entitlements(workspaceId: String): Entitlements =
         Entitlements(
@@ -735,12 +732,8 @@ class SampleApi : WebyarApi {
 
     private val notesByConversation = mutableMapOf<String, MutableList<ConversationNote>>()
     /**
-     * Seeded, not empty.
-     *
-     * The colleagues list showed a last-message preview for every row and the
-     * thread behind it opened blank, which is the one thing this backend
-     * exists to prevent — the previews were written and the threads they
-     * previewed were not.
+     * Seeded, not empty: every preview in the colleagues list needs a thread
+     * behind it, or the thread opens blank.
      */
     private val teamMessages: MutableMap<String, MutableList<TeamMessage>> =
         TEAM_THREADS.mapValues { it.value.toMutableList() }.toMutableMap()
@@ -802,9 +795,9 @@ class SampleApi : WebyarApi {
 
         /**
          * [ago], but never before today's midnight: a sample that means
-         * "today" and was built just after midnight fell on yesterday, which
-         * drew an extra day header and moved the thread — and failed the
-         * tests that run a few minutes into the day. Those are moved to a few
+         * "today", built just after midnight, would fall on yesterday, draw
+         * an extra day header and move the thread — and fail the tests that
+         * run a few minutes into the day. Such times are moved to a few
          * seconds past midnight instead, keeping their order.
          */
         fun agoToday(minutes: Long): Instant {
@@ -817,10 +810,9 @@ class SampleApi : WebyarApi {
          * The `metadata.channel` a conversation carries when it did not come
          * in through the widget.
          *
-         * Without this the channel strip listed three inboxes and every one of
-         * them was empty, because nothing in the fixture was ever filed under
-         * a channel — a strip that looks broken in the one mode whose job is
-         * to show every screen working.
+         * Without this the channel strip would list three inboxes and every
+         * one of them would be empty, because nothing in the fixture would be
+         * filed under a channel.
          */
         fun channel(key: String): JsonElement =
             buildJsonObject { put("channel", JsonPrimitive(key)) }
@@ -841,9 +833,7 @@ class SampleApi : WebyarApi {
             // do not reach the operator's composer.
             "widget_attachments", "widget_voice_notes", "widget_emoji", "canned_responses",
             // The two extra inbox queues. Without these the chip strip is one
-            // chip wide and the screen hides it, so the sample build showed
-            // neither the strip nor four of the six queues — in the mode whose
-            // whole job is to show every screen working.
+            // chip wide and the screen hides it.
             "inbox_needs_human", "inbox_ai_queue",
             // The Colleagues row.
             "inbox_team_chat",
@@ -933,7 +923,7 @@ class SampleApi : WebyarApi {
          * visitor filed as a Mac in Germany on the inbox and as bare initials
          * on the contacts list is the exact inconsistency the shared endpoint
          * exists to prevent, and hand-keeping two maps in step is how that
-         * creeps back in. The link is the conversation's `contactId`.
+         * creeps in. The link is the conversation's `contactId`.
          *
          * `by lazy` rather than a plain initializer: `CONVERSATIONS` is
          * declared further down, and an object's properties initialize in the
@@ -1383,8 +1373,8 @@ class SampleApi : WebyarApi {
                 createdAt = ago(5000),
                 updatedAt = ago(2800),
                 contact = ConversationContact(name = "علی رضایی"),
-                // No body at all: an attachment-only message, which is the row
-                // that used to render as an empty preview line.
+                // No body at all: an attachment-only message, the row that
+                // must still render a preview line rather than an empty one.
                 lastMessage = MessagePreview(
                     body = null,
                     createdAt = ago(2800),

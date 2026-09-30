@@ -121,13 +121,58 @@ def split_top(s):
     return [x for x in re.split(r';\s*\n', s.strip() + '\n') if x.strip()]
 
 
+# pgvector is optional on self-host: stock postgres:16 (the Integration CI job,
+# and installs that are not on the Supabase image) does not ship it. Every
+# column of type vector and every index over one is held back from the plain
+# DDL and emitted in PGVECTOR_BLOCK, which runs only where the extension is
+# installed — in whatever schema it lives.
+vector_deferred = []
+
+
+def defer_vector(kind, stmt):
+    """Strip pgvector-typed columns / indexes out of `stmt`, recording them."""
+    if kind == 'TABLE':
+        table = re.search(r'CREATE TABLE (\S+) \(', stmt).group(1)
+        keep = []
+        for line in stmt.split('\n'):
+            m = re.match(r'^\s+(\w+) public\.vector(\(\d+\))?,?$', line)
+            if m:
+                vector_deferred.append(f'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {m.group(1)} %1$I.vector{m.group(2) or ""}')
+            else:
+                keep.append(line)
+        return re.sub(r',(\n\);?)$', r'\1', '\n'.join(keep))
+    if kind == 'INDEX' and 'public.vector_' in stmt:
+        vector_deferred.append(make_idempotent(kind, stmt).rstrip(';').replace('public.vector_', '%1$I.vector_'))
+        return ''
+    return stmt
+
+
 def emit(sql):
     out = []
     for kind, name, stmt in blocks(sql):
+        stmt = defer_vector(kind, stmt)
         if not stmt:
             continue
         out.append(f'-- {kind}: {name}\n{make_idempotent(kind, stmt)}\n')
     return '\n'.join(out)
+
+
+def pgvector_block():
+    if not vector_deferred:
+        return ''
+    body = '\n'.join(f"  EXECUTE format($ddl${d}$ddl$, s);" for d in vector_deferred)
+    return f"""DO $pgvector$
+DECLARE s text;
+BEGIN
+  SELECT n.nspname INTO s FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
+   WHERE e.extname = 'vector';
+  IF s IS NULL THEN
+    RAISE NOTICE 'pgvector is not installed: skipping the vector columns and indexes below (AI knowledge retrieval needs them)';
+    RETURN;
+  END IF;
+{body}
+END $pgvector$;
+"""
 
 
 # ── columns missing on tables that exist in both chains ─────────────────
@@ -304,13 +349,16 @@ print(stats, file=sys.stderr)
 with open(OUT, 'w') as f:
     f.write(open(f'{D}/header.sql').read())
     f.write('\nSET check_function_bodies = false;\nSET client_min_messages = warning;\n\n')
-    f.write('-- ── extensions ──────────────────────────────────────────────\nCREATE EXTENSION IF NOT EXISTS pg_trgm;\nCREATE EXTENSION IF NOT EXISTS vector;\n\n')
+    f.write('-- ── extensions ──────────────────────────────────────────────\nCREATE EXTENSION IF NOT EXISTS pg_trgm;\n'
+            'DO $ext$\nBEGIN\n  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = \'vector\') THEN\n'
+            '    CREATE EXTENSION IF NOT EXISTS vector;\n  END IF;\nEND $ext$;\n\n')
     f.write('-- ── types ───────────────────────────────────────────────────\n' + emit(restore(pre_types)) + '\n')
     f.write('\n'.join(enum_lines) + '\n\n')
     f.write('-- ── functions, tables, sequences ────────────────────────────\n' + emit(restore(pre_rest)) + '\n')
     f.write('-- ── columns on existing tables ──────────────────────────────\n' + '\n'.join(col_lines) + '\n\n')
     f.write('-- ── views ───────────────────────────────────────────────────\n' + emit(restore(views)) + '\n')
     f.write('-- ── constraints, indexes, triggers, policies, comments ──────\n' + emit(restore(post)) + '\n')
+    f.write('-- ── pgvector columns and indexes (only where it is installed) ─\n' + pgvector_block() + '\n')
     f.write('-- ── check constraints on existing tables ────────────────────\n' + '\n'.join(con_lines) + '\n\n')
     f.write('-- ── row level security and policy hardening ─────────────────\n' + '\n'.join(rls_lines + pol_lines) + '\n\n')
     f.write('-- ── privileges ──────────────────────────────────────────────\n' + '\n'.join(acl_lines) + '\n\n')

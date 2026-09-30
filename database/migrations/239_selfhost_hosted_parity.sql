@@ -41,6 +41,10 @@
 -- check_workspace_entitlement is absent — so adding it would put an
 -- "unlimited" install under plan limits.
 --
+-- pgvector is optional: stock postgres:16 does not ship it. The extension is
+-- created only where it is available, and ai_knowledge_chunks.embedding with
+-- its HNSW index only where it is installed; everything else applies anyway.
+--
 -- Idempotent: CREATE … IF NOT EXISTS / OR REPLACE, and constraints, policies
 -- and types wrapped so an object that already exists is skipped.
 
@@ -49,7 +53,12 @@ SET client_min_messages = warning;
 
 -- ── extensions ──────────────────────────────────────────────
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
-CREATE EXTENSION IF NOT EXISTS vector;
+DO $ext$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector') THEN
+    CREATE EXTENSION IF NOT EXISTS vector;
+  END IF;
+END $ext$;
 
 -- ── types ───────────────────────────────────────────────────
 -- TYPE: ai_kb_generated_status
@@ -3661,7 +3670,6 @@ CREATE TABLE IF NOT EXISTS public.ai_knowledge_chunks (
     locale text,
     chunk_index integer DEFAULT 0 NOT NULL,
     content_hash text NOT NULL,
-    embedding public.vector(1536),
     embedding_provider text,
     embedding_model text,
     status text DEFAULT 'active'::text NOT NULL,
@@ -6071,9 +6079,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS ai_agent_learning_candidates_pending_uniq ON p
 
 -- INDEX: ai_agent_learning_candidates_ws_status_reason_idx
 CREATE INDEX IF NOT EXISTS ai_agent_learning_candidates_ws_status_reason_idx ON public.ai_agent_learning_candidates USING btree (workspace_id, status, reason);
-
--- INDEX: ai_knowledge_chunks_embedding_hnsw
-CREATE INDEX IF NOT EXISTS ai_knowledge_chunks_embedding_hnsw ON public.ai_knowledge_chunks USING hnsw (embedding public.vector_cosine_ops);
 
 -- INDEX: ai_knowledge_chunks_hash_idx
 CREATE INDEX IF NOT EXISTS ai_knowledge_chunks_hash_idx ON public.ai_knowledge_chunks USING btree (content_hash);
@@ -9378,6 +9383,20 @@ ALTER TABLE public.workspace_provider_settings ENABLE ROW LEVEL SECURITY;
 
 -- ROW SECURITY: workspace_settings
 ALTER TABLE public.workspace_settings ENABLE ROW LEVEL SECURITY;
+
+-- ── pgvector columns and indexes (only where it is installed) ─
+DO $pgvector$
+DECLARE s text;
+BEGIN
+  SELECT n.nspname INTO s FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
+   WHERE e.extname = 'vector';
+  IF s IS NULL THEN
+    RAISE NOTICE 'pgvector is not installed: skipping the vector columns and indexes below (AI knowledge retrieval needs them)';
+    RETURN;
+  END IF;
+  EXECUTE format($ddl$ALTER TABLE public.ai_knowledge_chunks ADD COLUMN IF NOT EXISTS embedding %1$I.vector(1536)$ddl$, s);
+  EXECUTE format($ddl$CREATE INDEX IF NOT EXISTS ai_knowledge_chunks_embedding_hnsw ON public.ai_knowledge_chunks USING hnsw (embedding %1$I.vector_cosine_ops)$ddl$, s);
+END $pgvector$;
 
 -- ── check constraints on existing tables ────────────────────
 DO $parity$ BEGIN

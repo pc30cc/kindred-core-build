@@ -41,5 +41,9 @@
 -- check_workspace_entitlement is absent — so adding it would put an
 -- "unlimited" install under plan limits.
 --
+-- pgvector is optional: stock postgres:16 does not ship it. The extension is
+-- created only where it is available, and ai_knowledge_chunks.embedding with
+-- its HNSW index only where it is installed; everything else applies anyway.
+--
 -- Idempotent: CREATE … IF NOT EXISTS / OR REPLACE, and constraints, policies
 -- and types wrapped so an object that already exists is skipped.

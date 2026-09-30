@@ -112,10 +112,15 @@ describe('status', () => {
     expect((await supportStatus(config, userId)).online).toBe(false);
   });
 
-  it('is not offered to the support team itself', async () => {
+  it('is offered to the support team too, who are not told about their own message', async () => {
     const status = await supportStatus(config, 'agent-1');
-    expect(status.available).toBe(false);
-    await rejects(sendChatMessage(config, 'agent-1', { body: 'hi', clientMessageId: 'c-00000001' }), 409, 'support_member');
+    expect(status.available).toBe(true);
+    const { thread } = await sendChatMessage(config, 'agent-1', { body: 'hi', clientMessageId: 'c-00000001' });
+    expect(thread.kind).toBe('chat');
+    expect(notifyInboundMessage).toHaveBeenCalledWith(
+      config,
+      expect.objectContaining({ workspaceId: 'ws-support', actorId: 'agent-1' }),
+    );
   });
 });
 

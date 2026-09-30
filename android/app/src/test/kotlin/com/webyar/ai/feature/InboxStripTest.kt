@@ -201,9 +201,12 @@ class InboxStripTest {
                 ChoiceButton(label = "Sent", selected = false, language = Language.EN, onClick = {})
             }
         }
+        // Robolectric's legacy graphics measure text at about a pixel a
+        // character, so the words are narrow here, but never nothing: a label
+        // that gave way in an unbounded row got exactly zero.
         listOf("Inbox", "Sent").forEach { word ->
             val bounds = compose.onNodeWithText(word, useUnmergedTree = true).getBoundsInRoot()
-            assertTrue("$word at $bounds", bounds.right - bounds.left > 12.dp)
+            assertTrue("$word at $bounds", bounds.right - bounds.left > 2.dp)
         }
     }
 

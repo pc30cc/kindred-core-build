@@ -55,7 +55,6 @@ import com.webyar.ai.ui.design.Radius
 import com.webyar.ai.ui.components.OperatorAvatar
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.remember
@@ -211,18 +210,21 @@ private fun ColleagueRow(
                 verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        colleague.displayName,
-                        style = MaterialTheme.typography.titleMedium.bidiContent(),
-                        fontWeight = if (unread > 0) FontWeight.Bold else FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    if (role != null) {
-                        StatusPill(role, tone = PillTone.BRAND, modifier = Modifier.padding(start = Space.xs))
+                    // The name takes all the room the time leaves, the role
+                    // pill right after it rather than at the far end.
+                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            colleague.displayName,
+                            style = MaterialTheme.typography.titleMedium.bidiContent(),
+                            fontWeight = if (unread > 0) FontWeight.Bold else FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        if (role != null) {
+                            StatusPill(role, tone = PillTone.BRAND, modifier = Modifier.padding(start = Space.xs))
+                        }
                     }
-                    Spacer(Modifier.weight(1f))
                     last?.createdAt?.let {
                         Text(
                             Format.listTimestamp(it, language),
@@ -254,9 +256,10 @@ private fun ColleagueRow(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
-                    } else {
+                    } else if (!colleague.fullName.isNullOrBlank()) {
                         // Nobody has written yet: who they are, to know whom
-                        // a first message goes to.
+                        // a first message goes to. (Without a name the
+                        // address is already the name, and not said twice.)
                         LatinText(
                             colleague.email.orEmpty(),
                             style = MaterialTheme.typography.bodyMedium,

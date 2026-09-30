@@ -24,7 +24,6 @@ import {
   useGmailConnection,
   useStartGmailOAuth,
   useYahooConnection,
-  useStartYahooOAuth,
   useEmailMailboxSync,
   threadBodyVersion,
 } from '@/hooks/useEmailInbox';
@@ -100,29 +99,18 @@ function formatAddresses(list: Array<{ email: string }>): string {
 
 // ─── Connect gate ───────────────────────────────────────────────────────
 //
-// Offers whichever provider(s) the platform has configured — a workspace
-// connects at most one at a time in this feature's current shape (see
-// server/services/email/inbox.ts's resolveConnectedIntegration), so once
-// either succeeds the page re-renders straight into the inbox.
+// Offers Gmail only. Yahoo Mail's backend stays in place, but Yahoo grants
+// its Mail API (mail-r/mail-w) only under a commercial agreement, so a
+// connect button would always fail. Once connected the page re-renders
+// straight into the inbox.
 
 function ConnectEmailCard({ workspaceId }: { workspaceId: string }) {
   const { t } = useTranslation();
   const startGmailOAuth = useStartGmailOAuth(workspaceId);
-  const startYahooOAuth = useStartYahooOAuth(workspaceId);
-  const { data: yahooConnection } = useYahooConnection(workspaceId);
 
   const handleConnectGmail = async () => {
     try {
       const result = await startGmailOAuth.mutateAsync();
-      window.location.href = result.url;
-    } catch {
-      toast({ title: t('emailInbox.connectFailed'), variant: 'destructive' });
-    }
-  };
-
-  const handleConnectYahoo = async () => {
-    try {
-      const result = await startYahooOAuth.mutateAsync();
       window.location.href = result.url;
     } catch {
       toast({ title: t('emailInbox.connectFailed'), variant: 'destructive' });
@@ -143,12 +131,6 @@ function ConnectEmailCard({ workspaceId }: { workspaceId: string }) {
           {startGmailOAuth.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
           {t('emailInbox.connectGmail')}
         </Button>
-        {yahooConnection?.platformConfigured && (
-          <Button onClick={handleConnectYahoo} disabled={startYahooOAuth.isPending} size="lg" variant="outline" className="gap-2">
-            {startYahooOAuth.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-            {t('emailInbox.connectYahoo')}
-          </Button>
-        )}
       </div>
     </div>
   );

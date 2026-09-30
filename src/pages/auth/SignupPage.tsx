@@ -11,6 +11,8 @@ import { LanguageSelector } from '@/components/auth/LanguageSelector';
 import SignupStepAccount from '@/components/auth/SignupStepAccount';
 import SignupStepCompany from '@/components/auth/SignupStepCompany';
 import { fetchSignupPolicy } from '@/lib/emailOtp';
+import { useSignupEnabled } from '@/hooks/useSignupEnabled';
+import { Button } from '@/components/ui/button';
 
 
 const TOTAL_STEPS = 2;
@@ -22,6 +24,7 @@ export default function SignupPage() {
   const { signUp, signIn } = useAuth();
   const brand = usePlatformBrandingForLocale(locale);
   const isRtl = dir === 'rtl';
+  const signupEnabled = useSignupEnabled();
 
   const [step, setStep] = useState(1);
 
@@ -79,7 +82,9 @@ export default function SignupPage() {
         // that. Every "account already exists" case routes to the same
         // sign-in-or-reset message; a legitimate migrated user who then
         // tries to log in is correctly routed to password setup by /login.
-        if (error.message.toLowerCase().includes('already exists')) {
+        if (error.message.toLowerCase().includes('registration is disabled')) {
+          toast.error(t('auth.signupDisabledTitle'), { description: t('auth.signupDisabledDesc') });
+        } else if (error.message.toLowerCase().includes('already exists')) {
           toast.error(t('auth.accountExists'), { description: t('auth.accountExistsHint') });
         } else {
           toast.error(t('auth.signupFailed'), { description: error.message });
@@ -147,6 +152,13 @@ export default function SignupPage() {
 
         {/* Form area */}
         <div className="flex-1 flex flex-col items-center justify-center px-6 pb-12">
+          {signupEnabled === false ? (
+          <div className="glass beam-border w-full max-w-[460px] space-y-5 rounded-3xl p-7 text-center shadow-glow sm:p-9">
+            <h1 className="text-2xl font-bold text-foreground tracking-tight">{t('auth.signupDisabledTitle')}</h1>
+            <p className="text-muted-foreground">{t('auth.signupDisabledDesc')}</p>
+            <Button className="w-full" onClick={() => navigate('/auth/login')}>{t('auth.login')}</Button>
+          </div>
+          ) : (
           <div className="glass beam-border w-full max-w-[460px] space-y-7 rounded-3xl p-7 shadow-glow sm:p-9">
             {/* Step indicator */}
             <div className="space-y-4">
@@ -214,6 +226,7 @@ export default function SignupPage() {
               />
             )}
           </div>
+          )}
           <BrandWordmark className="mt-6" />
         </div>
       </div>

@@ -2,13 +2,15 @@
  * Super Admin → Core settings.
  *
  * A tabbed home for platform-wide behaviour switches that are not tied to a
- * single subsystem. First tab: signup (email verification method + gate),
+ * single subsystem. First tab: signup (open/closed, email verification
+ * method + gate, default plan),
  * which is stored on `platform_settings` and resolved server-side.
  */
 import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SlidersHorizontal } from 'lucide-react';
 import { useTranslation } from '@/i18n';
+import SignupAccessCard from './verification/SignupAccessCard';
 import SignupDeliveryCard from './verification/SignupDeliveryCard';
 import SignupPlanCard from './verification/SignupPlanCard';
 
@@ -34,6 +36,7 @@ export default function CoreSettingsPage() {
         </TabsList>
 
         <TabsContent value="signup" className="space-y-4">
+          <SignupAccessCard />
           <SignupDeliveryCard />
           <SignupPlanCard />
         </TabsContent>

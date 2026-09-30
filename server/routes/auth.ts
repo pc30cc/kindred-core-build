@@ -335,6 +335,15 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
     }
 
+    // Super Admin → Core settings → Signup can close public registration.
+    // Checked before the existing-identity lookup so a closed signup never
+    // doubles as an email-enumeration oracle. Invited users are unaffected:
+    // they get their account through /api/workspace-invitations/accept-new.
+    const policy = await getSignupVerificationPolicy(config);
+    if (!policy.enabled) {
+      return res.status(403).json({ error: 'New account registration is disabled', code: 'signup_disabled' });
+    }
+
     const { password, fullName, website, locale, metadata } = parsed.data;
     const normalizedWebsite = website ? normalizeWebsiteUrl(website) : null;
     const normalizedEmail = parsed.data.email.trim().toLowerCase();
@@ -426,8 +435,6 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
     //                   code from /api/auth-email/otp/start (self-hosted
     //                   Generic Verification Core). No link is ever sent
     //                   in this mode.
-    const policy = await getSignupVerificationPolicy(config);
-
     if (policy.method === 'link') {
       const verificationResult = await issueVerificationEmail(config, {
         userId: newUserId,
@@ -651,8 +658,9 @@ authSecurityRouter.post('/verify-captcha', authRateLimiter, async (req, res) => 
  * GET /api/auth/signup-policy
  * PUBLIC (no session): the signup page needs to know, before an account
  * exists, whether verification is delivered as a link or a code and
- * whether the new user may enter their workspace right away. Exposes
- * nothing beyond those two operator-chosen, non-sensitive values.
+ * whether the new user may enter their workspace right away — and whether
+ * public signup is open at all. Exposes nothing beyond those
+ * operator-chosen, non-sensitive values.
  */
 authSecurityRouter.get('/signup-policy', async (req, res) => {
   try {
@@ -661,6 +669,6 @@ authSecurityRouter.get('/signup-policy', async (req, res) => {
     return res.json(policy);
   } catch (err) {
     console.error('[auth] signup-policy error:', err);
-    return res.json({ method: 'link', gate: 'before' });
+    return res.json({ enabled: false, method: 'link', gate: 'before' });
   }
 });

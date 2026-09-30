@@ -5,6 +5,8 @@
  * single subsystem. First tab: signup (open/closed, email verification
  * method + gate, default plan),
  * which is stored on `platform_settings` and resolved server-side.
+ * Support: which workspace answers operators who ask the platform's team for
+ * help (`platform_support_settings`, docs/PLATFORM_SUPPORT.md).
  */
 import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -13,6 +15,7 @@ import { useTranslation, type TranslationKey } from '@/i18n';
 import SignupAccessCard from './verification/SignupAccessCard';
 import SignupDeliveryCard from './verification/SignupDeliveryCard';
 import SignupPlanCard from './verification/SignupPlanCard';
+import PlatformSupportCard from './support/PlatformSupportCard';
 
 export default function CoreSettingsPage() {
   const { t } = useTranslation();
@@ -33,12 +36,17 @@ export default function CoreSettingsPage() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="signup">{t('admin.coreSettings.tabSignup' as TranslationKey)}</TabsTrigger>
+          <TabsTrigger value="support">{t('admin.coreSettings.tabSupport' as TranslationKey)}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="signup" className="space-y-4">
           <SignupAccessCard />
           <SignupDeliveryCard />
           <SignupPlanCard />
+        </TabsContent>
+
+        <TabsContent value="support" className="space-y-4">
+          <PlatformSupportCard />
         </TabsContent>
       </Tabs>
     </div>

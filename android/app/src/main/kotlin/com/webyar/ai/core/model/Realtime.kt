@@ -86,4 +86,6 @@ data class RealtimeEventPayload(
     /** `email_mailbox_changed`: which mailbox (`gmail`, `yahoo`), and Gmail's cursor after the change. */
     val provider: String? = null,
     @SerialName("history_id") val historyId: String? = null,
+    /** Platform support (`support_message`, `support_read`): which of the operator's threads. */
+    @SerialName("thread_id") val threadId: String? = null,
 )

@@ -33,6 +33,11 @@ describe('androidNotificationTag', () => {
     expect(androidNotificationTag({ type: 'callback_request', callbackId: 'cb-1' })).toBe('callback:cb-1');
   });
 
+  it('is the support thread for a reply from the platform team', () => {
+    expect(androidNotificationTag({ type: 'support_reply', threadId: 'st-1', messageId: 'm-1' })).toBe('support:st-1');
+    expect(androidNotificationTag({ type: 'support_reply' })).toBeUndefined();
+  });
+
   it('is one fixed tag for a test send, and none when nothing names the thread', () => {
     expect(androidNotificationTag({ type: 'test' })).toBe('push-test');
     expect(androidNotificationTag({ type: 'team_message' })).toBeUndefined();

@@ -7,6 +7,7 @@ import com.webyar.ai.core.model.InboxFilter
 import com.webyar.ai.core.sync.ConversationRepository
 import com.webyar.ai.core.sync.MessageRepository
 import com.webyar.ai.core.sync.EmailSignal
+import com.webyar.ai.core.sync.SupportSignal
 import com.webyar.ai.core.sync.SyncCoordinator
 import com.webyar.ai.i18n.Language
 import com.webyar.ai.testing.ScriptedApi
@@ -256,6 +257,56 @@ class PushRouterTest {
         assertTrue(shown.isEmpty())
         // Still heard: the list and the count move with it.
         assertEquals(1, heard.size)
+    }
+
+    /**
+     * The platform's team answered: the support screens read again, and the
+     * operator is told — unless that thread is the one on screen.
+     */
+    @Test
+    fun `a support reply signals the support screens and notifies`() = runTest {
+        val (router, sync) = router()
+        val heard = mutableListOf<SupportSignal>()
+        backgroundScope.launch { sync.support.collect { heard += it } }
+        runCurrent()
+        val reply = PushPayload(type = PushPayload.TYPE_SUPPORT, workspaceId = "ws-1", conversationId = null, messageId = "m-9", threadId = "st-1")
+
+        router.onMessage(reply, "رضا · پشتیبانی", "درست شد")
+        runCurrent()
+
+        assertEquals(listOf(reply), shown)
+        assertEquals(listOf("st-1"), heard.map { it.threadId })
+        // Not a conversation of this workspace: nothing for the inbox to read.
+        assertTrue(api.idReads.isEmpty())
+    }
+
+    @Test
+    fun `a support reply in the thread on screen does not notify`() = runTest {
+        context = context?.copy(openSupportThreadIds = setOf("st-1"))
+        val (router, sync) = router()
+        val heard = mutableListOf<SupportSignal>()
+        backgroundScope.launch { sync.support.collect { heard += it } }
+        runCurrent()
+        val reply = PushPayload(type = PushPayload.TYPE_SUPPORT, workspaceId = "ws-1", conversationId = null, messageId = "m-9", threadId = "st-1")
+
+        router.onMessage(reply, null, null)
+        router.onMessage(reply.copy(messageId = "m-10", threadId = "st-2"), null, null)
+        runCurrent()
+
+        assertEquals(listOf("st-2"), shown.map { it.threadId })
+        // Still heard: the thread on screen reads the reply.
+        assertEquals(listOf("st-1", "st-2"), heard.map { it.threadId })
+    }
+
+    @Test
+    fun `a support payload opens its thread only with ids that check out`() {
+        val parsed = PushPayload.from(mapOf("type" to "support_reply", "workspaceId" to "ws-1", "threadId" to "st-1"))
+        assertTrue(parsed.isSupport)
+        assertTrue(parsed.opensSupportThread)
+        assertTrue(parsed.opensSomething)
+        val forged = PushPayload.from(mapOf("type" to "support_reply", "workspaceId" to "ws-1", "threadId" to "../x"))
+        assertEquals(null, forged.threadId)
+        assertEquals(false, forged.opensSupportThread)
     }
 
     @Test

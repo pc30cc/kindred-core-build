@@ -106,6 +106,35 @@ class SyncCoordinatorTest {
         assertTrue(api.listReads.isEmpty())
     }
 
+    /**
+     * The platform's team answered, on the operator's own channel: the
+     * support screens hear it, focus or none, and the inbox reads nothing.
+     */
+    @Test
+    fun `support news goes to the support screens and costs the inbox nothing`() = runTest {
+        val sync = coordinator()
+        sync.focusInbox(scope, InboxFilter.OPEN)
+        val heard = mutableListOf<SupportSignal>()
+        backgroundScope.launch { sync.support.collect { heard += it } }
+        runCurrent()
+
+        sync.onRealtimeEvent(
+            "ws-1",
+            RealtimeEventPayload(kind = "support_message", workspaceId = "ws-1", conversationId = "st-1", threadId = "st-1", messageId = "m-1"),
+        )
+        sync.onSupportPush(null)
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(listOf(SupportSignal("support_message", "st-1"), SupportSignal("support_message", null)), heard)
+        assertTrue(heard[0].about("st-1"))
+        assertTrue(!heard[0].about("st-2"))
+        // A push that names no thread may be about any of them.
+        assertTrue(heard[1].about("st-2"))
+        assertTrue(api.idReads.isEmpty())
+        assertTrue(api.listReads.isEmpty())
+    }
+
     @Test
     fun `a realtime message lands in the open thread with no thread request`() = runTest {
         val sync = coordinator()

@@ -1,6 +1,7 @@
 export {
   notifyInboundMessage,
   notifyTeamMessage,
+  notifySupportReply,
   notifyAssignment,
   notifyEmailMessage,
   notifyCallbackRequest,

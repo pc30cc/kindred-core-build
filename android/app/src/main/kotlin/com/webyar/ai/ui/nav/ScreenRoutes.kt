@@ -1833,8 +1833,32 @@ fun SettingsRoute(
     onOpenSecurity: () -> Unit,
     onOpenNotifications: () -> Unit,
     bottomInset: Dp,
+    onStartSupportChat: () -> Unit = {},
+    onNewSupportTicket: () -> Unit = {},
+    onOpenSupportRequests: () -> Unit = {},
 ) {
     val settings: SettingsViewModel = viewModel(factory = viewModelFactory { SettingsViewModel(api) })
+
+    // Online support: the platform team's status and the operator's requests,
+    // read while the page is shown and on the team's news.
+    val supportHome: com.webyar.ai.feature.support.SupportHomeViewModel = viewModel(
+        key = "settings-support",
+        factory = liveLanguage(language).let { l -> viewModelFactory { com.webyar.ai.feature.support.SupportHomeViewModel(api, l) } },
+    )
+    val supportStatus by supportHome.status.collectAsStateWithLifecycle()
+    val supportThreads by supportHome.threads.collectAsStateWithLifecycle()
+    val supportSignals = rememberSupportSignals()
+    val supportLifecycle = LocalLifecycleOwner.current
+    LaunchedEffect(supportLifecycle, supportSignals) {
+        supportLifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { supportHome.follow(supportSignals) }
+    }
+    val supportSummary = supportStatus?.let { status ->
+        com.webyar.ai.feature.settings.SupportSummary(
+            status = status,
+            requests = supportThreads.size,
+            unread = supportThreads.sumOf { it.unread },
+        )
+    }
     // Asked again each time the page is shown. The model lives as long as the
     // session, so asking once would let a first request that failed leave
     // "offline" in place of the switches until the app is killed, and the
@@ -1912,6 +1936,10 @@ fun SettingsRoute(
         supportUrl = supportUrl,
         // A phone with no browser has nothing to open it with; the tap does nothing.
         onOpenSupport = { url -> runCatching { uriHandler.openUri(url) } },
+        support = supportSummary,
+        onStartSupportChat = onStartSupportChat,
+        onNewSupportTicket = onNewSupportTicket,
+        onOpenSupportRequests = onOpenSupportRequests,
         storage = storage,
         // Null leaves the whole Storage section out; the cache keeps working.
         onClearCache = graph?.takeIf { config.showStorage }?.let { g ->

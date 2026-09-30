@@ -116,6 +116,19 @@ class SyncCoordinator(
      * itself: whoever shows the mailbox asks the server what changed.
      */
     val email: SharedFlow<EmailSignal> = _email.asSharedFlow()
+
+    private val _support = MutableSharedFlow<SupportSignal>(
+        extraBufferCapacity = 16,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    /**
+     * Platform support: the team answered one of the operator's threads, or
+     * they read or wrote in one on another device. Heard on their own channel
+     * or by push; ids only — whoever shows support reads it again.
+     */
+    val support: SharedFlow<SupportSignal> = _support.asSharedFlow()
+    private val openSupportThreads = MutableStateFlow<Set<String>>(emptySet())
     private val openThreads = MutableStateFlow<Set<String>>(emptySet())
     private val openTeamThreads = MutableStateFlow<Set<String>>(emptySet())
     private val openEmailThreads = MutableStateFlow<Set<String>>(emptySet())
@@ -275,6 +288,17 @@ class SyncCoordinator(
     /** Which email threads are on screen, for a push deciding whether to notify. */
     fun openEmailThreadIds(): Set<String> = openEmailThreads.value
 
+    /** A support thread came on screen; the team's reply in it needs no notification. */
+    fun openSupportThread(threadId: String) {
+        openSupportThreads.update { it + threadId }
+    }
+
+    fun closeSupportThread(threadId: String) {
+        openSupportThreads.update { it - threadId }
+    }
+
+    fun openSupportThreadIds(): Set<String> = openSupportThreads.value
+
     /**
      * Signed out: nothing is in focus and nothing may be written for anyone.
      *
@@ -403,6 +427,12 @@ class SyncCoordinator(
             _team.tryEmit(TeamSignal(workspaceId, kindHeard, event.senderId, event.recipientId, event.peerId))
             return
         }
+        // Platform support lives in the platform team's workspace, not in
+        // this one: nothing for the inbox, only for the support screens.
+        if (kindHeard != null && kindHeard.startsWith(SUPPORT_KIND_PREFIX)) {
+            _support.tryEmit(SupportSignal(kindHeard, event.threadId))
+            return
+        }
         val f = focus.value ?: return
         if (f.scope.workspaceId != workspaceId) return
         val kind = event.kind ?: return
@@ -468,6 +498,11 @@ class SyncCoordinator(
      */
     fun onTeamPush(workspaceId: String, peerId: String) {
         _team.tryEmit(TeamSignal(workspaceId, TEAM_MESSAGE_KIND, senderId = peerId, peerId = peerId))
+    }
+
+    /** The platform's support team answered, heard by push. */
+    fun onSupportPush(threadId: String?) {
+        _support.tryEmit(SupportSignal(SUPPORT_MESSAGE_KIND, threadId))
     }
 
     /** New mail, heard by push — the channel may be down, or the app was in the background. */
@@ -746,6 +781,10 @@ class SyncCoordinator(
         /** The realtime event a sent team message is announced with. */
         const val TEAM_MESSAGE_KIND = "team_message"
 
+        /** `support_message`, `support_read`: the operator's own channel (`publishSupportEvent`). */
+        const val SUPPORT_KIND_PREFIX = "support_"
+        const val SUPPORT_MESSAGE_KIND = "support_message"
+
         /** A mailbox changed (`gmailChangeNotifier.ts`); ids and cursors only, never mail. */
         const val EMAIL_MAILBOX_KIND = "email_mailbox_changed"
     }
@@ -778,6 +817,16 @@ data class TeamSignal(
 ) {
     /** Whether this is about the thread with [peer]. */
     fun involves(peer: String): Boolean = peer == senderId || peer == recipientId || peer == peerId
+}
+
+/**
+ * Something moved in one of the operator's platform-support threads: the
+ * team answered (`support_message`), or they read it elsewhere
+ * (`support_read`). [threadId] is null when a push did not say which.
+ */
+data class SupportSignal(val kind: String, val threadId: String?) {
+    /** Whether this may be about [thread]; a signal that names none is about any. */
+    fun about(thread: String): Boolean = threadId == null || threadId == thread
 }
 
 /** The counters the inbox badges show, with the scope and queue they belong to. */

@@ -131,6 +131,9 @@ object Notifications {
     /** The operator opened this email thread. */
     fun cancelEmailThread(context: Context, threadId: String) = cancelKey(context, emailKey(threadId))
 
+    /** The operator opened this support thread. */
+    fun cancelSupportThread(context: Context, threadId: String) = cancelKey(context, supportKey(threadId))
+
     /** Whatever [payload]'s notification is about has been opened. */
     fun cancelFor(context: Context, payload: PushPayload) {
         keyOf(payload)?.let { key -> cancelKey(context, key) }
@@ -167,6 +170,7 @@ object Notifications {
         payload.isTeamMessage -> payload.peerId?.let(::teamKey)
         payload.isEmail -> payload.threadId?.let(::emailKey)
         payload.isCallback -> payload.callbackId?.let { "callback:$it" }
+        payload.isSupport -> payload.threadId?.let(::supportKey)
         else -> payload.conversationId
     }
 
@@ -176,6 +180,9 @@ object Notifications {
 
     /** The server's tag for new mail in a thread (`androidNotificationTag`, `fcm.ts`). */
     private fun emailKey(threadId: String) = "email:$threadId"
+
+    /** The server's tag for a support reply (`androidNotificationTag`, `fcm.ts`). */
+    private fun supportKey(threadId: String) = "support:$threadId"
 
     /**
      * The id Firebase gives every notification it draws; the tag tells them

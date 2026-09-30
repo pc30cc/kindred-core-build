@@ -137,6 +137,16 @@ sealed interface Screen : NavKey {
 
 @Serializable data object NotificationsKey : Screen { override val tab get() = AppTab.SETTINGS }
 
+/** Online support: the platform team's status and the operator's requests. */
+@Serializable data object SupportKey : Screen { override val tab get() = AppTab.SETTINGS }
+
+/** One support thread; a null id is a new chat, which its first message starts. */
+@Serializable data class SupportThreadKey(val threadId: String? = null) : Screen {
+    override val tab get() = AppTab.SETTINGS
+}
+
+@Serializable data object SupportTicketKey : Screen { override val tab get() = AppTab.SETTINGS }
+
 /** The root of each tab's stack. */
 val AppTab.root: Screen
     get() = when (this) {

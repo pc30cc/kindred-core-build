@@ -307,6 +307,47 @@ export async function publishTeamEvent(
   }
 }
 
+/**
+ * Platform support: something new in one of an operator's support threads.
+ *
+ * The operator is not a member of the workspace that answers support, so the
+ * news travels on their OWN user channel — once per workspace they belong
+ * to, since an app is subscribed to the channel of whichever workspace it
+ * has open. Ids only; the app reads the thread through
+ * `/api/platform-support`.
+ */
+export interface SupportEventPayload {
+  kind: 'support_message' | 'support_read';
+  thread_id: string;
+  message_id?: string;
+}
+
+export async function publishSupportEvent(
+  config: ServerConfig,
+  userId: string,
+  workspaceIds: readonly string[],
+  payload: SupportEventPayload,
+): Promise<void> {
+  const targets = [...new Set(workspaceIds.filter((id) => typeof id === 'string' && id.length > 0))];
+  if (!userId || targets.length === 0) return;
+  await Promise.allSettled(
+    targets.map(async (workspaceId) => {
+      try {
+        const publisher = await resolvePublisher(config, workspaceId);
+        const result = await publisher.publish(buildOperatorUserChannelName(workspaceId, userId), {
+          type: 'event',
+          payload: { ...payload, workspace_id: workspaceId } as unknown as Record<string, unknown>,
+        });
+        if (!result.ok) {
+          rtWarn('publish', 'support_skipped', { vendor: publisher.vendor, kind: payload.kind, reason: result.reason });
+        }
+      } catch (err) {
+        rtWarn('publish', 'support_error', { error: err instanceof Error ? err.message : String(err) });
+      }
+    }),
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Visitor Intelligence event envelopes
 //   Channel: ws:<workspace_id>:visitors  (operator-only)

@@ -90,6 +90,7 @@ import { callCenterRouter } from './routes/callCenter.js';
 import { callWidgetRouter } from './routes/callWidget.js';
 import { contactsRouter } from './routes/contacts.js';
 import { teamChatRouter } from './routes/teamChat.js';
+import { platformSupportRouter } from './routes/platformSupport.js';
 import { startInProcessSourceWorker } from './services/ai-agent/sourceWorker.js';
 import { startCallQueueTicker } from './services/calls/queueTicker.js';
 import { startInvitationExpirySweeper } from './services/calls/invitations.js';
@@ -617,6 +618,7 @@ app.use('/api/contacts', contactsRouter);
 
 // Team chat — internal operator-to-operator direct messages.
 app.use('/api/team-chat', teamChatRouter);
+app.use('/api/platform-support', platformSupportRouter);
 
 // AI Knowledge Base Builder — auth + workspace membership enforced inside.
 // Worker that actually crawls + generates runs as a separate process; see

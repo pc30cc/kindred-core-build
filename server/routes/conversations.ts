@@ -67,6 +67,7 @@ import { isConversationId, parseConversationIds } from '../services/conversation
 import { queueTranscript } from '../services/notificationEmail/producers.js';
 import { notifyAssignment } from '../services/push/index.js';
 import { coalesce } from '../lib/inflight.js';
+import { onTeamReply } from '../services/platformSupport/service.js';
 
 
 export const conversationsRouter = Router();
@@ -457,6 +458,20 @@ conversationsRouter.post('/send-message', async (req, res) => {
           }),
         );
 
+
+    // Platform support: when this conversation is an operator's support
+    // thread, the reply reaches them on their own channel, as a push and —
+    // for a ticket — by email. One primary-key read for any other thread.
+    if (!duplicate && inserted?.id) {
+      void onTeamReply(config, {
+        workspaceId: parsed.data.workspace_id,
+        conversationId: parsed.data.conversation_id,
+        messageId: inserted.id,
+        body: messageBody,
+        hasAttachment: attachmentBound,
+        senderName: senderProfile?.name ?? null,
+      });
+    }
 
     // Phase 3 — record attachment_added event (timeline-only) when applicable.
     if (!duplicate && parsed.data.attachment_id) {

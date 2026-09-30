@@ -176,6 +176,7 @@ class AppGraph(private val app: Application) {
                     openConversationIds = sync.openThreadIds(),
                     openTeamPeerIds = sync.openTeamPeerIds(),
                     openEmailThreadIds = sync.openEmailThreadIds(),
+                    openSupportThreadIds = sync.openSupportThreadIds(),
                 )
             }
         },

@@ -47,7 +47,12 @@ data class PushPayload(
     val isCallback: Boolean get() = type == TYPE_CALLBACK
 
     /** Somewhere for a tap to go. */
-    val opensSomething: Boolean get() = opensConversation || opensTeamThread || opensEmailThread
+    /** The platform's support team answered one of the operator's support threads. */
+    val isSupport: Boolean get() = type == TYPE_SUPPORT
+
+    val opensSupportThread: Boolean get() = isSupport && !workspaceId.isNullOrBlank() && !threadId.isNullOrBlank()
+
+    val opensSomething: Boolean get() = opensConversation || opensTeamThread || opensEmailThread || opensSupportThread
 
     /** Super Admin → Notifications → "Send test": a diagnostic, about no conversation. */
     val isTest: Boolean get() = type == TYPE_TEST
@@ -78,6 +83,9 @@ data class PushPayload(
 
         /** `notifyCallbackRequest`. */
         const val TYPE_CALLBACK = "callback_request"
+
+        /** `notifySupportReply` (server/services/push/dispatch.ts): names the thread, not a conversation. */
+        const val TYPE_SUPPORT = "support_reply"
 
         fun from(data: Map<String, String>): PushPayload = PushPayload(
             type = data[KEY_TYPE],

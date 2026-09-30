@@ -1,5 +1,11 @@
 package com.webyar.ai.core.net
 
+import com.webyar.ai.core.model.SupportLastMessage
+import com.webyar.ai.core.model.SupportMessage
+import com.webyar.ai.core.model.SupportPostResult
+import com.webyar.ai.core.model.SupportStatus
+import com.webyar.ai.core.model.SupportThread
+import com.webyar.ai.core.model.SupportThreadDetail
 import com.webyar.ai.core.model.AnalyticsDay
 import com.webyar.ai.core.model.MobileAppConfig
 import com.webyar.ai.core.model.AnalyticsEvent
@@ -380,6 +386,137 @@ class SampleApi : WebyarApi {
     }
 
     override suspend fun markTeamThreadRead(workspaceId: String, peerId: String) {}
+
+    // MARK: - Platform support
+
+    /**
+     * The platform's team, online, with one earlier ticket it has answered —
+     * so Settings shows the section, the chat opens, and the list has a
+     * thread to follow. A message in the chat is answered at once, the way
+     * a team that is online would.
+     */
+    private val supportLock = Any()
+    private val supportThreads = mutableListOf(
+        SupportThread(
+            id = "st-ticket-1",
+            kind = SupportThread.KIND_TICKET,
+            number = 1042,
+            subject = "فاکتور ماه گذشته",
+            status = "resolved",
+            createdAt = Instant.now().minusSeconds(3 * 86_400L),
+            updatedAt = Instant.now().minusSeconds(2 * 86_400L),
+        ),
+    )
+    private val supportMessages = mutableMapOf(
+        "st-ticket-1" to mutableListOf(
+            SupportMessage(
+                id = "sm-1",
+                body = "سلام، مبلغ فاکتور این ماه دو بار از کارتم کم شده است.",
+                author = SupportMessage.AUTHOR_ME,
+                createdAt = Instant.now().minusSeconds(3 * 86_400L),
+            ),
+            SupportMessage(
+                id = "sm-2",
+                body = "سلام، بررسی کردیم؛ مبلغ اضافه تا ۷۲ ساعت آینده به حسابتان برمی‌گردد. ممنون از صبرتان.",
+                author = SupportMessage.AUTHOR_TEAM,
+                senderName = "رضا نوری",
+                createdAt = Instant.now().minusSeconds(2 * 86_400L),
+            ),
+        ),
+    )
+
+    override suspend fun supportStatus(): SupportStatus =
+        SupportStatus(enabled = true, available = true, online = true, ticketsEnabled = true, teamName = "پشتیبانی وب‌یار")
+
+    override suspend fun supportThreads(): List<SupportThread> = synchronized(supportLock) {
+        supportThreads.map(::withSummary).sortedByDescending { it.updatedAt }
+    }
+
+    override suspend fun supportThread(threadId: String): SupportThreadDetail = synchronized(supportLock) {
+        val thread = supportThreads.firstOrNull { it.id == threadId } ?: throw ApiError.Server(404, "thread_not_found")
+        SupportThreadDetail(withSummary(thread), supportMessages[threadId].orEmpty().toList())
+    }
+
+    override suspend fun sendSupportChat(body: String, clientMessageId: String, workspaceId: String?): SupportPostResult =
+        synchronized(supportLock) {
+            val open = supportThreads.firstOrNull { !it.isTicket && !it.isClosed }
+            val thread = open ?: SupportThread(
+                id = "st-chat-${supportThreads.size + 1}",
+                kind = SupportThread.KIND_CHAT,
+                number = 1043L + supportThreads.size,
+                createdAt = Instant.now(),
+                updatedAt = Instant.now(),
+            ).also { supportThreads += it }
+            val message = appendSupport(thread.id, body, clientMessageId)
+            val list = supportMessages.getValue(thread.id)
+            if (list.none { it.fromTeam }) {
+                list += SupportMessage(
+                    id = "sm-${list.size + 1}-team",
+                    body = "سلام! پیامتان رسید. چند لحظه صبر کنید تا بررسی کنم.",
+                    author = SupportMessage.AUTHOR_TEAM,
+                    senderName = "رضا نوری",
+                    createdAt = Instant.now().plusSeconds(1),
+                )
+            }
+            SupportPostResult(withSummary(thread), message)
+        }
+
+    override suspend fun createSupportTicket(
+        subject: String,
+        body: String,
+        clientMessageId: String,
+        workspaceId: String?,
+    ): SupportPostResult = synchronized(supportLock) {
+        val thread = SupportThread(
+            id = "st-ticket-${supportThreads.size + 1}",
+            kind = SupportThread.KIND_TICKET,
+            number = 1043L + supportThreads.size,
+            subject = subject,
+            createdAt = Instant.now(),
+            updatedAt = Instant.now(),
+        ).also { supportThreads += it }
+        SupportPostResult(withSummary(thread), appendSupport(thread.id, body, clientMessageId))
+    }
+
+    override suspend fun replySupportThread(threadId: String, body: String, clientMessageId: String): SupportPostResult =
+        synchronized(supportLock) {
+            val thread = supportThreads.firstOrNull { it.id == threadId } ?: throw ApiError.Server(404, "thread_not_found")
+            if (thread.isClosed) throw ApiError.Server(409, "thread_closed")
+            SupportPostResult(withSummary(thread), appendSupport(threadId, body, clientMessageId))
+        }
+
+    override suspend fun markSupportThreadRead(threadId: String) = synchronized(supportLock) {
+        supportRead[threadId] = Instant.now()
+    }
+
+    private val supportRead = mutableMapOf<String, Instant>()
+
+    private fun appendSupport(threadId: String, body: String, clientMessageId: String): SupportMessage {
+        val list = supportMessages.getOrPut(threadId) { mutableListOf() }
+        list.firstOrNull { it.clientMessageId == clientMessageId }?.let { return it }
+        val message = SupportMessage(
+            id = "sm-${threadId}-${list.size + 1}",
+            body = body.trim(),
+            author = SupportMessage.AUTHOR_ME,
+            createdAt = Instant.now(),
+            clientMessageId = clientMessageId,
+        )
+        list += message
+        supportRead[threadId] = Instant.now()
+        val index = supportThreads.indexOfFirst { it.id == threadId }
+        if (index >= 0) supportThreads[index] = supportThreads[index].copy(updatedAt = Instant.now(), status = "open")
+        return message
+    }
+
+    private fun withSummary(thread: SupportThread): SupportThread {
+        val messages = supportMessages[thread.id].orEmpty()
+        val last = messages.lastOrNull()
+        val read = supportRead[thread.id]
+        return thread.copy(
+            unread = messages.count { it.fromTeam && (read == null || (it.createdAt ?: Instant.EPOCH) > read) },
+            lastMessage = last?.let { SupportLastMessage(it.body, it.fromTeam, it.createdAt) },
+        )
+    }
 
     // MARK: - Channels and email
 

@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -178,6 +179,16 @@ class InboxStripTest {
                 bounds.left >= screenBounds.left && bounds.right <= screenBounds.right,
             )
         }
+    }
+
+    /** The inboxes take the width the icons leave: nothing empty after the three lines. */
+    @Test
+    fun `the strip fills its width`() {
+        screen()
+        val screenBounds = compose.onRoot().getBoundsInRoot()
+        // English runs left to right, so the three lines are last on the right.
+        val lines = compose.onNodeWithTag(A11y.INBOX_EVERY_INBOX).getBoundsInRoot()
+        assertTrue("three lines at $lines, screen $screenBounds", screenBounds.right - lines.right <= 17.dp)
     }
 
     @Test

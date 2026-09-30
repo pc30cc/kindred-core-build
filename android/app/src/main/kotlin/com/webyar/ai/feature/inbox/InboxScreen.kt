@@ -524,9 +524,10 @@ private fun MenuRow(
  * filled pill is the whole mark of the one chosen — no tick, which on each
  * button only pushed the labels along.
  *
- * Every button is always on screen: the strip does not scroll. It is set as
- * roomy as the width allows ([StripDensity]) and, on a phone narrower still,
- * the inboxes share what is left in proportion to their words.
+ * Every button is always on screen, and the strip fills the width: it does
+ * not scroll, and leaves no empty stretch. It is set as roomy as the width
+ * allows ([StripDensity]); the inboxes then share all the width the icons
+ * leave, in proportion to their words.
  *
  * "Needs me" and "Awaiting customer" are behind the last button with the
  * channels, Resolved and Spam, where a place visited now and then belongs:
@@ -587,12 +588,11 @@ private fun QueueGroup(
             horizontalArrangement = Arrangement.spacedBy(tight.gap),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Each inbox's share of the width in proportion to its words: at
-            // its own width while they all fit, which the density chosen
-            // ensures, and stretched or squeezed to fill it exactly when even
-            // the tightest does not.
-            fun Modifier.share(index: Int): Modifier =
-                weight(fit.weights[index], fill = fit.squeezed)
+            // The inboxes take the whole width the icons leave, each in
+            // proportion to its words: wider than their words while those fit
+            // (no empty stretch after the three lines), squeezed to fit when
+            // even the tightest setting does not.
+            fun Modifier.share(index: Int): Modifier = weight(fit.weights[index])
 
             chips.forEachIndexed { index, option ->
                 ChoiceButton(
@@ -681,7 +681,7 @@ internal enum class StripDensity(
 }
 
 /** The density chosen, and each inbox's share of the width. */
-private class StripFit(val density: StripDensity, val weights: List<Float>, val squeezed: Boolean)
+private class StripFit(val density: StripDensity, val weights: List<Float>)
 
 @Composable
 private fun rememberStripFit(maxWidth: Dp, chips: List<StripChip>, icons: Int): StripFit {
@@ -715,12 +715,10 @@ private fun rememberStripFit(maxWidth: Dp, chips: List<StripChip>, icons: Int): 
             return level.inset * 2 + buttons + level.icon * icons + gaps + 4.dp
         }
 
-        val level = StripDensity.entries.firstOrNull { total(it) <= maxWidth }
-        val chosen = level ?: StripDensity.Tightest
+        val chosen = StripDensity.entries.firstOrNull { total(it) <= maxWidth } ?: StripDensity.Tightest
         StripFit(
             density = chosen,
             weights = chips.map { chipWidth(it, chosen).value.coerceAtLeast(1f) },
-            squeezed = level == null,
         )
     }
 }

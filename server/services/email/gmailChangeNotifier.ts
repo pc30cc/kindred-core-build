@@ -30,7 +30,7 @@ export function scheduleGmailChange(config: ServerConfig, integrationId: string)
     pending.delete(integrationId);
     void processGmailChange(config, integrationId);
   }, COALESCE_MS);
-  (timer as { unref?: () => void }).unref?.();
+  timer.unref?.();
   pending.set(integrationId, timer);
 }
 

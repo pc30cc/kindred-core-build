@@ -140,7 +140,7 @@ export async function handleGmailOAuthCallback(
   const email = await ga.fetchAccountEmail(tokens.accessToken);
   if (!email) throw new GmailError('gmail_auth_failed', undefined, 'Could not resolve the connected Gmail address');
 
-  let integration: ChannelIntegration =
+  const integration: ChannelIntegration =
     (await getIntegrationForInstallation(config, installationId)) ??
     (await createIntegration(config, { workspaceId, installationId, provider: 'gmail' }));
 

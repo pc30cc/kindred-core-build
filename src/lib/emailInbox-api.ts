@@ -63,8 +63,9 @@ export interface StagedEmailAttachment {
 export class EmailInboxApiError extends Error {
   status: number;
   code: string;
-  constructor(status: number, body: any) {
-    const code = typeof body?.error === 'string' ? body.error : 'email_inbox_request_failed';
+  constructor(status: number, body: unknown) {
+    const error = (body as { error?: unknown } | null)?.error;
+    const code = typeof error === 'string' ? error : 'email_inbox_request_failed';
     super(code);
     this.name = 'EmailInboxApiError';
     this.status = status;
@@ -84,7 +85,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-function safeJson(t: string): any {
+function safeJson(t: string): unknown {
   try { return JSON.parse(t); } catch { return null; }
 }
 

@@ -34,10 +34,10 @@ import org.robolectric.annotation.Config
 /**
  * A launch does not wait on the network before showing something.
  *
- * It used to: the platform's address, then the account, each allowed the
- * client's full 20 seconds — so on a connection that hangs rather than fails
- * the loader stood for up to forty seconds before the cached inbox (or the
- * sign-in screen) that was there all along. The server that never answers
+ * Waiting on the platform's address, then the account, each allowed the
+ * client's full 20 seconds, would hold the loader for up to forty seconds on
+ * a connection that hangs rather than fails — in front of a cached inbox (or
+ * the sign-in screen) that is there all along. The server that never answers
  * here is that connection.
  */
 @OptIn(ExperimentalCoroutinesApi::class)

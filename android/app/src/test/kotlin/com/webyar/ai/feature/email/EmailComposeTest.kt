@@ -28,8 +28,8 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * The mailbox's new half: the composer's addressing, and the list's folders,
- * pages and stars. Plain JUnit — nothing here draws.
+ * The composer's addressing, and the mailbox list's folders, pages and
+ * stars. Plain JUnit — nothing here draws.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class EmailComposeTest {

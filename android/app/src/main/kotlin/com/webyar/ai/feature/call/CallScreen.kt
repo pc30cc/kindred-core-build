@@ -298,8 +298,8 @@ private fun Identity(
  * reason the session carries. Without it a 403 and an unreachable network
  * both read "the call could not connect" — one sentence that sends an
  * operator to check their signal while the server is telling them something
- * precise. It is the only surface a failed call
- * has: unlike the console there is no alert behind it to say more.
+ * precise. It is the only surface a failed call has: unlike the console there
+ * is no alert behind it to say more.
  */
 @Composable
 private fun Status(phase: CallPhase, connectedAt: Instant?, language: Language, video: Boolean) {

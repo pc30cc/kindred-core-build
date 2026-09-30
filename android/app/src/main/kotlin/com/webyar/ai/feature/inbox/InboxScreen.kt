@@ -55,6 +55,7 @@ import com.webyar.ai.core.model.ChannelInbox
 import com.webyar.ai.core.model.Conversation
 import com.webyar.ai.core.model.ConversationStatus
 import com.webyar.ai.core.model.InboxCounts
+import com.webyar.ai.core.model.EmailMailbox
 import com.webyar.ai.core.model.InboxFilter
 import com.webyar.ai.core.model.VisitorProfile
 import com.webyar.ai.i18n.Format
@@ -146,8 +147,15 @@ fun InboxScreen(
     onRefresh: () -> Unit = {},
     /** Null when the plan has no team chat, which takes the row out. */
     onOpenColleagues: (() -> Unit)? = null,
-    /** Null when the plan has no email module. */
-    onOpenEmail: (() -> Unit)? = null,
+    /**
+     * Null when the plan has no email module. Called with the mailbox
+     * (`gmail`, `yahoo`) to open, or null for the one last shown.
+     */
+    onOpenEmail: ((String?) -> Unit)? = null,
+    /** The workspace's connected mailboxes; one row each when there is more than one. */
+    mailboxes: List<EmailMailbox> = emptyList(),
+    /** Unread email threads across them, for the Email row and the menu's dot. */
+    emailUnread: Int = 0,
     /** Unread messages from colleagues, for the Colleagues button. */
     colleaguesUnread: Int? = null,
     /**
@@ -184,6 +192,8 @@ fun InboxScreen(
             onSelectChannel = onSelectChannel,
             onOpenColleagues = onOpenColleagues,
             onOpenEmail = onOpenEmail,
+            mailboxes = mailboxes,
+            emailUnread = emailUnread,
         )
 
         AnimatedVisibility(
@@ -208,7 +218,9 @@ fun InboxScreen(
             colleagueThreadsUnread = colleagueThreadsUnread,
             // A dot on the last button when a channel inbox behind it holds
             // something unread: the strip has no button of its own for those.
-            menuUnread = channels.sumOf { openUnread.byChannel[it.key] ?: 0 },
+            // Unread mail too: the Email row is behind the same button.
+            menuUnread = channels.sumOf { openUnread.byChannel[it.key] ?: 0 } +
+                (if (onOpenEmail != null) emailUnread else 0),
             // Lit while the list is one the strip has no button for, so the
             // operator can see where they are.
             elsewhere = selectedChannel != null || filter !in chipFilters,
@@ -228,6 +240,8 @@ fun InboxScreen(
                 onSelectChannel = onSelectChannel,
                 onOpenColleagues = onOpenColleagues,
                 onOpenEmail = onOpenEmail,
+                mailboxes = mailboxes,
+                emailUnread = emailUnread,
                 onDismiss = { everyInboxOpen = false },
             )
         }
@@ -319,7 +333,9 @@ private fun InboxHeader(
     onSelectFilter: (InboxFilter) -> Unit,
     onSelectChannel: (String?) -> Unit,
     onOpenColleagues: (() -> Unit)?,
-    onOpenEmail: (() -> Unit)?,
+    onOpenEmail: ((String?) -> Unit)?,
+    mailboxes: List<EmailMailbox>,
+    emailUnread: Int,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     val channel = channels.firstOrNull { it.key == selectedChannel }
@@ -410,11 +426,14 @@ private fun InboxHeader(
                         )
                     }
                     if (onOpenEmail != null) {
-                        DropdownMenuItem(
-                            text = { Text(Str.emailInbox(language)) },
-                            leadingIcon = { Icon(Icons.Filled.Email, contentDescription = null) },
-                            onClick = { menuOpen = false; onOpenEmail() },
-                        )
+                        emailEntries(language, mailboxes, emailUnread).forEach { entry ->
+                            DropdownMenuItem(
+                                text = { Text(entry.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                leadingIcon = { Icon(Icons.Filled.Email, contentDescription = null) },
+                                trailingIcon = entry.unread.takeIf { it > 0 }?.let { n -> { UnreadBadge(n, language) } },
+                                onClick = { menuOpen = false; onOpenEmail(entry.provider) },
+                            )
+                        }
                     }
                 }
             }
@@ -580,7 +599,9 @@ private fun EveryInboxSheet(
     onSelectFilter: (InboxFilter) -> Unit,
     onSelectChannel: (String?) -> Unit,
     onOpenColleagues: (() -> Unit)?,
-    onOpenEmail: (() -> Unit)?,
+    onOpenEmail: ((String?) -> Unit)?,
+    mailboxes: List<EmailMailbox>,
+    emailUnread: Int,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -636,23 +657,32 @@ private fun EveryInboxSheet(
                 }
             }
 
-            val elsewhere = listOfNotNull(
-                onOpenColleagues?.let { Triple(Str.colleagues(language), Icons.Filled.Person, it) },
-                onOpenEmail?.let { Triple(Str.emailInbox(language), Icons.Filled.Email, it) },
-            )
+            // The colleagues, then the mailboxes — one row each when a Gmail
+            // and a Yahoo are both connected, every row with its own count.
+            val elsewhere = buildList {
+                onOpenColleagues?.let { open ->
+                    add(Elsewhere(Str.colleagues(language), Icons.Filled.Person, colleaguesUnread ?: 0, A11y.INBOX_COLLEAGUES_ROW) { open() })
+                }
+                onOpenEmail?.let { open ->
+                    emailEntries(language, mailboxes, emailUnread).forEach { entry ->
+                        add(Elsewhere(entry.label, Icons.Filled.Email, entry.unread, A11y.emailMailboxRow(entry.provider ?: "default")) { open(entry.provider) })
+                    }
+                }
+            }
             if (elsewhere.isNotEmpty()) {
                 SheetSection(StrAndroid.teamAndMail(language))
                 SheetGroup {
-                    elsewhere.forEachIndexed { index, (label, icon, open) ->
+                    elsewhere.forEachIndexed { index, row ->
                         SheetRow(
                             index = index,
                             count = elsewhere.size,
-                            icon = icon,
-                            label = label,
+                            icon = row.icon,
+                            label = row.label,
                             selected = false,
-                            badge = if (icon == Icons.Filled.Person) colleaguesUnread?.takeIf { it > 0 } else null,
+                            badge = row.badge.takeIf { it > 0 },
                             language = language,
-                        ) { onDismiss(); open() }
+                            modifier = Modifier.testTag(row.tag),
+                        ) { onDismiss(); row.open() }
                     }
                 }
             }
@@ -746,6 +776,29 @@ private fun SheetRow(
                 Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             }
         }
+    }
+}
+
+/** A row of the sheet's last section: somewhere that is not a queue. */
+private class Elsewhere(
+    val label: String,
+    val icon: ImageVector,
+    val badge: Int,
+    val tag: String,
+    val open: () -> Unit,
+)
+
+/** One way into the mailbox: a row per connected mailbox, or one "Email" row when there is only one. */
+internal class EmailEntry(val provider: String?, val label: String, val unread: Int)
+
+internal fun emailEntries(language: Language, mailboxes: List<EmailMailbox>, emailUnread: Int): List<EmailEntry> {
+    if (mailboxes.size <= 1) {
+        return listOf(EmailEntry(mailboxes.firstOrNull()?.provider, Str.emailInbox(language), emailUnread))
+    }
+    return mailboxes.map { box ->
+        // The address isolated left to right inside a Persian label.
+        val address = box.address?.takeIf { it.isNotBlank() }?.let { "\u2066$it\u2069" } ?: box.provider
+        EmailEntry(box.provider, "${Str.emailInbox(language)} · $address", box.unread ?: 0)
     }
 }
 

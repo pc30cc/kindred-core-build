@@ -390,7 +390,9 @@ private fun SignedInScreen(appState: AppState, api: WebyarApi, language: Languag
     val colleagues: ColleaguesViewModel =
         viewModel(factory = factory { ColleaguesViewModel(api, currentLanguage) })
     val email: EmailInboxViewModel =
-        viewModel(factory = factory { EmailInboxViewModel(api, currentLanguage) })
+        // With the mailbox-changed signal, so the Email row's count and the
+        // list follow new mail as it arrives.
+        viewModel(factory = factory { EmailInboxViewModel(api, sync?.coordinator?.email, currentLanguage) })
     val context = LocalContext.current
     val promotions: PromotionCenter =
         viewModel(factory = factory { PromotionCenter(api, PromoCounters(context)) })

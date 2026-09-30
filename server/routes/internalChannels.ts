@@ -74,6 +74,7 @@ import { publishOperatorEvent } from '../services/realtime/publish.js';
 import { uploadFile } from '../services/storage/index.js';
 import { emailAttachmentKey } from '../services/storage/keys.js';
 import { notifyEmailMessage } from '../services/push/index.js';
+import { scheduleYahooMailboxChanged } from '../services/email/yahooChangeNotifier.js';
 
 export const internalChannelsRouter = Router();
 
@@ -472,6 +473,7 @@ function notifyNewEmail(
   },
   threadId: string,
   messageId: string,
+  provider: 'gmail' | 'yahoo',
 ): void {
   if (!data.workspace_id || !data.message) return;
   const sentAt = data.message.sent_at ? Date.parse(data.message.sent_at) : Date.now();
@@ -483,6 +485,7 @@ function notifyNewEmail(
     from: data.message.from_address ?? null,
     subject: data.subject ?? null,
     snippet: data.message.snippet ?? data.message.text_body?.slice(0, 300) ?? null,
+    provider,
   });
 }
 
@@ -603,7 +606,7 @@ internalChannelsRouter.post('/gmail/upsert-thread-message', async (req: Request,
 
     await updateIntegration(config, data.integration_id, { last_inbound_at: new Date().toISOString() });
     res.json({ thread_id: threadId, message_id: inserted!.id, is_new_message: true });
-    notifyNewEmail(config, data, threadId, inserted!.id);
+    notifyNewEmail(config, data, threadId, inserted!.id, 'gmail');
   } catch (err) {
     console.error('[internal-channels] gmail upsert-thread-message failed:', err);
     res.status(500).json({ error: 'gmail_upsert_failed' });
@@ -936,7 +939,10 @@ internalChannelsRouter.post('/yahoo/upsert-thread-message', async (req: Request,
 
     await updateIntegration(config, data.integration_id, { last_inbound_at: new Date().toISOString() });
     res.json({ thread_id: threadId, message_id: inserted!.id, is_new_message: true });
-    notifyNewEmail(config, data, threadId, inserted!.id);
+    // Only a newly stored message changes the mailbox: re-deliveries and
+    // duplicates answered above say nothing. Content-free, like Gmail's.
+    scheduleYahooMailboxChanged(config, data.workspace_id, data.integration_id);
+    notifyNewEmail(config, data, threadId, inserted!.id, 'yahoo');
   } catch (err) {
     console.error('[internal-channels] yahoo upsert-thread-message failed:', err);
     res.status(500).json({ error: 'yahoo_upsert_failed' });

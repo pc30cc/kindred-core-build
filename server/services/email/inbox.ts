@@ -40,7 +40,14 @@ import {
   setGmailThreadStarred,
   listGmailChanges,
   sendGmail,
+  countGmailUnreadThreads,
 } from './gmailLive.js';
+
+/** A mailbox provider the inbox can serve; `?provider=` on every `/api/email-inbox` route. */
+export type EmailProvider = 'gmail' | 'yahoo';
+/** In default order: with no provider named, the first connected one is the inbox. */
+export const EMAIL_PROVIDERS: readonly EmailProvider[] = ['gmail', 'yahoo'];
+const PLUGIN_ID_OF: Record<EmailProvider, string> = { gmail: GMAIL_PLUGIN_ID, yahoo: YAHOO_PLUGIN_ID };
 
 export class EmailInboxError extends Error {
   constructor(readonly code: string, message?: string) {
@@ -139,27 +146,32 @@ export interface EmailMessageView {
   attachments: EmailAttachmentView[];
 }
 
+/** This provider's mailbox for the workspace, when it is connected. */
+async function connectedIntegrationFor(config: ServerConfig, workspaceId: string, provider: EmailProvider): Promise<ChannelIntegration | null> {
+  const installation = await getInstallation(config, workspaceId, PLUGIN_ID_OF[provider]);
+  if (!installation) return null;
+  const integration = await getIntegrationForInstallation(config, installation.id);
+  return integration && integration.status === 'connected' ? integration : null;
+}
+
 /**
- * Resolves whichever of Gmail/Yahoo is connected for this workspace. A
- * workspace can only meaningfully have one connected mailbox integration at
- * a time in this feature's current shape (the Email Inbox UI shows one
- * "connected as <address>" state, not a picker) — Gmail is checked first
- * only as an arbitrary but stable tie-break; nothing prevents both from
- * existing, but composeReply only ever targets the one this resolves to.
+ * The mailbox a request is about. A workspace may have both Gmail and Yahoo
+ * connected: a client that names one (`provider`) gets only that one, or
+ * `email_not_connected` when it is not connected. Without a name, Gmail is
+ * checked first — an arbitrary but stable tie-break, which is what clients
+ * built before mailboxes could be picked keep getting.
  */
-async function resolveConnectedIntegration(config: ServerConfig, workspaceId: string): Promise<ChannelIntegration> {
-  for (const pluginId of [GMAIL_PLUGIN_ID, YAHOO_PLUGIN_ID]) {
-    const installation = await getInstallation(config, workspaceId, pluginId);
-    if (!installation) continue;
-    const integration = await getIntegrationForInstallation(config, installation.id);
-    if (integration && integration.status === 'connected') return integration;
+async function resolveConnectedIntegration(config: ServerConfig, workspaceId: string, provider?: EmailProvider): Promise<ChannelIntegration> {
+  for (const candidate of provider ? [provider] : EMAIL_PROVIDERS) {
+    const integration = await connectedIntegrationFor(config, workspaceId, candidate);
+    if (integration) return integration;
   }
   throw new EmailInboxError('email_not_connected');
 }
 
-async function connectedIntegrationOrNull(config: ServerConfig, workspaceId: string): Promise<ChannelIntegration | null> {
+async function connectedIntegrationOrNull(config: ServerConfig, workspaceId: string, provider?: EmailProvider): Promise<ChannelIntegration | null> {
   try {
-    return await resolveConnectedIntegration(config, workspaceId);
+    return await resolveConnectedIntegration(config, workspaceId, provider);
   } catch (err) {
     if (err instanceof EmailInboxError && err.code === 'email_not_connected') return null;
     throw err;
@@ -177,8 +189,8 @@ function rethrowLive(err: unknown): never {
  * Gmail grant marked errored — nothing is served: rows imported from Gmail
  * before it went live are never an inbox.
  */
-async function liveGmail(config: ServerConfig, workspaceId: string): Promise<ChannelIntegration | null> {
-  const integration = await connectedIntegrationOrNull(config, workspaceId);
+async function liveGmail(config: ServerConfig, workspaceId: string, provider?: EmailProvider): Promise<ChannelIntegration | null> {
+  const integration = await connectedIntegrationOrNull(config, workspaceId, provider);
   if (!integration) throw new EmailInboxError('email_not_connected');
   return integration.provider === 'gmail' ? integration : null;
 }
@@ -187,10 +199,11 @@ export async function listThreads(
   config: ServerConfig,
   workspaceId: string,
   opts: { limit?: number; before?: string | null; pageToken?: string | null; unreadOnly?: boolean; starredOnly?: boolean; search?: string } = {},
+  provider?: EmailProvider,
 ): Promise<{ threads: EmailThreadSummary[]; nextBefore: string | null; nextPageToken?: string | null; historyId?: string | null; syncing: boolean }> {
-  let gmail: ChannelIntegration | null;
+  let integration: ChannelIntegration;
   try {
-    gmail = await liveGmail(config, workspaceId);
+    integration = await resolveConnectedIntegration(config, workspaceId, provider);
   } catch (err) {
     // No mailbox: an empty inbox, as before, so apps show their "connect a
     // mailbox" state (the Windows app treats an error here as a failure).
@@ -199,6 +212,7 @@ export async function listThreads(
     }
     throw err;
   }
+  const gmail = integration.provider === 'gmail' ? integration : null;
   if (gmail) {
     try {
       // Apps built before Gmail went live page with `before`/`nextBefore`:
@@ -221,6 +235,9 @@ export async function listThreads(
     .order('last_message_at', { ascending: false, nullsFirst: false })
     .limit(limit + 1);
 
+  // A client that picked this mailbox sees its threads only (as its unread
+  // count in listMailboxes does), never rows of another mailbox.
+  if (provider) query = query.eq('integration_id', integration.id);
   if (opts.before) query = query.lt('last_message_at', opts.before);
   if (opts.unreadOnly) query = query.eq('is_read', false);
   if (opts.starredOnly) query = query.eq('is_starred', true);
@@ -291,8 +308,9 @@ export async function getAttachmentFile(
   config: ServerConfig,
   workspaceId: string,
   attachmentId: string,
+  provider?: EmailProvider,
 ): Promise<{ data: Buffer; filename: string; contentType: string } | null> {
-  const gmail = await liveGmail(config, workspaceId);
+  const gmail = await liveGmail(config, workspaceId, provider);
   if (gmail) {
     try {
       return await getGmailAttachment(config, gmail, attachmentId);
@@ -322,8 +340,9 @@ export async function getThread(
   config: ServerConfig,
   workspaceId: string,
   threadId: string,
+  provider?: EmailProvider,
 ): Promise<{ thread: EmailThreadSummary; messages: EmailMessageView[] }> {
-  const gmail = await liveGmail(config, workspaceId);
+  const gmail = await liveGmail(config, workspaceId, provider);
   if (gmail) {
     try {
       return await getGmailThread(config, workspaceId, gmail, threadId);
@@ -399,8 +418,8 @@ export async function getThread(
   };
 }
 
-export async function setThreadRead(config: ServerConfig, workspaceId: string, threadId: string, isRead: boolean): Promise<void> {
-  const gmail = await liveGmail(config, workspaceId);
+export async function setThreadRead(config: ServerConfig, workspaceId: string, threadId: string, isRead: boolean, provider?: EmailProvider): Promise<void> {
+  const gmail = await liveGmail(config, workspaceId, provider);
   if (gmail) {
     try {
       return await setGmailThreadRead(config, gmail, threadId, isRead);
@@ -420,8 +439,8 @@ export async function setThreadRead(config: ServerConfig, workspaceId: string, t
   }
 }
 
-export async function setThreadStarred(config: ServerConfig, workspaceId: string, threadId: string, starred: boolean): Promise<void> {
-  const gmail = await liveGmail(config, workspaceId);
+export async function setThreadStarred(config: ServerConfig, workspaceId: string, threadId: string, starred: boolean, provider?: EmailProvider): Promise<void> {
+  const gmail = await liveGmail(config, workspaceId, provider);
   if (gmail) {
     try {
       return await setGmailThreadStarred(config, gmail, threadId, starred);
@@ -446,8 +465,9 @@ export async function listChanges(
   config: ServerConfig,
   workspaceId: string,
   sinceHistoryId: string,
+  provider?: EmailProvider,
 ): Promise<{ historyId: string | null; threadIds: string[]; contentThreadIds: string[]; reset: boolean }> {
-  const gmail = await liveGmail(config, workspaceId);
+  const gmail = await liveGmail(config, workspaceId, provider);
   if (!gmail) return { historyId: null, threadIds: [], contentThreadIds: [], reset: true };
   try {
     return await listGmailChanges(config, gmail, sinceHistoryId);
@@ -457,8 +477,54 @@ export async function listChanges(
 }
 
 /** Whether this workspace's inbox is read live (no staged uploads, inline attachments on send). */
-export async function isLiveInbox(config: ServerConfig, workspaceId: string): Promise<boolean> {
-  return !!(await liveGmail(config, workspaceId));
+export async function isLiveInbox(config: ServerConfig, workspaceId: string, provider?: EmailProvider): Promise<boolean> {
+  return !!(await liveGmail(config, workspaceId, provider));
+}
+
+export interface MailboxSummary {
+  provider: EmailProvider;
+  /** The connected address, as the plugin's connection endpoint reports it. */
+  address: string | null;
+  status: 'connected';
+  /** Unread INBOX threads; null when it could not be read just now. */
+  unread: number | null;
+}
+
+/** Unread threads of a table-backed (Yahoo) mailbox: the rows its thread list shows with `unread=true`. */
+async function countTableUnreadThreads(config: ServerConfig, workspaceId: string, integration: ChannelIntegration): Promise<number> {
+  const { count, error } = await getServiceClient(config)
+    .from('email_threads')
+    .select('id', { count: 'exact', head: true })
+    .eq('workspace_id', workspaceId)
+    .eq('integration_id', integration.id)
+    .eq('is_read', false);
+  if (error) throw new EmailInboxError('email_provider_error', error.message);
+  return count ?? 0;
+}
+
+/**
+ * The workspace's connected mailboxes (Gmail first), each with its address
+ * and unread count — no mail content. An unread count that cannot be read is
+ * null rather than failing the list; a Gmail grant found revoked while
+ * counting is marked errored (withGmail) and its mailbox left out.
+ */
+export async function listMailboxes(config: ServerConfig, workspaceId: string, only?: EmailProvider): Promise<MailboxSummary[]> {
+  const mailboxes = await Promise.all((only ? [only] : EMAIL_PROVIDERS).map(async (provider): Promise<MailboxSummary | null> => {
+    const integration = await connectedIntegrationFor(config, workspaceId, provider);
+    if (!integration) return null;
+    let unread: number | null;
+    try {
+      unread = integration.provider === 'gmail'
+        ? await countGmailUnreadThreads(config, integration)
+        : await countTableUnreadThreads(config, workspaceId, integration);
+    } catch (err) {
+      if (err instanceof GmailLiveError && err.code === 'email_not_connected') return null;
+      console.warn(`[email-inbox] ${provider} unread count unavailable: ${(err as { code?: string })?.code ?? 'error'}`);
+      unread = null;
+    }
+    return { provider, address: integration.external_account_id, status: 'connected', unread };
+  }));
+  return mailboxes.filter((m): m is MailboxSummary => !!m);
 }
 
 export interface InlineAttachment {
@@ -472,9 +538,10 @@ export async function sendLiveGmail(
   config: ServerConfig,
   workspaceId: string,
   input: Omit<ComposeReplyInput, 'attachments'> & { attachments?: InlineAttachment[]; clientRequestId?: string | null },
+  provider?: EmailProvider,
 ): Promise<{ messageId: string; threadId: string }> {
   if (!input.to.length) throw new EmailInboxError('email_missing_recipient');
-  const gmail = await liveGmail(config, workspaceId);
+  const gmail = await liveGmail(config, workspaceId, provider);
   if (!gmail) throw new EmailInboxError('email_not_connected');
   try {
     return await sendGmail(config, gmail, {
@@ -559,9 +626,10 @@ export async function composeReply(
   workspaceId: string,
   userId: string,
   input: ComposeReplyInput,
+  provider?: EmailProvider,
 ): Promise<{ messageId: string }> {
   if (!input.to.length) throw new EmailInboxError('email_missing_recipient');
-  const integration = await resolveConnectedIntegration(config, workspaceId);
+  const integration = await resolveConnectedIntegration(config, workspaceId, provider);
   const fromEmail = integration.external_account_id;
   if (!fromEmail) throw new EmailInboxError('email_not_connected');
 

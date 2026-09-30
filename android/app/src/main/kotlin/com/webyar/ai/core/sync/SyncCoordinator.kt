@@ -104,8 +104,21 @@ class SyncCoordinator(
      * thread. Ids only — each listener re-reads what it shows.
      */
     val team: SharedFlow<TeamSignal> = _team.asSharedFlow()
+
+    private val _email = MutableSharedFlow<EmailSignal>(
+        extraBufferCapacity = 16,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    /**
+     * A mailbox of the workspace changed — heard on the inbox channel
+     * (`email_mailbox_changed`) or by an email push. Nothing about the mail
+     * itself: whoever shows the mailbox asks the server what changed.
+     */
+    val email: SharedFlow<EmailSignal> = _email.asSharedFlow()
     private val openThreads = MutableStateFlow<Set<String>>(emptySet())
     private val openTeamThreads = MutableStateFlow<Set<String>>(emptySet())
+    private val openEmailThreads = MutableStateFlow<Set<String>>(emptySet())
     private val foreground = MutableStateFlow(false)
     private val _realtime = MutableStateFlow(RealtimeHealth.IDLE)
     val realtime: StateFlow<RealtimeHealth> = _realtime.asStateFlow()
@@ -250,6 +263,18 @@ class SyncCoordinator(
     /** Which colleagues' threads are on screen, for a push deciding whether to notify. */
     fun openTeamPeerIds(): Set<String> = openTeamThreads.value
 
+    /** An email thread came on screen; a push about it needs no notification. */
+    fun openEmailThread(threadId: String) {
+        openEmailThreads.update { it + threadId }
+    }
+
+    fun closeEmailThread(threadId: String) {
+        openEmailThreads.update { it - threadId }
+    }
+
+    /** Which email threads are on screen, for a push deciding whether to notify. */
+    fun openEmailThreadIds(): Set<String> = openEmailThreads.value
+
     /**
      * Signed out: nothing is in focus and nothing may be written for anyone.
      *
@@ -287,6 +312,7 @@ class SyncCoordinator(
             visitedScopes.clear()
             focus.value = null
             openThreads.value = emptySet()
+            openEmailThreads.value = emptySet()
             old = work
             work = next
         }
@@ -365,6 +391,12 @@ class SyncCoordinator(
      */
     fun onRealtimeEvent(workspaceId: String, event: RealtimeEventPayload) {
         val kindHeard = event.kind
+        // A mailbox is not a conversation either, and its screens listen
+        // whatever queue is in focus — the count on the inbox most of all.
+        if (kindHeard == EMAIL_MAILBOX_KIND) {
+            _email.tryEmit(EmailSignal(workspaceId, event.provider, event.historyId))
+            return
+        }
         // Team chat is not about any conversation, and not about the queue
         // on screen: it goes to whoever shows it, focus or no focus.
         if (kindHeard != null && kindHeard.startsWith(TEAM_KIND_PREFIX)) {
@@ -436,6 +468,11 @@ class SyncCoordinator(
      */
     fun onTeamPush(workspaceId: String, peerId: String) {
         _team.tryEmit(TeamSignal(workspaceId, TEAM_MESSAGE_KIND, senderId = peerId, peerId = peerId))
+    }
+
+    /** New mail, heard by push — the channel may be down, or the app was in the background. */
+    fun onEmailPush(workspaceId: String, provider: String?) {
+        _email.tryEmit(EmailSignal(workspaceId, provider, historyId = null))
     }
 
     fun onPush(workspaceId: String, conversationId: String?) {
@@ -708,8 +745,23 @@ class SyncCoordinator(
 
         /** The realtime event a sent team message is announced with. */
         const val TEAM_MESSAGE_KIND = "team_message"
+
+        /** A mailbox changed (`gmailChangeNotifier.ts`); ids and cursors only, never mail. */
+        const val EMAIL_MAILBOX_KIND = "email_mailbox_changed"
     }
 }
+
+/**
+ * One of the workspace's mailboxes changed: new mail, or something moved.
+ *
+ * [provider] is which mailbox (`gmail`, `yahoo`) when the server said;
+ * [historyId] is Gmail's cursor after the change, when there is one.
+ */
+data class EmailSignal(
+    val workspaceId: String,
+    val provider: String?,
+    val historyId: String?,
+)
 
 /**
  * Something moved in one of this operator's team threads, as the server

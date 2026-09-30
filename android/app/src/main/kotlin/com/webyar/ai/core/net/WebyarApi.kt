@@ -48,6 +48,8 @@ import kotlinx.coroutines.flow.emptyFlow
 import com.webyar.ai.core.model.EmailFolder
 import com.webyar.ai.core.model.EmailThreadsResponse
 import com.webyar.ai.core.model.EmailDraft
+import com.webyar.ai.core.model.EmailChanges
+import com.webyar.ai.core.model.EmailMailbox
 import com.webyar.ai.core.model.StagedEmailAttachment
 import com.webyar.ai.core.model.LiveVisitor
 import com.webyar.ai.core.model.VisitorPageHistory
@@ -384,9 +386,12 @@ interface WebyarApi {
     suspend fun channelInboxes(workspaceId: String): List<ChannelInbox>
 
     suspend fun emailThreads(workspaceId: String, search: String? = null): List<EmailThreadSummary>
-    suspend fun emailThread(workspaceId: String, threadId: String): EmailThreadResponse
-    suspend fun setEmailThreadRead(workspaceId: String, threadId: String, isRead: Boolean)
-    suspend fun setEmailThreadStarred(workspaceId: String, threadId: String, starred: Boolean)
+    // `mailbox` is the provider (`gmail`, `yahoo`) a call is about when a
+    // workspace has more than one mailbox connected; null is the server's
+    // default one, which is all an app that knows of one mailbox ever asks.
+    suspend fun emailThread(workspaceId: String, threadId: String, mailbox: String? = null): EmailThreadResponse
+    suspend fun setEmailThreadRead(workspaceId: String, threadId: String, isRead: Boolean, mailbox: String? = null)
+    suspend fun setEmailThreadStarred(workspaceId: String, threadId: String, starred: Boolean, mailbox: String? = null)
     suspend fun sendEmail(
         workspaceId: String,
         threadId: String?,
@@ -406,11 +411,12 @@ interface WebyarApi {
         folder: EmailFolder,
         search: String?,
         before: String?,
+        mailbox: String? = null,
     ): EmailThreadsResponse =
         if (before != null) EmailThreadsResponse() else EmailThreadsResponse(emailThreads(workspaceId, search))
 
     /** A full send — Cc, Bcc, attachments, a new thread. Defaulted onto [sendEmail]. */
-    suspend fun sendEmailDraft(workspaceId: String, draft: EmailDraft) =
+    suspend fun sendEmailDraft(workspaceId: String, draft: EmailDraft, mailbox: String? = null) =
         sendEmail(workspaceId, draft.threadId, draft.to, draft.subject, draft.body)
 
     /** Uploads a file to go with a mail being written. */
@@ -419,11 +425,29 @@ interface WebyarApi {
         bytes: ByteArray,
         filename: String,
         contentType: String,
+        mailbox: String? = null,
     ): StagedEmailAttachment = throw UnsupportedOperationException("stageEmailAttachment")
 
     /** A received or sent attachment's bytes. */
-    suspend fun emailAttachmentData(workspaceId: String, attachmentId: String): ByteArray =
+    suspend fun emailAttachmentData(workspaceId: String, attachmentId: String, mailbox: String? = null): ByteArray =
         throw UnsupportedOperationException("emailAttachmentData")
+
+    /**
+     * Every mailbox the workspace has connected, each with its unread count.
+     *
+     * Defaulted onto [gmailConnection] — one mailbox, count unknown — so a
+     * server from before `/mailboxes`, or a fake that never heard of it,
+     * still has an answer.
+     */
+    suspend fun emailMailboxes(workspaceId: String): List<EmailMailbox> =
+        gmailConnection(workspaceId)
+            ?.takeIf { it.connected == true }
+            ?.let { listOf(EmailMailbox(provider = "gmail", address = it.emailAddress, status = it.status)) }
+            .orEmpty()
+
+    /** Ids of what changed since [since]; a reset when nothing can be said from there. */
+    suspend fun emailChanges(workspaceId: String, since: String, mailbox: String? = null): EmailChanges =
+        EmailChanges(reset = true)
 
     // MARK: - Availability and promotions
 

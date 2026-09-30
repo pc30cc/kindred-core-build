@@ -33,6 +33,8 @@ object A11y {
     const val INBOX_EVERY_INBOX_SHEET = "inbox.everyInbox.sheet"
     fun inboxChip(wire: String) = "inbox.chip.$wire"
     fun everyInboxRow(wire: String) = "inbox.everyInbox.$wire"
+    const val INBOX_COLLEAGUES_ROW = "inbox.everyInbox.colleagues"
+    fun emailMailboxRow(provider: String) = "inbox.everyInbox.email.$provider"
 
     /** Absent from the tree when the search is closed, which several tests
      *  are about — see `SearchState`. */
@@ -105,6 +107,7 @@ object A11y {
     fun contactRow(id: String) = "contact.$id"
     fun colleagueRow(id: String) = "colleague.$id"
     fun emailFolder(name: String) = "email.folder.$name"
+    fun emailMailbox(provider: String) = "email.mailbox.$provider"
     fun emailStar(id: String) = "email.star.$id"
     const val EMAIL_COMPOSE = "email.compose"
     const val EMAIL_COMPOSE_SEND = "email.compose.send"

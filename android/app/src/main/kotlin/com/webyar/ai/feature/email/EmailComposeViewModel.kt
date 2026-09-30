@@ -98,12 +98,25 @@ class EmailComposeViewModel(
 
     private var workspaceId: String? = null
     private var threadId: String? = null
+    /** The mailbox it is sent from (`gmail`, `yahoo`); null for the workspace's default one. */
+    private var provider: String? = null
     private var started = false
 
-    fun start(workspaceId: String, sourceThreadId: String?, mode: EmailReplyMode?, mailbox: String?) {
+    /**
+     * [mailbox] is the workspace's own address (left out of a reply's To and
+     * Cc); [provider] the mailbox the mail goes from.
+     */
+    fun start(
+        workspaceId: String,
+        sourceThreadId: String?,
+        mode: EmailReplyMode?,
+        mailbox: String?,
+        provider: String? = null,
+    ) {
         if (started) return
         started = true
         this.workspaceId = workspaceId
+        this.provider = provider
         if (sourceThreadId == null || mode == null) {
             _form.update { it.copy(ready = true) }
             return
@@ -113,7 +126,7 @@ class EmailComposeViewModel(
         // and it must not go out as a new conversation because of that.
         if (mode != EmailReplyMode.FORWARD) threadId = sourceThreadId
         viewModelScope.launch {
-            runCatching { api.emailThread(workspaceId, sourceThreadId) }
+            runCatching { api.emailThread(workspaceId, sourceThreadId, provider) }
                 .onSuccess { response ->
                     val prefill = prefill(mode, response.thread, response.messages, mailbox, language())
                     threadId = prefill.threadId
@@ -150,7 +163,7 @@ class EmailComposeViewModel(
         val entry = ComposeAttachment(UUID.randomUUID().toString(), filename, bytes.size.toLong())
         _form.update { it.copy(attachments = it.attachments + entry) }
         viewModelScope.launch {
-            runCatching { api.stageEmailAttachment(workspace, bytes, filename, contentType) }
+            runCatching { api.stageEmailAttachment(workspace, bytes, filename, contentType, provider) }
                 .onSuccess { staged -> replace(entry.localId) { it.copy(staged = staged) } }
                 .onFailure {
                     replace(entry.localId) { it.copy(failed = true) }
@@ -209,6 +222,7 @@ class EmailComposeViewModel(
                         body = current.body.trim().ifEmpty { " " },
                         attachments = current.attachments.mapNotNull { it.staged },
                     ),
+                    provider,
                 )
             }
                 .onSuccess { _form.update { it.copy(sending = false, sent = true) } }

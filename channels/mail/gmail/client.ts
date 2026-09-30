@@ -831,6 +831,15 @@ export function createGmailAdapter(config: GmailOAuthConfig, options: GmailAdapt
     }, fetchImpl, timeoutMs)) as Record<string, unknown>;
   }
 
+  /** `users.labels.get`: a label's own counters (e.g. unread INBOX threads). Counts only, no mail. */
+  async function getLabelCounts(accessToken: string, labelId: string): Promise<{ threadsUnread: number | null; threadsTotal: number | null }> {
+    const json = (await requestJson(`${GMAIL_API_BASE}/labels/${encodeURIComponent(labelId)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }, fetchImpl, timeoutMs)) as Record<string, unknown>;
+    const count = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+    return { threadsUnread: count(json.threadsUnread), threadsTotal: count(json.threadsTotal) };
+  }
+
   async function modifyThread(accessToken: string, threadId: string, addLabelIds: string[], removeLabelIds: string[]): Promise<void> {
     await requestJson(`${GMAIL_API_BASE}/threads/${encodeURIComponent(threadId)}/modify`, {
       method: 'POST',
@@ -894,6 +903,7 @@ export function createGmailAdapter(config: GmailOAuthConfig, options: GmailAdapt
   return {
     listThreads,
     getThreadRaw,
+    getLabelCounts,
     modifyThread,
     listChangedThreadIds,
     exchangeCodeForTokens,

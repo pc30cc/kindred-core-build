@@ -57,6 +57,7 @@ import androidx.compose.ui.graphics.luminance
 import com.webyar.ai.ui.components.PullIndicator
 import com.webyar.ai.ui.design.Radius
 import com.webyar.ai.core.model.EmailFolder
+import com.webyar.ai.core.model.EmailMailbox
 import com.webyar.ai.i18n.StrEmail
 import com.webyar.ai.ui.components.ChoiceButton
 import com.webyar.ai.ui.components.LatinText
@@ -114,7 +115,13 @@ fun EmailInboxScreen(
     onLoadMore: () -> Unit = {},
     onToggleStar: (EmailThreadSummary) -> Unit = {},
     onToggleRead: (EmailThreadSummary) -> Unit = {},
+    /** The workspace's connected mailboxes; a switcher appears when there is more than one. */
+    mailboxes: List<EmailMailbox> = emptyList(),
+    /** The provider of the mailbox on screen; null is the first. */
+    selectedMailbox: String? = null,
+    onSelectMailbox: (String) -> Unit = {},
 ) {
+    val shown = mailboxes.firstOrNull { it.provider == selectedMailbox } ?: mailboxes.firstOrNull()
     Column(modifier.fillMaxSize()) {
         AnimatedVisibility(
             visible = search != null && search.isVisible,
@@ -122,6 +129,32 @@ fun EmailInboxScreen(
             exit = fadeOut() + shrinkVertically(),
         ) {
             if (search != null) SearchField(state = search, prompt = Str.search(language))
+        }
+
+        // One button per mailbox when a Gmail and a Yahoo are both connected,
+        // each with its own unread count, the way a mail client lists its
+        // accounts.
+        if (mailboxes.size > 1) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .selectableGroup()
+                    .padding(start = Space.screenInset, end = Space.screenInset, top = Space.sm),
+                horizontalArrangement = Arrangement.spacedBy(Space.xs),
+            ) {
+                mailboxes.forEach { box ->
+                    ChoiceButton(
+                        // The address isolated left to right inside a Persian label.
+                        label = box.address?.takeIf { it.isNotBlank() }?.let { "\u2066$it\u2069" } ?: box.provider,
+                        selected = box.provider == shown?.provider,
+                        language = language,
+                        onClick = { onSelectMailbox(box.provider) },
+                        count = box.unread?.takeIf { it > 0 },
+                        modifier = Modifier.testTag(A11y.emailMailbox(box.provider)),
+                    )
+                }
+            }
         }
 
         // The mailbox's three views, as a mail client keeps them.
@@ -144,6 +177,8 @@ fun EmailInboxScreen(
                         selected = option == folder,
                         language = language,
                         onClick = { onSelectFolder(option) },
+                        // How many threads are unread, on the view that lists them.
+                        count = if (option == EmailFolder.UNREAD) shown?.unread?.takeIf { it > 0 } else null,
                         modifier = Modifier.testTag(A11y.emailFolder(option.name.lowercase())),
                     )
                 }

@@ -212,6 +212,20 @@ object StrEmail {
         Language.TR -> "$count ileti"
     }
 
+    /** A reply in the trail that never reached anyone. */
+    fun notDelivered(l: Language): String = when (l) {
+        Language.EN -> "Not delivered"
+        Language.FA -> "تحویل نشد"
+        Language.TR -> "Teslim edilmedi"
+    }
+
+    /** The heading over the folded trail: "Earlier messages (3)". */
+    fun earlierMessages(l: Language, count: Int): String = when (l) {
+        Language.EN -> "Earlier messages ($count)"
+        Language.FA -> "پیام‌های قبلی (${Format.number(count, l)})"
+        Language.TR -> "Önceki iletiler ($count)"
+    }
+
     fun forwardedHeader(l: Language): String = when (l) {
         Language.EN -> "---------- Forwarded message ----------"
         Language.FA -> "---------- پیام ارسال‌شده ----------"

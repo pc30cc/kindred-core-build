@@ -57,6 +57,30 @@ class SyncCoordinatorTest {
         assertTrue(api.listReads.isEmpty())
     }
 
+    /**
+     * A mailbox changed: the email screens hear it whatever queue is in
+     * focus — or none — and the chat inbox reads nothing for it.
+     */
+    @Test
+    fun `a mailbox change goes to the email screens and costs the inbox nothing`() = runTest {
+        val sync = coordinator()
+        val heard = mutableListOf<EmailSignal>()
+        backgroundScope.launch { sync.email.collect { heard += it } }
+        runCurrent()
+
+        sync.onRealtimeEvent(
+            "ws-1",
+            RealtimeEventPayload(kind = "email_mailbox_changed", workspaceId = "ws-1", conversationId = "", provider = "gmail", historyId = "124100"),
+        )
+        sync.onEmailPush("ws-1", "yahoo")
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(listOf(EmailSignal("ws-1", "gmail", "124100"), EmailSignal("ws-1", "yahoo", null)), heard)
+        assertTrue(api.idReads.isEmpty())
+        assertTrue(api.listReads.isEmpty())
+    }
+
     @Test
     fun `team chat news goes to the team screens and costs the inbox nothing`() = runTest {
         val sync = coordinator()

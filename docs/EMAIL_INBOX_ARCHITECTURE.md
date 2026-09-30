@@ -54,6 +54,7 @@ adaptive polling only while a client needs fresh data, and follow rules 2–8.
 | Pub/Sub push → coalesced, content-free signal | `server/routes/gmailPush.ts` → `server/services/email/gmailChangeNotifier.ts` |
 | Watch renewal | `server/services/channels/gmail/watchRenewalTicker.ts` |
 | Retired import | Worker `gmail_sync_inbox` is a no-op; `/internal/channels/gmail/upsert-thread-message` and `/attachment-ingest` answer 410 |
+| Mailbox picker | `GET mailboxes`; `?provider=` on every route (see *More than one mailbox* below) |
 
 Flow:
 
@@ -81,7 +82,39 @@ Flow:
    shows it disconnected and drops its cache. Quota/rate limits answer 429
    `email_rate_limited`. A non-Gmail id (an old UUID) answers 404.
 8. **Push:** content-free, `data.threadId` = the newest new mail's Gmail
-   thread id, `dedupeKey` from the history cursor (no uuid row exists).
+   thread id, `data.provider` = `gmail`, `dedupeKey` from the history cursor
+   (no uuid row exists).
+
+## More than one mailbox (Gmail and Yahoo connected together)
+
+A workspace may have a connected Gmail and a connected Yahoo at once.
+
+- **Pick one:** every `/api/email-inbox/:workspaceId/*` route (POSTs
+  included) takes an optional query parameter `provider=gmail|yahoo`. Named,
+  only that mailbox is used: not connected → the usual
+  `email_not_connected` (409), and `GET threads` answers an empty list; a
+  Yahoo list is then limited to that mailbox's own rows. Any other non-empty
+  value → 400 `invalid_provider`. Without it, nothing changes: Gmail first,
+  then Yahoo.
+- **List them:** `GET /api/email-inbox/:workspaceId/mailboxes` →
+  `{ "mailboxes": [{ "provider": "gmail", "address": "me@gmail.com",
+  "status": "connected", "unread": 12 }, { "provider": "yahoo", … }] }` —
+  connected mailboxes only, Gmail first; `address` is what the plugin's
+  connection endpoint reports. `unread` = unread INBOX threads: Gmail's own
+  INBOX label counter (`users.labels.get`, single-flight per mailbox), Yahoo's
+  unread `email_threads` rows of that mailbox. `null` when it cannot be read
+  just now; a Gmail grant found revoked is marked errored and left out.
+- **Push:** email notifications carry `data.provider` (`gmail` | `yahoo`)
+  next to `data.threadId`, so an app opens the thread in the right mailbox.
+- **Yahoo realtime:** when the Yahoo poll stores a *new* inbound message,
+  Core publishes the same content-free `email_mailbox_changed` on
+  `ws:<workspace>:inbox`, with `provider: "yahoo"` and `history_id: null`
+  (coalesced per mailbox, 2 s). Both providers' events also carry `at` (the
+  ISO time it was published — no content), so clients that de-duplicate by
+  payload do not merge two signals into one. Re-deliveries publish nothing. Yahoo has no
+  incremental `/changes` (`?provider=yahoo` answers `reset: true`): a client
+  reloads page one. Clients showing one mailbox ignore events whose
+  `provider` is another one's (the web's live Gmail sync does).
 
 ## Clients
 

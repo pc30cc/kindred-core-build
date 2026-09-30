@@ -297,6 +297,9 @@ export function useEmailMailboxSync(workspaceId: string | undefined, scope: stri
       const pushCapable = provider.vendor === 'centrifugo' || provider.vendor === 'supabase';
       const sub = await provider.subscribe(`ws:${workspaceId}:inbox`, {
         onEvent: (payload) => {
+          // This sync serves the live (Gmail) mailbox only: a Yahoo mailbox's
+          // signal is not a change here (the Yahoo list keeps its polling).
+          if (payload?.provider && payload.provider !== 'gmail') return;
           if (payload?.kind === 'email_mailbox_changed' && payload.workspace_id === workspaceId) onChanged();
         },
         onStatus: (status) => {

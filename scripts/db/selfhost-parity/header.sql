@@ -1,4 +1,4 @@
--- 238 — Self-host parity with the hosted chain.
+-- 239 — Self-host parity with the hosted chain.
 --
 -- WHY: database/migrations fell behind supabase/migrations. A database built
 -- from this chain alone was missing objects the server calls on every request

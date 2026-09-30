@@ -113,7 +113,7 @@ export async function ensureAuthChainInstalled(db: PgQueryable): Promise<void> {
   // no owner_id cannot take 001 (CREATE TABLE IF NOT EXISTS keeps the stub)
   // or 026, so such a schema is reset and installed afresh. The same goes for
   // the AI-KB stubs aiKbMutationStateMachine and entitlementFanoutQueue put in
-  // place of knowledge_base_articles / ai_kb_generated_articles: 238 indexes
+  // place of knowledge_base_articles / ai_kb_generated_articles: 239 indexes
   // their real columns (created_at among them), which the stubs lack.
   const { rows } = await db.query(`
     SELECT to_regclass('public.profiles') IS NOT NULL AS profiles,

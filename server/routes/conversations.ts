@@ -1410,7 +1410,7 @@ async function listConversationRows(
 }
 
 // ─── Inbox counters: one query for both counter endpoints ────────────
-// conversation_inbox_counters (migration 240 / 20260930100200) returns every
+// conversation_inbox_counters (migration 241 / 20260930100200) returns every
 // number /inbox-counts and /inbox-tab-counts report, in one pass. The
 // dashboard requests both at the same moment on each realtime invalidation,
 // so concurrent calls with the same arguments also share one execution. A

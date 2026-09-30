@@ -1976,7 +1976,7 @@
       "exposure": "None. The table carries no Data API grants; it is reached only by the Express server through service_role, which bypasses RLS.",
       "intentional": true,
       "decision": "deferred-by-design",
-      "justification": "Server-only back-office table (backup scheduler and restore drills), added to self-host by 238_selfhost_hosted_parity with the hosted chain's RLS and grants; deny-by-default is intended. Verified 2026-09-30 on a clean replay: no anon/authenticated table grants.",
+      "justification": "Server-only back-office table (backup scheduler and restore drills), added to self-host by 239_selfhost_hosted_parity with the hosted chain's RLS and grants; deny-by-default is intended. Verified 2026-09-30 on a clean replay: no anon/authenticated table grants.",
       "owner": "backend/platform",
       "follow_up": "Re-evaluate only if this table is ever exposed directly to the browser."
     },
@@ -1989,7 +1989,7 @@
       "exposure": "None. The table carries no Data API grants; it is reached only by the Express server through service_role, which bypasses RLS.",
       "intentional": true,
       "decision": "deferred-by-design",
-      "justification": "Server-only back-office table (backup scheduler and restore drills), added to self-host by 238_selfhost_hosted_parity with the hosted chain's RLS and grants; deny-by-default is intended. Verified 2026-09-30 on a clean replay: no anon/authenticated table grants.",
+      "justification": "Server-only back-office table (backup scheduler and restore drills), added to self-host by 239_selfhost_hosted_parity with the hosted chain's RLS and grants; deny-by-default is intended. Verified 2026-09-30 on a clean replay: no anon/authenticated table grants.",
       "owner": "backend/platform",
       "follow_up": "Re-evaluate only if this table is ever exposed directly to the browser."
     },
@@ -2002,7 +2002,7 @@
       "exposure": "None. The table carries no Data API grants; it is reached only by the Express server through service_role, which bypasses RLS.",
       "intentional": true,
       "decision": "deferred-by-design",
-      "justification": "Server-only back-office table (backup scheduler and restore drills), added to self-host by 238_selfhost_hosted_parity with the hosted chain's RLS and grants; deny-by-default is intended. Verified 2026-09-30 on a clean replay: no anon/authenticated table grants.",
+      "justification": "Server-only back-office table (backup scheduler and restore drills), added to self-host by 239_selfhost_hosted_parity with the hosted chain's RLS and grants; deny-by-default is intended. Verified 2026-09-30 on a clean replay: no anon/authenticated table grants.",
       "owner": "backend/platform",
       "follow_up": "Re-evaluate only if this table is ever exposed directly to the browser."
     },
@@ -2015,7 +2015,7 @@
       "exposure": "None. The table carries no Data API grants; it is reached only by the Express server through service_role, which bypasses RLS.",
       "intentional": true,
       "decision": "deferred-by-design",
-      "justification": "Server-only job queue for account deletion. 238_selfhost_hosted_parity enabled RLS on it as the hosted chain does (it had RLS off on self-host); deny-by-default is intended. Verified 2026-09-30 on a clean replay: no anon/authenticated table grants.",
+      "justification": "Server-only job queue for account deletion. 239_selfhost_hosted_parity enabled RLS on it as the hosted chain does (it had RLS off on self-host); deny-by-default is intended. Verified 2026-09-30 on a clean replay: no anon/authenticated table grants.",
       "owner": "backend/platform",
       "follow_up": "Re-evaluate only if this table is ever exposed directly to the browser."
     },
@@ -2028,7 +2028,7 @@
       "exposure": "None. The table carries no Data API grants; it is reached only by the Express server through service_role, which bypasses RLS.",
       "intentional": true,
       "decision": "deferred-by-design",
-      "justification": "Partition of workspace_health_snapshots, added to self-host by 238_selfhost_hosted_parity. The parent table carries the policies; partitions are never addressed directly and carry no anon/authenticated grants (verified 2026-09-30 on a clean replay). The server no longer reads this family at all (server/routes/adminReliability.ts).",
+      "justification": "Partition of workspace_health_snapshots, added to self-host by 239_selfhost_hosted_parity. The parent table carries the policies; partitions are never addressed directly and carry no anon/authenticated grants (verified 2026-09-30 on a clean replay). The server no longer reads this family at all (server/routes/adminReliability.ts).",
       "owner": "backend/platform",
       "follow_up": "Re-evaluate only if this table is ever exposed directly to the browser."
     },
@@ -2041,7 +2041,7 @@
       "exposure": "None. The table carries no Data API grants; it is reached only by the Express server through service_role, which bypasses RLS.",
       "intentional": true,
       "decision": "deferred-by-design",
-      "justification": "Partition of workspace_health_snapshots, added to self-host by 238_selfhost_hosted_parity. The parent table carries the policies; partitions are never addressed directly and carry no anon/authenticated grants (verified 2026-09-30 on a clean replay). The server no longer reads this family at all (server/routes/adminReliability.ts).",
+      "justification": "Partition of workspace_health_snapshots, added to self-host by 239_selfhost_hosted_parity. The parent table carries the policies; partitions are never addressed directly and carry no anon/authenticated grants (verified 2026-09-30 on a clean replay). The server no longer reads this family at all (server/routes/adminReliability.ts).",
       "owner": "backend/platform",
       "follow_up": "Re-evaluate only if this table is ever exposed directly to the browser."
     },
@@ -2054,7 +2054,7 @@
       "exposure": "None. The table carries no Data API grants; it is reached only by the Express server through service_role, which bypasses RLS.",
       "intentional": true,
       "decision": "deferred-by-design",
-      "justification": "Partition of workspace_health_snapshots, added to self-host by 238_selfhost_hosted_parity. The parent table carries the policies; partitions are never addressed directly and carry no anon/authenticated grants (verified 2026-09-30 on a clean replay). The server no longer reads this family at all (server/routes/adminReliability.ts).",
+      "justification": "Partition of workspace_health_snapshots, added to self-host by 239_selfhost_hosted_parity. The parent table carries the policies; partitions are never addressed directly and carry no anon/authenticated grants (verified 2026-09-30 on a clean replay). The server no longer reads this family at all (server/routes/adminReliability.ts).",
       "owner": "backend/platform",
       "follow_up": "Re-evaluate only if this table is ever exposed directly to the browser."
     },
@@ -2067,7 +2067,7 @@
       "exposure": "None. The table carries no Data API grants; it is reached only by the Express server through service_role, which bypasses RLS.",
       "intentional": true,
       "decision": "deferred-by-design",
-      "justification": "Partition of workspace_health_snapshots, added to self-host by 238_selfhost_hosted_parity. The parent table carries the policies; partitions are never addressed directly and carry no anon/authenticated grants (verified 2026-09-30 on a clean replay). The server no longer reads this family at all (server/routes/adminReliability.ts).",
+      "justification": "Partition of workspace_health_snapshots, added to self-host by 239_selfhost_hosted_parity. The parent table carries the policies; partitions are never addressed directly and carry no anon/authenticated grants (verified 2026-09-30 on a clean replay). The server no longer reads this family at all (server/routes/adminReliability.ts).",
       "owner": "backend/platform",
       "follow_up": "Re-evaluate only if this table is ever exposed directly to the browser."
     }

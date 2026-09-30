@@ -166,7 +166,7 @@ describe('supabase migration chain — dependency order', () => {
   });
 
   it('creates public.workspace_domains_extended before its first policy', () => {
-    // Hosted files only: the self-host chain creates this table too (238), and
+    // Hosted files only: the self-host chain creates this table too (239), and
     // leaning on that baseline would let this chain lose its own CREATE.
     const origin = createdInHosted.get('workspace_domains_extended');
     expect(origin).toBeDefined();

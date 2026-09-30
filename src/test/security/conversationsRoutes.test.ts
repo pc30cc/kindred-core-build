@@ -166,7 +166,7 @@ function fakeClient() {
         return { data: [inboxCounters], error: null };
       }
       if (name === 'conversation_inbox_counters') {
-        // A database without migration 240 answers "function not found".
+        // A database without migration 241 answers "function not found".
         return { data: null, error: { code: 'PGRST202', message: 'function not found' } };
       }
       return { data: null, error: null };

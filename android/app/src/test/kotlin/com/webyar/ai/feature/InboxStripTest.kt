@@ -1,7 +1,13 @@
 package com.webyar.ai.feature
 
 import androidx.compose.ui.test.assert
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.onNodeWithText
+import com.webyar.ai.ui.components.ChoiceButton
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
@@ -178,6 +184,26 @@ class InboxStripTest {
                 "$tag in $language at $bounds, screen $screenBounds",
                 bounds.left >= screenBounds.left && bounds.right <= screenBounds.right,
             )
+        }
+    }
+
+    /**
+     * In a row that scrolls — the mailbox's folders, the visitors' filters —
+     * the width is unbounded, and a label that gave way to its count there
+     * got none: an empty button. Only the inbox strip, which bounds its
+     * buttons, lets the label give way.
+     */
+    @Test
+    fun `a choice button in a scrolling row keeps its words`() {
+        compose.setContent {
+            Row(Modifier.horizontalScroll(rememberScrollState())) {
+                ChoiceButton(label = "Inbox", selected = true, language = Language.EN, onClick = {}, count = 3)
+                ChoiceButton(label = "Sent", selected = false, language = Language.EN, onClick = {})
+            }
+        }
+        listOf("Inbox", "Sent").forEach { word ->
+            val bounds = compose.onNodeWithText(word, useUnmergedTree = true).getBoundsInRoot()
+            assertTrue("$word at $bounds", bounds.right - bounds.left > 12.dp)
         }
     }
 

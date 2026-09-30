@@ -606,6 +606,7 @@ private fun QueueGroup(
                     tick = false,
                     labelSize = tight.fontSize,
                     horizontalPadding = tight.padding,
+                    labelGivesWay = true,
                 )
             }
             if (onOpenColleagues != null) {
@@ -620,6 +621,7 @@ private fun QueueGroup(
                     tick = false,
                     labelSize = tight.fontSize,
                     horizontalPadding = tight.padding,
+                    labelGivesWay = true,
                 )
             }
             if (onOpenEmail != null) {

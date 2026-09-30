@@ -206,6 +206,13 @@ fun ChoiceButton(
     labelSize: TextUnit = TextUnit.Unspecified,
     /** The space either side of the label; the strip narrows it before it shrinks the text. */
     horizontalPadding: Dp = Space.lg,
+    /**
+     * Whether the label gives way to the count and the dot when the button is
+     * narrower than its words. Only for a button the caller gives a bounded
+     * width, as the inbox strip does: in a row that scrolls, the width is
+     * unbounded and a label that gives way gets none — an empty button.
+     */
+    labelGivesWay: Boolean = false,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -266,7 +273,7 @@ fun ChoiceButton(
                 overflow = TextOverflow.Ellipsis,
                 // Measured after the count and the dot: in a button narrower
                 // than its words, the label gives way and they do not.
-                modifier = Modifier.weight(1f, fill = false),
+                modifier = if (labelGivesWay) Modifier.weight(1f, fill = false) else Modifier,
             )
             if (count != null && count > 0) {
                 Spacer(Modifier.size(Space.sm))

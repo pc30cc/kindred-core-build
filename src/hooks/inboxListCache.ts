@@ -64,6 +64,38 @@ export function isConversationCached(qc: QueryClient, workspaceId: string, conve
 }
 
 /**
+ * Conversation ids this dashboard has already seen in a push, per workspace.
+ * A message can only change the queue/tab counters when its conversation is
+ * new; a thread the lists do not hold because it belongs to a colleague (the
+ * "mine" view) is not new the second time. Bounded, so a long-open dashboard
+ * does not grow it forever (clearing only costs one extra counter read).
+ */
+const MAX_SIGHTED = 5_000;
+const sightedByClient = new WeakMap<QueryClient, Map<string, Set<string>>>();
+
+/**
+ * True the first time a conversation that no cached list holds is seen:
+ * the one case where a message can have changed the counters.
+ */
+export function isFirstSighting(qc: QueryClient, workspaceId: string, conversationId: string): boolean {
+  let byWs = sightedByClient.get(qc);
+  if (!byWs) {
+    byWs = new Map();
+    sightedByClient.set(qc, byWs);
+  }
+  let seen = byWs.get(workspaceId);
+  if (!seen) {
+    seen = new Set();
+    byWs.set(workspaceId, seen);
+  }
+  const cached = isConversationCached(qc, workspaceId, conversationId);
+  const first = !cached && !seen.has(conversationId);
+  if (seen.size >= MAX_SIGHTED) seen.clear();
+  seen.add(conversationId);
+  return first;
+}
+
+/**
  * Re-read these conversations in every visible list of the workspace
  * (coalesced). Safe to call for every push.
  */

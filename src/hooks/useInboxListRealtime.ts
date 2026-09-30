@@ -13,7 +13,7 @@
  */
 
 import { useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { resolveClientRealtimeProvider } from '@/realtime';
 import type {
   RealtimeSubscription,
@@ -21,7 +21,7 @@ import type {
 } from '@/realtime/types';
 import { rtDebug, rtWarn } from '@/realtime/debug';
 import { invalidateThrottled } from '@/realtime/invalidationThrottle';
-import { isConversationCached, refreshConversations } from '@/hooks/inboxListCache';
+import { isFirstSighting, refreshConversations } from '@/hooks/inboxListCache';
 
 interface ConversationCacheRow {
   id: string;
@@ -76,6 +76,18 @@ function patchConversationInCache(
   return { patched, matched: true };
 }
 
+/** Every cached list that holds the conversation already shows it human-active. */
+function isAlreadyHumanActive(qc: QueryClient, workspaceId: string, conversationId: string): boolean {
+  let seen = false;
+  for (const [, rows] of qc.getQueriesData<ConversationCacheRow[]>({ queryKey: ['conversations', workspaceId] })) {
+    const row = Array.isArray(rows) ? rows.find((r) => r.id === conversationId) : undefined;
+    if (!row) continue;
+    if (row.ai_state !== 'human_active') return false;
+    seen = true;
+  }
+  return seen;
+}
+
 export function useInboxListRealtime(workspaceId: string | undefined) {
   const qc = useQueryClient();
 
@@ -102,15 +114,15 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
             // recomputes its preview / unread / needs-reply. A message on a
             // thread the lists already hold cannot change the queue or tab
             // counters (those follow status and AI state, which arrive as
-            // their own events); a thread no list holds may be new, so only
-            // then are the counters refreshed.
+            // their own events). A conversation seen for the first time, and
+            // held by no list, may be new: only then are they refreshed.
             const convId = (payload as { conversation_id?: string })?.conversation_id;
             const senderType = (payload as { sender_type?: string })?.sender_type;
             rtDebug('inbox-list', 'event:message', { conv: convId, sender_type: senderType });
             if (convId) {
-              const known = isConversationCached(qc, workspaceId, convId);
+              const isNew = isFirstSighting(qc, workspaceId, convId);
               refreshConversations(qc, workspaceId, [convId]);
-              if (!known) {
+              if (isNew) {
                 invalidateThrottled(qc, ['inbox-counts', workspaceId]);
                 invalidateThrottled(qc, ['inbox-tab-counts', workspaceId]);
               }
@@ -148,6 +160,13 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
             // between queues (Main / Automated / Needs human / Spam). The
             // lightweight patch path can't represent that, so always
             // invalidate every cached list for this workspace.
+            // The server announces a takeover on EVERY operator reply. When
+            // the thread is already human-active in the cached lists, nothing
+            // a list or counter shows changes (the reply's own message push
+            // re-reads the row), so there is nothing to refresh.
+            if (kind === 'ai_human_takeover' && isAlreadyHumanActive(qc, workspaceId, payload.conversation_id)) {
+              return;
+            }
             if (
               kind === 'ai_human_takeover' ||
               kind === 'ai_handoff_requested' ||

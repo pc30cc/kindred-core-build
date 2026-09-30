@@ -18,7 +18,6 @@ import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useTeamPresence } from '@/hooks/useTeamPresence';
 import { useWorkspaceRole } from '@/hooks/useWorkspaceRole';
 import { isTypingSuppressed } from '@/realtime/policySnapshot';
-import { invalidateThrottled } from '@/realtime/invalidationThrottle';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -495,19 +494,10 @@ export default function InboxPage() {
   useInboxRealtime({
     workspaceId: workspace?.id,
     conversationId: selectedId ?? undefined,
-    // useInboxRealtime already refreshes this thread's messages and the
-    // workspace's list, throttled, and the inbox channel refreshes the list
-    // and inbox counts for the same message. Invalidating them again here,
-    // unthrottled, cost every busy thread up to three list, two message and
-    // two count requests per message. Only the tab counters are left: this
-    // is the one push that refreshes them.
-    onMessage: () => {
-      // Keep the tab counters live so a new message lights up its tab.
-      if (workspace?.id) {
-        invalidateThrottled(qc, ['inbox-tab-counts', workspace.id]);
-        invalidateThrottled(qc, ['inbox-counts', workspace.id]);
-      }
-    },
+    // useInboxRealtime re-reads this thread's messages and its list row.
+    // The queue and tab counters count conversations by status and AI state,
+    // which a message on an open thread does not change; the status and AI
+    // events that do change them refresh the counters in useInboxListRealtime.
     onTyping: (payload) => {
       // Only react to visitor typing (ignore agent self-echo just in case).
       const actor = (payload as { actor?: string })?.actor;

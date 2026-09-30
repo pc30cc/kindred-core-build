@@ -20,12 +20,13 @@ import {
   computeWaitingSince,
   isQualifiedCustomerFacingAnswer,
   isPermanentlyUndelivered,
+  type NeedsReplyMessage,
 } from '../../../server/services/needsReply';
 
 const at = (n: number) => new Date(Date.UTC(2026, 0, 1, 10, n)).toISOString();
 const customer = (n: number, body = 'سلام') => ({ sender_type: 'contact', body, created_at: at(n) });
-const agent = (n: number, metadata: any = {}, body = 'پاسخ') => ({ sender_type: 'agent', body, created_at: at(n), metadata });
-const ai = (n: number, metadata: any = {}) => ({ sender_type: 'ai', body: 'AI answer', created_at: at(n), metadata });
+const agent = (n: number, metadata: Record<string, unknown> = {}, body = 'پاسخ') => ({ sender_type: 'agent', body, created_at: at(n), metadata });
+const ai = (n: number, metadata: Record<string, unknown> = {}) => ({ sender_type: 'ai', body: 'AI answer', created_at: at(n), metadata });
 const sent = { channel_delivery: 'sent', channel_delivery_at: at(6) };
 const failed = { channel_delivery: 'failed', channel_delivery_error: 'telegram_403' };
 
@@ -37,7 +38,7 @@ describe('delivery states — only terminal failure invalidates an answer', () =
   it('transient states never flip Needs Reply back on', () => {
     for (const state of ['queued', 'pending', 'retrying', 'temporarily_unavailable', 'sending']) {
       const m = agent(5, { channel_delivery: state });
-      expect(isPermanentlyUndelivered(m as any)).toBe(false);
+      expect(isPermanentlyUndelivered(m as NeedsReplyMessage)).toBe(false);
       expect(computeNeedsReply({ status: 'open', messages: [customer(0), m] })).toBe(false);
     }
   });
@@ -56,7 +57,7 @@ describe('delivery states — only terminal failure invalidates an answer', () =
 
   it('a routing-skipped message is not an answer either', () => {
     const skipped = agent(5, { channel_delivery_skip: 'true', telegram_offline_screen_queued: true });
-    expect(isQualifiedCustomerFacingAnswer(skipped as any)).toBe(false);
+    expect(isQualifiedCustomerFacingAnswer(skipped as NeedsReplyMessage)).toBe(false);
     expect(computeNeedsReply({ status: 'open', messages: [customer(0), skipped] })).toBe(true);
   });
 });
@@ -85,8 +86,8 @@ describe('a failure only restores what is actually unanswered', () => {
   });
 
   it('sender_type alone never satisfies the obligation', () => {
-    expect(isQualifiedCustomerFacingAnswer(agent(5, failed) as any)).toBe(false);
-    expect(isQualifiedCustomerFacingAnswer(ai(5, failed) as any)).toBe(false);
+    expect(isQualifiedCustomerFacingAnswer(agent(5, failed) as NeedsReplyMessage)).toBe(false);
+    expect(isQualifiedCustomerFacingAnswer(ai(5, failed) as NeedsReplyMessage)).toBe(false);
   });
 
   it('widget success boundary: committed row with no provider hop counts', () => {
@@ -125,7 +126,7 @@ describe('waiting age — ranking input', () => {
       { id: 'old', needs_reply: true, waiting_since: at(1), updated_at: at(2) },
       { id: 'answered', needs_reply: false, waiting_since: null, updated_at: at(58) },
     ];
-    const sorted = [...rows].sort((a: any, b: any) => {
+    const sorted = [...rows].sort((a, b) => {
       const na = a.needs_reply ? 1 : 0;
       const nb = b.needs_reply ? 1 : 0;
       if (na !== nb) return nb - na;
@@ -141,7 +142,7 @@ describe('waiting age — ranking input', () => {
 
   it('unread stays independent of the delivery transition', () => {
     const seenCustomer = { ...customer(0), seen_at: at(1) };
-    const unread = (msgs: any[]) => msgs.filter((m) => m.sender_type === 'contact' && !m.seen_at).length;
+    const unread = (msgs: Array<{ sender_type: string; seen_at?: string | null }>) => msgs.filter((m) => m.sender_type === 'contact' && !m.seen_at).length;
     const before = [seenCustomer, agent(5)];
     const after = [seenCustomer, agent(5, failed)];
     expect(unread(before)).toBe(0);

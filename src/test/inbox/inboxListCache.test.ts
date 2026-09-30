@@ -11,7 +11,7 @@ vi.mock('@/hooks/useVisitorNetwork', () => ({
   fetchVisitorNetworkForConversations: (...a: unknown[]) => networkMock(...a),
 }));
 
-import { mergeRows, refreshConversations, isConversationCached, FLUSH_DELAY_MS } from '@/hooks/inboxListCache';
+import { mergeRows, refreshConversations, isConversationCached, isFirstSighting, FLUSH_DELAY_MS } from '@/hooks/inboxListCache';
 
 const WS = 'ws-1';
 const KEY = ['conversations', WS, 'main', 'open', false, null, 'mine'];
@@ -105,5 +105,13 @@ describe('refreshConversations', () => {
     const qc = clientWithList([row('a', '2026-01-01')], false);
     expect(isConversationCached(qc, WS, 'a')).toBe(true);
     expect(isConversationCached(qc, WS, 'b')).toBe(false);
+  });
+
+  it('reports a conversation as new only the first time, and never when a list holds it', () => {
+    const qc = clientWithList([row('a', '2026-01-01')], false);
+    expect(isFirstSighting(qc, WS, 'a')).toBe(false); // already in a list
+    expect(isFirstSighting(qc, WS, 'x')).toBe(true); // first push for x
+    expect(isFirstSighting(qc, WS, 'x')).toBe(false); // a colleague's thread: not new again
+    expect(isFirstSighting(qc, 'other-ws', 'x')).toBe(true); // per workspace
   });
 });

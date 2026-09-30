@@ -765,6 +765,8 @@ export interface EmailPushInput {
   messageId?: string | null;
   /** Unique per notification; defaults to messageId. A live inbox has no row to name. */
   dedupeId?: string;
+  /** The mailbox the thread is in (`data.provider`), for apps that show more than one. */
+  provider?: 'gmail' | 'yahoo';
   from?: string | null;
   subject?: string | null;
   snippet?: string | null;
@@ -799,6 +801,7 @@ export async function notifyEmailMessage(config: ServerConfig, input: EmailPushI
         workspaceId: input.workspaceId,
         threadId: input.threadId,
         ...(input.messageId ? { messageId: input.messageId } : {}),
+        ...(input.provider ? { provider: input.provider } : {}),
       },
       render: (recipient) => renderEmailContent(input, recipient.preview, recipient.locale),
       thread: `email-${input.threadId}`,

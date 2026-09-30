@@ -237,6 +237,19 @@ describe('a new email', () => {
     expect(log?.message_id ?? null).toBeNull();
     expect(log?.dedupe_key).toBe('email_message:gmail-int-1-18c3f4a5b6c7d8ea');
   });
+
+  it('names the mailbox the thread is in, for apps that show more than one', async () => {
+    await dispatch.notifyEmailMessage(CONFIG, { workspaceId: WS, threadId: '18c3f4a5b6c7d8e9', dedupeId: 'gmail-int-1-18c3f4a5b6c7d8eb', provider: 'gmail' });
+    await dispatch.notifyEmailMessage(CONFIG, { workspaceId: WS, threadId: 'thread-2', messageId: 'email-2', provider: 'yahoo' });
+    const mine = sent.fcm.filter((m) => m.token === `token-${ME}`);
+    expect(mine.map((m) => m.data)).toEqual([
+      { type: 'email_message', workspaceId: WS, threadId: '18c3f4a5b6c7d8e9', provider: 'gmail' },
+      { type: 'email_message', workspaceId: WS, threadId: 'thread-2', messageId: 'email-2', provider: 'yahoo' },
+    ]);
+    // Nothing else about the push changes: same dedupe key shape.
+    const keys = db.push_dispatch_log.filter((r: { user_id?: string }) => r.user_id === ME).map((r: { dedupe_key?: string }) => r.dedupe_key);
+    expect(keys).toEqual(['email_message:gmail-int-1-18c3f4a5b6c7d8eb', 'email_message:email-2']);
+  });
 });
 
 describe('a callback request', () => {

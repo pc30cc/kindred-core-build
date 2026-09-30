@@ -30,7 +30,7 @@ export function scheduleGmailChange(config: ServerConfig, integrationId: string)
     pending.delete(integrationId);
     void processGmailChange(config, integrationId);
   }, COALESCE_MS);
-  if (typeof (timer as any)?.unref === 'function') (timer as any).unref();
+  (timer as { unref?: () => void }).unref?.();
   pending.set(integrationId, timer);
 }
 
@@ -78,6 +78,9 @@ async function processGmailChange(config: ServerConfig, integrationId: string): 
       conversation_id: '',
       provider: 'gmail',
       history_id: historyId,
+      // When it was published: an unchanged cursor still makes a new event
+      // for clients that de-duplicate by payload (Android, without a stream offset).
+      at: new Date().toISOString(),
     }, { skipConversationChannel: true });
 
     if (newMessages > 0 && newestThreadId && newestMessageId) {
@@ -88,6 +91,7 @@ async function processGmailChange(config: ServerConfig, integrationId: string): 
         threadId: newestThreadId,
         // Keyed on the mail itself: overlapping runs over the same new mail push once.
         dedupeId: `gmail-${integration.id}-${newestMessageId}`,
+        provider: 'gmail',
       });
     }
   } catch (err) {

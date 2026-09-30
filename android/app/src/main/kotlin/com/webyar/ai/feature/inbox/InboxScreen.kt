@@ -597,7 +597,7 @@ private fun QueueGroup(
             chips.forEachIndexed { index, option ->
                 ChoiceButton(
                     label = specs[index].label,
-                    count = counts.count(option),
+                    count = counts.count(option).takeIf { tight.counts },
                     selected = option == selected && selectedChannel == null && !colleaguesShown,
                     language = language,
                     onClick = { onSelect(option) },
@@ -611,7 +611,7 @@ private fun QueueGroup(
             if (onOpenColleagues != null) {
                 ChoiceButton(
                     label = Str.colleagues(language),
-                    count = colleaguesUnread,
+                    count = colleaguesUnread.takeIf { tight.counts },
                     selected = colleaguesShown,
                     language = language,
                     onClick = onOpenColleagues,
@@ -657,7 +657,9 @@ private data class StripChip(val label: String, val count: String?, val dot: Boo
 /**
  * How tightly the strip is set, roomiest first: the first whose buttons all
  * fit the width is the one used. The space around the words goes first, then
- * the icons' width, then a point of type at a time.
+ * the icons' width, then a point of type; then the counts beside the names —
+ * the red dot still says something is unread — so that on the narrowest
+ * phone the names stay readable rather than cut.
  */
 internal enum class StripDensity(
     /** Unspecified: the theme's label size. */
@@ -666,14 +668,16 @@ internal enum class StripDensity(
     val icon: Dp,
     val inset: Dp,
     val gap: Dp,
+    val counts: Boolean = true,
 ) {
     Roomy(TextUnit.Unspecified, Space.lg, 52.dp, Space.screenInset, Space.xs),
+    // Icons stay 48 wide from here down: the touch target never shrinks.
     Snug(TextUnit.Unspecified, Space.md, 48.dp, Space.screenInset, Space.xs),
     Compact(13.sp, 10.dp, 48.dp, Space.md, Space.xs),
     Close(12.sp, Space.sm, 48.dp, Space.sm, 3.dp),
-    // Icons stay 48 wide from here down: the touch target never shrinks.
-    Tight(11.sp, 6.dp, 48.dp, Space.sm, Space.xxs),
-    Tightest(10.sp, Space.xs, 48.dp, Space.xs, Space.xxs),
+    Bare(12.sp, Space.sm, 48.dp, Space.sm, 3.dp, counts = false),
+    Tight(11.sp, 6.dp, 48.dp, Space.sm, Space.xxs, counts = false),
+    Tightest(10.sp, Space.xs, 48.dp, Space.xs, Space.xxs, counts = false),
 }
 
 /** The density chosen, and each inbox's share of the width. */
@@ -696,7 +700,7 @@ private fun rememberStripFit(maxWidth: Dp, chips: List<StripChip>, icons: Int): 
             // Bold when chosen, so the wider of the two: choosing one must not
             // push the strip over.
             val label = maxOf(width(chip.label, sized(plain)), width(chip.label, sized(bold)))
-            val count = chip.count?.let { n ->
+            val count = chip.count?.takeIf { level.counts }?.let { n ->
                 Space.sm + width(n, if (size.isSpecified) small.copy(fontSize = (size.value - 2f).sp) else small)
             } ?: 0.dp
             // The red dot and the space before it.

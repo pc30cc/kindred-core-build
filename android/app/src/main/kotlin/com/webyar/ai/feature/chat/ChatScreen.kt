@@ -467,6 +467,11 @@ private fun JumpToLatest(
 
 @Composable
 private fun SystemRow(message: Message, language: Language) {
+    // A platform-support conversation opens with who is asking: a card, not a line.
+    RequesterCard.parse(message.metadata)?.let { card ->
+        RequesterCardView(card, language, Modifier.testTag(A11y.messageRow(message.id)))
+        return
+    }
     val text = SystemMessage.text(message.metadata, language) ?: message.body
     if (text.isBlank()) return
     Box(

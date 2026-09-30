@@ -187,6 +187,42 @@ class InboxViewModelTest {
         assertEquals("telegram", inbox.channel.value)
     }
 
+    /**
+     * Colleagues is one inbox among the others on the strip: choosing it
+     * shows their chats, and choosing any queue or channel comes back — the
+     * queue already open included, with its rows as they were.
+     */
+    @Test
+    fun `the colleagues are an inbox, and any queue or channel comes back from them`() = runTest(dispatcher) {
+        val inbox = model()
+        inbox.bind("ws-1")
+        testScheduler.advanceUntilIdle()
+        val open = ids(inbox.state.value)
+        assertFalse(inbox.colleaguesShown.value)
+
+        inbox.showColleagues()
+        assertTrue(inbox.colleaguesShown.value)
+        // The queue stays where it was underneath.
+        assertEquals(InboxFilter.OPEN, inbox.filter.value)
+
+        inbox.select(InboxFilter.OPEN)
+        testScheduler.advanceUntilIdle()
+        assertFalse(inbox.colleaguesShown.value)
+        assertEquals(open, ids(inbox.state.value))
+
+        inbox.showColleagues()
+        inbox.selectChannel("telegram")
+        testScheduler.advanceUntilIdle()
+        assertFalse(inbox.colleaguesShown.value)
+        assertEquals("telegram", inbox.channel.value)
+
+        inbox.showColleagues()
+        inbox.select(InboxFilter.AI)
+        testScheduler.advanceUntilIdle()
+        assertFalse(inbox.colleaguesShown.value)
+        assertEquals(InboxFilter.AI, inbox.filter.value)
+    }
+
     @Test
     fun `the counts and the channels arrive with the list`() = runTest(dispatcher) {
         val inbox = model()

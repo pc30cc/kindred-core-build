@@ -30,6 +30,9 @@ object A11y {
     const val INBOX_TITLE_MENU = "inbox.title.menu"
     const val INBOX_COLLEAGUES_CHIP = "inbox.chip.colleagues"
     const val INBOX_EVERY_INBOX = "inbox.everyInbox"
+    const val INBOX_EMAIL_BUTTON = "inbox.email"
+    /** The colleagues' list, drawn in the inbox in place of a queue's rows. */
+    const val INBOX_COLLEAGUES = "inbox.colleagues"
     const val INBOX_EVERY_INBOX_SHEET = "inbox.everyInbox.sheet"
     fun inboxChip(wire: String) = "inbox.chip.$wire"
     fun everyInboxRow(wire: String) = "inbox.everyInbox.$wire"
@@ -142,13 +145,14 @@ object A11y {
     fun attachmentFile(id: String) = "attachment.file.$id"
     fun messageStatus(id: String) = "message.status.$id"
     const val SETTINGS_LIST = "settings.list"
-    const val SETTINGS_SUPPORT = "settings.support"
+    const val SETTINGS_VERSION = "settings.version"
     /** Settings › Online support: the one row, which opens the chat. */
     const val SETTINGS_SUPPORT_CHAT = "settings.support.chat"
     /** The support chat: its transcript, its composer, and what sits around them. */
     const val SUPPORT_TRANSCRIPT = "support.transcript"
     const val SUPPORT_COMPOSER = "support.composer"
     const val SUPPORT_OFFLINE_BANNER = "support.offline"
+    const val SUPPORT_REQUESTER_CARD = "support.requester"
     const val SUPPORT_ENDED_PANEL = "support.ended"
     const val SUPPORT_START_NEW = "support.startNew"
     const val SUPPORT_CLOSED_BUTTON = "support.closed"

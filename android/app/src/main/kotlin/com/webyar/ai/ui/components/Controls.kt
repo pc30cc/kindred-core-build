@@ -27,7 +27,10 @@ import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
 import com.webyar.ai.i18n.Format
 import com.webyar.ai.i18n.Language
 import com.webyar.ai.i18n.Str
@@ -189,6 +192,27 @@ fun ChoiceButton(
      * case, shows nothing.
      */
     unread: Int = 0,
+    /**
+     * Whether a selected button wears a tick before its label. Off on the
+     * inbox strip, where the filled pill already says which inbox is open
+     * and a tick on each would only push the labels along.
+     */
+    tick: Boolean = true,
+    /**
+     * The label's size, and the count's two points under it; unspecified is
+     * the theme's. The inbox strip sets it smaller when that is what it takes
+     * for every button to fit the width.
+     */
+    labelSize: TextUnit = TextUnit.Unspecified,
+    /** The space either side of the label; the strip narrows it before it shrinks the text. */
+    horizontalPadding: Dp = Space.lg,
+    /**
+     * Whether the label gives way to the count and the dot when the button is
+     * narrower than its words. Only for a button the caller gives a bounded
+     * width, as the inbox strip does: in a row that scrolls, the width is
+     * unbounded and a label that gives way gets none — an empty button.
+     */
+    labelGivesWay: Boolean = false,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -228,29 +252,36 @@ fun ChoiceButton(
             },
     ) {
         Row(
-            Modifier.padding(horizontal = Space.lg, vertical = Space.sm),
+            Modifier.padding(horizontal = horizontalPadding, vertical = Space.sm),
             verticalAlignment = Alignment.CenterVertically,
             // Centred, for when the button is stretched across a row. The
             // tick brings its own gap in with it: a gap left standing beside
             // an invisible tick would push the label off-centre.
             horizontalArrangement = Arrangement.Center,
         ) {
-            AnimatedVisibility(visible = selected) {
+            AnimatedVisibility(visible = tick && selected) {
                 Row {
                     Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.size(Space.sm))
                 }
             }
+            val labelStyle = if (selected) WebyarType.labelLargeEmphasized else MaterialTheme.typography.labelLarge
             Text(
                 label,
-                style = if (selected) WebyarType.labelLargeEmphasized else MaterialTheme.typography.labelLarge,
+                style = if (labelSize.isSpecified) labelStyle.copy(fontSize = labelSize) else labelStyle,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                // Measured after the count and the dot: in a button narrower
+                // than its words, the label gives way and they do not.
+                modifier = if (labelGivesWay) Modifier.weight(1f, fill = false) else Modifier,
             )
             if (count != null && count > 0) {
                 Spacer(Modifier.size(Space.sm))
                 Text(
                     Format.number(count, language),
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelMedium.let {
+                        if (labelSize.isSpecified) it.copy(fontSize = (labelSize.value - 2f).sp) else it
+                    },
                     color = content.copy(alpha = 0.8f),
                     maxLines = 1,
                 )

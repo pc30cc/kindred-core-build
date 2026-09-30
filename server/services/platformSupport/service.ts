@@ -50,6 +50,7 @@ import { notifyInboundMessage, notifySupportReply } from '../push/index.js';
 import { createStorageUrlResolver } from '../storage/urlResolver.js';
 import { downloadFile, uploadFile } from '../storage/index.js';
 import { chatAttachmentKey } from '../storage/keys.js';
+import { requesterBody, requesterSnapshot } from './requester.js';
 
 export const SUPPORT_CHANNEL = 'platform_support';
 
@@ -857,8 +858,69 @@ async function prepareWrite(
       actorId: null,
       payload: { source: SUPPORT_CHANNEL, client: requester.client },
     });
+    // Before the first message, so the team reads who is asking first.
+    await insertRequesterCard(config, sb, supportWorkspaceId, conversationId, requester);
   }
   return { sb, requester, contactId, thread, conversationId, supportWorkspaceId };
+}
+
+/**
+ * A notice only the team sees (`metadata.internal`), delivered to the inbox
+ * live like any message of the conversation.
+ */
+async function insertInternalNotice(
+  config: ServerConfig,
+  sb: ServiceClient,
+  workspaceId: string,
+  conversationId: string,
+  body: string,
+  metadata: Record<string, unknown>,
+): Promise<void> {
+  const { data: notice } = await sb
+    .from('conversation_messages')
+    .insert({ conversation_id: conversationId, sender_type: 'system', body, metadata })
+    .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')
+    .single();
+  if (!notice) return;
+  const n = notice as { id: string; conversation_id: string; body: string; created_at: string | null; seen_at?: string | null };
+  void publishConversationEvent(
+    config,
+    workspaceId,
+    conversationId,
+    buildMessageEnvelope({
+      id: n.id,
+      conversation_id: n.conversation_id,
+      sender_type: 'system',
+      body: n.body,
+      created_at: n.created_at,
+      metadata,
+      seen_at: n.seen_at ?? null,
+    }),
+  );
+}
+
+/**
+ * Who is asking — account, workspaces, plans, usage (requester.ts) — at the
+ * top of a new conversation. A card that cannot be read never holds up the
+ * operator's message.
+ */
+async function insertRequesterCard(
+  config: ServerConfig,
+  sb: ServiceClient,
+  supportWorkspaceId: string,
+  conversationId: string,
+  requester: Requester,
+): Promise<void> {
+  try {
+    const snapshot = await requesterSnapshot(sb, {
+      userId: requester.userId,
+      client: requester.client,
+      sourceWorkspaceName: requester.workspaceName,
+    });
+    await insertInternalNotice(config, sb, supportWorkspaceId, conversationId, requesterBody(snapshot), { ...snapshot });
+  } catch (err) {
+    console.warn('[platform-support] requester card failed:', err instanceof Error ? err.message : err);
+  }
 }
 
 /**
@@ -1190,29 +1252,12 @@ export async function rateConversation(
   if (!row) throw new SupportError(409, 'already_rated');
 
   const body = comment ? `Rated ${score}/5: ${comment}` : `Rated ${score}/5`;
-  const metadata = { kind: 'support_rating', internal: true, score, comment };
-  const { data: notice } = await sb
-    .from('conversation_messages')
-    .insert({ conversation_id: conversationId, sender_type: 'system', body, metadata })
-    .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')
-    .single();
-  if (notice) {
-    const n = notice as { id: string; conversation_id: string; body: string; created_at: string | null; seen_at?: string | null };
-    void publishConversationEvent(
-      config,
-      thread.support_workspace_id,
-      conversationId,
-      buildMessageEnvelope({
-        id: n.id,
-        conversation_id: n.conversation_id,
-        sender_type: 'system',
-        body: n.body,
-        created_at: n.created_at,
-        metadata,
-        seen_at: n.seen_at ?? null,
-      }),
-    );
-  }
+  await insertInternalNotice(config, sb, thread.support_workspace_id, conversationId, body, {
+    kind: 'support_rating',
+    internal: true,
+    score,
+    comment,
+  });
   void recordConversationEvent(config, {
     workspaceId: thread.support_workspace_id,
     conversationId,

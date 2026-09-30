@@ -90,6 +90,8 @@ import {
   systemMessageText, invitationStatusText, attachmentPreviewText,
   type SystemMessageMeta, type AttachmentPreviewKind,
 } from '@/lib/systemMessageText';
+import { SupportRequesterCard } from '@/components/inbox/SupportRequesterCard';
+import { REQUESTER_KIND, type RequesterCardMeta } from '@/components/inbox/requesterMeta';
 
 const API_BASE = RESOLVED_API_BASE || '';
 const ALLOWED_OPERATOR_MIMES = new Set([
@@ -2297,6 +2299,11 @@ export default function InboxPage() {
                       </div>
                     </div>
                   );
+                }
+                // Who is asking: the site user's account, workspaces, plans
+                // and usage, at the top of a platform-support conversation.
+                if (msg.sender_type === 'system' && meta.kind === REQUESTER_KIND) {
+                  return <SupportRequesterCard key={msg.id} meta={meta as RequesterCardMeta} />;
                 }
                 // A site user's rating of a platform-support conversation
                 // (docs/PLATFORM_SUPPORT.md). Internal: only the team sees it.

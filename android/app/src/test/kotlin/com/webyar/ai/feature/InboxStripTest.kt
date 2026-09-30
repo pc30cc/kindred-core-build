@@ -1,7 +1,19 @@
 package com.webyar.ai.feature
 
 import androidx.compose.ui.test.assert
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.onNodeWithText
+import com.webyar.ai.ui.components.ChoiceButton
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -34,8 +46,9 @@ import com.webyar.ai.core.model.ConversationContact
 import com.webyar.ai.core.model.ConversationPriority
 
 /**
- * The strip above the inbox — Open, AI, Colleagues, and the button that
- * opens every inbox — and the channel each thread is written from.
+ * The strip above the inbox — Open, AI, Colleagues, the envelope that opens
+ * the mailbox, and the button that opens every inbox — and the channel each
+ * thread is written from.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w420dp-h1200dp")
@@ -59,17 +72,24 @@ class InboxStripTest {
         openUnread: OpenUnread = OpenUnread(),
         colleagueThreadsUnread: Int = 0,
         channels: List<ChannelInbox> = emptyList(),
+        colleaguesShown: Boolean = false,
+        emailUnread: Int = 0,
+        onEmail: (String?) -> Unit = {},
+        language: Language = Language.EN,
     ) = compose.setContent {
         InboxScreen(
             state = InboxState.Loaded(conversations),
-            language = Language.EN,
+            language = language,
             onOpen = {},
             allFilters = all,
             chipFilters = listOf(InboxFilter.OPEN, InboxFilter.AI),
             channels = channels,
             onSelectFilter = onSelect,
             onOpenColleagues = onColleagues,
-            onOpenEmail = {},
+            colleaguesShown = colleaguesShown,
+            colleagues = { modifier -> Text("The team's chats", modifier) },
+            onOpenEmail = onEmail,
+            emailUnread = emailUnread,
             openUnread = openUnread,
             colleagueThreadsUnread = colleagueThreadsUnread,
         )
@@ -110,17 +130,116 @@ class InboxStripTest {
         compose.onNodeWithTag(A11y.inboxChip("open")).assertIsDisplayed()
         compose.onNodeWithTag(A11y.inboxChip("ai")).assertIsDisplayed()
         compose.onNodeWithTag(A11y.INBOX_COLLEAGUES_CHIP).assertIsDisplayed()
+        compose.onNodeWithTag(A11y.INBOX_EMAIL_BUTTON).assertIsDisplayed()
         compose.onNodeWithTag(A11y.INBOX_EVERY_INBOX).assertIsDisplayed()
         compose.onNodeWithTag(A11y.inboxChip("needsHuman")).assertDoesNotExist()
         compose.onNodeWithTag(A11y.inboxChip("pending")).assertDoesNotExist()
     }
 
     @Test
-    fun `Colleagues opens the team chat`() {
-        var opened = 0
-        screen(onColleagues = { opened++ })
+    fun `Colleagues is chosen as a queue is`() {
+        var chosen = 0
+        screen(onColleagues = { chosen++ })
+        compose.onNodeWithTag(A11y.inboxChip("open")).assertIsSelected()
+        compose.onNodeWithTag(A11y.INBOX_COLLEAGUES_CHIP).assertIsNotSelected()
+        compose.onNodeWithTag(A11y.INBOX_COLLEAGUES).assertDoesNotExist()
         compose.onNodeWithTag(A11y.INBOX_COLLEAGUES_CHIP).performClick()
-        assertEquals(1, opened)
+        assertEquals(1, chosen)
+    }
+
+    /** Not a screen of its own: the strip stays, Colleagues is the one chosen, and the rows are theirs. */
+    @Test
+    fun `with Colleagues chosen, their chats are the inbox`() {
+        screen(colleaguesShown = true)
+        compose.onNodeWithTag(A11y.INBOX_COLLEAGUES_CHIP).assertIsSelected()
+        compose.onNodeWithTag(A11y.inboxChip("open")).assertIsNotSelected()
+        compose.onNodeWithTag(A11y.inboxChip("ai")).assertIsNotSelected()
+        compose.onNodeWithTag(A11y.INBOX_COLLEAGUES).assertIsDisplayed()
+        compose.onNodeWithTag(A11y.INBOX_LIST).assertDoesNotExist()
+        // The three lines are not lit: the list is one the strip has a button for.
+        compose.onNodeWithTag(A11y.INBOX_EVERY_INBOX).assertIsDisplayed()
+    }
+
+    /**
+     * The strip never scrolls and never runs off the edge: on a narrow phone
+     * it sets itself tighter, down to smaller type, until every button fits.
+     */
+    private fun assertStripInside(language: Language) {
+        screen(
+            openUnread = OpenUnread(conversations = 3),
+            colleagueThreadsUnread = 1,
+            emailUnread = 2,
+            language = language,
+        )
+        val screenBounds = compose.onRoot().getBoundsInRoot()
+        listOf(
+            A11y.inboxChip("open"),
+            A11y.inboxChip("ai"),
+            A11y.INBOX_COLLEAGUES_CHIP,
+            A11y.INBOX_EMAIL_BUTTON,
+            A11y.INBOX_EVERY_INBOX,
+        ).forEach { tag ->
+            val bounds = compose.onNodeWithTag(tag).getBoundsInRoot()
+            assertTrue(
+                "$tag in $language at $bounds, screen $screenBounds",
+                bounds.left >= screenBounds.left && bounds.right <= screenBounds.right,
+            )
+        }
+    }
+
+    /**
+     * In a row that scrolls — the mailbox's folders, the visitors' filters —
+     * the width is unbounded, and a label that gave way to its count there
+     * got none: an empty button. Only the inbox strip, which bounds its
+     * buttons, lets the label give way.
+     */
+    @Test
+    fun `a choice button in a scrolling row keeps its words`() {
+        compose.setContent {
+            Row(Modifier.horizontalScroll(rememberScrollState())) {
+                ChoiceButton(label = "Inbox", selected = true, language = Language.EN, onClick = {}, count = 3)
+                ChoiceButton(label = "Sent", selected = false, language = Language.EN, onClick = {})
+            }
+        }
+        // Robolectric's legacy graphics measure text at about a pixel a
+        // character, so the words are narrow here, but never nothing: a label
+        // that gave way in an unbounded row got exactly zero.
+        listOf("Inbox", "Sent").forEach { word ->
+            val bounds = compose.onNodeWithText(word, useUnmergedTree = true).getBoundsInRoot()
+            assertTrue("$word at $bounds", bounds.right - bounds.left > 2.dp)
+        }
+    }
+
+    /** The inboxes take the width the icons leave: nothing empty after the three lines. */
+    @Test
+    fun `the strip fills its width`() {
+        screen()
+        val screenBounds = compose.onRoot().getBoundsInRoot()
+        // English runs left to right, so the three lines are last on the right.
+        val lines = compose.onNodeWithTag(A11y.INBOX_EVERY_INBOX).getBoundsInRoot()
+        assertTrue("three lines at $lines, screen $screenBounds", screenBounds.right - lines.right <= 17.dp)
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h800dp")
+    fun `on a narrow phone, in Persian, every button of the strip is inside the screen`() =
+        assertStripInside(Language.FA)
+
+    @Test
+    @Config(qualifiers = "w320dp-h800dp")
+    fun `on a narrow phone, in English, every button of the strip is inside the screen`() =
+        assertStripInside(Language.EN)
+
+    @Test
+    fun `the envelope after Colleagues opens the mailbox, and carries the mail's dot`() {
+        var opened: String? = "never"
+        screen(emailUnread = 3, onEmail = { opened = it })
+        compose.onNodeWithTag(A11y.INBOX_EMAIL_BUTTON).assert(says("3 unread"))
+        // Mail is the envelope's to say, no longer the three lines'.
+        compose.onNodeWithTag(A11y.INBOX_EVERY_INBOX).assert(saysNothing)
+        compose.onNodeWithTag(A11y.INBOX_EMAIL_BUTTON).performClick()
+        // The mailbox last shown.
+        assertEquals(null, opened)
     }
 
     @Test

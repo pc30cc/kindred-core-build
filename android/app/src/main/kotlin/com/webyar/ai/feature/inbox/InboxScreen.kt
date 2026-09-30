@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -50,7 +52,14 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
+import androidx.compose.ui.unit.sp
 import com.webyar.ai.core.model.ChannelInbox
 import com.webyar.ai.core.model.Conversation
 import com.webyar.ai.core.model.ConversationStatus
@@ -82,7 +91,6 @@ import com.webyar.ai.ui.design.Size
 import com.webyar.ai.ui.design.Space
 import com.webyar.ai.ui.design.WebyarTheme
 import com.webyar.ai.ui.design.WebyarType
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import com.webyar.ai.ui.components.avatarKey
@@ -145,8 +153,15 @@ fun InboxScreen(
     onSelectFilter: (InboxFilter) -> Unit = {},
     onSelectChannel: (String?) -> Unit = {},
     onRefresh: () -> Unit = {},
-    /** Null when the plan has no team chat, which takes the row out. */
+    /**
+     * Shows the colleagues' chats in this inbox, as the strip shows a queue.
+     * Null when the plan has no team chat, which takes the button out.
+     */
     onOpenColleagues: (() -> Unit)? = null,
+    /** Whether the colleagues' chats are the inbox on screen, in place of a queue's rows. */
+    colleaguesShown: Boolean = false,
+    /** The colleagues' chats, drawn under the strip while [colleaguesShown]. */
+    colleagues: (@Composable (Modifier) -> Unit)? = null,
     /**
      * Null when the plan has no email module. Called with the mailbox
      * (`gmail`, `yahoo`) to open, or null for the one last shown.
@@ -191,6 +206,7 @@ fun InboxScreen(
             onSelectFilter = onSelectFilter,
             onSelectChannel = onSelectChannel,
             onOpenColleagues = onOpenColleagues,
+            colleaguesShown = colleaguesShown,
             onOpenEmail = onOpenEmail,
             mailboxes = mailboxes,
             emailUnread = emailUnread,
@@ -213,17 +229,19 @@ fun InboxScreen(
             selectedChannel = selectedChannel,
             onSelect = onSelectFilter,
             onOpenColleagues = onOpenColleagues,
+            colleaguesShown = colleaguesShown,
             colleaguesUnread = colleaguesUnread,
             openUnread = openUnread.conversations,
             colleagueThreadsUnread = colleagueThreadsUnread,
+            onOpenEmail = onOpenEmail?.let { open -> { open(null) } },
+            emailUnread = emailUnread,
             // A dot on the last button when a channel inbox behind it holds
             // something unread: the strip has no button of its own for those.
-            // Unread mail too: the Email row is behind the same button.
-            menuUnread = channels.sumOf { openUnread.byChannel[it.key] ?: 0 } +
-                (if (onOpenEmail != null) emailUnread else 0),
+            // Not mail: the envelope beside it carries its own.
+            menuUnread = channels.sumOf { openUnread.byChannel[it.key] ?: 0 },
             // Lit while the list is one the strip has no button for, so the
             // operator can see where they are.
-            elsewhere = selectedChannel != null || filter !in chipFilters,
+            elsewhere = !colleaguesShown && (selectedChannel != null || filter !in chipFilters),
             onOpenEveryInbox = { everyInboxOpen = true },
         )
         if (everyInboxOpen) {
@@ -239,6 +257,7 @@ fun InboxScreen(
                 onSelectFilter = onSelectFilter,
                 onSelectChannel = onSelectChannel,
                 onOpenColleagues = onOpenColleagues,
+                colleaguesShown = colleaguesShown,
                 onOpenEmail = onOpenEmail,
                 mailboxes = mailboxes,
                 emailUnread = emailUnread,
@@ -251,54 +270,63 @@ fun InboxScreen(
         // rows they are trying to read.
         banner?.invoke()
 
-        if (syncNotice != null && state is InboxState.Loaded) {
-            SyncNotice(syncNotice)
-        }
+        // Held out here, so a trip to the colleagues comes back to the row it
+        // left; a queue or a channel chosen is another list, from its top.
+        val rows = remember(filter, selectedChannel) { LazyListState() }
+        if (colleaguesShown && colleagues != null) {
+            // The colleagues' chats, in the rows' place: an inbox like the others.
+            colleagues(Modifier.weight(1f).testTag(A11y.INBOX_COLLEAGUES))
+        } else {
+            if (syncNotice != null && state is InboxState.Loaded) {
+                SyncNotice(syncNotice)
+            }
 
-        val pullState = rememberPullToRefreshState()
-        PullToRefreshBox(
-            isRefreshing = refreshing,
-            onRefresh = onRefresh,
-            state = pullState,
-            indicator = { PullIndicator(pullState, refreshing) },
-            modifier = Modifier.weight(1f),
-        ) {
-            when (state) {
-                // Rows rather than a spinner: the shape of the answer is
-                // known before the answer is, so nothing jumps when it lands.
-                is InboxState.Loading -> SkeletonList(
-                    Modifier.fillMaxSize().padding(contentPadding),
-                )
-
-                is InboxState.Failed -> ErrorState(
-                    title = Str.offlineTitle(language),
-                    body = state.message,
-                    retryLabel = Str.retry(language),
-                    onRetry = onRefresh,
-                )
-
-                is InboxState.Loaded -> if (state.conversations.isEmpty()) {
-                    EmptyState(
-                        icon = Icons.Filled.Email,
-                        title = Str.inboxEmptyTitle(language),
-                        body = Str.inboxEmptyBody(language),
-                        modifier = Modifier.testTag(A11y.INBOX_EMPTY),
+            val pullState = rememberPullToRefreshState()
+            PullToRefreshBox(
+                isRefreshing = refreshing,
+                onRefresh = onRefresh,
+                state = pullState,
+                indicator = { PullIndicator(pullState, refreshing) },
+                modifier = Modifier.weight(1f),
+            ) {
+                when (state) {
+                    // Rows rather than a spinner: the shape of the answer is
+                    // known before the answer is, so nothing jumps when it lands.
+                    is InboxState.Loading -> SkeletonList(
+                        Modifier.fillMaxSize().padding(contentPadding),
                     )
-                } else {
-                    LazyColumn(
-                        Modifier.fillMaxSize().testTag(A11y.INBOX_LIST),
-                        contentPadding = PaddingValues(
-                            top = Space.xs,
-                            bottom = Space.lg + contentPadding.calculateBottomPadding(),
-                        ),
-                    ) {
-                        items(state.conversations, key = { it.id }) { conversation ->
-                            ConversationRow(
-                                conversation = conversation,
-                                language = language,
-                                profile = intel[conversation.id],
-                                modifier = Modifier.animateItem(),
-                            ) { onOpen(conversation) }
+
+                    is InboxState.Failed -> ErrorState(
+                        title = Str.offlineTitle(language),
+                        body = state.message,
+                        retryLabel = Str.retry(language),
+                        onRetry = onRefresh,
+                    )
+
+                    is InboxState.Loaded -> if (state.conversations.isEmpty()) {
+                        EmptyState(
+                            icon = Icons.Filled.Email,
+                            title = Str.inboxEmptyTitle(language),
+                            body = Str.inboxEmptyBody(language),
+                            modifier = Modifier.testTag(A11y.INBOX_EMPTY),
+                        )
+                    } else {
+                        LazyColumn(
+                            Modifier.fillMaxSize().testTag(A11y.INBOX_LIST),
+                            state = rows,
+                            contentPadding = PaddingValues(
+                                top = Space.xs,
+                                bottom = Space.lg + contentPadding.calculateBottomPadding(),
+                            ),
+                        ) {
+                            items(state.conversations, key = { it.id }) { conversation ->
+                                ConversationRow(
+                                    conversation = conversation,
+                                    language = language,
+                                    profile = intel[conversation.id],
+                                    modifier = Modifier.animateItem(),
+                                ) { onOpen(conversation) }
+                            }
                         }
                     }
                 }
@@ -333,6 +361,7 @@ private fun InboxHeader(
     onSelectFilter: (InboxFilter) -> Unit,
     onSelectChannel: (String?) -> Unit,
     onOpenColleagues: (() -> Unit)?,
+    colleaguesShown: Boolean,
     onOpenEmail: ((String?) -> Unit)?,
     mailboxes: List<EmailMailbox>,
     emailUnread: Int,
@@ -360,7 +389,10 @@ private fun InboxHeader(
                 // sitting under it: a queue and a channel are never both in
                 // force, so naming both would name a state the app cannot be in.
                 Text(
-                    channel?.title(language) ?: filter.headerTitle(language),
+                    when {
+                        colleaguesShown -> Str.colleagues(language)
+                        else -> channel?.title(language) ?: filter.headerTitle(language)
+                    },
                     style = WebyarType.headlineMediumEmphasized,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -383,12 +415,19 @@ private fun InboxHeader(
                     MenuRow(
                         label = option.title(language),
                         // A queue is current only when no channel is laid
-                        // over it.
-                        selected = option == filter && selectedChannel == null,
+                        // over it, and the colleagues are not in its place.
+                        selected = option == filter && selectedChannel == null && !colleaguesShown,
                         badge = counts.count(option)?.takeIf { it > 0 }?.let { count ->
                             { UnreadBadge(count, language) }
                         },
                     ) { menuOpen = false; onSelectFilter(option) }
+                }
+                // The colleagues' chats: an inbox among the queues, as on the strip.
+                if (onOpenColleagues != null) {
+                    MenuRow(
+                        label = Str.colleagues(language),
+                        selected = colleaguesShown,
+                    ) { menuOpen = false; onOpenColleagues() }
                 }
 
                 // A workspace with no channel plugins installed gets no
@@ -407,33 +446,24 @@ private fun InboxHeader(
                     channels.forEach { option ->
                         MenuRow(
                             label = option.title(language),
-                            selected = option.key == selectedChannel,
+                            selected = option.key == selectedChannel && !colleaguesShown,
                         ) { menuOpen = false; onSelectChannel(option.key) }
                     }
                 }
 
-                // The internal inbox and the email inbox. Not queues and not
-                // channels — somewhere else entirely — so they go below a rule
-                // of their own with no tick, because you do not come back to
-                // this menu to leave them. You press Back.
-                if (onOpenColleagues != null || onOpenEmail != null) {
+                // The email inbox. Not a queue and not a channel — somewhere
+                // else entirely — so it goes below a rule of its own with no
+                // tick, because you do not come back to this menu to leave
+                // it. You press Back.
+                if (onOpenEmail != null) {
                     HorizontalDivider(Modifier.padding(vertical = Space.xs))
-                    if (onOpenColleagues != null) {
+                    emailEntries(language, mailboxes, emailUnread).forEach { entry ->
                         DropdownMenuItem(
-                            text = { Text(Str.colleagues(language)) },
-                            leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null) },
-                            onClick = { menuOpen = false; onOpenColleagues() },
+                            text = { Text(entry.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            leadingIcon = { Icon(Icons.Filled.Email, contentDescription = null) },
+                            trailingIcon = entry.unread.takeIf { it > 0 }?.let { n -> { UnreadBadge(n, language) } },
+                            onClick = { menuOpen = false; onOpenEmail(entry.provider) },
                         )
-                    }
-                    if (onOpenEmail != null) {
-                        emailEntries(language, mailboxes, emailUnread).forEach { entry ->
-                            DropdownMenuItem(
-                                text = { Text(entry.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                leadingIcon = { Icon(Icons.Filled.Email, contentDescription = null) },
-                                trailingIcon = entry.unread.takeIf { it > 0 }?.let { n -> { UnreadBadge(n, language) } },
-                                onClick = { menuOpen = false; onOpenEmail(entry.provider) },
-                            )
-                        }
                     }
                 }
             }
@@ -486,14 +516,24 @@ private fun MenuRow(
 
 /**
  * The inboxes worked in all day, as a row of buttons: Open, the AI's queue,
- * the colleagues' chat — and last, three lines that open every inbox there
- * is.
+ * the colleagues' chats — then an envelope that opens the mailbox, and last,
+ * three lines that open every inbox there is.
+ *
+ * Colleagues is an inbox like the two before it: chosen, it is the filled
+ * pill and its chats take the rows' place, with no screen of its own. The
+ * filled pill is the whole mark of the one chosen — no tick, which on each
+ * button only pushed the labels along.
+ *
+ * Every button is always on screen, and the strip fills the width: it does
+ * not scroll, and leaves no empty stretch. It is set as roomy as the width
+ * allows ([StripDensity]); the inboxes then share all the width the icons
+ * leave, in proportion to their words.
  *
  * "Needs me" and "Awaiting customer" are behind the last button with the
- * channels, Resolved, Spam and email, where a place visited now and then
- * belongs: on the strip they push the two that matter off a Persian phone.
- * A channel laid over the queues leaves none of them selected, because none
- * of them is what the list shows.
+ * channels, Resolved and Spam, where a place visited now and then belongs:
+ * on the strip they push the ones that matter off a Persian phone. A channel
+ * laid over the queues leaves none of them selected, because none of them is
+ * what the list shows.
  */
 @Composable
 private fun QueueGroup(
@@ -504,77 +544,225 @@ private fun QueueGroup(
     selectedChannel: String?,
     onSelect: (InboxFilter) -> Unit,
     onOpenColleagues: (() -> Unit)?,
+    colleaguesShown: Boolean,
     colleaguesUnread: Int?,
     openUnread: Int,
     colleagueThreadsUnread: Int,
+    onOpenEmail: (() -> Unit)?,
+    emailUnread: Int,
     menuUnread: Int,
     elsewhere: Boolean,
     onOpenEveryInbox: () -> Unit,
 ) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .selectableGroup()
-            .padding(horizontal = Space.screenInset, vertical = Space.sm),
-        horizontalArrangement = Arrangement.spacedBy(Space.xs),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    val specs = buildList {
         chips.forEach { option ->
-            ChoiceButton(
-                label = option.title(language),
-                count = counts.count(option),
-                selected = option == selected && selectedChannel == null,
-                language = language,
-                onClick = { onSelect(option) },
-                modifier = Modifier.testTag(A11y.inboxChip(option.wire)),
-                // Open alone: it is the queue the count is of. Never the AI's.
-                unread = if (option == InboxFilter.OPEN) openUnread else 0,
+            add(
+                StripChip(
+                    label = option.title(language),
+                    count = counts.count(option)?.takeIf { it > 0 }?.let { Format.number(it, language) },
+                    // Open alone: it is the queue the count is of. Never the AI's.
+                    dot = option == InboxFilter.OPEN && openUnread > 0,
+                )
             )
         }
         if (onOpenColleagues != null) {
-            // Somewhere else rather than a queue, so never "selected": it
-            // opens the team chat, and Back comes home.
-            ChoiceButton(
-                label = Str.colleagues(language),
-                count = colleaguesUnread,
-                selected = false,
-                language = language,
-                onClick = onOpenColleagues,
-                modifier = Modifier.testTag(A11y.INBOX_COLLEAGUES_CHIP),
-                unread = colleagueThreadsUnread,
+            add(
+                StripChip(
+                    label = Str.colleagues(language),
+                    count = colleaguesUnread?.takeIf { it > 0 }?.let { Format.number(it, language) },
+                    dot = colleagueThreadsUnread > 0,
+                )
             )
         }
-        EveryInboxButton(language, lit = elsewhere, unread = menuUnread, onClick = onOpenEveryInbox)
+    }
+    val icons = if (onOpenEmail != null) 2 else 1
+
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val fit = rememberStripFit(maxWidth, specs, icons)
+        val tight = fit.density
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .selectableGroup()
+                .padding(horizontal = tight.inset, vertical = Space.sm),
+            horizontalArrangement = Arrangement.spacedBy(tight.gap),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // The inboxes take the whole width the icons leave, each in
+            // proportion to its words: wider than their words while those fit
+            // (no empty stretch after the three lines), squeezed to fit when
+            // even the tightest setting does not.
+            fun Modifier.share(index: Int): Modifier = weight(fit.weights[index])
+
+            chips.forEachIndexed { index, option ->
+                ChoiceButton(
+                    label = specs[index].label,
+                    count = counts.count(option).takeIf { tight.counts },
+                    selected = option == selected && selectedChannel == null && !colleaguesShown,
+                    language = language,
+                    onClick = { onSelect(option) },
+                    modifier = Modifier.share(index).testTag(A11y.inboxChip(option.wire)),
+                    unread = if (option == InboxFilter.OPEN) openUnread else 0,
+                    tick = false,
+                    labelSize = tight.fontSize,
+                    horizontalPadding = tight.padding,
+                    labelGivesWay = true,
+                )
+            }
+            if (onOpenColleagues != null) {
+                ChoiceButton(
+                    label = Str.colleagues(language),
+                    count = colleaguesUnread.takeIf { tight.counts },
+                    selected = colleaguesShown,
+                    language = language,
+                    onClick = onOpenColleagues,
+                    modifier = Modifier.share(chips.size).testTag(A11y.INBOX_COLLEAGUES_CHIP),
+                    unread = colleagueThreadsUnread,
+                    tick = false,
+                    labelSize = tight.fontSize,
+                    horizontalPadding = tight.padding,
+                    labelGivesWay = true,
+                )
+            }
+            if (onOpenEmail != null) {
+                // Somewhere else rather than an inbox of this list — the mailbox
+                // is a screen of its own, and Back comes home — so a button, not
+                // a pill that could be chosen.
+                StripIconButton(
+                    label = Str.emailInbox(language),
+                    icon = Icons.Filled.Email,
+                    language = language,
+                    lit = false,
+                    unread = emailUnread,
+                    onClick = onOpenEmail,
+                    width = tight.icon,
+                    modifier = Modifier.testTag(A11y.INBOX_EMAIL_BUTTON),
+                )
+            }
+            StripIconButton(
+                label = StrAndroid.everyInbox(language),
+                icon = Glyph.Menu,
+                language = language,
+                lit = elsewhere,
+                unread = menuUnread,
+                onClick = onOpenEveryInbox,
+                width = tight.icon,
+                modifier = Modifier.testTag(A11y.INBOX_EVERY_INBOX),
+            )
+        }
     }
 }
 
-/** The strip's last button: three lines, which open every inbox. */
+/** What an inbox button on the strip has to show, for measuring it before it is drawn. */
+private data class StripChip(val label: String, val count: String?, val dot: Boolean)
+
+/**
+ * How tightly the strip is set, roomiest first: the first whose buttons all
+ * fit the width is the one used. The space around the words goes first, then
+ * the icons' width, then a point of type; then the counts beside the names —
+ * the red dot still says something is unread — so that on the narrowest
+ * phone the names stay readable rather than cut.
+ */
+internal enum class StripDensity(
+    /** Unspecified: the theme's label size. */
+    val fontSize: TextUnit,
+    val padding: Dp,
+    val icon: Dp,
+    val inset: Dp,
+    val gap: Dp,
+    val counts: Boolean = true,
+) {
+    Roomy(TextUnit.Unspecified, Space.lg, 52.dp, Space.screenInset, Space.xs),
+    // Icons stay 48 wide from here down: the touch target never shrinks.
+    Snug(TextUnit.Unspecified, Space.md, 48.dp, Space.screenInset, Space.xs),
+    Compact(13.sp, 10.dp, 48.dp, Space.md, Space.xs),
+    Close(12.sp, Space.sm, 48.dp, Space.sm, 3.dp),
+    Bare(12.sp, Space.sm, 48.dp, Space.sm, 3.dp, counts = false),
+    Tight(11.sp, 6.dp, 48.dp, Space.sm, Space.xxs, counts = false),
+    Tightest(10.sp, Space.xs, 48.dp, Space.xs, Space.xxs, counts = false),
+}
+
+/** The density chosen, and each inbox's share of the width. */
+private class StripFit(val density: StripDensity, val weights: List<Float>)
+
 @Composable
-private fun EveryInboxButton(language: Language, lit: Boolean, unread: Int, onClick: () -> Unit) {
-    val label = StrAndroid.everyInbox(language)
+private fun rememberStripFit(maxWidth: Dp, chips: List<StripChip>, icons: Int): StripFit {
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val plain = MaterialTheme.typography.labelLarge
+    val bold = WebyarType.labelLargeEmphasized
+    val small = MaterialTheme.typography.labelMedium
+    return remember(maxWidth, chips, icons, density, plain, bold, small, measurer) {
+        fun width(text: String, style: TextStyle): Dp =
+            with(density) { measurer.measure(text, style, softWrap = false, maxLines = 1).size.width.toDp() }
+
+        fun chipWidth(chip: StripChip, level: StripDensity): Dp {
+            val size = level.fontSize
+            fun sized(style: TextStyle) = if (size.isSpecified) style.copy(fontSize = size) else style
+            // Bold when chosen, so the wider of the two: choosing one must not
+            // push the strip over.
+            val label = maxOf(width(chip.label, sized(plain)), width(chip.label, sized(bold)))
+            val count = chip.count?.takeIf { level.counts }?.let { n ->
+                Space.sm + width(n, if (size.isSpecified) small.copy(fontSize = (size.value - 2f).sp) else small)
+            } ?: 0.dp
+            // The red dot and the space before it.
+            val dot = if (chip.dot) Space.xs + 10.dp else 0.dp
+            return level.padding * 2 + label + count + dot
+        }
+
+        fun total(level: StripDensity): Dp {
+            val buttons = chips.fold(0.dp) { sum, chip -> sum + chipWidth(chip, level) }
+            val gaps = level.gap * (chips.size + icons - 1).coerceAtLeast(0)
+            // A few points spare for the type's own rounding.
+            return level.inset * 2 + buttons + level.icon * icons + gaps + 4.dp
+        }
+
+        val chosen = StripDensity.entries.firstOrNull { total(it) <= maxWidth } ?: StripDensity.Tightest
+        StripFit(
+            density = chosen,
+            weights = chips.map { chipWidth(it, chosen).value.coerceAtLeast(1f) },
+        )
+    }
+}
+
+/**
+ * An icon on the strip, after the inboxes: the envelope that opens the
+ * mailbox, and the three lines that open every inbox — with the red dot when
+ * something behind it is unread.
+ */
+@Composable
+private fun StripIconButton(
+    label: String,
+    icon: ImageVector,
+    language: Language,
+    lit: Boolean,
+    unread: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    width: Dp = 52.dp,
+) {
     val container = if (lit) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(Radius.lg),
         color = container,
         contentColor = if (lit) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier
-            .size(width = 52.dp, height = 40.dp)
+        modifier = modifier
+            .size(width = width, height = 40.dp)
             .semantics {
                 contentDescription = label
                 if (unread > 0) stateDescription = unreadDescription(unread, language)
-            }
-            .testTag(A11y.INBOX_EVERY_INBOX),
+            },
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(Glyph.Menu, contentDescription = null, modifier = Modifier.size(22.dp))
+            Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
             // On the glyph's top trailing corner, as a badge sits on an icon;
             // ringed in the button's own colour so it reads as cut out of it.
             UnreadDot(
                 visible = unread > 0,
                 ring = container,
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 7.dp, end = 11.dp),
+                // Over the glyph's corner whatever the button's width.
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 7.dp, end = (width - 30.dp) / 2),
             )
         }
     }
@@ -582,8 +770,8 @@ private fun EveryInboxButton(language: Language, lit: Boolean, unread: Int, onCl
 
 /**
  * Every inbox, in one sheet: the queues with their counts, the channel
- * inboxes, and the two places that are not queues at all — the colleagues'
- * chat and the mailbox.
+ * inboxes, and the two that are not queues — the colleagues' chats, shown in
+ * the inbox like a queue, and the mailbox, a screen of its own.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -599,6 +787,7 @@ private fun EveryInboxSheet(
     onSelectFilter: (InboxFilter) -> Unit,
     onSelectChannel: (String?) -> Unit,
     onOpenColleagues: (() -> Unit)?,
+    colleaguesShown: Boolean,
     onOpenEmail: ((String?) -> Unit)?,
     mailboxes: List<EmailMailbox>,
     emailUnread: Int,
@@ -631,7 +820,7 @@ private fun EveryInboxSheet(
                         count = allFilters.size,
                         icon = option.icon(),
                         label = option.title(language),
-                        selected = option == filter && selectedChannel == null,
+                        selected = option == filter && selectedChannel == null && !colleaguesShown,
                         badge = counts.count(option)?.takeIf { it > 0 },
                         unread = if (option == InboxFilter.OPEN) openUnread.conversations else 0,
                         language = language,
@@ -649,7 +838,7 @@ private fun EveryInboxSheet(
                             count = channels.size,
                             iconContent = { ChannelIcon(option.key, 22.dp) },
                             label = option.title(language),
-                            selected = option.key == selectedChannel,
+                            selected = option.key == selectedChannel && !colleaguesShown,
                             unread = openUnread.byChannel[option.key] ?: 0,
                             language = language,
                         ) { onDismiss(); onSelectChannel(option.key) }
@@ -661,11 +850,11 @@ private fun EveryInboxSheet(
             // and a Yahoo are both connected, every row with its own count.
             val elsewhere = buildList {
                 onOpenColleagues?.let { open ->
-                    add(Elsewhere(Str.colleagues(language), Icons.Filled.Person, colleaguesUnread ?: 0, A11y.INBOX_COLLEAGUES_ROW) { open() })
+                    add(Elsewhere(Str.colleagues(language), Icons.Filled.Person, colleaguesUnread ?: 0, A11y.INBOX_COLLEAGUES_ROW, colleaguesShown) { open() })
                 }
                 onOpenEmail?.let { open ->
                     emailEntries(language, mailboxes, emailUnread).forEach { entry ->
-                        add(Elsewhere(entry.label, Icons.Filled.Email, entry.unread, A11y.emailMailboxRow(entry.provider ?: "default")) { open(entry.provider) })
+                        add(Elsewhere(entry.label, Icons.Filled.Email, entry.unread, A11y.emailMailboxRow(entry.provider ?: "default"), false) { open(entry.provider) })
                     }
                 }
             }
@@ -678,7 +867,7 @@ private fun EveryInboxSheet(
                             count = elsewhere.size,
                             icon = row.icon,
                             label = row.label,
-                            selected = false,
+                            selected = row.selected,
                             badge = row.badge.takeIf { it > 0 },
                             language = language,
                             modifier = Modifier.testTag(row.tag),
@@ -785,6 +974,8 @@ private class Elsewhere(
     val icon: ImageVector,
     val badge: Int,
     val tag: String,
+    /** The colleagues, while their chats are the inbox on screen; never the mailbox. */
+    val selected: Boolean,
     val open: () -> Unit,
 )
 

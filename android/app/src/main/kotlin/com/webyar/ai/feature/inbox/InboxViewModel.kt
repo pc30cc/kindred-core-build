@@ -65,6 +65,16 @@ class InboxViewModel(
     private val _channel = MutableStateFlow<String?>(null)
     val channel: StateFlow<String?> = _channel.asStateFlow()
 
+    /**
+     * Whether the inbox shows the colleagues' chats rather than a queue. One
+     * inbox among the others, as on the strip: choosing it leaves the queue
+     * and the channel where they were, and choosing any queue or channel
+     * comes back from it. Kept here, over the screen, so a thread opened from
+     * the list comes Back to the list.
+     */
+    private val _colleaguesShown = MutableStateFlow(false)
+    val colleaguesShown: StateFlow<Boolean> = _colleaguesShown.asStateFlow()
+
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
 
@@ -152,6 +162,9 @@ class InboxViewModel(
     fun select(filter: InboxFilter) {
         val queueChanged = _filter.value != filter
         val channelDropped = _channel.value != null
+        // Back from the colleagues to a queue: the queue's rows were kept
+        // current underneath, so this alone may be the whole change.
+        _colleaguesShown.value = false
         if (!queueChanged && !channelDropped) return
         _filter.value = filter
         _channel.value = null
@@ -169,6 +182,7 @@ class InboxViewModel(
     }
 
     fun selectChannel(key: String?) {
+        _colleaguesShown.value = false
         if (_channel.value == key) return
         _channel.value = key
         // A channel inbox shows what is open on it, as on iOS. The queue has
@@ -184,6 +198,11 @@ class InboxViewModel(
         } else {
             publish()
         }
+    }
+
+    /** The colleagues' chats, in place of the queue. */
+    fun showColleagues() {
+        _colleaguesShown.value = true
     }
 
     fun setQuery(value: String) {

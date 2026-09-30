@@ -59,6 +59,8 @@ import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { conversationsApi } from '@/lib/conversations-api';
 import { toast } from '@/lib/toast';
 import { MobileEmojiPicker } from './MobileEmojiPicker';
+import { SupportRequesterCard } from '@/components/inbox/SupportRequesterCard';
+import { REQUESTER_KIND, type RequesterCardMeta } from '@/components/inbox/requesterMeta';
 
 /** One attachment as `MessageAttachmentView` needs it. */
 interface TimelineAttachment {
@@ -425,6 +427,9 @@ export default function MobileConversationPage() {
               !prev ||
               new Date(prev.created_at).toDateString() !== new Date(m.created_at).toDateString();
 
+            if (m.sender_type === 'system' && (m.metadata as { kind?: string } | null)?.kind === REQUESTER_KIND) {
+              return <SupportRequesterCard key={m.id} meta={m.metadata as RequesterCardMeta} />;
+            }
             if (m.sender_type === 'system') {
               return (
                 <div key={m.id} className="flex justify-center py-1">

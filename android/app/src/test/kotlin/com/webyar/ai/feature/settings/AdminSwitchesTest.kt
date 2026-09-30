@@ -46,8 +46,6 @@ class AdminSwitchesTest {
         showNotifications: Boolean = true,
         showSecurity: Boolean = true,
         onClearCache: (() -> Unit)? = {},
-        supportUrl: String? = null,
-        onOpenSupport: (String) -> Unit = {},
     ) = compose.setContent {
         SettingsScreen(
             language = en,
@@ -72,8 +70,6 @@ class AdminSwitchesTest {
             onClearCache = onClearCache,
             showNotifications = showNotifications,
             showSecurity = showSecurity,
-            supportUrl = supportUrl,
-            onOpenSupport = onOpenSupport,
         )
     }
 
@@ -111,22 +107,19 @@ class AdminSwitchesTest {
         compose.onNodeWithText(Str.notifications(en)).assertDoesNotExist()
     }
 
-    /** About → Support opens the link Super Admin set. */
+    /** No About section: just under the last row, the name and the version under it. */
     @Test
-    fun `Support opens Super Admin's link`() {
-        var opened: String? = null
-        settings(supportUrl = "https://webyar.ai/help", onOpenSupport = { opened = it })
-        compose.onNodeWithTag(A11y.SETTINGS_LIST).performScrollToNode(hasTestTag(A11y.SETTINGS_SUPPORT))
-        compose.onNodeWithText(Str.support(en)).assertIsDisplayed()
-        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT).performClick()
-        assertEquals("https://webyar.ai/help", opened)
-    }
-
-    /** With no link known there is nothing to open, and no row. */
-    @Test
-    fun `no link leaves Support out`() {
-        settings(supportUrl = null)
-        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT).assertDoesNotExist()
+    fun `the foot of Settings is the name, then the version`() {
+        settings()
+        compose.onNodeWithText(Str.about(en)).assertDoesNotExist()
+        compose.onNodeWithTag(A11y.SETTINGS_LIST).performScrollToNode(hasTestTag(A11y.SETTINGS_VERSION))
+        compose.onNodeWithTag(A11y.BRAND_FOOTER).assertIsDisplayed()
+        compose.onNodeWithText("${Str.version(en)} 1.0 (1)").assertIsDisplayed()
+        val name = compose.onNodeWithTag(A11y.BRAND_FOOTER).fetchSemanticsNode().boundsInRoot
+        val version = compose.onNodeWithTag(A11y.SETTINGS_VERSION).fetchSemanticsNode().boundsInRoot
+        assertTrue("the version sits under the name", version.top >= name.bottom)
+        // No website any more.
+        compose.onNodeWithText("webyar.ai").assertDoesNotExist()
     }
 
     // MARK: - Profile

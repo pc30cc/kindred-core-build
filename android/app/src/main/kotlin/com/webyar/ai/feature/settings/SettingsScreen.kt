@@ -59,9 +59,11 @@ import com.webyar.ai.i18n.Str
 import com.webyar.ai.i18n.StrAndroid
 import com.webyar.ai.ui.A11y
 import com.webyar.ai.ui.components.Avatar
+import com.webyar.ai.ui.components.BrandFooter
 import com.webyar.ai.ui.components.ChoiceButton
 import com.webyar.ai.ui.components.Glyph
 import com.webyar.ai.ui.components.LatinText
+import com.webyar.ai.ui.components.OperatorAvatar
 import com.webyar.ai.ui.components.SegmentGap
 import com.webyar.ai.ui.components.ShapeFrame
 import com.webyar.ai.ui.components.segmentedShape
@@ -71,7 +73,6 @@ import com.webyar.ai.ui.design.Size
 import com.webyar.ai.ui.design.Space
 import com.webyar.ai.ui.design.WebyarTheme
 import com.webyar.ai.ui.design.WebyarType
-import com.webyar.ai.ui.components.OperatorAvatar
 
 /**
  * Everything the operator can change about their own account.
@@ -125,12 +126,6 @@ fun SettingsScreen(
     showNotifications: Boolean = true,
     /** …and the Security row. With both gone, so is their section. */
     showSecurity: Boolean = true,
-    /**
-     * Where About → Support opens, as Super Admin sets it; null leaves the
-     * row out.
-     */
-    supportUrl: String? = null,
-    onOpenSupport: (String) -> Unit = {},
     /** Online support: null (or nothing to offer) leaves the section out. */
     support: SupportSummary? = null,
     onOpenSupportChat: () -> Unit = {},
@@ -344,24 +339,6 @@ fun SettingsScreen(
             }
         }
 
-        item { SectionHeader(Str.about(language)) }
-        item {
-            Group {
-                val rows = if (supportUrl != null) 2 else 1
-                InfoRow(0, rows, Str.version(language), appVersion, latin = true)
-                if (supportUrl != null) {
-                    NavRow(
-                        index = 1,
-                        count = rows,
-                        icon = Glyph.Help,
-                        title = Str.support(language),
-                        onClick = { onOpenSupport(supportUrl) },
-                        modifier = Modifier.testTag(A11y.SETTINGS_SUPPORT),
-                    )
-                }
-            }
-        }
-
         item {
             Group(Modifier.padding(top = Space.xl)) {
                 NavRow(
@@ -375,6 +352,8 @@ fun SettingsScreen(
                 )
             }
         }
+
+        item(key = "footer") { SettingsFooter(appVersion, language) }
     }
 
     if (confirmingClear && onClearCache != null) {
@@ -412,6 +391,29 @@ fun SettingsScreen(
             dismissButton = {
                 TextButton(onClick = { confirmingSignOut = false }) { Text(Str.cancel(language)) }
             },
+        )
+    }
+}
+
+/**
+ * The foot of Settings, just under its last row: the name, as the loading
+ * screen signs itself, and the version under it in small type.
+ */
+@Composable
+private fun SettingsFooter(appVersion: String, language: Language) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = Space.lg, bottom = Space.md),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(Space.xxs),
+    ) {
+        BrandFooter()
+        Text(
+            "${Str.version(language)} $appVersion",
+            style = MaterialTheme.typography.labelSmall,
+            color = WebyarTheme.colors.labelTertiary,
+            modifier = Modifier.testTag(A11y.SETTINGS_VERSION),
         )
     }
 }

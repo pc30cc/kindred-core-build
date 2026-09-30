@@ -8,15 +8,22 @@
  */
 import { randomUUID } from 'node:crypto';
 
-type Row = Record<string, any>;
-type Result = { data: any; error: { message: string; code?: string } | null; count?: number | null };
+type Row = Record<string, unknown>;
+type Result = { data: unknown; error: { message: string; code?: string } | null; count?: number | null };
+/** What the filters compare: text, numbers and timestamps as ISO text. */
+type Scalar = string | number;
+
+/** A key of a JSON column, or undefined when the column holds no object. */
+function field(value: unknown, key: string): unknown {
+  return value !== null && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined;
+}
 
 const UNIQUE: Record<string, (a: Row, b: Row) => boolean> = {
   contacts: (a, b) => a.workspace_id === b.workspace_id && !!a.email && a.email === b.email,
   conversation_messages: (a, b) =>
     a.conversation_id === b.conversation_id &&
-    !!a.metadata?.client_message_id &&
-    a.metadata?.client_message_id === b.metadata?.client_message_id,
+    !!field(a.metadata, 'client_message_id') &&
+    field(a.metadata, 'client_message_id') === field(b.metadata, 'client_message_id'),
   platform_support_threads: (a, b) => a.conversation_id === b.conversation_id,
   platform_support_settings: (a, b) => a.id === b.id,
 };
@@ -52,22 +59,22 @@ export class FakeDb {
   }
 }
 
-function read(row: Row, column: string): any {
+function read(row: Row, column: string): unknown {
   const arrow = column.indexOf('->>');
   if (arrow > 0) {
-    const value = row[column.slice(0, arrow)]?.[column.slice(arrow + 3)];
+    const value = field(row[column.slice(0, arrow)], column.slice(arrow + 3));
     return value === undefined || value === null ? null : String(value);
   }
   return row[column];
 }
 
-function contains(value: any, subset: Record<string, any>): boolean {
-  return Object.entries(subset).every(([k, v]) => value?.[k] === v);
+function contains(value: unknown, subset: Record<string, unknown>): boolean {
+  return Object.entries(subset).every(([k, v]) => field(value, k) === v);
 }
 
 class Query implements PromiseLike<Result> {
   private op: 'select' | 'insert' | 'update' | 'upsert' | 'delete' = 'select';
-  private payload: any;
+  private payload: Row | Row[] = [];
   private upsertOpts: { onConflict?: string; ignoreDuplicates?: boolean } = {};
   private filters: Array<(row: Row) => boolean> = [];
   private orders: Array<{ column: string; ascending: boolean }> = [];
@@ -88,25 +95,25 @@ class Query implements PromiseLike<Result> {
     }
     return this;
   }
-  insert(payload: any) { this.op = 'insert'; this.payload = payload; return this; }
-  update(payload: any) { this.op = 'update'; this.payload = payload; return this; }
-  upsert(payload: any, opts: { onConflict?: string; ignoreDuplicates?: boolean } = {}) {
+  insert(payload: Row | Row[]) { this.op = 'insert'; this.payload = payload; return this; }
+  update(payload: Row) { this.op = 'update'; this.payload = payload; return this; }
+  upsert(payload: Row | Row[], opts: { onConflict?: string; ignoreDuplicates?: boolean } = {}) {
     this.op = 'upsert';
     this.payload = payload;
     this.upsertOpts = opts;
     return this;
   }
   delete() { this.op = 'delete'; return this; }
-  eq(column: string, value: any) { this.filters.push((r) => read(r, column) === value); return this; }
-  neq(column: string, value: any) { this.filters.push((r) => read(r, column) !== value); return this; }
-  in(column: string, values: any[]) { this.filters.push((r) => values.includes(read(r, column))); return this; }
-  gt(column: string, value: any) { this.filters.push((r) => read(r, column) > value); return this; }
+  eq(column: string, value: unknown) { this.filters.push((r) => read(r, column) === value); return this; }
+  neq(column: string, value: unknown) { this.filters.push((r) => read(r, column) !== value); return this; }
+  in(column: string, values: unknown[]) { this.filters.push((r) => values.includes(read(r, column))); return this; }
+  gt(column: string, value: Scalar) { this.filters.push((r) => (read(r, column) as Scalar) > value); return this; }
   is(column: string, value: null) { this.filters.push((r) => (read(r, column) ?? null) === value); return this; }
-  contains(column: string, subset: Record<string, any>) {
+  contains(column: string, subset: Record<string, unknown>) {
     this.filters.push((r) => contains(r[column], subset));
     return this;
   }
-  filter(column: string, operator: string, value: any) {
+  filter(column: string, operator: string, value: unknown) {
     if (operator !== 'eq') throw new Error(`fake filter ${operator}`);
     return this.eq(column, value);
   }
@@ -126,7 +133,7 @@ class Query implements PromiseLike<Result> {
 
   then<TResult1 = Result, TResult2 = never>(
     onfulfilled?: ((value: Result) => TResult1 | PromiseLike<TResult1>) | null,
-    onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
   ): PromiseLike<TResult1 | TResult2> {
     return Promise.resolve().then(() => this.run()).then(onfulfilled, onrejected);
   }
@@ -157,8 +164,8 @@ class Query implements PromiseLike<Result> {
         const total = rows.length;
         for (const { column, ascending } of [...this.orders].reverse()) {
           rows = [...rows].sort((a, b) => {
-            const x = read(a, column);
-            const y = read(b, column);
+            const x = read(a, column) as Scalar;
+            const y = read(b, column) as Scalar;
             if (x === y) return 0;
             return (x > y ? 1 : -1) * (ascending ? 1 : -1);
           });
@@ -181,7 +188,7 @@ class Query implements PromiseLike<Result> {
       }
       case 'update': {
         const rows = this.matching();
-        for (const row of rows) Object.assign(row, this.payload);
+        for (const row of rows) Object.assign(row, this.payload as Row);
         return this.returning ? this.shape(rows) : { data: null, error: null };
       }
       case 'upsert': {
@@ -212,7 +219,7 @@ class Query implements PromiseLike<Result> {
 export function fakeSupabase(db: FakeDb) {
   return {
     from: (name: string) => new Query(db, name),
-    rpc: async (name: string, args: Record<string, any>): Promise<Result> => {
+    rpc: async (name: string, args: Record<string, unknown>): Promise<Result> => {
       if (name === 'is_workspace_member') {
         const member = db
           .table('workspace_members')
@@ -225,8 +232,8 @@ export function fakeSupabase(db: FakeDb) {
           .find(
             (c) =>
               c.workspace_id === args.p_workspace_id &&
-              c.metadata?.channel_thread_key === args.p_match_thread_key &&
-              ['open', 'pending', 'resolved'].includes(c.status),
+              field(c.metadata, 'channel_thread_key') === args.p_match_thread_key &&
+              ['open', 'pending', 'resolved'].includes(String(c.status)),
           );
         if (found) return { data: [{ id: found.id, created: false, matched_by: 'thread_key' }], error: null };
         const row = db.withDefaults('conversations', {

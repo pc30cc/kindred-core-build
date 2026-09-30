@@ -9,7 +9,7 @@ export const MAX_SUBJECT_LENGTH = 200;
 /** Collapses what a composer adds around a message; null when nothing is left. */
 export function normalizeBody(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
-  const text = raw.replace(/\r\n?/g, '\n').replace(/\u0000/g, '').trim();
+  const text = raw.replace(/\r\n?/g, '\n').replaceAll('\u0000', '').trim();
   if (!text || text.length > MAX_BODY_LENGTH) return null;
   return text;
 }
@@ -17,7 +17,7 @@ export function normalizeBody(raw: unknown): string | null {
 /** One line, trimmed; null when empty or too long. */
 export function normalizeSubject(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
-  const text = raw.replace(/[\r\n\t]+/g, ' ').replace(/\u0000/g, '').replace(/\s{2,}/g, ' ').trim();
+  const text = raw.replace(/[\r\n\t]+/g, ' ').replaceAll('\u0000', '').replace(/\s{2,}/g, ' ').trim();
   if (!text || text.length > MAX_SUBJECT_LENGTH) return null;
   return text;
 }

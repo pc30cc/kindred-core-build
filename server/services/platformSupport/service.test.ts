@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeDb, fakeSupabase } from './testing/fakeSupabase.js';
+import type { ServerConfig } from '../../config.js';
+import type { PlatformSupportSettings } from './settings.js';
 
 /**
  * Platform support end to end against an in-memory database: an operator's
@@ -8,14 +10,14 @@ import { FakeDb, fakeSupabase } from './testing/fakeSupabase.js';
  */
 
 const state = vi.hoisted(() => ({
-  client: null as any,
+  client: null as ReturnType<typeof fakeSupabase> | null,
   settings: {
     enabled: true,
     workspaceId: 'ws-support',
     ticketsEnabled: true,
     notifyEmails: ['ops@platform.example'],
     updatedAt: null,
-  } as any,
+  } as PlatformSupportSettings,
   online: true,
 }));
 
@@ -56,7 +58,7 @@ import { sendTicketCreatedEmails, sendTicketReplyEmail } from './emails.js';
 import { notifyInboundMessage, notifySupportReply } from '../push/index.js';
 import { publishSupportEvent } from '../realtime/publish.js';
 
-const config = {} as any;
+const config = {} as ServerConfig;
 let db: FakeDb;
 let seq = 0;
 
@@ -131,7 +133,7 @@ describe('chat', () => {
 
     const [conversation] = db.table('conversations');
     expect(conversation.workspace_id).toBe('ws-support');
-    expect(conversation.metadata.channel).toBe('platform_support');
+    expect(conversation.metadata).toMatchObject({ channel: 'platform_support' });
 
     const [contact] = db.table('contacts');
     expect(contact).toMatchObject({ workspace_id: 'ws-support', name: 'Sara Ahmadi', email });

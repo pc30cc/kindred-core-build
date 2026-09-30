@@ -4492,6 +4492,8 @@ const tr: TranslationKeys = {
           showSecurityHint: 'Parola değişikliği ve uygulama kilidi. Kapalıyken bölüm uygulamada gizlenir.',
           showNotificationSettings: '"Bildirimler" bölümünü göster',
           showNotificationSettingsHint: 'Cihaz başına bildirim tercihleri. Kapalıyken bölüm gizlenir; bildirimler yine de gelir.',
+          showSupport: '"Canlı destek" bölümünü göster',
+          showSupportHint: "Uygulama Ayarlarında platform destek ekibiyle sohbet. Kapalıyken uygulamada gizlenir. Desteğin açık olup olmadığı Süper Yönetici → Temel ayarlar → Destek bölümünden belirlenir.",
           allowWallpaperColors: 'Duvar kâğıdı renklerine izin ver',
           allowWallpaperColorsHint: 'Android 12 ve sonrasındaki operatörler uygulamayı duvar kâğıtlarının renkleriyle boyayabilir. Kapalıyken herkes marka renklerinde kalır.',
           profileHeading: 'Profil',

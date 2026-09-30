@@ -169,6 +169,7 @@ const settingsSchema = z.object({
   android_app_profile_photo_editable: z.boolean().optional(),
   android_app_show_visitors: z.boolean().optional(),
   android_app_show_web_analytics: z.boolean().optional(),
+  android_app_show_support: z.boolean().optional(),
   ...firebaseClientFields,
   // The language the app opens in, and the maintenance notice — both read
   // by the app before sign-in (GET /api/mobile-app/public-config).

@@ -10132,6 +10132,7 @@ export type Database = {
           android_app_show_notification_settings: boolean
           android_app_show_security: boolean
           android_app_show_storage: boolean
+          android_app_show_support: boolean
           android_app_show_visitors: boolean
           android_app_show_web_analytics: boolean
           android_default_language: string
@@ -10250,6 +10251,7 @@ export type Database = {
           android_app_show_notification_settings?: boolean
           android_app_show_security?: boolean
           android_app_show_storage?: boolean
+          android_app_show_support?: boolean
           android_app_show_visitors?: boolean
           android_app_show_web_analytics?: boolean
           android_default_language?: string
@@ -10368,6 +10370,7 @@ export type Database = {
           android_app_show_notification_settings?: boolean
           android_app_show_security?: boolean
           android_app_show_storage?: boolean
+          android_app_show_support?: boolean
           android_app_show_visitors?: boolean
           android_app_show_web_analytics?: boolean
           android_default_language?: string

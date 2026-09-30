@@ -74,6 +74,12 @@ export function AndroidInAppTab({
             onChange={(android_app_show_notification_settings) => set({ android_app_show_notification_settings })}
           />
           <SwitchField
+            label={t('admin.mobileApp.android.inApp.showSupport')}
+            hint={t('admin.mobileApp.android.inApp.showSupportHint')}
+            checked={draft.android_app_show_support}
+            onChange={(android_app_show_support) => set({ android_app_show_support })}
+          />
+          <SwitchField
             label={t('admin.mobileApp.android.inApp.allowWallpaperColors')}
             hint={t('admin.mobileApp.android.inApp.allowWallpaperColorsHint')}
             checked={draft.android_app_allow_wallpaper_colors}

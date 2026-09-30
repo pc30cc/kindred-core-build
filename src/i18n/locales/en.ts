@@ -4503,6 +4503,8 @@ const en = {
           showSecurityHint: 'Password change and the app lock. Off hides the section from the app.',
           showNotificationSettings: 'Show "Notifications"',
           showNotificationSettingsHint: 'Per-device notification preferences. Off hides the section; notifications themselves still arrive.',
+          showSupport: 'Show "Online support"',
+          showSupportHint: "The chat with the platform's support team in the app's Settings. Off hides it from the app. Whether support is on at all is set in Super Admin → Core settings → Support.",
           allowWallpaperColors: 'Allow wallpaper colours',
           allowWallpaperColorsHint: 'Lets operators on Android 12 and later colour the app from their wallpaper. Off keeps everyone on the brand colours.',
           profileHeading: 'Profile',

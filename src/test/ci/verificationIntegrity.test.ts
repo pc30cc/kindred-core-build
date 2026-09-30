@@ -219,8 +219,10 @@ describe('self-host CI — official Auth image', () => {
   });
 
   it('passes require_ai_kb explicitly on both chains', () => {
-    expect(workflow).toContain('-v require_ai_kb=1');
-    expect(workflow).toContain('-v require_ai_kb=0');
+    // Both chains carry the AI-KB tables and RPCs since self-host 238, so both
+    // must prove them live — neither may quietly opt out with =0.
+    expect(workflow.match(/-v require_ai_kb=1/g) ?? []).toHaveLength(2);
+    expect(workflow).not.toContain('-v require_ai_kb=0');
   });
 });
 

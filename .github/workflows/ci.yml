@@ -510,14 +510,14 @@ jobs:
           psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 \
             -f scripts/ci/verify-selfhost-chain.sql
 
-      # `require_ai_kb=0`: the AI-KB tables ship in supabase/migrations only,
-      # so the self-host chain proves the fan-out RPC lifecycle live and the
-      # hosted chain additionally proves the AI-KB RPCs live.
+      # `require_ai_kb=1`: since 238_selfhost_hosted_parity the self-host chain
+      # carries the AI-KB tables and RPCs too, so both chains prove the fan-out
+      # lifecycle and the AI-KB RPCs live.
       - name: Database security verification
         env:
           PGPASSWORD: postgres
         run: |
           psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 \
-            -v require_ai_kb=0 \
+            -v require_ai_kb=1 \
             -v require_hosted_service_acl=0 \
             -f scripts/ci/verify-migration-security.sql

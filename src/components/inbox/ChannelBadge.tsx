@@ -4,11 +4,22 @@
  *
  * Channel is stored by the canonical inbound pipeline on both
  * `conversations.metadata.channel` and `contacts.metadata.channel`.
+ * `platform_support` is an operator of another workspace writing to the
+ * platform's own team (docs/PLATFORM_SUPPORT.md): shown as "Site user".
  */
-import { MessageSquare, Send, Mail, Phone, MessageCircle, Instagram, AtSign } from 'lucide-react';
+import { MessageSquare, Send, Mail, Phone, MessageCircle, Instagram, AtSign, LifeBuoy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type ChannelKey = 'telegram' | 'bale' | 'whatsapp' | 'instagram' | 'x' | 'email' | 'phone' | 'widget';
+export type ChannelKey =
+  | 'telegram'
+  | 'bale'
+  | 'whatsapp'
+  | 'instagram'
+  | 'x'
+  | 'email'
+  | 'phone'
+  | 'platform_support'
+  | 'widget';
 
 const META: Record<ChannelKey, { icon: typeof Send; label: string; className: string }> = {
   telegram: {
@@ -39,6 +50,11 @@ const META: Record<ChannelKey, { icon: typeof Send; label: string; className: st
   email: { icon: Mail, label: 'Email', className: 'bg-secondary text-muted-foreground border-border' },
 
   phone: { icon: Phone, label: 'Phone', className: 'bg-secondary text-muted-foreground border-border' },
+  platform_support: {
+    icon: LifeBuoy,
+    label: 'Site user',
+    className: 'bg-[hsl(262_70%_58%/0.12)] text-[hsl(262_60%_48%)] border-[hsl(262_70%_58%/0.25)]',
+  },
   widget: {
     icon: MessageSquare,
     label: 'Chat widget',
@@ -51,13 +67,24 @@ export function resolveChannelKey(...sources: Array<unknown>): ChannelKey {
   for (const src of sources) {
     const meta = (src ?? {}) as Record<string, unknown>;
     const raw = String(meta.channel ?? meta.source ?? '').toLowerCase();
-    if (raw in META) return raw as ChannelKey;
+    if (Object.prototype.hasOwnProperty.call(META, raw)) return raw as ChannelKey;
   }
   return 'widget';
 }
 
+/** Channels whose name is a word, not a brand, and so is translated. */
+const LABEL_KEYS: Partial<Record<ChannelKey, string>> = {
+  widget: 'contacts.sourceChat',
+  platform_support: 'contacts.sourcePlatformSupport',
+};
+
 export function channelLabel(channel: ChannelKey, t?: (k: string) => string | undefined): string {
-  if (channel === 'widget') return t?.('contacts.sourceChat') || META.widget.label;
+  const key = LABEL_KEYS[channel];
+  if (key) {
+    const translated = t?.(key);
+    // The i18n lookup answers a missing key with the key itself.
+    if (translated && translated !== key) return translated;
+  }
   return META[channel].label;
 }
 
@@ -98,7 +125,11 @@ export function ChannelIcon({ channel, className }: { channel: ChannelKey; class
 
 type ChannelMeta = Record<string, unknown> | null | undefined;
 
-/** Provider-side identity rows (Telegram username, id, language, premium). */
+/**
+ * Provider-side identity rows (Telegram username, id, language, premium).
+ * For a platform-support contact: the workspace the operator wrote from —
+ * their email is on the contact itself.
+ */
 export function ChannelIdentityCard({
   metadata,
   t,
@@ -110,11 +141,16 @@ export function ChannelIdentityCard({
   dir?: 'rtl' | 'ltr';
   className?: string;
 }) {
-  const meta = (metadata ?? {}) as Record<string, any>;
+  const meta = (metadata ?? {}) as Record<string, unknown>;
   const channel = resolveChannelKey(meta);
   if (channel === 'widget') return null;
 
-  const rows: Array<{ label: string; value: string }> = [];
+  // `auto` for names people typed, which may be Persian; `ltr` for handles and ids.
+  const rows: Array<{ label: string; value: string; valueDir?: 'ltr' | 'auto' }> = [];
+  if (channel === 'platform_support') {
+    const workspaceName = typeof meta.platform_workspace_name === 'string' ? meta.platform_workspace_name.trim() : '';
+    if (workspaceName) rows.push({ label: t('contacts.platformWorkspace') || 'Workspace', value: workspaceName, valueDir: 'auto' });
+  }
   if (meta.channel_username) rows.push({ label: t('contacts.username') || 'Username', value: `@${meta.channel_username}` });
   if (meta.channel_user_id) rows.push({ label: t('contacts.channelUserId') || 'User ID', value: String(meta.channel_user_id) });
   if (meta.channel_language) rows.push({ label: t('contacts.channelLanguage') || 'Language', value: String(meta.channel_language) });
@@ -129,7 +165,7 @@ export function ChannelIdentityCard({
       {rows.map((row) => (
         <div key={row.label} className="flex items-center justify-between gap-2 px-3 py-2.5">
           <span className="text-[11.5px] text-muted-foreground shrink-0">{row.label}</span>
-          <bdi dir="ltr" className="text-[12.5px] font-medium text-foreground truncate">{row.value}</bdi>
+          <bdi dir={row.valueDir ?? 'ltr'} className="text-[12.5px] font-medium text-foreground truncate">{row.value}</bdi>
         </div>
       ))}
     </div>

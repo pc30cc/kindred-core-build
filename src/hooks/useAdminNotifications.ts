@@ -19,7 +19,9 @@ export type PushEventType =
   | 'handoff'
   | 'team_message'
   | 'email_message'
-  | 'callback_request';
+  | 'callback_request'
+  /** The platform's support team answered an operator (docs/PLATFORM_SUPPORT.md). */
+  | 'support_reply';
 
 /** Every event a phone can be told about, in the order the admin screens list them. */
 export const PUSH_EVENT_TYPES: PushEventType[] = [
@@ -31,6 +33,7 @@ export const PUSH_EVENT_TYPES: PushEventType[] = [
   'team_message',
   'email_message',
   'callback_request',
+  'support_reply',
 ];
 
 /**

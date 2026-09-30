@@ -153,6 +153,11 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.activity.compose.BackHandler
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.rememberDrawerState
+import com.webyar.ai.core.model.EmailMailFolder
+import com.webyar.ai.feature.email.EmailFolderDrawer
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
@@ -1045,12 +1050,15 @@ private fun SearchableBar(
     onBack: () -> Unit,
     /** A second, quieter line — whose mailbox this is, when we know. */
     subtitle: String? = null,
+    /** Before the title: the mailbox's ☰. */
+    leading: (@Composable () -> Unit)? = null,
 ) {
     DetailTopBar(
         title = title,
         subtitle = subtitle,
         backLabel = StrAndroid.back(language),
         onBack = onBack,
+        leading = leading,
     ) {
         IconButton(onClick = { search.toggle() }) {
             Icon(Icons.Filled.Search, contentDescription = Str.search(language))
@@ -1076,6 +1084,19 @@ fun EmailInboxRoute(
     val loadingMore by email.loadingMore.collectAsStateWithLifecycle()
     val mailboxes by email.mailboxes.collectAsStateWithLifecycle()
     val provider by email.provider.collectAsStateWithLifecycle()
+    val mailFolder by email.mailFolder.collectAsStateWithLifecycle()
+    val folders by email.folders.collectAsStateWithLifecycle()
+    val drawer = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+    val shownFolder = folders.firstOrNull { it.id == mailFolder }
+    val labelNames = remember(folders) {
+        folders.filter { it.isLabel && it.name != null }.associate { it.id.removePrefix("label:") to it.name!! }
+    }
+    // Read again each time the menu opens: its counts are the ones to trust.
+    LaunchedEffect(drawer.isOpen) {
+        if (drawer.isOpen) email.refreshFolders()
+    }
+    BackHandler(enabled = drawer.isOpen) { scope.launch { drawer.close() } }
 
     val search = rememberSearchState(resetOn = workspace?.id ?: "-")
     LaunchedEffect(search) {
@@ -1085,16 +1106,51 @@ fun EmailInboxRoute(
         workspace?.let { email.bind(it.id) }
     }
 
+    // The mailbox's folders behind its ☰, sliding in from the reading side.
+    // Only a tap opens it: an edge swipe is the system's "back".
+    ModalNavigationDrawer(
+        drawerState = drawer,
+        gesturesEnabled = drawer.isOpen,
+        drawerContent = {
+            EmailFolderDrawer(
+                language = language,
+                folders = folders.ifEmpty { EmailMailFolder.FALLBACK },
+                selected = mailFolder,
+                onSelect = { id ->
+                    email.selectMailFolder(id)
+                    scope.launch { drawer.close() }
+                },
+                mailboxes = mailboxes,
+                selectedMailbox = provider,
+                onSelectMailbox = { box ->
+                    email.selectMailbox(box)
+                    scope.launch { drawer.close() }
+                },
+            )
+        },
+    ) {
     Scaffold(
         topBar = {
             SearchableBar(
-                title = Str.emailInbox(language),
-                // Two lines, the way a mail client names the mailbox it is
-                // showing: what this screen is, and whose it is.
+                // Two lines, the way a mail client names what it is showing:
+                // which folder, and whose mailbox.
+                title = StrEmail.folderName(language, mailFolder) ?: shownFolder?.name ?: Str.emailInbox(language),
                 subtitle = mailbox,
                 language = language,
                 search = search,
                 onBack = onBack,
+                leading = if (notConnected) {
+                    null
+                } else {
+                    {
+                        IconButton(
+                            onClick = { scope.launch { drawer.open() } },
+                            modifier = Modifier.testTag(A11y.EMAIL_FOLDERS),
+                        ) {
+                            Icon(Glyph.Menu, contentDescription = StrEmail.folders(language))
+                        }
+                    }
+                },
             )
         },
         floatingActionButton = {
@@ -1134,7 +1190,11 @@ fun EmailInboxRoute(
             mailboxes = mailboxes,
             selectedMailbox = provider,
             onSelectMailbox = email::selectMailbox,
+            mailFolder = mailFolder,
+            folderUnread = if (mailFolder == EmailMailFolder.INBOX) null else shownFolder?.unread,
+            labelNames = labelNames,
         )
+    }
     }
 }
 
@@ -1145,6 +1205,8 @@ fun EmailThreadRoute(
     appState: AppState,
     /** The mailbox the thread is in (`gmail`, `yahoo`); null for the one the list shows. */
     mailbox: String? = null,
+    /** The folder it was opened from (`spam`, `drafts`, …); null is the inbox. */
+    folder: String? = null,
     api: WebyarApi,
     email: EmailInboxViewModel,
     language: Language,
@@ -1165,7 +1227,7 @@ fun EmailThreadRoute(
     // (on a tablet's other pane) does not move a thread out of its own.
     val provider = remember(threadId, mailbox) { mailbox ?: email.provider.value }
 
-    LaunchedEffect(workspace?.id, threadId, provider) {
+    LaunchedEffect(workspace?.id, threadId, provider, folder) {
         workspace?.let {
             // The mailbox's model bound here too, not only by its list: a
             // thread opened from a notification is on screen with the list
@@ -1180,8 +1242,9 @@ fun EmailThreadRoute(
                 known = known,
                 mailbox = provider,
                 // Unchanged since this device last read it: no request.
-                cached = email.cachedThread(threadId, provider, known?.version),
-                remember = { response -> email.rememberThread(provider, response) },
+                cached = email.cachedThread(threadId, provider, known?.version, folder),
+                remember = { response -> email.rememberThread(provider, response, folder) },
+                folder = folder,
             )
         }
     }

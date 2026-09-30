@@ -273,6 +273,52 @@ object Glyph {
      * Material icon declares, and it is what lets `Icon` size and tint these
      * exactly as it sizes and tints the ones from the library.
      */
+    // The mailbox's folders, for its menu.
+
+    /** A tray: a mailbox's inbox. */
+    val Inbox: ImageVector by lazy {
+        vector(
+            "Inbox",
+            "M19 3H4.99c-1.11 0-1.98.89-1.98 2L3 19c0 1.1.88 2 1.99 2H19c1.1 0 2-.9 2-2V5c0-1.11-.9-2-2-2Zm0 12h-4" +
+                "c0 1.66-1.35 3-3 3s-3-1.34-3-3H4.99V5H19v10Z",
+        )
+    }
+
+    /** An open envelope: drafts. */
+    val Drafts: ImageVector by lazy {
+        vector(
+            "Drafts",
+            "M21.99 8c0-.72-.37-1.35-.94-1.7L12 1 2.95 6.3C2.38 6.65 2 7.28 2 8v10c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2" +
+                "l-.01-10ZM12 13 3.74 7.84 12 3l8.26 4.84L12 13Z",
+        )
+    }
+
+    /** A stop sign with an exclamation mark: spam. */
+    val Report: ImageVector by lazy {
+        vector(
+            "Report",
+            "M15.73 3H8.27L3 8.27v7.46L8.27 21h7.46L21 15.73V8.27L15.73 3ZM12 17.3c-.72 0-1.3-.58-1.3-1.3 " +
+                "0-.72.58-1.3 1.3-1.3.72 0 1.3.58 1.3 1.3 0 .72-.58 1.3-1.3 1.3Zm1-4.3h-2V7h2v6Z",
+        )
+    }
+
+    /** A tag: a mailbox's own label. */
+    val Label: ImageVector by lazy {
+        vector(
+            "Label",
+            "M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 " +
+                "1.27-.33 1.63-.84L22 12l-4.37-6.16Z",
+        )
+    }
+
+    /** A tag with a notch: what the mailbox marks important. */
+    val LabelImportant: ImageVector by lazy {
+        vector(
+            "LabelImportant",
+            "M3.5 18.99 14.5 19c.67 0 1.27-.33 1.63-.84L20.5 12l-4.37-6.16c-.36-.51-.96-.84-1.63-.84l-11 .01L8.34 12 3.5 18.99Z",
+        )
+    }
+
     private fun vector(name: String, pathData: String): ImageVector =
         ImageVector.Builder(
             name = name,

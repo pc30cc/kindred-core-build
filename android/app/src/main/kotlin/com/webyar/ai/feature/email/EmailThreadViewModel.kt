@@ -44,6 +44,8 @@ class EmailThreadViewModel(
     private var threadId: String? = null
     /** The mailbox the thread is in (`gmail`, `yahoo`); null is the server's default. */
     private var provider: String? = null
+    /** The folder it was opened from (`spam`, `drafts`, …); null is the inbox. */
+    private var folder: String? = null
     private var remember: (EmailThreadResponse) -> Unit = {}
 
     val isStarred: Boolean get() = _thread.value?.isStarred == true
@@ -60,11 +62,13 @@ class EmailThreadViewModel(
         mailbox: String? = null,
         cached: EmailThreadResponse? = null,
         remember: (EmailThreadResponse) -> Unit = {},
+        folder: String? = null,
     ) {
-        if (this.workspaceId == workspaceId && this.threadId == threadId && this.provider == mailbox) return
+        if (this.workspaceId == workspaceId && this.threadId == threadId && this.provider == mailbox && this.folder == folder) return
         this.workspaceId = workspaceId
         this.threadId = threadId
         this.provider = mailbox
+        this.folder = folder
         this.remember = remember
         // The summary the list already has, so the subject is on screen before
         // the trail arrives rather than appearing a second later.
@@ -94,8 +98,9 @@ class EmailThreadViewModel(
         val workspace = workspaceId ?: return
         val id = threadId ?: return
         val mailbox = provider
+        val box = folder
         viewModelScope.launch {
-            runCatching { api.emailThread(workspace, id, mailbox) }
+            runCatching { api.emailThread(workspace, id, mailbox, box) }
                 .onSuccess {
                     if (workspace != workspaceId || id != threadId) return@onSuccess
                     _thread.value = it.thread

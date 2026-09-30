@@ -48,6 +48,7 @@ import com.webyar.ai.core.model.EmailThreadResponse
 import com.webyar.ai.core.model.EmailThreadSummary
 import com.webyar.ai.core.model.EmailThreadsResponse
 import com.webyar.ai.core.model.EmailFolder
+import com.webyar.ai.core.model.EmailMailFolder
 import com.webyar.ai.core.model.EmailMailbox
 import com.webyar.ai.core.model.EffectiveBool
 import com.webyar.ai.core.model.Entitlements
@@ -389,11 +390,51 @@ class SampleApi : WebyarApi {
         return EMAIL_THREADS.filter { q in it.subject.orEmpty().lowercase() }
     }
 
-    override suspend fun emailThread(workspaceId: String, threadId: String, mailbox: String?): EmailThreadResponse =
+    override suspend fun emailThread(workspaceId: String, threadId: String, mailbox: String?, mailFolder: String?): EmailThreadResponse =
         EmailThreadResponse(
-            thread = (EMAIL_THREADS + YAHOO_THREADS).firstOrNull { it.id == threadId } ?: EMAIL_THREADS.first(),
-            messages = EMAIL_MESSAGES,
+            thread = (EMAIL_THREADS + YAHOO_THREADS + FOLDER_THREADS).firstOrNull { it.id == threadId } ?: EMAIL_THREADS.first(),
+            messages = FOLDER_MESSAGES[threadId] ?: EMAIL_MESSAGES,
         )
+
+    /**
+     * Gmail's whole menu — its folders with their counts and two labels — so
+     * the drawer is drawn as a real mailbox fills it; Yahoo's three.
+     */
+    override suspend fun emailFolders(workspaceId: String, mailbox: String?): List<EmailMailFolder> =
+        if (mailbox == "yahoo") {
+            listOf(
+                EmailMailFolder("inbox", unread = YAHOO_THREADS.count { it.isRead == false }),
+                EmailMailFolder("starred"),
+                EmailMailFolder("sent"),
+            )
+        } else {
+            listOf(
+                EmailMailFolder("inbox", unread = EMAIL_THREADS.count { it.isRead == false }),
+                EmailMailFolder("starred"),
+                EmailMailFolder("important"),
+                EmailMailFolder("sent"),
+                EmailMailFolder("drafts", total = 1),
+                EmailMailFolder("all"),
+                EmailMailFolder("spam", unread = 1),
+                EmailMailFolder("trash"),
+                EmailMailFolder("label:Label_clients", kind = "label", name = "مشتریان"),
+                EmailMailFolder("label:Label_news", kind = "label", name = "خبرنامه‌ها", unread = 1),
+            )
+        }
+
+    private suspend fun gmailFolder(workspaceId: String, id: String?, search: String?): List<EmailThreadSummary> =
+        when (id ?: EmailMailFolder.INBOX) {
+            EmailMailFolder.INBOX -> emailThreads(workspaceId, search)
+            "starred" -> EMAIL_THREADS.filter { it.isStarred == true }
+            "important" -> EMAIL_THREADS.take(1)
+            "sent" -> FOLDER_THREADS.filter { it.id == "s-1" }
+            "drafts" -> FOLDER_THREADS.filter { it.id == "d-1" }
+            "all" -> listOf(EMAIL_THREADS[0]) + FOLDER_THREADS.filter { it.id == "n-1" || it.id == "s-1" } + EMAIL_THREADS[1]
+            "spam" -> FOLDER_THREADS.filter { it.id == "sp-1" }
+            "label:Label_news" -> FOLDER_THREADS.filter { it.id == "n-1" || it.id == "n-2" }
+            "label:Label_clients" -> EMAIL_THREADS.filter { it.id == "t-2" }
+            else -> emptyList()
+        }
 
     /**
      * Two mailboxes, on purpose: the switcher, the per-mailbox counts and a
@@ -411,9 +452,18 @@ class SampleApi : WebyarApi {
         search: String?,
         before: String?,
         mailbox: String?,
+        mailFolder: String?,
     ): EmailThreadsResponse {
         if (before != null) return EmailThreadsResponse()
-        val all = if (mailbox == "yahoo") YAHOO_THREADS else emailThreads(workspaceId, search)
+        val all = if (mailbox == "yahoo") {
+            when (mailFolder ?: EmailMailFolder.INBOX) {
+                EmailMailFolder.INBOX -> YAHOO_THREADS
+                "starred" -> YAHOO_THREADS.filter { it.isStarred == true }
+                else -> emptyList()
+            }
+        } else {
+            gmailFolder(workspaceId, mailFolder, search)
+        }
         return EmailThreadsResponse(
             threads = when (folder) {
                 EmailFolder.INBOX -> all
@@ -1024,6 +1074,174 @@ class SampleApi : WebyarApi {
                 htmlBody = "<div><p>Thanks &mdash; received.</p><p>We&#39;ll process it today.</p></div>",
                 sentAt = ago(45),
                 deliveryStatus = "sent",
+            ),
+        )
+
+        /**
+         * The threads of the other folders: a newsletter laid out for a
+         * 600-pixel desktop column and a security alert (the "Newsletters"
+         * label), a reply in Sent, a draft, a spam. Not in the inbox, which
+         * the tests hold to its two threads.
+         */
+        val FOLDER_THREADS = listOf(
+            EmailThreadSummary(
+                id = "n-1",
+                provider = "gmail",
+                subject = "Acme Weekly: four new features landed this month",
+                participants = listOf(EmailAddress("\"Acme Weekly\" <news@acme-mail.example>")),
+                lastMessageAt = ago(80),
+                isRead = false,
+                isStarred = false,
+                lastMessageSnippet = "Hi there — here is everything that shipped in September…",
+                labels = listOf("Label_news"),
+            ),
+            EmailThreadSummary(
+                id = "n-2",
+                provider = "gmail",
+                subject = "Security alert: new sign-in on Android",
+                participants = listOf(EmailAddress("\"Google\" <no-reply@accounts.google.example>")),
+                lastMessageAt = ago(60 * 26),
+                isRead = true,
+                isStarred = false,
+                lastMessageSnippet = "A new sign-in on Android. If this was you, you don't need to do anything.",
+                labels = listOf("Label_news"),
+            ),
+            EmailThreadSummary(
+                id = "s-1",
+                provider = "gmail",
+                subject = "Re: پیشنهاد قیمت برای پلن سازمانی",
+                participants = listOf(EmailAddress("ceo@example.com")),
+                lastMessageAt = ago(60 * 3),
+                isRead = true,
+                isStarred = false,
+                lastMessageSnippet = "سلام، پیشنهاد قیمت پیوست شد.",
+            ),
+            EmailThreadSummary(
+                id = "d-1",
+                provider = "gmail",
+                subject = "پاسخ به درخواست دمو",
+                participants = listOf(EmailAddress("reza@example.com")),
+                lastMessageAt = ago(60 * 5),
+                isRead = true,
+                isStarred = false,
+                lastMessageSnippet = "سلام رضا، برای دمو فردا ساعت ۱۰…",
+            ),
+            EmailThreadSummary(
+                id = "sp-1",
+                provider = "gmail",
+                subject = "You have won a prize!!!",
+                participants = listOf(EmailAddress("win@lottery.example")),
+                lastMessageAt = ago(60 * 9),
+                isRead = false,
+                isStarred = false,
+                lastMessageSnippet = "Claim your reward now",
+            ),
+        )
+
+        /** A newsletter as they are written: a 600-pixel table, `min-width` on the body, cells that must not wrap. */
+        private val NEWSLETTER_HTML = """
+            <!doctype html><html><head><meta name="viewport" content="width=600"><title>Acme Weekly</title>
+            <style type="text/css">
+            <!--
+            body { margin:0; padding:0; min-width:600px; background:#eef1f5 }
+            table.wrap { width:600px }
+            h1 { font-size:30px; line-height:36px; color:#0b3d91; margin:0 0 12px }
+            .btn td { white-space:nowrap }
+            @media only screen and (max-width:480px) { .hide-mobile { display:none !important } }
+            -->
+            </style></head>
+            <body style="min-width:600px">
+            <table class="wrap" width="600" cellpadding="0" cellspacing="0" align="center" style="width:600px;background:#ffffff">
+            <tr><td nowrap style="padding:24px 32px;background:#0b3d91;color:#ffffff;font-size:22px;font-weight:bold">ACME WEEKLY &middot; September product digest</td></tr>
+            <tr><td style="padding:28px 32px">
+            <h1>Four new features landed this month</h1>
+            <p style="font-size:16px;line-height:24px;color:#333333">Hi there — here is everything that shipped in September, from the new analytics dashboard to faster exports. The full notes are at https://www.acme-product.example/releases/2026/september/full-release-notes-with-every-detail-and-screenshot</p>
+            <table width="536" cellpadding="0" cellspacing="0"><tr>
+            <td width="268" valign="top" style="padding-right:12px"><div style="width:256px;height:110px;background:#dbe7ff;border-radius:8px"></div><p style="font-size:15px;line-height:22px"><b>Analytics dashboard</b><br>Every metric on one screen, updated live.</p></td>
+            <td width="268" valign="top" style="padding-left:12px"><div style="width:256px;height:110px;background:#ffe7d6;border-radius:8px"></div><p style="font-size:15px;line-height:22px"><b>Faster exports</b><br>CSV and PDF exports now finish in seconds.</p></td>
+            </tr></table>
+            <table class="btn" cellpadding="0" cellspacing="0" style="margin-top:20px"><tr><td style="background:#0b3d91;border-radius:6px;padding:12px 28px"><a href="https://www.acme-product.example/whats-new" style="color:#ffffff;text-decoration:none;font-weight:bold">See what's new in your workspace &rarr;</a></td></tr></table>
+            </td></tr>
+            <tr><td nowrap style="padding:16px 32px;background:#f4f6f9;color:#8a94a6;font-size:12px">You are receiving this because you signed up at acme-product.example &middot; Unsubscribe &middot; Preferences &middot; 123 Market Street, San Francisco, CA 94103</td></tr>
+            </table></body></html>
+        """.trimIndent()
+
+        /** A security alert as Google sends one: a fixed 516-pixel card and a long link. */
+        private val ALERT_HTML = """
+            <html><head><title>Security alert</title><style>.card{width:516px;min-width:516px;border:1px solid #dadce0;border-radius:8px}</style></head>
+            <body><table class="card" width="516" align="center" cellpadding="0" cellspacing="0"><tr><td style="padding:40px 20px;text-align:center">
+            <div style="font-size:24px;color:#202124">A new sign-in on Android</div>
+            <div style="font-size:14px;color:#3c4043;padding-top:8px">support@webyar.app</div>
+            <div style="font-size:14px;line-height:20px;color:#3c4043;padding-top:20px;text-align:left">We noticed a new sign-in to your account on an Android device. If this was you, you don't need to do anything. If not, we'll help you secure your account.</div>
+            <div style="padding-top:32px"><a href="https://accounts.google.example/AccountChooser?Email=support@webyar.app&amp;continue=https://myaccount.google.example/alert/nt/1727654400000?rfn%3D31%26rfnc%3D1%26eid%3D-1234567890" style="font-size:14px;color:#ffffff;background:#4184f3;border-radius:5px;padding:10px 24px;text-decoration:none">Check activity</a></div>
+            <div style="font-size:12px;color:#5f6368;padding-top:24px;text-align:left">You can also see security activity at https://myaccount.google.example/notifications</div>
+            </td></tr></table></body></html>
+        """.trimIndent()
+
+        val FOLDER_MESSAGES: Map<String, List<EmailMessageView>> = mapOf(
+            "n-1" to listOf(
+                EmailMessageView(
+                    id = "nm-1",
+                    direction = "inbound",
+                    fromAddress = "\"Acme Weekly\" <news@acme-mail.example>",
+                    toAddresses = listOf(EmailAddress("support@webyar.app")),
+                    htmlBody = NEWSLETTER_HTML,
+                    sentAt = ago(80),
+                    isRead = false,
+                ),
+            ),
+            "n-2" to listOf(
+                EmailMessageView(
+                    id = "nm-2",
+                    direction = "inbound",
+                    fromAddress = "\"Google\" <no-reply@accounts.google.example>",
+                    toAddresses = listOf(EmailAddress("support@webyar.app")),
+                    htmlBody = ALERT_HTML,
+                    sentAt = ago(60 * 26),
+                    isRead = true,
+                ),
+            ),
+            "s-1" to listOf(
+                EmailMessageView(
+                    id = "sm-1",
+                    direction = "inbound",
+                    fromAddress = "ceo@example.com",
+                    toAddresses = listOf(EmailAddress("support@webyar.app")),
+                    textBody = "سلام، لطفاً پیشنهاد قیمت پلن سازمانی را برای ۵۰ کاربر بفرستید.",
+                    sentAt = ago(60 * 4),
+                    isRead = true,
+                ),
+                EmailMessageView(
+                    id = "sm-2",
+                    direction = "outbound",
+                    fromAddress = "support@webyar.app",
+                    toAddresses = listOf(EmailAddress("ceo@example.com")),
+                    htmlBody = "<div dir=\"rtl\"><p>سلام،</p><p>پیشنهاد قیمت پلن سازمانی برای ۵۰ کاربر پیوست شد. اگر سؤالی بود در خدمتیم.</p><p>با احترام<br>تیم پشتیبانی وب‌یار</p></div>",
+                    sentAt = ago(60 * 3),
+                    deliveryStatus = "sent",
+                ),
+            ),
+            "d-1" to listOf(
+                EmailMessageView(
+                    id = "dm-1",
+                    direction = "outbound",
+                    fromAddress = "support@webyar.app",
+                    toAddresses = listOf(EmailAddress("reza@example.com")),
+                    textBody = "سلام رضا، برای دمو فردا ساعت ۱۰ صبح در خدمتیم.",
+                    sentAt = ago(60 * 5),
+                    deliveryStatus = "draft",
+                ),
+            ),
+            "sp-1" to listOf(
+                EmailMessageView(
+                    id = "spm-1",
+                    direction = "inbound",
+                    fromAddress = "win@lottery.example",
+                    toAddresses = listOf(EmailAddress("support@webyar.app")),
+                    textBody = "Claim your reward now",
+                    sentAt = ago(60 * 9),
+                    isRead = false,
+                ),
             ),
         )
 

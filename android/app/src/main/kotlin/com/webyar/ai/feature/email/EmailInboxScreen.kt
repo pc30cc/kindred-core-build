@@ -57,11 +57,10 @@ import androidx.compose.ui.graphics.luminance
 import com.webyar.ai.ui.components.PullIndicator
 import com.webyar.ai.ui.design.Radius
 import com.webyar.ai.core.model.EmailFolder
+import com.webyar.ai.core.model.EmailMailFolder
 import com.webyar.ai.core.model.EmailMailbox
 import com.webyar.ai.i18n.StrEmail
 import com.webyar.ai.ui.components.ChoiceButton
-import com.webyar.ai.ui.components.LatinText
-import com.webyar.ai.ui.components.rowTextAlign
 import com.webyar.ai.ui.components.LoadingIndicator
 import com.webyar.ai.ui.components.Glyph
 import com.webyar.ai.ui.components.StatusPill
@@ -120,6 +119,12 @@ fun EmailInboxScreen(
     /** The provider of the mailbox on screen; null is the first. */
     selectedMailbox: String? = null,
     onSelectMailbox: (String) -> Unit = {},
+    /** The folder on screen (`inbox`, `sent`, `label:…`), from the ☰ menu. */
+    mailFolder: String = EmailMailFolder.INBOX,
+    /** That folder's unread count, for the Unread filter; null uses the mailbox's own (the inbox's). */
+    folderUnread: Int? = null,
+    /** The mailbox's labels by id (`Label_12` → «Clients»), for the pills on a row. */
+    labelNames: Map<String, String> = emptyMap(),
 ) {
     val shown = mailboxes.firstOrNull { it.provider == selectedMailbox } ?: mailboxes.firstOrNull()
     Column(modifier.fillMaxSize()) {
@@ -157,7 +162,8 @@ fun EmailInboxScreen(
             }
         }
 
-        // The mailbox's three views, as a mail client keeps them.
+        // Three views of the folder on screen: everything, what is unread,
+        // what is starred (not offered inside Starred itself).
         if (!notConnected) {
             Row(
                 Modifier
@@ -167,10 +173,10 @@ fun EmailInboxScreen(
                     .padding(horizontal = Space.screenInset, vertical = Space.sm),
                 horizontalArrangement = Arrangement.spacedBy(Space.xs),
             ) {
-                EmailFolder.entries.forEach { option ->
+                EmailFolder.entries.filter { !(it == EmailFolder.STARRED && mailFolder == "starred") }.forEach { option ->
                     ChoiceButton(
                         label = when (option) {
-                            EmailFolder.INBOX -> StrEmail.folderInbox(language)
+                            EmailFolder.INBOX -> StrEmail.filterAll(language)
                             EmailFolder.UNREAD -> StrEmail.folderUnread(language)
                             EmailFolder.STARRED -> StrEmail.folderStarred(language)
                         },
@@ -178,7 +184,11 @@ fun EmailInboxScreen(
                         language = language,
                         onClick = { onSelectFolder(option) },
                         // How many threads are unread, on the view that lists them.
-                        count = if (option == EmailFolder.UNREAD) shown?.unread?.takeIf { it > 0 } else null,
+                        count = if (option == EmailFolder.UNREAD) {
+                            (folderUnread ?: shown?.unread.takeIf { mailFolder == EmailMailFolder.INBOX })?.takeIf { it > 0 }
+                        } else {
+                            null
+                        },
                         modifier = Modifier.testTag(A11y.emailFolder(option.name.lowercase())),
                     )
                 }
@@ -217,11 +227,13 @@ fun EmailInboxScreen(
                         title = when {
                             notConnected -> Str.emailNotConnectedTitle(language)
                             searching -> Str.noResults(language)
+                            mailFolder != EmailMailFolder.INBOX -> StrEmail.folderEmpty(language)
                             else -> Str.emailEmptyTitle(language)
                         },
                         body = when {
                             notConnected -> Str.emailNotConnectedBody(language)
                             searching -> null
+                            mailFolder != EmailMailFolder.INBOX -> null
                             else -> Str.emailEmptyBody(language)
                         },
                         modifier = Modifier.testTag(
@@ -255,6 +267,8 @@ fun EmailInboxScreen(
                                 thread = thread,
                                 mailbox = mailbox,
                                 language = language,
+                                mailFolder = mailFolder,
+                                labelNames = labelNames,
                                 modifier = Modifier.animateItem(),
                                 onToggleStar = { onToggleStar(thread) },
                                 onToggleRead = { onToggleRead(thread) },
@@ -288,13 +302,21 @@ private fun EmailThreadRow(
     mailbox: String?,
     language: Language,
     modifier: Modifier = Modifier,
+    mailFolder: String = EmailMailFolder.INBOX,
+    labelNames: Map<String, String> = emptyMap(),
     onToggleStar: () -> Unit = {},
     onToggleRead: () -> Unit = {},
     onClick: () -> Unit,
 ) {
     val unread = thread.isRead != true
     val starred = thread.isStarred == true
-    val people = thread.people(excludingMailbox = mailbox)
+    // Who, by name: «Google», not «"Google" <no-reply@accounts.google.com>».
+    val others = thread.participants.orEmpty().map { MailName.parse(it.email) }
+        .let { all -> all.filterNot { mailbox != null && it.email.equals(mailbox, ignoreCase = true) }.ifEmpty { all } }
+    val names = others.joinToString(if (language == Language.FA) "، " else ", ") { it.display }
+    // Sent and Drafts are about whom a mail is to, as every mail client says there.
+    val addressed = mailFolder == "sent" || mailFolder == "drafts"
+    val people = if (addressed && names.isNotEmpty()) "${StrEmail.to(language)}: \u2068$names\u2069" else names
     var menuOpen by remember { mutableStateOf(false) }
 
     // The inbox's rounded row, with its tone under what is unread.
@@ -314,7 +336,8 @@ private fun EmailThreadRow(
                 .padding(start = Space.md, end = Space.xs, top = Space.md, bottom = Space.md),
             verticalAlignment = Alignment.Top,
         ) {
-            MailAvatar(address = thread.participants.orEmpty().firstOrNull { !it.email.equals(mailbox, ignoreCase = true) }?.email ?: people)
+            // Keyed on the address, as the reader keys the same sender's face.
+            MailAvatar(address = others.firstOrNull()?.email ?: names)
             Column(Modifier.weight(1f).padding(horizontal = Space.md)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (unread) {
@@ -326,15 +349,27 @@ private fun EmailThreadRow(
                                 .background(MaterialTheme.colorScheme.primary),
                         )
                     }
-                    LatinText(
+                    if (mailFolder == "drafts") {
+                        Text(
+                            StrEmail.draft(language),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            modifier = Modifier.padding(end = Space.xs),
+                        )
+                    }
+                    // A name in its own direction — Persian or English —
+                    // standing on the row's side either way.
+                    Text(
                         people,
-                        style = MaterialTheme.typography.titleMedium.copy(
+                        style = MaterialTheme.typography.titleMedium.bidiContent().copy(
                             // An unread thread is heavier. That is the one
                             // difference Mail leans on, and it is enough.
                             fontWeight = if (unread) FontWeight.Bold else FontWeight.Medium,
                         ),
                         maxLines = 1,
-                        align = rowTextAlign(),
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
                     Text(
@@ -369,15 +404,19 @@ private fun EmailThreadRow(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                // The mailbox's own labels, when the provider sent any
-                // worth reading (the system ones are folders, not news).
-                val labels = thread.labels.orEmpty().filter { it.isVisibleLabel() }.take(3)
+                // The mailbox's own labels, by the names the mailbox gave
+                // them (Gmail sends ids), except the one being looked at;
+                // the system ones are folders, not news.
+                val labels = thread.labels.orEmpty()
+                    .filter { "label:$it" != mailFolder }
+                    .mapNotNull { labelNames[it] }
+                    .take(3)
                 if (labels.isNotEmpty()) {
                     Row(
                         Modifier.padding(top = Space.xs),
                         horizontalArrangement = Arrangement.spacedBy(Space.xs),
                     ) {
-                        labels.forEach { label -> StatusPill(label.prettyLabel(), tone = PillTone.NEUTRAL) }
+                        labels.forEach { label -> StatusPill(label, tone = PillTone.NEUTRAL) }
                     }
                 }
             }
@@ -439,14 +478,3 @@ internal fun MailAvatar(address: String, size: Dp = Size.avatarSmall) {
     }
 }
 
-/** Gmail's system labels are folders, not something to show on a row. */
-private fun String.isVisibleLabel(): Boolean {
-    val upper = uppercase()
-    return upper !in SYSTEM_LABELS && !upper.startsWith("CATEGORY_") && isNotBlank()
-}
-
-private fun String.prettyLabel(): String = removePrefix("Label_").replace('_', ' ')
-
-private val SYSTEM_LABELS = setOf(
-    "INBOX", "UNREAD", "STARRED", "IMPORTANT", "SENT", "DRAFT", "SPAM", "TRASH", "CHAT", "OPENED",
-)

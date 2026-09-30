@@ -153,7 +153,38 @@ data class EmailChanges(
     val reset: Boolean = false,
 )
 
-/** The mailbox's three views: everything, what is unread, what is starred. */
+/**
+ * One entry of a mailbox's folder menu (`GET /folders`): a system folder
+ * (`inbox`, `starred`, `important`, `sent`, `drafts`, `all`, `spam`, `trash`)
+ * or one of the mailbox's labels (`label:<id>`, named by [name]). Counts
+ * only: [unread] where a mail client shows it (Inbox, Spam, labels), [total]
+ * for Drafts.
+ */
+@Serializable
+data class EmailMailFolder(
+    val id: String,
+    val kind: String = "system",
+    val name: String? = null,
+    val unread: Int? = null,
+    val total: Int? = null,
+) {
+    val isLabel: Boolean get() = kind == "label" || id.startsWith("label:")
+
+    companion object {
+        const val INBOX = "inbox"
+
+        /** What a server from before `/folders` has: the inbox. */
+        val FALLBACK = listOf(EmailMailFolder(INBOX))
+    }
+}
+
+@Serializable
+data class EmailFoldersResponse(val folders: List<EmailMailFolder> = emptyList())
+
+/**
+ * The list's three filters inside the folder on screen: everything, what is
+ * unread, what is starred.
+ */
 enum class EmailFolder {
     INBOX,
     UNREAD,

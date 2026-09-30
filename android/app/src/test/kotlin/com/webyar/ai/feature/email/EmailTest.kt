@@ -1,13 +1,19 @@
 package com.webyar.ai.feature.email
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import com.webyar.ai.core.net.SampleApi
+import com.webyar.ai.i18n.Format
 import com.webyar.ai.i18n.Language
 import com.webyar.ai.i18n.Str
+import com.webyar.ai.i18n.StrEmail
 import com.webyar.ai.ui.A11y
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -264,6 +270,49 @@ class EmailTest {
         assertTrue(page.contains(EmailReader.escape(Str.emailNoSubject(Language.FA))))
     }
 
+    // MARK: - Folders
+
+    @Test
+    fun `the folder menu lists the mailbox's folders and labels, and a tap picks one`() = runTest {
+        val folders = SampleApi().emailFolders("ws-1")
+        var picked: String? = null
+        compose.setContent {
+            EmailFolderDrawer(Language.FA, folders, selected = "inbox", onSelect = { picked = it })
+        }
+
+        compose.onNodeWithText(StrEmail.folderName(Language.FA, "inbox")!!).assertIsDisplayed()
+        compose.onNodeWithText(StrEmail.folderName(Language.FA, "sent")!!).assertIsDisplayed()
+        // The inbox's unread count stands beside it.
+        compose.onNodeWithTag(A11y.emailMailFolder("inbox")).assertTextContains(Format.number(1, Language.FA))
+
+        compose.onNodeWithTag(A11y.EMAIL_DRAWER).performScrollToNode(hasTestTag(A11y.emailMailFolder("label:Label_news")))
+        compose.onNodeWithText("خبرنامه‌ها").assertIsDisplayed()
+        compose.onNodeWithTag(A11y.emailMailFolder("label:Label_news")).performClick()
+        assertEquals("label:Label_news", picked)
+    }
+
+    @Test
+    fun `a row names its sender, not the header they came in`() {
+        val google = com.webyar.ai.core.model.EmailThreadSummary(
+            id = "g-1",
+            subject = "Security alert",
+            participants = listOf(com.webyar.ai.core.model.EmailAddress("\"Google\" <no-reply@accounts.google.example>")),
+        )
+        compose.setContent { EmailInboxScreen(EmailInboxState.Loaded(listOf(google)), Language.FA, {}) }
+
+        compose.onNodeWithText("Google").assertIsDisplayed()
+        assertEquals(0, compose.onAllNodesWithText("no-reply", substring = true).fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun `in Sent a row says whom the mail is to`() = runTest {
+        val sent = SampleApi().emailThreadsPage("ws-1", com.webyar.ai.core.model.EmailFolder.INBOX, null, null, mailFolder = "sent").threads.single()
+        compose.setContent {
+            EmailInboxScreen(EmailInboxState.Loaded(listOf(sent)), Language.FA, {}, mailFolder = "sent")
+        }
+        compose.onNodeWithText("${StrEmail.to(Language.FA)}: \u2068ceo@example.com\u2069").assertIsDisplayed()
+    }
+
     // MARK: - Mailboxes, counts, and following them live
 
     @Test
@@ -310,6 +359,7 @@ class EmailTest {
                 search: String?,
                 before: String?,
                 mailbox: String?,
+                mailFolder: String?,
             ) = com.webyar.ai.core.model.EmailThreadsResponse(
                 threads = listOf(com.webyar.ai.core.model.EmailThreadSummary("t-${++pages}")),
                 historyId = "10$pages",

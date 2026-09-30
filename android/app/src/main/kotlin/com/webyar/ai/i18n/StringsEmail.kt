@@ -25,6 +25,90 @@ object StrEmail {
         Language.TR -> "Yıldızlı"
     }
 
+    /** The filter that shows everything in the folder on screen. */
+    fun filterAll(l: Language): String = when (l) {
+        Language.EN -> "All"
+        Language.FA -> "همه"
+        Language.TR -> "Tümü"
+    }
+
+    /**
+     * A mailbox folder by its id (`inbox`, `sent`, …), for the menu and the
+     * title. Null for a label, which the mailbox names itself.
+     */
+    fun folderName(l: Language, id: String): String? = when (id) {
+        "inbox" -> when (l) {
+            Language.EN -> "Inbox"
+            Language.FA -> "صندوق ورودی"
+            Language.TR -> "Gelen kutusu"
+        }
+        "starred" -> folderStarred(l)
+        "important" -> when (l) {
+            Language.EN -> "Important"
+            Language.FA -> "مهم"
+            Language.TR -> "Önemli"
+        }
+        "sent" -> when (l) {
+            Language.EN -> "Sent"
+            Language.FA -> "ارسال‌شده"
+            Language.TR -> "Gönderilmiş"
+        }
+        "drafts" -> when (l) {
+            Language.EN -> "Drafts"
+            Language.FA -> "پیش‌نویس‌ها"
+            Language.TR -> "Taslaklar"
+        }
+        "all" -> when (l) {
+            Language.EN -> "All mail"
+            Language.FA -> "همهٔ نامه‌ها"
+            Language.TR -> "Tüm postalar"
+        }
+        "spam" -> when (l) {
+            Language.EN -> "Spam"
+            Language.FA -> "هرزنامه"
+            Language.TR -> "Spam"
+        }
+        "trash" -> when (l) {
+            Language.EN -> "Trash"
+            Language.FA -> "سطل زباله"
+            Language.TR -> "Çöp kutusu"
+        }
+        else -> null
+    }
+
+    /** The menu of a mailbox's folders, and the button that opens it. */
+    fun folders(l: Language): String = when (l) {
+        Language.EN -> "Folders"
+        Language.FA -> "پوشه‌ها"
+        Language.TR -> "Klasörler"
+    }
+
+    fun labels(l: Language): String = when (l) {
+        Language.EN -> "Labels"
+        Language.FA -> "برچسب‌ها"
+        Language.TR -> "Etiketler"
+    }
+
+    fun mailboxes(l: Language): String = when (l) {
+        Language.EN -> "Mailboxes"
+        Language.FA -> "صندوق‌های ایمیل"
+        Language.TR -> "Posta kutuları"
+    }
+
+    /** A folder other than the inbox with nothing in it. */
+    fun folderEmpty(l: Language): String = when (l) {
+        Language.EN -> "Nothing in this folder"
+        Language.FA -> "این پوشه خالی است"
+        Language.TR -> "Bu klasör boş"
+    }
+
+    /** A message not sent yet, in the Drafts folder. */
+    fun draft(l: Language): String = when (l) {
+        Language.EN -> "Draft"
+        Language.FA -> "پیش‌نویس"
+        Language.TR -> "Taslak"
+    }
+
     fun compose(l: Language): String = when (l) {
         Language.EN -> "Compose"
         Language.FA -> "نوشتن"

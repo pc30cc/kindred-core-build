@@ -109,6 +109,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
 import java.io.IOException
 import com.webyar.ai.core.model.EmailFolder
+import com.webyar.ai.core.model.EmailFoldersResponse
+import com.webyar.ai.core.model.EmailMailFolder
 import com.webyar.ai.core.model.EmailDraft
 import com.webyar.ai.core.model.EmailChanges
 import com.webyar.ai.core.model.EmailMailbox
@@ -1037,11 +1039,15 @@ class ApiClient(
     private fun mailboxQuery(mailbox: String?): List<Pair<String, String>> =
         mailbox?.takeIf { it.isNotBlank() }?.let { listOf("provider" to it) }.orEmpty()
 
-    override suspend fun emailThread(workspaceId: String, threadId: String, mailbox: String?): EmailThreadResponse =
+    /** `?folder=`, left off for the inbox so the request is the one every server understands. */
+    private fun folderQuery(mailFolder: String?): List<Pair<String, String>> =
+        mailFolder?.takeIf { it.isNotBlank() && it != EmailMailFolder.INBOX }?.let { listOf("folder" to it) }.orEmpty()
+
+    override suspend fun emailThread(workspaceId: String, threadId: String, mailbox: String?, mailFolder: String?): EmailThreadResponse =
         build(
             HttpMethod.Get,
             "/api/email-inbox/${workspaceId.urlPath()}/threads/${threadId.urlPath()}",
-            mailboxQuery(mailbox),
+            mailboxQuery(mailbox) + folderQuery(mailFolder),
         ).decode()
 
     @Serializable
@@ -1096,6 +1102,7 @@ class ApiClient(
         search: String?,
         before: String?,
         mailbox: String?,
+        mailFolder: String?,
     ): EmailThreadsResponse {
         val query = buildList {
             add("limit" to "30")
@@ -1103,6 +1110,7 @@ class ApiClient(
             before?.let { add("before" to it) }
             search?.takeIf { it.isNotBlank() }?.let { add("q" to it.trim()) }
             addAll(mailboxQuery(mailbox))
+            addAll(folderQuery(mailFolder))
         }
         return build(HttpMethod.Get, "/api/email-inbox/${workspaceId.urlPath()}/threads", query).decode()
     }
@@ -1186,6 +1194,13 @@ class ApiClient(
         // understands, one mailbox with no count.
         if (response.status.value == 404) return super<WebyarApi>.emailMailboxes(workspaceId)
         return response.decode<EmailMailboxesResponse>().mailboxes
+    }
+
+    override suspend fun emailFolders(workspaceId: String, mailbox: String?): List<EmailMailFolder> {
+        val response = build(HttpMethod.Get, "/api/email-inbox/${workspaceId.urlPath()}/folders", mailboxQuery(mailbox))
+        // A server from before folders: the inbox is all it has.
+        if (response.status.value == 404) return EmailMailFolder.FALLBACK
+        return response.decode<EmailFoldersResponse>().folders.ifEmpty { EmailMailFolder.FALLBACK }
     }
 
     override suspend fun emailChanges(workspaceId: String, since: String, mailbox: String?): EmailChanges =

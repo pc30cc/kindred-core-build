@@ -4,6 +4,7 @@ import com.webyar.ai.core.model.EmailAddress
 import com.webyar.ai.core.model.EmailBody
 import com.webyar.ai.core.model.EmailDraft
 import com.webyar.ai.core.model.EmailFolder
+import com.webyar.ai.core.model.EmailMailFolder
 import com.webyar.ai.core.model.EmailMessageView
 import com.webyar.ai.core.model.EmailThreadSummary
 import com.webyar.ai.core.model.EmailThreadsResponse
@@ -206,6 +207,9 @@ class EmailComposeTest {
 
     private class PagedApi(private val real: SampleApi = SampleApi()) : WebyarApi by real {
         val asked = mutableListOf<Pair<EmailFolder, String?>>()
+        /** The folder (`inbox`, `sent`, …) each page was asked of. */
+        val boxes = mutableListOf<String?>()
+        var folders = listOf(EmailMailFolder("inbox"), EmailMailFolder("sent"), EmailMailFolder("label:Label_1", kind = "label", name = "Clients"))
         var starred: Pair<String, Boolean>? = null
         override suspend fun emailThreadsPage(
             workspaceId: String,
@@ -213,8 +217,10 @@ class EmailComposeTest {
             search: String?,
             before: String?,
             mailbox: String?,
+            mailFolder: String?,
         ): EmailThreadsResponse {
             asked += folder to before
+            boxes += mailFolder
             return if (before == null) {
                 EmailThreadsResponse(listOf(EmailThreadSummary("a"), EmailThreadSummary("b")), nextBefore = "cursor-1")
             } else {
@@ -224,6 +230,52 @@ class EmailComposeTest {
         override suspend fun setEmailThreadStarred(workspaceId: String, threadId: String, starred: Boolean, mailbox: String?) {
             this.starred = threadId to starred
         }
+        override suspend fun emailFolders(workspaceId: String, mailbox: String?) = folders
+    }
+
+    @Test
+    fun `a folder from the menu is listed whole, and another mailbox opens on its inbox`() = runTest(dispatcher) {
+        val api = PagedApi()
+        val email = EmailInboxViewModel(api) { Language.EN }
+        email.bind("ws-1")
+        testScheduler.advanceUntilIdle()
+        assertEquals(listOf("inbox", "sent", "label:Label_1"), email.folders.value.map { it.id })
+
+        email.selectFolder(EmailFolder.UNREAD)
+        testScheduler.advanceUntilIdle()
+        email.selectMailFolder("sent")
+        testScheduler.advanceUntilIdle()
+        // The whole folder, not its unread part: a new folder starts on All.
+        assertEquals("sent", api.boxes.last())
+        assertEquals(EmailFolder.INBOX to null, api.asked.last())
+        assertEquals(EmailFolder.INBOX, email.folder.value)
+
+        // Its next page is of the same folder.
+        email.loadMore()
+        testScheduler.advanceUntilIdle()
+        assertEquals("sent", api.boxes.last())
+
+        email.selectMailbox("yahoo")
+        testScheduler.advanceUntilIdle()
+        assertEquals(EmailMailFolder.INBOX, email.mailFolder.value)
+        assertEquals("inbox", api.boxes.last())
+    }
+
+    @Test
+    fun `a label deleted in the mailbox sends the list back to the inbox`() = runTest(dispatcher) {
+        val api = PagedApi()
+        val email = EmailInboxViewModel(api) { Language.EN }
+        email.bind("ws-1")
+        testScheduler.advanceUntilIdle()
+        email.selectMailFolder("label:Label_1")
+        testScheduler.advanceUntilIdle()
+
+        api.folders = api.folders.filterNot { it.isLabel }
+        email.refreshFolders()
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(EmailMailFolder.INBOX, email.mailFolder.value)
+        assertEquals("inbox", api.boxes.last())
     }
 
     @Test

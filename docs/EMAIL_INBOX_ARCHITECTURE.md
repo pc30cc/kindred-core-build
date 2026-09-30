@@ -116,6 +116,41 @@ A workspace may have a connected Gmail and a connected Yahoo at once.
   reloads page one. Clients showing one mailbox ignore events whose
   `provider` is another one's (the web's live Gmail sync does).
 
+## Folders
+
+Apps draw a mailbox's folder menu (the ☰ of a mail client) from the server;
+the names are the same for every mailbox (`server/services/email/folders.ts`).
+
+- **The menu:** `GET /api/email-inbox/:workspaceId/folders[?provider=]` →
+  `{ "folders": [{ "id": "inbox", "kind": "system", "name": null,
+  "unread": 7, "total": null }, …, { "id": "label:Label_10", "kind": "label",
+  "name": "Clients", "unread": 1, "total": null }] }`. Counts only, never
+  mail; `Cache-Control: no-store`; no mailbox connected → 409
+  `email_not_connected`.
+  - Gmail: `inbox`, `starred`, `important`, `sent`, `drafts`, `all`, `spam`,
+    `trash`, then the user's labels by name (`users.labels.list`, labels
+    hidden from Gmail's label list left out). Counts are Gmail's own
+    (`users.labels.get`): unread for Inbox, Spam and each label (the first 40
+    labels), `total` for Drafts. A count that cannot be read is `null`.
+  - Yahoo (table-backed): `inbox` (its unread count), `starred`, `sent` — the
+    channel worker fills the table from the inbox and from what is sent here.
+- **A folder's threads:** `GET threads?folder=<id>` (with `unread=true` and
+  `starred=true` still narrowing it). Absent or empty is `inbox`, as before.
+  Anything that is not a system folder or `label:[A-Za-z0-9_-]{1,100}` → 400
+  `invalid_folder`; a folder the mailbox does not have (Yahoo `spam`, …) →
+  400 `unsupported_folder`.
+  - Gmail lists the folder's label (`all` is no label; `spam` and `trash` set
+    `includeSpamTrash`). Rows in `sent` and `drafts` name the recipients
+    (`participants` = the To of the latest sent message or draft), as mail
+    clients do there.
+  - Yahoo `sent` is the threads with an outbound message (the newest 500
+    outbound messages are scanned); `starred` is `is_starred`.
+- **A thread from a folder:** `GET threads/:id?folder=<id>`. Gmail shows the
+  messages that folder holds: `spam` and `trash` only those, `drafts` the
+  thread with its draft (`deliveryStatus: "draft"`, `direction: "outbound"`),
+  every other folder the thread without drafts, spam or trash — as before.
+  A thread with nothing in that folder is 404 there.
+
 ## Clients
 
 ### Web (done)
@@ -134,7 +169,23 @@ A workspace may have a connected Gmail and a connected Yahoo at once.
   while the page is visible. A fetch that started before a clear never writes
   back. The Yahoo inbox keeps its server polling and no device cache.
 
-### Windows, macOS, iOS, Android (to do)
+### Android
+
+- The reader (`feature/email/EmailReader.kt`) is one white page in a
+  WebView with JavaScript off. Each mail's own `<style>` is scoped to its
+  box (`MailCss`: `html`/`body` become the box, `@media` kept, `@import`
+  dropped), and the mail reflows to the phone: its desktop widths are let go
+  of where they are written (a table 300px or wider becomes 100%, cells lose
+  fixed widths, boxes of 100px or more take the width they are given,
+  `min-width` goes; pictures keep theirs), nothing is wider than its column,
+  and long words break. Anything still wider scrolls sideways inside the
+  mail's own box — never off the page, where in a right-to-left page it could
+  not be reached.
+- The ☰ in the mail list opens the folder menu (`GET folders`, re-read each
+  time it opens) with the mailboxes on top when there are two; the list,
+  paging and a thread opened from it carry `folder=`.
+
+### Windows, macOS, iOS (to do)
 
 The API keeps the same response shapes, so the apps keep reading and replying
 with text. Each app must now also:

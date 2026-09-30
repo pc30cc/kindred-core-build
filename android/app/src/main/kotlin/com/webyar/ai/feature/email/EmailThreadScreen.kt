@@ -148,7 +148,7 @@ internal fun EmailReaderView(
                     domStorageEnabled = false
                     setGeolocationEnabled(false)
                     mediaPlaybackRequiresUserGesture = true
-                    // Pinch to read a newsletter drawn for a desktop.
+                    // Pinch to read a newsletter's small print closer.
                     builtInZoomControls = true
                     displayZoomControls = false
                     cacheMode = WebSettings.LOAD_DEFAULT

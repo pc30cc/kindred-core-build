@@ -45,16 +45,12 @@ data class ChannelInbox(
  * Only the fields that decide whether a channel belongs in the switcher are
  * decoded; the catalog carries a great deal more that only the marketplace
  * needs.
- */
-/**
- * NOTE THE ABSENCE of `@SerialName` on every field here.
  *
- * `/api/plugins/catalog` answers in camelCase — `supportsInbox`,
- * `planAllowed`, `installationStatus` — while most of this API is snake_case.
- * These were annotated as `supports_inbox` and `plan_allowed` to match the
- * rest, so both decoded to null on every item, `isUsableInbox` was false for
- * every channel, and the switcher was empty on a workspace with Telegram
- * installed and allowed. Nothing failed; the list was simply always empty.
+ * No field here has a `@SerialName`, on purpose: `/api/plugins/catalog`
+ * answers in camelCase — `supportsInbox`, `planAllowed`,
+ * `installationStatus` — while most of this API is snake_case. A snake_case
+ * name would decode to null on every item, leave `isUsableInbox` false for
+ * every channel, and the switcher empty with no error anywhere.
  */
 @Serializable
 data class PluginCatalogItem(

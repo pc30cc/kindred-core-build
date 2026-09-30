@@ -6,8 +6,8 @@
       The app talks to a server, which on Android has to be said out loud.
       Its absence is silent: every request throws a SecurityException that
       surfaces as a transport failure, so the app looks offline on a working
-      connection. It went unnoticed here because the sample backend answers
-      from memory and needs no network at all.
+      connection. The sample backend answers from memory and needs no
+      network at all, so a build against it does not show the gap.
     -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -64,7 +64,7 @@
 
     <!--
       `WebyarApp` builds the app's graph lazily and configures Coil and
-      WorkManager; see its class note. Backup stays off exactly as before:
+      WorkManager; see its class note. Backup stays off:
       the cache database and the attachment files are covered by the same
       `data_extraction_rules.xml` as the session token.
     -->

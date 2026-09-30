@@ -340,7 +340,7 @@ object StrAndroid {
     /**
      * The AI's queue on the inbox strip, written out in full. The shared
      * strings (generated from iOS) say «هوش», which is short for a tab bar;
-     * on a chip beside «باز» and «همکاران» it read as a word cut off.
+     * on a chip beside «باز» and «همکاران» it reads as a word cut off.
      */
     fun filterAI(l: Language): String = when (l) {
         Language.EN -> "AI"

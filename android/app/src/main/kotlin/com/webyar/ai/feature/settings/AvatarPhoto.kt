@@ -19,8 +19,8 @@ class AvatarUpload(val bytes: ByteArray, val contentType: String)
  *
  * A phone camera's photo is a 4–12 MB HEIC or JPEG. The server refuses HEIC,
  * and sending twelve megabytes to show a 40-pixel circle is a minute on a
- * phone connection; read on the main thread it also froze the screen while
- * it decoded.
+ * phone connection; read on the main thread it would also freeze the screen
+ * while it decodes.
  */
 object AvatarPhoto {
     const val MAX_SIDE = 512
@@ -29,9 +29,9 @@ object AvatarPhoto {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         // Only a stream that could not be opened is a reason to stop here. A
         // bounds-only decode returns null by design — the answer is in
-        // `bounds` — so `?: return` on the decode itself turned every photo
-        // away as unreadable, and no avatar could ever be set from the phone.
-        // Whether the file really was an image is the size check below.
+        // `bounds` — so `?: return` on the decode itself would turn every
+        // photo away as unreadable, and no avatar could be set from the phone.
+        // Whether the file really is an image is the size check below.
         val stream = resolver.openInputStream(uri) ?: return@withContext null
         stream.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null

@@ -507,7 +507,7 @@ fun LatinText(
  * Compose resolves an unspecified `textDirection` from the layout, so a
  * Turkish sentence inside a Persian list is laid out right-to-left and the
  * bidi algorithm moves its trailing punctuation to the far end: «Tabii, hemen
- * kontrol ediyorum.» came out as «.Tabii, hemen kontrol ediyorum», with the
+ * kontrol ediyorum.» comes out as «.Tabii, hemen kontrol ediyorum», with the
  * full stop leading. `Content` resolves from the first strong character
  * instead, which is what every other platform does by default.
  *

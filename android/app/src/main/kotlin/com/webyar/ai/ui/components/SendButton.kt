@@ -30,12 +30,11 @@ import com.webyar.ai.ui.design.Motion
 /**
  * The one send button in the app.
  *
- * There were four on iOS, and no two alike: 34pt with a 17pt bold arrow in
- * the chat composer, 38pt with 16pt semibold in the voice bar, 34/16 in the
- * note sheet, 34/15 in the mail composer. Three of them showed nothing while
- * a send was in flight. An operator moving between an email and a chat saw
- * the same control change size and weight under their thumb. One size, one
- * weight, one disabled treatment, one busy treatment.
+ * One size, one weight, one disabled treatment, one busy treatment, wherever
+ * a send happens. Separate send buttons drift apart in size and arrow weight,
+ * and in whether they show a send in flight at all; an operator moving
+ * between an email and a chat then sees the same control change size and
+ * weight under their thumb.
  *
  * The three states are distinguishable without colour, deliberately: enabled
  * and disabled differ only in opacity, so the glyph swaps to a spinner while

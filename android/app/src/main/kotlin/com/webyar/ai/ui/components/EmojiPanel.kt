@@ -354,7 +354,7 @@ internal fun deleteBefore(text: String, cursor: Int): Pair<String, Int> {
     val end = cursor.coerceIn(0, text.length)
     if (end == 0) return text to 0
     // ICU's, which knows the emoji sequences; the java.text one on older
-    // releases split a family into its members.
+    // releases splits a family into its members.
     val iterator = android.icu.text.BreakIterator.getCharacterInstance()
     iterator.setText(text)
     val start = iterator.preceding(end).takeIf { it != android.icu.text.BreakIterator.DONE } ?: (end - 1)

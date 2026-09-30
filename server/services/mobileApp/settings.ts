@@ -431,6 +431,12 @@ export interface AndroidAppConfig {
   defaultLanguage: AndroidLanguage;
   /** While `enabled`, nobody can sign in and signed-in operators see the notice. */
   maintenance: AndroidMaintenance;
+  /**
+   * Where Settings → About → Support opens: the support link in Mobile App →
+   * Android → Identity, else `null` — and then the app keeps using the
+   * platform's own help centre.
+   */
+  supportUrl: string | null;
 }
 
 /**
@@ -519,6 +525,7 @@ export function toAndroidAppConfig(settings: MobileAppSettings, now: Date = new 
     firebase: androidFirebaseClient(settings),
     defaultLanguage: androidLanguage(settings),
     maintenance: androidMaintenance(settings, now),
+    supportUrl: settings.support_url || null,
   };
 }
 

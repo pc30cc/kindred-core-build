@@ -9,8 +9,7 @@ package com.webyar.ai.core.media
  * refuses only moves the rejection from the picker to the upload, where it
  * arrives as a 415 after the file has been read, base64'd and sent.
  *
- * Pure Kotlin with no Android imports, so the rules can be tested on the JVM
- * rather than inferred from a screenshot.
+ * Pure Kotlin with no Android imports, so the rules can be tested on the JVM.
  */
 object AttachmentRules {
 

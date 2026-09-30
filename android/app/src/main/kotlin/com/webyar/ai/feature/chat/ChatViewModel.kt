@@ -59,12 +59,12 @@ class ChatViewModel(
     private val sync: SyncGraph = SyncGraph.inMemory(api),
     /**
      * Where a send and an upload run: the app's scope when there is one.
-     * In this model's own they were cancelled the moment the operator left
-     * the chat — the bubble stayed "sending" with no Retry until the app
-     * next came to the front.
+     * In this model's own they would be cancelled the moment the operator
+     * left the chat, and the bubble would stay "sending" with no Retry until
+     * the app next came to the front.
      */
     private val outlive: CoroutineScope? = null,
-    /** Last, so `ChatViewModel(api, sync) { language }` still reads as it always did. */
+    /** Last, so a caller can write `ChatViewModel(api, sync) { language }`. */
     private val language: () -> Language,
 ) : ViewModel() {
 
@@ -196,10 +196,10 @@ class ChatViewModel(
             // What changed while it was covered. A visitor's message reaches
             // the cache by itself, but an operator event — a colleague
             // resolving the thread, a transfer — brings its system line only
-            // to a thread that is open, and this one was not: back from the
-            // contact page, the line saying who resolved or transferred it
-            // was missing until something else happened to read the thread.
-            // One delta, usually empty.
+            // to a thread that is open, and this one was not. Without this
+            // read, back from the contact page, the line saying who resolved
+            // or transferred it is missing until something else reads the
+            // thread. One delta, usually empty.
             viewModelScope.launch { refresh("visible") }
         } else {
             seenJob?.cancel()
@@ -213,8 +213,8 @@ class ChatViewModel(
      *
      * Decided from what the cache shows rather than after a read: on a first
      * open the thread arrives from the cache a moment after the read that
-     * fetched it, and deciding then ("nothing on screen yet") left every
-     * freshly opened thread unread.
+     * fetched it, and deciding then ("nothing on screen yet") would leave
+     * every freshly opened thread unread.
      */
     private fun markSeenIfUnseen() {
         if (!visible) return
@@ -325,10 +325,9 @@ class ChatViewModel(
 
     /**
      * Over the server's limit, said now and with the words left in the box.
-     * Past it every send is a 400, so a message that went to the outbox
-     * anyway sat there FAILED with a Retry that could never work — and the
-     * text had already left the draft for a bubble it could not be edited
-     * back out of.
+     * Past it every send is a 400, so a message let into the outbox would
+     * sit there FAILED with a Retry that can never work — and the text would
+     * have left the draft for a bubble it cannot be edited back out of.
      */
     private fun tooLong(body: String): Boolean {
         if (body.length <= MAX_BODY_CHARS) return false
@@ -436,7 +435,8 @@ class ChatViewModel(
         shortcutsQuery = query
         // One answer at a time, and always the newest question's. Each
         // keystroke (debounced) is a request, and a slow "hel" landing after
-        // a quick "hello" put the wider list back under the narrower query.
+        // a quick "hello" would put the wider list back under the narrower
+        // query.
         // Cancelled rather than ignored: runCatchingUnlessCancelled so that
         // the superseded request does not report its cancellation as
         // "could not load" over the answer that replaced it.

@@ -50,10 +50,10 @@ object StrManual {
      * [value] between FIRST STRONG ISOLATE and POP DIRECTIONAL ISOLATE.
      *
      * The inbox lays a preview out in the direction of its first strong
-     * letter (`bidiContent`), and these sentences start with a name. «John
-     * این گفتگو را به Sara منتقل کرد» therefore came out as a left-to-right
-     * line — read from the right it said the conversation went to John — and
-     * «علی sent a photo» in an English list flipped the same way. Inside an
+     * letter (`bidiContent`), and these sentences start with a name. Bare,
+     * «John این گفتگو را به Sara منتقل کرد» comes out as a left-to-right
+     * line — read from the right it says the conversation went to John — and
+     * «علی sent a photo» in an English list flips the same way. Inside an
      * isolate the name is skipped when the line's direction is decided and
      * cannot reorder the words around it. The marks draw nothing;
      * `VisitorText` isolates its codes the same way.
@@ -142,9 +142,8 @@ object StrManual {
     // MARK: - Android only
     //
     // `Strings.kt` is GENERATED from `Strings.swift` — anything written there
-    // by hand is wiped the next time the generator runs, which is exactly how
-    // these came to be missing once already. A string the iOS app has no use
-    // for belongs here instead, where nothing overwrites it.
+    // by hand is wiped the next time the generator runs. A string the iOS app
+    // has no use for belongs here instead, where nothing overwrites it.
 
     /** The wordmark's fallback text, for talkback and for a failed font. */
     fun brandWordmark(l: Language): String = when (l) {
@@ -179,8 +178,8 @@ object StrManual {
     /**
      * Ending every other session at once.
      *
-     * Android only: the endpoint has always existed
-     * (`DELETE /api/account/security/sessions/:id?all=1`) and the iOS app does
+     * Android only: the endpoint exists
+     * (`DELETE /api/account/security/sessions/:id?all=1`) but the iOS app does
      * not offer it, so there is no iOS copy to generate from.
      */
     fun signOutOtherDevices(l: Language): String = when (l) {

@@ -24,10 +24,9 @@ import org.robolectric.annotation.Config
  * What the operator is told while a call is happening to them.
  *
  * The screen has one job beyond showing a face: say truthfully where the call
- * is. It has been wrong about that in the most expensive way — reporting "the
- * call could not connect" about a call that was ringing, and then still
- * reporting it while the same call was connected — so the phases are pinned
- * here one by one.
+ * is. The most expensive way to get that wrong is reporting "the call could
+ * not connect" about a call that is ringing, and then still reporting it while
+ * the same call is connected — so the phases are pinned here one by one.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w420dp-h900dp")
@@ -87,10 +86,10 @@ class CallScreenTest {
     // MARK: - The reason under a failure
 
     /**
-     * The session has always carried the reason and the screen used to drop
-     * it, so a 403 and an unreachable network both read "the call could not
-     * connect" — which is what sent an operator to check their signal while
-     * the server was telling them, precisely, that the ids were transposed.
+     * The session carries the reason, and the screen shows it. Without it a
+     * 403 and an unreachable network both read "the call could not connect",
+     * which sends an operator to check their signal while the server is
+     * telling them, precisely, that the ids are transposed.
      */
     @Test
     fun `a failure shows what actually went wrong underneath`() {

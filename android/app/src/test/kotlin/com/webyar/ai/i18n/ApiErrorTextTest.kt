@@ -22,10 +22,10 @@ class ApiErrorTextTest {
     // MARK: - The connection is not always the answer
 
     /**
-     * The fault that prompted these tests.
+     * The fault these tests guard against.
      *
-     * Every status the `when` did not name fell through to "check your
-     * connection", including 403 and 500. The server ANSWERED in both cases,
+     * A status the `when` does not name must not fall through to "check your
+     * connection", 403 and 500 included. The server ANSWERED in both cases,
      * so the connection is the one part of the system that has just proved it
      * works — and an operator who is told to check it over a permission
      * error will check it, repeatedly, and get nowhere.

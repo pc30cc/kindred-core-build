@@ -35,7 +35,7 @@ interface RealtimeSink {
      * Not left to the screens' own first read: that one is made as the app
      * comes to the front, before the socket exists, and once the socket is
      * up the poll stops and the next safety read is ten minutes off. A
-     * message in that window sat unseen in the list for all of them.
+     * message in that window would sit unseen in the list for all of them.
      */
     fun onConnected() {}
 
@@ -427,7 +427,7 @@ class RealtimeClient(
      * For an event, its place in the stream when it has one: a replay after
      * a reconnect is the same offset, and two events that merely read alike
      * are not the same event. Keyed on the payload alone, a second hand-over
-     * or take-over with the same reason and actor in one session was
+     * or take-over with the same reason and actor in one session would be
      * silently dropped — several server events carry no timestamp to tell
      * them apart.
      *

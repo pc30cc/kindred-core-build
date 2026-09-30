@@ -14,8 +14,8 @@ import java.time.OffsetDateTime
  * without a new build — and a phone that starts offline still honours the
  * last answer it had rather than flashing a hidden section.
  *
- * Every default is how the app behaved before these switches existed, with
- * one deliberate change: the operator's name is read-only unless allowed. An
+ * Every default leaves the app as operators know it without the switch, with
+ * one deliberate exception: the operator's name is read-only unless allowed. An
  * unknown key from a newer server is ignored and a missing one takes its
  * default, so neither side has to ship first.
  */
@@ -57,6 +57,12 @@ data class MobileAppConfig(
     val defaultLanguage: String? = null,
     /** Super Admin's maintenance notice; null from a server without one. */
     val maintenance: MaintenanceNotice? = null,
+    /**
+     * Where Settings → About → Support opens: the support link Super Admin →
+     * Mobile App → Android → Identity holds. Null leaves the platform's own
+     * help centre ([com.webyar.ai.core.storage.PlatformOrigin.supportUrl]).
+     */
+    val supportUrl: String? = null,
 ) {
     companion object {
         val DEFAULT = MobileAppConfig()

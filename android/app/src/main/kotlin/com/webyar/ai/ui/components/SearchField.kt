@@ -46,13 +46,13 @@ import com.webyar.ai.ui.design.WebyarTheme
 /**
  * The state behind a search that a toolbar magnifier opens and closes.
  *
- * Three rules, all of them learned on iOS and all of them easy to get wrong:
+ * Three rules, all of them easy to get wrong:
  *
- * **The field is absent until it is asked for.** Parking it above the fold —
- * present in the list but scrolled out of sight — is what the iOS screen used
- * to do, and a row that is scrolled away is still *there*: it showed through
- * the translucent bar as a grey ghost, and tapping the magnifier a second time
- * did nothing, because scrolling to a row that is already on screen is a no-op.
+ * **The field is absent until it is asked for.** It is not parked above the
+ * fold — present in the list but scrolled out of sight — because a row that is
+ * scrolled away is still *there*: it shows through the translucent bar as a
+ * grey ghost, and tapping the magnifier a second time does nothing, because
+ * scrolling to a row that is already on screen is a no-op.
  *
  * **Text outlives the toggle.** A field with something in it is still
  * filtering the list below, so hiding it would be a lie about why the list is
@@ -93,8 +93,8 @@ fun rememberSearchState(resetOn: Any? = Unit): SearchState {
     val state = remember { SearchState(open, text) }
     // The [resetOn] the terms belong to, saved beside them. Closing on every
     // first composition — what a bare LaunchedEffect(resetOn) does — also
-    // closed it on the way BACK to a list: Back from a thread recomposes the
-    // list from its saved state, and the query restored with it was wiped a
+    // closes it on the way BACK to a list: Back from a thread recomposes the
+    // list from its saved state, and the query restored with it is wiped a
     // frame later. Only a key that actually changed is a new question. Kept
     // as text so that any key — an id, an enum — can be saved.
     val key = resetOn.toString()

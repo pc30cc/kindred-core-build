@@ -204,8 +204,8 @@ class EmailTest {
     }
 
     /**
-     * "No mailbox connected" is a setup step, not a failure, and it used to be
-     * indistinguishable from an empty mailbox. Retrying cannot fix the first.
+     * "No mailbox connected" is a setup step, not a failure, and must not look
+     * like an empty mailbox. Retrying cannot fix the first.
      */
     @Test
     fun `a workspace with no mailbox is told how to get one, not shown an empty inbox`() {
@@ -261,8 +261,8 @@ class EmailTest {
     }
 
     /**
-     * The screen's search box says "" as it opens. That used to replace the
-     * loader with an empty list — "no mail" — until the mail arrived.
+     * The screen's search box says "" as it opens. That must not replace the
+     * loader with an empty list — "no mail" — until the mail arrives.
      */
     @Test
     fun `an empty search while the mailbox is read keeps the loader`() = runTest(dispatcher) {

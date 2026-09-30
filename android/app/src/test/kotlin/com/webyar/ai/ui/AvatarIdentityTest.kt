@@ -38,10 +38,11 @@ class AvatarIdentityTest {
     }
 
     /**
-     * The fault this rule exists for. «بازدیدکننده 4ZTK» is a generated
+     * The case this rule exists for. «بازدیدکننده 4ZTK» is a generated
      * label — a word and an opaque code — not a first name and a surname.
-     * One letter from each gave «ب4»: two scripts in one circle, telling no
-     * two visitors apart, on every anonymous row in a Persian inbox.
+     * One letter from each would give «ب4»: two scripts in one circle,
+     * telling no two visitors apart, on every anonymous row in a Persian
+     * inbox.
      */
     @Test
     fun `an anonymous visitor shows its code, not a letter from each script`() {
@@ -54,7 +55,7 @@ class AvatarIdentityTest {
     /** Narrow on purpose: a real name in any script is untouched. */
     @Test
     fun `a real name keeps a letter from each part`() {
-        assertEquals("مد", initialsOf("مجتبی داودی"))
+        assertEquals("زک", initialsOf("زهرا کریمی"))
         assertEquals("MH", initialsOf("Maryam Hosseini"))
         // Persian given name, Latin surname — two parts of one real name, and
         // the second is too short to be a visitor code anyway.

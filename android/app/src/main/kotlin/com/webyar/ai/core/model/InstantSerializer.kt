@@ -28,8 +28,9 @@ import java.time.format.DateTimeFormatterBuilder
 object DateParsing {
     /**
      * Postgres's own text form: a space or a `T`, and an offset that is often
-     * hours alone — `+00`, `+03:30`. `+HH:MM` insisted on the minutes, so the
-     * commonest value Postgres writes, `…+00`, parsed as no date at all.
+     * hours alone — `+00`, `+03:30`. The minutes are optional (`+HH:mm`, not
+     * `+HH:MM`): insisting on them makes the commonest value Postgres writes,
+     * `…+00`, parse as no date at all.
      */
     private val postgres: DateTimeFormatter = DateTimeFormatterBuilder()
         .appendPattern("yyyy-MM-dd['T'][' ']HH:mm:ss")

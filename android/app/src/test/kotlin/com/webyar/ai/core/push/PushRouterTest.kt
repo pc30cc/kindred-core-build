@@ -64,8 +64,8 @@ class PushRouterTest {
 
     /**
      * Super Admin's test send names no workspace and no conversation. With
-     * the app in front it used to be dropped as "not this operator's", so a
-     * test from an admin looking at the app showed nothing at all.
+     * the app in front it must not be dropped as "not this operator's", or a
+     * test from an admin looking at the app shows nothing at all.
      */
     @Test
     fun `a test send is shown as it came, and syncs nothing`() = runTest {
@@ -147,9 +147,9 @@ class PushRouterTest {
     )
 
     /**
-     * A colleague's message used to reach a phone only over realtime — so
-     * never with the app closed. Now it is pushed; in front, it tells the
-     * team screens to read again and is shown like any other message.
+     * A colleague's message is pushed as well as sent over realtime, so it
+     * reaches a phone with the app closed. In front, it tells the team
+     * screens to read again and is shown like any other message.
      */
     @Test
     fun `a colleague's message is shown, and wakes the team screens instead of a conversation read`() = runTest {

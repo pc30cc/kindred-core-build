@@ -39,10 +39,8 @@ baselineProfile {
      * profile that is present, valid-looking and completely inert, because
      * the installer silently drops every rule it cannot resolve.
      */
-    // A connected device — the emulator on whatever machine is running this
-    // — rather than a Gradle-managed one. A managed device downloads its own
-    // system image on first use, which is a gigabyte nobody asked for on a
-    // CI host with a 2GB ceiling.
+    // A connected device rather than a Gradle-managed one: a managed device
+    // downloads its own ~1 GB system image on first use.
     useConnectedDevices = true
 }
 

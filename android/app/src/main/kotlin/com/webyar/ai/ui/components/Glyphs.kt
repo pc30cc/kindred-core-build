@@ -51,13 +51,23 @@ object Glyph {
         )
     }
 
+    /** A question mark in a circle: Settings → About → Support. */
+    val Help: ImageVector by lazy {
+        vector(
+            "Help",
+            "M11 18h2v-2h-2v2Zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2Zm0 18c-4.41 0-8-3.59-8-8" +
+                "s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8Zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2" +
+                "c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4Z",
+        )
+    }
+
     /**
      * A lightning bolt, for saved replies.
      *
-     * The control used to borrow `Icons.Filled.Face`, which is a face — next
-     * to an emoji button that is also a face, on a row where one inserts a
-     * smiley and the other opens a list of canned answers. A bolt is what the
-     * web console uses and what "quick reply" looks like everywhere else.
+     * Not `Icons.Filled.Face`, which is a face — next to an emoji button that
+     * is also a face, on a row where one inserts a smiley and the other opens
+     * a list of canned answers. A bolt is what the web console uses and what
+     * "quick reply" looks like everywhere else.
      */
     val Bolt: ImageVector by lazy {
         vector(
@@ -266,13 +276,6 @@ object Glyph {
         )
     }
 
-    /**
-     * Turns SVG path data into an icon.
-     *
-     * `defaultWidth`/`Height` in dp and a 24-unit viewport is what every
-     * Material icon declares, and it is what lets `Icon` size and tint these
-     * exactly as it sizes and tints the ones from the library.
-     */
     // The mailbox's folders, for its menu.
 
     /** A tray: a mailbox's inbox. */
@@ -319,6 +322,13 @@ object Glyph {
         )
     }
 
+    /**
+     * Turns SVG path data into an icon.
+     *
+     * `defaultWidth`/`Height` in dp and a 24-unit viewport is what every
+     * Material icon declares, and it is what lets `Icon` size and tint these
+     * exactly as it sizes and tints the ones from the library.
+     */
     private fun vector(name: String, pathData: String): ImageVector =
         ImageVector.Builder(
             name = name,

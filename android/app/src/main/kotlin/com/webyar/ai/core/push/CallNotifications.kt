@@ -133,7 +133,7 @@ object CallNotifications {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             // Android 7 has no channels, so the ringtone and the buzz that
             // `webyar_calls` gives every later version are the notification's
-            // own to ask for. Without them a call rang in silence on exactly
+            // own to ask for. Without them a call rings in silence on exactly
             // the older phones this app is built to keep serving (minSdk 24).
             // Once, not insistently: see the flags below.
             builder

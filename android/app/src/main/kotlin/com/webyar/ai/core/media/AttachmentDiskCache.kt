@@ -124,10 +124,10 @@ class AttachmentDiskCache(
             // Out of the map before anyone hears the answer. A waiter woken by
             // a failure who asks again at once — a voice note whose screen
             // went away, tapped again — must start a fresh download, not find
-            // this finished one still standing and be handed its null; that
-            // used to happen whenever the waiter reached the lock first. And
-            // whoever waits is answered whatever happened here: the screen
-            // that started the download going away must not strand them.
+            // this finished one still standing and be handed its null, as it
+            // would whenever the waiter reached the lock first. And whoever
+            // waits is answered whatever happened here: the screen that
+            // started the download going away must not strand them.
             withContext(NonCancellable) {
                 lock.withLock { inFlight.remove(key) }
                 mine.complete(result)
@@ -159,8 +159,8 @@ class AttachmentDiskCache(
             // Looked for underneath as well as on top: the real download
             // reports a failed write to [part] the way it reports any other
             // transport failure, wrapped (`ApiError.Transport`), so matching
-            // a bare IOException alone never saw a full disk in production —
-            // only in the tests, which throw one bare.
+            // a bare IOException alone would see a full disk only in the
+            // tests, which throw one bare.
             val io = e as? IOException ?: e.cause as? IOException
             if (io != null && isDiskFull(io, directory)) {
                 diag.warn(AREA, "disk full while caching ${Diag.id(attachment.id)}; trimming hard")
@@ -319,9 +319,9 @@ class AttachmentDiskCache(
      * The index, from the directory, the first time anything asks.
      *
      * Also where leftovers are swept: every `.part` (nothing is downloading
-     * yet — this runs before the first write), and the unscoped directory
-     * earlier versions wrote to, whose files belong to nobody in particular
-     * and so cannot be kept under a scope.
+     * yet — this runs before the first write), and the unscoped
+     * [LEGACY_DIRECTORY], whose files belong to nobody in particular and so
+     * cannot be kept under a scope.
      */
     private fun ensureIndex(): LinkedHashMap<String, Entry> {
         index?.let { return it }
@@ -363,7 +363,7 @@ class AttachmentDiskCache(
         private const val TOUCH_INTERVAL_MS = 60 * 60 * 1000L
         private const val LOW_SPACE_BYTES = 8L * 1024 * 1024
 
-        /** Where versions before this cache wrote, unscoped. Swept once. */
+        /** An unscoped directory an upgraded install may still hold. Swept once. */
         const val LEGACY_DIRECTORY = "attachments"
 
         /** The directory under `cacheDir`; `attachment_paths.xml` names the same one. */

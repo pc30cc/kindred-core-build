@@ -36,11 +36,11 @@ enum class OsKind {
         }
 
         // Matched from the start of a word, not anywhere inside one: as
-        // substrings "KaiOS" contained "ios" and was drawn as an Apple, and
-        // "Darwin" — Apple's own kernel — contained "win" and was drawn as
-        // Windows. `\bmac` still takes "Mac OS X", "macOS" and "MacIntel";
-        // `\bwin` still takes "Windows", "Win32" and "WinNT". The web's
-        // `OsIcon.tsx` compares "ios" exactly, which this now agrees with.
+        // substrings "KaiOS" contains "ios" and would be drawn as an Apple,
+        // and "Darwin" — Apple's own kernel — contains "win" and would be
+        // drawn as Windows. `\bmac` still takes "Mac OS X", "macOS" and
+        // "MacIntel"; `\bwin` still takes "Windows", "Win32" and "WinNT". The
+        // web's `OsIcon.tsx` compares "ios" exactly, which this agrees with.
         private val APPLE_NAMES = Regex("\\b(mac|ios(?![a-z])|ipad|iphone|ipod|os ?x(?![a-z])|darwin)")
         private val WINDOWS_NAMES = Regex("\\bwin")
     }
@@ -72,8 +72,8 @@ internal fun OsKind.brush(size: Float): Brush {
  *
  * Compose parses SVG path strings natively, so these are the web's strings
  * rather than a redrawing of them — which is the only way two codebases end up
- * showing the same visitor the same logo a year from now. The iOS port had to
- * write its own mini path parser to manage this; here it is one call.
+ * showing the same visitor the same logo a year from now. The iOS port needs
+ * its own mini path parser for this; here it is one call.
  */
 @Composable
 fun OsGlyph(kind: OsKind, sizePx: Float, modifier: Modifier = Modifier) {

@@ -16,10 +16,10 @@ import kotlinx.serialization.json.JsonElement
  * what is in the database whoever is looking at it.
  *
  * Every surface that shows one therefore has to rebuild the sentence from
- * `metadata`. The web console learned that the hard way — four surfaces each
- * knowing a different subset of kinds, so the thread said one thing and the
- * list beside it said another — which is why the copy here is taken key for
- * key from `src/i18n/locales` rather than written afresh.
+ * `metadata`, and from the same copy: surfaces that each know a different
+ * subset of kinds make the thread say one thing and the list beside it
+ * another. That is why the copy here is taken key for key from
+ * `src/i18n/locales` rather than written afresh.
  */
 object SystemMessage {
 
@@ -105,7 +105,7 @@ object SystemMessage {
      * glued onto a verb fragment, for the reason the web file records:
      * **Persian conjugates for the subject**, so "you" needs «ارسال کردید»
      * where a third party needs «ارسال کرد», and the concatenated form
-     * produced «شما: یک تصویر ارسال کرد» — "you: sent a photo" with the wrong
+     * produces «شما: یک تصویر ارسال کرد» — "you: sent a photo" with the wrong
      * person.
      */
     fun attachmentPreview(

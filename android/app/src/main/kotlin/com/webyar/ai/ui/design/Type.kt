@@ -22,8 +22,8 @@ import com.webyar.ai.R
  * each, and the differences are not subtle: naskh and sans forms of the same
  * word have different widths, so lines wrap in different places.
  *
- * Downloadable fonts would avoid the 480KB, and were rejected: the provider is
- * Play Services, and a large share of this product's operators are on handsets
+ * Downloadable fonts would avoid the 480KB, but their provider is Play
+ * Services, and a large share of this product's operators are on handsets
  * that do not have it. A font that arrives on some devices and not others is
  * worse than one that is simply there.
  *
@@ -31,7 +31,7 @@ import com.webyar.ai.R
  * axis of a variable font needs API 26, and on 24 and 25 every weight would
  * render at Regular — bold titles silently flattening on the oldest devices,
  * which is exactly where nobody would look. Four files cost 480KB; the
- * variable one cost 240KB and two Android versions.
+ * variable one would cost 240KB and two Android versions.
  *
  * Licensed SIL OFL 1.1; the licence ships in `res/raw/license_vazirmatn.txt`
  * and is shown in Settings, which is what the licence asks for.

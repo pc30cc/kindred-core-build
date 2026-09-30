@@ -103,9 +103,6 @@ replacing `latest`, and has to be moved into place by hand.
 
 ### 4a. Google Maven answers only over IPv4
 
-This is the finding most likely to cost someone a day, so it is stated on its
-own.
-
 `dl.google.com` resolves to IPv6 from this host, and **every path under it
 answers 404 over that route** — POMs that certainly exist included. The same
 URL over IPv4 returns 200:
@@ -142,8 +139,8 @@ Confirmed at registration: `Connected to GitHub`, `Listening for Jobs`, runner
 ### 6. One thing `svc.sh install` gets wrong
 
 `svc.sh install` captures the PATH of whatever shell installed it and writes it
-to `.path`, which the runner then hands to every job. Installed from an
-automation shell, that file began:
+to `.path`, which the runner then hands to every job. Installed from a
+non-login shell, that file began:
 
 ```
 /root/.npm/_npx/<hash>/node_modules/.bin:/home/ubuntu/node_modules/.bin:...

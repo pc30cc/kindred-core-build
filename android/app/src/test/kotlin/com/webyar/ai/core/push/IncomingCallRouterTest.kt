@@ -55,9 +55,9 @@ class IncomingCallRouterTest {
     }
 
     /**
-     * A phone whose clock is set a few minutes fast read every ring as long
-     * expired, and never rang at all. FCM's send time is on the server's
-     * side of that gap, and the ring gets its whole life from its arrival.
+     * A phone whose clock is set a few minutes fast would read every ring as
+     * long expired, and never ring at all. FCM's send time is on the server's
+     * side of that gap, so the ring gets its whole life from its arrival.
      */
     @Test
     fun `a phone clock set fast still rings, for the ring's life`() = runTest {

@@ -25,7 +25,7 @@ import org.robolectric.annotation.Config
 /**
  * What the screen draws, and what it refuses to draw.
  *
- * The rule under test is the one the deployed server forced: a row exists
+ * The rule under test is the one the deployed server demands: a row exists
  * only where the server sent that key. `api.webyar.ai` answers with
  * `push_scope`, `push_preview` and `push_internal_notes` and no `email_*`;
  * the copy of the route in this repository answers with six `email_*` keys
@@ -57,9 +57,9 @@ class NotificationsScreenTest {
     /**
      * A server that answers with only the presence pair.
      *
-     * The keys are per-surface and the set has changed once already, so the
-     * screen must not assume any particular one is there: it draws a row
-     * where a key came back and nothing where one did not.
+     * The keys are per-surface and the set is not fixed, so the screen must
+     * not assume any particular one is there: it draws a row where a key
+     * came back and nothing where one did not.
      */
     private val sparse = NotificationPrefs(
         disableAll = false,

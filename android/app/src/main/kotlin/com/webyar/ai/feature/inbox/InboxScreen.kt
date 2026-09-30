@@ -121,7 +121,7 @@ sealed interface InboxState {
  * its time in the brand colour, so the eye lands on the work first.
  *
  * Two queues sit on the strip and the rest live in the menu behind the title,
- * which is where the console keeps them too. Four across a phone left no
+ * which is where the console keeps them too. Four across a phone leave no
  * room for the counts, and two of the six — Resolved and the AI handover
  * queue — are places you go now and then rather than switch between all day.
  */
@@ -316,7 +316,7 @@ fun InboxScreen(
  *
  * Both axes live in the menu rather than on strips of their own. A queue
  * strip, a channel strip and a title bar is three rows of chrome before the
- * first conversation, which on a 5-inch phone in Persian left four rows
+ * first conversation, which on a 5-inch phone in Persian leaves four rows
  * visible; a menu with two sections costs one extra tap for something you
  * change now and then. The queue that IS switched all day keeps its buttons
  * below.
@@ -358,7 +358,7 @@ private fun InboxHeader(
             ) {
                 // One line, and the channel REPLACES the queue rather than
                 // sitting under it: a queue and a channel are never both in
-                // force, so naming both was naming a state the app cannot be in.
+                // force, so naming both would name a state the app cannot be in.
                 Text(
                     channel?.title(language) ?: filter.headerTitle(language),
                     style = WebyarType.headlineMediumEmphasized,
@@ -489,11 +489,11 @@ private fun MenuRow(
  * the colleagues' chat — and last, three lines that open every inbox there
  * is.
  *
- * "Needs me" and "Awaiting customer" used to sit here too, and with them the
- * two that matter scrolled off a Persian phone. They are behind the last
- * button with the channels, Resolved, Spam and email, where a place visited
- * now and then belongs. A channel laid over the queues leaves none of them
- * selected, because none of them is what the list shows.
+ * "Needs me" and "Awaiting customer" are behind the last button with the
+ * channels, Resolved, Spam and email, where a place visited now and then
+ * belongs: on the strip they push the two that matter off a Persian phone.
+ * A channel laid over the queues leaves none of them selected, because none
+ * of them is what the list shows.
  */
 @Composable
 private fun QueueGroup(
@@ -930,9 +930,9 @@ private fun ConversationRow(
             ) {
                 Text(
                     conversation.preview(language),
-                    // The preview can arrive in any of the three languages,
-                    // and a Turkish sentence in a Persian list had its full
-                    // stop moved to the front until this went in.
+                    // The preview can arrive in any of the three languages;
+                    // without this a Turkish sentence in a Persian list has
+                    // its full stop moved to the front.
                     style = (if (emphasis) WebyarType.bodyMediumEmphasized else MaterialTheme.typography.bodyMedium)
                         .bidiContent(),
                     color = if (emphasis) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,

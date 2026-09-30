@@ -1,9 +1,12 @@
 package com.webyar.ai.feature.settings
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import com.webyar.ai.core.model.MobileAppConfig
 import com.webyar.ai.core.model.Promotions
 import com.webyar.ai.core.storage.Appearance
@@ -43,6 +46,8 @@ class AdminSwitchesTest {
         showNotifications: Boolean = true,
         showSecurity: Boolean = true,
         onClearCache: (() -> Unit)? = {},
+        supportUrl: String? = null,
+        onOpenSupport: (String) -> Unit = {},
     ) = compose.setContent {
         SettingsScreen(
             language = en,
@@ -67,6 +72,8 @@ class AdminSwitchesTest {
             onClearCache = onClearCache,
             showNotifications = showNotifications,
             showSecurity = showSecurity,
+            supportUrl = supportUrl,
+            onOpenSupport = onOpenSupport,
         )
     }
 
@@ -102,6 +109,24 @@ class AdminSwitchesTest {
         compose.onNodeWithTag(A11y.SETTINGS_SECURITY).assertIsDisplayed()
         // The header is named for what is left, not for what was taken out.
         compose.onNodeWithText(Str.notifications(en)).assertDoesNotExist()
+    }
+
+    /** About → Support opens the link Super Admin set. */
+    @Test
+    fun `Support opens Super Admin's link`() {
+        var opened: String? = null
+        settings(supportUrl = "https://webyar.ai/help", onOpenSupport = { opened = it })
+        compose.onNodeWithTag(A11y.SETTINGS_LIST).performScrollToNode(hasTestTag(A11y.SETTINGS_SUPPORT))
+        compose.onNodeWithText(Str.support(en)).assertIsDisplayed()
+        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT).performClick()
+        assertEquals("https://webyar.ai/help", opened)
+    }
+
+    /** With no link known there is nothing to open, and no row. */
+    @Test
+    fun `no link leaves Support out`() {
+        settings(supportUrl = null)
+        compose.onNodeWithTag(A11y.SETTINGS_SUPPORT).assertDoesNotExist()
     }
 
     // MARK: - Profile
@@ -206,7 +231,7 @@ class AdminSwitchesTest {
         assertFalse(config.profilePhotoEditable)
     }
 
-    /** An older server that sends nothing leaves the app as it always was, name locked. */
+    /** An older server that sends nothing gets the defaults, name locked. */
     @Test
     fun `a missing key takes its default`() {
         val config = json.decodeFromString(MobileAppConfig.serializer(), """{"platform":"android"}""")
@@ -217,8 +242,8 @@ class AdminSwitchesTest {
 
     /**
      * `GET /api/mobile-app/promotions`, as `server/routes/mobilePromotions.ts`
-     * writes it. The model once read snake_case keys, which decoded without a
-     * complaint and dropped the button, the picture and the caps.
+     * writes it. The keys are camelCase: a model reading snake_case decodes
+     * without a complaint and drops the button, the picture and the caps.
      */
     @Test
     fun `promotions decode from the server's own keys`() {

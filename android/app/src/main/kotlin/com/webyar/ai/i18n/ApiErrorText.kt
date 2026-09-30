@@ -35,10 +35,10 @@ fun ApiError.text(language: Language, unauthorized: String? = null): String = wh
             code
         } else when (status) {
             // 403 is not 401. `ApiClient.orThrow` is careful about that —
-            // signing an operator out of the whole app because one endpoint
-            // refused them is a fault it records in as many words — and this
-            // is the other half of the same care: the session is fine, this
-            // one thing is not allowed, and that is what to say.
+            // one endpoint refusing an operator must not sign them out of
+            // the whole app — and this is the other half of the same care:
+            // the session is fine, this one thing is not allowed, and that is
+            // what to say.
             403 -> Str.errorNotAllowed(language)
             404 -> Str.errorNotFound(language)
             409 -> Str.errorConflict(language)
@@ -51,10 +51,10 @@ fun ApiError.text(language: Language, unauthorized: String? = null): String = wh
             501 -> StrManual.errorFeatureMissing(language)
             in 500..599 -> Str.errorServerProblem(language)
             // 400 and 422, and the long tail of 4xx nobody has met yet.
-            // NOT the offline text, which is what stood here: the server
-            // ANSWERED, so the connection is the one thing that demonstrably
-            // works, and sending somebody to check it over a 403 is how ten
-            // minutes go into toggling aeroplane mode.
+            // NOT the offline text: the server ANSWERED, so the connection
+            // is the one thing that demonstrably works, and sending somebody
+            // to check it over a 403 is how ten minutes go into toggling
+            // aeroplane mode.
             else -> Str.errorInvalidInput(language)
         }
     }
@@ -65,7 +65,7 @@ fun ApiError.text(language: Language, unauthorized: String? = null): String = wh
  * `email_provider_error`, `forbidden`. Several routes answer with one of
  * these instead of words, and "the server's own wording is more specific"
  * stops being true when the wording is an identifier — an English operator
- * was reading `email_provider_error` under the heading. Lower case with no
+ * would read `email_provider_error` under the heading. Lower case with no
  * spaces is never a sentence, so it gets the same text as the other
  * languages: by the one code worth naming, or by the status.
  */

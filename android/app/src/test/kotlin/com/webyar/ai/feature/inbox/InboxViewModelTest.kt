@@ -136,10 +136,10 @@ class InboxViewModelTest {
     }
 
     /**
-     * The reported bug: pick a channel, then pick a different queue, and the
-     * bar went on saying "Telegram" over a list that was no longer narrowed to
-     * it — with no way to get the label off. A queue and a channel are
-     * siblings in that menu, so choosing either drops the other, as on iOS.
+     * A queue and a channel are siblings in that menu, so choosing either
+     * drops the other, as on iOS. Otherwise, after a channel and then a
+     * different queue, the bar goes on saying "Telegram" over a list no
+     * longer narrowed to it — with no way to get the label off.
      */
     @Test
     fun `picking a queue lifts the channel`() = runTest(dispatcher) {
@@ -219,7 +219,7 @@ class InboxViewModelTest {
         assertEquals(null, inbox.channel.value)
         assertEquals("", inbox.query.value)
         // Nor the old workspace's channel inboxes, before this one's answer:
-        // offline that answer never comes, and the menu kept offering them.
+        // offline that answer never comes, and the menu would keep offering them.
         assertTrue(inbox.channels.value.isEmpty())
     }
 
@@ -269,8 +269,8 @@ class InboxViewModelTest {
     /**
      * The strip carries the two queues worked in all day — Open and the AI's.
      *
-     * "Needs me" and "Awaiting customer" came off it at the owner's request:
-     * with every queue on it the two that matter scrolled off a Persian
+     * "Needs me" and "Awaiting customer" are not on it:
+     * with every queue on it the two that matter scroll off a Persian
      * phone. They are still in the plan's list, and one tap away behind the
      * strip's last button, which opens every inbox.
      */

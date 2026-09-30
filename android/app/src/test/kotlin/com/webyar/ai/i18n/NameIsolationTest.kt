@@ -8,9 +8,9 @@ import org.junit.Test
  *
  * The inbox lays a preview out in the direction of its first strong letter,
  * and these sentences open with a person's name. Unisolated, «John این گفتگو
- * را به Sara منتقل کرد» became a left-to-right line that, read from the
- * right, said the conversation went to John; «علی sent a photo» in an English
- * list flipped the same way.
+ * را به Sara منتقل کرد» becomes a left-to-right line that, read from the
+ * right, says the conversation went to John; «علی sent a photo» in an English
+ * list flips the same way.
  *
  * Plain JUnit: these strings touch nothing of the framework.
  */

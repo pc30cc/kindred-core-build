@@ -13,8 +13,8 @@ data class EffectiveBool(val value: Boolean? = null, val source: String? = null,
 /**
  * A numeric limit. Read as a [Double] although most are whole numbers: the
  * snapshot also carries `storage_gb` (which a plan may set to 0.5) and byte
- * counts past [Int.MAX_VALUE], and one value an `Int` cannot hold failed the
- * WHOLE snapshot — every feature then read as not in the plan.
+ * counts past [Int.MAX_VALUE], and one value an `Int` cannot hold fails the
+ * WHOLE snapshot — every feature then reads as not in the plan.
  */
 @Serializable
 data class EffectiveInt(val value: Double? = null, val source: String? = null, val note: String? = null)
@@ -126,8 +126,8 @@ data class WorkspaceAccess(
     /**
      * This answer, with whatever it could not read taken from [earlier] — the
      * same workspace's last one. A side request that failed says nothing
-     * new; taken as "unknown" it hid an owner's Analytics tab until the next
-     * refresh that happened to get through.
+     * new; taken as "unknown" it would hide an owner's Analytics tab until
+     * the next refresh that happens to get through.
      */
     fun filledFrom(earlier: WorkspaceAccess): WorkspaceAccess = WorkspaceAccess(
         role = role ?: earlier.role,

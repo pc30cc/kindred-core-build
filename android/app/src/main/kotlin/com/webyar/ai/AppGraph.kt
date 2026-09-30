@@ -243,11 +243,11 @@ class AppGraph(private val app: Application) {
         override suspend fun signedOut(accountId: String?) {
             realtime.setWorkspace(null)
             // Stopped AND waited for, before the purge below: cancelled is
-            // not finished, and a read whose answer was being written as the
-            // session ended went on to write the last operator's rows back
-            // after they had been purged. Bounded, so a job that is slow to
-            // let go cannot hold the login screen back; past that, it is
-            // what `clear()` alone always was.
+            // not finished, and a read whose answer is being written as the
+            // session ends would otherwise write the last operator's rows
+            // back after the purge. Bounded, so a job that is slow to let go
+            // cannot hold the login screen back; past that, it is a plain
+            // `clear()`, cancelled but not waited for.
             if (withTimeoutOrNull(SIGN_OUT_SYNC_WAIT_MS) { sync.clearAndJoin() } == null) {
                 diag.warn("Session", "sync still finishing at sign-out; purging anyway")
             }

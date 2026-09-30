@@ -37,22 +37,20 @@ import org.robolectric.annotation.Config
 /**
  * What happens to the first data load at the moment of signing in.
  *
- * The bug this exists for, in one line from logcat:
+ * The failure this guards against, as logcat shows it:
  *
  *     REQUEST /api/workspaces failed with exception:
  *     ForgottenCoroutineScopeException: rememberCoroutineScope left the
  *     composition
  *
- * `logIn` set the session, which replaced the login screen with the app,
- * which killed the login screen's `rememberCoroutineScope` — and the
- * workspace load was still running inside it. So a fresh sign-in reached an
- * app with no workspace, and therefore no entitlements, no Contacts tab, no
- * AI queues and no conversations. It looked like an empty account rather
- * than a cancelled request, because `loadWorkspaces` swallows failures.
+ * `logIn` sets the session, which replaces the login screen with the app,
+ * which ends the login screen's `rememberCoroutineScope` — so the workspace
+ * load must not run inside it. If it does, a fresh sign-in reaches an app
+ * with no workspace, and therefore no entitlements, no Contacts tab, no AI
+ * queues and no conversations. That looks like an empty account rather than
+ * a cancelled request, because `loadWorkspaces` swallows failures.
  *
- * A restored session never showed it — that path already runs in
- * `viewModelScope` — which is why every earlier look at the app missed this
- * entirely.
+ * A restored session is not affected: that path runs in `viewModelScope`.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -73,7 +71,7 @@ class SignInLoadTest {
     /**
      * The workspace list takes a moment, as a real one does. Without the
      * delay the load would finish before the caller's scope could be
-     * cancelled, and the test would pass against the broken code.
+     * cancelled, and the test would pass even with the load in that scope.
      */
     private class SlowWorkspacesApi(
         private val real: SampleApi = SampleApi(),
@@ -129,9 +127,8 @@ class SignInLoadTest {
 
     /**
      * Fails the first [failures] calls of both loads the rest of the app
-     * hangs off, the way a network that is not up yet does — the emulator's
-     * DNS for its first seconds answered `UnknownHostException` to exactly
-     * these two.
+     * hangs off, the way a network that is not up yet does — an emulator's
+     * DNS answers `UnknownHostException` for its first few seconds.
      */
     private class NotUpYetApi(
         private val failures: Int,
@@ -152,9 +149,10 @@ class SignInLoadTest {
     }
 
     /**
-     * One failed attempt used to be the end of it: no workspace, so no
-     * conversations, no plan, no Contacts tab and no AI queues — grey rows
-     * until the app was killed, while every later request went through.
+     * One failed attempt must not be the end of it: that leaves no
+     * workspace, so no conversations, no plan, no Contacts tab and no AI
+     * queues — grey rows until the app is killed, while every later request
+     * goes through.
      */
     @Test
     fun `a workspace load that fails at first is tried again until it lands`() = runTest(dispatcher) {
@@ -185,8 +183,8 @@ class SignInLoadTest {
      *
      * None of these tests waits for the launch's own restore: it reads
      * DataStore on threads the test scheduler does not see, and a test that
-     * waited on it hung when a class before it in the same JVM had left
-     * DataStore busy. AppState no longer lets that late read overwrite a
+     * waits on it hangs when a class before it in the same JVM has left
+     * DataStore busy. AppState does not let that late read overwrite a
      * value set meanwhile, which is what these tests pin.
      */
     private class ConfigApi(

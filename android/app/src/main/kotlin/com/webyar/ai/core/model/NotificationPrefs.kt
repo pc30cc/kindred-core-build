@@ -54,8 +54,8 @@ data class NotificationPrefs(
          * Which row on the server this app speaks for.
          *
          * Preferences are stored per surface — a browser row and a phone row —
-         * and the endpoint reads 'web' when a request does not say, because the
-         * console shipped before the column existed. A phone that stays silent
+         * and the endpoint reads 'web' when a request does not say, because a
+         * console tab older than the column never says. A phone that stays silent
          * is therefore not using a default: it is reading and writing the
          * browser's settings. iOS names itself the same way.
          */

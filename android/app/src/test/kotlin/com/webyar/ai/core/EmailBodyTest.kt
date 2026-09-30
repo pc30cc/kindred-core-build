@@ -60,7 +60,7 @@ class EmailBodyTest {
     /**
      * The em dash a word processor puts in for a typed hyphen, and the curly
      * quotes it substitutes. These are in almost every mail written in a rich
-     * editor, and they used to come through as «Thanks &mdash; received.»
+     * editor, and left undecoded they read «Thanks &mdash; received.»
      */
     @Test fun `the entities a word processor inserts are put back too`() {
         assertEquals(

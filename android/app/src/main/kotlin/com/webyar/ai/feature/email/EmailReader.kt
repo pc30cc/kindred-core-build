@@ -117,8 +117,7 @@ object EmailReader {
             for (i in messages.size - 2 downTo 0) {
                 val m = messages[i]
                 val from = MailName.parse(m.fromAddress)
-                // A mail still unread is opened for the operator, as the
-                // trail did before this page existed.
+                // A mail still unread is opened for the operator.
                 out.append(if (m.isRead == false) "<details class=\"w-card\" open><summary>" else "<details class=\"w-card\"><summary>")
                     .append(avatar(from, 30))
                     .append("<span class=\"w-who\">").append(escape(who(from, mailbox, language))).append("</span>")

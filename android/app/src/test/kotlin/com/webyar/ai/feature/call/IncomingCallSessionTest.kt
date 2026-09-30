@@ -127,8 +127,8 @@ class IncomingCallSessionTest {
 
     /**
      * Answer, then the red button before the call centre has replied. The
-     * call ended on screen used to come back: the answer landed, the room
-     * was joined and the microphone went live for somebody who had hung up.
+     * call ended on screen stays ended: an answer that lands late must not
+     * join the room and put the microphone live for somebody who hung up.
      */
     @Test
     fun `hanging up while the answer is on its way never joins the room`() = runTest(dispatcher) {

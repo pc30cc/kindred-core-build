@@ -122,10 +122,9 @@ class MainActivity : ComponentActivity() {
                 Appearance.DARK -> true
             }
             // The system bars follow the app's own light or dark, and follow it
-            // again every time it changes. Set once at launch, as they were,
-            // they kept the shade the phone had then: dark icons on a dark bar
-            // after the phone went dark, or under an app set to Dark on a
-            // light phone.
+            // again every time it changes. Set once at launch, they would keep
+            // the shade the phone had then: dark icons on a dark bar after the
+            // phone goes dark, or under an app set to Dark on a light phone.
             DisposableEffect(dark) {
                 enableEdgeToEdge(
                     statusBarStyle = SystemBarStyle.auto(
@@ -258,8 +257,8 @@ private fun RootScreen(appState: AppState, api: WebyarApi, language: Language) {
     // Signed out: every view model the session made is cleared now, so the
     // next operator starts from nothing — not from the last one's inbox.
     // Nor is anything left over the lock screen: a ring's tap puts the app
-    // there for its call, and a session that ended before the call screen
-    // opened (revoked, or restored to nobody) never took it back off.
+    // there for its call, and a session that ends before the call screen
+    // opens (revoked, or restored to nobody) would otherwise leave it there.
     val activity = LocalActivity.current as? MainActivity
     LaunchedEffect(session) {
         if (session is Session.SignedOut) {
@@ -301,8 +300,7 @@ private fun RootScreen(appState: AppState, api: WebyarApi, language: Language) {
                 is Session.SignedOut -> LoginScreen(
                     language = language,
                     onSubmit = appState::logIn,
-                    // "Forgot password?" was never offered: nothing passed this,
-                    // so the screen that asks for a link could not be reached.
+                    // "Forgot password?" and the screen that asks for a reset link.
                     onRequestReset = { email -> requestReset(api, email, language) },
                     covered = maintenance != null,
                 )
@@ -375,8 +373,8 @@ private fun SignedInScreen(appState: AppState, api: WebyarApi, language: Languag
     // views of the same thing, and a view model per route would make the chat
     // re-fetch a list the inbox already has.
     // The language read when it is needed, not captured: these models
-    // outlive a language change, and a captured one kept every later error
-    // in the language the session started in.
+    // outlive a language change, and a captured one would keep every later
+    // error in the language the session started in.
     val currentLanguage = { appState.language.value }
     val conversations: InboxViewModel =
         viewModel(factory = factory {
@@ -413,10 +411,11 @@ private fun SignedInScreen(appState: AppState, api: WebyarApi, language: Languag
 
 /**
  * Android 13 and later deliver no notification until the app is allowed to,
- * and nothing asked outside Settings → Notifications — so a fresh install
- * signed in and never heard a customer write. Asked once per sign-in, when
- * the app is in front and not yet allowed; the system itself stops asking
- * after the operator has said no twice, and Settings keeps the way back.
+ * and without this ask only Settings → Notifications allows it — a fresh
+ * install would sign in and never hear a customer write. Asked once per
+ * sign-in, when the app is in front and not yet allowed; the system itself
+ * stops asking after the operator has said no twice, and Settings keeps the
+ * way back.
  */
 @Composable
 private fun AskForNotificationsOnce(appState: AppState) {

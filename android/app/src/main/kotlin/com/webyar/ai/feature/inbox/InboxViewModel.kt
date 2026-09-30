@@ -44,7 +44,7 @@ import kotlinx.coroutines.launch
  */
 class InboxViewModel(
     private val api: WebyarApi,
-    /** Last-but-one so `InboxViewModel(api) { language }` still reads as it always did. */
+    /** Last-but-one so a caller can write `InboxViewModel(api) { language }`. */
     private val sync: SyncGraph = SyncGraph.inMemory(api),
     private val language: () -> Language,
 ) : ViewModel() {
@@ -121,10 +121,10 @@ class InboxViewModel(
         // nothing from the old one carries over — including the channel
         // filter, which may name a plugin this workspace has never installed.
         _channel.value = null
-        // And the channel inboxes themselves: the old workspace's plugins
-        // stayed in the menu until this one's answered — for good, offline —
-        // offering an inbox this workspace does not have, which filtered the
-        // list to nothing.
+        // And the channel inboxes themselves: left in place, the old
+        // workspace's plugins stay in the menu until this one's answer — for
+        // good, offline — offering an inbox this workspace does not have,
+        // which filters the list to nothing.
         _channels.value = emptyList()
         _query.value = ""
         _intel.value = emptyMap()
@@ -145,9 +145,9 @@ class InboxViewModel(
      * A queue and a channel are siblings in the menu, so they behave as
      * siblings here: choosing either one drops the other. This is iOS's rule
      * (`InboxViewModel.open`) and it is the only one that keeps the header
-     * honest — a queue chosen while "Telegram" stayed underneath left the bar
-     * naming a narrowing that the operator had just navigated away from, with
-     * no obvious way back.
+     * honest — a queue chosen while "Telegram" stays underneath would leave
+     * the bar naming a narrowing that the operator has just navigated away
+     * from, with no obvious way back.
      */
     fun select(filter: InboxFilter) {
         val queueChanged = _filter.value != filter
@@ -195,8 +195,8 @@ class InboxViewModel(
     fun refresh() {
         // Nothing to read before a workspace is bound (the route pulls here
         // too while the launch is still loading one), and [load] returns at
-        // once without a scope — so the spinner set here had nothing to
-        // clear it, and spun for good when no workspace came (offline).
+        // once without a scope — so a spinner set here would have nothing to
+        // clear it, and spin for good when no workspace comes (offline).
         if (scope == null) return
         _refreshing.value = true
         load(force = true)

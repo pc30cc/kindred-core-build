@@ -60,6 +60,7 @@ import com.webyar.ai.i18n.StrAndroid
 import com.webyar.ai.ui.A11y
 import com.webyar.ai.ui.components.Avatar
 import com.webyar.ai.ui.components.ChoiceButton
+import com.webyar.ai.ui.components.Glyph
 import com.webyar.ai.ui.components.LatinText
 import com.webyar.ai.ui.components.SegmentGap
 import com.webyar.ai.ui.components.ShapeFrame
@@ -124,6 +125,12 @@ fun SettingsScreen(
     showNotifications: Boolean = true,
     /** …and the Security row. With both gone, so is their section. */
     showSecurity: Boolean = true,
+    /**
+     * Where About → Support opens, as Super Admin sets it; null leaves the
+     * row out.
+     */
+    supportUrl: String? = null,
+    onOpenSupport: (String) -> Unit = {},
 ) {
     var confirmingSignOut by remember { mutableStateOf(false) }
     var confirmingClear by remember { mutableStateOf(false) }
@@ -131,7 +138,7 @@ fun SettingsScreen(
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
     LazyColumn(
-        modifier.fillMaxSize().background(page),
+        modifier.fillMaxSize().background(page).testTag(A11y.SETTINGS_LIST),
         contentPadding = PaddingValues(
             top = top,
             bottom = Space.xxl + contentPadding.calculateBottomPadding(),
@@ -161,11 +168,10 @@ fun SettingsScreen(
                             selected = isCurrent,
                             modifier = Modifier.testTag(A11y.workspaceRow(workspace.id)),
                         ) {
-                            // A logo, not a Picker. Settings used to put these
-                            // behind one tap and show names only, and an
-                            // operator with a second workspace could miss it
-                            // entirely — a name on its own is not how anyone
-                            // recognises their own company.
+                            // A logo, not a Picker. Behind one tap, with names
+                            // only, an operator with a second workspace could
+                            // miss it entirely — a name on its own is not how
+                            // anyone recognises their own company.
                             Avatar(name = workspace.name, imageUrl = workspace.logoUrl, size = 40.dp, person = false)
                             Text(
                                 workspace.name,
@@ -328,7 +334,18 @@ fun SettingsScreen(
         item { SectionHeader(Str.about(language)) }
         item {
             Group {
-                InfoRow(0, 1, Str.version(language), appVersion, latin = true)
+                val rows = if (supportUrl != null) 2 else 1
+                InfoRow(0, rows, Str.version(language), appVersion, latin = true)
+                if (supportUrl != null) {
+                    NavRow(
+                        index = 1,
+                        count = rows,
+                        icon = Glyph.Help,
+                        title = Str.support(language),
+                        onClick = { onOpenSupport(supportUrl) },
+                        modifier = Modifier.testTag(A11y.SETTINGS_SUPPORT),
+                    )
+                }
             }
         }
 

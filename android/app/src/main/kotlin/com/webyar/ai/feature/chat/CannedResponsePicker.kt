@@ -119,10 +119,8 @@ fun CannedResponsePicker(
             is ShortcutsState.Loaded -> {
                 SearchField(state = search, prompt = Str.filterByName(language))
                 if (state.items.isEmpty()) {
-                    // Not `inboxEmptyTitle` — this is the saved-replies
-                    // sheet, and it used to tell an operator looking for a
-                    // canned response that there were no conversations. The
-                    // right strings were already written and translated.
+                    // The saved-replies sheet's own empty state, not the
+                    // inbox's `inboxEmptyTitle`.
                     EmptyState(
                         icon = Icons.Filled.Warning,
                         title = Str.shortcutsEmptyTitle(language),

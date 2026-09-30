@@ -194,9 +194,9 @@ class EmailComposeViewModel(
             current.subject.isBlank() -> StrEmail.needsSubject(l)
             current.attachments.any { it.uploading } -> StrEmail.uploading(l)
             // A file whose upload failed is still on screen, in red, and the
-            // mail below it very likely says "attached". Sending used to drop
-            // it without a word — `mapNotNull { it.staged }` — and report
-            // Sent, so the mail went out without the one thing it was for.
+            // mail below it very likely says "attached". Sending anyway would
+            // drop it without a word — `mapNotNull { it.staged }` below — and
+            // report Sent, a mail gone out without the one thing it was for.
             // The operator removes it or attaches it again; then it sends.
             current.attachments.any { it.failed } -> StrEmail.uploadFailed(l)
             else -> null

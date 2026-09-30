@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.webyar.ai.core.storage.PlatformOrigin
 import com.webyar.ai.feature.chat.ChatScreen
 import com.webyar.ai.feature.contacts.ContactDetailScreen
 import com.webyar.ai.feature.contacts.ContactsScreen
@@ -37,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TopAppBar
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import com.webyar.ai.feature.settings.AccountViewModel
 import com.webyar.ai.feature.settings.ProfileScreen
 import com.webyar.ai.feature.settings.SecurityScreen
@@ -300,10 +302,10 @@ fun InboxRoute(
         // refuse is worse than no row.
         //
         // The keys are the registry's own, checked against
-        // `server/services/billing/capabilityRegistry.ts`. They used to be
-        // `team_chat` and `email`, which are not keys at all, and so both
-        // rows showed on every plan, including one whose `email_inbox` is
-        // false. Only a key that is exactly true opens a row.
+        // `server/services/billing/capabilityRegistry.ts`: `team_chat` and
+        // `email` look like keys and are not. Only a key that is exactly
+        // true opens a row, so a plan whose `email_inbox` is false shows no
+        // mailbox.
         onOpenColleagues = onOpenColleagues
             .takeIf { plan.value?.featureEnabled("inbox_team_chat") == true },
         // The mailbox is also an owner/admin section, as in the console's sidebar.
@@ -381,7 +383,7 @@ fun ChatRoute(
     // switches workspace while it is on the stack it is not re-read under a
     // workspace it is not part of — and not popped from here either: the
     // shell takes every tab back to its root on a switch, and a pop from
-    // here took whatever was on top, which need not be this chat.
+    // here would take whatever is on top, which need not be this chat.
     var openedIn by rememberSaveable(conversationId) { mutableStateOf<String?>(null) }
     LaunchedEffect(conversationId, workspace?.id) {
         val ws = workspace?.id ?: return@LaunchedEffect
@@ -417,7 +419,8 @@ fun ChatRoute(
     // Reading the bytes stays here rather than in the view model: a Uri is a
     // permission grant to one Activity, and a model that outlives the screen
     // would be holding a handle it is no longer allowed to open. Off the main
-    // thread: a 10 MB file from a cloud provider froze the chat while it came.
+    // thread: a 10 MB file from a cloud provider would freeze the chat while
+    // it comes.
     val routeScope = rememberCoroutineScope()
     val send: (android.net.Uri) -> Unit = { uri ->
         routeScope.launch {
@@ -451,9 +454,9 @@ fun ChatRoute(
     DisposableEffect(Unit) { onDispose { pendingClip.value?.file?.delete() } }
     // The app leaving the screen mid-recording ends the recording there,
     // kept to be heard like any finished one. From Android 9 an app in the
-    // background hears only silence, and the note went on filling with it —
-    // its timer still counting — until the operator came back, up to the
-    // five-minute cap.
+    // background hears only silence, and a note left recording would go on
+    // filling with it — its timer still counting — until the operator comes
+    // back, up to the five-minute cap.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         if (recordingSeconds != null) {
             recordingSeconds = null
@@ -502,8 +505,8 @@ fun ChatRoute(
         sending = sending,
         capabilities = capabilities,
         // NOT plan-gated, because there is no such entitlement: the registry
-        // has no `canned_responses` key, and fail-closed on a key that
-        // cannot exist hid the button on every plan there is. Whether a
+        // has no `canned_responses` key, and failing closed on a key that
+        // cannot exist would hide the button on every plan there is. Whether a
         // deployment carries the table is a separate question, and the
         // server answers it with a 501 that `ChatViewModel` already turns
         // into a "not set up on this server" empty state.
@@ -514,9 +517,9 @@ fun ChatRoute(
         sayNowVoice = voice.takeIf { aiManaged && plan.value?.moduleEnabled("ai_assistant") == true },
         onSayNowVoiceChange = chatModel::setSayNowVoice,
         onAttachPhoto = {
-            // Images only. `ImageAndVideo` offered a kind the server's
+            // Images only. `ImageAndVideo` would offer a kind the server's
             // allowlist does not carry (`GLOBAL_ALLOWED_MIMES`), so every
-            // video the operator picked was a wait followed by a 415.
+            // video the operator picked would be a wait followed by a 415.
             val opened = photoPicker.launchPicker(
                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
             )
@@ -559,7 +562,7 @@ fun ChatRoute(
             recorded?.let { clip ->
                 recorded = null
                 // Read off the main thread: five minutes of a note is a few
-                // megabytes, and reading it here held the whole screen.
+                // megabytes, and reading it here would hold the whole screen.
                 routeScope.launch {
                     val bytes = withContext(Dispatchers.IO) {
                         runCatching { clip.file.readBytes() }.getOrNull().also { clip.file.delete() }
@@ -674,13 +677,7 @@ fun ChatRoute(
     }
 }
 
-/**
- * Contacts, until the contacts screen exists.
- *
- * An honest placeholder rather than a blank: the tab is plan-gated, so an
- * operator who can see it has paid for it, and a blank screen would read as
- * the feature being broken rather than as this build not having it yet.
- */
+/** The Contacts tab: the workspace's address book, searchable, with each contact's visitor intel. */
 @Composable
 fun ContactsRoute(
     appState: AppState,
@@ -779,7 +776,7 @@ fun ContactDetailRoute(
     // Read again as that list lands, and the list asked for here as well:
     // a detail restored after the process was away is on screen before
     // anything has loaded the book — on a phone the list is not composed
-    // under it — and a row read once, then, stayed empty for good.
+    // under it — and a row read only once, then, would stay empty for good.
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
     LaunchedEffect(workspace?.id) {
         workspace?.let { contacts.bind(it.id) }
@@ -1471,12 +1468,12 @@ fun EmailComposeRoute(
     LaunchedEffect(workspace?.id) {
         val ws = workspace ?: return@LaunchedEffect
         // A reply is prefilled once, and the workspace's own address is what
-        // it leaves out of To and Cc. Read before the mailbox was known — a
+        // it leaves out of To and Cc. Read before the mailbox is known — a
         // thread opened from a notification, the mailbox's list never shown,
-        // or Reply all tapped the moment the thread opened — Reply all put
-        // the workspace's own address back in Cc. So the model is bound here
-        // too, and a reply waits a moment for the address; one that never
-        // comes (a request that fails) is prefilled without it, as before.
+        // or Reply all tapped the moment the thread opens — Reply all would
+        // put the workspace's own address back in Cc. So the model is bound
+        // here too, and a reply waits a moment for the address; one that
+        // never comes (a request that fails) is prefilled without it.
         val provider = mailbox ?: email.provider.value
         email.bind(ws.id, provider)
         val own = if (sourceThreadId != null && (mode == EmailReplyMode.REPLY || mode == EmailReplyMode.REPLY_ALL)) {
@@ -1673,7 +1670,7 @@ fun CallRoute(
     // Asks the session to call; it does not do the calling. The request
     // belongs to something that outlives a recomposition, and this effect is
     // not that: it is keyed on `permissionsAsked`, which its own body sets,
-    // so its first run was always cancelled mid-flight. `start` is
+    // so its first run is always cancelled mid-flight. `start` is
     // idempotent, so however often this runs again, one call is one
     // invitation.
     LaunchedEffect(workspace?.id, permissionsAsked) {
@@ -1839,10 +1836,10 @@ fun SettingsRoute(
 ) {
     val settings: SettingsViewModel = viewModel(factory = viewModelFactory { SettingsViewModel(api) })
     // Asked again each time the page is shown. The model lives as long as the
-    // session, and it used to ask once: a first request that failed left
-    // "offline" in place of the switches until the app was killed, and the
-    // online/offline line never moved while the schedule turned it over. Not
-    // while its own first ask is still on the way.
+    // session, so asking once would let a first request that failed leave
+    // "offline" in place of the switches until the app is killed, and the
+    // online/offline line would never move while the schedule turns it over.
+    // Not while its own first ask is still on the way.
     LifecycleResumeEffect(settings) {
         if (settings.availability.value !is AvailabilityState.Loading) settings.load()
         onPauseOrDispose { }
@@ -1868,6 +1865,15 @@ fun SettingsRoute(
     LaunchedEffect(graph, config.showStorage) {
         if (config.showStorage) storage = graph?.storageUsage()
     }
+
+    // About → Support: the link Super Admin set for the Android app, else the
+    // platform's help centre (Super Admin → Branding → Domains).
+    var platformSupport by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(graph) {
+        platformSupport = graph?.let { PlatformOrigin(it.secureStore).supportUrl() }
+    }
+    val supportUrl = config.supportUrl?.takeIf { it.startsWith("https://") } ?: platformSupport
+    val uriHandler = LocalUriHandler.current
 
     SettingsScreen(
         language = language,
@@ -1903,6 +1909,9 @@ fun SettingsRoute(
         onSetDynamicColor = appState::setDynamicColor,
         showNotifications = config.showNotificationSettings,
         showSecurity = config.showSecurity,
+        supportUrl = supportUrl,
+        // A phone with no browser has nothing to open it with; the tap does nothing.
+        onOpenSupport = { url -> runCatching { uriHandler.openUri(url) } },
         storage = storage,
         // Null leaves the whole Storage section out; the cache keeps working.
         onClearCache = graph?.takeIf { config.showStorage }?.let { g ->
@@ -1942,7 +1951,7 @@ inline fun <reified T : ViewModel> viewModelFactory(crossinline create: () -> T)
 /**
  * Opens a picker; false when the phone has nothing that answers one — the
  * documents app switched off, some kiosk and TV builds. `launch` throws
- * then, from inside a tap, and that ended the app.
+ * then, from inside a tap, and uncaught that ends the app.
  */
 internal fun <I> ActivityResultLauncher<I>.launchPicker(input: I): Boolean =
     try {
@@ -1981,9 +1990,10 @@ fun ProfileRoute(
     val form by model.profile.collectAsStateWithLifecycle()
     val context = LocalContext.current
     // Settings' header and a colleague's thread keep their own copy of the
-    // photo, which nothing else refreshes: a new one changed here showed the
-    // old one there until the app was restarted. Once the form has read the
-    // account, its photo IS the server's, after every upload and removal.
+    // photo, which nothing else refreshes: without this a new one changed
+    // here would show the old one there until the app restarts. Once the form
+    // has read the account, its photo IS the server's, after every upload and
+    // removal.
     LaunchedEffect(form.loaded, form.avatarUrl) {
         if (form.loaded) onAvatarChanged(form.avatarUrl)
     }
@@ -2208,8 +2218,8 @@ internal sealed interface PickedFile {
  *
  * The size and the type are checked here too, against the same numbers the
  * server enforces. Sending a 40 MB video and letting the upload come back 400
- * costs the operator the wait and tells them nothing they can act on; iOS has
- * refused both before the upload since it shipped (`Composer.swift`).
+ * costs the operator the wait and tells them nothing they can act on; iOS
+ * refuses both before the upload too (`Composer.swift`).
  */
 internal suspend fun readPickedFileOffMain(
     context: android.content.Context,
@@ -2244,11 +2254,11 @@ internal fun readPickedFile(
 /**
  * The name the operator knows the file by.
  *
- * `Uri.lastPathSegment` is not it and never was: a document from the
- * Storage Access Framework answers `primary:Download/report.pdf` and a photo
- * from the system picker answers `1000000034`, so the attachment arrived in
- * the thread called "1000000034" with no extension on it. `DISPLAY_NAME` is
- * the column every `OpenableColumns` provider is required to answer.
+ * `Uri.lastPathSegment` is not it: a document from the Storage Access
+ * Framework answers `primary:Download/report.pdf` and a photo from the
+ * system picker answers `1000000034`, so an attachment named from it arrives
+ * in the thread called "1000000034" with no extension on it. `DISPLAY_NAME`
+ * is the column every `OpenableColumns` provider is required to answer.
  */
 private fun displayName(
     resolver: android.content.ContentResolver,

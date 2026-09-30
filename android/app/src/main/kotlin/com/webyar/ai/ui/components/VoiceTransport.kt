@@ -137,9 +137,9 @@ fun VoiceTransport(
             Text(
                 caption,
                 // The row is pinned left to right, and a caption left to
-                // inherit that was laid out as English: «۸۷ کیلوبایت» read
+                // inherit that is laid out as English: «۸۷ کیلوبایت» reads
                 // back as «کیلوبایت ۸۷», and «در حال دریافت…» and «این فایل
-                // بارگیری نشد.» led with their closing marks. The reading
+                // بارگیری نشد.» lead with their closing marks. The reading
                 // order comes from the caption's own words instead, and the
                 // side it sits on is stated physically below, because an End
                 // resolved against right-to-left words would be the left.
@@ -168,17 +168,17 @@ private fun Waveform(
     // The gesture loops below start on the first touch and then run for as
     // long as the bars are on screen, so they must not keep the [onSeek] they
     // started with. That one closes over the player of its moment — none,
-    // when the bars were touched before Play, or a released one after the
-    // file changed — and every scrub after it went nowhere.
+    // when the bars are touched before Play, or a released one after the
+    // file changes — and every scrub after it would go nowhere.
     val seek by rememberUpdatedState(onSeek)
     Canvas(
         modifier
             // A tap, and a drag once the finger has gone sideways — nothing
             // else. Seeking on the first touch and holding every move after
-            // it meant a thumb that came down on the bars to scroll the
-            // transcript scrubbed the note instead, and the list stayed put:
-            // the bars run across most of a bubble. An up-or-down swipe is
-            // now left to the list.
+            // it would mean a thumb that comes down on the bars to scroll the
+            // transcript scrubs the note instead, and the list stays put: the
+            // bars run across most of a bubble. An up-or-down swipe is left
+            // to the list.
             .pointerInput(Unit) {
                 detectTapGestures { if (size.width > 0) seek(it.x / size.width) }
             }

@@ -287,8 +287,8 @@ data class Message(
 ) {
     /**
      * Whether this message is nothing but its files. The text bubble is
-     * skipped entirely for these — an empty rounded rectangle beside a photo
-     * is the bug this was.
+     * skipped entirely for these; drawing it leaves an empty rounded
+     * rectangle beside the photo.
      */
     val isAttachmentOnly: Boolean
         get() = body.isBlank() && !attachments.isNullOrEmpty()

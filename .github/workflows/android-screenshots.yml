@@ -68,9 +68,8 @@ jobs:
           echo "Published $(ls *.png | wc -l) screenshots to screenshots/${GITHUB_REF_NAME}"
 
   # The compile classpath and the sources of the libraries the UI is written
-  # against, published to `toolchain/<branch>`: what lets the Kotlin be
-  # type-checked, and the libraries' real API read, on a machine that cannot
-  # reach Google's Maven. Only on a commit tagged `[toolchain]`, or by hand.
+  # against, published to `toolchain/<branch>` for offline type-checking and
+  # API reference. Only on a commit tagged `[toolchain]`, or by hand.
   toolchain:
     name: Export toolchain
     if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[toolchain]') }}

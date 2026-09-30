@@ -105,11 +105,11 @@ class CallSession(
      * or the answer — and, after either, the join.
      *
      * Held so that ending the call can stop it. Without that, a hang-up
-     * pressed while the answer, the token or the last poll was still on its
-     * way ended the call on screen and then watched it come back: the join
-     * went on, set the phase to connecting over "call ended", entered the
-     * room and switched the microphone on — for an operator who had pressed
-     * the red button and put the phone down.
+     * pressed while the answer, the token or the last poll is still on its
+     * way ends the call on screen only for it to come back: the join goes
+     * on, sets the phase to connecting over "call ended", enters the room
+     * and switches the microphone on — for an operator who has pressed the
+     * red button and put the phone down.
      */
     private var callJob: Job? = null
 
@@ -118,9 +118,10 @@ class CallSession(
      *
      * Not [viewModelScope]: that ends the moment this screen does, and the
      * red button is also the Done button — the operator's second tap on it
-     * closed the screen and cancelled the hang-up request still in flight,
-     * so the server never heard the call was over (and a call-centre call
-     * kept this operator's line busy). One request, then nothing holds it.
+     * closes the screen, which would cancel the hang-up request still in
+     * flight, so the server would never hear the call was over (and a
+     * call-centre call would keep this operator's line busy). One request,
+     * then nothing holds it.
      */
     private val teardown by lazy { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
 
@@ -130,18 +131,16 @@ class CallSession(
      * The invitation is created HERE, on the session's own scope, and not by
      * the screen that shows the call. A composition is a fragile place to put
      * a request: an effect is cancelled whenever one of its keys changes, and
-     * the screen's own permission flag is one of those keys. The invitation
-     * POST really was cancelled mid-flight by that, the cancellation really
-     * was reported as a failed call, and the retry's invitation really did go
-     * on to ring, be answered and connect — behind a screen that had latched
-     * on "the call could not connect" and would never let go. A view model's
-     * scope outlives every recomposition, so there is nothing left to cancel
-     * it but the call ending.
+     * the screen's own permission flag is one of those keys. An invitation
+     * POST cancelled mid-flight that way reads as a failed call, while the
+     * retry's invitation goes on to ring, be answered and connect — behind a
+     * screen latched on "the call could not connect". A view model's scope
+     * outlives every recomposition, so there is nothing left to cancel it
+     * but the call ending.
      *
      * Idempotent, which matters for the same reason: however many times the
-     * screen recomposes and asks again, one call means one invitation. The
-     * version that asked from a composition sent two of them per call, and
-     * left the spare ringing on the visitor's widget until it expired.
+     * screen recomposes and asks again, one call means one invitation. A
+     * spare one would go on ringing the visitor's widget until it expired.
      */
     fun start(
         workspaceId: String,
@@ -158,8 +157,7 @@ class CallSession(
         callJob = viewModelScope.launch {
             val invitation = runCatchingUnlessCancelled {
                 // Named, because the two ids are both UUID strings and
-                // transposing them is exactly the mistake that made every
-                // call fail with a 403 nobody ever saw.
+                // transposing them fails every call with a 403.
                 api.inviteToCall(
                     workspaceId = workspaceId,
                     conversationId = conversationId,
@@ -167,8 +165,8 @@ class CallSession(
                 )
             }.getOrElse { error ->
                 // The reason, not a shrug. "Could not connect" over a 403
-                // sent the operator looking at their network while the
-                // server was telling them something specific.
+                // would send the operator looking at their network while the
+                // server is telling them something specific.
                 _phase.value = CallPhase.Ended(CallOutcome.Failed(error.displayText(language)))
                 return@launch
             }
@@ -417,7 +415,7 @@ class CallSession(
     override fun onCleared() {
         // Gone from the screen with the call still on — Back, or a sign-out —
         // is a hang-up, and the server is told so like any other. Leaving it
-        // to the room's release alone left an invitation ringing the
+        // to the room's release alone would leave an invitation ringing the
         // visitor's widget for its five minutes, and a call-centre call open
         // with this operator's line still busy.
         finish(CallOutcome.HungUp)

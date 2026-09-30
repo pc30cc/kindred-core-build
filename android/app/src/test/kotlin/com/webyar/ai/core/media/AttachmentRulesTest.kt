@@ -11,8 +11,8 @@ import java.io.File
  * The rules the composer refuses a file by.
  *
  * Worth pinning because the failure they prevent is silent on the operator's
- * side: before this, a picked document went up whatever it was, and a `.docx`
- * came back 415 after the whole file had been read and base64'd. The check
+ * side: without them, a picked document goes up whatever it is, and a `.docx`
+ * comes back 415 after the whole file has been read and base64'd. The check
  * only helps if it agrees with the server, so the last test here reads the
  * server's own source rather than a copy of it.
  */
@@ -95,8 +95,8 @@ class AttachmentRulesTest {
     }
 
     /**
-     * The gallery hands over `1000000034`. Sending that as the file name is
-     * what put a bubble reading "1000000034" in the thread.
+     * The gallery hands over `1000000034`. Sending that as the file name puts
+     * a bubble reading "1000000034" in the thread.
      */
     @Test
     fun `a name the picker invented is replaced by what the file is`() {

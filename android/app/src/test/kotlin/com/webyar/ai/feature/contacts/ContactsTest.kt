@@ -113,10 +113,11 @@ class ContactsTest {
     /**
      * The same person, the same mark, on both screens.
      *
-     * The contacts list showed bare initials for a visitor the inbox drew as a
-     * Mac from Germany, because the sample backend kept two hand-written maps
-     * and only one of them had him. Deriving the second from the first is what
-     * makes this hold; the test is what says it has to.
+     * The sample backend derives its by-contact intel from its by-conversation
+     * intel: two hand-written maps drift apart, and the contacts list then
+     * shows no mark for a visitor the inbox draws as a Mac from Germany.
+     * Deriving the second from the first is what makes this hold; the test is
+     * what says it has to.
      */
     @Test
     fun `a visitor looks the same in the inbox and in the address book`() = runTest {
@@ -166,7 +167,7 @@ class ContactsTest {
 
     /**
      * "Nobody has written in yet" and "your search found nobody" are not the
-     * same news, and the screen used to give the first answer to both.
+     * same news, and the screen must not give the first answer to both.
      */
     @Test
     fun `a search that finds nobody says that, not that the book is empty`() {
@@ -182,7 +183,7 @@ class ContactsTest {
         }
         // After composition, not during it: writing state from inside a
         // composable is how you get a value that is read once and then thrown
-        // away. (`rememberSearchState` no longer clears on its first pass —
+        // away. (`rememberSearchState` does not clear on its first pass —
         // only when its key changes — but the write belongs out here anyway.)
         compose.runOnIdle { search.text = "zzzz" }
 

@@ -250,7 +250,7 @@ class NotificationsViewModelTest {
         private val real: SampleApi = SampleApi(),
         /**
          * Shaped like the deployed server's answer. Every field a test
-         * asserts on has to be non-null, because null now means "this
+         * asserts on has to be non-null, because null means "this
          * server does not have this preference" and the screen draws
          * nothing for it.
          */

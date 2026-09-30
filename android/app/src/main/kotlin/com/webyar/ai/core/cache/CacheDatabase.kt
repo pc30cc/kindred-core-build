@@ -96,7 +96,8 @@ abstract class CacheDatabase : RoomDatabase() {
  * failure can be answered — and the answers are, in order: rebuild the file
  * from nothing (the server resyncs it), and if even a fresh file cannot be
  * opened (a full disk, a broken filesystem) run this launch on an in-memory
- * database. The app then works exactly as before, it just forgets on exit.
+ * database. The app then works exactly as it would on disk; it just forgets
+ * on exit.
  *
  * [generation] moves on every replacement, so a flow reading the old
  * instance knows to re-subscribe to the new one.

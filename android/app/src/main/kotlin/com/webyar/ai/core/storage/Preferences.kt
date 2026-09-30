@@ -12,9 +12,9 @@ import kotlinx.serialization.json.Json
  * workspace they were in — as a preference, never as the truth: it is kept
  * only while the server's list still has it (a workspace can be left,
  * renamed or suspended between launches), and only for the operator who
- * chose it. Without it, Android ending the app in the background put an
- * operator of two workspaces back in the first, under the screens they had
- * open in the second.
+ * chose it. Without it, Android ending the app in the background would put
+ * an operator of two workspaces back in the first, under the screens they
+ * had open in the second.
  */
 class Preferences(private val store: SecureStore) {
     private val languageKey = stringPreferencesKey("prefs.language")

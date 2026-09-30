@@ -34,11 +34,9 @@ class ChatScreenTest {
     /**
      * A transcript opens on its NEWEST message, not its oldest.
      *
-     * This test asserted `m-1` first and failed, which was the test being
-     * wrong rather than the screen: `m-1` is the oldest of thirteen, a
-     * LazyColumn never composes what is scrolled away, and an inbox that
-     * opened two weeks up the thread would be useless. So the assertion is
-     * the behaviour that is actually wanted.
+     * `m-1` is the oldest of thirteen and a LazyColumn never composes what
+     * is scrolled away; an inbox that opened two weeks up the thread would be
+     * useless, so the newest row is the one that must be on screen.
      */
     @Test
     fun `the transcript opens on the newest message`() = runTest {
@@ -69,10 +67,10 @@ class ChatScreenTest {
     /**
      * The composer does not own the draft, and these two tests say so.
      *
-     * It used to hold its own `remember { mutableStateOf("") }`, which made it
-     * impossible for anything outside to put text in the field — and a saved
-     * reply has to do exactly that. So the state is hoisted, the screen
-     * reports what was typed, and the caller decides what the draft is.
+     * It holds no `remember { mutableStateOf("") }` of its own: a saved reply
+     * has to be able to put text in the field from outside. So the state is
+     * hoisted, the screen reports what was typed, and the caller decides what
+     * the draft is.
      */
     @Test
     fun `typing is reported to the caller, character for character`() {
@@ -114,9 +112,9 @@ class ChatScreenTest {
     /**
      * Whitespace alone is not a message.
      *
-     * The TRIMMING moved to the view model when the draft was hoisted — the
-     * screen no longer decides what a message is — but the button still has to
-     * refuse a draft of spaces, or the operator sends "" to a visitor.
+     * The TRIMMING is the view model's — the screen does not decide what a
+     * message is — but the button still has to refuse a draft of spaces, or
+     * the operator sends "" to a visitor.
      */
     @Test
     fun `a draft of only spaces cannot be sent`() {

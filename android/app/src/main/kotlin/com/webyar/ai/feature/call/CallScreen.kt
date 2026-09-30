@@ -109,10 +109,10 @@ fun CallScreen(
     // Awake for as long as the call is on, and not a moment longer.
     //
     // The call is a desk call on the loudspeaker, so nobody touches the glass
-    // while it runs — and when the screen timed out, the app went to the
-    // background and Android (9 and later) handed it silence for a
-    // microphone and no camera: the visitor went on talking to a phone that
-    // had quietly stopped sending. The screen staying lit is what keeps the
+    // while it runs — and when the screen times out, the app goes to the
+    // background and Android (9 and later) hands it silence for a
+    // microphone and no camera: the visitor goes on talking to a phone that
+    // has quietly stopped sending. The screen staying lit is what keeps the
     // app in front for the length of the call. From the moment there is a
     // call to connect: a ring that nobody has answered holds no microphone,
     // and one whose cancel never arrived must not keep a locked phone lit.
@@ -140,7 +140,7 @@ fun CallScreen(
             if (remoteVideo != null && room != null) {
                 // Flipped once, as the console (src/index.css, "Call video
                 // orientation") and the Mac app flip every call video: the
-                // visitor's camera arrives mirrored, and unflipped they were
+                // visitor's camera arrives mirrored, and unflipped they are
                 // shown to the operator the wrong way round.
                 VideoView(remoteVideo, room, Modifier.fillMaxSize(), mirror = true)
             }
@@ -294,12 +294,12 @@ private fun Identity(
  * not from when the invitation went out. An operator reading "04:12" on a
  * call that connected thirty seconds ago would rightly distrust the number.
  *
- * A failure gets a second line saying what the server actually said. The
- * session has always carried that reason and the screen used to drop it, so
- * a 403 and an unreachable network both read "the call could not connect" —
- * one sentence that sends an operator to check their signal while the server
- * is telling them something precise. It is the only surface a failed call
- * has: unlike the console there is no alert behind it to say more.
+ * A failure gets a second line saying what the server actually said, from the
+ * reason the session carries. Without it a 403 and an unreachable network
+ * both read "the call could not connect" — one sentence that sends an
+ * operator to check their signal while the server is telling them something
+ * precise. It is the only surface a failed call has: unlike the console there
+ * is no alert behind it to say more.
  */
 @Composable
 private fun Status(phase: CallPhase, connectedAt: Instant?, language: Language, video: Boolean) {
@@ -460,9 +460,8 @@ private fun Controls(
         }
 
         // Red, round, and the same button whether it ends a call or closes a
-        // finished one — it is the only way off this screen either way. It
-        // used to be a full-width blue bar, which is what a phone uses to
-        // ANSWER.
+        // finished one — it is the only way off this screen either way. Never
+        // a full-width blue bar, which is what a phone uses to ANSWER.
         CallToggle(
             icon = Glyph.CallEnd,
             label = if (phase.isLive) Str.hangUpCall(language) else Str.done(language),

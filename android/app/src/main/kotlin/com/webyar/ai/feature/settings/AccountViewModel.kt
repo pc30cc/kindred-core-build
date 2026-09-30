@@ -27,10 +27,9 @@ data class ProfileForm(
     /**
      * Somebody has edited this form.
      *
-     * `loaded` used to stand in for this, and with one field it very nearly
-     * worked. With three it does not: typing a first name and letting a
-     * refresh land filled the family name in from the server underneath the
-     * cursor, because only the field being typed was guarded.
+     * One flag for the whole form, not `loaded` and not per field: guarding
+     * only the field being typed lets a refresh fill the family name in from
+     * the server underneath the cursor while a first name is typed.
      */
     val touched: Boolean = false,
 ) {
@@ -45,7 +44,7 @@ data class ProfileForm(
  *
  * The server composes `full_name` from the parts it is given and hands back
  * only the composed result, so the split has to happen here. The last space
- * is the seam: "مجتبی داودی" and "Ada Lovelace" both split the way a person
+ * is the seam: "مریم حسینی" and "Ada Lovelace" both split the way a person
  * would expect, and a single word is a first name with no family name yet
  * rather than a family name with no first.
  */
@@ -101,15 +100,14 @@ class AccountViewModel(
                     // typing: re-reading the account after a save must not
                     // overwrite a name they are halfway through changing.
                     //
-                    // Except where the form has never been filled at all.
-                    // Typing into the first name before this first answer
-                    // landed used to keep the family name and the phone at
-                    // the empty they started as — and the next Save sent
-                    // them empty, which the route reads as "clear it": the
-                    // stored family name and number were erased by somebody
-                    // who only ever touched their first name. A field still
-                    // empty on the first answer takes the stored value; one
-                    // with something typed in it keeps what was typed.
+                    // Except where the form has never been filled at all. A
+                    // field still empty on the first answer takes the stored
+                    // value; one with something typed in it keeps what was
+                    // typed. Otherwise typing a first name before this answer
+                    // lands would leave the family name and the phone empty,
+                    // and the next Save would send them empty — which the
+                    // route reads as "clear it", erasing the stored family
+                    // name and number.
                     fun seed(typed: String, stored: String) = when {
                         !it.touched -> stored
                         !it.loaded && typed.isEmpty() -> stored

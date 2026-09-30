@@ -267,8 +267,8 @@ fun AppShell(
             // operator's list does not have (joined since the list was read):
             // no call screen will open, so none will take the app back off
             // the lock screen, which the ring's tap put it over. Left there,
-            // whatever was open — an inbox, a customer's chat — showed to
-            // whoever held the locked phone.
+            // whatever is open — an inbox, a customer's chat — shows to
+            // whoever holds the locked phone.
             val waiting = appState.pendingCall.value != null
             val ringing = navigator.stack(AppTab.INBOX).any { it is IncomingCallKey }
             if (!waiting && !ringing) activity?.showOverLockScreen(false)
@@ -584,7 +584,7 @@ fun AppShell(
     // One screen per Back, as on a phone. Material's default pops until the
     // panes change, and on a wide window a list with a placeholder beside it
     // looks the same as a list with a contact beside it — so Back from a
-    // contact popped the contact AND the Contacts list, and left the tab.
+    // contact would pop the contact AND the Contacts list, and leave the tab.
     val listDetail = rememberListDetailSceneStrategy<NavKey>(
         backNavigationBehavior = BackNavigationBehavior.PopLatest,
     )

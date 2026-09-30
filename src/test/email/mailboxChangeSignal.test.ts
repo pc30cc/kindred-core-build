@@ -54,7 +54,7 @@ vi.mock('../../../server/services/channels/gmail/oauthConfig.js', async (importO
 }));
 
 const { internalChannelsRouter } = await import('../../../server/routes/internalChannels.js');
-const { YAHOO_CHANGE_COALESCE_MS } = await import('../../../server/services/email/yahooChangeNotifier.js');
+const { yahooChangeClock } = await import('../../../server/services/email/yahooChangeNotifier.js');
 const { scheduleGmailChange } = await import('../../../server/services/email/gmailChangeNotifier.js');
 
 let server: { url: string; close: () => Promise<void> } | null = null;
@@ -97,9 +97,18 @@ async function upsertYahoo(messageId: string, opts: { references?: string[] } = 
   return { status: res.status, body: (await res.json()) as { thread_id: string; is_new_message: boolean } };
 }
 
+/**
+ * The coalescing windows opened so far, run by hand. The process's own
+ * timers stay real: faking them under a live HTTP server stalled the
+ * requests themselves on a loaded CI runner.
+ */
+const windows: Array<() => void> = [];
+const realAfter = yahooChangeClock.after;
+
 /** Lets the coalescing window pass. */
 async function afterWindow() {
-  await vi.advanceTimersByTimeAsync(YAHOO_CHANGE_COALESCE_MS + 10);
+  for (const run of windows.splice(0)) run();
+  await Promise.resolve();
 }
 
 beforeEach(async () => {
@@ -108,12 +117,14 @@ beforeEach(async () => {
   db = createFakeDb({ email_threads: [], email_messages: [] });
   db.unique.email_messages = [['thread_id', 'external_message_id']];
   server = await startCore();
-  // Only timeouts are faked: the HTTP round trips run on real I/O.
-  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  windows.length = 0;
+  yahooChangeClock.after = (_ms, run) => { windows.push(run); };
 });
 
 afterEach(async () => {
-  await vi.runOnlyPendingTimersAsync();
+  // Close any window a test left open, so no mailbox stays "pending".
+  await afterWindow();
+  yahooChangeClock.after = realAfter;
   vi.useRealTimers();
   await server?.close();
   server = null;
@@ -218,6 +229,8 @@ describe('Gmail: the change notifier', () => {
       return new Response('{}', { status: 404 });
     });
 
+    // No HTTP server in this one: the fetch is stubbed, so timers can be faked.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     scheduleGmailChange({} as never, GMAIL_INT);
     await vi.advanceTimersByTimeAsync(2_100);
     await vi.waitFor(() => expect(spies.pushed).toHaveLength(1));

@@ -15,11 +15,23 @@ import type { ServerConfig } from '../../config.js';
 import { publishOperatorEvent } from '../realtime/publish.js';
 
 export const YAHOO_CHANGE_COALESCE_MS = 2_000;
-const pending = new Map<string, ReturnType<typeof setTimeout>>();
+const pending = new Set<string>();
+
+/**
+ * The clock the window runs on. Tests replace `after` with one they drive
+ * by hand, rather than faking the process's timers under a live HTTP server.
+ */
+export const yahooChangeClock = {
+  after(ms: number, run: () => void): void {
+    const timer = setTimeout(run, ms);
+    timer.unref?.();
+  },
+};
 
 export function scheduleYahooMailboxChanged(config: ServerConfig, workspaceId: string, integrationId: string): void {
   if (pending.has(integrationId)) return;
-  const timer = setTimeout(() => {
+  pending.add(integrationId);
+  yahooChangeClock.after(YAHOO_CHANGE_COALESCE_MS, () => {
     pending.delete(integrationId);
     void publishOperatorEvent(config, {
       kind: 'email_mailbox_changed',
@@ -31,7 +43,5 @@ export function scheduleYahooMailboxChanged(config: ServerConfig, workspaceId: s
       // de-duplicate by payload (Android, without a stream offset).
       at: new Date().toISOString(),
     }, { skipConversationChannel: true }).catch(() => {});
-  }, YAHOO_CHANGE_COALESCE_MS);
-  (timer as { unref?: () => void }).unref?.();
-  pending.set(integrationId, timer);
+  });
 }

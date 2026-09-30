@@ -17,6 +17,7 @@ data class PushContext(
     val openTeamPeerIds: Set<String> = emptySet(),
     /** The email threads on screen right now. */
     val openEmailThreadIds: Set<String> = emptySet(),
+    val openSupportThreadIds: Set<String> = emptySet(),
 )
 
 /**
@@ -93,6 +94,18 @@ class PushRouter(
             sync.onEmailPush(workspace, payload.provider)
             if (now.foreground && payload.threadId != null && payload.threadId in now.openEmailThreadIds) {
                 diag.info(AREA, "email push: thread on screen")
+                return
+            }
+            diag.info(AREA, "push (${payload.type}) shown")
+            show(payload, title, body, now.language)
+            return
+        }
+        if (payload.isSupport) {
+            // The platform's team answered: the support screens read again,
+            // and the notification is shown unless that thread is open.
+            sync.onSupportPush(payload.threadId)
+            if (now.foreground && payload.threadId != null && payload.threadId in now.openSupportThreadIds) {
+                diag.info(AREA, "support push: thread on screen")
                 return
             }
             diag.info(AREA, "push (${payload.type}) shown")

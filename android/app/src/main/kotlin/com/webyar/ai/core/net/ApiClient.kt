@@ -1,6 +1,11 @@
 package com.webyar.ai.core.net
 
 import com.webyar.ai.BuildConfig
+import com.webyar.ai.core.model.SupportPostResult
+import com.webyar.ai.core.model.SupportStatus
+import com.webyar.ai.core.model.SupportThread
+import com.webyar.ai.core.model.SupportThreadDetail
+import com.webyar.ai.core.model.SupportThreadsResponse
 import com.webyar.ai.core.model.NotificationPrefs
 import com.webyar.ai.core.model.NotificationPrefsResponse
 import com.webyar.ai.core.model.NotificationPrefsUpdate
@@ -975,6 +980,55 @@ class ApiClient(
     override suspend fun colleagues(workspaceId: String): ColleaguesResponse =
         build(HttpMethod.Get, "/api/team-chat/colleagues", listOf("workspace_id" to workspaceId))
             .decode()
+
+    // MARK: - Platform support
+
+    override suspend fun supportStatus(): SupportStatus =
+        build(HttpMethod.Get, "/api/platform-support/status").decode()
+
+    override suspend fun supportThreads(): List<SupportThread> =
+        build(HttpMethod.Get, "/api/platform-support/threads").decode<SupportThreadsResponse>().threads
+
+    override suspend fun supportThread(threadId: String): SupportThreadDetail =
+        build(HttpMethod.Get, "/api/platform-support/threads/${threadId.urlPath()}").decode()
+
+    @Serializable
+    private data class SupportWriteBody(
+        val body: String,
+        val clientMessageId: String,
+        val subject: String? = null,
+        val workspaceId: String? = null,
+    )
+
+    override suspend fun sendSupportChat(body: String, clientMessageId: String, workspaceId: String?): SupportPostResult =
+        build(
+            HttpMethod.Post,
+            "/api/platform-support/chat",
+            body = SupportWriteBody(body, clientMessageId, workspaceId = workspaceId),
+        ).decode()
+
+    override suspend fun createSupportTicket(
+        subject: String,
+        body: String,
+        clientMessageId: String,
+        workspaceId: String?,
+    ): SupportPostResult =
+        build(
+            HttpMethod.Post,
+            "/api/platform-support/tickets",
+            body = SupportWriteBody(body, clientMessageId, subject = subject, workspaceId = workspaceId),
+        ).decode()
+
+    override suspend fun replySupportThread(threadId: String, body: String, clientMessageId: String): SupportPostResult =
+        build(
+            HttpMethod.Post,
+            "/api/platform-support/threads/${threadId.urlPath()}/messages",
+            body = SupportWriteBody(body, clientMessageId),
+        ).decode()
+
+    override suspend fun markSupportThreadRead(threadId: String) {
+        build(HttpMethod.Post, "/api/platform-support/threads/${threadId.urlPath()}/read").orThrow()
+    }
 
     override suspend fun teamThread(workspaceId: String, peerId: String): TeamThreadResponse =
         build(

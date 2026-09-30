@@ -131,6 +131,11 @@ fun SettingsScreen(
      */
     supportUrl: String? = null,
     onOpenSupport: (String) -> Unit = {},
+    /** Online support: null (or nothing to offer) leaves the section out. */
+    support: SupportSummary? = null,
+    onStartSupportChat: () -> Unit = {},
+    onNewSupportTicket: () -> Unit = {},
+    onOpenSupportRequests: () -> Unit = {},
 ) {
     var confirmingSignOut by remember { mutableStateOf(false) }
     var confirmingClear by remember { mutableStateOf(false) }
@@ -328,6 +333,18 @@ fun SettingsScreen(
                         modifier = Modifier.testTag(A11y.SETTINGS_CLEAR_CACHE),
                     )
                 }
+            }
+        }
+
+        if (support != null && support.shown) {
+            item(key = "support") {
+                SupportSection(
+                    summary = support,
+                    language = language,
+                    onStartChat = onStartSupportChat,
+                    onNewTicket = onNewSupportTicket,
+                    onOpenRequests = onOpenSupportRequests,
+                )
             }
         }
 

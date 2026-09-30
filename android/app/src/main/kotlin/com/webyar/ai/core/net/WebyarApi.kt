@@ -1,5 +1,9 @@
 package com.webyar.ai.core.net
 
+import com.webyar.ai.core.model.SupportPostResult
+import com.webyar.ai.core.model.SupportStatus
+import com.webyar.ai.core.model.SupportThread
+import com.webyar.ai.core.model.SupportThreadDetail
 import com.webyar.ai.core.model.NotificationPrefs
 import com.webyar.ai.core.model.NotificationPrefsUpdate
 import com.webyar.ai.core.model.Account
@@ -381,6 +385,34 @@ interface WebyarApi {
         attachmentId: String? = null,
     )
     suspend fun markTeamThreadRead(workspaceId: String, peerId: String)
+
+    // MARK: - Platform support
+
+    /**
+     * The platform's own support team (`/api/platform-support`): whether it
+     * can be reached, and is online. The defaults are "not offered", which is
+     * what a backend without it means.
+     */
+    suspend fun supportStatus(): SupportStatus = SupportStatus()
+    suspend fun supportThreads(): List<SupportThread> = emptyList()
+    suspend fun supportThread(threadId: String): SupportThreadDetail = throw ApiError.Server(404, "thread_not_found")
+
+    /** A message in the operator's live chat, which the first one opens. */
+    suspend fun sendSupportChat(body: String, clientMessageId: String, workspaceId: String?): SupportPostResult =
+        throw ApiError.Server(404, "support_disabled")
+
+    /** A ticket, for when nobody on the team is available. */
+    suspend fun createSupportTicket(
+        subject: String,
+        body: String,
+        clientMessageId: String,
+        workspaceId: String?,
+    ): SupportPostResult = throw ApiError.Server(404, "support_disabled")
+
+    suspend fun replySupportThread(threadId: String, body: String, clientMessageId: String): SupportPostResult =
+        throw ApiError.Server(404, "thread_not_found")
+
+    suspend fun markSupportThreadRead(threadId: String) = Unit
 
     // MARK: - Channels and email
 

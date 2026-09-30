@@ -471,6 +471,183 @@ object StrAndroid {
         Language.TR -> "Sohbet başlat"
     }
 
+    // MARK: - Platform support
+
+    /** Settings: the section that reaches the platform's own team. */
+    fun supportSection(l: Language): String = when (l) {
+        Language.EN -> "Online support"
+        Language.FA -> "پشتیبانی آنلاین"
+        Language.TR -> "Canlı destek"
+    }
+
+    fun supportTitle(l: Language): String = when (l) {
+        Language.EN -> "Support"
+        Language.FA -> "پشتیبانی"
+        Language.TR -> "Destek"
+    }
+
+    fun supportChat(l: Language): String = when (l) {
+        Language.EN -> "Chat with support"
+        Language.FA -> "گفتگو با پشتیبانی"
+        Language.TR -> "Destekle sohbet et"
+    }
+
+    fun supportOnline(l: Language): String = when (l) {
+        Language.EN -> "Online"
+        Language.FA -> "آنلاین"
+        Language.TR -> "Çevrimiçi"
+    }
+
+    fun supportOffline(l: Language): String = when (l) {
+        Language.EN -> "Offline"
+        Language.FA -> "آفلاین"
+        Language.TR -> "Çevrimdışı"
+    }
+
+    fun supportNewTicket(l: Language): String = when (l) {
+        Language.EN -> "Submit a ticket"
+        Language.FA -> "ثبت تیکت"
+        Language.TR -> "Destek talebi oluştur"
+    }
+
+    fun supportMyRequests(l: Language): String = when (l) {
+        Language.EN -> "My requests"
+        Language.FA -> "درخواست‌های من"
+        Language.TR -> "Taleplerim"
+    }
+
+    fun supportOnlineHint(l: Language): String = when (l) {
+        Language.EN -> "The team is online and usually answers within minutes."
+        Language.FA -> "تیم پشتیبانی آنلاین است و معمولاً در چند دقیقه پاسخ می‌دهد."
+        Language.TR -> "Destek ekibi çevrimiçi ve genellikle birkaç dakika içinde yanıt verir."
+    }
+
+    fun supportOfflineHint(l: Language): String = when (l) {
+        Language.EN -> "The team is not online right now. Submit a ticket — the reply comes here and to your email."
+        Language.FA -> "تیم پشتیبانی الان آنلاین نیست. تیکت ثبت کنید؛ پاسخ همین‌جا و در ایمیلتان می‌رسد."
+        Language.TR -> "Destek ekibi şu an çevrimiçi değil. Talep oluşturun; yanıt buraya ve e-postanıza gelir."
+    }
+
+    fun supportStartChat(l: Language): String = when (l) {
+        Language.EN -> "Start a chat"
+        Language.FA -> "شروع گفتگو"
+        Language.TR -> "Sohbet başlat"
+    }
+
+    fun supportTicketNumber(l: Language, number: String): String = when (l) {
+        Language.EN -> "Ticket #$number"
+        Language.FA -> "تیکت #$number"
+        Language.TR -> "Talep #$number"
+    }
+
+    fun supportChatLabel(l: Language): String = when (l) {
+        Language.EN -> "Chat"
+        Language.FA -> "گفتگو"
+        Language.TR -> "Sohbet"
+    }
+
+    /** A thread's state, as the operator sees it. */
+    fun supportStatus(l: Language, status: String): String = when (status) {
+        "pending" -> when (l) {
+            Language.EN -> "Waiting for you"
+            Language.FA -> "منتظر پاسخ شما"
+            Language.TR -> "Yanıtınız bekleniyor"
+        }
+        "resolved" -> when (l) {
+            Language.EN -> "Resolved"
+            Language.FA -> "حل‌شده"
+            Language.TR -> "Çözüldü"
+        }
+        "closed" -> when (l) {
+            Language.EN -> "Closed"
+            Language.FA -> "بسته"
+            Language.TR -> "Kapandı"
+        }
+        else -> when (l) {
+            Language.EN -> "Open"
+            Language.FA -> "باز"
+            Language.TR -> "Açık"
+        }
+    }
+
+    fun supportEmpty(l: Language): String = when (l) {
+        Language.EN -> "No requests yet"
+        Language.FA -> "هنوز درخواستی ندارید"
+        Language.TR -> "Henüz talebiniz yok"
+    }
+
+    fun supportGreeting(l: Language): String = when (l) {
+        Language.EN -> "Hi! How can we help?"
+        Language.FA -> "سلام! چطور می‌توانیم کمکتان کنیم؟"
+        Language.TR -> "Merhaba! Size nasıl yardımcı olabiliriz?"
+    }
+
+    fun supportSubject(l: Language): String = when (l) {
+        Language.EN -> "Subject"
+        Language.FA -> "موضوع"
+        Language.TR -> "Konu"
+    }
+
+    fun supportMessage(l: Language): String = when (l) {
+        Language.EN -> "Describe the problem"
+        Language.FA -> "مشکل را توضیح دهید"
+        Language.TR -> "Sorunu açıklayın"
+    }
+
+    fun supportSubmit(l: Language): String = when (l) {
+        Language.EN -> "Submit ticket"
+        Language.FA -> "ثبت تیکت"
+        Language.TR -> "Talebi gönder"
+    }
+
+    fun supportTicketSent(l: Language, number: String): String = when (l) {
+        Language.EN -> "Ticket #$number submitted. The reply comes here and to your email."
+        Language.FA -> "تیکت #$number ثبت شد. پاسخ همین‌جا و در ایمیلتان می‌رسد."
+        Language.TR -> "Talep #$number oluşturuldu. Yanıt buraya ve e-postanıza gelir."
+    }
+
+    fun supportClosed(l: Language): String = when (l) {
+        Language.EN -> "This conversation is closed. Start a new one from Support."
+        Language.FA -> "این گفتگو بسته شده است. از بخش پشتیبانی گفتگوی تازه‌ای شروع کنید."
+        Language.TR -> "Bu görüşme kapandı. Destek bölümünden yenisini başlatın."
+    }
+
+    fun supportTeam(l: Language): String = when (l) {
+        Language.EN -> "Support team"
+        Language.FA -> "تیم پشتیبانی"
+        Language.TR -> "Destek ekibi"
+    }
+
+    fun supportFile(l: Language): String = when (l) {
+        Language.EN -> "📎 A file — open it from your email or the web"
+        Language.FA -> "📎 یک فایل — از ایمیل یا نسخهٔ وب باز کنید"
+        Language.TR -> "📎 Bir dosya — e-postanızdan veya webden açın"
+    }
+
+    fun supportNotSent(l: Language): String = when (l) {
+        Language.EN -> "Not sent — tap to try again"
+        Language.FA -> "ارسال نشد — برای تلاش دوباره بزنید"
+        Language.TR -> "Gönderilmedi — tekrar denemek için dokunun"
+    }
+
+    fun supportRateLimited(l: Language): String = when (l) {
+        Language.EN -> "That's a lot of messages — wait a moment."
+        Language.FA -> "پیام‌ها زیاد شد؛ کمی صبر کنید."
+        Language.TR -> "Çok fazla mesaj; biraz bekleyin."
+    }
+
+    fun supportUnavailable(l: Language): String = when (l) {
+        Language.EN -> "Support isn't available right now."
+        Language.FA -> "پشتیبانی در حال حاضر در دسترس نیست."
+        Language.TR -> "Destek şu anda kullanılamıyor."
+    }
+
+    fun supportMeLabel(l: Language): String = when (l) {
+        Language.EN -> "You"
+        Language.FA -> "شما"
+        Language.TR -> "Siz"
+    }
+
     /** Before a preview the operator wrote themselves: "You: …". */
     fun youPrefix(l: Language): String = when (l) {
         Language.EN -> "You: "

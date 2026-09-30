@@ -350,7 +350,6 @@ describe('writing', () => {
       visitors_count: 900,
       ai_credits_used: 0,
       storage_bytes: 1024,
-      call_minutes_used: 0,
     });
     db.table('contacts').push({ id: 'c-1', workspace_id: workspaceId, name: 'A customer' });
 

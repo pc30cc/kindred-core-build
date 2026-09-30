@@ -5,6 +5,8 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -66,10 +68,11 @@ class InboxStripTest {
         colleaguesShown: Boolean = false,
         emailUnread: Int = 0,
         onEmail: (String?) -> Unit = {},
+        language: Language = Language.EN,
     ) = compose.setContent {
         InboxScreen(
             state = InboxState.Loaded(conversations),
-            language = Language.EN,
+            language = language,
             onOpen = {},
             allFilters = all,
             chipFilters = listOf(InboxFilter.OPEN, InboxFilter.AI),
@@ -149,6 +152,43 @@ class InboxStripTest {
         // The three lines are not lit: the list is one the strip has a button for.
         compose.onNodeWithTag(A11y.INBOX_EVERY_INBOX).assertIsDisplayed()
     }
+
+    /**
+     * The strip never scrolls and never runs off the edge: on a narrow phone
+     * it sets itself tighter, down to smaller type, until every button fits.
+     */
+    private fun assertStripInside(language: Language) {
+        screen(
+            openUnread = OpenUnread(conversations = 3),
+            colleagueThreadsUnread = 1,
+            emailUnread = 2,
+            language = language,
+        )
+        val screenBounds = compose.onRoot().getBoundsInRoot()
+        listOf(
+            A11y.inboxChip("open"),
+            A11y.inboxChip("ai"),
+            A11y.INBOX_COLLEAGUES_CHIP,
+            A11y.INBOX_EMAIL_BUTTON,
+            A11y.INBOX_EVERY_INBOX,
+        ).forEach { tag ->
+            val bounds = compose.onNodeWithTag(tag).getBoundsInRoot()
+            assertTrue(
+                "$tag in $language at $bounds, screen $screenBounds",
+                bounds.left >= screenBounds.left && bounds.right <= screenBounds.right,
+            )
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h800dp")
+    fun `on a narrow phone, in Persian, every button of the strip is inside the screen`() =
+        assertStripInside(Language.FA)
+
+    @Test
+    @Config(qualifiers = "w320dp-h800dp")
+    fun `on a narrow phone, in English, every button of the strip is inside the screen`() =
+        assertStripInside(Language.EN)
 
     @Test
     fun `the envelope after Colleagues opens the mailbox, and carries the mail's dot`() {

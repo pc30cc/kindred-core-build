@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -51,7 +52,14 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
+import androidx.compose.ui.unit.sp
 import com.webyar.ai.core.model.ChannelInbox
 import com.webyar.ai.core.model.Conversation
 import com.webyar.ai.core.model.ConversationStatus
@@ -83,7 +91,6 @@ import com.webyar.ai.ui.design.Size
 import com.webyar.ai.ui.design.Space
 import com.webyar.ai.ui.design.WebyarTheme
 import com.webyar.ai.ui.design.WebyarType
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import com.webyar.ai.ui.components.avatarKey
@@ -517,6 +524,10 @@ private fun MenuRow(
  * filled pill is the whole mark of the one chosen — no tick, which on each
  * button only pushed the labels along.
  *
+ * Every button is always on screen: the strip does not scroll. It is set as
+ * roomy as the width allows ([StripDensity]) and, on a phone narrower still,
+ * the inboxes share what is left in proportion to their words.
+ *
  * "Needs me" and "Awaiting customer" are behind the last button with the
  * channels, Resolved and Spam, where a place visited now and then belongs:
  * on the strip they push the ones that matter off a Persian phone. A channel
@@ -542,62 +553,170 @@ private fun QueueGroup(
     elsewhere: Boolean,
     onOpenEveryInbox: () -> Unit,
 ) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .selectableGroup()
-            .padding(horizontal = Space.screenInset, vertical = Space.sm),
-        horizontalArrangement = Arrangement.spacedBy(Space.xs),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    val specs = buildList {
         chips.forEach { option ->
-            ChoiceButton(
-                label = option.title(language),
-                count = counts.count(option),
-                selected = option == selected && selectedChannel == null && !colleaguesShown,
-                language = language,
-                onClick = { onSelect(option) },
-                modifier = Modifier.testTag(A11y.inboxChip(option.wire)),
-                // Open alone: it is the queue the count is of. Never the AI's.
-                unread = if (option == InboxFilter.OPEN) openUnread else 0,
-                tick = false,
+            add(
+                StripChip(
+                    label = option.title(language),
+                    count = counts.count(option)?.takeIf { it > 0 }?.let { Format.number(it, language) },
+                    // Open alone: it is the queue the count is of. Never the AI's.
+                    dot = option == InboxFilter.OPEN && openUnread > 0,
+                )
             )
         }
         if (onOpenColleagues != null) {
-            ChoiceButton(
-                label = Str.colleagues(language),
-                count = colleaguesUnread,
-                selected = colleaguesShown,
-                language = language,
-                onClick = onOpenColleagues,
-                modifier = Modifier.testTag(A11y.INBOX_COLLEAGUES_CHIP),
-                unread = colleagueThreadsUnread,
-                tick = false,
+            add(
+                StripChip(
+                    label = Str.colleagues(language),
+                    count = colleaguesUnread?.takeIf { it > 0 }?.let { Format.number(it, language) },
+                    dot = colleagueThreadsUnread > 0,
+                )
             )
         }
-        if (onOpenEmail != null) {
-            // Somewhere else rather than an inbox of this list — the mailbox
-            // is a screen of its own, and Back comes home — so a button, not
-            // a pill that could be chosen.
+    }
+    val icons = if (onOpenEmail != null) 2 else 1
+
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val fit = rememberStripFit(maxWidth, specs, icons)
+        val tight = fit.density
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .selectableGroup()
+                .padding(horizontal = tight.inset, vertical = Space.sm),
+            horizontalArrangement = Arrangement.spacedBy(tight.gap),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Each inbox's share of the width in proportion to its words: at
+            // its own width while they all fit, which the density chosen
+            // ensures, and stretched or squeezed to fill it exactly when even
+            // the tightest does not.
+            fun Modifier.share(index: Int): Modifier =
+                weight(fit.weights[index], fill = fit.squeezed)
+
+            chips.forEachIndexed { index, option ->
+                ChoiceButton(
+                    label = specs[index].label,
+                    count = counts.count(option),
+                    selected = option == selected && selectedChannel == null && !colleaguesShown,
+                    language = language,
+                    onClick = { onSelect(option) },
+                    modifier = Modifier.share(index).testTag(A11y.inboxChip(option.wire)),
+                    unread = if (option == InboxFilter.OPEN) openUnread else 0,
+                    tick = false,
+                    labelSize = tight.fontSize,
+                    horizontalPadding = tight.padding,
+                )
+            }
+            if (onOpenColleagues != null) {
+                ChoiceButton(
+                    label = Str.colleagues(language),
+                    count = colleaguesUnread,
+                    selected = colleaguesShown,
+                    language = language,
+                    onClick = onOpenColleagues,
+                    modifier = Modifier.share(chips.size).testTag(A11y.INBOX_COLLEAGUES_CHIP),
+                    unread = colleagueThreadsUnread,
+                    tick = false,
+                    labelSize = tight.fontSize,
+                    horizontalPadding = tight.padding,
+                )
+            }
+            if (onOpenEmail != null) {
+                // Somewhere else rather than an inbox of this list — the mailbox
+                // is a screen of its own, and Back comes home — so a button, not
+                // a pill that could be chosen.
+                StripIconButton(
+                    label = Str.emailInbox(language),
+                    icon = Icons.Filled.Email,
+                    language = language,
+                    lit = false,
+                    unread = emailUnread,
+                    onClick = onOpenEmail,
+                    width = tight.icon,
+                    modifier = Modifier.testTag(A11y.INBOX_EMAIL_BUTTON),
+                )
+            }
             StripIconButton(
-                label = Str.emailInbox(language),
-                icon = Icons.Filled.Email,
+                label = StrAndroid.everyInbox(language),
+                icon = Glyph.Menu,
                 language = language,
-                lit = false,
-                unread = emailUnread,
-                onClick = onOpenEmail,
-                modifier = Modifier.testTag(A11y.INBOX_EMAIL_BUTTON),
+                lit = elsewhere,
+                unread = menuUnread,
+                onClick = onOpenEveryInbox,
+                width = tight.icon,
+                modifier = Modifier.testTag(A11y.INBOX_EVERY_INBOX),
             )
         }
-        StripIconButton(
-            label = StrAndroid.everyInbox(language),
-            icon = Glyph.Menu,
-            language = language,
-            lit = elsewhere,
-            unread = menuUnread,
-            onClick = onOpenEveryInbox,
-            modifier = Modifier.testTag(A11y.INBOX_EVERY_INBOX),
+    }
+}
+
+/** What an inbox button on the strip has to show, for measuring it before it is drawn. */
+private data class StripChip(val label: String, val count: String?, val dot: Boolean)
+
+/**
+ * How tightly the strip is set, roomiest first: the first whose buttons all
+ * fit the width is the one used. The space around the words goes first, then
+ * the icons' width, then a point of type at a time.
+ */
+internal enum class StripDensity(
+    /** Unspecified: the theme's label size. */
+    val fontSize: TextUnit,
+    val padding: Dp,
+    val icon: Dp,
+    val inset: Dp,
+    val gap: Dp,
+) {
+    Roomy(TextUnit.Unspecified, Space.lg, 52.dp, Space.screenInset, Space.xs),
+    Snug(TextUnit.Unspecified, Space.md, 48.dp, Space.screenInset, Space.xs),
+    Compact(13.sp, 10.dp, 48.dp, Space.md, Space.xs),
+    Close(12.sp, Space.sm, 48.dp, Space.sm, 3.dp),
+    // Icons stay 48 wide from here down: the touch target never shrinks.
+    Tight(11.sp, 6.dp, 48.dp, Space.sm, Space.xxs),
+    Tightest(10.sp, Space.xs, 48.dp, Space.xs, Space.xxs),
+}
+
+/** The density chosen, and each inbox's share of the width. */
+private class StripFit(val density: StripDensity, val weights: List<Float>, val squeezed: Boolean)
+
+@Composable
+private fun rememberStripFit(maxWidth: Dp, chips: List<StripChip>, icons: Int): StripFit {
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val plain = MaterialTheme.typography.labelLarge
+    val bold = WebyarType.labelLargeEmphasized
+    val small = MaterialTheme.typography.labelMedium
+    return remember(maxWidth, chips, icons, density, plain, bold, small, measurer) {
+        fun width(text: String, style: TextStyle): Dp =
+            with(density) { measurer.measure(text, style, softWrap = false, maxLines = 1).size.width.toDp() }
+
+        fun chipWidth(chip: StripChip, level: StripDensity): Dp {
+            val size = level.fontSize
+            fun sized(style: TextStyle) = if (size.isSpecified) style.copy(fontSize = size) else style
+            // Bold when chosen, so the wider of the two: choosing one must not
+            // push the strip over.
+            val label = maxOf(width(chip.label, sized(plain)), width(chip.label, sized(bold)))
+            val count = chip.count?.let { n ->
+                Space.sm + width(n, if (size.isSpecified) small.copy(fontSize = (size.value - 2f).sp) else small)
+            } ?: 0.dp
+            // The red dot and the space before it.
+            val dot = if (chip.dot) Space.xs + 10.dp else 0.dp
+            return level.padding * 2 + label + count + dot
+        }
+
+        fun total(level: StripDensity): Dp {
+            val buttons = chips.fold(0.dp) { sum, chip -> sum + chipWidth(chip, level) }
+            val gaps = level.gap * (chips.size + icons - 1).coerceAtLeast(0)
+            // A few points spare for the type's own rounding.
+            return level.inset * 2 + buttons + level.icon * icons + gaps + 4.dp
+        }
+
+        val level = StripDensity.entries.firstOrNull { total(it) <= maxWidth }
+        val chosen = level ?: StripDensity.Tightest
+        StripFit(
+            density = chosen,
+            weights = chips.map { chipWidth(it, chosen).value.coerceAtLeast(1f) },
+            squeezed = level == null,
         )
     }
 }
@@ -616,6 +735,7 @@ private fun StripIconButton(
     unread: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    width: Dp = 52.dp,
 ) {
     val container = if (lit) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
     Surface(
@@ -624,7 +744,7 @@ private fun StripIconButton(
         color = container,
         contentColor = if (lit) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = modifier
-            .size(width = 52.dp, height = 40.dp)
+            .size(width = width, height = 40.dp)
             .semantics {
                 contentDescription = label
                 if (unread > 0) stateDescription = unreadDescription(unread, language)
@@ -637,7 +757,8 @@ private fun StripIconButton(
             UnreadDot(
                 visible = unread > 0,
                 ring = container,
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 7.dp, end = 11.dp),
+                // Over the glyph's corner whatever the button's width.
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 7.dp, end = (width - 30.dp) / 2),
             )
         }
     }

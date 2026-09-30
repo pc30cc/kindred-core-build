@@ -18,9 +18,10 @@
  */
 import type { ServerConfig } from '../../../config.js';
 import { decideStrategy, countClarificationAttempts, isStrictKbNoGrounding } from '../answerStrategy.js';
+import { answersBusinessHoursFromSettings } from '../actions/readOnly.js';
 import { logRun } from '../logs.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
-import { markAiManaged, commitNeedsHuman, routeAfterHandoff, type HandoffCommit } from '../handoffState.js';
+import { markAiManaged, commitNeedsHuman, routeAfterHandoff, type HandoffCommit, type HandoffReason } from '../handoffState.js';
 import { updateRuntimeFlags } from '../runtime/conversationState.js';
 import { pickTemplate } from '../runtime/templates.js';
 import { runSemanticOffTopicGuard } from '../topics/semanticGuard.js';
@@ -51,7 +52,7 @@ export interface AnswerStageResult {
   triggerMeta: ContextStageResult['triggerMeta'];
   workflowMeta: ContextStageResult['workflowMeta'];
   toolMeta: ContextStageResult['toolMeta'];
-  pageContextMetaRef: any;
+  pageContextMetaRef: ContextStageResult['pageContextMetaRef'];
   sources: RetrievalStageResult['sources'];
   /** Merged pre-strategy + post-strategy routing metadata (Follow-up 9E.2). */
   routingMeta: ReturnType<typeof buildRoutingMetadata>;
@@ -190,6 +191,7 @@ export async function runAnswerStage(
     // Semantic evidence only — a retrieval ATTEMPT never makes a turn
     // business-specific (page context alone must not force strict-KB).
     businessSignalDetected: retrieval.businessSignalDetected,
+    answeredBySettings: answersBusinessHoursFromSettings(availability, question),
   });
   console.log('[ai-agent] strategy decision', {
     conversationId,
@@ -234,19 +236,19 @@ export async function runAnswerStage(
     if (pageExact || pagePath) {
       // Reorder sources so the matched page chunk is FIRST, and force answer.
       const matchedIds: string[] = pageContextDebug?.page_matched_source_ids || [];
-      const idx = sources.findIndex((s: any) => matchedIds.includes(s.id));
+      const idx = sources.findIndex((s) => matchedIds.includes(s.id));
       if (idx > 0) {
         const [hit] = sources.splice(idx, 1);
         sources.unshift(hit);
       }
-      (strategy as any).decisionType = 'answer';
-      (strategy as any).reason = 'page_context_match';
-      (strategy as any).retrievalStrength = pageExact ? 'page_exact_match' : 'page_path_match';
-      (strategy as any).handoffRequired = false;
-      (strategy as any).topScore = Math.max(strategy.topScore, pageExact ? 0.95 : 0.8);
-      (strategy as any).confidence = Math.max(strategy.confidence, pageExact ? 0.95 : 0.8);
+      strategy.decisionType = 'answer';
+      strategy.reason = 'page_context_match';
+      strategy.retrievalStrength = pageExact ? 'page_exact_match' : 'page_path_match';
+      strategy.handoffRequired = false;
+      strategy.topScore = Math.max(strategy.topScore, pageExact ? 0.95 : 0.8);
+      strategy.confidence = Math.max(strategy.confidence, pageExact ? 0.95 : 0.8);
       if (!strategy.sourceTypesUsed.includes('web_page')) {
-        (strategy as any).sourceTypesUsed = ['web_page', ...strategy.sourceTypesUsed];
+        strategy.sourceTypesUsed = ['web_page', ...strategy.sourceTypesUsed];
       }
       strategyMeta.decision_type = strategy.decisionType;
       strategyMeta.reason = strategy.reason;
@@ -412,8 +414,8 @@ export async function runAnswerStage(
       decisionTimeline.push('routing_keep_ai_overrides_handoff');
       console.log('[ai-agent.runtime.routing] keep_ai overrides handoff', { conversationId });
       // Fall through to LLM by treating strategy as substantive answer.
-      (strategy as any).decisionType = 'answer';
-      (strategy as any).reason = `${strategy.reason || 'low_confidence'}_keep_ai`;
+      strategy.decisionType = 'answer';
+      strategy.reason = `${strategy.reason || 'low_confidence'}_keep_ai`;
     } else {
     const noAnsResult = await evaluateNoAnswerHooks({
       config, workspaceId, conversationId, locale, settings,
@@ -437,7 +439,7 @@ export async function runAnswerStage(
       metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
     });
 
-    const fallbackBehavior = (settings as any).fallback_behavior || 'handoff';
+    const fallbackBehavior = settings.fallback_behavior || 'handoff';
     // Follow-up 9E.2 — an explicit POST no_answer/low_confidence -> handoff
     // Routing rule is allowed to override the coarse fallback_behavior=
     // 'silent' default, matching the already-live explicit ai_no_answer
@@ -470,7 +472,7 @@ export async function runAnswerStage(
       const commit = await commitNeedsHuman(config, {
         workspaceId,
         conversationId,
-        reason: strategy.reason as any,
+        reason: strategy.reason as HandoffReason,
       }).catch(() => ({ ok: false, routingDeferred: false } as HandoffCommit));
       decisionTimeline.push(commit.ok ? 'handoff_state_committed' : 'handoff_state_commit_failed');
       // Visitor-facing ack mirrors the EXISTING PRE hard-handoff mode

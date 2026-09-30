@@ -393,6 +393,14 @@ async function shouldDeferRoutingForPrechat(
 /**
  * Mark a conversation as human-active: an operator has replied OR taken over.
  * AI must not auto-reply afterwards (subject to mode/policy).
+ *
+ * The metadata is written every time (the AI's freshness checks compare
+ * against `human_takeover_at`), but the event is announced only when it is a
+ * MOVE. Every operator reply lands here, and on a thread that is already
+ * human-active the event changes nothing a list or counter shows, while every
+ * open dashboard of the workspace receives it. Callers pass the `ai_state`
+ * they already read with the conversation, so knowing costs no extra read;
+ * unknown (undefined) still announces.
  */
 export async function markHumanTakeover(
   config: ServerConfig,
@@ -401,10 +409,11 @@ export async function markHumanTakeover(
     conversationId: string;
     operatorId: string | null;
     reason: TakeoverReason;
+    previousAiState?: string | null;
   },
 ): Promise<void> {
   const now = new Date().toISOString();
-  await patchMeta(config, args.conversationId, {
+  const ok = await patchMeta(config, args.conversationId, {
     ai_state: 'human_active',
     managed_by_ai: false,
     ai_managed_by_ai: false,
@@ -414,6 +423,7 @@ export async function markHumanTakeover(
     ai_handoff_requested: false,
     last_human_reply_at: now,
   }, args.workspaceId);
+  if (ok && args.previousAiState === 'human_active') return;
 
   try {
     await publishOperatorEvent(config, {

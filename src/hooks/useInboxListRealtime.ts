@@ -160,9 +160,10 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
             // between queues (Main / Automated / Needs human / Spam). The
             // lightweight patch path can't represent that, so always
             // invalidate every cached list for this workspace.
-            // The server announces a takeover on EVERY operator reply. When
-            // the thread is already human-active in the cached lists, nothing
-            // a list or counter shows changes (the reply's own message push
+            // The server announces a takeover only when the thread was not
+            // human-active yet (older servers did on every operator reply).
+            // When the cached lists already show it human-active, nothing a
+            // list or counter shows changes (the reply's own message push
             // re-reads the row), so there is nothing to refresh.
             if (kind === 'ai_human_takeover' && isAlreadyHumanActive(qc, workspaceId, payload.conversation_id)) {
               return;

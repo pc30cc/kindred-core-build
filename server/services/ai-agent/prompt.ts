@@ -284,7 +284,7 @@ export function buildSystemPrompt(
 
 const GROUNDING_DIRECTIVE: Record<GroundingMode, string> = {
   grounded:
-    'Verified business information for this question is present in the sources above. Answer directly and confidently from it, and stay concise.',
+    'Verified business information for this question is present in the sources or tool results above. Answer directly and confidently from it, and stay concise.',
   partial:
     'The sources above only partially cover this question. Use what they support, hedge briefly ("based on the information I have"), never fill gaps with invented facts, and offer to confirm details with a human if the visitor needs certainty.',
   unverified:

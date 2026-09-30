@@ -305,6 +305,21 @@ class EmailTest {
     }
 
     @Test
+    fun `in Persian a row is still laid out left to right - the face on the left, the star on the right`() = runTest {
+        val threads = SampleApi().emailThreads("ws-1")
+        compose.setContent {
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Rtl,
+            ) {
+                EmailInboxScreen(EmailInboxState.Loaded(threads), Language.FA, {})
+            }
+        }
+        val row = compose.onNodeWithTag(A11y.emailRow("t-1")).fetchSemanticsNode().boundsInRoot
+        val star = compose.onNodeWithTag(A11y.emailStar("t-1"), useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue("the star is on the right", star.left > row.center.x)
+    }
+
+    @Test
     fun `in Sent a row says whom the mail is to`() = runTest {
         val sent = SampleApi().emailThreadsPage("ws-1", com.webyar.ai.core.model.EmailFolder.INBOX, null, null, mailFolder = "sent").threads.single()
         compose.setContent {

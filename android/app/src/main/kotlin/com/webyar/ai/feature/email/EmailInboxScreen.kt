@@ -21,8 +21,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,6 +86,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 
 /**
  * The mailbox: who it is with, what it is about, and the last line of it.
@@ -319,134 +322,139 @@ private fun EmailThreadRow(
     val people = if (addressed && names.isNotEmpty()) "${StrEmail.to(language)}: \u2068$names\u2069" else names
     var menuOpen by remember { mutableStateOf(false) }
 
-    // The inbox's rounded row, with its tone under what is unread.
-    Box(
-        modifier
-            .fillMaxWidth()
-            .padding(horizontal = Space.sm, vertical = 1.dp)
-            .clip(RoundedCornerShape(Radius.xl))
-            .background(if (unread) MaterialTheme.colorScheme.surfaceContainerLow else Color.Transparent)
-            .combinedClickable(onClick = onClick, onLongClick = { menuOpen = true })
-            .testTag(A11y.emailRow(thread.id))
-    ) {
-        Row(
-            Modifier
+    // Mail is laid out left to right in every language of the app, as mail
+    // clients lay it out: the face on the left, the star on the right, the
+    // lines standing on the left — each in its own word order.
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        // The inbox's rounded row, with its tone under what is unread.
+        Box(
+            modifier
                 .fillMaxWidth()
-                .heightIn(min = Size.rowMinHeight)
-                .padding(start = Space.md, end = Space.xs, top = Space.md, bottom = Space.md),
-            verticalAlignment = Alignment.Top,
+                .padding(horizontal = Space.sm, vertical = 1.dp)
+                .clip(RoundedCornerShape(Radius.xl))
+                .background(if (unread) MaterialTheme.colorScheme.surfaceContainerLow else Color.Transparent)
+                .combinedClickable(onClick = onClick, onLongClick = { menuOpen = true })
+                .testTag(A11y.emailRow(thread.id))
         ) {
-            // Keyed on the address, as the reader keys the same sender's face.
-            MailAvatar(address = others.firstOrNull()?.email ?: names)
-            Column(Modifier.weight(1f).padding(horizontal = Space.md)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (unread) {
-                        Box(
-                            Modifier
-                                .padding(end = Space.xs)
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary),
-                        )
-                    }
-                    if (mailFolder == "drafts") {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = Size.rowMinHeight)
+                    .padding(start = Space.md, end = Space.xs, top = Space.md, bottom = Space.md),
+                verticalAlignment = Alignment.Top,
+            ) {
+                // Keyed on the address, as the reader keys the same sender's face.
+                MailAvatar(address = others.firstOrNull()?.email ?: names)
+                Column(Modifier.weight(1f).padding(horizontal = Space.md)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (unread) {
+                            Box(
+                                Modifier
+                                    .padding(end = Space.xs)
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary),
+                            )
+                        }
+                        if (mailFolder == "drafts") {
+                            Text(
+                                StrEmail.draft(language),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                modifier = Modifier.padding(end = Space.xs),
+                            )
+                        }
+                        // A name in its own direction — Persian or English —
+                        // standing on the row's side either way.
                         Text(
-                            StrEmail.draft(language),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.error,
-                            fontWeight = FontWeight.SemiBold,
+                            people,
+                            style = MaterialTheme.typography.titleMedium.bidiContent().copy(
+                                // An unread thread is heavier. That is the one
+                                // difference Mail leans on, and it is enough.
+                                fontWeight = if (unread) FontWeight.Bold else FontWeight.Medium,
+                            ),
                             maxLines = 1,
-                            modifier = Modifier.padding(end = Space.xs),
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            Format.listTimestamp(thread.lastMessageAt, language),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (unread) MaterialTheme.colorScheme.primary else WebyarTheme.colors.labelTertiary,
+                            fontWeight = if (unread) FontWeight.SemiBold else null,
+                            maxLines = 1,
+                            modifier = Modifier.padding(start = Space.sm),
                         )
                     }
-                    // A name in its own direction — Persian or English —
-                    // standing on the row's side either way.
                     Text(
-                        people,
-                        style = MaterialTheme.typography.titleMedium.bidiContent().copy(
-                            // An unread thread is heavier. That is the one
-                            // difference Mail leans on, and it is enough.
-                            fontWeight = if (unread) FontWeight.Bold else FontWeight.Medium,
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        Format.listTimestamp(thread.lastMessageAt, language),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (unread) MaterialTheme.colorScheme.primary else WebyarTheme.colors.labelTertiary,
+                        thread.subject?.takeIf { it.isNotEmpty() } ?: Str.emailNoSubject(language),
+                        style = MaterialTheme.typography.bodyMedium.bidiContent(),
                         fontWeight = if (unread) FontWeight.SemiBold else null,
+                        color = if (unread) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                         maxLines = 1,
-                        modifier = Modifier.padding(start = Space.sm),
-                    )
-                }
-                Text(
-                    thread.subject?.takeIf { it.isNotEmpty() } ?: Str.emailNoSubject(language),
-                    style = MaterialTheme.typography.bodyMedium.bidiContent(),
-                    fontWeight = if (unread) FontWeight.SemiBold else null,
-                    color = if (unread) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-                )
-                thread.lastMessageSnippet?.takeIf { it.isNotEmpty() }?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall.bidiContent(),
-                        color = WebyarTheme.colors.labelTertiary,
-                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
                     )
-                }
-                // The mailbox's own labels, by the names the mailbox gave
-                // them (Gmail sends ids), except the one being looked at;
-                // the system ones are folders, not news.
-                val labels = thread.labels.orEmpty()
-                    .filter { "label:$it" != mailFolder }
-                    .mapNotNull { labelNames[it] }
-                    .take(3)
-                if (labels.isNotEmpty()) {
-                    Row(
-                        Modifier.padding(top = Space.xs),
-                        horizontalArrangement = Arrangement.spacedBy(Space.xs),
-                    ) {
-                        labels.forEach { label -> StatusPill(label, tone = PillTone.NEUTRAL) }
+                    thread.lastMessageSnippet?.takeIf { it.isNotEmpty() }?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall.bidiContent(),
+                            color = WebyarTheme.colors.labelTertiary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    // The mailbox's own labels, by the names the mailbox gave
+                    // them (Gmail sends ids), except the one being looked at;
+                    // the system ones are folders, not news.
+                    val labels = thread.labels.orEmpty()
+                        .filter { "label:$it" != mailFolder }
+                        .mapNotNull { labelNames[it] }
+                        .take(3)
+                    if (labels.isNotEmpty()) {
+                        Row(
+                            Modifier.padding(top = Space.xs),
+                            horizontalArrangement = Arrangement.spacedBy(Space.xs),
+                        ) {
+                            labels.forEach { label -> StatusPill(label, tone = PillTone.NEUTRAL) }
+                        }
                     }
                 }
-            }
-            Box {
-                IconButton(
-                    onClick = onToggleStar,
-                    modifier = Modifier.size(40.dp).testTag(A11y.emailStar(thread.id)),
-                ) {
-                    Icon(
-                        if (starred) Icons.Filled.Star else Glyph.StarOutline,
-                        contentDescription = if (starred) StrEmail.unstar(language) else StrEmail.star(language),
-                        tint = if (starred) WebyarTheme.colors.warning else WebyarTheme.colors.labelTertiary,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-                DropdownMenu(
-                    expanded = menuOpen,
-                    onDismissRequest = { menuOpen = false },
-                    shape = RoundedCornerShape(Radius.lg),
-                ) {
-                    DropdownMenuItem(
-                        text = { Text(if (unread) StrEmail.markRead(language) else StrEmail.markUnread(language)) },
-                        leadingIcon = { Icon(Icons.Filled.Email, contentDescription = null) },
-                        onClick = { menuOpen = false; onToggleRead() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(if (starred) StrEmail.unstar(language) else StrEmail.star(language)) },
-                        leadingIcon = { Icon(Icons.Filled.Star, contentDescription = null) },
-                        onClick = { menuOpen = false; onToggleStar() },
-                    )
+                Box {
+                    IconButton(
+                        onClick = onToggleStar,
+                        modifier = Modifier.size(40.dp).testTag(A11y.emailStar(thread.id)),
+                    ) {
+                        Icon(
+                            if (starred) Icons.Filled.Star else Glyph.StarOutline,
+                            contentDescription = if (starred) StrEmail.unstar(language) else StrEmail.star(language),
+                            tint = if (starred) WebyarTheme.colors.warning else WebyarTheme.colors.labelTertiary,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                        shape = RoundedCornerShape(Radius.lg),
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(if (unread) StrEmail.markRead(language) else StrEmail.markUnread(language)) },
+                            leadingIcon = { Icon(Icons.Filled.Email, contentDescription = null) },
+                            onClick = { menuOpen = false; onToggleRead() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (starred) StrEmail.unstar(language) else StrEmail.star(language)) },
+                            leadingIcon = { Icon(Icons.Filled.Star, contentDescription = null) },
+                            onClick = { menuOpen = false; onToggleStar() },
+                        )
+                    }
                 }
             }
         }

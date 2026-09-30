@@ -664,9 +664,9 @@ enum Str {
         }
     }
 
-    /// The AI queue. In full in Persian — "هوش" alone read as "intelligence"
-    /// rather than as the AI — which the strip has room for now that it holds
-    /// three segments, not four. "Yapay zekâ" is still too long for a third
+    /// The AI queue. In full in Persian — "هوش" alone reads as "intelligence"
+    /// rather than as the AI — which the strip has room for because it holds
+    /// three segments, not four. "Yapay zekâ" is too long even for a third
     /// of the control with a count, so Turkish keeps its usual "YZ".
     static func filterAI(_ l: Language) -> String {
         switch l {

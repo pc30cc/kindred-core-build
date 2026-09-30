@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import DOMPurify from 'dompurify';
 import { Mail, Star, Paperclip, Send, X, RefreshCw, Loader2, AlertCircle, CheckCircle2, Clock, Search } from 'lucide-react';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -116,7 +116,7 @@ function ConnectEmailCard({ workspaceId }: { workspaceId: string }) {
       const result = await startGmailOAuth.mutateAsync();
       window.location.href = result.url;
     } catch {
-      toast({ title: t('emailInbox.connectFailed' as any), variant: 'destructive' });
+      toast({ title: t('emailInbox.connectFailed' as TranslationKey), variant: 'destructive' });
     }
   };
 
@@ -125,7 +125,7 @@ function ConnectEmailCard({ workspaceId }: { workspaceId: string }) {
       const result = await startYahooOAuth.mutateAsync();
       window.location.href = result.url;
     } catch {
-      toast({ title: t('emailInbox.connectFailed' as any), variant: 'destructive' });
+      toast({ title: t('emailInbox.connectFailed' as TranslationKey), variant: 'destructive' });
     }
   };
 
@@ -135,18 +135,18 @@ function ConnectEmailCard({ workspaceId }: { workspaceId: string }) {
         <Mail className="h-8 w-8" />
       </div>
       <div className="max-w-md space-y-1.5">
-        <h2 className="text-lg font-semibold text-foreground">{t('emailInbox.connectTitle' as any)}</h2>
-        <p className="text-sm text-muted-foreground">{t('emailInbox.connectDescription' as any)}</p>
+        <h2 className="text-lg font-semibold text-foreground">{t('emailInbox.connectTitle' as TranslationKey)}</h2>
+        <p className="text-sm text-muted-foreground">{t('emailInbox.connectDescription' as TranslationKey)}</p>
       </div>
       <div className="flex flex-wrap items-center justify-center gap-2">
         <Button onClick={handleConnectGmail} disabled={startGmailOAuth.isPending} size="lg" className="gap-2">
           {startGmailOAuth.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-          {t('emailInbox.connectGmail' as any)}
+          {t('emailInbox.connectGmail' as TranslationKey)}
         </Button>
         {yahooConnection?.platformConfigured && (
           <Button onClick={handleConnectYahoo} disabled={startYahooOAuth.isPending} size="lg" variant="outline" className="gap-2">
             {startYahooOAuth.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-            {t('emailInbox.connectYahoo' as any)}
+            {t('emailInbox.connectYahoo' as TranslationKey)}
           </Button>
         )}
       </div>
@@ -165,7 +165,7 @@ function ThreadListItem({
 }) {
   const { t, locale } = useTranslation();
   const raw = thread.participants[0]?.email || '';
-  const sender = raw ? parseAddress(raw) : { name: t('emailInbox.unknownSender' as any), email: '' };
+  const sender = raw ? parseAddress(raw) : { name: t('emailInbox.unknownSender' as TranslationKey), email: '' };
   const unread = !thread.isRead;
   return (
     <button
@@ -192,7 +192,7 @@ function ThreadListItem({
           </span>
         </div>
         <div dir="auto" className={cn('truncate text-[13px]', unread ? 'font-medium text-foreground' : 'text-foreground/75')}>
-          {thread.subject || t('emailInbox.noSubject' as any)}
+          {thread.subject || t('emailInbox.noSubject' as TranslationKey)}
         </div>
         {thread.lastMessageSnippet && (
           <div dir="auto" className="line-clamp-1 break-all text-xs text-muted-foreground">{decodeEntities(thread.lastMessageSnippet)}</div>
@@ -255,7 +255,7 @@ function ThreadList({
           <Input
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder={t('emailInbox.searchPlaceholder' as any)}
+            placeholder={t('emailInbox.searchPlaceholder' as TranslationKey)}
             className="h-8 ps-8 text-sm"
           />
         </div>
@@ -269,12 +269,12 @@ function ThreadList({
           className="cursor-pointer text-xs"
           onClick={() => setUnreadOnly((v) => !v)}
         >
-          {t('emailInbox.unreadFilter' as any)}
+          {t('emailInbox.unreadFilter' as TranslationKey)}
         </Badge>
         {syncing && threads.length > 0 && (
           <span className="ms-auto flex items-center gap-1.5 text-xs text-muted-foreground">
             <Loader2 className="h-3 w-3 animate-spin" />
-            {t('emailInbox.syncing' as any)}
+            {t('emailInbox.syncing' as TranslationKey)}
           </span>
         )}
       </div>
@@ -286,11 +286,11 @@ function ThreadList({
         ) : isError && threads.length === 0 ? (
           <div className="flex flex-col items-center gap-2 p-8 text-center text-sm text-muted-foreground">
             <AlertCircle className="h-5 w-5 text-destructive" />
-            {t('emailInbox.loadFailed' as any)}
-            <Button variant="outline" size="sm" onClick={() => refetch()}>{t('emailInbox.retry' as any)}</Button>
+            {t('emailInbox.loadFailed' as TranslationKey)}
+            <Button variant="outline" size="sm" onClick={() => refetch()}>{t('emailInbox.retry' as TranslationKey)}</Button>
           </div>
         ) : threads.length === 0 ? (
-          <div className="p-8 text-center text-sm text-muted-foreground">{t('emailInbox.noThreads' as any)}</div>
+          <div className="p-8 text-center text-sm text-muted-foreground">{t('emailInbox.noThreads' as TranslationKey)}</div>
         ) : (
           <>
             {threads.map((thread) => (
@@ -300,7 +300,7 @@ function ThreadList({
               <div className="p-3">
                 <Button variant="ghost" size="sm" className="w-full gap-1.5" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
                   {isFetchingNextPage && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  {t('emailInbox.loadMore' as any)}
+                  {t('emailInbox.loadMore' as TranslationKey)}
                 </Button>
               </div>
             )}
@@ -328,16 +328,16 @@ function DeliveryStatusBadge({ message }: { message: EmailMessageView }) {
   const { t } = useTranslation();
   if (message.direction !== 'outbound') return null;
   if (message.deliveryStatus === 'queued') {
-    return <Badge variant="outline" className="gap-1 text-xs"><Clock className="h-3 w-3" />{t('emailInbox.statusQueued' as any)}</Badge>;
+    return <Badge variant="outline" className="gap-1 text-xs"><Clock className="h-3 w-3" />{t('emailInbox.statusQueued' as TranslationKey)}</Badge>;
   }
   if (message.deliveryStatus === 'failed') {
     return (
       <Badge variant="destructive" className="gap-1 text-xs" title={message.deliveryError || undefined}>
-        <AlertCircle className="h-3 w-3" />{t('emailInbox.statusFailed' as any)}
+        <AlertCircle className="h-3 w-3" />{t('emailInbox.statusFailed' as TranslationKey)}
       </Badge>
     );
   }
-  return <Badge variant="outline" className="gap-1 text-xs text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3 w-3" />{t('emailInbox.statusSent' as any)}</Badge>;
+  return <Badge variant="outline" className="gap-1 text-xs text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3 w-3" />{t('emailInbox.statusSent' as TranslationKey)}</Badge>;
 }
 
 function MessageCard({ message, defaultOpen }: { message: EmailMessageView; defaultOpen: boolean }) {
@@ -418,7 +418,7 @@ function ReplyComposer({
       const staged = await Promise.all(Array.from(files).map((f) => uploadEmailAttachment(workspaceId, f)));
       setAttachments((prev) => [...prev, ...staged.map((a) => ({ filename: a.filename, staged: a }))]);
     } catch {
-      toast({ title: t('emailInbox.attachmentUploadFailed' as any), variant: 'destructive' });
+      toast({ title: t('emailInbox.attachmentUploadFailed' as TranslationKey), variant: 'destructive' });
     } finally {
       setUploading(false);
     }
@@ -453,9 +453,9 @@ function ReplyComposer({
       setHtml('');
       setAttachments([]);
       requestIdRef.current = crypto.randomUUID();
-      toast({ title: t('emailInbox.sent' as any) });
+      toast({ title: t('emailInbox.sent' as TranslationKey) });
     } catch {
-      toast({ title: t('emailInbox.sendFailed' as any), variant: 'destructive' });
+      toast({ title: t('emailInbox.sendFailed' as TranslationKey), variant: 'destructive' });
     } finally {
       setSending(false);
     }
@@ -464,9 +464,9 @@ function ReplyComposer({
   return (
     <div className="rounded-lg border border-border bg-card">
       <div className="border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
-        {t('emailInbox.replyingTo' as any)} {defaultTo.join(', ')}
+        {t('emailInbox.replyingTo' as TranslationKey)} {defaultTo.join(', ')}
       </div>
-      <RichTextEditor value={html} onChange={setHtml} placeholder={t('emailInbox.replyPlaceholder' as any)} minHeightClassName="min-h-[120px]" />
+      <RichTextEditor value={html} onChange={setHtml} placeholder={t('emailInbox.replyPlaceholder' as TranslationKey)} minHeightClassName="min-h-[120px]" />
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2 border-t border-border px-3 py-2">
           {attachments.map((att, i) => (
@@ -484,11 +484,11 @@ function ReplyComposer({
         <input ref={fileInputRef} type="file" multiple hidden onChange={(e) => handleFiles(e.target.files)} />
         <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
           {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
-          {t('emailInbox.attach' as any)}
+          {t('emailInbox.attach' as TranslationKey)}
         </Button>
         <Button size="sm" className="gap-1.5" onClick={handleSend} disabled={!plainText || sending}>
           {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-          {t('emailInbox.send' as any)}
+          {t('emailInbox.send' as TranslationKey)}
         </Button>
       </div>
     </div>
@@ -537,7 +537,7 @@ function ThreadView({
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-        <h2 className="min-w-0 flex-1 truncate text-base font-semibold text-foreground">{thread.subject || t('emailInbox.noSubject' as any)}</h2>
+        <h2 className="min-w-0 flex-1 truncate text-base font-semibold text-foreground">{thread.subject || t('emailInbox.noSubject' as TranslationKey)}</h2>
         <Button
           variant="ghost"
           size="icon"
@@ -593,9 +593,9 @@ function ComposeDialog({ workspaceId, scope, open, onOpenChange }: { workspaceId
       requestIdRef.current = crypto.randomUUID();
       setTo(''); setSubject(''); setHtml('');
       onOpenChange(false);
-      toast({ title: t('emailInbox.sent' as any) });
+      toast({ title: t('emailInbox.sent' as TranslationKey) });
     } catch {
-      toast({ title: t('emailInbox.sendFailed' as any), variant: 'destructive' });
+      toast({ title: t('emailInbox.sendFailed' as TranslationKey), variant: 'destructive' });
     }
   };
 
@@ -603,12 +603,12 @@ function ComposeDialog({ workspaceId, scope, open, onOpenChange }: { workspaceId
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>{t('emailInbox.compose' as any)}</DialogTitle>
+          <DialogTitle>{t('emailInbox.compose' as TranslationKey)}</DialogTitle>
         </DialogHeader>
         <div className="space-y-2">
-          <Input value={to} onChange={(e) => setTo(e.target.value)} placeholder={t('emailInbox.toPlaceholder' as any)} />
-          <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder={t('emailInbox.subjectPlaceholder' as any)} />
-          <RichTextEditor value={html} onChange={setHtml} placeholder={t('emailInbox.bodyPlaceholder' as any)} minHeightClassName="min-h-[180px]" />
+          <Input value={to} onChange={(e) => setTo(e.target.value)} placeholder={t('emailInbox.toPlaceholder' as TranslationKey)} />
+          <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder={t('emailInbox.subjectPlaceholder' as TranslationKey)} />
+          <RichTextEditor value={html} onChange={setHtml} placeholder={t('emailInbox.bodyPlaceholder' as TranslationKey)} minHeightClassName="min-h-[180px]" />
         </div>
         <DialogFooter>
           <Button
@@ -617,7 +617,7 @@ function ComposeDialog({ workspaceId, scope, open, onOpenChange }: { workspaceId
             className="gap-1.5"
           >
             {sendEmailMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {t('emailInbox.send' as any)}
+            {t('emailInbox.send' as TranslationKey)}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -690,7 +690,7 @@ export default function EmailInboxPage() {
         <span className="text-sm font-medium text-foreground">{connectedAccount}</span>
         <Button size="sm" className="ms-auto gap-1.5" onClick={() => setComposeOpen(true)}>
           <Send className="h-3.5 w-3.5" />
-          {t('emailInbox.compose' as any)}
+          {t('emailInbox.compose' as TranslationKey)}
         </Button>
       </div>
       <div className="flex min-h-0 flex-1">
@@ -711,7 +711,7 @@ export default function EmailInboxPage() {
             row={openRowView}
           />
         ) : (
-          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">{t('emailInbox.selectThread' as any)}</div>
+          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">{t('emailInbox.selectThread' as TranslationKey)}</div>
         )}
       </div>
       <ComposeDialog workspaceId={workspaceId} scope={scope} open={composeOpen} onOpenChange={setComposeOpen} />

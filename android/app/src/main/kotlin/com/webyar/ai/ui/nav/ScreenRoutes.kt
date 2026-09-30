@@ -153,6 +153,9 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.Surface
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
@@ -1089,6 +1092,7 @@ fun EmailInboxRoute(
     val provider by email.provider.collectAsStateWithLifecycle()
     val mailFolder by email.mailFolder.collectAsStateWithLifecycle()
     val folders by email.folders.collectAsStateWithLifecycle()
+    val syncing by email.syncing.collectAsStateWithLifecycle()
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val shownFolder = folders.firstOrNull { it.id == mailFolder }
@@ -1117,7 +1121,8 @@ fun EmailInboxRoute(
         drawerContent = {
             EmailFolderDrawer(
                 language = language,
-                folders = folders.ifEmpty { EmailMailFolder.FALLBACK },
+                folders = folders,
+                loading = folders.isEmpty(),
                 selected = mailFolder,
                 onSelect = { id ->
                     email.selectMailFolder(id)
@@ -1196,6 +1201,7 @@ fun EmailInboxRoute(
             mailFolder = mailFolder,
             folderUnread = if (mailFolder == EmailMailFolder.INBOX) null else shownFolder?.unread,
             labelNames = labelNames,
+            syncing = syncing,
         )
     }
     }
@@ -1276,6 +1282,8 @@ fun EmailThreadRoute(
     val session by appState.session.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var notice by remember { mutableStateOf<String?>(null) }
+    /** A file of the mail is downloading to be opened; a second tap waits for it. */
+    var downloading by remember { mutableStateOf(false) }
     // A mail's file, fetched into this account's own cache folder (cleared
     // at sign-out with the rest of it) and handed to whatever opens it.
     // The same file serves a picture drawn inside the mail (`cid:`).
@@ -1302,8 +1310,14 @@ fun EmailThreadRoute(
         (attachment.contentType?.takeIf { it.startsWith("image/") } ?: "image/*") to file.readBytes()
     }
     val openAttachment: (EmailAttachmentView) -> Unit = open@{ attachment ->
+        if (downloading) return@open
+        downloading = true
         scope.launch {
-            val file = fetchFile(attachment)
+            val file = try {
+                fetchFile(attachment)
+            } finally {
+                downloading = false
+            }
             notice = when {
                 file == null -> StrEmail.downloadFailed(language)
                 !AttachmentFiles.openFile(context, file, attachment.contentType) -> StrEmail.openFailed(language)
@@ -1385,6 +1399,29 @@ fun EmailThreadRoute(
                 onReply = onReply,
                 loadInline = loadInline,
             )
+
+            // The file on its way: said at once, not only once it opens.
+            if (downloading) {
+                Surface(
+                    shape = RoundedCornerShape(Radius.pill),
+                    color = MaterialTheme.colorScheme.inverseSurface,
+                    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(Space.md).testTag(A11y.EMAIL_DOWNLOADING),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = Space.lg, vertical = Space.sm),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Space.sm),
+                    ) {
+                        CircularProgressIndicator(
+                            Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.inverseOnSurface,
+                        )
+                        Text(StrEmail.downloadingFile(language), style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
 
             notice?.let { text ->
                 Snackbar(

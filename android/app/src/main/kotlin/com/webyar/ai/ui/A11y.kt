@@ -109,6 +109,11 @@ object A11y {
     fun emailFolder(name: String) = "email.folder.$name"
     /** The ☰ button that opens a mailbox's folders, the menu itself, and one folder in it. */
     const val EMAIL_FOLDERS = "email.folders"
+    /** The mailbox's loader, the thin bar of a background re-read, and the menu's loader. */
+    const val EMAIL_LOADING = "email.loading"
+    const val EMAIL_SYNCING = "email.syncing"
+    const val EMAIL_FOLDERS_LOADING = "email.folders.loading"
+    const val EMAIL_DOWNLOADING = "email.downloading"
     const val EMAIL_DRAWER = "email.drawer"
     fun emailMailFolder(id: String) = "email.box.$id"
     fun emailMailbox(provider: String) = "email.mailbox.$provider"

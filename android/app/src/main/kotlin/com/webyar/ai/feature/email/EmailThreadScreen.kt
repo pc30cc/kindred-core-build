@@ -27,7 +27,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.background
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
@@ -77,9 +80,7 @@ fun EmailThreadScreen(
     Column(modifier.fillMaxSize()) {
         Box(Modifier.weight(1f)) {
             when (state) {
-                is EmailThreadState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    LoadingIndicator()
-                }
+                is EmailThreadState.Loading -> MailLoading(StrEmail.openingMail(language), Modifier.fillMaxSize())
 
                 is EmailThreadState.Failed -> ErrorState(
                     title = Str.offlineTitle(language),
@@ -133,52 +134,72 @@ internal fun EmailReaderView(
 ) {
     val attachment by rememberUpdatedState(onAttachment)
     val inline by rememberUpdatedState(loadInline)
-    AndroidView(
-        factory = { context ->
-            WebView(context).apply {
-                // White before the first frame too, so a dark theme does not
-                // flash black behind a mail that is about to be white.
-                setBackgroundColor(Color.WHITE)
-                settings.apply {
-                    javaScriptEnabled = false
-                    javaScriptCanOpenWindowsAutomatically = false
-                    setSupportMultipleWindows(false)
-                    allowFileAccess = false
-                    allowContentAccess = false
-                    domStorageEnabled = false
-                    setGeolocationEnabled(false)
-                    mediaPlaybackRequiresUserGesture = true
-                    // Pinch to read a newsletter's small print closer.
-                    builtInZoomControls = true
-                    displayZoomControls = false
-                    cacheMode = WebSettings.LOAD_DEFAULT
+    // A long mail takes a moment to lay out after it arrives: the loader
+    // stays until the page is drawn, not only until its data is here.
+    var drawn by remember(document) { mutableStateOf(false) }
+    val onDrawn by rememberUpdatedState { drawn = true }
+    Box(modifier) {
+        AndroidView(
+            factory = { context ->
+                WebView(context).apply {
+                    // White before the first frame too, so a dark theme does not
+                    // flash black behind a mail that is about to be white.
+                    setBackgroundColor(Color.WHITE)
+                    settings.apply {
+                        javaScriptEnabled = false
+                        javaScriptCanOpenWindowsAutomatically = false
+                        setSupportMultipleWindows(false)
+                        allowFileAccess = false
+                        allowContentAccess = false
+                        domStorageEnabled = false
+                        setGeolocationEnabled(false)
+                        mediaPlaybackRequiresUserGesture = true
+                        // Pinch to read a newsletter's small print closer.
+                        builtInZoomControls = true
+                        displayZoomControls = false
+                        cacheMode = WebSettings.LOAD_DEFAULT
+                    }
+                    webViewClient = ReaderClient(
+                        onAttachment = { attachment(it) },
+                        loadInline = { inline(it) },
+                        onDrawn = { onDrawn() },
+                    )
                 }
-                webViewClient = ReaderClient(
-                    onAttachment = { attachment(it) },
-                    loadInline = { inline(it) },
-                )
+            },
+            update = { view ->
+                // Only a new page is loaded: recomposing for anything else would
+                // throw away the reader's scroll and every card they opened.
+                if (view.tag != document) {
+                    view.tag = document
+                    view.loadDataWithBaseURL(null, document, "text/html", "utf-8", null)
+                }
+            },
+            onRelease = { view ->
+                view.stopLoading()
+                view.destroy()
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
+        if (!drawn) {
+            // On the page's own white, so nothing flashes behind it.
+            Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.White), Alignment.Center) {
+                LoadingIndicator()
             }
-        },
-        update = { view ->
-            // Only a new page is loaded: recomposing for anything else would
-            // throw away the reader's scroll and every card they opened.
-            if (view.tag != document) {
-                view.tag = document
-                view.loadDataWithBaseURL(null, document, "text/html", "utf-8", null)
-            }
-        },
-        onRelease = { view ->
-            view.stopLoading()
-            view.destroy()
-        },
-        modifier = modifier,
-    )
+        }
+    }
 }
 
 private class ReaderClient(
     private val onAttachment: (String) -> Unit,
     private val loadInline: (String) -> Pair<String, ByteArray>?,
+    private val onDrawn: () -> Unit,
 ) : WebViewClient() {
+
+    /** The page's first frame is on screen. */
+    override fun onPageCommitVisible(view: WebView, url: String?) = onDrawn()
+
+    /** And, for a page with nothing to commit early, when it has loaded. */
+    override fun onPageFinished(view: WebView, url: String?) = onDrawn()
 
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         val url = request.url.toString()

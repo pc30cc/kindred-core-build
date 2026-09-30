@@ -137,16 +137,18 @@ const DEFAULTS: MapGeoSettings = {
   },
 };
 
-function deepMerge<T>(base: T, patch: any): T {
+function deepMerge<T>(base: T, patch: unknown): T {
   if (!patch || typeof patch !== 'object') return base;
-  const out: any = Array.isArray(base) ? [...(base as any)] : { ...base };
-  for (const k of Object.keys(patch)) {
-    const bv = (base as any)?.[k];
-    const pv = patch[k];
+  const src = patch as Record<string, unknown>;
+  const baseRec = base as unknown as Record<string, unknown> | null;
+  const out: Record<string, unknown> | unknown[] = Array.isArray(base) ? [...(base as unknown[])] : { ...baseRec };
+  for (const k of Object.keys(src)) {
+    const bv = baseRec?.[k];
+    const pv = src[k];
     if (bv && typeof bv === 'object' && !Array.isArray(bv) && pv && typeof pv === 'object' && !Array.isArray(pv)) {
-      out[k] = deepMerge(bv, pv);
+      (out as Record<string, unknown>)[k] = deepMerge(bv, pv);
     } else if (pv !== undefined) {
-      out[k] = pv;
+      (out as Record<string, unknown>)[k] = pv;
     }
   }
   return out as T;
@@ -203,7 +205,7 @@ export async function patchMapGeoSettings(
   const { data, error } = await sb
     .from('app_runtime_config')
     .upsert(
-      { key: 'map_geo_settings', value: merged as any, updated_at: new Date().toISOString() },
+      { key: 'map_geo_settings', value: merged as unknown as Record<string, unknown>, updated_at: new Date().toISOString() },
       { onConflict: 'key' },
     )
     .select('value')

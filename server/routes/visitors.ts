@@ -9,7 +9,7 @@ import {
 } from '../services/visitors/presenceSource.js';
 import { verifyVisitorPresenceLease } from '../services/visitors/presenceLease.js';
 
-import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import {
   resolveIpVisibilityPolicy,
   resolveNetworkProfile,
@@ -71,7 +71,7 @@ const trackSchema = z.object({
 });
 
 visitorRouter.post('/track', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = trackSchema.safeParse(req.body);
 
   if (!parsed.success) {
@@ -100,7 +100,7 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
     }
 
     // Privacy gate: only persist raw IP when the workspace explicitly opts in.
-    const storeRawIp = (widget as any).store_raw_ip === true;
+    const storeRawIp = (widget as { store_raw_ip?: boolean | null }).store_raw_ip === true;
     const ipRawForStorage = storeRawIp ? clientIp : null;
 
     const origin = typeof req.headers.origin === 'string'
@@ -132,7 +132,7 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
     let previousIpHash: string | null = null;
 
     if (existing) {
-      previousIpHash = ((existing as any).ip_hash as string | null) ?? null;
+      previousIpHash = (existing as { ip_hash?: string | null }).ip_hash ?? null;
       // Update existing session
       await supabase
         .from('visitor_sessions')
@@ -282,7 +282,7 @@ const heartbeatSchema = z.object({
 });
 
 visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = heartbeatSchema.safeParse(req.body);
 
   if (!parsed.success) {
@@ -398,7 +398,7 @@ const disconnectSchema = z.object({
 });
 
 visitorRouter.post('/disconnect', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = disconnectSchema.safeParse(req.body);
 
   if (!parsed.success) {
@@ -447,7 +447,7 @@ visitorRouter.post('/disconnect', async (req: Request, res: Response) => {
  * presence + session + geo + linked contact/conversation in one shot.
  */
 visitorsAdminRouter.get('/live', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = (req.query.workspace_id as string) || '';
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
 
@@ -475,7 +475,7 @@ visitorsAdminRouter.get('/live', async (req: Request, res: Response) => {
  * Visitors without coordinates are excluded — the list endpoint still has them.
  */
 visitorsAdminRouter.get('/map', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = (req.query.workspace_id as string) || '';
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
 
@@ -528,7 +528,7 @@ visitorsAdminRouter.get('/map', async (req: Request, res: Response) => {
  * Falls back to free OSM tiles when nothing is configured.
  */
 visitorsAdminRouter.get('/map-config', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = (req.query.workspace_id as string) || '';
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
 
@@ -563,9 +563,9 @@ visitorsAdminRouter.get('/map-config', async (req: Request, res: Response) => {
         mode: s.behavior?.default_center_mode ?? 'auto',
       };
       presence = {
-        heartbeat_interval_ms: (s as any).presence?.heartbeat_interval_ms ?? presence.heartbeat_interval_ms,
-        live_refresh_ms: (s as any).presence?.live_refresh_ms ?? presence.live_refresh_ms,
-        stale_after_ms: (s as any).presence?.stale_after_ms ?? presence.stale_after_ms,
+        heartbeat_interval_ms: (s as { presence?: Partial<typeof presence> }).presence?.heartbeat_interval_ms ?? presence.heartbeat_interval_ms,
+        live_refresh_ms: (s as { presence?: Partial<typeof presence> }).presence?.live_refresh_ms ?? presence.live_refresh_ms,
+        stale_after_ms: (s as { presence?: Partial<typeof presence> }).presence?.stale_after_ms ?? presence.stale_after_ms,
       };
     } catch { /* best-effort */ }
     res.json({ ...cfg, display, default_center, presence });
@@ -600,7 +600,7 @@ visitorsAdminRouter.get('/map-config', async (req: Request, res: Response) => {
  * just guarded inside it.
  */
 visitorsAdminRouter.get('/network', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = (req.query.workspace_id as string) || '';
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
 
@@ -625,7 +625,7 @@ visitorsAdminRouter.get('/network', async (req: Request, res: Response) => {
         .eq('workspace_id', workspaceId)
         .eq('id', id)
         .maybeSingle();
-      return ((data as any)?.visitor_session_id as string | null) ?? '';
+      return (data as { visitor_session_id?: string | null } | null)?.visitor_session_id ?? '';
     };
     if (!sessionId && req.query.conversation_id) {
       sessionId = await lookup('conversations', String(req.query.conversation_id));
@@ -655,7 +655,7 @@ visitorsAdminRouter.get('/network', async (req: Request, res: Response) => {
  * longer carries under first-party (`gs_session`) auth.
  */
 visitorsAdminRouter.get('/presence-by-conversation', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = (req.query.workspace_id as string) || '';
   const conversationId = (req.query.conversation_id as string) || '';
   if (!workspaceId || !conversationId) {
@@ -679,7 +679,7 @@ visitorsAdminRouter.get('/presence-by-conversation', async (req: Request, res: R
       .eq('id', conversationId)
       .maybeSingle();
     if (convErr) throw convErr;
-    const sessionId = (conv as any)?.visitor_session_id as string | null;
+    const sessionId = (conv as { visitor_session_id?: string | null } | null)?.visitor_session_id ?? null;
     if (!sessionId) {
       return res.json({ status: 'unknown', current_page: null, updated_at: null });
     }
@@ -701,11 +701,12 @@ visitorsAdminRouter.get('/presence-by-conversation', async (req: Request, res: R
         updated_at: null,
       });
     }
-    const stored = (presence as any).status as 'online' | 'idle' | 'offline' | 'unknown';
-    const updatedAt = (presence as any).updated_at ?? null;
+    const presenceRow = presence as { status?: string | null; updated_at?: string | null; current_page?: string | null };
+    const stored = presenceRow.status as 'online' | 'idle' | 'offline' | 'unknown';
+    const updatedAt = presenceRow.updated_at ?? null;
     return res.json({
       status: applyVisitorPresence(resolution, sessionId, stored, updatedAt),
-      current_page: (presence as any).current_page ?? null,
+      current_page: presenceRow.current_page ?? null,
       updated_at: updatedAt,
     });
   } catch (err) {
@@ -727,7 +728,7 @@ visitorsAdminRouter.get('/presence-by-conversation', async (req: Request, res: R
  * stay adjacent as the single/batch pair they are.
  */
 visitorsAdminRouter.post('/network/batch', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = z
     .object({
       workspace_id: z.string().uuid(),
@@ -784,7 +785,7 @@ visitorsAdminRouter.get('/:id', async (req: Request, res: Response) => {
   ) {
     return res.status(404).json({ error: 'Not found' });
   }
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const visitorId = routeParam(req.params.id);
   if (!visitorId) return res.status(400).json({ error: 'Invalid visitor id' });
   const workspaceId = (req.query.workspace_id as string) || '';
@@ -811,7 +812,7 @@ visitorsAdminRouter.get('/:id', async (req: Request, res: Response) => {
  * Returns ordered (most-recent first) page-view rows for a session.
  */
 visitorsAdminRouter.get('/:id/page-history', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = (req.query.workspace_id as string) || '';
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
 
@@ -853,12 +854,12 @@ visitorsAdminRouter.get('/:id/page-history', async (req: Request, res: Response)
     const firstPage = firstRows?.[0] ?? null;
     const entry = {
       landing_url: firstPage?.url ?? sess?.current_page ?? null,
-      landing_title: (firstPage as any)?.title ?? null,
+      landing_title: (firstPage as { title?: string | null } | null)?.title ?? null,
       landed_at: firstPage?.viewed_at ?? sess?.started_at ?? null,
       referrer: sess?.referrer ?? null,
     };
     const current = items[0]
-      ? { url: items[0].url, title: (items[0] as any).title ?? null, viewed_at: items[0].viewed_at }
+      ? { url: items[0].url, title: (items[0] as { title?: string | null }).title ?? null, viewed_at: items[0].viewed_at }
       : sess?.current_page
         ? { url: sess.current_page, title: null, viewed_at: sess.started_at ?? null }
         : null;
@@ -892,7 +893,7 @@ visitorsAdminRouter.get('/:id/page-history', async (req: Request, res: Response)
 const warmCooldown = new Map<string, number>(); // workspaceId → last run epoch ms
 
 visitorsAdminRouter.post('/warm-geo', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = (req.body?.workspace_id as string) || (req.query.workspace_id as string) || '';
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
 
@@ -959,7 +960,7 @@ visitorsAdminRouter.post('/warm-geo', async (req: Request, res: Response) => {
       counts.processed++;
       // Skip only if cache is warm AND the session itself was already enriched.
       // Otherwise we must still write the geo_* columns onto the row.
-      if (!force && s.ip_hash && cachedHashes.has(s.ip_hash as string) && (s as any).geo_resolved_at) {
+      if (!force && s.ip_hash && cachedHashes.has(s.ip_hash as string) && (s as { geo_resolved_at?: string | null }).geo_resolved_at) {
         counts.skipped++;
         continue;
       }
@@ -970,7 +971,7 @@ visitorsAdminRouter.post('/warm-geo', async (req: Request, res: Response) => {
           ip_hash: s.ip_hash,
           // Provider lookups need raw IP. If the workspace doesn't store it,
           // we fall through to centroid — which is still a useful warm op.
-          raw_ip: (s as any).ip_raw ?? null,
+          raw_ip: (s as { ip_raw?: string | null }).ip_raw ?? null,
         });
         // Persist geo_* columns onto the session itself so the visitors list
         // and map can render without a per-row resolve.
@@ -978,7 +979,7 @@ visitorsAdminRouter.post('/warm-geo', async (req: Request, res: Response) => {
           sessionId: s.id as string,
           workspaceId,
           ipHash: s.ip_hash as string | null,
-          rawIp: (s as any).ip_raw ?? null,
+          rawIp: (s as { ip_raw?: string | null }).ip_raw ?? null,
         });
         if (result.source === 'provider') counts.enriched++;
         else if (result.source === 'cache') counts.cached++;

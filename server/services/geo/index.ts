@@ -123,7 +123,7 @@ async function resolveProviderConfig(
       .eq('is_active', true)
       .maybeSingle();
     if (ws && !isPlatformManagedProvider(ws.provider_name)) {
-      return { provider_name: ws.provider_name, config: ws.config as any };
+      return { provider_name: ws.provider_name, config: ws.config as Record<string, unknown> | null };
     }
     if (ws) warnManagedProviderRow('workspace', ws.provider_name);
   }
@@ -135,7 +135,7 @@ async function resolveProviderConfig(
     .eq('is_active', true)
     .maybeSingle();
   if (platform && !isPlatformManagedProvider(platform.provider_name)) {
-    return { provider_name: platform.provider_name, config: platform.config as any };
+    return { provider_name: platform.provider_name, config: platform.config as Record<string, unknown> | null };
   }
   if (platform) warnManagedProviderRow('platform', platform.provider_name);
   return null;
@@ -180,7 +180,7 @@ async function readCache(config: ServerConfig, ipHash: string): Promise<GeoResul
     longitude: data.longitude,
     timezone: null,
     source: 'cache',
-    provider: (data as any).source ?? 'cache',
+    provider: (data as { source?: string | null }).source ?? 'cache',
   };
 }
 
@@ -218,12 +218,25 @@ async function writeCache(
 
 type Adapter = (ip: string, cfg: Record<string, unknown> | null) => Promise<Omit<GeoResult, 'source'> | null>;
 
+// The fields each vendor's JSON response is read for — nothing else is used.
+type Str = string | null | undefined;
+interface IpapiPayload { error?: unknown; country_name?: Str; country_code?: Str; region?: Str; city?: Str; latitude?: unknown; longitude?: unknown; timezone?: Str }
+interface IpinfoPayload { loc?: unknown; country?: Str; region?: Str; city?: Str; timezone?: Str }
+interface IpgeolocationPayload { country_name?: Str; country_code2?: Str; state_prov?: Str; city?: Str; latitude?: Str | number; longitude?: Str | number; time_zone?: { name?: Str } | null }
+interface MaxmindNames { names?: { en?: Str } }
+interface MaxmindPayload {
+  country?: MaxmindNames & { iso_code?: Str };
+  subdivisions?: MaxmindNames[];
+  city?: MaxmindNames;
+  location?: { latitude?: number | null; longitude?: number | null; time_zone?: Str };
+}
+
 const ipapiAdapter: Adapter = async (ip, cfg) => {
   const apiKey = (cfg?.api_key as string) || '';
   const url = `https://ipapi.co/${encodeURIComponent(ip)}/json/${apiKey ? `?key=${apiKey}` : ''}`;
   const r = await fetch(url, { headers: { 'User-Agent': 'lovable-visitor-intel/1.0' } });
   if (!r.ok) return null;
-  const j = await r.json() as any;
+  const j = await r.json() as IpapiPayload;
   if (j.error) return null;
   return normalizeGeoPayload({
     country: j.country_name ?? null,
@@ -242,7 +255,7 @@ const ipinfoAdapter: Adapter = async (ip, cfg) => {
   const url = `https://ipinfo.io/${encodeURIComponent(ip)}?token=${token}`;
   const r = await fetch(url, { headers: { 'User-Agent': 'lovable-visitor-intel/1.0' } });
   if (!r.ok) return null;
-  const j = await r.json() as any;
+  const j = await r.json() as IpinfoPayload;
   let lat: number | null = null, lng: number | null = null;
   if (typeof j.loc === 'string' && j.loc.includes(',')) {
     const [a, b] = j.loc.split(',');
@@ -265,7 +278,7 @@ const ipgeolocationAdapter: Adapter = async (ip, cfg) => {
   const url = `https://api.ipgeolocation.io/ipgeo?apiKey=${apiKey}&ip=${encodeURIComponent(ip)}`;
   const r = await fetch(url);
   if (!r.ok) return null;
-  const j = await r.json() as any;
+  const j = await r.json() as IpgeolocationPayload;
   return normalizeGeoPayload({
     country: j.country_name ?? null,
     country_code: j.country_code2 ?? null,
@@ -285,7 +298,7 @@ const maxmindAdapter: Adapter = async (ip, cfg) => {
   const auth = Buffer.from(`${accountId}:${license}`).toString('base64');
   const r = await fetch(url, { headers: { Authorization: `Basic ${auth}` } });
   if (!r.ok) return null;
-  const j = await r.json() as any;
+  const j = await r.json() as MaxmindPayload;
   return normalizeGeoPayload({
     country: j.country?.names?.en ?? null,
     country_code: j.country?.iso_code ?? null,

@@ -128,7 +128,22 @@ function dateKey(y: number, mo: number, d: number): string {
   return `${y.toString().padStart(4, '0')}-${mo.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`;
 }
 
-function intervalsForDate(weekly: any, overrides: any[], tzParts: { y: number; mo: number; d: number; dow: number }):
+// Shapes of widget_settings.business_hours as stored (all fields optional:
+// the JSON is edited by the dashboard and must be read defensively).
+type HoursInterval = { from: string; to: string };
+type WeeklyHours = Record<string, HoursInterval[] | undefined>;
+type HoursOverride = { date?: string; closed?: boolean; intervals?: HoursInterval[] } | null;
+type BusinessHours = { enabled?: boolean; timezone?: unknown; weekly?: WeeklyHours | null; overrides?: HoursOverride[] | null };
+type WidgetAvailabilityRow = {
+  business_hours?: BusinessHours | null;
+  offline_mode?: unknown;
+  availability_labels?: Record<string, { online?: string; offline?: string }> | null;
+  offline_message?: unknown;
+  offline_message_localized?: Record<string, string> | null;
+  live_chat_enabled?: boolean | null;
+};
+
+function intervalsForDate(weekly: WeeklyHours | null | undefined, overrides: HoursOverride[], tzParts: { y: number; mo: number; d: number; dow: number }):
   { intervals: Array<{ from: string; to: string }>; closedByOverride: boolean } {
   const ovList = Array.isArray(overrides) ? overrides : [];
   const key = dateKey(tzParts.y, tzParts.mo, tzParts.d);
@@ -155,7 +170,7 @@ function isWithin(intervals: Array<{ from: string; to: string }>, h: number, min
   return false;
 }
 
-function nextOpenAt(weekly: any, overrides: any[], now: Date, tz: string): string | null {
+function nextOpenAt(weekly: WeeklyHours | null | undefined, overrides: HoursOverride[], now: Date, tz: string): string | null {
   // Walk up to 14 days forward looking for the next interval start strictly after `now`.
   for (let offset = 0; offset < 14; offset++) {
     const probe = new Date(now.getTime() + offset * 86400000);
@@ -210,8 +225,8 @@ async function customerFacingState(
   try {
     const { anyAvailable, memberCount } = await anyCustomerAvailableOperator(config, workspaceId, now);
     return { offline: memberCount > 0 && !anyAvailable };
-  } catch (err: any) {
-    console.warn('[availability] operator availability lookup failed:', err?.message);
+  } catch (err: unknown) {
+    console.warn('[availability] operator availability lookup failed:', err instanceof Error ? err.message : err);
     return { offline: false };
   }
 }
@@ -240,10 +255,11 @@ export async function resolveAvailability(
     console.warn('[widget availability] widget_settings read failed:', rowError.message);
   }
 
-  const offlineMode = normalizeOfflineMode((row as any)?.offline_mode);
-  const labelsSrc = (row as any)?.availability_labels as Record<string, { online?: string; offline?: string }> | null;
-  const localizedMsgSrc = (row as any)?.offline_message_localized as Record<string, string> | null;
-  const legacyOfflineMsg = typeof (row as any)?.offline_message === 'string' ? (row as any).offline_message : '';
+  const settings = (row ?? null) as WidgetAvailabilityRow | null;
+  const offlineMode = normalizeOfflineMode(settings?.offline_mode);
+  const labelsSrc = settings?.availability_labels ?? null;
+  const localizedMsgSrc = settings?.offline_message_localized ?? null;
+  const legacyOfflineMsg = typeof settings?.offline_message === 'string' ? settings.offline_message : '';
 
   const localeLabels = labelsSrc && typeof labelsSrc === 'object' ? (labelsSrc[locale] || labelsSrc['en'] || {}) : {};
   const def = DEFAULT_LABELS[locale] || DEFAULT_LABELS.en;
@@ -254,10 +270,10 @@ export async function resolveAvailability(
 
   const offlineMessage = pickLocalized(localizedMsgSrc, locale, legacyOfflineMsg);
 
-  const bh = (row as any)?.business_hours as any;
+  const bh = settings?.business_hours ?? null;
   const enabled = !!bh?.enabled;
   const tz = (typeof bh?.timezone === 'string' && bh.timezone) || 'UTC';
-  const liveChatEnabled = (row as any)?.live_chat_enabled !== false;
+  const liveChatEnabled = settings?.live_chat_enabled !== false;
 
   // LOCKED RULE 1 (clarified): business_hours.enabled === false means the
   // WORKSPACE imposes no time restriction — it does NOT mean "force the
@@ -293,13 +309,13 @@ export async function resolveAvailability(
     };
   }
 
-  const weekly = bh?.weekly && typeof bh.weekly === 'object' ? bh.weekly : {};
+  const weekly: WeeklyHours = bh?.weekly && typeof bh.weekly === 'object' ? bh.weekly : {};
   const overrides = Array.isArray(bh?.overrides) ? bh.overrides : [];
 
   // Empty schedule (every day empty AND no overrides with intervals) => always_offline.
   const anyIntervalDefined =
     DAY_KEYS.some((k) => Array.isArray(weekly[k]) && weekly[k].length > 0) ||
-    overrides.some((o: any) => Array.isArray(o?.intervals) && o.intervals.length > 0);
+    overrides.some((o) => Array.isArray(o?.intervals) && o.intervals.length > 0);
   if (!anyIntervalDefined) {
     return {
       state: 'offline',

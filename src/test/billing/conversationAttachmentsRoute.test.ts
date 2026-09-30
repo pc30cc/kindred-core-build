@@ -10,11 +10,14 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+type Row = Record<string, unknown>;
+type MockRes = { status(code: number): MockRes; json(body: unknown): MockRes };
+
 const state: {
-  attachmentRow: any;
-  isMember: any;
-  user: any;
-  updates: Array<{ table: string; patch: any }>;
+  attachmentRow: Row | null;
+  isMember: { data: boolean; error: { message: string } | null } | null;
+  user: { data: { user: { id: string } | null }; error: null } | null;
+  updates: Array<{ table: string; patch: Row }>;
   uploadCalled: boolean;
   gateAllow: boolean;
 } = {
@@ -33,7 +36,7 @@ const sbMock = {
     return { data: null, error: null };
   },
   from: (table: string) => {
-    const builder: any = {
+    const builder: Record<string, unknown> = {
       select: () => builder,
       eq: () => builder,
       order: () => builder,
@@ -47,7 +50,7 @@ const sbMock = {
           return { data: state.isMember?.data ? { role: null, suspended_at: null } : null, error: state.isMember?.error ?? null };
         return { data: null, error: null };
       },
-      update: (patch: any) => ({
+      update: (patch: Row) => ({
         eq: async () => {
           state.updates.push({ table, patch });
           return { data: null, error: null };
@@ -74,7 +77,7 @@ vi.mock("../../../server/services/auth/sessions.js", () => ({
 }));
 
 vi.mock("../../../server/middleware/featureGating.js", () => ({
-  requireLimit: () => async (_req: any, res: any, next: any) => {
+  requireLimit: () => async (_req: unknown, res: MockRes, next: () => void) => {
     if (state.gateAllow) return next();
     res.status(403).json({ error: "over_limit", upgrade_required: true });
   },
@@ -93,17 +96,23 @@ vi.mock("../../../server/services/storage/index.js", () => ({
 
 import { conversationAttachmentsRouter } from "../../../server/routes/conversationAttachments";
 
-function getHandler(method: string, path: string) {
-  const layer: any = (conversationAttachmentsRouter as any).stack.find(
-    (l: any) => l.route?.path === path && l.route.methods[method],
-  );
+type Handler = (req: Row, res: MockRes, next: () => void) => Promise<void> | void;
+interface RouteLayer {
+  route?: { path?: string; methods?: Record<string, boolean>; stack: Array<{ handle: Handler }> };
+}
+
+function getHandler(method: string, path: string): Handler {
+  const layer = conversationAttachmentsRouter.stack.find((l) => {
+    const route = (l as unknown as RouteLayer).route;
+    return route?.path === path && !!route?.methods?.[method];
+  });
   if (!layer) throw new Error(`route ${method} ${path} not found`);
-  const stack = layer.route.stack;
+  const stack = (layer as unknown as RouteLayer).route!.stack;
   return stack[stack.length - 1].handle;
 }
 
-function makeReqRes(body: any, params: any = { id: "att-1" }) {
-  const req: any = {
+function makeReqRes(body: Row, params: Record<string, string> = { id: "att-1" }) {
+  const req: Row = {
     body,
     params,
     query: {},
@@ -112,10 +121,10 @@ function makeReqRes(body: any, params: any = { id: "att-1" }) {
     serverConfig: { supabaseUrl: "http://x", supabaseServiceRoleKey: "k" },
   };
   let statusCode: number | undefined;
-  let jsonBody: any;
-  const res: any = {
+  let jsonBody: unknown;
+  const res: MockRes = {
     status(code: number) { statusCode = code; return res; },
-    json(b: any) { jsonBody = b; return res; },
+    json(b: unknown) { jsonBody = b; return res; },
   };
   return { req, res, get: () => ({ statusCode, jsonBody }) };
 }
@@ -176,6 +185,6 @@ describe("conversationAttachments POST /:id/upload — entitlement cleanup", () 
     expect(uploadFileMock).toHaveBeenCalledTimes(1);
     expect(state.updates.some((u) => u.patch.status === "failed")).toBe(false);
     expect(state.updates.some((u) => u.patch.status === "uploaded")).toBe(true);
-    expect(get().jsonBody?.status).toBe("uploaded");
+    expect((get().jsonBody as { status?: string } | undefined)?.status).toBe("uploaded");
   });
 });

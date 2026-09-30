@@ -70,9 +70,9 @@ export async function logGateBypass(
     console.info(
       `[gate-bypass] feature_gate_bypassed_by_global_admin user=${params.userId} ws=${params.workspaceId || '-'} module=${params.moduleKey} route=${params.route}`,
     );
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Never fail the request because of audit logging.
     // eslint-disable-next-line no-console
-    console.warn('[gate-bypass] audit log failed:', err?.message);
+    console.warn('[gate-bypass] audit log failed:', err instanceof Error ? err.message : err);
   }
 }

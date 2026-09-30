@@ -225,7 +225,7 @@ export async function resolveMapTilesConfig(
       .eq('provider_type', 'map_tiles')
       .eq('is_active', true)
       .maybeSingle();
-    if (ws) { requested = ws.provider_name; built = buildFromConfig(ws.provider_name, ws.config as any); }
+    if (ws) { requested = ws.provider_name; built = buildFromConfig(ws.provider_name, ws.config as Record<string, unknown> | null); }
   }
   if (!built) {
     const { data: platform } = await sb
@@ -235,7 +235,7 @@ export async function resolveMapTilesConfig(
       .eq('provider_type', 'map_tiles')
       .eq('is_active', true)
       .maybeSingle();
-    if (platform) { requested = platform.provider_name; built = buildFromConfig(platform.provider_name, platform.config as any); }
+    if (platform) { requested = platform.provider_name; built = buildFromConfig(platform.provider_name, platform.config as Record<string, unknown> | null); }
   }
   // Self-host safe default: no public OSM, no external network call.
   // Operator must explicitly configure a self-hosted tile URL via

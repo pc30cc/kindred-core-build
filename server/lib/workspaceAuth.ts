@@ -29,8 +29,18 @@ const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 export type WorkspaceAuth = { userId: string; isAdmin: boolean; role: string | null };
 
-export function serverConfigOf(req: any): ServerConfig {
-  return (req as any).serverConfig as ServerConfig;
+/** An Express request, or a test double carrying the fields read here. */
+type AuthRequest = object & {
+  method?: string;
+  headers?: Record<string, unknown>;
+  cookies?: unknown;
+  serverConfig?: unknown;
+};
+/** An Express response, or a test double with status().json(). */
+type AuthResponse = { status(code: number): { json(body: unknown): unknown } };
+
+export function serverConfigOf(req: object): ServerConfig {
+  return (req as { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
 }
 
 /**
@@ -76,7 +86,7 @@ export function serverConfigOf(req: any): ServerConfig {
  * added, it must perform its own status check the way impersonation now
  * does, rather than relying on this function to catch it.
  */
-export async function requireUser(req: any, res: any): Promise<string | null> {
+export async function requireUser(req: AuthRequest, res: AuthResponse): Promise<string | null> {
   const config = serverConfigOf(req);
   // Accepts BOTH first-party transports for the SAME opaque session token:
   // the `gs_session` cookie (web) and `Authorization: Bearer <token>`
@@ -109,8 +119,8 @@ export async function requireUser(req: any, res: any): Promise<string | null> {
   // cookie path keeps the exact same check it had before.
   if (
     transport === 'cookie' &&
-    MUTATING_METHODS.has(req.method) &&
-    !verifyOriginForMutation(req, config.corsOrigins)
+    MUTATING_METHODS.has(req.method ?? '') &&
+    !verifyOriginForMutation({ headers: req.headers ?? {} }, config.corsOrigins)
   ) {
     res.status(403).json({ error: 'Origin not allowed' });
     return null;
@@ -124,8 +134,8 @@ export async function requireUser(req: any, res: any): Promise<string | null> {
  * `manage: true` additionally requires workspace owner/admin.
  */
 export async function authorizeWorkspaceAccess(
-  req: any,
-  res: any,
+  req: AuthRequest,
+  res: AuthResponse,
   workspaceId: unknown,
   opts: { manage?: boolean } = {},
 ): Promise<WorkspaceAuth | null> {
@@ -184,7 +194,7 @@ export async function authorizeWorkspaceAccess(
 }
 
 /** Platform super-admin gate (`has_role(uid,'admin')`). */
-export async function requirePlatformAdmin(req: any, res: any): Promise<string | null> {
+export async function requirePlatformAdmin(req: AuthRequest, res: AuthResponse): Promise<string | null> {
   const userId = await requireUser(req, res);
   if (!userId) return null;
   if (!(await isGlobalAdmin(serverConfigOf(req), userId))) {

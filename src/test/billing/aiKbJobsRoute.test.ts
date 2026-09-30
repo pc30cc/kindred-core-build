@@ -14,12 +14,14 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+type Row = Record<string, unknown>;
+
 const state: {
   isAdmin: boolean;
   gateAllow: boolean;
-  inserts: Array<{ table: string; row: any }>;
-  user: any;
-  isMember: any;
+  inserts: Array<{ table: string; row: Row }>;
+  user: { data: { user: { id: string } | null }; error: null } | null;
+  isMember: { data: boolean; error: { message: string } | null } | null;
 } = {
   isAdmin: false,
   gateAllow: true,
@@ -35,7 +37,7 @@ const sbMock = {
     return { data: null, error: null };
   },
   from: (table: string) => {
-    const builder: any = {
+    const builder: Record<string, unknown> = {
       select: () => builder,
       eq: () => builder,
       order: () => builder,
@@ -50,7 +52,7 @@ const sbMock = {
         data: { id: "job-1", workspace_id: "ws-uuid" },
         error: null,
       }),
-      insert: (row: any) => {
+      insert: (row: Row) => {
         state.inserts.push({ table, row });
         return {
           select: () => ({
@@ -154,17 +156,24 @@ vi.mock("../../../server/services/ai-kb/credits.js", () => ({
 
 import { aiKbRouter } from "../../../server/routes/aiKb";
 
-function getHandler(method: string, path: string) {
-  const layer: any = (aiKbRouter as any).stack.find(
-    (l: any) => l.route?.path === path && l.route.methods[method],
-  );
+type MockRes = { status(code: number): MockRes; json(body: unknown): MockRes };
+type Handler = (req: Row, res: MockRes, next: () => void) => Promise<void> | void;
+interface RouteLayer {
+  route?: { path?: string; methods?: Record<string, boolean>; stack: Array<{ handle: Handler }> };
+}
+
+function getHandler(method: string, path: string): Handler {
+  const layer = aiKbRouter.stack.find((l) => {
+    const route = (l as unknown as RouteLayer).route;
+    return route?.path === path && !!route?.methods?.[method];
+  });
   if (!layer) throw new Error(`route ${method} ${path} not found`);
-  const stack = layer.route.stack;
+  const stack = (layer as unknown as RouteLayer).route!.stack;
   return stack[stack.length - 1].handle;
 }
 
-function makeReqRes(body: any) {
-  const req: any = {
+function makeReqRes(body: Row) {
+  const req: Row = {
     body,
     params: {},
     query: {},
@@ -173,10 +182,10 @@ function makeReqRes(body: any) {
     serverConfig: { supabaseUrl: "http://x", supabaseServiceRoleKey: "k" },
   };
   let statusCode: number | undefined;
-  let jsonBody: any;
-  const res: any = {
+  let jsonBody: unknown;
+  const res: MockRes = {
     status(code: number) { statusCode = code; return res; },
-    json(b: any) { jsonBody = b; return res; },
+    json(b: unknown) { jsonBody = b; return res; },
   };
   return { req, res, get: () => ({ statusCode, jsonBody }) };
 }
@@ -189,7 +198,7 @@ describe("POST /api/ai-kb/jobs — admin bypass + cap gate", () => {
     state.gateAllow = true;
     state.inserts = [];
     gateMw.mockReset();
-    gateMw.mockImplementation(async (_req: any, res: any, next: any) => {
+    gateMw.mockImplementation(async (_req: unknown, res: MockRes, next: () => void) => {
       if (state.gateAllow) return next();
       res.status(403).json({ error: "over_limit", upgrade_required: true });
     });

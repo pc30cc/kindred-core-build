@@ -146,7 +146,7 @@ conversationsRouter.post('/:conversationId/take-over', async (req, res) => {
   const sb = getServiceClient(config);
   const { data: conv } = await sb
     .from('conversations')
-    .select('id, workspace_id, assigned_to')
+    .select('id, workspace_id, assigned_to, ai_state:metadata->>ai_state')
     .eq('id', conversationId)
     .maybeSingle();
   if (!conv || conv.workspace_id !== workspaceId) {
@@ -163,6 +163,7 @@ conversationsRouter.post('/:conversationId/take-over', async (req, res) => {
     conversationId,
     operatorId: auth.userId,
     reason: 'manual_takeover',
+    previousAiState: conv.ai_state ?? null,
   });
   return res.json({ ok: true });
 });
@@ -257,10 +258,11 @@ conversationsRouter.post('/send-message', async (req, res) => {
 
     const sb = getServiceClient(config);
 
-    // Verify the conversation belongs to this workspace.
+    // Verify the conversation belongs to this workspace. `ai_state` rides
+    // along so the takeover below is announced only when it is news.
     const { data: conv, error: convErr } = await sb
       .from('conversations')
-      .select('id, workspace_id')
+      .select('id, workspace_id, ai_state:metadata->>ai_state')
       .eq('id', parsed.data.conversation_id)
       .maybeSingle();
     if (convErr) return res.status(500).json({ error: convErr.message });
@@ -497,6 +499,7 @@ conversationsRouter.post('/send-message', async (req, res) => {
       conversationId: parsed.data.conversation_id,
       operatorId: auth.userId,
       reason: 'operator_replied',
+      previousAiState: conv.ai_state ?? null,
     }).catch((e) =>
       console.warn('[conversations/send-message] markHumanTakeover failed:', e?.message),
     );

@@ -29,7 +29,7 @@ import { redactSecrets } from '../../../lib/redactSecrets.js';
 import {
   ACTION_CATALOG, getActionDefinition, parseActionPlan, runActionPipeline,
   createRealActionRunner, createConversationIdempotencyStore, readExecutedActionKeys,
-  wantsBusinessHours, renderToolResults, type GateContext,
+  wantsBusinessHours, renderToolResults, businessHoursToolResult, BUSINESS_HOURS_DIRECTIVE, type GateContext,
 } from '../actions/index.js';
 import { resolveHandoffAckMessage, pickHandoffAck } from './helpers.js';
 import { runCommerceToolStage } from '../commerce-tools/runner.js';
@@ -199,7 +199,14 @@ export async function runGenerationStage(
   // ─── Phase 3.7 — read-only tool result fed back into generation ─────────
   let toolResultsBlock: string | null = null;
   const readOnlyToolResults: Record<string, unknown>[] = [];
-  if (enabledActionNames.includes('get_business_hours') && wantsBusinessHours(question)) {
+  // Business hours set in the workspace panel answer an hours question with
+  // no knowledge-base entry and no tool setup. Described from the settings
+  // row the availability resolver already read — no query of its own.
+  const hoursFromSettings = wantsBusinessHours(question) ? businessHoursToolResult(availability) : null;
+  if (hoursFromSettings) {
+    toolResultsBlock = renderToolResults([hoursFromSettings]);
+    readOnlyToolResults.push({ name: 'get_business_hours', ok: true, source: 'workspace_settings' });
+  } else if (enabledActionNames.includes('get_business_hours') && wantsBusinessHours(question)) {
     toolResultsBlock = renderToolResults([{
       name: 'get_business_hours',
       data: { operators_online: availability.state === 'online', availability_reason: availability.reason },
@@ -326,7 +333,8 @@ export async function runGenerationStage(
       conflictDetected: strategy.conflictDetected,
       toolResults: toolBlock,
       nudgeContext: nudgeContext || null,
-    }) + (directive ? `\n\n${directive}` : '') + (decisionStage.assistFirstActive
+    }) + (hoursFromSettings ? `\n\n${BUSINESS_HOURS_DIRECTIVE}` : '')
+      + (directive ? `\n\n${directive}` : '') + (decisionStage.assistFirstActive
       ? `\n\nTURN DIRECTIVE — the visitor asked for a human. A transfer has NOT happened. Acknowledge the request in one short sentence, then make exactly ONE genuinely useful attempt at their actual problem, and close by offering the transfer. Never imply the transfer is already in progress. Suggested tone: "${assistFirstMessage(locale)}"`
       : '');
   const historyMessages = messagesFor(turnsSince(historyCutoffMs));

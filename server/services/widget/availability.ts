@@ -46,9 +46,34 @@ export interface AvailabilitySnapshot {
   offline_mode: OfflineMode;
   labels: { online: string; offline: string };
   offline_message: string;
+  /**
+   * The configured schedule, only when the caller asked for it
+   * (`includeSchedule`) and business hours are on. Server-side only:
+   * snapshotToWirePayload leaves it out.
+   */
+  schedule?: BusinessHoursSchedule | null;
 }
 
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+type DayKey = (typeof DAY_KEYS)[number];
+
+/**
+ * Business hours as the AI states them to a visitor ("when are you open?").
+ * Every time is wall-clock time in `timezone`.
+ */
+export interface BusinessHoursSchedule {
+  timezone: string;
+  /** Monday first. A day without an interval is closed. */
+  weekly: Array<{ day: DayKey; intervals: HoursInterval[] }>;
+  /** Date overrides from today through the next UPCOMING_DAYS - 1 days. */
+  upcoming: Array<{ date: string; day: DayKey; closed: boolean; intervals: HoursInterval[] }>;
+  /** Workspace wall clock at resolve time. */
+  now: { date: string; day: DayKey; time: string };
+  /** Inside a scheduled interval right now (the schedule alone, operators aside). */
+  open_now: boolean;
+  /** Start of the next scheduled interval, when closed by the schedule. */
+  next_open: { date: string; day: DayKey; time: string } | null;
+}
 
 const DEFAULT_LABELS: Record<string, { online: string; offline: string }> = {
   en: { online: "We're online", offline: "We're offline" },
@@ -78,24 +103,39 @@ function parseHHMM(v: unknown): { h: number; m: number } | null {
  * Convert a Date to {y,m,d,h,min,dow} as observed in the given IANA tz.
  * Uses Intl.DateTimeFormat — Node 18+ supports IANA tz natively.
  */
-function partsInTz(date: Date, timeZone: string): {
-  y: number; mo: number; d: number; h: number; min: number; dow: number;
-} {
-  let parts: Intl.DateTimeFormatPart[];
+/**
+ * Formatters per time zone. Building an Intl.DateTimeFormat costs far more
+ * than using one, and an outside-hours resolve walks up to two weeks of days,
+ * so each visitor request used to build dozens. An invalid zone maps to null
+ * (callers fall back to UTC). The set of zones in use is small; the bound only
+ * guards against junk values.
+ */
+const tzFormatters = new Map<string, Intl.DateTimeFormat | null>();
+const MAX_TZ_FORMATTERS = 200;
+
+function formatterFor(timeZone: string): Intl.DateTimeFormat | null {
+  let fmt = tzFormatters.get(timeZone);
+  if (fmt !== undefined) return fmt;
   try {
-    parts = new Intl.DateTimeFormat('en-US', {
+    fmt = new Intl.DateTimeFormat('en-US', {
       timeZone,
       year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', hour12: false, weekday: 'short',
-    }).formatToParts(date);
+    });
   } catch {
-    // Invalid tz — fall back to UTC parts so we still produce *something*.
-    parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'UTC',
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', hour12: false, weekday: 'short',
-    }).formatToParts(date);
+    fmt = null;
   }
+  if (tzFormatters.size >= MAX_TZ_FORMATTERS) tzFormatters.clear();
+  tzFormatters.set(timeZone, fmt);
+  return fmt;
+}
+
+function partsInTz(date: Date, timeZone: string): {
+  y: number; mo: number; d: number; h: number; min: number; dow: number;
+} {
+  // Invalid tz — fall back to UTC parts so we still produce *something*.
+  const fmt = formatterFor(timeZone) ?? formatterFor('UTC')!;
+  const parts = fmt.formatToParts(date);
   const get = (t: string) => parts.find((p) => p.type === t)?.value || '';
   const dowMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
   return {
@@ -192,6 +232,82 @@ function nextOpenAt(weekly: WeeklyHours | null | undefined, overrides: HoursOver
   return null;
 }
 
+const WEEK_ORDER: readonly DayKey[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const UPCOMING_DAYS = 14;
+const MAX_INTERVALS_PER_DAY = 6;
+
+function hhmm(t: { h: number; m: number }): string {
+  return `${String(t.h).padStart(2, '0')}:${String(t.m).padStart(2, '0')}`;
+}
+
+/**
+ * The intervals the resolver itself would honour, in order: valid HH:mm and
+ * `from` before `to` (isWithin never matches any other interval).
+ */
+function usableIntervals(list: unknown): HoursInterval[] {
+  if (!Array.isArray(list)) return [];
+  const out: Array<{ start: number; it: HoursInterval }> = [];
+  for (const raw of list) {
+    const f = parseHHMM((raw as HoursInterval | null)?.from);
+    const t = parseHHMM((raw as HoursInterval | null)?.to);
+    if (!f || !t || f.h * 60 + f.m >= t.h * 60 + t.m) continue;
+    out.push({ start: f.h * 60 + f.m, it: { from: hhmm(f), to: hhmm(t) } });
+  }
+  return out.sort((a, b) => a.start - b.start).slice(0, MAX_INTERVALS_PER_DAY).map((x) => x.it);
+}
+
+function wallClock(date: Date, tz: string): { date: string; day: DayKey; time: string } {
+  const p = partsInTz(date, tz);
+  return { date: dateKey(p.y, p.mo, p.d), day: DAY_KEYS[p.dow] || 'mon', time: hhmm({ h: p.h, m: p.min }) };
+}
+
+/**
+ * Describe the configured business hours from a widget_settings row the
+ * caller already holds. Pure: no I/O. Null when hours are off or no interval
+ * is defined anywhere (nothing to state).
+ */
+export function describeBusinessHours(
+  bh: BusinessHours | null | undefined,
+  now: Date,
+  nextOpenAtIso: string | null,
+): BusinessHoursSchedule | null {
+  if (!bh?.enabled) return null;
+  const rawTz = (typeof bh.timezone === 'string' && bh.timezone) || 'UTC';
+  const tz = formatterFor(rawTz) ? rawTz : 'UTC';
+  const weeklyRaw: WeeklyHours = bh.weekly && typeof bh.weekly === 'object' ? bh.weekly : {};
+  const overrides = Array.isArray(bh.overrides) ? bh.overrides : [];
+
+  const weekly = WEEK_ORDER.map((day) => ({ day, intervals: usableIntervals(weeklyRaw[day]) }));
+
+  // Calendar days from today in the workspace's zone. Date arithmetic in UTC
+  // on the local date — no zone lookups per day.
+  const today = partsInTz(now, tz);
+  const upcoming: BusinessHoursSchedule['upcoming'] = [];
+  for (let offset = 0; offset < UPCOMING_DAYS; offset++) {
+    const d = new Date(Date.UTC(today.y, today.mo - 1, today.d + offset));
+    const key = dateKey(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+    const hit = overrides.find((o) => o && o.date === key);
+    // Same precedence as intervalsForDate: closed, then an interval list.
+    if (!hit || (hit.closed !== true && !Array.isArray(hit.intervals))) continue;
+    const intervals = hit.closed === true ? [] : usableIntervals(hit.intervals);
+    upcoming.push({ date: key, day: DAY_KEYS[d.getUTCDay()] || 'mon', closed: intervals.length === 0, intervals });
+  }
+
+  const anyInterval = weekly.some((w) => w.intervals.length > 0) || upcoming.some((u) => u.intervals.length > 0);
+  if (!anyInterval) return null;
+
+  const { intervals: todays } = intervalsForDate(weeklyRaw, overrides, today);
+  const openNow = isWithin(todays, today.h, today.min);
+  return {
+    timezone: tz,
+    weekly,
+    upcoming,
+    now: wallClock(now, tz),
+    open_now: openNow,
+    next_open: !openNow && nextOpenAtIso ? wallClock(new Date(nextOpenAtIso), tz) : null,
+  };
+}
+
 function pickLocalized<T extends string>(
   source: Record<string, T> | null | undefined,
   locale: string,
@@ -217,6 +333,11 @@ export interface ResolveAvailabilityInput {
   settingsRow?: Partial<WidgetAvailabilityRow> | null;
   /** Members + availability prefs, when the caller already loaded them. */
   availabilityPrefs?: WorkspaceAvailabilityPrefs;
+  /**
+   * Also describe the configured schedule (`snapshot.schedule`), from the
+   * same row. For the AI's answers; visitor-facing paths leave it off.
+   */
+  includeSchedule?: boolean;
 }
 
 /**
@@ -248,27 +369,41 @@ export async function resolveAvailability(
   config: ServerConfig,
   input: ResolveAvailabilityInput,
 ): Promise<AvailabilitySnapshot> {
+  const now = input.now || new Date();
+  const settings = input.settingsRow !== undefined
+    ? ((input.settingsRow ?? null) as WidgetAvailabilityRow | null)
+    : await readAvailabilityRow(config, input.workspaceId);
+  const snapshot = await snapshotFor(config, input, now, settings);
+  if (input.includeSchedule) {
+    snapshot.schedule = describeBusinessHours(settings?.business_hours, now, snapshot.next_open_at);
+  }
+  return snapshot;
+}
+
+async function readAvailabilityRow(config: ServerConfig, workspaceId: string): Promise<WidgetAvailabilityRow | null> {
+  const supabase = getServiceClient(config);
+  const { data, error: rowError } = await supabase
+    .from('widget_settings')
+    .select('business_hours, offline_mode, availability_labels, offline_message, offline_message_localized, live_chat_enabled')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  // A failed read must not look like "no settings": every field below would
+  // silently fall back to its default (no business hours, default labels).
+  if (rowError) {
+    console.warn('[widget availability] widget_settings read failed:', rowError.message);
+  }
+  return (data ?? null) as WidgetAvailabilityRow | null;
+}
+
+async function snapshotFor(
+  config: ServerConfig,
+  input: ResolveAvailabilityInput,
+  now: Date,
+  settings: WidgetAvailabilityRow | null,
+): Promise<AvailabilitySnapshot> {
   const { workspaceId } = input;
   const locale = (input.locale || 'en').toLowerCase().split('-')[0];
-  const now = input.now || new Date();
 
-  let row: unknown = input.settingsRow;
-  if (input.settingsRow === undefined) {
-    const supabase = getServiceClient(config);
-    const { data, error: rowError } = await supabase
-      .from('widget_settings')
-      .select('business_hours, offline_mode, availability_labels, offline_message, offline_message_localized, live_chat_enabled')
-      .eq('workspace_id', workspaceId)
-      .maybeSingle();
-    // A failed read must not look like "no settings": every field below would
-    // silently fall back to its default (no business hours, default labels).
-    if (rowError) {
-      console.warn('[widget availability] widget_settings read failed:', rowError.message);
-    }
-    row = data;
-  }
-
-  const settings = (row ?? null) as WidgetAvailabilityRow | null;
   const offlineMode = normalizeOfflineMode(settings?.offline_mode);
   const labelsSrc = settings?.availability_labels ?? null;
   const localizedMsgSrc = settings?.offline_message_localized ?? null;

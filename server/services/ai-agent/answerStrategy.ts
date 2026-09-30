@@ -18,6 +18,7 @@
  */
 import type { AgentSettings } from './settings.js';
 import type { RetrievedSource } from './retrieval.js';
+import type { ServiceClient } from '../../supabase.js';
 import { isHumanRequest } from './runtimePolicy.js';
 import { detectSourceConflicts, type DetectedConflict } from './conflictDetection.js';
 
@@ -76,12 +77,19 @@ export interface StrategyInput {
    * See ./retrievalDecision.ts -> isBusinessEvidenceReason().
    */
   businessSignalDetected?: boolean;
+  /**
+   * The workspace's own settings answer this turn (the business hours set in
+   * its panel, for an hours question). That is verified business data even
+   * with no knowledge-base entry; knowledge-base evidence still comes first.
+   */
+  answeredBySettings?: boolean;
 }
 
 export interface StrategyDecision {
   decisionType: StrategyDecisionType;
   reason: string;
-  retrievalStrength: 'none' | 'weak' | 'medium' | 'strong' | 'exact_qna';
+  /** The page-context override in engine/answerStage.ts sets the page_* values. */
+  retrievalStrength: 'none' | 'weak' | 'medium' | 'strong' | 'exact_qna' | 'page_exact_match' | 'page_path_match';
   topScore: number;
   confidence: number;
   sourceTypesUsed: string[];
@@ -192,7 +200,7 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
     sources.map((s) => ({ id: s.id, title: s.title, content: s.content, excerpt: s.excerpt })),
     question,
   );
-  const independentSourceCount = new Set(sources.map((s) => (s as any).source_id || s.id)).size;
+  const independentSourceCount = new Set(sources.map((s) => (s as { source_id?: string }).source_id || s.id)).size;
   const confidenceInputs: ConfidenceInputs = {
     top_score: topScore,
     retrieval_strength: strength,
@@ -273,6 +281,21 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
       handoffReason: null,
       requiresBusinessKnowledge: true,
       groundingMode: 'partial',
+      ...common,
+    };
+  }
+
+  // 4b. No qualifying knowledge-base evidence, but the workspace's settings
+  //     hold the answer (e.g. its configured business hours): grounded, and
+  //     never an owner "no KB match" escalation.
+  if (input.answeredBySettings) {
+    return {
+      decisionType: 'answer',
+      reason: 'workspace_settings_match',
+      handoffRequired: false,
+      handoffReason: null,
+      requiresBusinessKnowledge: true,
+      groundingMode: 'grounded',
       ...common,
     };
   }
@@ -388,7 +411,7 @@ export function isStrictKbNoGrounding(
  * Cheap to call inline before the next decision.
  */
 export async function countClarificationAttempts(
-  sb: any,
+  sb: ServiceClient,
   conversationId: string,
 ): Promise<number> {
   try {
@@ -399,7 +422,7 @@ export async function countClarificationAttempts(
       .order('created_at', { ascending: false })
       .limit(20);
     return (data || []).filter(
-      (r: any) => r?.metadata?.answer_strategy?.decision_type === 'ask_clarifying_question',
+      (r: { metadata?: { answer_strategy?: { decision_type?: string } } | null }) => r?.metadata?.answer_strategy?.decision_type === 'ask_clarifying_question',
     ).length;
   } catch {
     return 0;

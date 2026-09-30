@@ -12,8 +12,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -29,11 +31,17 @@ import com.webyar.ai.core.push.Notifications
 import com.webyar.ai.core.sync.SupportSignal
 import com.webyar.ai.feature.chat.Composer
 import com.webyar.ai.feature.chat.ComposerCapabilities
+import com.webyar.ai.feature.support.SupportArchiveState
+import com.webyar.ai.feature.support.SupportArchiveViewModel
 import com.webyar.ai.feature.support.SupportChatScreen
 import com.webyar.ai.feature.support.SupportChatState
-import com.webyar.ai.feature.support.SupportComposer
 import com.webyar.ai.feature.support.SupportChatViewModel
+import com.webyar.ai.feature.support.SupportClosedButton
+import com.webyar.ai.feature.support.SupportClosedConversationScreen
+import com.webyar.ai.feature.support.SupportClosedListScreen
 import com.webyar.ai.feature.support.SupportTeamMark
+import com.webyar.ai.feature.support.closedSubtitle
+import com.webyar.ai.feature.support.closedTitle
 import com.webyar.ai.feature.support.presenceText
 import com.webyar.ai.i18n.Language
 import com.webyar.ai.i18n.Str
@@ -61,13 +69,18 @@ private val SUPPORT_COMPOSER = ComposerCapabilities(
     isAiManaged = false,
 )
 
-/** The support chat: one screen for every conversation with the platform's team. */
+/**
+ * The support chat: the open conversation with the platform's team, or a
+ * fresh start; the bar's "closed" button ([onOpenClosed]) leads to the ones
+ * that ended.
+ */
 @Composable
 fun SupportChatRoute(
     appState: AppState,
     api: WebyarApi,
     language: Language,
     onBack: () -> Unit,
+    onOpenClosed: () -> Unit,
 ) {
     val chat: SupportChatViewModel = viewModel(
         key = "support-chat",
@@ -128,6 +141,10 @@ fun SupportChatRoute(
         uri?.let(sendPicked)
     }
 
+    // Back from "start a new conversation": straight to typing.
+    var startedHere by remember { mutableStateOf(false) }
+    val hasClosed = (state as? SupportChatState.Loaded)?.closed?.isNotEmpty() == true
+
     Scaffold(
         topBar = {
             DetailTopBar(
@@ -135,7 +152,8 @@ fun SupportChatRoute(
                 subtitle = status?.let { presenceText(it.online, language) },
                 backLabel = StrAndroid.back(language),
                 onBack = onBack,
-                leading = { SupportTeamMark(online = status?.online) },
+                leading = { SupportTeamMark(online = status?.online, avatarUrl = status?.teamAvatar) },
+                actions = { if (hasClosed) SupportClosedButton(language, onOpenClosed) },
             )
         },
     ) { padding ->
@@ -147,7 +165,10 @@ fun SupportChatRoute(
                 onRetryLoad = chat::refresh,
                 onRetryMessage = chat::retry,
                 onRate = chat::rate,
-                onStartNew = chat::startNewConversation,
+                onStartNew = {
+                    startedHere = true
+                    chat.startNewConversation()
+                },
                 ratingBusy = ratingBusy,
                 loadAttachment = chat::attachment,
                 myAvatarUrl = myAvatar,
@@ -173,14 +194,104 @@ fun SupportChatRoute(
                     },
                     onOpenShortcuts = {},
                     onStartRecording = {},
-                    // Back after "start a new conversation": straight to typing.
-                    focusOnOpen = (state as? SupportChatState.Loaded)?.composer == SupportComposer.New,
+                    focusOnOpen = startedHere,
                 )
             }
             notice?.let { text ->
                 Snackbar(
                     modifier = Modifier.align(Alignment.BottomCenter).padding(Space.md),
                     action = { TextButton(onClick = chat::clearNotice) { Text(Str.cancel(language)) } },
+                ) { Text(text) }
+            }
+        }
+    }
+}
+
+/** The conversations with the platform's team that ended, the newest first. */
+@Composable
+fun SupportClosedRoute(
+    api: WebyarApi,
+    language: Language,
+    onBack: () -> Unit,
+    onOpen: (conversationId: String) -> Unit,
+) {
+    val archive: SupportArchiveViewModel = viewModel(
+        key = "support-closed",
+        factory = liveLanguage(language).let { l -> viewModelFactory { SupportArchiveViewModel(api, l) } },
+    )
+    val state by archive.state.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { archive.open() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val signals = rememberSupportSignals()
+    LaunchedEffect(lifecycleOwner, signals) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) { archive.follow(signals) }
+    }
+
+    Scaffold(
+        topBar = {
+            DetailTopBar(
+                title = StrAndroid.supportClosedTitle(language),
+                backLabel = StrAndroid.back(language),
+                onBack = onBack,
+            )
+        },
+    ) { padding ->
+        SupportClosedListScreen(
+            state = state,
+            language = language,
+            onRetry = archive::load,
+            onOpen = onOpen,
+            modifier = Modifier.padding(padding),
+        )
+    }
+}
+
+/** One closed conversation, read back with its end and its rating. */
+@Composable
+fun SupportClosedConversationRoute(
+    appState: AppState,
+    api: WebyarApi,
+    language: Language,
+    conversationId: String,
+    onBack: () -> Unit,
+) {
+    val archive: SupportArchiveViewModel = viewModel(
+        key = "support-closed-$conversationId",
+        factory = liveLanguage(language).let { l -> viewModelFactory { SupportArchiveViewModel(api, l) } },
+    )
+    val state by archive.state.collectAsStateWithLifecycle()
+    val notice by archive.notice.collectAsStateWithLifecycle()
+    val ratingBusy by archive.rating.collectAsStateWithLifecycle()
+    val myAvatar by appState.avatarUrl.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { archive.open() }
+
+    val loaded = state as? SupportArchiveState.Loaded
+    val conversation = loaded?.conversation(conversationId)
+    Scaffold(
+        topBar = {
+            DetailTopBar(
+                title = closedTitle(loaded?.preview(conversationId), language),
+                subtitle = conversation?.let { closedSubtitle(it, language) },
+                backLabel = StrAndroid.back(language),
+                onBack = onBack,
+            )
+        },
+    ) { padding ->
+        Box(Modifier.padding(padding)) {
+            SupportClosedConversationScreen(
+                state = state,
+                conversationId = conversationId,
+                language = language,
+                onRetry = archive::load,
+                onRate = archive::rate,
+                ratingBusy = ratingBusy,
+                loadAttachment = archive::attachment,
+                myAvatarUrl = myAvatar,
+            )
+            notice?.let { text ->
+                Snackbar(
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(Space.md),
+                    action = { TextButton(onClick = archive::clearNotice) { Text(Str.cancel(language)) } },
                 ) { Text(text) }
             }
         }

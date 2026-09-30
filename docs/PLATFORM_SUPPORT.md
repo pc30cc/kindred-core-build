@@ -13,8 +13,10 @@ own inbox, with the tools it already has.
   `metadata.channel = 'platform_support'`. `platform_support_threads` links it
   to the operator who opened it; every read or write for the operator goes
   through that link, never through the support workspace's membership.
-- **One chat, many conversations.** The operator sees a single chat: every
-  conversation they have had, oldest first, then the current one.
+- **The open conversation, and the closed ones.** Opening support shows the
+  operator's open conversation. With none open, it shows a page as fresh as
+  the very first. Conversations that ended are listed on their own, and each
+  can be read back and rated there.
   - The **active** conversation is the newest one that is `open` or
     `pending` and belongs to today's support workspace
     (`activeConversationId`). There is at most one.
@@ -23,9 +25,7 @@ own inbox, with the tools it already has.
     `conversation_ended` once it is not. It is never moved to another
     conversation the operator is not looking at.
   - When nothing is active (never started, or the last one is `resolved` or
-    `closed`), the app shows the conversation as ended with a **Start a new
-    conversation** button. The first message after it names no conversation
-    and starts a new one.
+    `closed`), the first message names no conversation and starts a new one.
   - A `resolved` or `closed` conversation is never reopened by the operator.
     The team can still reopen it from the inbox, and it is active again.
   - Conversations opened as tickets before tickets were removed are closed
@@ -83,6 +83,7 @@ type Status = {
   available: boolean;          // this operator may use it (today: = enabled)
   online: boolean;             // somebody on the team is reachable now
   teamName: string | null;     // the support workspace's name
+  teamAvatar: string | null;   // its logo (workspace_branding), for the chat's bar
   unread: number;              // the team's messages the operator has not read
   hours: BusinessHours | null; // null when the workspace keeps no hours
   nextOpenAt: string | null;   // ISO; set while closed by the hours
@@ -205,14 +206,20 @@ hides the section in the Android app without a new build.
 - **Android:** Settings → Online support, one row. It opens the chat.
   - The section appears when `enabled && available` and `showSupport`.
   - Offline, a banner says "leave a message" and lists the hours.
-  - Earlier conversations are in the same chat, each ended one closed by a
-    line, and a rating card while `canRate`.
-  - While a conversation is active, the composer writes to it. Once it has
-    ended, the composer gives way to "This conversation was resolved" and a
-    **Start a new conversation** button; nothing more can be written to it.
-    A message refused with `conversation_ended` (the team closed it while
-    the operator typed) goes back into the composer, and the chat shows the
-    end.
+  - The bar shows the support workspace's logo (`teamAvatar`; a headset
+    while it has none) and its presence.
+  - On arrival, the chat shows the open conversation, or, with none open, a
+    fresh page like the very first.
+  - When there are closed conversations, a **Closed** button in the bar lists
+    them, newest first. Each row shows its first words, how and when it
+    ended, and its stars, or "Rate". A conversation opens read-only, with its
+    end and its rating card.
+  - If the conversation on screen ends, the composer gives way to "This
+    conversation was resolved" and a **Start a new conversation** button.
+    Nothing more can be written to it.
+  - A message refused with `conversation_ended` (the team closed the
+    conversation while the operator typed) goes back into the composer, and
+    the chat shows the end.
   - The composer takes text and a file (2 MB); no emoji.
   - Replies arrive live, and a `support_reply` push opens the chat.
 - **iOS, macOS, Windows, web:** the same endpoints and events.

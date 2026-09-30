@@ -16,6 +16,7 @@ import com.webyar.ai.i18n.Language
 import com.webyar.ai.i18n.Str
 import com.webyar.ai.i18n.StrAndroid
 import com.webyar.ai.i18n.displayText
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -85,18 +86,21 @@ class SupportStatusViewModel(private val api: WebyarApi) : ViewModel() {
     }
 }
 
-/** What the bottom of the support chat is. */
+/** What the support chat is showing, and so what its bottom is. */
 enum class SupportComposer {
-    /** Nothing written yet: the composer, and the first message starts a conversation. */
-    First,
+    /**
+     * No conversation is open: a page as fresh as the very first — the
+     * greeting, and the composer, whose first message opens a conversation.
+     */
+    Fresh,
 
-    /** A conversation is open: the composer writes to it. */
+    /** A conversation is open: its messages, and the composer writes to it. */
     Active,
 
-    /** The last conversation ended and the operator chose to start another: the composer, for the new one. */
-    New,
-
-    /** The last conversation ended: no composer — the end, and a button to start a new one. */
+    /**
+     * The conversation on screen ended while it was open here: its end and
+     * its rating, no composer, and a button that starts a new one.
+     */
     Ended,
 }
 
@@ -110,32 +114,96 @@ sealed interface SupportChatState {
         val items: List<SupportItem> = emptyList(),
         val activeConversationId: String? = null,
         val pending: List<PendingSupportItem> = emptyList(),
-        /** The operator tapped "Start a new conversation" and has not sent its first message yet. */
-        val startingNew: Boolean = false,
-    ) : SupportChatState {
         /**
-         * An open conversation is written to; an ended one is not — ever. After
-         * the end, only the operator's own choice opens the composer again,
-         * for a conversation of its own.
+         * The conversation on screen when none is open: one that ended while
+         * it was open here, so its end and its rating are seen. Null for a
+         * fresh start — on arrival with nothing open, or after "Start a new
+         * conversation".
+         */
+        val endedHereId: String? = null,
+    ) : SupportChatState {
+        /** The conversation the chat shows: the open one, or the one that just ended here. */
+        val shown: SupportConversation?
+            get() = conversations.firstOrNull { it.id == (activeConversationId ?: endedHereId) }
+
+        /**
+         * An open conversation is written to; an ended one is not — ever. With
+         * nothing open the page starts afresh, and earlier conversations are
+         * in [closed], not in the chat.
          */
         val composer: SupportComposer
             get() = when {
                 activeConversationId != null -> SupportComposer.Active
-                conversations.isEmpty() -> SupportComposer.First
-                startingNew -> SupportComposer.New
-                else -> SupportComposer.Ended
+                shown?.ended == true -> SupportComposer.Ended
+                else -> SupportComposer.Fresh
             }
 
-        /** The conversation the end panel speaks of: the newest one. */
-        val lastConversation: SupportConversation? get() = conversations.lastOrNull()
+        /** The shown conversation's messages and joins; none on a fresh page. */
+        val shownItems: List<SupportItem>
+            get() = shown?.let { conversation -> items.filter { it.conversationId == conversation.id } }.orEmpty()
 
-        val isEmpty: Boolean get() = items.isEmpty() && pending.isEmpty()
+        /** Every conversation that has ended, the newest first: the "closed conversations" list. */
+        val closed: List<SupportConversation> get() = closedConversations(conversations)
+
+        val isEmpty: Boolean get() = shownItems.isEmpty() && pending.isEmpty()
+    }
+}
+
+/** The conversations that have ended, the one that ended last first. */
+internal fun closedConversations(conversations: List<SupportConversation>): List<SupportConversation> =
+    conversations.filter { it.ended }.sortedByDescending { it.endedAt ?: it.createdAt }
+
+/**
+ * A line to know a closed conversation by: what the operator wrote first —
+ * its text, or the name of the file they sent — else the team's first word.
+ */
+internal fun conversationPreview(conversationId: String, items: List<SupportItem>): String? {
+    val own = items.filter { it.conversationId == conversationId && !it.isJoin }
+    val first = own.firstOrNull { !it.fromTeam } ?: own.firstOrNull()
+    return first?.body?.trim()?.takeIf { it.isNotEmpty() }?.lineSequence()?.first()
+        ?: first?.attachments?.firstOrNull()?.fileName
+}
+
+/**
+ * Rates a conversation once. A second tap while the first is on its way, or
+ * after it landed, does nothing; a conversation the server says is rated
+ * already, or cannot be, is simply read again ([onStale]). The chat and the
+ * closed conversations both rate through one.
+ */
+internal class SupportRater(
+    private val api: WebyarApi,
+    private val scope: CoroutineScope,
+    private val language: () -> Language,
+    private val onRated: (SupportConversation) -> Unit,
+    private val onStale: () -> Unit,
+    private val onError: (String) -> Unit,
+) {
+    private val _busy = MutableStateFlow<Set<String>>(emptySet())
+
+    /** Conversations whose rating is on its way; their button waits. */
+    val busy: StateFlow<Set<String>> = _busy.asStateFlow()
+
+    fun rate(conversation: SupportConversation?, score: Int, comment: String?) {
+        if (conversation == null || score !in 1..5 || conversation.id in _busy.value || !conversation.canRate) return
+        val id = conversation.id
+        _busy.update { it + id }
+        scope.launch {
+            runCatchingUnlessCancelled {
+                api.rateSupportConversation(id, score, comment?.trim()?.take(SupportChatViewModel.MAX_COMMENT)?.ifBlank { null })
+            }.onSuccess(onRated).onFailure { error ->
+                val code = (error as? ApiError.Server)?.serverMessage.orEmpty()
+                if ("already_rated" in code || "not_ratable" in code) onStale() else onError(supportErrorText(error, language()))
+            }
+            _busy.update { it - id }
+        }
     }
 }
 
 /**
- * The support chat: every conversation the operator has had with the team,
- * in one transcript, and the composer that writes the next message.
+ * The support chat: the conversation that is open, or — with none open — a
+ * fresh page like the very first, and the composer that writes to it. The
+ * conversations that ended are in [SupportChatState.Loaded.closed], read in
+ * their own screen ([SupportArchiveViewModel]).
  *
  * A message or a file shows at once as "sending" and becomes the server's
  * when it lands; one that fails stays, marked, with a retry. The client id
@@ -169,10 +237,22 @@ class SupportChatViewModel(
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice.asStateFlow()
 
-    private val _rating = MutableStateFlow<Set<String>>(emptySet())
+    private val rater = SupportRater(
+        api = api,
+        scope = viewModelScope,
+        language = language,
+        onRated = { updated ->
+            _state.update { state ->
+                val loaded = state as? SupportChatState.Loaded ?: return@update state
+                loaded.copy(conversations = loaded.conversations.map { if (it.id == updated.id) updated else it })
+            }
+        },
+        onStale = ::loadHistory,
+        onError = { _notice.value = it },
+    )
 
     /** Conversations whose rating is on its way; their button waits. */
-    val rating: StateFlow<Set<String>> = _rating.asStateFlow()
+    val rating: StateFlow<Set<String>> = rater.busy
 
     private var opened = false
     private var workspaceId: String? = null
@@ -248,9 +328,15 @@ class SupportChatViewModel(
                 items = history.items,
                 activeConversationId = history.activeConversationId,
                 pending = loaded?.pending.orEmpty().filterNot { it.clientMessageId in delivered },
-                // A conversation is open now — the new one, started here or
-                // on another device: that is what the composer writes to.
-                startingNew = loaded?.startingNew == true && history.activeConversationId == null,
+                // Arriving, an open conversation is shown, else a fresh page.
+                // Already here, the conversation on screen stays when it
+                // ends, until the operator starts a new one.
+                endedHereId = if (history.activeConversationId != null || loaded == null) {
+                    null
+                } else {
+                    (loaded.activeConversationId ?: loaded.endedHereId)
+                        ?.takeIf { id -> history.conversations.any { it.id == id } }
+                },
             )
         }
         val team = history.items.filter { it.fromTeam && !it.isJoin }.mapTo(HashSet()) { it.id }
@@ -275,13 +361,13 @@ class SupportChatViewModel(
     }
 
     /**
-     * After an ended conversation: the operator starts a new one. The
-     * composer comes back, and its first message opens the conversation.
+     * After the conversation on screen ended: a fresh page, as at the very
+     * first, whose first message opens a new conversation.
      */
     fun startNewConversation() {
         _state.update { state ->
             val loaded = state as? SupportChatState.Loaded ?: return@update state
-            if (loaded.composer == SupportComposer.Ended) loaded.copy(startingNew = true) else loaded
+            if (loaded.composer == SupportComposer.Ended) loaded.copy(endedHereId = null) else loaded
         }
     }
 
@@ -325,9 +411,9 @@ class SupportChatViewModel(
     }
 
     /**
-     * Adds what [make] writes — to the open conversation, or to a new one —
-     * and sends it. Nothing is written after an end until the operator has
-     * chosen to start a new conversation.
+     * Adds what [make] writes — to the open conversation, or, on a fresh
+     * page, to a new one — and sends it. Nothing is written to a
+     * conversation that ended on screen; the operator starts a new one.
      */
     private fun enqueue(make: (target: String?) -> PendingSupportItem): Boolean {
         val current = _state.value as? SupportChatState.Loaded ?: return false
@@ -387,10 +473,11 @@ class SupportChatViewModel(
     private fun handBack(entry: PendingSupportItem) {
         _state.update { state ->
             val loaded = state as? SupportChatState.Loaded ?: return@update state
+            val ended = loaded.activeConversationId?.takeIf { it == entry.conversationId }
             loaded.copy(
                 pending = loaded.pending.filterNot { it.clientMessageId == entry.clientMessageId },
                 activeConversationId = loaded.activeConversationId?.takeIf { it != entry.conversationId },
-                startingNew = false,
+                endedHereId = ended ?: loaded.endedHereId,
             )
         }
         if (entry.file == null) {
@@ -417,39 +504,13 @@ class SupportChatViewModel(
             items = items,
             activeConversationId = if (conversation.ended) loaded.activeConversationId else conversation.id,
             pending = loaded.pending.filterNot { it.clientMessageId == clientMessageId },
-            startingNew = loaded.startingNew && conversation.ended,
         )
     }
 
-    /**
-     * Rates an ended conversation, once. A second tap while the first is on
-     * its way, or after it landed, does nothing; a conversation the server
-     * says is rated already, or cannot be, is simply read again.
-     */
+    /** Rates the conversation that ended on screen — once; see [SupportRater]. */
     fun rate(conversationId: String, score: Int, comment: String?) {
-        if (score !in 1..5 || conversationId in _rating.value) return
-        val current = _state.value as? SupportChatState.Loaded ?: return
-        val conversation = current.conversations.firstOrNull { it.id == conversationId } ?: return
-        if (!conversation.canRate) return
-        _rating.update { it + conversationId }
-        viewModelScope.launch {
-            runCatchingUnlessCancelled {
-                api.rateSupportConversation(conversationId, score, comment?.trim()?.take(MAX_COMMENT)?.ifBlank { null })
-            }.onSuccess { updated ->
-                _state.update { state ->
-                    val loaded = state as? SupportChatState.Loaded ?: return@update state
-                    loaded.copy(conversations = loaded.conversations.map { if (it.id == updated.id) updated else it })
-                }
-            }.onFailure { error ->
-                val code = (error as? ApiError.Server)?.serverMessage.orEmpty()
-                if ("already_rated" in code || "not_ratable" in code) {
-                    loadHistory()
-                } else {
-                    _notice.value = supportErrorText(error, language())
-                }
-            }
-            _rating.update { it - conversationId }
-        }
+        val loaded = _state.value as? SupportChatState.Loaded ?: return
+        rater.rate(loaded.conversations.firstOrNull { it.id == conversationId }, score, comment)
     }
 
     /**
@@ -501,5 +562,102 @@ class SupportChatViewModel(
 
         /** The events that mean the history moved (docs/PLATFORM_SUPPORT.md, Realtime). */
         private val LIVE_KINDS = setOf("support_message", "support_update", "support_read")
+    }
+}
+
+sealed interface SupportArchiveState {
+    data object Loading : SupportArchiveState
+    data class Failed(val message: String) : SupportArchiveState
+
+    /** The history as the server last told it; only its ended conversations are shown. */
+    data class Loaded(
+        val conversations: List<SupportConversation> = emptyList(),
+        val items: List<SupportItem> = emptyList(),
+    ) : SupportArchiveState {
+        val closed: List<SupportConversation> get() = closedConversations(conversations)
+
+        fun conversation(id: String): SupportConversation? = conversations.firstOrNull { it.id == id }
+
+        fun itemsOf(id: String): List<SupportItem> = items.filter { it.conversationId == id }
+
+        fun preview(id: String): String? = conversationPreview(id, items)
+    }
+}
+
+/**
+ * The conversations that ended: the list, the newest first, and one of them
+ * read back with its end and its rating. Nothing here is written to — a new
+ * question is a new conversation, in the chat.
+ */
+class SupportArchiveViewModel(
+    private val api: WebyarApi,
+    private val language: () -> Language,
+) : ViewModel() {
+
+    private val _state = MutableStateFlow<SupportArchiveState>(SupportArchiveState.Loading)
+    val state: StateFlow<SupportArchiveState> = _state.asStateFlow()
+
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice: StateFlow<String?> = _notice.asStateFlow()
+
+    private val rater = SupportRater(
+        api = api,
+        scope = viewModelScope,
+        language = language,
+        onRated = { updated ->
+            _state.update { state ->
+                val loaded = state as? SupportArchiveState.Loaded ?: return@update state
+                loaded.copy(conversations = loaded.conversations.map { if (it.id == updated.id) updated else it })
+            }
+        },
+        onStale = ::load,
+        onError = { _notice.value = it },
+    )
+
+    /** Conversations whose rating is on its way. */
+    val rating: StateFlow<Set<String>> = rater.busy
+
+    private var opened = false
+    private var job: Job? = null
+
+    fun open() {
+        if (opened) return
+        opened = true
+        load()
+    }
+
+    fun load() {
+        job?.cancel()
+        job = viewModelScope.launch {
+            runCatchingUnlessCancelled { api.supportHistory() }
+                .onSuccess { _state.value = SupportArchiveState.Loaded(it.conversations, it.items) }
+                .onFailure { error ->
+                    if (_state.value !is SupportArchiveState.Loaded) {
+                        _state.value = SupportArchiveState.Failed(supportErrorText(error, language()))
+                    }
+                }
+        }
+    }
+
+    /** Read again on the team's news: a conversation reopened, or a reply to an old one. */
+    suspend fun follow(signals: Flow<SupportSignal>?) {
+        signals?.collect { if (it.kind in LIVE_KINDS) load() }
+    }
+
+    fun rate(conversationId: String, score: Int, comment: String?) {
+        val loaded = _state.value as? SupportArchiveState.Loaded ?: return
+        rater.rate(loaded.conversation(conversationId), score, comment)
+    }
+
+    fun clearNotice() {
+        _notice.value = null
+    }
+
+    /** A support file's bytes, or null when they cannot be had. */
+    suspend fun attachment(id: String): ByteArray? =
+        runCatchingUnlessCancelled { api.supportAttachmentData(id) }.getOrNull()
+
+    private companion object {
+        val LIVE_KINDS = setOf("support_message", "support_update")
     }
 }

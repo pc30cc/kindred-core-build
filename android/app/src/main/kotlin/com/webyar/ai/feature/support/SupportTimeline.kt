@@ -77,12 +77,13 @@ internal sealed interface SupportRow {
 }
 
 /**
- * Every conversation in order, each followed by how it ended and its rating,
- * then whatever the operator is still sending.
+ * The conversations given, in order, each followed by how it ended and its
+ * rating, then whatever the operator is still sending. The chat gives the
+ * one it shows (or none, on a fresh page); a closed conversation is read
+ * back on its own.
  *
- * What is on its way to a new conversation — or, with [startingNew], the
- * conversation the operator has chosen to start — sits under its own "new
- * conversation" line, below the ended ones and never inside them.
+ * What is on its way to a new conversation sits under its own "new
+ * conversation" line, below any ended one and never inside it.
  *
  * A day header goes above the first message of each day, as in the other
  * transcripts — except right under a "new conversation" line, which already
@@ -94,7 +95,6 @@ internal fun supportTimeline(
     items: List<SupportItem>,
     pending: List<PendingSupportItem>,
     zone: ZoneId = ZoneId.systemDefault(),
-    startingNew: Boolean = false,
 ): List<SupportRow> {
     val rows = mutableListOf<SupportRow>()
     var lastDay: LocalDate? = null
@@ -147,7 +147,7 @@ internal fun supportTimeline(
         )
     }
     toActive.forEach(::waiting)
-    if (conversations.isNotEmpty() && (startingNew || toNew.isNotEmpty())) {
+    if (conversations.isNotEmpty() && toNew.isNotEmpty()) {
         val startedAt = toNew.firstOrNull()?.createdAt
         rows += SupportRow.NewConversation("new-next", startedAt)
         startedAt?.atZone(zone)?.toLocalDate()?.let { lastDay = it }

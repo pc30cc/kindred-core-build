@@ -76,6 +76,8 @@ export interface SupportStatus {
   /** Somebody on the team is reachable right now; otherwise "leave a message". */
   online: boolean;
   teamName: string | null;
+  /** The support workspace's logo, as its own inbox and widget show it; null when it has none. */
+  teamAvatar: string | null;
   /** The team's messages the operator has not read yet, across conversations. */
   unread: number;
   /** The support workspace's business hours; null when it keeps none. */
@@ -160,6 +162,26 @@ async function workspaceName(sb: ServiceClient, workspaceId: string): Promise<st
   return ((data as { name: string | null } | null)?.name || '').trim() || null;
 }
 
+/**
+ * The workspace's logo: a URL somebody pasted, or a key into its own storage
+ * — `workspace_branding` owns it, and the workspace list and the widget
+ * resolve it the same way (routes/workspaces.ts).
+ */
+async function workspaceLogo(config: ServerConfig, sb: ServiceClient, workspaceId: string): Promise<string | null> {
+  const { data } = await sb
+    .from('workspace_branding')
+    .select('logo_url, logo_storage_key')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  const row = data as { logo_url: string | null; logo_storage_key: string | null } | null;
+  if (!row) return null;
+  return (
+    (row.logo_url || '').trim() ||
+    (await createStorageUrlResolver(config).workspace(workspaceId, row.logo_storage_key)) ||
+    null
+  );
+}
+
 /** The workspaces this operator belongs to, oldest membership first. */
 async function memberWorkspaceIds(sb: ServiceClient, userId: string): Promise<string[]> {
   const { data } = await sb
@@ -222,14 +244,16 @@ export async function supportStatus(
     available: false,
     online: false,
     teamName: null,
+    teamAvatar: null,
     unread: 0,
     hours: null,
     nextOpenAt: null,
   };
   if (!settings.enabled || !settings.workspaceId) return off;
   const sb = getServiceClient(config);
-  const [teamName, unread, widgetRow] = await Promise.all([
+  const [teamName, teamAvatar, unread, widgetRow] = await Promise.all([
     workspaceName(sb, settings.workspaceId),
+    workspaceLogo(config, sb, settings.workspaceId).catch(() => null),
     unreadCount(sb, userId),
     sb
       .from('widget_settings')
@@ -259,6 +283,7 @@ export async function supportStatus(
     available: true,
     online,
     teamName,
+    teamAvatar,
     unread,
     hours: businessHoursView(widgetRow),
     nextOpenAt,

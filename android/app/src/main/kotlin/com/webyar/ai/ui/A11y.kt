@@ -149,9 +149,12 @@ object A11y {
     const val SUPPORT_TRANSCRIPT = "support.transcript"
     const val SUPPORT_COMPOSER = "support.composer"
     const val SUPPORT_OFFLINE_BANNER = "support.offline"
-    const val SUPPORT_NEW_CONVERSATION_HINT = "support.newConversation"
     const val SUPPORT_ENDED_PANEL = "support.ended"
     const val SUPPORT_START_NEW = "support.startNew"
+    const val SUPPORT_CLOSED_BUTTON = "support.closed"
+    const val SUPPORT_CLOSED_LIST = "support.closed.list"
+
+    fun supportClosedRow(conversationId: String) = "support.closed.$conversationId"
     /** A rating card's parts, by the conversation it rates — two can be on screen. */
     fun supportRatingStar(conversationId: String, star: Int) = "support.rating.$conversationId.star.$star"
     fun supportRatingComment(conversationId: String) = "support.rating.$conversationId.comment"

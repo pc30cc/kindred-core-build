@@ -20,6 +20,8 @@ data class SupportStatus(
     /** Somebody on the team is reachable now; otherwise the app says "leave a message". */
     val online: Boolean = false,
     val teamName: String? = null,
+    /** The support workspace's logo; null while it has none. */
+    val teamAvatar: String? = null,
     /** The team's messages the operator has not read. */
     val unread: Int = 0,
     /** Null when the support workspace keeps no business hours. */

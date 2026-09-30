@@ -53,6 +53,7 @@ import com.webyar.ai.core.media.AttachmentDiskCache
 import com.webyar.ai.core.media.LoaderAttachmentSource
 import com.webyar.ai.core.model.MessageAttachment
 import com.webyar.ai.core.model.SupportConversation
+import com.webyar.ai.core.model.SupportItem
 import com.webyar.ai.core.model.SupportStatus
 import com.webyar.ai.i18n.Format
 import com.webyar.ai.i18n.Language
@@ -104,20 +105,28 @@ internal fun PresenceLine(online: Boolean, language: Language, modifier: Modifie
     }
 }
 
-/** The team's mark with its presence on it, for the chat's bar. */
+/**
+ * The team's face for the chat's bar: the support workspace's own logo, as
+ * its inbox and its website widget show it — a headset while it has none —
+ * with its presence on it.
+ */
 @Composable
-internal fun SupportTeamMark(online: Boolean?, modifier: Modifier = Modifier) {
+internal fun SupportTeamMark(online: Boolean?, avatarUrl: String?, modifier: Modifier = Modifier) {
     Box(modifier.size(40.dp)) {
-        Box(
-            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.secondaryContainer, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                Glyph.Headset,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.size(22.dp),
-            )
+        if (avatarUrl.isNullOrBlank()) {
+            Box(
+                Modifier.fillMaxSize().background(MaterialTheme.colorScheme.secondaryContainer, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Glyph.Headset,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        } else {
+            OperatorAvatar(imageUrl = avatarUrl, size = 40.dp)
         }
         if (online != null) {
             Box(
@@ -133,14 +142,15 @@ internal fun SupportTeamMark(online: Boolean?, modifier: Modifier = Modifier) {
 }
 
 /**
- * The support chat: every conversation the operator has had with the team,
- * oldest first, each ended one closed by a line and its rating — the same
- * bubbles as every other conversation in the app. The team on the left with
- * their faces, the operator on the right.
+ * The support chat: the conversation that is open — the same bubbles as
+ * every other conversation in the app, the team on the left with their
+ * faces, the operator on the right — or, with none open, a page as fresh as
+ * the very first. Conversations that ended are in their own screen, behind
+ * the bar's "closed" button, not here.
  *
- * At the bottom, the composer while a conversation is open. Once it has
- * ended, nothing more is written to it: the composer gives way to the end
- * and a button that starts a new conversation ([onStartNew]).
+ * At the bottom, the composer. When the conversation on screen ends,
+ * nothing more is written to it: the composer gives way to the end and a
+ * button that starts a new conversation ([onStartNew]).
  *
  * While nobody is online a banner says so, with the team's hours; a message
  * is delivered all the same.
@@ -178,7 +188,17 @@ fun SupportChatScreen(
                 is SupportChatState.Loaded -> if (state.isEmpty) {
                     EmptyState(icon = InsightGlyph.Chat, title = StrAndroid.supportGreeting(language), body = null)
                 } else {
-                    SupportTranscript(state, language, ratingBusy, loadAttachment, myAvatarUrl, onRetryMessage, onRate)
+                    SupportTranscript(
+                        conversations = listOfNotNull(state.shown),
+                        items = state.shownItems,
+                        pending = state.pending,
+                        language = language,
+                        ratingBusy = ratingBusy,
+                        loadAttachment = loadAttachment,
+                        myAvatarUrl = myAvatarUrl,
+                        onRetryMessage = onRetryMessage,
+                        onRate = onRate,
+                    )
                 }
             }
         }
@@ -186,20 +206,8 @@ fun SupportChatScreen(
         when (loaded?.composer) {
             // Nothing to write to before the chat has loaded.
             null -> Unit
-            SupportComposer.Ended -> EndedPanel(loaded.lastConversation, language, onStartNew)
+            SupportComposer.Ended -> EndedPanel(loaded.shown, language, onStartNew)
             else -> {
-                if (loaded.composer == SupportComposer.New) {
-                    Text(
-                        StrAndroid.supportNewConversationHint(language),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = Space.lg, vertical = Space.xs)
-                            .testTag(A11y.SUPPORT_NEW_CONVERSATION_HINT),
-                    )
-                }
                 // imePadding here: the composer belongs to the text being
                 // typed, so it rides up with the keyboard.
                 Box(Modifier.imePadding().navigationBarsPadding().testTag(A11y.SUPPORT_COMPOSER)) { composer() }
@@ -320,9 +328,16 @@ private fun OfflineBanner(status: SupportStatus, language: Language) {
     }
 }
 
+/**
+ * [conversations] as bubbles, each ended one closed by its line and its
+ * rating, then what is still on its way: the chat's open conversation, or a
+ * closed one read back.
+ */
 @Composable
-private fun SupportTranscript(
-    state: SupportChatState.Loaded,
+internal fun SupportTranscript(
+    conversations: List<SupportConversation>,
+    items: List<SupportItem>,
+    pending: List<PendingSupportItem>,
     language: Language,
     ratingBusy: Set<String>,
     loadAttachment: (suspend (String) -> ByteArray?)?,
@@ -336,10 +351,7 @@ private fun SupportTranscript(
             LoaderAttachmentSource(it, java.io.File(context.cacheDir, "${AttachmentDiskCache.DIRECTORY}/transient"))
         }
     }
-    val startingNew = state.composer == SupportComposer.New
-    val rows = remember(state.conversations, state.items, state.pending, startingNew) {
-        supportTimeline(state.conversations, state.items, state.pending, startingNew = startingNew)
-    }
+    val rows = remember(conversations, items, pending) { supportTimeline(conversations, items, pending) }
     val listState = rememberLazyListState()
     // A transcript opens on its newest message and stays there while that
     // message settles — see [StickToNewest].

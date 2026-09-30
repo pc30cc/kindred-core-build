@@ -62,10 +62,11 @@ export async function publishConversationEvent(
     }
     // Phase 5b — also fan out `message` envelopes to the workspace inbox
     // channel so the operator's conversation list updates instantly even
-    // when the affected conversation is not currently open. Without this,
-    // the inbox list only refreshes on the 10s React Query poll. The
-    // widget runtime never subscribes to the inbox channel, so this is
-    // purely operator-facing and safe.
+    // when the affected conversation is not currently open. The list has no
+    // periodic poll, so without this it would only refresh on mount, tab
+    // switch or the operator's own actions. The widget runtime never
+    // subscribes to the inbox channel, so this is purely operator-facing
+    // and safe.
     if (event.type === 'message') {
       try {
         const inboxChannel = buildInboxChannelName(workspaceId);
@@ -201,8 +202,10 @@ export function buildEventEnvelope(payload: OperatorEventPayload): ConversationE
  *   2. The workspace inbox channel (so the conversation list updates even
  *      when the conversation isn't open).
  *
- * Both publishes are best-effort and independent. If either transport is
- * disabled or fails, polling fallback still drives the UI within ≤10s.
+ * Both publishes are best-effort and independent. The inbox list and its
+ * counts have no periodic poll: an event lost here shows on the operator's
+ * next list refetch (mount, tab switch, their own action), not within a
+ * fixed interval.
  */
 export async function publishOperatorEvent(
   config: ServerConfig,

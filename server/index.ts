@@ -675,7 +675,7 @@ app.use((err: Error & { status?: number; statusCode?: number }, req: express.Req
 await ensureInvitationSecrets(config)
   .then((r) => console.log(`[invitations] key material: link=${r.linkSecret} otp=${r.otpPepper}`));
 
-app.listen(config.port, () => {
+const httpServer = app.listen(config.port, () => {
   console.log(`Growth Suite server running on port ${config.port}`);
 
   // Phase 3 — start best-effort orphan-attachment sweeper.
@@ -981,5 +981,18 @@ app.listen(config.port, () => {
     }
   }, 100);
 });
+
+// Idle keep-alive connections are kept for 65 s instead of Node's 5 s.
+//
+// Widgets heartbeat every 60 s, and the proxies in front (Traefik under
+// Coolify, nginx) keep idle upstream connections longer than 5 s. With the
+// default, almost every heartbeat and every burst after a pause arrived on a
+// fresh connection, and under load Node takes new connections one per event
+// loop turn: in the soak test at ~200 req/s it accepted about 11 a second,
+// the kernel queue sat full at 511, and a 1 ms health check waited 17-25 s
+// in it. A proxy reusing a connection Node had just closed is also the
+// classic source of stray 502s. headersTimeout must stay above it.
+httpServer.keepAliveTimeout = 65_000;
+httpServer.headersTimeout = 66_000;
 
 export default app;

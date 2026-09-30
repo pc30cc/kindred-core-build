@@ -101,26 +101,39 @@ export const WIDGET_CAPABILITY_KEYS = [
 ] as const;
 
 
+/**
+ * The workspace's module overrides for the widget's module keys, in ONE read
+ * (it used to be one read per key on every /config). An empty map when the
+ * read fails: every key then falls through to the plan check, as before.
+ */
+async function loadModuleOverrides(config: ServerConfig, workspaceId: string): Promise<Map<string, boolean>> {
+  const out = new Map<string, boolean>();
+  const keys = WIDGET_CAPABILITY_KEYS.filter((k) => MODULE_KEYS.has(k));
+  if (keys.length === 0) return out;
+  try {
+    const sb = getServiceClient(config);
+    const { data } = await sb
+      .from('workspace_module_overrides')
+      .select('module_key, enabled')
+      .eq('workspace_id', workspaceId)
+      .in('module_key', keys);
+    for (const row of (data ?? []) as Array<{ module_key: string; enabled: boolean | null }>) {
+      out.set(row.module_key, row.enabled === true);
+    }
+  } catch {
+    /* fall through to the plan check */
+  }
+  return out;
+}
+
 async function resolveBoolean(
   config: ServerConfig,
   workspaceId: string,
   key: string,
+  moduleOverrides: Map<string, boolean>,
 ): Promise<boolean> {
-  if (MODULE_KEYS.has(key)) {
-    // A workspace-level module override is authoritative on its own.
-    try {
-      const sb = getServiceClient(config);
-      const { data } = await sb
-        .from('workspace_module_overrides')
-        .select('enabled')
-        .eq('workspace_id', workspaceId)
-        .eq('module_key', key)
-        .maybeSingle();
-      if (data) return data.enabled === true;
-    } catch {
-      /* fall through to the plan check */
-    }
-  }
+  // A workspace-level module override is authoritative on its own.
+  if (MODULE_KEYS.has(key) && moduleOverrides.has(key)) return moduleOverrides.get(key) === true;
   const res = await checkEntitlementFromDB(
     config.supabaseUrl,
     config.supabaseServiceRoleKey,
@@ -138,9 +151,10 @@ export async function resolveWidgetEntitlements(
   workspaceId: string,
 ): Promise<WidgetEntitlements> {
   const features: Record<string, boolean> = {};
+  const moduleOverrides = await loadModuleOverrides(config, workspaceId);
   await Promise.all(
     WIDGET_CAPABILITY_KEYS.map(async (key) => {
-      features[key] = await resolveBoolean(config, workspaceId, key);
+      features[key] = await resolveBoolean(config, workspaceId, key, moduleOverrides);
     }),
   );
 
@@ -164,11 +178,11 @@ export async function resolveWidgetEntitlements(
 }
 
 /** Force every plan-denied behaviour flag off in an outgoing settings row. */
-export function applyWidgetEntitlementsToSettings<T extends Record<string, any>>(
+export function applyWidgetEntitlementsToSettings<T extends Record<string, unknown>>(
   settings: T,
   ent: WidgetEntitlements,
 ): T {
-  const out: Record<string, any> = { ...settings };
+  const out: Record<string, unknown> = { ...settings };
   for (const [column, capability] of Object.entries(WIDGET_SETTING_CAPABILITY)) {
     if (!(column in out)) continue;
     if (ent.features[capability] === false) out[column] = false;
@@ -179,7 +193,7 @@ export function applyWidgetEntitlementsToSettings<T extends Record<string, any>>
     if (ent.features[def.capability] === false) out[column] = def.reset;
   }
   if (ent.features.widget_business_hours === false && out.business_hours) {
-    out.business_hours = { ...(out.business_hours as any), enabled: false };
+    out.business_hours = { ...(out.business_hours as Record<string, unknown>), enabled: false };
   }
   // Plans without the domain allowlist do not get embed restrictions at all —
   // the stored list is ignored everywhere (operator UI, bootstrap, origin
@@ -207,7 +221,7 @@ export interface PatchGuardResult {
  * grows the embed allowlist past the plan's cap.
  */
 export function guardWidgetSettingsPatch(
-  patch: Record<string, any>,
+  patch: Record<string, unknown>,
   ent: WidgetEntitlements,
 ): PatchGuardResult {
   const denied: string[] = [];
@@ -232,7 +246,7 @@ export function guardWidgetSettingsPatch(
     denied.push('widget_assignment_routing');
   }
 
-  if (patch.business_hours && (patch.business_hours as any).enabled === true
+  if (patch.business_hours && (patch.business_hours as { enabled?: unknown }).enabled === true
       && ent.features.widget_business_hours === false) {
     denied.push('widget_business_hours');
   }

@@ -6,9 +6,11 @@
  * Map & Geo). No external call is ever made by this module.
  *
  * Readers are cached in-process keyed by file path so we don't reopen the
- * file on every lookup. When `autoReload` is enabled, the file's mtime is
- * checked and the reader is re-opened transparently if the file changed
- * (this is what makes the atomic updater's rename visible without restart).
+ * file on every lookup. The file is re-checked at most every RECHECK_MS: with
+ * `autoReload` enabled, a changed mtime re-opens the reader transparently, and
+ * a file mounted after startup is picked up the same way. The in-app updater
+ * drops the cached reader itself after its atomic rename, so its new database
+ * is live at once.
  *
  * Failure modes (missing file, bad format, IP not in DB) all return null so
  * callers fall back to the next geo source. Nothing here ever throws.
@@ -17,11 +19,24 @@ import { promises as fs } from 'node:fs';
 import { open, type Reader, type CityResponse } from 'maxmind';
 
 interface CachedReader {
-  reader: Reader<CityResponse>;
+  /** null: the file was missing, not a regular file, or unreadable at checkedAt. */
+  reader: Reader<CityResponse> | null;
   mtimeMs: number;
+  checkedAt: number;
 }
 
+/**
+ * How often a lookup re-checks the file on disk (existence, mtime). Every
+ * visitor request resolves geo, so a stat() per lookup — and, with the file
+ * missing, a warning line per lookup — is paid on the hot path; under load
+ * that logging alone was thousands of synchronous writes a minute.
+ */
+const RECHECK_MS = 30_000;
+/** A path that cannot be opened is reported at most this often. */
+const WARN_EVERY_MS = 10 * 60_000;
+
 const READERS = new Map<string, CachedReader>();
+const WARNED_AT = new Map<string, number>();
 
 /** Drop the cached reader for a path (used after an atomic DB replace). */
 export function invalidateMaxmindReader(dbPath?: string): void {
@@ -29,19 +44,29 @@ export function invalidateMaxmindReader(dbPath?: string): void {
   else READERS.clear();
 }
 
-async function getReader(dbPath: string, autoReload: boolean): Promise<Reader<CityResponse> | null> {
+async function getReader(dbPath: string, autoReload: boolean, fresh: boolean): Promise<Reader<CityResponse> | null> {
+  const cached = READERS.get(dbPath);
+  const now = Date.now();
+  if (cached && !fresh && now - cached.checkedAt < RECHECK_MS) return cached.reader;
   try {
     const stat = await fs.stat(dbPath);
-    if (!stat.isFile()) return null;
-    const cached = READERS.get(dbPath);
-    if (cached && (!autoReload || cached.mtimeMs === stat.mtimeMs)) {
+    if (!stat.isFile()) {
+      READERS.set(dbPath, { reader: null, mtimeMs: 0, checkedAt: now });
+      return null;
+    }
+    if (cached?.reader && (!autoReload || cached.mtimeMs === stat.mtimeMs)) {
+      cached.checkedAt = now;
       return cached.reader;
     }
     const reader = await open<CityResponse>(dbPath);
-    READERS.set(dbPath, { reader, mtimeMs: stat.mtimeMs });
+    READERS.set(dbPath, { reader, mtimeMs: stat.mtimeMs, checkedAt: now });
     return reader;
   } catch (err) {
-    console.warn('[geo:maxmind_local] cannot open DB:', dbPath, (err as Error).message);
+    READERS.set(dbPath, { reader: null, mtimeMs: 0, checkedAt: now });
+    if (now - (WARNED_AT.get(dbPath) ?? 0) >= WARN_EVERY_MS) {
+      WARNED_AT.set(dbPath, now);
+      console.warn('[geo:maxmind_local] cannot open DB:', dbPath, (err as Error).message);
+    }
     return null;
   }
 }
@@ -60,9 +85,10 @@ export interface LocalLookupResult {
 export async function lookupMaxmindLocal(
   dbPath: string,
   ip: string,
-  opts: { autoReload?: boolean } = {},
+  /** fresh: re-check the file now instead of within RECHECK_MS (admin test lookups). */
+  opts: { autoReload?: boolean; fresh?: boolean } = {},
 ): Promise<LocalLookupResult | null> {
-  const reader = await getReader(dbPath, !!opts.autoReload);
+  const reader = await getReader(dbPath, !!opts.autoReload, !!opts.fresh);
   if (!reader) return null;
   try {
     const r = reader.get(ip);
@@ -124,7 +150,7 @@ export async function checkMaxmindLocalHealth(dbPath: string): Promise<MaxmindLo
   }
   try {
     const reader = await open<CityResponse>(dbPath);
-    const meta: any = (reader as any).metadata ?? {};
+    const meta = ((reader as { metadata?: { databaseType?: unknown; buildEpoch?: unknown } }).metadata ?? {});
     base.usable = true;
     base.ok = true;
     if (meta.databaseType) base.database_type = String(meta.databaseType);

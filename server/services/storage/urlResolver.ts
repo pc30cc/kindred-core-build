@@ -275,7 +275,9 @@ export async function contactAvatarUrlMap(
   rows: Array<{ id?: string | null; avatar_storage_key?: string | null; avatar_url?: string | null } | null | undefined>,
 ): Promise<Map<string, string | null>> {
   const out = new Map<string, string | null>();
-  if (workspaceId) await resolver.prewarmWorkspaces([workspaceId]);
+  // Only a stored key needs the provider; a page of widget visitors usually
+  // has none, and resolving it anyway cost two reads per list request.
+  if (workspaceId && rows.some((r) => r?.avatar_storage_key)) await resolver.prewarmWorkspaces([workspaceId]);
   for (const row of rows) {
     if (!row?.id) continue;
     out.set(row.id, await resolveContactAvatarUrl(resolver, workspaceId, row));
@@ -338,7 +340,7 @@ export async function hydrateContactAvatars<T extends HydratableUserRow>(
   const list = (rows ?? []) as Array<HydratedAvatarRow<T>>;
   if (list.length === 0) return list;
   const resolver = asResolver(source);
-  if (workspaceId) await resolver.prewarmWorkspaces([workspaceId]);
+  if (workspaceId && list.some((r) => r?.avatar_storage_key)) await resolver.prewarmWorkspaces([workspaceId]);
   for (const row of list) {
     row.avatar_url = await resolveContactAvatarUrl(resolver, workspaceId, row);
     delete row.avatar_storage_key;

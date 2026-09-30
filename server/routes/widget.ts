@@ -820,8 +820,14 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       console.warn('[widget-config] ai_agent_settings lookup failed:', e?.message || e);
     }
 
-    const { data: members } = await supabase
-      .from('workspace_members').select('user_id').eq('workspace_id', workspaceId).limit(4);
+    // Members + their availability prefs, read ONCE: the team stack below and
+    // the availability snapshot further down both need them (each used to
+    // read members and prefs itself, and the stack read members a third time).
+    const { loadWorkspaceAvailabilityPrefs, listCustomerAvailableOperators } = await import('../services/widget/customerAvailability.js');
+    const availabilityPrefs = await loadWorkspaceAvailabilityPrefs(config, workspaceId).catch(() => undefined);
+    const members = availabilityPrefs
+      ? availabilityPrefs.memberIds.slice(0, 4).map((user_id) => ({ user_id }))
+      : (await supabase.from('workspace_members').select('user_id').eq('workspace_id', workspaceId).limit(4)).data;
 
     let teamMembers: Array<{ name: string; avatar: string | null; online: boolean }> = [];
     if (members?.length) {
@@ -835,8 +841,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       try {
         // Visitor-facing dots follow CUSTOMER availability (manual status +
         // schedule), never connection state.
-        const { listCustomerAvailableOperators } = await import('../services/widget/customerAvailability.js');
-        const { available } = await listCustomerAvailableOperators(config, workspaceId);
+        const { available } = await listCustomerAvailableOperators(config, workspaceId, new Date(), availabilityPrefs);
         for (const op of available) presenceByUser.set(op.user_id, 'online');
       } catch { /* presence is cosmetic — never fail the bootstrap */ }
       if (profiles) {
@@ -1024,6 +1029,9 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         await resolveAvailability(config, {
           workspaceId,
           locale: effectiveLocale,
+          // The raw row (not the entitlement-applied `ws`), as its own read was.
+          settingsRow: widget,
+          availabilityPrefs,
         }),
       ),
       // Phase 6a — Attachment config exposed to the widget runtime.
@@ -1865,6 +1873,24 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
   const clientMessageId = data.client_message_id || null;
 
   const supabase = getServiceClient(config);
+  // The page-context check and the chat-enabled gate below read the same
+  // widget_settings row: one read, shared (awaited at most once).
+  type WidgetGateRow = {
+    enabled: boolean | null;
+    chat_enabled: boolean | null;
+    allowed_domains: string[] | null;
+    allow_subdomains: boolean | null;
+  };
+  let widgetRowRead: Promise<{ data: WidgetGateRow | null }> | null = null;
+  const readWidgetRow = () =>
+    (widgetRowRead ??= (async () => {
+      const { data } = await supabase
+        .from('widget_settings')
+        .select('enabled, chat_enabled, allowed_domains, allow_subdomains')
+        .eq('workspace_id', workspaceId)
+        .maybeSingle();
+      return { data: (data as WidgetGateRow | null) ?? null };
+    })());
 
   // ─── E2C — sanitize + validate visitor page context ──────────────────
   // We only trust pageContext if its origin matches the request Origin OR is
@@ -1909,10 +1935,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       let allowedDomains: string[] = [];
       let allowSubdomains = false;
       try {
-        const { data: ws } = await supabase
-          .from('widget_settings')
-          .select('allowed_domains, allow_subdomains')
-          .eq('workspace_id', workspaceId).maybeSingle();
+        const { data: ws } = await readWidgetRow();
         allowedDomains = (ws?.allowed_domains as string[] | null) || [];
         allowSubdomains = !!ws?.allow_subdomains;
       } catch { /* best-effort */ }
@@ -1975,9 +1998,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
   try {
     // Verify widget is enabled
-    const { data: widget } = await supabase
-      .from('widget_settings').select('enabled, chat_enabled')
-      .eq('workspace_id', workspaceId).maybeSingle();
+    const { data: widget } = await readWidgetRow();
 
     if (!widget?.enabled || widget.chat_enabled === false) {
       return res.status(403).json({ error: 'Chat not enabled' });
@@ -2375,12 +2396,27 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     // shared guard rejects anything that is not a real inbound customer
     // message. Skipped on a duplicate replay — the original send already
     // ran this transition for the same logical message.
+    //
+    // The thread's `updated_at` touch comes first and returns the status it
+    // found, so the lifecycle only sends the transition that can apply: an
+    // open thread (the usual case) now costs this one write instead of two
+    // conditional updates that matched nothing plus the touch.
+    let touchedStatus: string | null = null;
+    if (convId) {
+      const { data: touched } = await supabase.from('conversations')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', convId)
+        .select('status')
+        .maybeSingle();
+      touchedStatus = typeof touched?.status === 'string' ? touched.status : null;
+    }
     if (!duplicate && convId && insertedMsg?.id) {
       await applyInboundConversationLifecycle(config, {
         workspaceId,
         conversationId: convId,
         source: 'widget',
         messageId: insertedMsg.id,
+        knownStatus: touchedStatus,
         message: {
           senderType: insertedMsg.sender_type,
           direction: 'inbound',
@@ -2403,10 +2439,6 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       }
     }
 
-    await supabase.from('conversations')
-      .update({ updated_at: new Date().toISOString() })
-      .eq('id', convId);
-
     // Pass E12-Hardening — when platform AI is OFF, ensure this conversation
     // is NOT stuck in Automated. Clears AI-managed metadata defensively for
     // both new and reused conversations (idempotent; no-op if nothing set).
@@ -2417,13 +2449,16 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
           conversationId: convId,
           reason: platformAiOffReason,
         });
-        console.log('[widget-message] platform_ai_disabled_restore', {
-          workspace_id: workspaceId,
-          conversation_id: convId,
-          reason: platformAiOffReason,
-          previous_ai_state: restored.previousAiState,
-          restored_to_main_inbox: restored.changed,
-        });
+        // Logged only when the conversation actually moved back to the main
+        // inbox: with platform AI off this runs on every visitor message.
+        if (restored.changed) {
+          console.log('[widget-message] platform_ai_disabled_restore', {
+            workspace_id: workspaceId,
+            conversation_id: convId,
+            reason: platformAiOffReason,
+            previous_ai_state: restored.previousAiState,
+          });
+        }
       } catch (e) {
         console.warn('[widget-message] platform_ai_disabled_restore_failed:', e?.message || e);
       }
@@ -2514,13 +2549,6 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
           console.warn('[widget-message] AI Agent engine error:', e?.message || e),
         );
     }
-    if (platformAiOff && insertedMsg?.id && convId) {
-      console.log('[widget-message] ai_skipped_platform_disabled', {
-        workspace_id: workspaceId,
-        conversation_id: convId,
-        reason: platformAiOffReason,
-      });
-    }
     const reply: string | null = null;
 
     return res.json({
@@ -2563,6 +2591,29 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
  * liveness window. A changed URL or column always writes, whatever the age.
  */
 const TRACK_REWRITE_MS = 15_000;
+
+/**
+ * Sessions whose geo enrichment was attempted, per (session, address), and
+ * when. With no geo source that can place an address (no MaxMind file, no
+ * provider), enrichment writes nothing, `geo_resolved_at` stays empty, and
+ * every page view of the session used to run the whole resolution again:
+ * a session read, two provider reads and two cache reads per /track. One
+ * attempt per session and address every GEO_ATTEMPT_TTL_MS is enough; a new
+ * address (VPN, mobile handover) is a new key and resolves at once.
+ */
+const GEO_ATTEMPT_TTL_MS = 10 * 60_000;
+const GEO_ATTEMPT_MAX_ENTRIES = 50_000;
+const geoAttemptedAt = new Map<string, number>();
+
+function geoEnrichmentAttemptedRecently(sessionId: string, ipHash: string | null): boolean {
+  const at = geoAttemptedAt.get(`${sessionId}:${ipHash ?? ''}`);
+  return at !== undefined && Date.now() - at < GEO_ATTEMPT_TTL_MS;
+}
+
+function markGeoEnrichmentAttempt(sessionId: string, ipHash: string | null): void {
+  if (geoAttemptedAt.size >= GEO_ATTEMPT_MAX_ENTRIES) geoAttemptedAt.clear();
+  geoAttemptedAt.set(`${sessionId}:${ipHash ?? ''}`, Date.now());
+}
 
 widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);
@@ -2774,6 +2825,9 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
           }
           // Fire-and-forget geo enrichment — never block the widget response.
           // Uses MaxMind local DB when configured (city-level), with cache.
+          // Marked as attempted so the existing-session check below does not
+          // enrich the brand-new session a second time.
+          markGeoEnrichmentAttempt(newSession.id, ipHash);
           void enrichVisitorSessionGeo(config, {
             sessionId: newSession.id,
             workspaceId,
@@ -2786,7 +2840,8 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
 
       // Existing-session path: enrich if geo fields are still empty (e.g.
       // session was created before MaxMind was configured).
-      if (activeSessionId) {
+      if (activeSessionId && !geoEnrichmentAttemptedRecently(activeSessionId, ipHash)) {
+        markGeoEnrichmentAttempt(activeSessionId, ipHash);
         void (async () => {
           try {
             const { data: row } = await supabase

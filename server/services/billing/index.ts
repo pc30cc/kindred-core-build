@@ -2,7 +2,7 @@
 // BILLING SERVICE — Provider resolution + dispatch
 // ============================================
 
-import { createClient } from '@supabase/supabase-js';
+import { serviceClientFor } from '../../lib/serviceClient.js';
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, WebhookEvent } from './types.js';
 import { stripeProvider } from './providers/stripe.js';
 import { paddleProvider } from './providers/paddle.js';
@@ -98,7 +98,7 @@ async function withCanonicalCredentials(
   providerName: string,
   config: BillingProviderConfig,
 ): Promise<BillingProviderConfig> {
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
   const { data, error } = await supabase
     .from('billing_provider_credentials')
     .select('config')
@@ -139,7 +139,7 @@ export async function resolveNamedBillingConfig(
 ): Promise<{ provider: BillingProviderHandler; config: BillingProviderConfig } | null> {
   const provider = getProvider(providerName);
   if (!provider) return null;
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
   const [gatewayResult, workspaceResult, globalResult] = await Promise.all([
     supabase.from('billing_gateways').select('config').eq('provider_name', providerName).maybeSingle(),
     supabase
@@ -195,7 +195,7 @@ export async function resolveBillingConfig(
   serviceRoleKey: string,
   workspaceId: string
 ): Promise<{ provider: BillingProviderHandler; config: BillingProviderConfig } | null> {
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
 
   // 1. Check workspace-level billing providers. Legacy data can contain more
   // than one active row for the same workspace/type, so always resolve the
@@ -322,7 +322,7 @@ export async function logBillingEvent(
     metadata?: unknown;
   }
 ) {
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
   await supabase.from('billing_events').insert({
     workspace_id: event.workspace_id || '00000000-0000-0000-0000-000000000000',
     event_type: event.event_type,
@@ -383,7 +383,7 @@ export async function claimBillingWebhookEvent(
   if (!input.providerEventId) throw new Error('claimBillingWebhookEvent: providerEventId required');
   if (!input.workspaceId) throw new Error('claimBillingWebhookEvent: workspaceId required');
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
   const { data, error } = await supabase
     .from('billing_events')
     .insert({
@@ -415,7 +415,7 @@ export async function finalizeBillingWebhookEvent(
   eventRowId: string,
   outcome: 'success' | 'failed',
 ): Promise<void> {
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
   await supabase
     .from('billing_events')
     .update({
@@ -449,7 +449,7 @@ export async function processWebhookEvent(
   event: WebhookEvent,
   opts: { alreadyClaimed?: boolean } = {},
 ) {
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
 
   // Log the event — skipped when the caller already claimed a
   // `billing_events` row for this provider event (idempotent webhook path),

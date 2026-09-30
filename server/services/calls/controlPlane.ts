@@ -118,7 +118,7 @@ export async function saveCallControlPlane(
   const { error } = await sb
     .from('app_runtime_config')
     .upsert(
-      { key: RUNTIME_KEY, value: merged as any, updated_at: new Date().toISOString() },
+      { key: RUNTIME_KEY, value: merged as unknown as Record<string, unknown>, updated_at: new Date().toISOString() },
       { onConflict: 'key' },
     );
   if (error) throw new Error(error.message);
@@ -201,7 +201,7 @@ export async function saveWorkspaceCallOverrides(
         provider_type: 'call',
         provider_name: 'call_channel',
         enabled: true,
-        config: merged as any,
+        config: merged as unknown as Record<string, unknown>,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'workspace_id,provider_type' },
@@ -229,10 +229,10 @@ export async function loadEffectiveCallChannels(
   config: ServerConfig,
   workspaceId: string,
 ): Promise<EffectiveCallChannels> {
-  const [cp, ws] = await Promise.all([
-    loadCallControlPlane(config),
-    loadWorkspaceCallOverrides(config, workspaceId),
-  ]);
+  // The platform switch first (cached): while calls are off platform-wide —
+  // the default — the workspace's overrides cannot change the answer, and
+  // reading them anyway cost every widget bootstrap a round trip.
+  const cp = await loadCallControlPlane(config);
   if (!cp.enabled) {
     return {
       voice_enabled: false,
@@ -243,6 +243,7 @@ export async function loadEffectiveCallChannels(
       visitor_initiated_video: false,
     };
   }
+  const ws = await loadWorkspaceCallOverrides(config, workspaceId);
   return {
     voice_enabled: cp.voice_calls_enabled_global && ws.voice_calls_enabled,
     video_enabled: cp.video_calls_enabled_global && ws.video_calls_enabled,

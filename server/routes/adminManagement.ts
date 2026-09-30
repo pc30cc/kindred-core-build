@@ -25,6 +25,7 @@ import type { ServerConfig } from '../config.js';
 import { insertAuditLogRows } from '../services/auditLog.js';
 import { getServiceClient } from '../supabase.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
+import { invalidateGlobalAdminCache } from '../lib/globalAdminCache.js';
 import { parseWorkspaceDomainInput, type DomainInputResult } from '../utils/workspaceDomainInput.js';
 import { invalidateOriginHostCache, invalidateWorkspaceOriginCache } from '../services/widget/public.js';
 import { invalidateSignupPolicyCache } from '../services/auth/signupPolicy.js';
@@ -128,6 +129,7 @@ adminManagementRouter.post('/users/:userId/roles', async (req, res) => {
     .from('user_roles')
     .upsert({ user_id: req.params.userId, role: parsed.data.role }, { onConflict: 'user_id,role' });
   if (error) return res.status(500).json({ error: error.message });
+  invalidateGlobalAdminCache(req.params.userId);
   return res.json({ success: true });
 });
 

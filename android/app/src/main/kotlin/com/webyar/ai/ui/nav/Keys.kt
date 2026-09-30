@@ -58,7 +58,8 @@ sealed interface Screen : NavKey {
 
 @Serializable data object EmailKey : Screen { override val tab get() = AppTab.INBOX }
 
-@Serializable data class EmailThreadKey(val threadId: String) : Screen {
+/** A mail thread, in [mailbox] (`gmail`, `yahoo`) — null for the workspace's default one. */
+@Serializable data class EmailThreadKey(val threadId: String, val mailbox: String? = null) : Screen {
     override val tab get() = AppTab.INBOX
 }
 
@@ -66,7 +67,12 @@ sealed interface Screen : NavKey {
  * The mail composer. With a thread and a mode it is a reply, a reply to all
  * or a forward of that thread; with neither, a new mail.
  */
-@Serializable data class EmailComposeKey(val sourceThreadId: String? = null, val mode: String? = null) : Screen {
+@Serializable data class EmailComposeKey(
+    val sourceThreadId: String? = null,
+    val mode: String? = null,
+    /** The mailbox it is written from; null for the workspace's default one. */
+    val mailbox: String? = null,
+) : Screen {
     override val tab get() = AppTab.INBOX
 }
 

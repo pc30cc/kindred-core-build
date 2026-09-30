@@ -15,6 +15,8 @@ data class PushContext(
     val openConversationIds: Set<String>,
     /** The colleagues whose team thread is on screen right now. */
     val openTeamPeerIds: Set<String> = emptySet(),
+    /** The email threads on screen right now. */
+    val openEmailThreadIds: Set<String> = emptySet(),
 )
 
 /**
@@ -84,7 +86,20 @@ class PushRouter(
             show(payload, title, body, now.language)
             return
         }
-        if (payload.isEmail || payload.isCallback) {
+        if (payload.isEmail) {
+            // New mail: the mailbox's count and list read again (the channel
+            // may be down, or the app just came up), and the notification is
+            // shown unless that thread is the one being read.
+            sync.onEmailPush(workspace, payload.provider)
+            if (now.foreground && payload.threadId != null && payload.threadId in now.openEmailThreadIds) {
+                diag.info(AREA, "email push: thread on screen")
+                return
+            }
+            diag.info(AREA, "push (${payload.type}) shown")
+            show(payload, title, body, now.language)
+            return
+        }
+        if (payload.isCallback) {
             // About no conversation: nothing for the inbox to read, and no
             // thread on screen that could make it redundant.
             diag.info(AREA, "push (${payload.type}) shown")

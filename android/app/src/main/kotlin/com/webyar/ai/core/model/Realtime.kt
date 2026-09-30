@@ -83,4 +83,7 @@ data class RealtimeEventPayload(
     @SerialName("sender_id") val senderId: String? = null,
     @SerialName("recipient_id") val recipientId: String? = null,
     @SerialName("peer_id") val peerId: String? = null,
+    /** `email_mailbox_changed`: which mailbox (`gmail`, `yahoo`), and Gmail's cursor after the change. */
+    val provider: String? = null,
+    @SerialName("history_id") val historyId: String? = null,
 )

@@ -94,6 +94,16 @@ describe('APNs alert request', () => {
     expect(payload.aps.conversationId).toBeUndefined();
   });
 
+  it("hands an email's mailbox to the app beside its thread", () => {
+    const payload = payloadOf(buildAlertRequest(creds, {
+      ...base,
+      data: { type: 'email_message', workspaceId: 'w-1', threadId: 't-1', provider: 'yahoo' },
+    }));
+    expect(payload.threadId).toBe('t-1');
+    expect(payload.provider).toBe('yahoo');
+    expect(payload.aps.provider).toBeUndefined();
+  });
+
   it('sends the badge only when there is one', () => {
     expect(payloadOf(buildAlertRequest(creds, base)).aps.badge).toBeUndefined();
     expect(payloadOf(buildAlertRequest(creds, { ...base, badge: 0 })).aps.badge).toBe(0);

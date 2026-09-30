@@ -287,6 +287,15 @@ export async function listGmailThreads(
   }));
 }
 
+/**
+ * Unread INBOX threads, from Gmail's own counter on the INBOX label
+ * (`users.labels.get`): one small call, no thread or message is read.
+ */
+export async function countGmailUnreadThreads(config: ServerConfig, integration: ChannelIntegration): Promise<number | null> {
+  return singleFlight(`unread:${integration.id}`, () => withGmail(config, integration, async (ga, accessToken) =>
+    (await ga.getLabelCounts(accessToken, 'INBOX')).threadsUnread));
+}
+
 // Attachment ids: `<hash>-p<partId>~<messageId>`. The MIME part id is stable
 // for a message, unlike Gmail's attachmentId, which is reissued on every
 // read; the root part of a single-part message has partId "". The short hash

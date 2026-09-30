@@ -3,6 +3,7 @@ package com.webyar.ai.feature.email
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.webyar.ai.core.model.EmailMessageView
+import com.webyar.ai.core.model.EmailThreadResponse
 import com.webyar.ai.core.model.EmailThreadSummary
 import com.webyar.ai.core.net.WebyarApi
 import com.webyar.ai.i18n.Language
@@ -41,18 +42,43 @@ class EmailThreadViewModel(
 
     private var workspaceId: String? = null
     private var threadId: String? = null
+    /** The mailbox the thread is in (`gmail`, `yahoo`); null is the server's default. */
+    private var provider: String? = null
+    private var remember: (EmailThreadResponse) -> Unit = {}
 
     val isStarred: Boolean get() = _thread.value?.isStarred == true
 
-    fun open(workspaceId: String, threadId: String, known: EmailThreadSummary?) {
-        if (this.workspaceId == workspaceId && this.threadId == threadId) return
+    /**
+     * Shows [threadId]. With [cached] — the thread as this device last read
+     * it, its content unchanged since — nothing is asked of the server but
+     * the read receipt, if it was unread.
+     */
+    fun open(
+        workspaceId: String,
+        threadId: String,
+        known: EmailThreadSummary?,
+        mailbox: String? = null,
+        cached: EmailThreadResponse? = null,
+        remember: (EmailThreadResponse) -> Unit = {},
+    ) {
+        if (this.workspaceId == workspaceId && this.threadId == threadId && this.provider == mailbox) return
         this.workspaceId = workspaceId
         this.threadId = threadId
+        this.provider = mailbox
+        this.remember = remember
         // The summary the list already has, so the subject is on screen before
         // the trail arrives rather than appearing a second later.
         _thread.value = known
-        _state.value = EmailThreadState.Loading
         _draft.value = ""
+        if (cached != null) {
+            _thread.value = cached.thread.copy(isRead = true, isStarred = known?.isStarred ?: cached.thread.isStarred)
+            _state.value = EmailThreadState.Loaded(cached.messages)
+            if (known?.isRead != true) {
+                viewModelScope.launch { runCatching { api.setEmailThreadRead(workspaceId, threadId, isRead = true, mailbox = mailbox) } }
+            }
+            return
+        }
+        _state.value = EmailThreadState.Loading
         load()
     }
 
@@ -67,13 +93,18 @@ class EmailThreadViewModel(
     private fun load() {
         val workspace = workspaceId ?: return
         val id = threadId ?: return
+        val mailbox = provider
         viewModelScope.launch {
-            runCatching { api.emailThread(workspace, id) }
+            runCatching { api.emailThread(workspace, id, mailbox) }
                 .onSuccess {
+                    if (workspace != workspaceId || id != threadId) return@onSuccess
                     _thread.value = it.thread
                     _state.value = EmailThreadState.Loaded(it.messages)
+                    remember(it)
                     // Opening a thread is what reading it means.
-                    runCatching { api.setEmailThreadRead(workspace, id, isRead = true) }
+                    if (it.thread.isRead != true) {
+                        runCatching { api.setEmailThreadRead(workspace, id, isRead = true, mailbox = mailbox) }
+                    }
                 }
                 .onFailure { _state.value = EmailThreadState.Failed(it.displayText(language())) }
         }
@@ -106,7 +137,7 @@ class EmailThreadViewModel(
         val next = current.isStarred != true
         _thread.value = current.copy(isStarred = next)
         viewModelScope.launch {
-            runCatching { api.setEmailThreadStarred(workspace, current.id, next) }
+            runCatching { api.setEmailThreadStarred(workspace, current.id, next, provider) }
         }
     }
 

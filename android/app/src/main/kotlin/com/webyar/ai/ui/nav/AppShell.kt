@@ -65,6 +65,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
@@ -185,6 +186,24 @@ fun AppShell(
     )
     val inboxBadge = inboxBadgeCount(openUnread, teamUnread.value)
 
+    // The mailboxes' unread counts, for the inbox's Email row and its menu's
+    // dot — watched from here, whichever tab is open, and live: the email
+    // model follows the mailbox-changed signal on its own. Counted only
+    // where the Email row is shown at all (an owner or admin, on a plan
+    // with the module).
+    val access by appState.access.collectAsStateWithLifecycle()
+    val emailAllowed = access.isAdmin && plan.value?.moduleEnabled("email_inbox") == true
+    LaunchedEffect(workspace?.id, emailAllowed) {
+        if (emailAllowed) workspace?.id?.let(email::track)
+    }
+    // Back in the front: mail may have come meanwhile, with no signal heard.
+    LifecycleResumeEffect(emailAllowed) {
+        if (emailAllowed) email.refreshMailboxes()
+        onPauseOrDispose { }
+    }
+    val emailMailboxes by email.mailboxes.collectAsStateWithLifecycle()
+    val emailUnread by email.unread.collectAsStateWithLifecycle()
+
     // A team thread is marked read as it is opened; the badge asks again as
     // it closes, rather than at the next poll. Team threads live on the
     // inbox's stack.
@@ -217,9 +236,11 @@ fun AppShell(
         enterWorkspace(appState.selectedWorkspace.value?.id)
         val thread = link.threadId
         if (link.opensEmailThread && thread != null) {
+            // The list under it shows the mailbox the mail arrived in.
+            appState.selectedWorkspace.value?.id?.let { email.bind(it, link.provider) }
             val top = navigator.stack(AppTab.INBOX).lastOrNull()
             if (top !is EmailThreadKey && top != EmailKey) navigator.open(EmailKey)
-            navigator.open(EmailThreadKey(thread))
+            navigator.open(EmailThreadKey(thread, link.provider))
             return@LaunchedEffect
         }
         val peer = link.peerId
@@ -289,10 +310,15 @@ fun AppShell(
                     language = language,
                     onOpenConversation = { navigator.open(ChatKey(it)) },
                     onOpenColleagues = { navigator.open(ColleaguesKey) },
-                    onOpenEmail = { navigator.open(EmailKey) },
+                    onOpenEmail = { provider ->
+                        provider?.let(email::selectMailbox)
+                        navigator.open(EmailKey)
+                    },
                     promotions = promotions,
                     bottomInset = 0.dp,
                     teamUnread = teamUnread.value,
+                    mailboxes = emailMailboxes,
+                    emailUnread = emailUnread,
                 )
             }
         }
@@ -372,25 +398,27 @@ fun AppShell(
                 appState = appState,
                 email = email,
                 language = language,
-                onOpenThread = { navigator.open(EmailThreadKey(it)) },
-                onCompose = { navigator.open(EmailComposeKey()) },
+                onOpenThread = { navigator.open(EmailThreadKey(it, email.provider.value)) },
+                onCompose = { navigator.open(EmailComposeKey(mailbox = email.provider.value)) },
                 onBack = { navigator.back() },
             )
         }
         entry<EmailThreadKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = EmailKey) + tabOf(AppTab.INBOX)) { key ->
             EmailThreadRoute(
                 threadId = key.threadId,
+                mailbox = key.mailbox,
                 appState = appState,
                 api = api,
                 email = email,
                 language = language,
                 onBack = { navigator.back() },
-                onReply = { mode -> navigator.open(EmailComposeKey(key.threadId, mode.name)) },
+                onReply = { mode -> navigator.open(EmailComposeKey(key.threadId, mode.name, key.mailbox)) },
             )
         }
         entry<EmailComposeKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = EmailKey) + tabOf(AppTab.INBOX)) { key ->
             EmailComposeRoute(
                 sourceThreadId = key.sourceThreadId,
+                mailbox = key.mailbox,
                 mode = key.mode?.let { raw -> EmailReplyMode.entries.firstOrNull { it.name == raw } },
                 appState = appState,
                 api = api,

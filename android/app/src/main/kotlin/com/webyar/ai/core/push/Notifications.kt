@@ -28,6 +28,7 @@ fun PushPayload.Companion.from(intent: Intent?): PushPayload? {
         peerId = extras.getString(KEY_PEER)?.takeIf { isId(it) },
         threadId = extras.getString(KEY_THREAD)?.takeIf { isId(it) },
         callbackId = extras.getString(KEY_CALLBACK)?.takeIf { isId(it) },
+        provider = extras.getString(KEY_PROVIDER)?.takeIf { isProvider(it) },
     )
     return payload.takeIf { it.opensSomething }
 }
@@ -127,6 +128,9 @@ object Notifications {
     /** The operator opened the thread with this colleague. */
     fun cancelTeamThread(context: Context, peerId: String) = cancelKey(context, teamKey(peerId))
 
+    /** The operator opened this email thread. */
+    fun cancelEmailThread(context: Context, threadId: String) = cancelKey(context, emailKey(threadId))
+
     /** Whatever [payload]'s notification is about has been opened. */
     fun cancelFor(context: Context, payload: PushPayload) {
         keyOf(payload)?.let { key -> cancelKey(context, key) }
@@ -155,12 +159,13 @@ object Notifications {
             payload.peerId?.let { putExtra(PushPayload.KEY_PEER, it) }
             payload.threadId?.let { putExtra(PushPayload.KEY_THREAD, it) }
             payload.callbackId?.let { putExtra(PushPayload.KEY_CALLBACK, it) }
+            payload.provider?.let { putExtra(PushPayload.KEY_PROVIDER, it) }
         }
 
     /** What one notification stands for: a conversation, or a colleague's thread. */
     private fun keyOf(payload: PushPayload): String? = when {
         payload.isTeamMessage -> payload.peerId?.let(::teamKey)
-        payload.isEmail -> payload.threadId?.let { "email:$it" }
+        payload.isEmail -> payload.threadId?.let(::emailKey)
         payload.isCallback -> payload.callbackId?.let { "callback:$it" }
         else -> payload.conversationId
     }
@@ -168,6 +173,9 @@ object Notifications {
     // A conversation's key is its id, as it has always been; a colleague's
     // is marked so that the two can never share a notification.
     private fun teamKey(peerId: String) = "team:$peerId"
+
+    /** The server's tag for new mail in a thread (`androidNotificationTag`, `fcm.ts`). */
+    private fun emailKey(threadId: String) = "email:$threadId"
 
     /**
      * The id Firebase gives every notification it draws; the tag tells them

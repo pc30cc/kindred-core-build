@@ -96,4 +96,12 @@ describe('sendFcmMessage', () => {
     const message = (posted.at(-1)?.body as { message: { android: { notification: Record<string, unknown> } } }).message;
     expect(message.android.notification.tag).toBe('team:u-sara');
   });
+
+  it('an email keeps its thread tag and hands the app the mailbox it is in', async () => {
+    const data = { type: 'email_message', workspaceId: 'w-1', threadId: '18c3f4a5b6c7d8e9', provider: 'gmail' };
+    await sendFcmMessage({ token: 'device-token', title: 'New email', body: 'You have a new email', data });
+    const message = (posted.at(-1)?.body as { message: { data: Record<string, string>; android: { notification: Record<string, unknown> } } }).message;
+    expect(message.android.notification.tag).toBe('email:18c3f4a5b6c7d8e9');
+    expect(message.data).toEqual(data);
+  });
 });

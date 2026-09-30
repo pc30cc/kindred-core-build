@@ -12,7 +12,7 @@
  * Reusing its path or its `emailRouter` export would conflate two different
  * things that happen to share the English word "email".
  */
-import { Router, raw, type Response } from 'express';
+import { Router, raw, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { enforceModule } from '../middleware/featureGating.js';
@@ -28,6 +28,8 @@ import {
   listChanges,
   isLiveInbox,
   sendLiveGmail,
+  listMailboxes,
+  type EmailProvider,
   type StagedAttachment,
 } from '../services/email/inbox.js';
 
@@ -56,8 +58,45 @@ function sendEmailInboxError(res: Response, err: unknown) {
   res.status(500).json({ error: 'email_inbox_unexpected_error' });
 }
 
+/**
+ * `?provider=gmail|yahoo` (every route, POSTs included): the mailbox the
+ * request is about, when a workspace has more than one connected. Absent,
+ * the first connected one is used (Gmail, then Yahoo), as before. `null`
+ * means the value was invalid and a 400 has been sent.
+ */
+function mailboxOf(req: Request, res: Response): EmailProvider | undefined | null {
+  const value = req.query.provider;
+  if (value === undefined || value === '') return undefined;
+  if (value === 'gmail' || value === 'yahoo') return value;
+  res.status(400).json({ error: 'invalid_provider' });
+  return null;
+}
+
+/**
+ * GET /:workspaceId/mailboxes — the connected mailboxes (Gmail first), each
+ * `{ provider, address, status: 'connected', unread }`, so apps can offer a
+ * picker and badge it. `unread` = unread INBOX threads, or null when it could
+ * not be read just now. No mail content.
+ */
+emailInboxRouter.get('/:workspaceId/mailboxes', async (req, res) => {
+  const { workspaceId } = req.params;
+  const provider = mailboxOf(req, res);
+  if (provider === null) return;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ mailboxes: await listMailboxes(serverConfigOf(req), workspaceId, provider) });
+  } catch (err) {
+    sendEmailInboxError(res, err);
+  }
+});
+
 emailInboxRouter.get('/:workspaceId/threads', async (req, res) => {
   const { workspaceId } = req.params;
+  const provider = mailboxOf(req, res);
+  if (provider === null) return;
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
   if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
@@ -69,7 +108,7 @@ emailInboxRouter.get('/:workspaceId/threads', async (req, res) => {
       unreadOnly: req.query.unread === 'true',
       starredOnly: req.query.starred === 'true',
       search: typeof req.query.q === 'string' ? req.query.q : undefined,
-    });
+    }, provider);
     res.json(result);
   } catch (err) {
     sendEmailInboxError(res, err);
@@ -78,11 +117,13 @@ emailInboxRouter.get('/:workspaceId/threads', async (req, res) => {
 
 emailInboxRouter.get('/:workspaceId/threads/:threadId', async (req, res) => {
   const { workspaceId, threadId } = req.params;
+  const provider = mailboxOf(req, res);
+  if (provider === null) return;
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
   if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
   try {
-    const result = await getThread(serverConfigOf(req), workspaceId, threadId);
+    const result = await getThread(serverConfigOf(req), workspaceId, threadId, provider);
     res.json(result);
   } catch (err) {
     sendEmailInboxError(res, err);
@@ -97,12 +138,14 @@ emailInboxRouter.get('/:workspaceId/changes', async (req, res) => {
   const { workspaceId } = req.params;
   const since = typeof req.query.since === 'string' && /^\d{1,30}$/.test(req.query.since) ? req.query.since : null;
   if (!since) return res.status(400).json({ error: 'invalid_since' });
+  const provider = mailboxOf(req, res);
+  if (provider === null) return;
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
   if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
   try {
     res.setHeader('Cache-Control', 'no-store');
-    res.json(await listChanges(serverConfigOf(req), workspaceId, since));
+    res.json(await listChanges(serverConfigOf(req), workspaceId, since, provider));
   } catch (err) {
     sendEmailInboxError(res, err);
   }
@@ -113,11 +156,13 @@ emailInboxRouter.post('/:workspaceId/threads/:threadId/read', async (req, res) =
   const { workspaceId, threadId } = req.params;
   const parsed = readSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
+  const provider = mailboxOf(req, res);
+  if (provider === null) return;
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
   if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
   try {
-    await setThreadRead(serverConfigOf(req), workspaceId, threadId, parsed.data.is_read);
+    await setThreadRead(serverConfigOf(req), workspaceId, threadId, parsed.data.is_read, provider);
     res.json({ ok: true });
   } catch (err) {
     sendEmailInboxError(res, err);
@@ -129,11 +174,13 @@ emailInboxRouter.post('/:workspaceId/threads/:threadId/star', async (req, res) =
   const { workspaceId, threadId } = req.params;
   const parsed = starSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
+  const provider = mailboxOf(req, res);
+  if (provider === null) return;
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
   if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
   try {
-    await setThreadStarred(serverConfigOf(req), workspaceId, threadId, parsed.data.starred);
+    await setThreadStarred(serverConfigOf(req), workspaceId, threadId, parsed.data.starred, provider);
     res.json({ ok: true });
   } catch (err) {
     sendEmailInboxError(res, err);
@@ -149,11 +196,13 @@ emailInboxRouter.post('/:workspaceId/threads/:threadId/star', async (req, res) =
  */
 emailInboxRouter.get('/:workspaceId/attachments/:attachmentId/file', async (req, res) => {
   const { workspaceId, attachmentId } = req.params;
+  const provider = mailboxOf(req, res);
+  if (provider === null) return;
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
   if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
   try {
-    const file = await getAttachmentFile(serverConfigOf(req), workspaceId, attachmentId);
+    const file = await getAttachmentFile(serverConfigOf(req), workspaceId, attachmentId, provider);
     if (!file) return res.status(404).json({ error: 'attachment_not_found' });
     res.setHeader('Content-Type', file.contentType);
     res.setHeader('Content-Length', String(file.data.byteLength));
@@ -175,6 +224,8 @@ emailInboxRouter.get('/:workspaceId/attachments/:attachmentId/file', async (req,
  */
 emailInboxRouter.post('/:workspaceId/attachments', raw({ type: '*/*', limit: '25mb' }), async (req, res) => {
   const { workspaceId } = req.params;
+  const provider = mailboxOf(req, res);
+  if (provider === null) return;
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
   if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
@@ -186,7 +237,7 @@ emailInboxRouter.post('/:workspaceId/attachments', raw({ type: '*/*', limit: '25
     // A live (Gmail) inbox stores nothing. Apps that stage before sending get
     // their file handed straight back as the "key" (INLINE_KEY_PREFIX) and
     // return it with /send; nothing is written anywhere in between.
-    if (await isLiveInbox(serverConfigOf(req), workspaceId)) {
+    if (await isLiveInbox(serverConfigOf(req), workspaceId, provider)) {
       if (bytes.byteLength > MAX_INLINE_ATTACHMENT_BYTES) return res.status(413).json({ error: 'attachments_too_large' });
       const safeName = filename.replace(/[^\w.-]+/g, '_').slice(0, 150) || 'attachment';
       const inline: StagedAttachment = {
@@ -233,12 +284,14 @@ emailInboxRouter.post('/:workspaceId/send', async (req, res) => {
   const { workspaceId } = req.params;
   const parsed = sendSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload', details: parsed.error.flatten() });
+  const provider = mailboxOf(req, res);
+  if (provider === null) return;
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
   if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
   const config = serverConfigOf(req);
   try {
-    if (await isLiveInbox(config, workspaceId)) {
+    if (await isLiveInbox(config, workspaceId, provider)) {
       // Staged attachments from apps that upload first carry their bytes in
       // the key (see POST /attachments); a storage key means nothing here.
       const staged = parsed.data.attachments ?? [];
@@ -269,7 +322,7 @@ emailInboxRouter.post('/:workspaceId/send', async (req, res) => {
         textBody: parsed.data.text_body,
         htmlBody: parsed.data.html_body,
         attachments: inline,
-      });
+      }, provider);
       return res.json(result);
     }
     if (parsed.data.thread_id && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parsed.data.thread_id)) {
@@ -290,7 +343,7 @@ emailInboxRouter.post('/:workspaceId/send', async (req, res) => {
       textBody: parsed.data.text_body,
       htmlBody: parsed.data.html_body,
       attachments,
-    });
+    }, provider);
     res.json(result);
   } catch (err) {
     sendEmailInboxError(res, err);

@@ -46,6 +46,9 @@ import com.webyar.ai.core.model.EmailAddress
 import com.webyar.ai.core.model.EmailMessageView
 import com.webyar.ai.core.model.EmailThreadResponse
 import com.webyar.ai.core.model.EmailThreadSummary
+import com.webyar.ai.core.model.EmailThreadsResponse
+import com.webyar.ai.core.model.EmailFolder
+import com.webyar.ai.core.model.EmailMailbox
 import com.webyar.ai.core.model.EffectiveBool
 import com.webyar.ai.core.model.Entitlements
 import com.webyar.ai.core.model.GmailConnection
@@ -386,14 +389,42 @@ class SampleApi : WebyarApi {
         return EMAIL_THREADS.filter { q in it.subject.orEmpty().lowercase() }
     }
 
-    override suspend fun emailThread(workspaceId: String, threadId: String): EmailThreadResponse =
+    override suspend fun emailThread(workspaceId: String, threadId: String, mailbox: String?): EmailThreadResponse =
         EmailThreadResponse(
-            thread = EMAIL_THREADS.firstOrNull { it.id == threadId } ?: EMAIL_THREADS.first(),
+            thread = (EMAIL_THREADS + YAHOO_THREADS).firstOrNull { it.id == threadId } ?: EMAIL_THREADS.first(),
             messages = EMAIL_MESSAGES,
         )
 
-    override suspend fun setEmailThreadRead(workspaceId: String, threadId: String, isRead: Boolean) {}
-    override suspend fun setEmailThreadStarred(workspaceId: String, threadId: String, starred: Boolean) {}
+    /**
+     * Two mailboxes, on purpose: the switcher, the per-mailbox counts and a
+     * notification naming its mailbox are only drawn when there is more than
+     * one, and most real workspaces have one.
+     */
+    override suspend fun emailMailboxes(workspaceId: String): List<EmailMailbox> = listOf(
+        EmailMailbox("gmail", "support@webyar.app", "connected", EMAIL_THREADS.count { it.isRead == false }),
+        EmailMailbox("yahoo", "sales@webyar.app", "connected", YAHOO_THREADS.count { it.isRead == false }),
+    )
+
+    override suspend fun emailThreadsPage(
+        workspaceId: String,
+        folder: EmailFolder,
+        search: String?,
+        before: String?,
+        mailbox: String?,
+    ): EmailThreadsResponse {
+        if (before != null) return EmailThreadsResponse()
+        val all = if (mailbox == "yahoo") YAHOO_THREADS else emailThreads(workspaceId, search)
+        return EmailThreadsResponse(
+            threads = when (folder) {
+                EmailFolder.INBOX -> all
+                EmailFolder.UNREAD -> all.filter { it.isRead == false }
+                EmailFolder.STARRED -> all.filter { it.isStarred == true }
+            },
+        )
+    }
+
+    override suspend fun setEmailThreadRead(workspaceId: String, threadId: String, isRead: Boolean, mailbox: String?) {}
+    override suspend fun setEmailThreadStarred(workspaceId: String, threadId: String, starred: Boolean, mailbox: String?) {}
     override suspend fun sendEmail(
         workspaceId: String,
         threadId: String?,
@@ -957,6 +988,19 @@ class SampleApi : WebyarApi {
                 isRead = true,
                 isStarred = false,
                 lastMessageSnippet = "سلام، می‌خواستم بدانم…",
+            ),
+        )
+
+        val YAHOO_THREADS = listOf(
+            EmailThreadSummary(
+                id = "y-1",
+                provider = "yahoo",
+                subject = "درخواست همکاری فروش",
+                participants = listOf(EmailAddress("partner@example.com")),
+                lastMessageAt = ago(30),
+                isRead = false,
+                isStarred = false,
+                lastMessageSnippet = "سلام، برای همکاری در فروش…",
             ),
         )
 

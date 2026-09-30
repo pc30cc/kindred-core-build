@@ -22,6 +22,11 @@ data class PushPayload(
     val threadId: String? = null,
     /** A visitor's callback request. */
     val callbackId: String? = null,
+    /**
+     * The mailbox a new email arrived in (`gmail`, `yahoo`), when a workspace
+     * can have more than one. Absent from a server that did not say.
+     */
+    val provider: String? = null,
 ) {
     /** Enough to open a conversation. */
     val opensConversation: Boolean get() = !workspaceId.isNullOrBlank() && !conversationId.isNullOrBlank()
@@ -55,6 +60,12 @@ data class PushPayload(
         const val KEY_PEER = "peerId"
         const val KEY_THREAD = "threadId"
         const val KEY_CALLBACK = "callbackId"
+        const val KEY_PROVIDER = "provider"
+
+        /** The mailboxes a push may name; anything else is not one of ours. */
+        private val PROVIDERS = setOf("gmail", "yahoo")
+
+        internal fun isProvider(value: String): Boolean = value in PROVIDERS
 
         /** `server/routes/adminNotifications.ts`, the test send. */
         const val TYPE_TEST = "test"
@@ -76,6 +87,7 @@ data class PushPayload(
             peerId = data[KEY_PEER]?.takeIf { isId(it) },
             threadId = data[KEY_THREAD]?.takeIf { isId(it) },
             callbackId = data[KEY_CALLBACK]?.takeIf { isId(it) },
+            provider = data[KEY_PROVIDER]?.takeIf { isProvider(it) },
         )
 
         /** Ids are what the server makes them; anything else in a payload is not one of ours. */

@@ -6,6 +6,7 @@ import com.webyar.ai.core.cache.MemoryCacheStore
 import com.webyar.ai.core.model.InboxFilter
 import com.webyar.ai.core.sync.ConversationRepository
 import com.webyar.ai.core.sync.MessageRepository
+import com.webyar.ai.core.sync.EmailSignal
 import com.webyar.ai.core.sync.SyncCoordinator
 import com.webyar.ai.i18n.Language
 import com.webyar.ai.testing.ScriptedApi
@@ -221,6 +222,46 @@ class PushRouterTest {
         assertEquals(listOf(email), shown)
         assertTrue(api.idReads.isEmpty())
         assertTrue(email.opensEmailThread)
+    }
+
+    /** New mail: the mailbox reads again (the channel may be down) and the operator is told. */
+    @Test
+    fun `new mail signals its mailbox and notifies`() = runTest {
+        val (router, sync) = router()
+        val heard = mutableListOf<EmailSignal>()
+        backgroundScope.launch { sync.email.collect { heard += it } }
+        runCurrent()
+        val email = PushPayload(type = PushPayload.TYPE_EMAIL, workspaceId = "ws-1", conversationId = null, messageId = null, threadId = "18f3a9c2b1d0e4f5", provider = "yahoo")
+
+        router.onMessage(email, "ایمیل تازه", "ایمیل تازه")
+        runCurrent()
+
+        assertEquals(listOf(email), shown)
+        assertEquals(listOf(EmailSignal("ws-1", "yahoo", null)), heard)
+    }
+
+    /** The mail arriving is in the thread on screen: it is already being read. */
+    @Test
+    fun `new mail in the thread being read does not notify`() = runTest {
+        context = context?.copy(openEmailThreadIds = setOf("18f3a9c2b1d0e4f5"))
+        val (router, sync) = router()
+        val heard = mutableListOf<EmailSignal>()
+        backgroundScope.launch { sync.email.collect { heard += it } }
+        runCurrent()
+        val email = PushPayload(type = PushPayload.TYPE_EMAIL, workspaceId = "ws-1", conversationId = null, messageId = null, threadId = "18f3a9c2b1d0e4f5")
+
+        router.onMessage(email, "ایمیل تازه", "ایمیل تازه")
+        runCurrent()
+
+        assertTrue(shown.isEmpty())
+        // Still heard: the list and the count move with it.
+        assertEquals(1, heard.size)
+    }
+
+    @Test
+    fun `a push names its mailbox only when it is one of ours`() {
+        assertEquals("gmail", PushPayload.from(mapOf("type" to "email_message", "provider" to "gmail")).provider)
+        assertEquals(null, PushPayload.from(mapOf("type" to "email_message", "provider" to "../evil")).provider)
     }
 
     @Test

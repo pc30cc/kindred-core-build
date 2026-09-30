@@ -110,6 +110,9 @@ import java.io.File
 import java.io.IOException
 import com.webyar.ai.core.model.EmailFolder
 import com.webyar.ai.core.model.EmailDraft
+import com.webyar.ai.core.model.EmailChanges
+import com.webyar.ai.core.model.EmailMailbox
+import com.webyar.ai.core.model.EmailMailboxesResponse
 import com.webyar.ai.core.model.StagedEmailAttachment
 import io.ktor.http.content.ByteArrayContent
 import com.webyar.ai.core.model.LiveVisitor
@@ -1030,19 +1033,25 @@ class ApiClient(
             .decode<EmailThreadsResponse>().threads
     }
 
-    override suspend fun emailThread(workspaceId: String, threadId: String): EmailThreadResponse =
+    /** `?provider=` naming the mailbox, when the call is about a particular one. */
+    private fun mailboxQuery(mailbox: String?): List<Pair<String, String>> =
+        mailbox?.takeIf { it.isNotBlank() }?.let { listOf("provider" to it) }.orEmpty()
+
+    override suspend fun emailThread(workspaceId: String, threadId: String, mailbox: String?): EmailThreadResponse =
         build(
             HttpMethod.Get,
             "/api/email-inbox/${workspaceId.urlPath()}/threads/${threadId.urlPath()}",
+            mailboxQuery(mailbox),
         ).decode()
 
     @Serializable
     private data class EmailReadBody(val is_read: Boolean)
 
-    override suspend fun setEmailThreadRead(workspaceId: String, threadId: String, isRead: Boolean) {
+    override suspend fun setEmailThreadRead(workspaceId: String, threadId: String, isRead: Boolean, mailbox: String?) {
         build(
             HttpMethod.Post,
             "/api/email-inbox/${workspaceId.urlPath()}/threads/${threadId.urlPath()}/read",
+            mailboxQuery(mailbox),
             body = EmailReadBody(isRead),
         ).orThrow()
     }
@@ -1050,10 +1059,11 @@ class ApiClient(
     @Serializable
     private data class EmailStarBody(val starred: Boolean)
 
-    override suspend fun setEmailThreadStarred(workspaceId: String, threadId: String, starred: Boolean) {
+    override suspend fun setEmailThreadStarred(workspaceId: String, threadId: String, starred: Boolean, mailbox: String?) {
         build(
             HttpMethod.Post,
             "/api/email-inbox/${workspaceId.urlPath()}/threads/${threadId.urlPath()}/star",
+            mailboxQuery(mailbox),
             body = EmailStarBody(starred),
         ).orThrow()
     }
@@ -1085,12 +1095,14 @@ class ApiClient(
         folder: EmailFolder,
         search: String?,
         before: String?,
+        mailbox: String?,
     ): EmailThreadsResponse {
         val query = buildList {
             add("limit" to "30")
             addAll(folder.query)
             before?.let { add("before" to it) }
             search?.takeIf { it.isNotBlank() }?.let { add("q" to it.trim()) }
+            addAll(mailboxQuery(mailbox))
         }
         return build(HttpMethod.Get, "/api/email-inbox/${workspaceId.urlPath()}/threads", query).decode()
     }
@@ -1106,10 +1118,11 @@ class ApiClient(
         val attachments: List<StagedEmailAttachment>? = null,
     )
 
-    override suspend fun sendEmailDraft(workspaceId: String, draft: EmailDraft) {
+    override suspend fun sendEmailDraft(workspaceId: String, draft: EmailDraft, mailbox: String?) {
         build(
             HttpMethod.Post,
             "/api/email-inbox/${workspaceId.urlPath()}/send",
+            mailboxQuery(mailbox),
             body = EmailDraftBody(
                 thread_id = draft.threadId,
                 to = draft.to,
@@ -1136,10 +1149,11 @@ class ApiClient(
         bytes: ByteArray,
         filename: String,
         contentType: String,
+        mailbox: String?,
     ): StagedEmailAttachment {
         val url = url(
             "/api/email-inbox/${workspaceId.urlPath()}/attachments",
-            listOf("filename" to filename, "content_type" to contentType),
+            listOf("filename" to filename, "content_type" to contentType) + mailboxQuery(mailbox),
         )
         val response = try {
             http.request(url) {
@@ -1157,13 +1171,29 @@ class ApiClient(
         return response.decode()
     }
 
-    override suspend fun emailAttachmentData(workspaceId: String, attachmentId: String): ByteArray =
+    override suspend fun emailAttachmentData(workspaceId: String, attachmentId: String, mailbox: String?): ByteArray =
         build(
             HttpMethod.Get,
             "/api/email-inbox/${workspaceId.urlPath()}/attachments/${attachmentId.urlPath()}/file",
+            mailboxQuery(mailbox),
             transfer = true,
         ).orThrow()
             .readRawBytes()
+
+    override suspend fun emailMailboxes(workspaceId: String): List<EmailMailbox> {
+        val response = build(HttpMethod.Get, "/api/email-inbox/${workspaceId.urlPath()}/mailboxes")
+        // A server from before `/mailboxes` answers 404: ask the way it
+        // understands, one mailbox with no count.
+        if (response.status.value == 404) return super<WebyarApi>.emailMailboxes(workspaceId)
+        return response.decode<EmailMailboxesResponse>().mailboxes
+    }
+
+    override suspend fun emailChanges(workspaceId: String, since: String, mailbox: String?): EmailChanges =
+        build(
+            HttpMethod.Get,
+            "/api/email-inbox/${workspaceId.urlPath()}/changes",
+            listOf("since" to since) + mailboxQuery(mailbox),
+        ).decode()
 
     override suspend fun gmailConnection(workspaceId: String): GmailConnection? =
         build(HttpMethod.Get, "/api/plugins/gmail/connection", listOf("workspace_id" to workspaceId))

@@ -77,9 +77,9 @@ class EmailReaderTest {
     }
 
     @Test
-    fun `a Persian page is right to left and names a thread with no subject`() {
+    fun `a Persian page is laid out left to right, as mail is, and names a thread with no subject`() {
         val page = EmailReader.document("", trail, mailbox = null, language = Language.FA)
-        assertTrue(page.startsWith("<!doctype html><html dir=\"rtl\">"))
+        assertTrue(page.startsWith("<!doctype html><html dir=\"ltr\">"))
         assertTrue(page.contains(EmailReader.escape(Str.emailNoSubject(Language.FA))))
     }
 
@@ -211,10 +211,11 @@ class EmailReaderTest {
     }
 
     @Test
-    fun `an English subject and sender stand on the Persian reader's side`() {
-        val page = EmailReader.document("Invoice", trail, mailbox = null, language = Language.FA)
-        val side = Regex("([^}]*)\\{unicode-bidi:plaintext;text-align:right}").find(page)!!.groupValues[1]
-        listOf(".w-s", ".w-hn", ".w-hr", ".w-who", ".w-sn").forEach { assertTrue("$it not on the right", side.contains(it)) }
+    fun `the subject and sender stand on the left in Persian too`() {
+        val page = EmailReader.document("فاکتور مهر", trail, mailbox = null, language = Language.FA)
+        val side = Regex("([^}]*)\\{unicode-bidi:plaintext;text-align:left}").find(page)!!.groupValues[1]
+        listOf(".w-s", ".w-hn", ".w-hr", ".w-who", ".w-sn").forEach { assertTrue("$it not on the left", side.contains(it)) }
+        assertFalse(page.contains("text-align:right"))
         // Their own direction is not set per element, which would pull them left.
         assertFalse(page.contains("<span class=\"w-hn\" dir="))
     }

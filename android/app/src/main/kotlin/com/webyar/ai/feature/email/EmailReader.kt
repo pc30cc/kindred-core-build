@@ -82,15 +82,17 @@ object EmailReader {
         language: Language,
         snippet: String? = null,
     ): String {
-        val rtl = language == Language.FA
         val out = StringBuilder(4096 + messages.sumOf { (it.htmlBody?.length ?: 0) + (it.textBody?.length ?: 0) })
-        out.append("<!doctype html><html dir=\"").append(if (rtl) "rtl" else "ltr").append("\"><head><meta charset=\"utf-8\">")
+        // Left to right in every language of the app, as mail is laid out:
+        // the sender's face and the subject on the left. A mail's own text
+        // keeps its direction — a Persian mail still reads right to left.
+        out.append("<!doctype html><html dir=\"ltr\"><head><meta charset=\"utf-8\">")
             .append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
-            .append("<style>").append(CSS).append(if (rtl) SIDE_RTL else SIDE_LTR).append(FIT).append("</style></head><body>")
+            .append("<style>").append(CSS).append(SIDE).append(FIT).append("</style></head><body>")
 
-        // The page's own lines stand on the page's side, whatever language
-        // they are in: an English subject in a Persian reader is still
-        // right-aligned, with its words in their own order.
+        // The page's own lines stand on the left whatever language they are
+        // in: a Persian subject lines up with everything around it, with its
+        // words in their own order.
         out.append("<h1 class=\"w-s\">")
             .append(escape(subject?.takeIf { it.isNotBlank() } ?: Str.emailNoSubject(language)))
             .append("</h1>")
@@ -442,12 +444,11 @@ object EmailReader {
 
     /**
      * The page's own lines — subject, sender, recipients, the folded mails'
-     * names and first words — on the page's side: each keeps its own word order (`plaintext`) but not
-     * its own alignment, so an English subject in the Persian reader lines up
-     * on the right with everything around it.
+     * names and first words — on the left: each keeps its own word order
+     * (`plaintext`) but not its own alignment, so a Persian subject lines up
+     * on the left with everything around it.
      */
-    private const val SIDE_RTL = ".w-s,.w-cnt,.w-hn,.w-ha,.w-hr,.w-who,.w-sn,.w-meta,.w-et{unicode-bidi:plaintext;text-align:right}"
-    private const val SIDE_LTR = ".w-s,.w-cnt,.w-hn,.w-ha,.w-hr,.w-who,.w-sn,.w-meta,.w-et{unicode-bidi:plaintext;text-align:left}"
+    private const val SIDE = ".w-s,.w-cnt,.w-hn,.w-ha,.w-hr,.w-who,.w-sn,.w-meta,.w-et{unicode-bidi:plaintext;text-align:left}"
 
     /**
      * A mail held to the phone's width.

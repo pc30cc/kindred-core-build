@@ -50,7 +50,6 @@ import {
 } from '../../channels/mail/yahoo/client.js';
 import { YAHOO_REFRESH_TOKEN_KEY } from '../../shared/channels/yahooKeys.js';
 import { botApiFor } from './botApi.js';
-import { gmailCheckpointDecision, isGmailMessageGone } from './gmailCheckpoint.js';
 import {
   OUTBOUND_MEDIA_MAX_BYTES,
   fetchOutboundMediaCandidate,
@@ -584,132 +583,17 @@ async function handleJob(job: ChannelJob): Promise<void> {
       return;
     }
 
-    // ── Gmail (Email Inbox) — a Pub/Sub push landed on Core, which
-    // enqueued this job carrying the mailbox's next `history.list` starting
-    // point directly (no separate lookup call needed). ──────────────────
+    // ── Gmail (Email Inbox) — retired. The inbox is read live from Gmail
+    // and no email content is imported (docs/EMAIL_INBOX_ARCHITECTURE.md);
+    // Core turns Pub/Sub pushes into content-free change signals itself.
+    // Jobs queued before that change are drained here without fetching mail.
     case 'gmail_sync_inbox': {
-      if (!job.integration_id) throw Object.assign(new Error('gmail sync without integration'), { permanent: true });
-      const gmailCfg = gmailOAuthConfigOrThrow();
-      const ga = createGmailAdapter(gmailCfg);
-      const refreshToken = await resolveIntegrationToken(job.integration_id, GMAIL_REFRESH_TOKEN_KEY);
-      const { accessToken } = await ga.refreshAccessToken(refreshToken);
-
-      const startHistoryId = String(payload.start_history_id || '');
-      let messageIds: string[] = [];
-      let newHistoryId: string | null = null;
-
-      if (startHistoryId) {
-        const result = await ga.listHistorySince(accessToken, startHistoryId);
-        if (result.expired) {
-          // Retention window (~1 week) elapsed since the last checkpoint —
-          // there is no way to recover the exact delta, so resync the most
-          // recent messages instead of failing the job forever.
-          messageIds = await ga.listRecentInboxMessageIds(accessToken, 25);
-          newHistoryId = await ga.getProfileHistoryId(accessToken);
-        } else {
-          messageIds = result.messageIds;
-          newHistoryId = result.historyId;
-        }
-      } else {
-        messageIds = await ga.listRecentInboxMessageIds(accessToken, 25);
-        newHistoryId = await ga.getProfileHistoryId(accessToken);
-      }
-
-      const failedMessageIds: string[] = [];
-      for (const gmailMessageId of messageIds) {
-        try {
-          const parsed = await ga.getMessage(accessToken, gmailMessageId);
-          const participants = Array.from(
-            new Set([parsed.fromAddress, ...parsed.toAddresses, ...parsed.ccAddresses].filter(Boolean) as string[]),
-          ).map((email) => ({ email }));
-
-          const upsertResult = await coreCall<UpsertThreadMessageResult>('/internal/channels/gmail/upsert-thread-message', {
-            integration_id: job.integration_id,
-            workspace_id: job.workspace_id,
-            gmail_thread_id: parsed.threadId,
-            subject: parsed.subject,
-            participants,
-            message: {
-              external_message_id: parsed.messageIdHeader || `gmail-${parsed.id}`,
-              in_reply_to: parsed.inReplyTo,
-              references: parsed.references,
-              from_address: parsed.fromAddress || 'unknown@unknown',
-              to_addresses: parsed.toAddresses,
-              cc_addresses: parsed.ccAddresses,
-              bcc_addresses: parsed.bccAddresses,
-              text_body: parsed.textBody,
-              html_body: parsed.htmlBody,
-              snippet: parsed.snippet,
-              sent_at: parsed.internalDate && !Number.isNaN(Number(parsed.internalDate))
-                ? new Date(Number(parsed.internalDate)).toISOString()
-                : new Date().toISOString(),
-            },
-          });
-
-          if (upsertResult?.is_new_message && upsertResult?.message_id && parsed.attachments.length) {
-            for (const att of parsed.attachments) {
-              try {
-                const bytes = await ga.getAttachmentBytes(accessToken, gmailMessageId, att.attachmentId);
-                const qs = new URLSearchParams({
-                  message_id: String(upsertResult.message_id),
-                  filename: att.filename,
-                  content_type: att.mimeType,
-                  ...(att.contentId ? { content_id: att.contentId } : {}),
-                });
-                await coreUpload(`/internal/channels/gmail/attachment-ingest?${qs.toString()}`, bytes, att.mimeType);
-              } catch (attErr) {
-                console.error('[channels-worker] gmail attachment ingest failed:', (attErr as Error)?.message || attErr);
-              }
-            }
-          }
-        } catch (msgErr) {
-          // Core itself unreachable/misrouted: requeue the whole job without
-          // spending a retry (see the job loop) instead of marking messages.
-          if (isInfrastructureError(msgErr)) throw msgErr;
-          // Deleted/purged between the history entry and our fetch: nothing
-          // left to import, so it must not hold the checkpoint back.
-          if (isGmailMessageGone(msgErr)) {
-            console.warn(`[channels-worker] gmail message ${gmailMessageId} no longer exists; skipping`);
-            continue;
-          }
-          // One malformed/unfetchable message must not sink the rest of the
-          // batch — keep going, but remember it so the checkpoint below does
-          // NOT advance past it.
-          failedMessageIds.push(gmailMessageId);
-          console.error('[channels-worker] gmail message sync failed:', (msgErr as Error)?.message || msgErr);
-        }
-      }
-
-      // The checkpoint only advances past what actually landed (see
-      // ./gmailCheckpoint.ts): with failures and retry budget left, the job
-      // fails and is retried from the SAME start_history_id; on the final
-      // attempt it advances anyway so one bad message cannot pin it forever.
-      const decision = gmailCheckpointDecision({
-        failedCount: failedMessageIds.length,
-        attemptCount: job.attempt_count,
-        maxAttempts: job.max_attempts,
-      });
-      if (decision === 'hold_and_retry') {
-        throw new Error(
-          `gmail_sync_incomplete: ${failedMessageIds.length}/${messageIds.length} message(s) failed; history checkpoint held for retry`,
-        );
-      }
-      if (decision === 'advance_giving_up') {
-        console.error(
-          `[channels-worker] gmail sync for integration ${job.integration_id} giving up on ${failedMessageIds.length} message(s) after ${job.attempt_count} attempts: ${failedMessageIds.join(', ')}`,
-        );
-      }
-
-      if (newHistoryId) {
-        await coreCall('/internal/channels/gmail/history-checkpoint', {
-          integration_id: job.integration_id,
-          history_id: newHistoryId,
-        });
-      }
       return;
     }
 
-    // ── Gmail outbound — a reply composed in the Email Inbox UI. ───────
+    // ── Gmail outbound — legacy queued replies only. New replies are sent
+    // by Core in the request that composes them; this drains jobs enqueued
+    // before that change. ───────────────────────────────────────────────
     case 'gmail_outbound_message': {
       if (!job.integration_id) throw Object.assign(new Error('gmail outbound without integration'), { permanent: true });
       const emailMessageId = String(payload.email_message_id || '');

@@ -117,10 +117,10 @@ describe('Gmail history checkpoint', () => {
     expect(isGmailMessageGone(new Error('Gmail 404'))).toBe(false);
   });
 
-  it('is wired into the worker sync loop', async () => {
+  it('is no longer used: the worker imports no Gmail content (docs/EMAIL_INBOX_ARCHITECTURE.md)', async () => {
     const { readFileSync } = await import('node:fs');
     const worker = readFileSync('worker/channels/index.ts', 'utf8');
-    expect(worker).toContain("if (decision === 'hold_and_retry')");
-    expect(worker).toMatch(/failedMessageIds\.push\(gmailMessageId\)/);
+    expect(worker).not.toContain('/internal/channels/gmail/upsert-thread-message');
+    expect(worker).not.toContain('/internal/channels/gmail/attachment-ingest');
   });
 });

@@ -1119,6 +1119,10 @@ class ApiClient(
                 text_body = draft.body,
                 attachments = draft.attachments.takeIf { it.isNotEmpty() },
             ),
+            // A Gmail reply is sent to Google within this request, carrying
+            // its attachments' bytes: a file on a phone connection outlasts
+            // the 20 seconds a JSON call gets.
+            transfer = draft.attachments.isNotEmpty(),
         ).orThrow()
     }
 

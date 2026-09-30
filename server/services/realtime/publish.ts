@@ -176,7 +176,10 @@ export type OperatorEventKind =
   // The AI hand-over pair (services/ai-agent/handoffState.ts): published
   // on the same channel, and read by the apps like any other kind.
   | 'ai_handoff_requested'
-  | 'ai_human_takeover';
+  | 'ai_human_takeover'
+  // Email Inbox: "this mailbox changed, re-read it" — ids and a cursor only,
+  // never content (docs/EMAIL_INBOX_ARCHITECTURE.md).
+  | 'email_mailbox_changed';
 
 export interface OperatorEventPayload {
   kind: OperatorEventKind;

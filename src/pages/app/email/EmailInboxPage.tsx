@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import DOMPurify from 'dompurify';
-import { formatDistanceToNow } from 'date-fns';
 import { Mail, Star, Paperclip, Send, X, RefreshCw, Loader2, AlertCircle, CheckCircle2, Clock, Search } from 'lucide-react';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useTranslation } from '@/i18n';
@@ -11,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import RichTextEditor from '@/components/app/knowledge/RichTextEditor';
 import { toast } from '@/hooks/use-toast';
@@ -25,16 +25,77 @@ import {
   useStartGmailOAuth,
   useYahooConnection,
   useStartYahooOAuth,
+  useEmailMailboxSync,
+  threadBodyVersion,
 } from '@/hooks/useEmailInbox';
-import { uploadEmailAttachment, type StagedEmailAttachment, type EmailMessageView } from '@/lib/emailInbox-api';
+import { useAuth } from '@/features/auth/AuthContext';
+import { emailCacheScope, clearWorkspaceEmailCache } from '@/lib/emailCache';
+import { API_BASE } from '@/lib/apiBase';
+import {
+  uploadEmailAttachment,
+  fileToBase64,
+  type StagedEmailAttachment,
+  type EmailMessageView,
+  type EmailThreadSummary,
+} from '@/lib/emailInbox-api';
 
-function initialsOf(address: string): string {
-  const name = address.split('@')[0] || '?';
-  return name.slice(0, 2).toUpperCase();
+// Stored addresses can be a raw header value ("Facebook <x@facebookmail.com>",
+// quoted names included), so split out a display name before rendering.
+function parseAddress(raw: string): { name: string; email: string } {
+  const value = (raw || '').trim();
+  const match = value.match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/);
+  if (match) {
+    const email = match[2].trim();
+    return { name: match[1].trim() || email.split('@')[0], email };
+  }
+  return { name: value.split('@')[0] || value, email: value };
+}
+
+function initialsOf(raw: string): string {
+  const { name } = parseAddress(raw);
+  const words = name.replace(/[^\p{L}\p{N}\s]/gu, ' ').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return '?';
+  return (words.length > 1 ? words[0][0] + words[1][0] : words[0].slice(0, 2)).toUpperCase();
+}
+
+const AVATAR_COLORS = [
+  'bg-rose-500/15 text-rose-700 dark:text-rose-300',
+  'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+  'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+  'bg-sky-500/15 text-sky-700 dark:text-sky-300',
+  'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300',
+  'bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300',
+];
+
+function avatarColorOf(raw: string): string {
+  const key = parseAddress(raw).email.toLowerCase();
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) | 0;
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+// Gmail snippets arrive HTML-escaped ("We&#39;re").
+function decodeEntities(text: string): string {
+  if (!text || !text.includes('&')) return text;
+  const el = document.createElement('textarea');
+  el.innerHTML = text;
+  return el.value;
+}
+
+function formatListDate(iso: string | null, locale: string): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  const now = new Date();
+  const sameDay = date.toDateString() === now.toDateString();
+  const sameYear = date.getFullYear() === now.getFullYear();
+  return new Intl.DateTimeFormat(
+    locale,
+    sameDay ? { hour: '2-digit', minute: '2-digit' } : sameYear ? { month: 'short', day: 'numeric' } : { year: 'numeric', month: 'short', day: 'numeric' },
+  ).format(date);
 }
 
 function formatAddresses(list: Array<{ email: string }>): string {
-  return list.map((a) => a.email).join(', ');
+  return list.map((a) => parseAddress(a.email).name).join(', ');
 }
 
 // ─── Connect gate ───────────────────────────────────────────────────────
@@ -102,54 +163,98 @@ function ThreadListItem({
   active: boolean;
   onClick: () => void;
 }) {
-  const { t } = useTranslation();
-  const firstParticipant = thread.participants[0]?.email || t('emailInbox.unknownSender' as any);
+  const { t, locale } = useTranslation();
+  const raw = thread.participants[0]?.email || '';
+  const sender = raw ? parseAddress(raw) : { name: t('emailInbox.unknownSender' as any), email: '' };
+  const unread = !thread.isRead;
   return (
     <button
       type="button"
       onClick={onClick}
+      title={sender.email}
       className={cn(
-        'flex w-full flex-col gap-0.5 border-b border-border px-4 py-3 text-start transition-colors hover:bg-accent/50',
+        'relative flex w-full min-w-0 items-start gap-3 border-b border-border/60 px-3 py-3 text-start transition-colors hover:bg-accent/60',
         active && 'bg-accent',
-        !thread.isRead && 'bg-primary/[0.03]',
       )}
     >
-      <div className="flex items-center gap-2">
-        <span className={cn('flex-1 truncate text-sm', !thread.isRead ? 'font-semibold text-foreground' : 'font-medium text-foreground/80')}>
-          {firstParticipant}
-        </span>
-        {thread.isStarred && <Star className="h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-400" />}
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {thread.lastMessageAt ? formatDistanceToNow(new Date(thread.lastMessageAt), { addSuffix: false }) : ''}
-        </span>
+      {unread && <span className="absolute start-1 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-primary" />}
+      <Avatar className="mt-0.5 h-9 w-9 shrink-0">
+        <AvatarFallback className={cn('text-xs font-semibold', avatarColorOf(raw || '?'))}>{initialsOf(raw || '?')}</AvatarFallback>
+      </Avatar>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <span dir="auto" className={cn('min-w-0 flex-1 truncate text-sm', unread ? 'font-semibold text-foreground' : 'text-foreground/85')}>
+            {sender.name}
+          </span>
+          {thread.isStarred && <Star className="h-3.5 w-3.5 shrink-0 self-center fill-amber-400 text-amber-400" />}
+          <span className={cn('shrink-0 text-[11px] tabular-nums', unread ? 'font-medium text-primary' : 'text-muted-foreground')}>
+            {formatListDate(thread.lastMessageAt, locale)}
+          </span>
+        </div>
+        <div dir="auto" className={cn('truncate text-[13px]', unread ? 'font-medium text-foreground' : 'text-foreground/75')}>
+          {thread.subject || t('emailInbox.noSubject' as any)}
+        </div>
+        {thread.lastMessageSnippet && (
+          <div dir="auto" className="line-clamp-1 break-all text-xs text-muted-foreground">{decodeEntities(thread.lastMessageSnippet)}</div>
+        )}
       </div>
-      <div className={cn('truncate text-sm', !thread.isRead ? 'font-medium text-foreground' : 'text-muted-foreground')}>
-        {thread.subject || t('emailInbox.noSubject' as any)}
-      </div>
-      {thread.lastMessageSnippet && (
-        <div className="truncate text-xs text-muted-foreground">{thread.lastMessageSnippet}</div>
-      )}
     </button>
   );
 }
 
+function ThreadListSkeleton() {
+  return (
+    <div>
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="flex items-start gap-3 border-b border-border/60 px-3 py-3">
+          <Skeleton className="h-9 w-9 shrink-0 rounded-full" />
+          <div className="flex-1 space-y-2">
+            <div className="flex gap-2"><Skeleton className="h-3.5 flex-1" /><Skeleton className="h-3 w-10" /></div>
+            <Skeleton className="h-3 w-4/5" />
+            <Skeleton className="h-3 w-3/5" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ThreadList({
-  workspaceId, activeThreadId, onSelect,
-}: { workspaceId: string; activeThreadId: string | null; onSelect: (id: string) => void }) {
+  workspaceId, scope, activeThreadId, onSelect, onRows,
+}: {
+  workspaceId: string;
+  scope: string | null;
+  activeThreadId: string | null;
+  onSelect: (thread: EmailThreadSummary) => void;
+  onRows: (threads: EmailThreadSummary[]) => void;
+}) {
   const { t } = useTranslation();
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [unreadOnly, setUnreadOnly] = useState(false);
-  const { data, isLoading, refetch, isFetching } = useEmailThreads(workspaceId, { q: search || undefined, unread: unreadOnly || undefined });
-  const threads = data?.threads ?? [];
+  // Each keystroke would be a Gmail search; wait for a pause in typing.
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput.trim()), 400);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+  const { data, isLoading, isError, refetch, isFetching, isPlaceholderData, hasNextPage, fetchNextPage, isFetchingNextPage } =
+    useEmailThreads(workspaceId, scope, { q: search || undefined, unread: unreadOnly || undefined });
+  const threads = useMemo(() => data?.pages.flatMap((p) => p.threads) ?? [], [data]);
+  // Live inbox: showing this device's copy while Gmail's current page loads.
+  // (Yahoo's background polls are not worth a label.)
+  const syncing = !!scope && (isPlaceholderData || (isFetching && !isFetchingNextPage));
+  useEffect(() => {
+    onRows(threads);
+  }, [threads, onRows]);
 
   return (
-    <div className="flex h-full w-[340px] shrink-0 flex-col border-e border-border">
+    <div className="flex h-full w-[360px] min-w-0 shrink-0 flex-col border-e border-border">
       <div className="flex items-center gap-2 border-b border-border p-3">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             placeholder={t('emailInbox.searchPlaceholder' as any)}
             className="h-8 ps-8 text-sm"
           />
@@ -166,16 +271,40 @@ function ThreadList({
         >
           {t('emailInbox.unreadFilter' as any)}
         </Badge>
+        {syncing && threads.length > 0 && (
+          <span className="ms-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            {t('emailInbox.syncing' as any)}
+          </span>
+        )}
       </div>
-      <ScrollArea className="flex-1">
-        {isLoading ? (
-          <div className="flex items-center justify-center p-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+      {/* Radix's viewport wraps children in a display:table div, which lets long
+          rows overflow instead of truncating; force it back to block. */}
+      <ScrollArea className="flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block">
+        {isLoading && threads.length === 0 ? (
+          <ThreadListSkeleton />
+        ) : isError && threads.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 p-8 text-center text-sm text-muted-foreground">
+            <AlertCircle className="h-5 w-5 text-destructive" />
+            {t('emailInbox.loadFailed' as any)}
+            <Button variant="outline" size="sm" onClick={() => refetch()}>{t('emailInbox.retry' as any)}</Button>
+          </div>
         ) : threads.length === 0 ? (
           <div className="p-8 text-center text-sm text-muted-foreground">{t('emailInbox.noThreads' as any)}</div>
         ) : (
-          threads.map((thread) => (
-            <ThreadListItem key={thread.id} thread={thread} active={thread.id === activeThreadId} onClick={() => onSelect(thread.id)} />
-          ))
+          <>
+            {threads.map((thread) => (
+              <ThreadListItem key={thread.id} thread={thread} active={thread.id === activeThreadId} onClick={() => onSelect(thread)} />
+            ))}
+            {hasNextPage && (
+              <div className="p-3">
+                <Button variant="ghost" size="sm" className="w-full gap-1.5" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+                  {isFetchingNextPage && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {t('emailInbox.loadMore' as any)}
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </ScrollArea>
     </div>
@@ -217,15 +346,16 @@ function MessageCard({ message, defaultOpen }: { message: EmailMessageView; defa
     <div className="rounded-lg border border-border bg-card">
       <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-start gap-3 px-4 py-3 text-start">
         <Avatar className="h-8 w-8 shrink-0">
-          <AvatarFallback className="text-xs">{initialsOf(message.fromAddress)}</AvatarFallback>
+          <AvatarFallback className={cn('text-xs font-semibold', avatarColorOf(message.fromAddress))}>{initialsOf(message.fromAddress)}</AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium text-foreground">{message.fromAddress}</span>
+          <div className="flex min-w-0 items-center gap-2">
+            <span dir="auto" className="truncate text-sm font-medium text-foreground">{parseAddress(message.fromAddress).name}</span>
+            <span dir="ltr" className="hidden truncate text-xs text-muted-foreground sm:inline">{parseAddress(message.fromAddress).email}</span>
             <DeliveryStatusBadge message={message} />
             <span className="ms-auto shrink-0 text-xs text-muted-foreground">{new Date(message.sentAt).toLocaleString()}</span>
           </div>
-          {!open && <div className="mt-0.5 truncate text-xs text-muted-foreground">{message.snippet}</div>}
+          {!open && <div dir="auto" className="mt-0.5 truncate text-xs text-muted-foreground">{decodeEntities(message.snippet || '')}</div>}
           {open && (
             <div className="mt-0.5 text-xs text-muted-foreground">
               {formatAddresses(message.toAddresses)}
@@ -242,7 +372,7 @@ function MessageCard({ message, defaultOpen }: { message: EmailMessageView; defa
               {message.attachments.map((att) => (
                 <a
                   key={att.id}
-                  href={att.url || '#'}
+                  href={att.downloadPath ? `${API_BASE || ''}${att.downloadPath}` : (att.url || '#')}
                   target="_blank"
                   rel="noreferrer"
                   className="flex items-center gap-1.5 rounded-md border border-border bg-secondary/40 px-2.5 py-1.5 text-xs text-foreground hover:bg-secondary"
@@ -261,24 +391,32 @@ function MessageCard({ message, defaultOpen }: { message: EmailMessageView; defa
 
 // ─── Reply composer (inline, bottom of thread) ─────────────────────────
 
+type ComposerAttachment = { filename: string; staged?: StagedEmailAttachment; file?: File };
+
 function ReplyComposer({
-  workspaceId, threadId, defaultTo, defaultSubject,
-}: { workspaceId: string; threadId: string; defaultTo: string[]; defaultSubject: string }) {
+  workspaceId, scope, live, threadId, defaultTo, defaultSubject,
+}: { workspaceId: string; scope: string | null; live: boolean; threadId: string; defaultTo: string[]; defaultSubject: string }) {
   const { t } = useTranslation();
   const [html, setHtml] = useState('');
-  const [attachments, setAttachments] = useState<StagedEmailAttachment[]>([]);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const sendEmailMutation = useSendEmail(workspaceId);
+  const sendEmailMutation = useSendEmail(workspaceId, scope);
 
   const plainText = useMemo(() => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), [html]);
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || !files.length) return;
+    // A live (Gmail) inbox stores nothing: files stay in the browser and go
+    // out with the reply itself.
+    if (live) {
+      setAttachments((prev) => [...prev, ...Array.from(files).map((file) => ({ filename: file.name, file }))]);
+      return;
+    }
     setUploading(true);
     try {
       const staged = await Promise.all(Array.from(files).map((f) => uploadEmailAttachment(workspaceId, f)));
-      setAttachments((prev) => [...prev, ...staged]);
+      setAttachments((prev) => [...prev, ...staged.map((a) => ({ filename: a.filename, staged: a }))]);
     } catch {
       toast({ title: t('emailInbox.attachmentUploadFailed' as any), variant: 'destructive' });
     } finally {
@@ -286,22 +424,40 @@ function ReplyComposer({
     }
   };
 
+  const [sending, setSending] = useState(false);
+  // One id per reply, kept across retries until it goes out, so a retry after
+  // a timeout cannot send it twice.
+  const requestIdRef = useRef<string>(crypto.randomUUID());
   const handleSend = async () => {
-    if (!plainText) return;
+    // Reading attachments happens before the request starts, so the
+    // mutation's own pending flag would leave a window for a second click.
+    if (!plainText || sending) return;
+    setSending(true);
     try {
       await sendEmailMutation.mutateAsync({
+        clientRequestId: requestIdRef.current,
         threadId,
         to: defaultTo,
         subject: defaultSubject,
         textBody: plainText,
         htmlBody: html,
-        attachments,
+        attachments: attachments.flatMap((a) => (a.staged ? [a.staged] : [])),
+        inlineAttachments: await Promise.all(
+          attachments.flatMap((a) => (a.file ? [a.file] : [])).map(async (file) => ({
+            filename: file.name,
+            contentType: file.type || 'application/octet-stream',
+            dataBase64: await fileToBase64(file),
+          })),
+        ),
       });
       setHtml('');
       setAttachments([]);
+      requestIdRef.current = crypto.randomUUID();
       toast({ title: t('emailInbox.sent' as any) });
     } catch {
       toast({ title: t('emailInbox.sendFailed' as any), variant: 'destructive' });
+    } finally {
+      setSending(false);
     }
   };
 
@@ -330,8 +486,8 @@ function ReplyComposer({
           {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
           {t('emailInbox.attach' as any)}
         </Button>
-        <Button size="sm" className="gap-1.5" onClick={handleSend} disabled={!plainText || sendEmailMutation.isPending}>
-          {sendEmailMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+        <Button size="sm" className="gap-1.5" onClick={handleSend} disabled={!plainText || sending}>
+          {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
           {t('emailInbox.send' as any)}
         </Button>
       </div>
@@ -341,11 +497,19 @@ function ReplyComposer({
 
 // ─── Thread view ────────────────────────────────────────────────────────
 
-function ThreadView({ workspaceId, threadId }: { workspaceId: string; threadId: string }) {
+function ThreadView({
+  workspaceId, scope, live, threadId, row,
+}: {
+  workspaceId: string;
+  scope: string | null;
+  live: boolean;
+  threadId: string;
+  row: { isRead: boolean; isStarred: boolean; version: string | null } | null;
+}) {
   const { t } = useTranslation();
-  const { data, isLoading } = useEmailThread(workspaceId, threadId);
-  const setRead = useSetEmailThreadRead(workspaceId);
-  const setStarred = useSetEmailThreadStarred(workspaceId);
+  const { data, isLoading } = useEmailThread(workspaceId, scope, threadId, row);
+  const setRead = useSetEmailThreadRead(workspaceId, scope);
+  const setStarred = useSetEmailThreadStarred(workspaceId, scope);
 
   useEffect(() => {
     if (data?.thread && !data.thread.isRead) {
@@ -355,12 +519,20 @@ function ThreadView({ workspaceId, threadId }: { workspaceId: string; threadId: 
   }, [threadId, data?.thread?.isRead]);
 
   if (isLoading || !data) {
-    return <div className="flex flex-1 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+    return (
+      <div className="flex min-w-0 flex-1 flex-col gap-4 p-4">
+        <Skeleton className="h-6 w-2/3" />
+        <div className="flex items-center gap-3"><Skeleton className="h-8 w-8 rounded-full" /><Skeleton className="h-4 w-48" /></div>
+        <Skeleton className="h-40 w-full" />
+        <Skeleton className="h-4 w-5/6" />
+        <Skeleton className="h-4 w-3/4" />
+      </div>
+    );
   }
 
   const { thread, messages } = data;
   const lastInbound = [...messages].reverse().find((m) => m.direction === 'inbound');
-  const replyTo = lastInbound ? [lastInbound.fromAddress] : (thread.participants[0] ? [thread.participants[0].email] : []);
+  const replyTo = lastInbound ? [parseAddress(lastInbound.fromAddress).email] : (thread.participants[0] ? [parseAddress(thread.participants[0].email).email] : []);
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
@@ -384,7 +556,7 @@ function ThreadView({ workspaceId, threadId }: { workspaceId: string; threadId: 
       </ScrollArea>
       {replyTo.length > 0 && (
         <div className="p-4 pt-0">
-          <ReplyComposer workspaceId={workspaceId} threadId={threadId} defaultTo={replyTo} defaultSubject={thread.subject || ''} />
+          <ReplyComposer workspaceId={workspaceId} scope={scope} live={live} threadId={threadId} defaultTo={replyTo} defaultSubject={thread.subject || ''} />
         </div>
       )}
     </div>
@@ -393,20 +565,32 @@ function ThreadView({ workspaceId, threadId }: { workspaceId: string; threadId: 
 
 // ─── Compose (new thread) dialog ────────────────────────────────────────
 
-function ComposeDialog({ workspaceId, open, onOpenChange }: { workspaceId: string; open: boolean; onOpenChange: (v: boolean) => void }) {
+function ComposeDialog({ workspaceId, scope, open, onOpenChange }: { workspaceId: string; scope: string | null; open: boolean; onOpenChange: (v: boolean) => void }) {
   const { t } = useTranslation();
   const [to, setTo] = useState('');
   const [subject, setSubject] = useState('');
   const [html, setHtml] = useState('');
-  const sendEmailMutation = useSendEmail(workspaceId);
+  const sendEmailMutation = useSendEmail(workspaceId, scope);
+  const requestIdRef = useRef<string>(crypto.randomUUID());
+  // Each opening of the dialog is a new email.
+  useEffect(() => {
+    if (open) requestIdRef.current = crypto.randomUUID();
+  }, [open]);
 
   const plainText = useMemo(() => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), [html]);
   const toList = useMemo(() => to.split(',').map((s) => s.trim()).filter(Boolean), [to]);
 
   const handleSend = async () => {
-    if (!toList.length || !subject.trim() || !plainText) return;
+    if (!toList.length || !subject.trim() || !plainText || sendEmailMutation.isPending) return;
     try {
-      await sendEmailMutation.mutateAsync({ to: toList, subject: subject.trim(), textBody: plainText, htmlBody: html });
+      await sendEmailMutation.mutateAsync({
+        clientRequestId: requestIdRef.current,
+        to: toList,
+        subject: subject.trim(),
+        textBody: plainText,
+        htmlBody: html,
+      });
+      requestIdRef.current = crypto.randomUUID();
       setTo(''); setSubject(''); setHtml('');
       onOpenChange(false);
       toast({ title: t('emailInbox.sent' as any) });
@@ -451,24 +635,51 @@ export default function EmailInboxPage() {
   const navigate = useNavigate();
   const { threadId } = useParams<{ threadId?: string }>();
   const [composeOpen, setComposeOpen] = useState(false);
+  const { user } = useAuth();
+  // The list's current rows: an open thread takes its cache version and
+  // read/star flags from its row, so it follows list refreshes.
+  const [rows, setRows] = useState<Map<string, EmailThreadSummary>>(() => new Map());
+  const onRows = useCallback((threads: EmailThreadSummary[]) => {
+    setRows(new Map(threads.map((t) => [t.id, t])));
+  }, []);
 
-  const { data: gmailConnectionData, isLoading: gmailConnectionLoading } = useGmailConnection(workspaceId);
-  const { data: yahooConnectionData, isLoading: yahooConnectionLoading } = useYahooConnection(workspaceId);
+  const { data: gmailConnectionData, isLoading: gmailConnectionLoading, isSuccess: gmailConnectionKnown } = useGmailConnection(workspaceId);
+  const { data: yahooConnectionData, isLoading: yahooConnectionLoading, isSuccess: yahooConnectionKnown } = useYahooConnection(workspaceId);
+
+  // A workspace connects at most one provider at a time today; Gmail wins the
+  // (currently impossible) tie-break. A connected Gmail inbox is read live.
+  const gmailConnected = !!gmailConnectionData?.connection.connected;
+  const connectedAccount = gmailConnected
+    ? gmailConnectionData?.connection.emailAddress ?? null
+    : yahooConnectionData?.connection.connected
+      ? yahooConnectionData.connection.emailAddress
+      : null;
+  // Only the live (Gmail) inbox keeps a device cache; Yahoo reads the server.
+  const scope = gmailConnected && user?.id && workspaceId && connectedAccount
+    ? emailCacheScope(user.id, workspaceId, connectedAccount)
+    : null;
+  useEmailMailboxSync(workspaceId, scope);
+
+  // Keep only the connected mailbox's copy on this device: a disconnect (seen
+  // from any device), a revoked grant or a different mailbox drops the rest.
+  // Only on answers the server actually gave: a failed or offline lookup
+  // says nothing about the connection and must not wipe the cache.
+  const connectionsKnown = !!workspaceId && gmailConnectionKnown && yahooConnectionKnown && !!user?.id;
+  useEffect(() => {
+    if (connectionsKnown && workspaceId) void clearWorkspaceEmailCache(workspaceId, scope);
+  }, [connectionsKnown, workspaceId, scope]);
+
+  const openRow = threadId ? rows.get(threadId) : undefined;
+  const openRowView = useMemo(
+    () => (openRow ? { isRead: openRow.isRead, isStarred: openRow.isStarred, version: threadBodyVersion(openRow) } : null),
+    [openRow],
+  );
 
   if (!workspaceId || gmailConnectionLoading || yahooConnectionLoading) {
     return <div className="flex h-full items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
-  // A workspace connects at most one provider at a time today — whichever
-  // is connected drives the inbox; Gmail wins the (currently impossible,
-  // since disconnecting is required before connecting the other) tie-break.
-  const connectedEmailAddress = gmailConnectionData?.connection.connected
-    ? gmailConnectionData.connection.emailAddress
-    : yahooConnectionData?.connection.connected
-      ? yahooConnectionData.connection.emailAddress
-      : null;
-
-  if (!connectedEmailAddress) {
+  if (!connectedAccount) {
     return <ConnectEmailCard workspaceId={workspaceId} />;
   }
 
@@ -476,7 +687,7 @@ export default function EmailInboxPage() {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-3 border-b border-border px-4 py-2.5">
         <Mail className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium text-foreground">{connectedEmailAddress}</span>
+        <span className="text-sm font-medium text-foreground">{connectedAccount}</span>
         <Button size="sm" className="ms-auto gap-1.5" onClick={() => setComposeOpen(true)}>
           <Send className="h-3.5 w-3.5" />
           {t('emailInbox.compose' as any)}
@@ -485,16 +696,25 @@ export default function EmailInboxPage() {
       <div className="flex min-h-0 flex-1">
         <ThreadList
           workspaceId={workspaceId}
+          scope={scope}
           activeThreadId={threadId || null}
-          onSelect={(id) => navigate(wsPath(`/email/${id}`))}
+          onSelect={(thread) => navigate(wsPath(`/email/${thread.id}`))}
+          onRows={onRows}
         />
         {threadId ? (
-          <ThreadView workspaceId={workspaceId} threadId={threadId} />
+          <ThreadView
+            key={threadId}
+            workspaceId={workspaceId}
+            scope={scope}
+            live={gmailConnected}
+            threadId={threadId}
+            row={openRowView}
+          />
         ) : (
           <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">{t('emailInbox.selectThread' as any)}</div>
         )}
       </div>
-      <ComposeDialog workspaceId={workspaceId} open={composeOpen} onOpenChange={setComposeOpen} />
+      <ComposeDialog workspaceId={workspaceId} scope={scope} open={composeOpen} onOpenChange={setComposeOpen} />
     </div>
   );
 }

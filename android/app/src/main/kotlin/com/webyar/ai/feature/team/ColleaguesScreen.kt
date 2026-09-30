@@ -27,6 +27,7 @@ import com.webyar.ai.core.model.Colleague
 import com.webyar.ai.i18n.Format
 import com.webyar.ai.i18n.Language
 import com.webyar.ai.i18n.Str
+import com.webyar.ai.i18n.StrAndroid
 import com.webyar.ai.ui.A11y
 import com.webyar.ai.ui.components.Avatar
 import com.webyar.ai.ui.components.EmptyState
@@ -144,13 +145,13 @@ fun ColleaguesScreen(
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
                         if (headed) {
-                            item(key = "h-chats") { GroupHeader(Str.colleaguesChats(language), Modifier.animateItem()) }
+                            item(key = "h-chats") { GroupHeader(StrAndroid.colleaguesChats(language), Modifier.animateItem()) }
                         }
                         items(chats, key = { it.userId }) { colleague ->
                             ColleagueRow(colleague, language, Modifier.animateItem()) { onOpen(colleague) }
                         }
                         if (headed) {
-                            item(key = "h-others") { GroupHeader(Str.colleaguesStartChat(language), Modifier.animateItem()) }
+                            item(key = "h-others") { GroupHeader(StrAndroid.colleaguesStartChat(language), Modifier.animateItem()) }
                         }
                         items(others, key = { it.userId }) { colleague ->
                             ColleagueRow(colleague, language, Modifier.animateItem()) { onOpen(colleague) }
@@ -182,7 +183,7 @@ private fun ColleagueRow(
 ) {
     val unread = colleague.unread ?: 0
     val last = colleague.lastMessage
-    val role = Str.colleagueRole(language, colleague.role)
+    val role = StrAndroid.colleagueRole(language, colleague.role)
 
     // The inbox's rounded row: no dividers, and a tone under the rows that
     // have something unread, so they are found before they are read.
@@ -244,7 +245,7 @@ private fun ColleagueRow(
                                 // the way every messenger does.
                                 if (last.outgoing == true) {
                                     withStyle(SpanStyle(color = WebyarTheme.colors.labelTertiary)) {
-                                        append(Str.youPrefix(language))
+                                        append(StrAndroid.youPrefix(language))
                                     }
                                 }
                                 append(colleague.preview(language))

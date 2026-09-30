@@ -447,4 +447,49 @@ object StrAndroid {
         Language.FA -> "تلاش‌های ورود بیش از حد بوده است. چند دقیقه صبر کنید و دوباره امتحان کنید، یا از نسخهٔ وب وارد شوید."
         Language.TR -> "Çok fazla giriş denemesi yapıldı. Birkaç dakika bekleyip tekrar deneyin ya da web'den giriş yapın."
     }
+
+    // The Colleagues list (the iOS app has no such grouping yet).
+
+    /** Under the Colleagues title: how many there are. */
+    fun colleaguesCount(l: Language, count: Int): String = when (l) {
+        Language.EN -> if (count == 1) "1 colleague" else "$count colleagues"
+        Language.FA -> "${Format.number(count, l)} همکار"
+        Language.TR -> "$count meslektaş"
+    }
+
+    /** The colleagues there is already a conversation with. */
+    fun colleaguesChats(l: Language): String = when (l) {
+        Language.EN -> "Chats"
+        Language.FA -> "گفت‌وگوها"
+        Language.TR -> "Sohbetler"
+    }
+
+    /** The colleagues nobody has written to yet. */
+    fun colleaguesStartChat(l: Language): String = when (l) {
+        Language.EN -> "Start a chat"
+        Language.FA -> "شروع گفت‌وگو"
+        Language.TR -> "Sohbet başlat"
+    }
+
+    /** Before a preview the operator wrote themselves: "You: …". */
+    fun youPrefix(l: Language): String = when (l) {
+        Language.EN -> "You: "
+        Language.FA -> "شما: "
+        Language.TR -> "Sen: "
+    }
+
+    /** A colleague's role, shown only where it sets them apart (the owner, an admin). */
+    fun colleagueRole(l: Language, role: String?): String? = when (role) {
+        "owner" -> when (l) {
+            Language.EN -> "Owner"
+            Language.FA -> "مالک"
+            Language.TR -> "Sahip"
+        }
+        "admin" -> when (l) {
+            Language.EN -> "Admin"
+            Language.FA -> "مدیر"
+            Language.TR -> "Yönetici"
+        }
+        else -> null
+    }
 }

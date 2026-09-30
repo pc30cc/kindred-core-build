@@ -8,6 +8,7 @@ import androidx.compose.ui.test.performClick
 import com.webyar.ai.core.net.SampleApi
 import com.webyar.ai.i18n.Language
 import com.webyar.ai.i18n.Str
+import com.webyar.ai.i18n.StrAndroid
 import com.webyar.ai.ui.A11y
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -327,10 +328,10 @@ class TeamChatTest {
         val team = SampleApi().colleagues("ws-1").colleagues
         compose.setContent { ColleaguesScreen(ColleaguesState.Loaded(team), Language.FA, {}) }
 
-        compose.onNodeWithText(Str.colleaguesChats(Language.FA)).assertIsDisplayed()
-        compose.onNodeWithText(Str.colleaguesStartChat(Language.FA)).assertIsDisplayed()
+        compose.onNodeWithText(StrAndroid.colleaguesChats(Language.FA)).assertIsDisplayed()
+        compose.onNodeWithText(StrAndroid.colleaguesStartChat(Language.FA)).assertIsDisplayed()
         // The admin is marked as one.
-        compose.onNodeWithText(Str.colleagueRole(Language.FA, "admin")!!).assertIsDisplayed()
+        compose.onNodeWithText(StrAndroid.colleagueRole(Language.FA, "admin")!!).assertIsDisplayed()
     }
 
     @Test

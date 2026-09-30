@@ -855,7 +855,7 @@ fun ColleaguesRoute(
             SearchableBar(
                 title = Str.colleagues(language),
                 // How big the team is, under its name.
-                subtitle = total.takeIf { it > 0 }?.let { Str.colleaguesCount(language, it) },
+                subtitle = total.takeIf { it > 0 }?.let { StrAndroid.colleaguesCount(language, it) },
                 language = language,
                 search = search,
                 onBack = onBack,

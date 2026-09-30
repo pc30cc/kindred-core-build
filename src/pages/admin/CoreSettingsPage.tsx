@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SlidersHorizontal } from 'lucide-react';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import SignupAccessCard from './verification/SignupAccessCard';
 import SignupDeliveryCard from './verification/SignupDeliveryCard';
 import SignupPlanCard from './verification/SignupPlanCard';
@@ -25,14 +25,14 @@ export default function CoreSettingsPage() {
           <SlidersHorizontal className="h-5 w-5" />
         </span>
         <div>
-          <h1 className="text-xl font-bold">{t('admin.coreSettings.title' as any)}</h1>
-          <p className="text-sm text-muted-foreground">{t('admin.coreSettings.subtitle' as any)}</p>
+          <h1 className="text-xl font-bold">{t('admin.coreSettings.title' as TranslationKey)}</h1>
+          <p className="text-sm text-muted-foreground">{t('admin.coreSettings.subtitle' as TranslationKey)}</p>
         </div>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="signup">{t('admin.coreSettings.tabSignup' as any)}</TabsTrigger>
+          <TabsTrigger value="signup">{t('admin.coreSettings.tabSignup' as TranslationKey)}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="signup" className="space-y-4">

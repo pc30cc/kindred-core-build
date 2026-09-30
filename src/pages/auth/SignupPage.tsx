@@ -122,8 +122,8 @@ export default function SignupPage() {
         navigate(`/auth/check-email?email=${encodeURIComponent(trimmedEmail)}`);
       }
 
-    } catch (err: any) {
-      toast.error(t('auth.signupFailed'), { description: err?.message });
+    } catch (err: unknown) {
+      toast.error(t('auth.signupFailed'), { description: err instanceof Error ? err.message : undefined });
     } finally {
       setLoading(false);
     }

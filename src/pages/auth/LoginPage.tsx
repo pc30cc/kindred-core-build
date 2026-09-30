@@ -90,8 +90,8 @@ export default function LoginPage() {
       }
       toast.success(t('auth.welcomeBack'));
       navigate(destination);
-    } catch (err: any) {
-      toast.error(t('auth.loginFailed'), { description: err?.message });
+    } catch (err: unknown) {
+      toast.error(t('auth.loginFailed'), { description: err instanceof Error ? err.message : undefined });
     } finally {
       setLoading(false);
     }

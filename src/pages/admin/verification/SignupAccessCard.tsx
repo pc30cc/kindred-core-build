@@ -17,7 +17,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { UserPlus } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { adminFetch } from '@/hooks/useAdmin';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
+
+interface PlatformSettingsRow {
+  signup_enabled?: boolean;
+  [column: string]: unknown;
+}
 
 export default function SignupAccessCard() {
   const { t } = useTranslation();
@@ -29,7 +34,7 @@ export default function SignupAccessCard() {
   const { data: settings, isLoading } = useQuery({
     queryKey: ['platform_settings'],
     queryFn: async () => {
-      const body = await adminFetch<{ settings: any }>('/api/admin/management/platform-settings');
+      const body = await adminFetch<{ settings: PlatformSettingsRow | null }>('/api/admin/management/platform-settings');
       return body.settings;
     },
   });
@@ -43,25 +48,25 @@ export default function SignupAccessCard() {
   const save = async () => {
     setSaving(true);
     try {
-      const body = await adminFetch<{ success: boolean; settings: any }>('/api/admin/management/platform-settings', {
+      const body = await adminFetch<{ success: boolean; settings: PlatformSettingsRow | null }>('/api/admin/management/platform-settings', {
         method: 'PUT',
         body: JSON.stringify({ signup_enabled: enabled }),
       });
-      const saved = body.settings ?? {};
+      const saved: PlatformSettingsRow = body.settings ?? {};
       if (!('signup_enabled' in saved)) {
-        throw new Error(t('admin.coreSettings.signupNotSupported' as any));
+        throw new Error(t('admin.coreSettings.signupNotSupported' as TranslationKey));
       }
       if ((saved.signup_enabled !== false) !== enabled) {
-        throw new Error(t('admin.brandingPage.common.saveFailed' as any));
+        throw new Error(t('admin.brandingPage.common.saveFailed' as TranslationKey));
       }
       qc.setQueryData(['platform_settings'], saved);
       qc.invalidateQueries({ queryKey: ['public_signup_policy'] });
       setDirty(false);
-      toast({ title: t('admin.brandingPage.settings.saved' as any) });
+      toast({ title: t('admin.brandingPage.settings.saved' as TranslationKey) });
     } catch (e) {
       toast({
-        title: t('admin.brandingPage.common.error' as any),
-        description: e instanceof Error ? e.message : t('admin.brandingPage.common.saveFailed' as any),
+        title: t('admin.brandingPage.common.error' as TranslationKey),
+        description: e instanceof Error ? e.message : t('admin.brandingPage.common.saveFailed' as TranslationKey),
         variant: 'destructive',
       });
     } finally {
@@ -75,13 +80,13 @@ export default function SignupAccessCard() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <UserPlus className="h-5 w-5 text-primary" />
-            <CardTitle className="text-base">{t('admin.coreSettings.signupAccess.title' as any)}</CardTitle>
+            <CardTitle className="text-base">{t('admin.coreSettings.signupAccess.title' as TranslationKey)}</CardTitle>
           </div>
           <Button size="sm" onClick={save} disabled={!dirty || saving}>
-            {t('admin.brandingPage.common.save' as any)}
+            {t('admin.brandingPage.common.save' as TranslationKey)}
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground">{t('admin.coreSettings.signupAccess.hint' as any)}</p>
+        <p className="text-xs text-muted-foreground">{t('admin.coreSettings.signupAccess.hint' as TranslationKey)}</p>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -89,11 +94,11 @@ export default function SignupAccessCard() {
         ) : (
           <div className="flex items-start justify-between gap-4">
             <div className="grid gap-1">
-              <Label htmlFor="signup-enabled">{t('admin.coreSettings.signupAccess.label' as any)}</Label>
+              <Label htmlFor="signup-enabled">{t('admin.coreSettings.signupAccess.label' as TranslationKey)}</Label>
               <p className="text-xs text-muted-foreground">
                 {enabled
-                  ? t('admin.coreSettings.signupAccess.onHint' as any)
-                  : t('admin.coreSettings.signupAccess.offHint' as any)}
+                  ? t('admin.coreSettings.signupAccess.onHint' as TranslationKey)
+                  : t('admin.coreSettings.signupAccess.offHint' as TranslationKey)}
               </p>
             </div>
             <Switch

@@ -38,6 +38,12 @@ export const DEFAULT_SIGNUP_POLICY: SignupVerificationPolicy = { enabled: true, 
  */
 const FAIL_CLOSED_SIGNUP_POLICY: SignupVerificationPolicy = { ...DEFAULT_SIGNUP_POLICY, enabled: false };
 
+interface SignupPolicyRow {
+  signup_enabled?: boolean | null;
+  signup_verification_method?: string | null;
+  signup_verification_gate?: string | null;
+}
+
 const CACHE_TTL_MS = 30_000;
 let cached: { value: SignupVerificationPolicy; at: number } | null = null;
 
@@ -62,12 +68,13 @@ export async function getSignupVerificationPolicy(config: ServerConfig): Promise
       .maybeSingle();
     if (error) throw new Error(error.message);
 
-    const rawMethod = (data as any)?.signup_verification_method;
-    const rawGate = (data as any)?.signup_verification_gate;
+    const row = data as SignupPolicyRow | null;
+    const rawMethod = row?.signup_verification_method;
+    const rawGate = row?.signup_verification_gate;
     const value: SignupVerificationPolicy = {
       // Only an explicit `false` closes signup; a missing column/row keeps
       // the historical open behaviour.
-      enabled: (data as any)?.signup_enabled !== false,
+      enabled: row?.signup_enabled !== false,
       method: rawMethod === 'otp' ? 'otp' : 'link',
       gate: rawGate === 'after' ? 'after' : 'before',
     };

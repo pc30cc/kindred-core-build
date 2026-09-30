@@ -7,9 +7,9 @@
  * payload doesn't match the expected shape.
  *
  * Polling fallback: when the resolved provider is `polling`/`disabled`,
- * subscribe is a no-op and the existing 10s React Query refetch on
- * `['conversations', workspace_id]` keeps the UI fresh — same behavior
- * as before this hook existed.
+ * subscribe is a no-op. `['conversations', workspace_id]` has no refetch
+ * interval, so the list then refreshes only on mount, tab switch and the
+ * operator's own actions.
  */
 
 import { useEffect } from 'react';

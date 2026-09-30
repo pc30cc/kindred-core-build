@@ -2417,13 +2417,16 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
           conversationId: convId,
           reason: platformAiOffReason,
         });
-        console.log('[widget-message] platform_ai_disabled_restore', {
-          workspace_id: workspaceId,
-          conversation_id: convId,
-          reason: platformAiOffReason,
-          previous_ai_state: restored.previousAiState,
-          restored_to_main_inbox: restored.changed,
-        });
+        // Logged only when the conversation actually moved back to the main
+        // inbox: with platform AI off this runs on every visitor message.
+        if (restored.changed) {
+          console.log('[widget-message] platform_ai_disabled_restore', {
+            workspace_id: workspaceId,
+            conversation_id: convId,
+            reason: platformAiOffReason,
+            previous_ai_state: restored.previousAiState,
+          });
+        }
       } catch (e) {
         console.warn('[widget-message] platform_ai_disabled_restore_failed:', e?.message || e);
       }
@@ -2513,13 +2516,6 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         .catch((e) =>
           console.warn('[widget-message] AI Agent engine error:', e?.message || e),
         );
-    }
-    if (platformAiOff && insertedMsg?.id && convId) {
-      console.log('[widget-message] ai_skipped_platform_disabled', {
-        workspace_id: workspaceId,
-        conversation_id: convId,
-        reason: platformAiOffReason,
-      });
     }
     const reply: string | null = null;
 

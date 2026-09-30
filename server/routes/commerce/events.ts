@@ -5,7 +5,7 @@
  * needs the exact raw bytes) with its own express.raw() parser.
  */
 import { Router, raw } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
@@ -20,7 +20,20 @@ function serverConfigOf(req: any): ServerConfig {
   return req.serverConfig as ServerConfig;
 }
 
-const eventIngestLimiter = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false, keyGenerator: (req) => String(req.header('X-WebYar-Installation') || req.ip) });
+// Unsigned requests carry no installation header, so they fall back to the
+// client address: through ipKeyGenerator, which buckets an IPv6 address by its
+// /56, or one client could cycle through its own prefix to dodge the limit.
+const eventIngestLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const installation = req.header('X-WebYar-Installation');
+    if (installation) return `installation:${installation}`;
+    return `ip:${req.ip ? ipKeyGenerator(req.ip) : 'unknown'}`;
+  },
+});
 
 const eventSchema = z.object({
   event_id: z.string().min(1).max(200),

@@ -211,6 +211,7 @@ mapGeoRouter.post('/test-resolve', async (req, res) => {
     }
     const result = await lookupMaxmindLocal(settings.maxmind_local.db_path, ip, {
       autoReload: settings.maxmind_local.auto_reload,
+      fresh: true,
     });
     if (!result) return res.json({ ok: false, error: 'No data for this IP', ip_hash: createHash('sha256').update(ip).digest('hex').slice(0, 16) });
     res.json({

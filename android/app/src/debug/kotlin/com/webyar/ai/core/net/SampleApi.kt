@@ -464,10 +464,15 @@ class SampleApi : WebyarApi {
         )
     }
 
-    override suspend fun sendSupportMessage(body: String, clientMessageId: String, workspaceId: String?): SupportPostResult =
+    override suspend fun sendSupportMessage(
+        body: String,
+        clientMessageId: String,
+        conversationId: String?,
+        workspaceId: String?,
+    ): SupportPostResult =
         synchronized(supportLock) {
             if (body.isBlank()) throw ApiError.Server(400, "invalid_body")
-            appendSupport(clientMessageId) { conversationId, at ->
+            appendSupport(clientMessageId, conversationId) { conversationId, at ->
                 SupportItem(
                     id = "si-${supportItems.size + 1}",
                     conversationId = conversationId,
@@ -484,11 +489,12 @@ class SampleApi : WebyarApi {
         mimeType: String,
         bytes: ByteArray,
         clientMessageId: String,
+        conversationId: String?,
         workspaceId: String?,
     ): SupportPostResult = synchronized(supportLock) {
         if (bytes.size > 2 * 1024 * 1024) throw ApiError.Server(413, "file_too_large")
         if (mimeType !in AttachmentRules.PICKABLE_MIME_TYPES) throw ApiError.Server(400, "file_type_not_allowed")
-        appendSupport(clientMessageId) { conversationId, at ->
+        appendSupport(clientMessageId, conversationId) { conversationId, at ->
             val id = "sa-${supportFiles.size + 1}"
             supportFiles[id] = bytes
             SupportItem(
@@ -506,12 +512,22 @@ class SampleApi : WebyarApi {
 
     /**
      * The item [clientMessageId] names, if it was sent before; else a new
-     * one — into the open conversation, or the first of a new one, which the
-     * agent joins and answers.
+     * one — into [target] while it is open (an ended one refuses it, as the
+     * server does), or, with no target, the open conversation or the first
+     * of a new one, which the agent joins and answers.
      */
-    private fun appendSupport(clientMessageId: String, make: (String, Instant) -> SupportItem): SupportPostResult {
+    private fun appendSupport(
+        clientMessageId: String,
+        target: String?,
+        make: (String, Instant) -> SupportItem,
+    ): SupportPostResult {
         supportItems.firstOrNull { it.clientMessageId == clientMessageId }?.let { sent ->
             return SupportPostResult(supportConversations.first { it.id == sent.conversationId }, sent)
+        }
+        if (target != null) {
+            val named = supportConversations.firstOrNull { it.id == target }
+                ?: throw ApiError.Server(404, "conversation_not_found")
+            if (named.ended) throw ApiError.Server(409, "conversation_ended")
         }
         val now = Instant.now()
         val active = supportConversations.lastOrNull { !it.ended }
@@ -543,6 +559,19 @@ class SampleApi : WebyarApi {
         }
         return SupportPostResult(conversation, item)
     }
+
+    /** The team ends a conversation, as the inbox would: for tests of what the chat does next. */
+    internal fun endSupportConversation(id: String, status: String = SupportConversation.STATUS_RESOLVED) =
+        synchronized(supportLock) {
+            val index = supportConversations.indexOfFirst { it.id == id }
+            if (index >= 0) {
+                supportConversations[index] = supportConversations[index].copy(
+                    status = status,
+                    endedAt = Instant.now(),
+                    canRate = supportItems.any { it.conversationId == id && it.fromTeam && !it.isJoin },
+                )
+            }
+        }
 
     override suspend fun supportAttachmentData(id: String): ByteArray = synchronized(supportLock) {
         supportFiles[id] ?: throw ApiError.Server(404, "attachment_not_found")

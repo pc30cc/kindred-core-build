@@ -399,19 +399,26 @@ interface WebyarApi {
     suspend fun supportHistory(): SupportHistory = SupportHistory()
 
     /**
-     * A message to the team: into the active conversation, or — when there
-     * is none — the first of a new one. [clientMessageId] makes a retry the
-     * same message.
+     * A message to the team, into [conversationId] — the active conversation
+     * the chat shows — or, when that is null, the first of a new one. A
+     * conversation that has ended refuses it (409 `conversation_ended`); it
+     * is never moved to another. [clientMessageId] makes a retry the same
+     * message.
      */
-    suspend fun sendSupportMessage(body: String, clientMessageId: String, workspaceId: String?): SupportPostResult =
-        throw ApiError.Server(404, "support_disabled")
+    suspend fun sendSupportMessage(
+        body: String,
+        clientMessageId: String,
+        conversationId: String?,
+        workspaceId: String?,
+    ): SupportPostResult = throw ApiError.Server(404, "support_disabled")
 
-    /** A file to the team, as a message of its own. */
+    /** A file to the team, as a message of its own; into [conversationId] as a message is. */
     suspend fun sendSupportAttachment(
         fileName: String,
         mimeType: String,
         bytes: ByteArray,
         clientMessageId: String,
+        conversationId: String?,
         workspaceId: String?,
     ): SupportPostResult = throw ApiError.Server(404, "support_disabled")
 

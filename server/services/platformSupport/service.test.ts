@@ -82,7 +82,12 @@ function operator(name = 'Sara Ahmadi', email = `sara${++seq}@customer.example`)
 let clientSeq = 0;
 const nextId = () => `client-${String(++clientSeq).padStart(4, '0')}`;
 
-function say(userId: string, body: string, clientMessageId = nextId(), extra: Partial<{ sourceWorkspaceId: string }> = {}) {
+function say(
+  userId: string,
+  body: string,
+  clientMessageId = nextId(),
+  extra: Partial<{ sourceWorkspaceId: string; conversationId: string }> = {},
+) {
   return sendMessage(config, userId, { body, clientMessageId, client: 'android', ...extra });
 }
 
@@ -228,6 +233,77 @@ describe('writing', () => {
     expect(history.conversations.map((c) => c.id)).toEqual([first.conversation.id, third.conversation.id]);
     expect(history.activeConversationId).toBe(third.conversation.id);
     expect(history.items.map((i) => i.body)).toEqual(['one', 'two', 'Done.', 'three']);
+  });
+
+  it('writes only to the conversation the app shows: once it has ended, the message is refused, not moved', async () => {
+    const { userId } = operator();
+    const first = await say(userId, 'one');
+    const second = await say(userId, 'two', nextId(), { conversationId: first.conversation.id });
+    expect(second.conversation.id).toBe(first.conversation.id);
+
+    teamSays(first.conversation.id, 'Solved.');
+    setStatus(first.conversation.id, 'resolved');
+    await rejects(say(userId, 'three', nextId(), { conversationId: first.conversation.id }), 409, 'conversation_ended');
+    expect(db.table('conversations')).toHaveLength(1);
+    expect(db.table('conversation_messages').map((m) => m.body)).toEqual(['one', 'two', 'Solved.']);
+    expect(db.table('conversations')[0].status).toBe('resolved');
+
+    // Asked for a new conversation, the operator gets one.
+    const fresh = await say(userId, 'three');
+    expect(fresh.conversation.id).not.toBe(first.conversation.id);
+    expect((await supportHistory(config, userId)).activeConversationId).toBe(fresh.conversation.id);
+  });
+
+  it('returns a message that landed before its conversation ended, when the app retries it', async () => {
+    const { userId } = operator();
+    const first = await say(userId, 'one');
+    const sent = await say(userId, 'two', 'client-late', { conversationId: first.conversation.id });
+    setStatus(first.conversation.id, 'closed');
+    const again = await say(userId, 'two', 'client-late', { conversationId: first.conversation.id });
+    expect(again.item.id).toBe(sent.item.id);
+    expect(again.conversation.status).toBe('closed');
+    expect(db.table('conversation_messages')).toHaveLength(2);
+  });
+
+  it('refuses a file for an ended conversation as it refuses a message', async () => {
+    const { userId } = operator();
+    const first = await say(userId, 'one');
+    setStatus(first.conversation.id, 'resolved');
+    await rejects(
+      sendAttachment(config, userId, {
+        fileName: 'a.png',
+        mimeType: 'image/png',
+        data: Buffer.from('png').toString('base64'),
+        clientMessageId: nextId(),
+        conversationId: first.conversation.id,
+        client: 'android',
+      }),
+      409,
+      'conversation_ended',
+    );
+    expect(db.table('conversation_attachments')).toHaveLength(0);
+    expect(uploadFile).not.toHaveBeenCalled();
+  });
+
+  it('never writes to somebody else\'s conversation', async () => {
+    const sara = operator();
+    const ali = operator('Ali Karimi');
+    const hers = await say(sara.userId, 'mine');
+    await rejects(say(ali.userId, 'hello', nextId(), { conversationId: hers.conversation.id }), 404, 'conversation_not_found');
+    await rejects(say(ali.userId, 'hello', nextId(), { conversationId: 'not-a-uuid' }), 404, 'conversation_not_found');
+    expect(db.table('conversation_messages').map((m) => m.body)).toEqual(['mine']);
+  });
+
+  it('treats a conversation left with the previous support team as ended', async () => {
+    const { userId } = operator();
+    const first = await say(userId, 'one');
+    db.table('workspaces').push({ id: 'ws-support-2', name: 'New Support' });
+    state.settings = { ...state.settings, workspaceId: 'ws-support-2' };
+    expect((await supportHistory(config, userId)).activeConversationId).toBeNull();
+    await rejects(say(userId, 'two', nextId(), { conversationId: first.conversation.id }), 409, 'conversation_ended');
+    const fresh = await say(userId, 'two');
+    expect(fresh.conversation.id).not.toBe(first.conversation.id);
+    expect(db.table('conversations').find((c) => c.id === fresh.conversation.id)!.workspace_id).toBe('ws-support-2');
   });
 
   it('refuses an empty message', async () => {

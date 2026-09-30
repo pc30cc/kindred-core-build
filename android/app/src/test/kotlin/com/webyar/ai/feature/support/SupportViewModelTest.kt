@@ -49,6 +49,10 @@ class SupportViewModelTest {
         return chat
     }
 
+    /** Opened on the sample's resolved conversation, and a new one started: the composer is open. */
+    private fun TestScope.writing(api: WebyarApi = StubSupportApi()): SupportChatViewModel =
+        opened(api).also { it.startNewConversation() }
+
     private val SupportChatViewModel.loaded: SupportChatState.Loaded
         get() = state.value as SupportChatState.Loaded
 
@@ -109,8 +113,8 @@ class SupportViewModelTest {
         assertTrue(resolved.ended)
         assertTrue(resolved.canRate)
         assertNull(loaded.activeConversationId)
-        // Nothing open, one ended: the next message starts a new one.
-        assertTrue(loaded.startsNewConversation)
+        // Nothing open, one ended: no composer — the end, and "start a new conversation".
+        assertEquals(SupportComposer.Ended, loaded.composer)
 
         val rows = supportTimeline(loaded.conversations, loaded.items, loaded.pending)
         assertEquals(
@@ -138,13 +142,17 @@ class SupportViewModelTest {
     /** Shown at once as "sending"; then the server's, in the new conversation it started. */
     @Test
     fun `a message is pending at once and becomes the server's item`() = runTest(dispatcher) {
-        val chat = opened()
+        val api = StubSupportApi()
+        val chat = writing(api)
+        assertEquals(SupportComposer.New, chat.loaded.composer)
 
         chat.setDraft("  سلام، ایمیل‌ها وصل نمی‌شود  ")
         chat.send()
         val sending = chat.loaded
         assertEquals(listOf("سلام، ایمیل‌ها وصل نمی‌شود"), sending.pending.map { it.body })
         assertFalse(sending.pending.single().failed)
+        // The first message of a new conversation names none.
+        assertNull(sending.pending.single().conversationId)
         assertEquals("", chat.draft.value)
         val id = sending.pending.single().clientMessageId
 
@@ -154,7 +162,8 @@ class SupportViewModelTest {
         assertTrue(sent.pending.isEmpty())
         assertEquals(2, sent.conversations.size)
         assertEquals(sent.conversations.last().id, sent.activeConversationId)
-        assertFalse(sent.startsNewConversation)
+        assertEquals(SupportComposer.Active, sent.composer)
+        assertFalse(sent.startingNew)
         val mine = sent.items.single { it.clientMessageId == id }
         assertEquals(sent.activeConversationId, mine.conversationId)
         // The team joined the new conversation and answered once.
@@ -163,12 +172,19 @@ class SupportViewModelTest {
 
         val rows = supportTimeline(sent.conversations, sent.items, sent.pending)
         assertTrue(rows.any { it is SupportRow.NewConversation })
+
+        // The next one is written to the conversation now open, by name.
+        chat.setDraft("و یک سؤال دیگر")
+        chat.send()
+        testScheduler.advanceUntilIdle()
+        assertEquals(listOf(null, sent.activeConversationId), api.targets)
+        assertEquals(2, chat.loaded.conversations.size)
     }
 
     @Test
     fun `an empty message is not sent`() = runTest(dispatcher) {
         val api = StubSupportApi()
-        val chat = opened(api)
+        val chat = writing(api)
 
         chat.setDraft("   ")
         chat.send()
@@ -181,7 +197,7 @@ class SupportViewModelTest {
     @Test
     fun `a message that fails stays, marked, and its retry is the same message`() = runTest(dispatcher) {
         val api = StubSupportApi(failSends = 1)
-        val chat = opened(api)
+        val chat = writing(api)
 
         chat.setDraft("کمک")
         chat.send()
@@ -203,7 +219,7 @@ class SupportViewModelTest {
     @Test
     fun `a file over 2 MB is refused before a byte is sent`() = runTest(dispatcher) {
         val api = StubSupportApi()
-        val chat = opened(api)
+        val chat = writing(api)
 
         chat.sendFile(ByteArray(SupportChatViewModel.MAX_FILE_BYTES + 1), "scan.pdf", "application/pdf")
         testScheduler.advanceUntilIdle()
@@ -216,7 +232,7 @@ class SupportViewModelTest {
     @Test
     fun `a file of a type the server refuses is not sent either`() = runTest(dispatcher) {
         val api = StubSupportApi()
-        val chat = opened(api)
+        val chat = writing(api)
 
         chat.sendFile(ByteArray(10), "voice.mp3", "audio/mpeg")
         testScheduler.advanceUntilIdle()
@@ -229,7 +245,7 @@ class SupportViewModelTest {
     @Test
     fun `a file lands as an attachment, and its retry sends the same bytes`() = runTest(dispatcher) {
         val api = StubSupportApi(failUploads = 1)
-        val chat = opened(api)
+        val chat = writing(api)
         val bytes = "hello".toByteArray()
 
         chat.sendFile(bytes, "note.txt", "text/plain")
@@ -324,7 +340,7 @@ class SupportViewModelTest {
     fun `a reply that arrives while the chat is on screen is marked read`() = runTest(dispatcher) {
         val api = StubSupportApi()
         api.real.markSupportRead()
-        val chat = opened(api)
+        val chat = writing(api)
         backgroundScope.launch { chat.follow(null) }
         testScheduler.runCurrent()
         testScheduler.advanceUntilIdle()
@@ -338,8 +354,101 @@ class SupportViewModelTest {
         assertEquals(0, api.real.supportStatus().unread)
     }
 
+    // MARK: - The end of a conversation
+
+    /** The bug this guards: after a close, words typed into the old conversation went somewhere else. */
+    @Test
+    fun `an ended conversation takes nothing more until the operator starts a new one`() = runTest(dispatcher) {
+        val api = StubSupportApi()
+        val chat = opened(api)
+        assertEquals(SupportComposer.Ended, chat.loaded.composer)
+
+        chat.setDraft("ادامهٔ همان گفتگو")
+        chat.send()
+        chat.sendFile("x".toByteArray(), "a.txt", "text/plain")
+        testScheduler.advanceUntilIdle()
+        assertTrue(api.sent.isEmpty())
+        assertTrue(api.uploads.isEmpty())
+        assertTrue(chat.loaded.pending.isEmpty())
+        // Kept for the new conversation.
+        assertEquals("ادامهٔ همان گفتگو", chat.draft.value)
+
+        chat.startNewConversation()
+        assertEquals(SupportComposer.New, chat.loaded.composer)
+        // Read again meanwhile: still starting a new one.
+        chat.loadHistory()
+        testScheduler.advanceUntilIdle()
+        assertEquals(SupportComposer.New, chat.loaded.composer)
+
+        chat.send()
+        testScheduler.advanceUntilIdle()
+        assertEquals(listOf<String?>(null), api.targets)
+        val loaded = chat.loaded
+        assertEquals(SupportComposer.Active, loaded.composer)
+        assertEquals(loaded.conversations.last().id, loaded.activeConversationId)
+        assertTrue(loaded.conversations.first().ended)
+    }
+
+    @Test
+    fun `the team ending the conversation closes the composer`() = runTest(dispatcher) {
+        val api = StubSupportApi()
+        val chat = writing(api)
+        chat.setDraft("سلام")
+        chat.send()
+        testScheduler.advanceUntilIdle()
+        val open = chat.loaded.activeConversationId!!
+
+        api.real.endSupportConversation(open, SupportConversation.STATUS_CLOSED)
+        chat.loadHistory()
+        testScheduler.advanceUntilIdle()
+
+        val loaded = chat.loaded
+        assertNull(loaded.activeConversationId)
+        assertEquals(SupportComposer.Ended, loaded.composer)
+        assertEquals(SupportConversation.STATUS_CLOSED, loaded.lastConversation?.status)
+    }
+
+    /** Closed while the message was on its way: refused, not moved — and not lost either. */
+    @Test
+    fun `a message the close overtook goes back to the composer`() = runTest(dispatcher) {
+        val api = StubSupportApi()
+        val chat = writing(api)
+        chat.setDraft("سلام")
+        chat.send()
+        testScheduler.advanceUntilIdle()
+        val open = chat.loaded.activeConversationId!!
+        val itemsBefore = chat.loaded.items.size
+
+        // The team closes it; the app has not heard yet.
+        api.real.endSupportConversation(open)
+        chat.setDraft("یک چیز دیگر")
+        chat.send()
+        assertEquals(open, chat.loaded.pending.single().conversationId)
+        testScheduler.advanceUntilIdle()
+
+        val loaded = chat.loaded
+        assertTrue(loaded.pending.isEmpty())
+        assertEquals(itemsBefore, loaded.items.size)
+        assertEquals(SupportComposer.Ended, loaded.composer)
+        assertEquals("یک چیز دیگر", chat.draft.value)
+        assertEquals(StrAndroid.supportConversationEnded(Language.FA), chat.notice.value)
+        assertEquals(listOf(null, open), api.targets)
+
+        // Started again, it goes to a conversation of its own.
+        chat.startNewConversation()
+        chat.send()
+        testScheduler.advanceUntilIdle()
+        assertEquals(null, api.targets.last())
+        assertEquals(3, chat.loaded.conversations.size)
+        assertEquals(SupportComposer.Active, chat.loaded.composer)
+    }
+
     @Test
     fun `the server's own codes read as the operator's words`() {
+        assertEquals(
+            StrAndroid.supportConversationEnded(Language.EN),
+            supportErrorText(ApiError.Server(409, "conversation_ended"), Language.EN),
+        )
         assertEquals(
             StrAndroid.supportRateLimited(Language.EN),
             supportErrorText(ApiError.Server(429, "rate_limited"), Language.EN),
@@ -375,6 +484,9 @@ class SupportViewModelTest {
         var statusError: Throwable? = null
         val sent = mutableListOf<String>()
         val uploads = mutableListOf<String>()
+
+        /** The conversation each message and file named; null for "a new one". */
+        val targets = mutableListOf<String?>()
         val ratings = mutableListOf<String>()
         var marked = 0
         var historyReads = 0
@@ -386,13 +498,19 @@ class SupportViewModelTest {
 
         override suspend fun supportHistory() = real.supportHistory().also { historyReads++ }
 
-        override suspend fun sendSupportMessage(body: String, clientMessageId: String, workspaceId: String?): SupportPostResult {
+        override suspend fun sendSupportMessage(
+            body: String,
+            clientMessageId: String,
+            conversationId: String?,
+            workspaceId: String?,
+        ): SupportPostResult {
             sent += clientMessageId
+            targets += conversationId
             if (failSends > 0) {
                 failSends--
                 throw ApiError.Server(429, "rate_limited")
             }
-            return real.sendSupportMessage(body, clientMessageId, workspaceId)
+            return real.sendSupportMessage(body, clientMessageId, conversationId, workspaceId)
         }
 
         override suspend fun sendSupportAttachment(
@@ -400,14 +518,16 @@ class SupportViewModelTest {
             mimeType: String,
             bytes: ByteArray,
             clientMessageId: String,
+            conversationId: String?,
             workspaceId: String?,
         ): SupportPostResult {
             uploads += clientMessageId
+            targets += conversationId
             if (failUploads > 0) {
                 failUploads--
                 throw ApiError.Transport(null)
             }
-            return real.sendSupportAttachment(fileName, mimeType, bytes, clientMessageId, workspaceId)
+            return real.sendSupportAttachment(fileName, mimeType, bytes, clientMessageId, conversationId, workspaceId)
         }
 
         override suspend fun rateSupportConversation(conversationId: String, score: Int, comment: String?): SupportConversation {

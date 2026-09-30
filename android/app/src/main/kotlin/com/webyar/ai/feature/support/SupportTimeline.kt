@@ -17,6 +17,12 @@ data class PendingSupportItem(
     /** A file, held until it lands — a retry sends these same bytes. */
     val file: SupportUpload? = null,
     val failed: Boolean = false,
+    /**
+     * The active conversation it was written to; null for the first message
+     * of a new one. Every attempt names the same one, so a retry never lands
+     * anywhere else.
+     */
+    val conversationId: String? = null,
 )
 
 /**
@@ -74,6 +80,10 @@ internal sealed interface SupportRow {
  * Every conversation in order, each followed by how it ended and its rating,
  * then whatever the operator is still sending.
  *
+ * What is on its way to a new conversation — or, with [startingNew], the
+ * conversation the operator has chosen to start — sits under its own "new
+ * conversation" line, below the ended ones and never inside them.
+ *
  * A day header goes above the first message of each day, as in the other
  * transcripts — except right under a "new conversation" line, which already
  * carries the date. An item whose conversation is not in [conversations]
@@ -84,6 +94,7 @@ internal fun supportTimeline(
     items: List<SupportItem>,
     pending: List<PendingSupportItem>,
     zone: ZoneId = ZoneId.systemDefault(),
+    startingNew: Boolean = false,
 ): List<SupportRow> {
     val rows = mutableListOf<SupportRow>()
     var lastDay: LocalDate? = null
@@ -122,7 +133,8 @@ internal fun supportTimeline(
     }
     // Once the server has it, its own copy is the one shown.
     val delivered = items.mapNotNullTo(HashSet()) { it.clientMessageId }
-    pending.filterNot { it.clientMessageId in delivered }.forEach { entry ->
+    val (toActive, toNew) = pending.filterNot { it.clientMessageId in delivered }.partition { it.conversationId != null }
+    fun waiting(entry: PendingSupportItem) {
         rows += SupportRow.Bubble(
             // The same key the server's copy will have, so the bubble is not
             // recreated the moment it lands.
@@ -134,6 +146,13 @@ internal fun supportTimeline(
             dayHeader = header(entry.createdAt),
         )
     }
+    toActive.forEach(::waiting)
+    if (conversations.isNotEmpty() && (startingNew || toNew.isNotEmpty())) {
+        val startedAt = toNew.firstOrNull()?.createdAt
+        rows += SupportRow.NewConversation("new-next", startedAt)
+        startedAt?.atZone(zone)?.toLocalDate()?.let { lastDay = it }
+    }
+    toNew.forEach(::waiting)
 
     // Runs: one sender's messages in a row, unbroken by a day or a line.
     // Keys are the list's identity, and a repeated one ends the app; a row

@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Star
@@ -137,6 +138,10 @@ internal fun SupportTeamMark(online: Boolean?, modifier: Modifier = Modifier) {
  * bubbles as every other conversation in the app. The team on the left with
  * their faces, the operator on the right.
  *
+ * At the bottom, the composer while a conversation is open. Once it has
+ * ended, nothing more is written to it: the composer gives way to the end
+ * and a button that starts a new conversation ([onStartNew]).
+ *
  * While nobody is online a banner says so, with the team's hours; a message
  * is delivered all the same.
  */
@@ -148,6 +153,7 @@ fun SupportChatScreen(
     onRetryLoad: () -> Unit,
     onRetryMessage: (String) -> Unit,
     onRate: (conversationId: String, score: Int, comment: String?) -> Unit,
+    onStartNew: () -> Unit,
     modifier: Modifier = Modifier,
     /** Conversations whose rating is on its way. */
     ratingBusy: Set<String> = emptySet(),
@@ -176,21 +182,79 @@ fun SupportChatScreen(
                 }
             }
         }
-        if ((state as? SupportChatState.Loaded)?.startsNewConversation == true) {
+        val loaded = state as? SupportChatState.Loaded
+        when (loaded?.composer) {
+            // Nothing to write to before the chat has loaded.
+            null -> Unit
+            SupportComposer.Ended -> EndedPanel(loaded.lastConversation, language, onStartNew)
+            else -> {
+                if (loaded.composer == SupportComposer.New) {
+                    Text(
+                        StrAndroid.supportNewConversationHint(language),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Space.lg, vertical = Space.xs)
+                            .testTag(A11y.SUPPORT_NEW_CONVERSATION_HINT),
+                    )
+                }
+                // imePadding here: the composer belongs to the text being
+                // typed, so it rides up with the keyboard.
+                Box(Modifier.imePadding().navigationBarsPadding().testTag(A11y.SUPPORT_COMPOSER)) { composer() }
+            }
+        }
+    }
+}
+
+/**
+ * Where the composer was, once the conversation has ended: how it ended,
+ * that it cannot be continued, and the one way on — a new conversation.
+ */
+@Composable
+private fun EndedPanel(conversation: SupportConversation?, language: Language, onStartNew: () -> Unit) {
+    val status = conversation?.status?.takeIf { it == SupportConversation.STATUS_CLOSED } ?: SupportConversation.STATUS_RESOLVED
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(topStart = Radius.xl, topEnd = Radius.xl),
+        modifier = Modifier.fillMaxWidth().testTag(A11y.SUPPORT_ENDED_PANEL),
+    ) {
+        Column(
+            Modifier
+                .navigationBarsPadding()
+                .padding(horizontal = Space.lg, vertical = Space.lg),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(Space.sm),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.CheckCircle,
+                    contentDescription = null,
+                    tint = OnlineGreen,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    StrAndroid.supportEnded(language, status),
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(horizontal = Space.sm).semantics { heading() },
+                )
+            }
             Text(
-                StrAndroid.supportNewConversationHint(language),
-                style = MaterialTheme.typography.bodySmall,
+                StrAndroid.supportEndedPanelBody(language),
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
+            )
+            PrimaryButton(
+                label = StrAndroid.supportStartNew(language),
+                onClick = onStartNew,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = Space.lg, vertical = Space.xs)
-                    .testTag(A11y.SUPPORT_NEW_CONVERSATION_HINT),
+                    .padding(top = Space.xs)
+                    .testTag(A11y.SUPPORT_START_NEW),
             )
         }
-        // imePadding here: the composer belongs to the text being typed, so
-        // it rides up with the keyboard.
-        Box(Modifier.imePadding().navigationBarsPadding().testTag(A11y.SUPPORT_COMPOSER)) { composer() }
     }
 }
 
@@ -272,8 +336,9 @@ private fun SupportTranscript(
             LoaderAttachmentSource(it, java.io.File(context.cacheDir, "${AttachmentDiskCache.DIRECTORY}/transient"))
         }
     }
-    val rows = remember(state.conversations, state.items, state.pending) {
-        supportTimeline(state.conversations, state.items, state.pending)
+    val startingNew = state.composer == SupportComposer.New
+    val rows = remember(state.conversations, state.items, state.pending, startingNew) {
+        supportTimeline(state.conversations, state.items, state.pending, startingNew = startingNew)
     }
     val listState = rememberLazyListState()
     // A transcript opens on its newest message and stays there while that

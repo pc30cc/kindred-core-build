@@ -993,14 +993,21 @@ class ApiClient(
     private data class SupportMessageBody(
         val body: String,
         val clientMessageId: String,
+        /** The active conversation written to; null starts a new one. */
+        val conversationId: String? = null,
         val workspaceId: String? = null,
     )
 
-    override suspend fun sendSupportMessage(body: String, clientMessageId: String, workspaceId: String?): SupportPostResult =
+    override suspend fun sendSupportMessage(
+        body: String,
+        clientMessageId: String,
+        conversationId: String?,
+        workspaceId: String?,
+    ): SupportPostResult =
         build(
             HttpMethod.Post,
             "/api/platform-support/messages",
-            body = SupportMessageBody(body, clientMessageId, workspaceId),
+            body = SupportMessageBody(body, clientMessageId, conversationId, workspaceId),
         ).decode()
 
     @Serializable
@@ -1010,6 +1017,7 @@ class ApiClient(
         /** The bytes in base64; the server takes up to 2 MB of them. */
         val data: String,
         val clientMessageId: String,
+        val conversationId: String? = null,
         val workspaceId: String? = null,
     )
 
@@ -1018,6 +1026,7 @@ class ApiClient(
         mimeType: String,
         bytes: ByteArray,
         clientMessageId: String,
+        conversationId: String?,
         workspaceId: String?,
     ): SupportPostResult =
         build(
@@ -1028,6 +1037,7 @@ class ApiClient(
                 mimeType = mimeType,
                 data = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP),
                 clientMessageId = clientMessageId,
+                conversationId = conversationId,
                 workspaceId = workspaceId,
             ),
             transfer = true,

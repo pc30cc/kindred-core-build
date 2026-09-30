@@ -131,6 +131,8 @@ fun Composer(
     recorded: RecordedVoice? = null,
     onSendRecorded: () -> Unit = {},
     onDiscardRecorded: () -> Unit = {},
+    /** Opened by the operator's own tap ("start a new conversation"): the field takes focus and the keyboard comes up. */
+    focusOnOpen: Boolean = false,
 ) {
     val isSayNow = sayNowVoice != null
     val canSend = draft.isNotBlank() && !sending
@@ -169,6 +171,12 @@ fun Composer(
         switching = imeVisible
         emojiOpen = true
         keyboard?.hide()
+    }
+    LaunchedEffect(Unit) {
+        if (focusOnOpen) {
+            runCatching { focus.requestFocus() }
+            keyboard?.show()
+        }
     }
     val openKeyboard = {
         emojiOpen = false

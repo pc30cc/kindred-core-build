@@ -98,6 +98,16 @@ export async function clearAiManagementForPlatformOff(
     meta.ai_managed_by_ai === true ||
     meta.ai_handoff_requested === true;
 
+  // Nothing to clear → no write. The widget calls this on EVERY visitor
+  // message while platform AI is off, and rewriting the whole metadata
+  // document each time was both a pointless write and a read-modify-write
+  // that could revert a metadata change landing in between (handoff,
+  // takeover, working memory).
+  const hasAiState = previousAiState !== null || meta.ai_handoff_reason != null;
+  if (!wasManaged && !hasAiState) {
+    return { changed: false, previousAiState };
+  }
+
   await sb
     .from('conversations')
     .update({ metadata: next, updated_at: new Date().toISOString() })

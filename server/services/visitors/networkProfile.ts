@@ -34,6 +34,7 @@ import { getServiceClient } from '../../supabase.js';
 import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 import { maskIp } from '../../utils/clientIp.js';
 import { countryNameFromCode, toCountryCode } from '../geo/countryNames.js';
+import { selectInChunks } from '../../lib/chunkedIn.js';
 
 export type GeoSourceCategory =
   | 'persisted'
@@ -394,12 +395,13 @@ export async function resolveNetworkProfiles(
   const ids = Array.from(new Set(sessionIds.filter(Boolean)));
   if (!ids.length) return out;
   const sb = getServiceClient(config);
-  const { data: sessions } = await sb
-    .from('visitor_sessions')
-    .select(SESSION_NETWORK_COLUMNS)
-    .eq('workspace_id', workspaceId)
-    .in('id', ids);
-  const rows = (sessions ?? []) as unknown as SessionNetworkRow[];
+  const rows = await selectInChunks<SessionNetworkRow>(ids, (chunk) =>
+    sb
+      .from('visitor_sessions')
+      .select(SESSION_NETWORK_COLUMNS)
+      .eq('workspace_id', workspaceId)
+      .in('id', chunk),
+  'visitors.networkProfile sessions');
   if (!rows.length) return out;
 
   // Only sessions WITHOUT persisted geo need a cache lookup.
@@ -407,20 +409,24 @@ export async function resolveNetworkProfiles(
   const cacheByHash = new Map<string, IpCacheRow>();
   if (needCache.length) {
     const hashes = Array.from(new Set(needCache.map((s) => s.ip_hash as string)));
-    const { data: ipCache } = await sb
-      .from('geo_ip_cache')
-      .select('ip_hash, source, country_code, country_name, region, city, latitude, longitude, timezone, accuracy_level, is_fallback, resolved_at, expires_at')
-      .in('ip_hash', hashes);
-    for (const r of (ipCache ?? []) as IpCacheRow[]) {
+    const ipCache = await selectInChunks<IpCacheRow>(hashes, (chunk) =>
+      sb
+        .from('geo_ip_cache')
+        .select('ip_hash, source, country_code, country_name, region, city, latitude, longitude, timezone, accuracy_level, is_fallback, resolved_at, expires_at')
+        .in('ip_hash', chunk),
+    'visitors.networkProfile geo_ip_cache');
+    for (const r of ipCache) {
       if (r.ip_hash && notExpired(r.expires_at)) cacheByHash.set(r.ip_hash, r);
     }
     const missing = hashes.filter((h) => !cacheByHash.has(h));
     if (missing.length) {
-      const { data: legacyCache } = await sb
-        .from('visitor_geo_cache')
-        .select('ip_hash, source, country, country_code, region, city, latitude, longitude, resolved_at, expires_at')
-        .in('ip_hash', missing);
-      for (const r of (legacyCache ?? []) as IpCacheRow[]) {
+      const legacyCache = await selectInChunks<IpCacheRow>(missing, (chunk) =>
+        sb
+          .from('visitor_geo_cache')
+          .select('ip_hash, source, country, country_code, region, city, latitude, longitude, resolved_at, expires_at')
+          .in('ip_hash', chunk),
+      'visitors.networkProfile visitor_geo_cache');
+      for (const r of legacyCache) {
         if (r.ip_hash && notExpired(r.expires_at)) cacheByHash.set(r.ip_hash, r);
       }
     }

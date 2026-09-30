@@ -66,6 +66,7 @@ const CANDIDATE_WINDOW_MS = 6 * 60 * 60_000;
 
 
 import { type GeoResult } from '../geo/index.js';
+import { selectInChunks } from '../../lib/chunkedIn.js';
 import {
   resolveNetworkProfiles,
   resolveIpVisibilityPolicy,
@@ -257,12 +258,14 @@ export async function listVisitorIntelligence(
   for (const r of durableRows) durableById.set(String(r.visitor_session_id), r);
   const missing = index.session_ids.filter((id) => id && !durableById.has(id)).slice(0, limit);
   if (missing.length) {
-    const { data: extra } = await sb
-      .from('visitor_presence')
-      .select(PRESENCE_SELECT)
-      .eq('workspace_id', workspaceId)
-      .in('visitor_session_id', missing);
-    for (const row of extra ?? []) durableById.set(String(row.visitor_session_id), row);
+    const extra = await selectInChunks<(typeof durableRows)[number]>(missing, (chunk) =>
+      sb
+        .from('visitor_presence')
+        .select(PRESENCE_SELECT)
+        .eq('workspace_id', workspaceId)
+        .in('visitor_session_id', chunk),
+    'visitors.intelligence presence');
+    for (const row of extra) durableById.set(String(row.visitor_session_id), row);
   }
 
   // TRUE UNION, then one final limit.
@@ -310,13 +313,19 @@ export async function listVisitorIntelligence(
     .filter(Boolean) as string[];
 
   if (sessionIds.length) {
-    const { data: convs } = await sb
-      .from('conversations')
-      .select('id, status, subject, contact_id, visitor_session_id, updated_at')
-      .eq('workspace_id', workspaceId)
-      .in('visitor_session_id', sessionIds)
-      .order('updated_at', { ascending: false });
-    for (const c of convs ?? []) {
+    const convs = await selectInChunks<{ id: string; status: string | null; subject: string | null; contact_id: string | null; visitor_session_id: string | null; updated_at: string | null }>(
+      sessionIds,
+      (chunk) =>
+        sb
+          .from('conversations')
+          .select('id, status, subject, contact_id, visitor_session_id, updated_at')
+          .eq('workspace_id', workspaceId)
+          .in('visitor_session_id', chunk),
+      'visitors.intelligence conversations',
+    );
+    // Newest first across chunks: the first row per session wins below.
+    convs.sort((a, b) => String(b.updated_at ?? '').localeCompare(String(a.updated_at ?? '')));
+    for (const c of convs) {
       if (c.visitor_session_id && !convsBySession.has(c.visitor_session_id)) {
         convsBySession.set(c.visitor_session_id, {
           id: c.id, status: c.status, subject: c.subject, contact_id: c.contact_id,
@@ -329,10 +338,15 @@ export async function listVisitorIntelligence(
       ...[...convsBySession.values()].map(c => c.contact_id).filter(Boolean) as string[],
     ]));
     if (contactIds.length) {
-      const { data: cts } = await sb
-        .from('contacts')
-        .select('id, name, email, avatar_url, avatar_storage_key, visitor_code, metadata')
-        .in('id', contactIds);
+      const cts = await selectInChunks<NonNullable<VisitorIntelligenceItem['contact']> & { avatar_storage_key?: string | null }>(
+        contactIds,
+        (chunk) =>
+          sb
+            .from('contacts')
+            .select('id, name, email, avatar_url, avatar_storage_key, visitor_code, metadata')
+            .in('id', chunk),
+        'visitors.intelligence contacts',
+      );
       // One provider resolution for the page; a contact whose avatar is ours
       // gets a link derived from its key, everyone else keeps the external
       // URL a CRM import supplied.

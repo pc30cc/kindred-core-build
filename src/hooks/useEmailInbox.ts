@@ -144,6 +144,9 @@ export function useEmailThread(
   // swapped for an empty query — it refetches in place instead (below).
   const expectVersionRef = useRef(expectVersion);
   expectVersionRef.current = expectVersion;
+  // The version on screen: a refetch asked for because the row moved on must
+  // not be answered with this same copy from the cache.
+  const shownVersionRef = useRef<string | null>(null);
   const key = scope && threadId ? threadKey(scope, threadId) : null;
   const cached = useQuery({
     queryKey: ['email-inbox-thread-cache', key],
@@ -165,6 +168,7 @@ export function useEmailThread(
         return await coordinatedFetch(scope, threadKey(scope, threadId!), fetchThread, {
           freshMs: THREAD_FRESH_MS,
           expectVersion: expectVersionRef.current,
+          staleVersion: shownVersionRef.current,
         });
       } catch (err) {
         forgetOnRevoked(err, scope);
@@ -182,6 +186,7 @@ export function useEmailThread(
   // re-read it (from another tab's fresh copy, or Gmail) without blanking it.
   // Once per new row version, so a row that never matches cannot loop.
   const shownVersion = query.data ? threadBodyVersion(query.data.thread) : null;
+  shownVersionRef.current = shownVersion;
   const refetchedFor = useRef<string | null>(null);
   const { refetch, isFetching } = query;
   useEffect(() => {
@@ -220,7 +225,12 @@ export function useEmailMailboxSync(workspaceId: string | undefined, scope: stri
       if (msg.type === 'stored' || msg.type === 'invalidating') return;
       if (msg.scope === null || msg.scope === scope) {
         refreshLists();
-        if (msg.type === 'cleared') refreshThreads(null);
+        if (msg.type === 'cleared') {
+          // Another tab found the mailbox disconnected or revoked: re-ask
+          // whether it is connected rather than re-reading a gone inbox.
+          void qc.invalidateQueries({ queryKey: ['gmail-connection', workspaceId] });
+          refreshThreads(null);
+        }
         if (msg.type === 'dropped') {
           const ids = msg.keys.filter((k) => k.startsWith(`${scope}|thread|`)).map((k) => k.slice(`${scope}|thread|`.length));
           if (ids.length) refreshThreads(ids);

@@ -572,6 +572,10 @@ function ComposeDialog({ workspaceId, scope, open, onOpenChange }: { workspaceId
   const [html, setHtml] = useState('');
   const sendEmailMutation = useSendEmail(workspaceId, scope);
   const requestIdRef = useRef<string>(crypto.randomUUID());
+  // Each opening of the dialog is a new email.
+  useEffect(() => {
+    if (open) requestIdRef.current = crypto.randomUUID();
+  }, [open]);
 
   const plainText = useMemo(() => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), [html]);
   const toList = useMemo(() => to.split(',').map((s) => s.trim()).filter(Boolean), [to]);

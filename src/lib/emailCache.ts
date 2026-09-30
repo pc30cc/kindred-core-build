@@ -266,6 +266,9 @@ export async function dropThreads(scope: string): Promise<void> {
 }
 
 async function dropByPrefix(scope: string, prefix: string): Promise<void> {
+  // A change was detected: whatever is in flight predates it, even when
+  // nothing is cached yet.
+  invalidateInFlight();
   try {
     const db = await openDb();
     if (!db) return;
@@ -297,23 +300,22 @@ async function prune(scope: string): Promise<void> {
 
 /** Clears one mailbox scope, or every scope whose key starts with `prefix` (e.g. `${userId}|`). */
 export async function clearEmailCache(prefix: string | null): Promise<void> {
-  invalidateInFlight();
-  try {
-    const db = await openDb();
-    if (!db) return;
-    const tx = db.transaction(STORE, 'readwrite');
-    const store = tx.objectStore(STORE);
-    if (prefix === null) {
-      store.clear();
-    } else {
-      const all = ((await request(store.getAll())) as CacheEntry[] | undefined) ?? [];
-      for (const entry of all) if (entry.scope.startsWith(prefix)) store.delete(entry.key);
+  if (prefix === null) {
+    invalidateInFlight();
+    try {
+      const db = await openDb();
+      if (!db) return;
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).clear();
+      await done(tx);
+    } catch {
+      /* best effort */
     }
-    await done(tx);
-    broadcast({ type: 'cleared', scope: prefix });
-  } catch {
-    /* best effort */
+    broadcast({ type: 'cleared', scope: null });
+    return;
   }
+  const removed = await deleteWhere((entry) => entry.scope.startsWith(prefix));
+  if (removed.size) broadcast({ type: 'cleared', scope: prefix });
 }
 
 /**
@@ -321,25 +323,38 @@ export async function clearEmailCache(prefix: string | null): Promise<void> {
  * revoked, or a different mailbox connected), except `keepScope`.
  */
 export async function clearWorkspaceEmailCache(workspaceId: string, keepScope: string | null = null): Promise<void> {
-  invalidateInFlight();
+  const removed = await deleteWhere((entry) => entry.scope.split('|')[1] === workspaceId && entry.scope !== keepScope);
+  for (const scope of removed) broadcast({ type: 'cleared', scope });
+}
+
+/**
+ * Deletes matching entries and returns their scopes. Does nothing — no epoch
+ * bump, no message to other tabs — when nothing matches, so repeated clears
+ * (every page mount, every tab answering a 409) stay silent. When something
+ * does match, in-flight writes are stopped first and the delete re-reads
+ * inside its own transaction, so a write that slipped in between is removed too.
+ */
+async function deleteWhere(match: (entry: CacheEntry) => boolean): Promise<Set<string>> {
+  const scopes = new Set<string>();
   try {
     const db = await openDb();
-    if (!db) return;
+    if (!db) return scopes;
+    const probe = ((await request(db.transaction(STORE, 'readonly').objectStore(STORE).getAll())) as CacheEntry[] | undefined) ?? [];
+    if (!probe.some(match)) return scopes;
+    invalidateInFlight();
     const tx = db.transaction(STORE, 'readwrite');
     const store = tx.objectStore(STORE);
     const all = ((await request(store.getAll())) as CacheEntry[] | undefined) ?? [];
-    const scopes = new Set<string>();
     for (const entry of all) {
-      if (entry.scope.split('|')[1] === workspaceId && entry.scope !== keepScope) {
-        store.delete(entry.key);
-        scopes.add(entry.scope);
-      }
+      if (!match(entry)) continue;
+      store.delete(entry.key);
+      scopes.add(entry.scope);
     }
     await done(tx);
-    for (const scope of scopes) broadcast({ type: 'cleared', scope });
   } catch {
     /* best effort */
   }
+  return scopes;
 }
 
 // ─── Cross-tab single flight ───────────────────────────────────────────
@@ -354,16 +369,19 @@ export async function coordinatedFetch<T>(
   scope: string,
   key: string,
   fetcher: () => Promise<{ value: T; version: string | null }>,
-  opts: { freshMs: number; expectVersion?: string | null },
+  opts: { freshMs: number; expectVersion?: string | null; staleVersion?: string | null },
 ): Promise<T> {
   const attempt = async (): Promise<T> => {
     const cached = await readEntry<T>(key);
     if (cached) {
       // A version match means the content is unchanged, however old. A copy
-      // another tab stored moments ago is current too, even if this tab's
-      // list row (and so its expected version) has not caught up yet.
+      // stored moments ago (e.g. by another tab) is current too, even if this
+      // tab's list row has not caught up — unless it is the very copy the
+      // caller is already showing and wants replaced (`staleVersion`).
       const versionMatch = !!opts.expectVersion && cached.version === opts.expectVersion;
-      if (versionMatch || Date.now() - cached.storedAt < opts.freshMs) return cached.value;
+      const fresh = Date.now() - cached.storedAt < opts.freshMs;
+      const isShownCopy = opts.staleVersion != null && cached.version === opts.staleVersion;
+      if (versionMatch || (fresh && !isShownCopy)) return cached.value;
     }
     const startedAt = cacheEpoch();
     const { value, version } = await fetcher();

@@ -188,7 +188,17 @@ export async function listThreads(
   workspaceId: string,
   opts: { limit?: number; before?: string | null; pageToken?: string | null; unreadOnly?: boolean; starredOnly?: boolean; search?: string } = {},
 ): Promise<{ threads: EmailThreadSummary[]; nextBefore: string | null; nextPageToken?: string | null; historyId?: string | null; syncing: boolean }> {
-  const gmail = await liveGmail(config, workspaceId);
+  let gmail: ChannelIntegration | null;
+  try {
+    gmail = await liveGmail(config, workspaceId);
+  } catch (err) {
+    // No mailbox: an empty inbox, as before, so apps show their "connect a
+    // mailbox" state (the Windows app treats an error here as a failure).
+    if (err instanceof EmailInboxError && err.code === 'email_not_connected') {
+      return { threads: [], nextBefore: null, syncing: false };
+    }
+    throw err;
+  }
   if (gmail) {
     try {
       // Apps built before Gmail went live page with `before`/`nextBefore`:

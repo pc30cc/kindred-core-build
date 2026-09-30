@@ -450,7 +450,15 @@ export async function sendGmail(
 ): Promise<{ messageId: string; threadId: string }> {
   const now = Date.now();
   for (const [key, entry] of recentSends) if (now - entry.at > SEND_REPLAY_MS) recentSends.delete(key);
-  const replayKey = input.clientRequestId ? `${integration.id}:${input.clientRequestId}` : null;
+  // Only an identical retry is a replay: an edited or different email under a
+  // reused id is sent for real.
+  const fingerprint = input.clientRequestId
+    ? createHash('sha256').update(JSON.stringify([
+        input.threadId, input.to, input.cc ?? [], input.bcc ?? [], input.subject, input.textBody, input.htmlBody ?? null,
+        (input.attachments ?? []).map((a) => [a.filename, a.contentType, a.bytes.byteLength]),
+      ])).digest('hex')
+    : null;
+  const replayKey = input.clientRequestId ? `${integration.id}:${input.clientRequestId}:${fingerprint}` : null;
   const previous = replayKey ? recentSends.get(replayKey) : undefined;
   if (previous) return previous.result;
   const result = sendGmailOnce(config, integration, input, subjectForReply);

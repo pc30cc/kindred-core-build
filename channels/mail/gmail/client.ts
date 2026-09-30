@@ -875,7 +875,11 @@ export function createGmailAdapter(config: GmailOAuthConfig, options: GmailAdapt
             const msg = (key === 'messages' ? item : item.message) as Record<string, unknown> | undefined;
             if (typeof msg?.threadId !== 'string') continue;
             threadIds.add(msg.threadId);
-            if (key === 'messagesAdded' || key === 'messagesDeleted') contentThreadIds.add(msg.threadId);
+            // Trash/spam/draft labels decide whether a message is shown at all.
+            const visibilityLabel = (key === 'labelsAdded' || key === 'labelsRemoved')
+              && Array.isArray(item.labelIds)
+              && (item.labelIds as unknown[]).some((l) => l === 'TRASH' || l === 'SPAM' || l === 'DRAFT');
+            if (key === 'messagesAdded' || key === 'messagesDeleted' || visibilityLabel) contentThreadIds.add(msg.threadId);
           }
         }
       }

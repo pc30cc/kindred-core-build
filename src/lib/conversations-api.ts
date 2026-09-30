@@ -278,8 +278,16 @@ export const conversationsApi = {
     assignedToMe?: string | null;
     /** 'mine' (default) hides threads assigned to other operators. */
     scope?: 'mine' | 'all';
-  }): Promise<{ conversations: any[] }> {
+    /**
+     * Only these conversations, filtered exactly like the full list: a row
+     * comes back when it belongs in this list, and is absent when it does
+     * not. The server echoes `ids` so an older server (which ignores the
+     * parameter and returns the whole queue) can be told apart.
+     */
+    ids?: string[];
+  }): Promise<{ conversations: unknown[]; ids?: string[] }> {
     const q = new URLSearchParams({ workspace_id: params.workspace_id });
+    if (params.ids && params.ids.length) q.set('ids', params.ids.join(','));
     if (params.queue) q.set('queue', params.queue);
     if (params.status) q.set('status', params.status);
     if (params.needsHuman) q.set('needs_human', 'true');
@@ -306,7 +314,7 @@ export const conversationsApi = {
   },
 
   /** Thread for one conversation, enriched with attachment + sender identity. */
-  async getMessages(conversationId: string): Promise<{ messages: any[] }> {
+  async getMessages(conversationId: string): Promise<{ messages: unknown[] }> {
     const res = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/messages`, { credentials: 'include', headers: JSON_HEADERS });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || `Messages failed: ${res.status}`);

@@ -13,7 +13,7 @@
  */
 
 import { useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { resolveClientRealtimeProvider } from '@/realtime';
 import type {
   RealtimeSubscription,
@@ -21,6 +21,7 @@ import type {
 } from '@/realtime/types';
 import { rtDebug, rtWarn } from '@/realtime/debug';
 import { invalidateThrottled } from '@/realtime/invalidationThrottle';
+import { isFirstSighting, refreshConversations } from '@/hooks/inboxListCache';
 
 interface ConversationCacheRow {
   id: string;
@@ -75,6 +76,18 @@ function patchConversationInCache(
   return { patched, matched: true };
 }
 
+/** Every cached list that holds the conversation already shows it human-active. */
+function isAlreadyHumanActive(qc: QueryClient, workspaceId: string, conversationId: string): boolean {
+  let seen = false;
+  for (const [, rows] of qc.getQueriesData<ConversationCacheRow[]>({ queryKey: ['conversations', workspaceId] })) {
+    const row = Array.isArray(rows) ? rows.find((r) => r.id === conversationId) : undefined;
+    if (!row) continue;
+    if (row.ai_state !== 'human_active') return false;
+    seen = true;
+  }
+  return seen;
+}
+
 export function useInboxListRealtime(workspaceId: string | undefined) {
   const qc = useQueryClient();
 
@@ -82,6 +95,7 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
     if (!workspaceId) return;
     let cancelled = false;
     let sub: RealtimeSubscription | null = null;
+    let wasDown = false;
     const channel = `ws:${workspaceId}:inbox`;
 
     (async () => {
@@ -94,18 +108,28 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
 
         const subscription = await provider.subscribe(channel, {
           onMessage: (payload) => {
-            // Phase 5b — visitor (or AI/agent) message arrived on some
-            // conversation in this workspace. We don't know which list
-            // filter it belongs to without re-reading the row, so just
-            // invalidate every cached `['conversations', workspaceId, …]`
-            // query — throttled, because invalidateQueries() does NOT dedupe:
-            // it restarts the fetch, so a busy inbox sent one full list
-            // request per message from every open dashboard.
+            // Phase 5b — a message arrived on some conversation in this
+            // workspace. Only that conversation is re-read (inboxListCache):
+            // the server decides whether it belongs in each visible list and
+            // recomputes its preview / unread / needs-reply. A message on a
+            // thread the lists already hold cannot change the queue or tab
+            // counters (those follow status and AI state, which arrive as
+            // their own events). A conversation seen for the first time, and
+            // held by no list, may be new: only then are they refreshed.
             const convId = (payload as { conversation_id?: string })?.conversation_id;
             const senderType = (payload as { sender_type?: string })?.sender_type;
             rtDebug('inbox-list', 'event:message', { conv: convId, sender_type: senderType });
-            invalidateThrottled(qc, ['conversations', workspaceId]);
-            invalidateThrottled(qc, ['inbox-counts', workspaceId]);
+            if (convId) {
+              const isNew = isFirstSighting(qc, workspaceId, convId);
+              refreshConversations(qc, workspaceId, [convId]);
+              if (isNew) {
+                invalidateThrottled(qc, ['inbox-counts', workspaceId]);
+                invalidateThrottled(qc, ['inbox-tab-counts', workspaceId]);
+              }
+            } else {
+              invalidateThrottled(qc, ['conversations', workspaceId]);
+              invalidateThrottled(qc, ['inbox-counts', workspaceId]);
+            }
             // Surface to subscribers (e.g. notification chime).
             try {
               window.dispatchEvent(new CustomEvent('inbox:new-message', {
@@ -136,15 +160,22 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
             // between queues (Main / Automated / Needs human / Spam). The
             // lightweight patch path can't represent that, so always
             // invalidate every cached list for this workspace.
+            // The server announces a takeover on EVERY operator reply. When
+            // the thread is already human-active in the cached lists, nothing
+            // a list or counter shows changes (the reply's own message push
+            // re-reads the row), so there is nothing to refresh.
+            if (kind === 'ai_human_takeover' && isAlreadyHumanActive(qc, workspaceId, payload.conversation_id)) {
+              return;
+            }
             if (
               kind === 'ai_human_takeover' ||
               kind === 'ai_handoff_requested' ||
               kind === 'ai_managed' ||
               kind === 'spam_changed'
             ) {
-              invalidateThrottled(qc, ['conversations', workspaceId]);
-              invalidateThrottled(qc, ['conversation', payload.conversation_id]);
+              refreshConversations(qc, workspaceId, [payload.conversation_id]);
               invalidateThrottled(qc, ['inbox-counts', workspaceId]);
+              invalidateThrottled(qc, ['inbox-tab-counts', workspaceId]);
               return;
             }
 
@@ -153,9 +184,8 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
             // payload, so the list must be re-fetched rather than patched.
             // Rare (a permanent delivery failure), so not throttled.
             if ((payload as { reason?: string }).reason === 'outbound_delivery_failed') {
-              qc.invalidateQueries({ queryKey: ['conversations', workspaceId] });
-              qc.invalidateQueries({ queryKey: ['conversation', payload.conversation_id] });
-              qc.invalidateQueries({ queryKey: ['inbox-counts', workspaceId] });
+              refreshConversations(qc, workspaceId, [payload.conversation_id]);
+              invalidateThrottled(qc, ['inbox-counts', workspaceId]);
               return;
             }
 
@@ -171,15 +201,26 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
               if (matched && patched) qc.setQueryData(key, patched);
               else allMatched = false;
             }
+            // A list the patch could not update (the row is not in it, or the
+            // event moved it between tabs) re-reads just this conversation.
             if (!allMatched) {
-              invalidateThrottled(qc, ['conversations', workspaceId]);
+              refreshConversations(qc, workspaceId, [payload.conversation_id]);
             }
-            // Always refresh the per-conversation cache key if present.
-            invalidateThrottled(qc, ['conversation', payload.conversation_id]);
             invalidateThrottled(qc, ['inbox-counts', workspaceId]);
+            invalidateThrottled(qc, ['inbox-tab-counts', workspaceId]);
           },
           onStatus: (status, info) => {
             if (status === 'error') rtWarn('inbox-list', 'status=error', { reason: info?.reason });
+            // Pushes sent while the socket was down are lost: after a
+            // reconnect, read the lists and counters in full once.
+            if (status === 'closed' || status === 'error') {
+              wasDown = true;
+            } else if (status === 'open' && wasDown) {
+              wasDown = false;
+              void qc.invalidateQueries({ queryKey: ['conversations', workspaceId] });
+              void qc.invalidateQueries({ queryKey: ['inbox-counts', workspaceId] });
+              void qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspaceId] });
+            }
           },
         });
         if (cancelled) { subscription.unsubscribe(); return; }

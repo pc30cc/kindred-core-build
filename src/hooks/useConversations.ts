@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import type { Conversation, ConversationMessage } from '@/types/models';
 import { conversationsApi, newClientMessageId } from '@/lib/conversations-api';
 import { dedupeById } from '@/realtime/dedupe';
+import { refreshConversations } from '@/hooks/inboxListCache';
 import {
   fetchVisitorNetworkForConversations,
   type VisitorNetworkProfile,
@@ -245,7 +246,9 @@ export function useSendMessage(
 
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['messages', conversationId] });
-      qc.invalidateQueries({ queryKey: ['conversations'] });
+      // Only this thread's row changed: re-read it, not every list.
+      if (workspaceId && conversationId) refreshConversations(qc, workspaceId, [conversationId]);
+      else qc.invalidateQueries({ queryKey: ['conversations'] });
       // A post-send action moves the thread between Open/Pending/Resolved.
       qc.invalidateQueries({ queryKey: ['inbox-tab-counts'] });
     },
@@ -306,7 +309,7 @@ export function useUpdateConversation() {
     onMutate: async (vars) => {
       // Snapshot every cached conversation list for this workspace.
       await qc.cancelQueries({ queryKey: ['conversations', vars.workspace_id] });
-      const previous = qc.getQueriesData<any[]>({ queryKey: ['conversations', vars.workspace_id] });
+      const previous = qc.getQueriesData<Array<{ id?: string } & Record<string, unknown>>>({ queryKey: ['conversations', vars.workspace_id] });
       for (const [key, data] of previous) {
         if (!Array.isArray(data)) continue;
         qc.setQueryData(

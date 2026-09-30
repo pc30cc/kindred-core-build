@@ -25,6 +25,7 @@ import type {
 import type { OperatorEventPayload } from '@/realtime/types';
 import { rtDebug, rtWarn } from '@/realtime/debug';
 import { invalidateThrottled } from '@/realtime/invalidationThrottle';
+import { refreshConversations } from '@/hooks/inboxListCache';
 
 /**
  * The open thread's message list is small and latency-visible, so its burst
@@ -81,7 +82,9 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
             // refetches and the Inbox renders the new row. Conservative —
             // no optimistic patching here.
             invalidateThrottled(queryClient, ['messages', conversationId], MESSAGES_WINDOW_MS);
-            invalidateThrottled(queryClient, ['conversations', workspaceId]);
+            // The list re-reads just this conversation; coalesced with the
+            // same message arriving on the workspace inbox channel.
+            refreshConversations(queryClient, workspaceId, [conversationId]);
             handlersRef.current.onMessage?.(payload);
           },
           onTyping: (payload) => {

@@ -7,6 +7,9 @@ import re, subprocess, sys, os
 D = os.path.dirname(os.path.abspath(__file__))
 PG = ['-h', '127.0.0.1', '-p', '55432', '-U', 'postgres']
 OUT = sys.argv[1]
+# Scratch databases to diff (see README): self-host build, hosted build.
+S_DB = os.environ.get('S_DB', 's_chain')
+H_DB = os.environ.get('H_DB', 'h_chain')
 
 
 def psql(db, sql):
@@ -26,8 +29,23 @@ def toc(db):
     return entries
 
 
-s_toc, h_toc = toc('s_chain'), toc('h_chain')
-missing = [(k, l) for k, l in h_toc.items() if k not in s_toc]
+# The hosted billing gate, absent from self-host ON PURPOSE: the self-host
+# billing model is "no check_workspace_entitlement". With
+# SELF_HOST_BILLING_MODE=unlimited the server treats every workspace as
+# unlimited exactly when that function is missing
+# (server/middleware/featureGating.ts, checkEntitlementFromDB and the
+# module/channel probes), so installing it would put an "unlimited" install
+# under plan limits. The three callers go with it.
+SELF_HOST_ABSENT = ('check_workspace_entitlement', 'check_module_access', 'check_channel_access', 'deduct_ai_credits')
+
+
+def self_host_absent(fn_signature):
+    return fn_signature.split('(')[0] in SELF_HOST_ABSENT
+
+
+s_toc, h_toc = toc(S_DB), toc(H_DB)
+missing = [(k, l) for k, l in h_toc.items() if k not in s_toc
+           and not (k.startswith('FUNCTION public ') and self_host_absent(k[len('FUNCTION public '):]))]
 
 # Object kinds handled here; ACLs are generated from catalogs instead (see below).
 skip_prefix = ('ACL ',)
@@ -53,7 +71,7 @@ def restore(lines):
         return ''
     lf = f'{D}/_list.txt'
     open(lf, 'w').write('\n'.join(lines) + '\n')
-    return subprocess.run(['pg_restore', '--no-owner', '--no-privileges', '-L', lf, '-f', '-', f'{D}/h_chain.dump'], capture_output=True, text=True, check=True).stdout
+    return subprocess.run(['pg_restore', '--no-owner', '--no-privileges', '-L', lf, '-f', '-', f'{D}/{H_DB}.dump'], capture_output=True, text=True, check=True).stdout
 
 
 def blocks(sql):
@@ -119,10 +137,10 @@ col_sql = """select c.relname, a.attname, format_type(a.atttypid,a.atttypmod), a
   left join pg_attrdef d on d.adrelid=a.attrelid and d.adnum=a.attnum
   where n.nspname='public' and c.relkind in ('r','p') and a.attnum>0 and not a.attisdropped and not c.relispartition
   order by c.relname, a.attnum"""
-s_cols = {(r[0], r[1]) for r in psql('s_chain', col_sql)}
-s_tables = {r[0] for r in psql('s_chain', "select relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and relkind in ('r','p')")}
+s_cols = {(r[0], r[1]) for r in psql(S_DB, col_sql)}
+s_tables = {r[0] for r in psql(S_DB, "select relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and relkind in ('r','p')")}
 col_lines = []
-for t, col, typ, notnull, dflt, gen, ident in psql('h_chain', col_sql):
+for t, col, typ, notnull, dflt, gen, ident in psql(H_DB, col_sql):
     if t not in s_tables or (t, col) in s_cols:
         continue
     q = f'ALTER TABLE public.{t} ADD COLUMN IF NOT EXISTS {col} {typ}'
@@ -139,14 +157,14 @@ for t, col, typ, notnull, dflt, gen, ident in psql('h_chain', col_sql):
 
 # ── constraints on shared tables that pg_dump prints inline (CHECKs) ──
 con_sql = "select c.relname, co.conname, pg_get_constraintdef(co.oid), co.contype from pg_constraint co join pg_class c on c.oid=co.conrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and co.contype='c'"
-s_con = {(r[0], r[1]) for r in psql('s_chain', con_sql)}
-con_lines = [guard(f'ALTER TABLE public.{t} ADD CONSTRAINT {n} {d}', ['duplicate_object', 'duplicate_table']) for t, n, d, _ in psql('h_chain', con_sql) if t in s_tables and (t, n) not in s_con]
+s_con = {(r[0], r[1]) for r in psql(S_DB, con_sql)}
+con_lines = [guard(f'ALTER TABLE public.{t} ADD CONSTRAINT {n} {d}', ['duplicate_object', 'duplicate_table']) for t, n, d, _ in psql(H_DB, con_sql) if t in s_tables and (t, n) not in s_con]
 
 # ── enum values present in hosted but not self-host ────────────────────
 enum_sql = "select t.typname, e.enumlabel from pg_enum e join pg_type t on t.oid=e.enumtypid join pg_namespace n on n.oid=t.typnamespace where n.nspname='public' order by t.typname, e.enumsortorder"
-s_enum = {tuple(r) for r in psql('s_chain', enum_sql)}
-s_types = {r[0] for r in psql('s_chain', "select typname from pg_type t join pg_namespace n on n.oid=t.typnamespace where n.nspname='public'")}
-enum_lines = [f"ALTER TYPE public.{t} ADD VALUE IF NOT EXISTS '{v}';" for t, v in psql('h_chain', enum_sql) if t in s_types and (t, v) not in s_enum]
+s_enum = {tuple(r) for r in psql(S_DB, enum_sql)}
+s_types = {r[0] for r in psql(S_DB, "select typname from pg_type t join pg_namespace n on n.oid=t.typnamespace where n.nspname='public'")}
+enum_lines = [f"ALTER TYPE public.{t} ADD VALUE IF NOT EXISTS '{v}';" for t, v in psql(H_DB, enum_sql) if t in s_types and (t, v) not in s_enum]
 
 # ── ACLs: new objects + objects whose privileges differ ────────────────
 PRIV = {'r': 'SELECT', 'a': 'INSERT', 'w': 'UPDATE', 'd': 'DELETE', 'D': 'TRUNCATE', 'x': 'REFERENCES', 't': 'TRIGGER', 'X': 'EXECUTE', 'U': 'USAGE', 'm': 'MAINTAIN'}
@@ -164,10 +182,14 @@ def acl_map(acl):
     return m
 
 
-def acl_stmts(objtype, name, acl, kind):
-    m = acl_map(acl) if acl else None
-    if m is None:  # NULL acl = built-in default
-        m = {'PUBLIC': 'X'} if objtype == 'FUNCTION' else {}
+def effective(objtype, acl):
+    """Privileges per grantee; a NULL acl is the built-in default."""
+    if acl:
+        return acl_map(acl)
+    return {'PUBLIC': 'X'} if objtype in ('FUNCTION', 'PROCEDURE') else {}
+
+
+def acl_stmts(objtype, name, m):
     targets = ('PUBLIC',) + ROLES
     out = [f'REVOKE ALL ON {objtype} {name} FROM {", ".join(targets)};']
     for g in targets:
@@ -187,23 +209,42 @@ def acl_stmts(objtype, name, acl, kind):
     return out
 
 
+# An object new to self-host gets exactly the hosted privileges. On an object
+# self-host already has, the customer roles (PUBLIC, anon, authenticated) keep
+# only what BOTH chains grant them: a self-host migration that deliberately
+# withheld a privilege (060 gives authenticated SELECT only on
+# kb_article_feedback, and proves INSERT is absent) must not have it handed
+# back by a hosted default grant. service_role follows the hosted chain.
+CUSTOMER = ('PUBLIC', 'anon', 'authenticated')
 acl_lines = []
 for q, objtype_of in ((rel_acl_sql, lambda k: 'SEQUENCE' if k == 'S' else 'TABLE'), (fn_acl_sql, lambda k: 'PROCEDURE' if k == 'p' else 'FUNCTION')):
-    s = {r[0]: r[2] for r in psql('s_chain', q)}
-    for name, kind, acl in psql('h_chain', q):
-        def norm(a):
-            return {k: v for k, v in acl_map(a).items() if k in ('PUBLIC',) + ROLES} if a else None
-        if name in s and norm(s[name]) == norm(acl):
-            continue
+    s = {r[0]: r[2] for r in psql(S_DB, q)}
+    for name, kind, acl in psql(H_DB, q):
         ot = objtype_of(kind)
+        if ot in ('FUNCTION', 'PROCEDURE') and name not in s and self_host_absent(name):
+            continue
+        want = effective(ot, acl)
+        if name in s:
+            have = effective(ot, s[name])
+            for g in CUSTOMER:
+                both = ''.join(c for c in want.get(g, '') if c in have.get(g, ''))
+                if both:
+                    want[g] = both
+                else:
+                    want.pop(g, None)
+
+            def norm(m):
+                return {k: ''.join(sorted(v.replace('*', ''))) for k, v in m.items() if k in ('PUBLIC',) + ROLES and v}
+            if norm(want) == norm(have):
+                continue
         qn = f'public.{name}' if ot in ('TABLE', 'SEQUENCE') else 'public.' + name
-        acl_lines += acl_stmts(ot, qn, acl, kind)
+        acl_lines += acl_stmts(ot, qn, want)
 
 # ── RLS policies: hardening the hosted chain has and self-host lacks ────
 pol_sql = """select tablename, policyname, permissive, array_to_string(roles, ','), cmd, qual, with_check from pg_policies where schemaname='public'"""
-s_pol = {(r[0], r[1]): r for r in psql('s_chain', pol_sql)}
-h_pol = {(r[0], r[1]): r for r in psql('h_chain', pol_sql)}
-h_tables = {r[0] for r in psql('h_chain', "select relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and relkind in ('r','p')")}
+s_pol = {(r[0], r[1]): r for r in psql(S_DB, pol_sql)}
+h_pol = {(r[0], r[1]): r for r in psql(H_DB, pol_sql)}
+h_tables = {r[0] for r in psql(H_DB, "select relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and relkind in ('r','p')")}
 pol_lines = []
 for (t, p), r in sorted(s_pol.items()):
     if (t, p) not in h_pol and t in h_tables:  # hosted dropped it (self-host-only tables keep theirs)
@@ -218,14 +259,14 @@ for (t, p), r in sorted(h_pol.items()):
             q += f' WITH CHECK ({chk})'
         pol_lines.append(q + ';')
 rls_sql = "select relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and relkind in ('r','p') and relrowsecurity"
-s_rls = {r[0] for r in psql('s_chain', rls_sql)}
-rls_lines = [f'ALTER TABLE public.{t} ENABLE ROW LEVEL SECURITY;' for (t,) in psql('h_chain', rls_sql) if t not in s_rls and t in s_tables]
+s_rls = {r[0] for r in psql(S_DB, rls_sql)}
+rls_lines = [f'ALTER TABLE public.{t} ENABLE ROW LEVEL SECURITY;' for (t,) in psql(H_DB, rls_sql) if t not in s_rls and t in s_tables]
 
 # ── realtime publication membership ──────────────────────────────────────
 pub_sql = "select tablename from pg_publication_tables where pubname='supabase_realtime' and schemaname='public'"
-s_pub = {r[0] for r in psql('s_chain', pub_sql)}
+s_pub = {r[0] for r in psql(S_DB, pub_sql)}
 pub_lines = []
-for (t,) in psql('h_chain', pub_sql):
+for (t,) in psql(H_DB, pub_sql):
     if t not in s_pub:
         pub_lines.append(f"""DO $parity$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime')
@@ -237,22 +278,22 @@ END $parity$;""")
 # ── seed rows the hosted chain inserts ───────────────────────────────────
 cnt = lambda db, t: int(psql(db, f'select count(*) from public.{t}')[0][0])
 seed_tables = []
-for (t,) in psql('h_chain', "select relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and relkind in ('r','p') and not relispartition order by 1"):
+for (t,) in psql(H_DB, "select relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and relkind in ('r','p') and not relispartition order by 1"):
     if t == 'email_templates':
         continue
-    h = cnt('h_chain', t)
-    if h and (t not in s_tables or cnt('s_chain', t) < h):
+    h = cnt(H_DB, t)
+    if h and (t not in s_tables or cnt(S_DB, t) < h):
         seed_tables.append(t)
 seed = ''
 if seed_tables:
-    args = ['pg_dump', *PG, '-d', 'h_chain', '--data-only', '--inserts', '--column-inserts', '--on-conflict-do-nothing', '--no-owner']
+    args = ['pg_dump', *PG, '-d', H_DB, '--data-only', '--inserts', '--column-inserts', '--on-conflict-do-nothing', '--no-owner']
     for t in seed_tables:
         args += ['-t', f'public.{t}']
     seed = subprocess.run(args, capture_output=True, text=True, check=True).stdout
     seed = '\n'.join(l for l in seed.splitlines() if l.startswith('INSERT INTO'))
 # email_templates: platform rows have workspace_id NULL, which the UNIQUE key does not dedupe
-et_cols = [r[0] for r in psql('h_chain', "select attname from pg_attribute where attrelid='public.email_templates'::regclass and attnum>0 and not attisdropped and attname<>'id' order by attnum")]
-et_rows = subprocess.run(['psql', *PG, '-d', 'h_chain', '-tA', '-c',
+et_cols = [r[0] for r in psql(H_DB, "select attname from pg_attribute where attrelid='public.email_templates'::regclass and attnum>0 and not attisdropped and attname<>'id' order by attnum")]
+et_rows = subprocess.run(['psql', *PG, '-d', H_DB, '-tA', '-c',
     f"select format('INSERT INTO public.email_templates ({', '.join(et_cols)}) SELECT %s WHERE NOT EXISTS (SELECT 1 FROM public.email_templates e WHERE e.workspace_id IS NOT DISTINCT FROM %L AND e.slug = %L AND e.locale = %L);', "
     f"concat_ws(', ', {', '.join(f'quote_nullable({c})' for c in et_cols)}), workspace_id, slug, locale) from public.email_templates order by slug, locale"],
     capture_output=True, text=True, check=True).stdout.strip()

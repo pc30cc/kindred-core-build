@@ -22,4 +22,15 @@ default privileges, so both builds grant the way a Supabase image does and
 their privileges are comparable. The generator is add-only apart from the
 policy and privilege hardening described in the migration header; objects
 defined differently in the two chains are reported by `catalog.sql` diffs,
-not changed.
+not changed. Privileges only ever narrow for PUBLIC, anon and authenticated
+on objects self-host already has: they keep what both chains grant.
+
+`238` was generated from `database/migrations` before 238 and
+`supabase/migrations` before `20260930100000`. To reproduce it (seed-row ids
+and timestamps, and the order of the privilege blocks, differ run to run):
+
+```sh
+./build.sh s238 selfhost 238_
+./build.sh h238 hosted 20260930100000
+S_DB=s238 H_DB=h238 python3 gen_parity.py /tmp/parity.sql
+```

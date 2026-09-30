@@ -5,7 +5,7 @@
 -- — `is_ip_blocked` first among them, so every API request answered
 -- 503 IP_CHECK_UNAVAILABLE — plus 100+ tables (conversation_attachments,
 -- conversation_events, role_permissions, …), 110+ functions
--- (check_workspace_entitlement, mark_conversation_seen, claim_conversation, …),
+-- (get_workspace_role, mark_conversation_seen, claim_conversation, …),
 -- their indexes, constraints, triggers and RLS policies, the columns the
 -- hosted chain added to shared tables, and the seed rows hosted migrations
 -- insert (role_permissions, billing_plans, alert_rules, platform settings, …).
@@ -20,14 +20,26 @@
 -- deliberate exceptions, both hardening the hosted chain already shipped:
 --   * policies the hosted chain dropped are dropped here too, and policies it
 --     tightened are replaced with the hosted definition;
---   * privileges on public objects are set to exactly what the hosted chain
---     grants (REVOKE from PUBLIC/anon/authenticated/service_role, then the
---     hosted GRANTs), so a Supabase image's default privileges cannot leave a
---     customer role holding EXECUTE on a SECURITY DEFINER function.
+--   * privileges on public objects are reset (REVOKE from PUBLIC/anon/
+--     authenticated/service_role, then GRANT) so a Supabase image's default
+--     privileges cannot leave a customer role holding EXECUTE on a SECURITY
+--     DEFINER function. An object new to this chain gets exactly the hosted
+--     grants. On an object this chain already had, service_role gets the
+--     hosted grants and PUBLIC/anon/authenticated keep only what BOTH chains
+--     give them — never a privilege an earlier migration here withheld (060
+--     gives authenticated SELECT only on kb_article_feedback and proves it).
+--     So this file never widens a customer role's access, and re-running an
+--     earlier migration after it still passes that migration's own checks.
 -- Objects that exist in both chains with different definitions (function
 -- bodies, check constraints, column nullability) are left untouched, and
 -- self-host-only objects (ai_agent_reply_now_claims,
 -- patch_conversation_runtime_flags, the billing wallet additions) are kept.
+-- The hosted billing gate is NOT added: check_workspace_entitlement and its
+-- callers check_module_access, check_channel_access and deduct_ai_credits.
+-- Self-host runs without it by design — with SELF_HOST_BILLING_MODE=unlimited
+-- the server treats a workspace as unlimited exactly when
+-- check_workspace_entitlement is absent — so adding it would put an
+-- "unlimited" install under plan limits.
 --
 -- Idempotent: CREATE … IF NOT EXISTS / OR REPLACE, and constraints, policies
 -- and types wrapped so an object that already exists is skipped.
@@ -1084,125 +1096,6 @@ CREATE OR REPLACE FUNCTION public.cc_touch_updated_at() RETURNS trigger
     AS $$
 BEGIN NEW.updated_at = now(); RETURN NEW; END $$;
 
--- FUNCTION: check_channel_access(uuid, text)
-CREATE OR REPLACE FUNCTION public.check_channel_access(_workspace_id uuid, _channel_key text) RETURNS jsonb
-    LANGUAGE plpgsql STABLE SECURITY DEFINER
-    SET search_path TO 'public'
-    AS $$
-DECLARE
-  _override workspace_channel_overrides%ROWTYPE;
-  _entitlement jsonb;
-BEGIN
-  -- Check workspace-level override first
-  SELECT * INTO _override FROM workspace_channel_overrides
-  WHERE workspace_id = _workspace_id AND channel_key = _channel_key;
-
-  IF FOUND THEN
-    RETURN jsonb_build_object('allowed', _override.enabled, 'source', 'override');
-  END IF;
-
-  -- Fall back to plan entitlement
-  _entitlement := check_workspace_entitlement(_workspace_id, _channel_key);
-  RETURN jsonb_build_object(
-    'allowed', COALESCE((_entitlement->>'allowed')::boolean, false),
-    'source', 'plan',
-    'plan', _entitlement->>'plan'
-  );
-END;
-$$;
-
--- FUNCTION: check_module_access(uuid, text)
-CREATE OR REPLACE FUNCTION public.check_module_access(_workspace_id uuid, _module_key text) RETURNS jsonb
-    LANGUAGE plpgsql STABLE SECURITY DEFINER
-    SET search_path TO 'public'
-    AS $$
-DECLARE
-  _override workspace_module_overrides%ROWTYPE;
-  _entitlement jsonb;
-BEGIN
-  -- Check workspace-level override first
-  SELECT * INTO _override FROM workspace_module_overrides
-  WHERE workspace_id = _workspace_id AND module_key = _module_key;
-
-  IF FOUND THEN
-    RETURN jsonb_build_object('allowed', _override.enabled, 'source', 'override');
-  END IF;
-
-  -- Fall back to plan entitlement
-  _entitlement := check_workspace_entitlement(_workspace_id, _module_key);
-  RETURN jsonb_build_object(
-    'allowed', COALESCE((_entitlement->>'allowed')::boolean, false),
-    'source', 'plan',
-    'plan', _entitlement->>'plan'
-  );
-END;
-$$;
-
--- FUNCTION: check_workspace_entitlement(uuid, text)
-CREATE OR REPLACE FUNCTION public.check_workspace_entitlement(_workspace_id uuid, _feature text) RETURNS jsonb
-    LANGUAGE plpgsql STABLE SECURITY DEFINER
-    SET search_path TO 'public'
-    AS $$
-DECLARE
-  _sub workspace_subscriptions%ROWTYPE;
-  _plan billing_plans%ROWTYPE;
-  _entitlements jsonb;
-  _limits jsonb;
-  _override_value integer;
-  _sub_valid boolean := false;
-BEGIN
-  SELECT * INTO _sub FROM workspace_subscriptions
-    WHERE workspace_id = _workspace_id;
-
-  IF FOUND AND _sub.plan_id IS NOT NULL THEN
-    IF _sub.status = 'active' THEN
-      _sub_valid := true;
-    ELSIF _sub.status = 'past_due' AND _sub.free_fallback_at IS NULL THEN
-      _sub_valid := true;
-    ELSIF _sub.status = 'trialing' AND (_sub.trial_end IS NULL OR _sub.trial_end > now()) THEN
-      _sub_valid := true;
-    ELSIF _sub.status IN ('canceled', 'cancelled')
-      AND _sub.cancel_at_period_end IS TRUE
-      AND _sub.current_period_end > now() THEN
-      _sub_valid := true;
-    END IF;
-  END IF;
-
-  IF _sub_valid THEN
-    SELECT * INTO _plan FROM billing_plans WHERE id = _sub.plan_id;
-    _sub_valid := FOUND;
-  END IF;
-
-  IF NOT _sub_valid THEN
-    SELECT * INTO _plan FROM billing_plans WHERE slug = 'free' AND is_active = true LIMIT 1;
-    IF NOT FOUND THEN
-      RETURN jsonb_build_object('allowed', false, 'plan', 'none', 'reason', 'no_plan_found');
-    END IF;
-  END IF;
-
-  _entitlements := COALESCE(_plan.entitlements, '{}'::jsonb);
-  _limits := COALESCE(_plan.limits, '{}'::jsonb);
-
-  IF _entitlements ? _feature THEN
-    RETURN jsonb_build_object('allowed', (_entitlements->>_feature)::boolean, 'plan', _plan.slug);
-  END IF;
-
-  SELECT limit_value INTO _override_value
-    FROM workspace_limit_overrides
-    WHERE workspace_id = _workspace_id AND limit_key = _feature;
-
-  IF FOUND THEN
-    RETURN jsonb_build_object('allowed', true, 'limit', _override_value, 'plan', _plan.slug, 'source', 'override');
-  END IF;
-
-  IF _limits ? _feature THEN
-    RETURN jsonb_build_object('allowed', true, 'limit', (_limits->>_feature)::int, 'plan', _plan.slug, 'source', 'plan');
-  END IF;
-
-  RETURN jsonb_build_object('allowed', false, 'plan', _plan.slug, 'reason', 'feature_not_in_plan');
-END;
-$$;
-
 -- FUNCTION: claim_conversation(uuid, uuid, uuid, boolean)
 CREATE OR REPLACE FUNCTION public.claim_conversation(p_conversation_id uuid, p_workspace_id uuid, p_user_id uuid, p_force boolean DEFAULT false) RETURNS SETOF public.conversations
     LANGUAGE sql SECURITY DEFINER
@@ -1380,67 +1273,6 @@ BEGIN
   RETURNING * INTO _row;
 
   RETURN _row;
-END;
-$$;
-
--- FUNCTION: deduct_ai_credits(uuid, integer, text)
-CREATE OR REPLACE FUNCTION public.deduct_ai_credits(_workspace_id uuid, _credits integer DEFAULT 1, _period text DEFAULT NULL::text) RETURNS jsonb
-    LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'public'
-    AS $$
-DECLARE
-  _current_period text;
-  _row workspace_usage_counters%ROWTYPE;
-  _plan_limit integer;
-  _entitlement_result jsonb;
-BEGIN
-  _current_period := COALESCE(_period, to_char(now(), 'YYYY-MM'));
-
-  -- Ensure counter row exists
-  INSERT INTO workspace_usage_counters (workspace_id, period)
-  VALUES (_workspace_id, _current_period)
-  ON CONFLICT (workspace_id, period) DO NOTHING;
-
-  -- Lock row for atomic update
-  SELECT * INTO _row FROM workspace_usage_counters
-  WHERE workspace_id = _workspace_id AND period = _current_period
-  FOR UPDATE;
-
-  -- Get plan limit
-  _entitlement_result := check_workspace_entitlement(_workspace_id, 'ai_credits');
-
-  IF NOT (_entitlement_result->>'allowed')::boolean THEN
-    RETURN jsonb_build_object(
-      'success', false,
-      'reason', 'ai_not_allowed',
-      'credits_used', _row.ai_credits_used
-    );
-  END IF;
-
-  _plan_limit := COALESCE((_entitlement_result->>'limit')::integer, 0);
-
-  -- -1 means unlimited
-  IF _plan_limit != -1 AND (_row.ai_credits_used + _credits) > _plan_limit THEN
-    RETURN jsonb_build_object(
-      'success', false,
-      'reason', 'credits_exhausted',
-      'credits_used', _row.ai_credits_used,
-      'credits_limit', _plan_limit
-    );
-  END IF;
-
-  -- Deduct. The request is counted by the ai_usage_logs row it writes.
-  UPDATE workspace_usage_counters
-  SET ai_credits_used = ai_credits_used + _credits,
-      updated_at = now()
-  WHERE workspace_id = _workspace_id AND period = _current_period;
-
-  RETURN jsonb_build_object(
-    'success', true,
-    'credits_used', _row.ai_credits_used + _credits,
-    'credits_limit', _plan_limit,
-    'credits_remaining', CASE WHEN _plan_limit = -1 THEN -1 ELSE _plan_limit - (_row.ai_credits_used + _credits) END
-  );
 END;
 $$;
 
@@ -9618,8 +9450,6 @@ CREATE POLICY "Admins+ can update widget settings" ON public.widget_settings AS 
 
 -- ── privileges ──────────────────────────────────────────────
 REVOKE ALL ON TABLE public.app_runtime_config FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.app_runtime_config TO anon;
-GRANT ALL ON TABLE public.app_runtime_config TO authenticated;
 GRANT ALL ON TABLE public.app_runtime_config TO service_role;
 REVOKE ALL ON TABLE public.email_logs FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.email_logs TO anon;
@@ -9630,61 +9460,30 @@ GRANT ALL ON TABLE public.security_events TO anon;
 GRANT ALL ON TABLE public.security_events TO authenticated;
 GRANT ALL ON TABLE public.security_events TO service_role;
 REVOKE ALL ON TABLE public.email_templates FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.email_templates TO anon;
-GRANT ALL ON TABLE public.email_templates TO authenticated;
 GRANT ALL ON TABLE public.email_templates TO service_role;
 REVOKE ALL ON TABLE public.user_roles FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.user_roles TO anon;
-GRANT ALL ON TABLE public.user_roles TO authenticated;
 GRANT ALL ON TABLE public.user_roles TO service_role;
 REVOKE ALL ON TABLE public.workspaces FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.workspaces TO anon;
-GRANT ALL ON TABLE public.workspaces TO authenticated;
 GRANT ALL ON TABLE public.workspaces TO service_role;
 REVOKE ALL ON TABLE public.workspace_domains FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.workspace_domains TO anon;
-GRANT ALL ON TABLE public.workspace_domains TO authenticated;
 GRANT ALL ON TABLE public.workspace_domains TO service_role;
 REVOKE ALL ON TABLE public.contacts FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.contacts TO anon;
-GRANT ALL ON TABLE public.contacts TO authenticated;
-REVOKE INSERT ON TABLE public.contacts FROM authenticated;
 GRANT ALL ON TABLE public.contacts TO service_role;
 REVOKE ALL ON TABLE public.conversation_messages FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.conversation_messages TO anon;
-GRANT ALL ON TABLE public.conversation_messages TO authenticated;
 GRANT ALL ON TABLE public.conversation_messages TO service_role;
 REVOKE ALL ON TABLE public.knowledge_base_categories FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.knowledge_base_categories TO anon;
-REVOKE INSERT, DELETE, UPDATE ON TABLE public.knowledge_base_categories FROM anon;
-GRANT ALL ON TABLE public.knowledge_base_categories TO authenticated;
-REVOKE INSERT, DELETE, UPDATE ON TABLE public.knowledge_base_categories FROM authenticated;
 GRANT ALL ON TABLE public.knowledge_base_categories TO service_role;
 REVOKE ALL ON TABLE public.visitor_presence FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.visitor_presence TO anon;
-GRANT ALL ON TABLE public.visitor_presence TO authenticated;
 GRANT ALL ON TABLE public.visitor_presence TO service_role;
 REVOKE ALL ON TABLE public.knowledge_base_articles FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.knowledge_base_articles TO anon;
-REVOKE INSERT, DELETE, UPDATE ON TABLE public.knowledge_base_articles FROM anon;
-GRANT ALL ON TABLE public.knowledge_base_articles TO authenticated;
-REVOKE INSERT, DELETE, UPDATE ON TABLE public.knowledge_base_articles FROM authenticated;
 GRANT ALL ON TABLE public.knowledge_base_articles TO service_role;
 REVOKE ALL ON TABLE public.provider_configs FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.provider_configs TO anon;
-GRANT ALL ON TABLE public.provider_configs TO authenticated;
 GRANT ALL ON TABLE public.provider_configs TO service_role;
 REVOKE ALL ON TABLE public.translations FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.translations TO anon;
-GRANT ALL ON TABLE public.translations TO authenticated;
 GRANT ALL ON TABLE public.translations TO service_role;
 REVOKE ALL ON TABLE public.feature_flags FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.feature_flags TO anon;
-GRANT ALL ON TABLE public.feature_flags TO authenticated;
 GRANT ALL ON TABLE public.feature_flags TO service_role;
 REVOKE ALL ON TABLE public.audit_logs FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.audit_logs TO anon;
-GRANT ALL ON TABLE public.audit_logs TO authenticated;
 GRANT ALL ON TABLE public.audit_logs TO service_role;
 REVOKE ALL ON TABLE public.login_attempts FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.login_attempts TO anon;
@@ -9698,10 +9497,6 @@ REVOKE ALL ON TABLE public.ai_usage_logs FROM PUBLIC, anon, authenticated, servi
 GRANT ALL ON TABLE public.ai_usage_logs TO anon;
 GRANT ALL ON TABLE public.ai_usage_logs TO authenticated;
 GRANT ALL ON TABLE public.ai_usage_logs TO service_role;
-REVOKE ALL ON TABLE public.workspace_subscriptions FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.workspace_subscriptions TO anon;
-GRANT ALL ON TABLE public.workspace_subscriptions TO authenticated;
-GRANT ALL ON TABLE public.workspace_subscriptions TO service_role;
 REVOKE ALL ON TABLE public.billing_events FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.billing_events TO anon;
 GRANT ALL ON TABLE public.billing_events TO authenticated;
@@ -9714,10 +9509,6 @@ REVOKE ALL ON TABLE public.workspace_domains_extended FROM PUBLIC, anon, authent
 GRANT ALL ON TABLE public.workspace_domains_extended TO anon;
 GRANT ALL ON TABLE public.workspace_domains_extended TO authenticated;
 GRANT ALL ON TABLE public.workspace_domains_extended TO service_role;
-REVOKE ALL ON TABLE public.billing_plans FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_plans TO anon;
-GRANT ALL ON TABLE public.billing_plans TO authenticated;
-GRANT ALL ON TABLE public.billing_plans TO service_role;
 REVOKE ALL ON TABLE public.workspace_settings FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.workspace_settings TO anon;
 GRANT ALL ON TABLE public.workspace_settings TO authenticated;
@@ -9743,28 +9534,16 @@ GRANT ALL ON TABLE public.email_settings TO anon;
 GRANT ALL ON TABLE public.email_settings TO authenticated;
 GRANT ALL ON TABLE public.email_settings TO service_role;
 REVOKE ALL ON TABLE public.platform_settings FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.platform_settings TO anon;
-GRANT ALL ON TABLE public.platform_settings TO authenticated;
 GRANT ALL ON TABLE public.platform_settings TO service_role;
 REVOKE ALL ON TABLE public.profiles FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.profiles TO anon;
-GRANT ALL ON TABLE public.profiles TO authenticated;
 GRANT ALL ON TABLE public.profiles TO service_role;
 REVOKE ALL ON TABLE public.accounts FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.accounts TO anon;
-GRANT ALL ON TABLE public.accounts TO authenticated;
 GRANT ALL ON TABLE public.accounts TO service_role;
 REVOKE ALL ON TABLE public.account_members FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.account_members TO anon;
-GRANT ALL ON TABLE public.account_members TO authenticated;
 GRANT ALL ON TABLE public.account_members TO service_role;
 REVOKE ALL ON TABLE public.workspace_usage_counters FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.workspace_usage_counters TO anon;
-GRANT ALL ON TABLE public.workspace_usage_counters TO authenticated;
 GRANT ALL ON TABLE public.workspace_usage_counters TO service_role;
 REVOKE ALL ON TABLE public.workspace_branding FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.workspace_branding TO anon;
-GRANT ALL ON TABLE public.workspace_branding TO authenticated;
 GRANT ALL ON TABLE public.workspace_branding TO service_role;
 REVOKE ALL ON TABLE public.workspace_provider_settings FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.workspace_provider_settings TO anon;
@@ -9783,8 +9562,6 @@ GRANT ALL ON TABLE public.workspace_channel_overrides TO anon;
 GRANT ALL ON TABLE public.workspace_channel_overrides TO authenticated;
 GRANT ALL ON TABLE public.workspace_channel_overrides TO service_role;
 REVOKE ALL ON TABLE public.plan_change_log FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.plan_change_log TO anon;
-GRANT ALL ON TABLE public.plan_change_log TO authenticated;
 GRANT ALL ON TABLE public.plan_change_log TO service_role;
 REVOKE ALL ON TABLE public.contact_verifications FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.contact_verifications TO anon;
@@ -9811,21 +9588,13 @@ GRANT ALL ON TABLE public.conversation_events TO anon;
 GRANT ALL ON TABLE public.conversation_events TO authenticated;
 GRANT ALL ON TABLE public.conversation_events TO service_role;
 REVOKE ALL ON TABLE public.widget_settings FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.widget_settings TO anon;
-GRANT ALL ON TABLE public.widget_settings TO authenticated;
 GRANT ALL ON TABLE public.widget_settings TO service_role;
 REVOKE ALL ON TABLE public.conversation_notes FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.conversation_notes TO anon;
 GRANT ALL ON TABLE public.conversation_notes TO authenticated;
 GRANT ALL ON TABLE public.conversation_notes TO service_role;
 REVOKE ALL ON TABLE public.canned_responses FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.canned_responses TO anon;
-GRANT ALL ON TABLE public.canned_responses TO authenticated;
 GRANT ALL ON TABLE public.canned_responses TO service_role;
-REVOKE ALL ON TABLE public.visitor_page_views FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.visitor_page_views TO anon;
-GRANT ALL ON TABLE public.visitor_page_views TO authenticated;
-GRANT ALL ON TABLE public.visitor_page_views TO service_role;
 REVOKE ALL ON TABLE public.visitor_geo_cache FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.visitor_geo_cache TO anon;
 GRANT ALL ON TABLE public.visitor_geo_cache TO authenticated;
@@ -9839,8 +9608,6 @@ GRANT ALL ON TABLE public.geo_ip_cache TO anon;
 GRANT ALL ON TABLE public.geo_ip_cache TO authenticated;
 GRANT ALL ON TABLE public.geo_ip_cache TO service_role;
 REVOKE ALL ON SEQUENCE public.visitor_page_views_id_seq FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON SEQUENCE public.visitor_page_views_id_seq TO anon;
-GRANT ALL ON SEQUENCE public.visitor_page_views_id_seq TO authenticated;
 GRANT ALL ON SEQUENCE public.visitor_page_views_id_seq TO service_role;
 REVOKE ALL ON TABLE public.privacy_jobs FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.privacy_jobs TO anon;
@@ -9926,10 +9693,6 @@ REVOKE ALL ON TABLE public.operator_call_availability FROM PUBLIC, anon, authent
 GRANT ALL ON TABLE public.operator_call_availability TO anon;
 GRANT ALL ON TABLE public.operator_call_availability TO authenticated;
 GRANT ALL ON TABLE public.operator_call_availability TO service_role;
-REVOKE ALL ON TABLE public.callback_requests FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.callback_requests TO anon;
-GRANT ALL ON TABLE public.callback_requests TO authenticated;
-GRANT ALL ON TABLE public.callback_requests TO service_role;
 REVOKE ALL ON TABLE public.call_invitations FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.call_invitations TO anon;
 GRANT ALL ON TABLE public.call_invitations TO authenticated;
@@ -9963,8 +9726,6 @@ GRANT ALL ON TABLE public.admin_gate_bypass_log TO anon;
 GRANT ALL ON TABLE public.admin_gate_bypass_log TO authenticated;
 GRANT ALL ON TABLE public.admin_gate_bypass_log TO service_role;
 REVOKE ALL ON TABLE public.conversations FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.conversations TO anon;
-GRANT ALL ON TABLE public.conversations TO authenticated;
 GRANT ALL ON TABLE public.conversations TO service_role;
 REVOKE ALL ON TABLE public.ai_agent_suggestions FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.ai_agent_suggestions TO anon;
@@ -9982,10 +9743,6 @@ REVOKE ALL ON TABLE public.ai_agent_intro_log FROM PUBLIC, anon, authenticated, 
 GRANT ALL ON TABLE public.ai_agent_intro_log TO anon;
 GRANT ALL ON TABLE public.ai_agent_intro_log TO authenticated;
 GRANT ALL ON TABLE public.ai_agent_intro_log TO service_role;
-REVOKE ALL ON TABLE public.ai_agent_settings FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.ai_agent_settings TO anon;
-GRANT ALL ON TABLE public.ai_agent_settings TO authenticated;
-GRANT ALL ON TABLE public.ai_agent_settings TO service_role;
 REVOKE ALL ON TABLE public.ai_knowledge_chunks FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.ai_knowledge_chunks TO anon;
 GRANT ALL ON TABLE public.ai_knowledge_chunks TO authenticated;
@@ -10071,8 +9828,6 @@ GRANT ALL ON TABLE public.ai_agent_regression_batches TO anon;
 GRANT ALL ON TABLE public.ai_agent_regression_batches TO authenticated;
 GRANT ALL ON TABLE public.ai_agent_regression_batches TO service_role;
 REVOKE ALL ON TABLE public.call_center_settings FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.call_center_settings TO anon;
-GRANT ALL ON TABLE public.call_center_settings TO authenticated;
 GRANT ALL ON TABLE public.call_center_settings TO service_role;
 REVOKE ALL ON TABLE public.call_center_departments FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.call_center_departments TO anon;
@@ -10083,25 +9838,13 @@ GRANT ALL ON TABLE public.call_center_department_agents TO anon;
 GRANT ALL ON TABLE public.call_center_department_agents TO authenticated;
 GRANT ALL ON TABLE public.call_center_department_agents TO service_role;
 REVOKE ALL ON TABLE public.workspace_departments FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.workspace_departments TO anon;
-GRANT ALL ON TABLE public.workspace_departments TO authenticated;
 GRANT ALL ON TABLE public.workspace_departments TO service_role;
 REVOKE ALL ON TABLE public.call_center_agent_presence FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.call_center_agent_presence TO anon;
 GRANT ALL ON TABLE public.call_center_agent_presence TO authenticated;
 GRANT ALL ON TABLE public.call_center_agent_presence TO service_role;
-REVOKE ALL ON TABLE public.call_queue_entries FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.call_queue_entries TO anon;
-GRANT ALL ON TABLE public.call_queue_entries TO authenticated;
-GRANT ALL ON TABLE public.call_queue_entries TO service_role;
 REVOKE ALL ON TABLE public.workspace_department_members FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.workspace_department_members TO anon;
-GRANT ALL ON TABLE public.workspace_department_members TO authenticated;
 GRANT ALL ON TABLE public.workspace_department_members TO service_role;
-REVOKE ALL ON TABLE public.call_sessions FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.call_sessions TO anon;
-GRANT ALL ON TABLE public.call_sessions TO authenticated;
-GRANT ALL ON TABLE public.call_sessions TO service_role;
 REVOKE ALL ON TABLE public.platform_sms_provider_config FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.platform_sms_provider_config TO anon;
 GRANT ALL ON TABLE public.platform_sms_provider_config TO authenticated;
@@ -10131,50 +9874,10 @@ REVOKE ALL ON TABLE public.workspace_alert_dismissals FROM PUBLIC, anon, authent
 GRANT ALL ON TABLE public.workspace_alert_dismissals TO anon;
 GRANT ALL ON TABLE public.workspace_alert_dismissals TO authenticated;
 GRANT ALL ON TABLE public.workspace_alert_dismissals TO service_role;
-REVOKE ALL ON TABLE public.widget_smart_events FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.widget_smart_events TO anon;
-GRANT ALL ON TABLE public.widget_smart_events TO authenticated;
-GRANT ALL ON TABLE public.widget_smart_events TO service_role;
 REVOKE ALL ON TABLE public.team_messages FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.team_messages TO anon;
 GRANT ALL ON TABLE public.team_messages TO authenticated;
 GRANT ALL ON TABLE public.team_messages TO service_role;
-REVOKE ALL ON TABLE public.widget_smart_rules FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.widget_smart_rules TO anon;
-GRANT ALL ON TABLE public.widget_smart_rules TO authenticated;
-GRANT ALL ON TABLE public.widget_smart_rules TO service_role;
-REVOKE ALL ON TABLE public.ai_agent_action_claims FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.ai_agent_action_claims TO anon;
-GRANT ALL ON TABLE public.ai_agent_action_claims TO authenticated;
-GRANT ALL ON TABLE public.ai_agent_action_claims TO service_role;
-REVOKE ALL ON TABLE public.admin_impersonation_tokens FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.admin_impersonation_tokens TO anon;
-GRANT ALL ON TABLE public.admin_impersonation_tokens TO authenticated;
-GRANT ALL ON TABLE public.admin_impersonation_tokens TO service_role;
-REVOKE ALL ON TABLE public.ai_agent_guidance_requests FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.ai_agent_guidance_requests TO anon;
-GRANT ALL ON TABLE public.ai_agent_guidance_requests TO authenticated;
-GRANT ALL ON TABLE public.ai_agent_guidance_requests TO service_role;
-REVOKE ALL ON TABLE public.ai_agent_guidance FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.ai_agent_guidance TO anon;
-GRANT ALL ON TABLE public.ai_agent_guidance TO authenticated;
-GRANT ALL ON TABLE public.ai_agent_guidance TO service_role;
-REVOKE ALL ON TABLE public.channel_provider_operations FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.channel_provider_operations TO anon;
-GRANT ALL ON TABLE public.channel_provider_operations TO authenticated;
-GRANT ALL ON TABLE public.channel_provider_operations TO service_role;
-REVOKE ALL ON TABLE public.kb_article_feedback FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.kb_article_feedback TO anon;
-GRANT ALL ON TABLE public.kb_article_feedback TO authenticated;
-GRANT ALL ON TABLE public.kb_article_feedback TO service_role;
-REVOKE ALL ON TABLE public.widget_prechat_settings FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.widget_prechat_settings TO anon;
-GRANT ALL ON TABLE public.widget_prechat_settings TO authenticated;
-GRANT ALL ON TABLE public.widget_prechat_settings TO service_role;
-REVOKE ALL ON TABLE public.ai_billing_recovery_lease FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.ai_billing_recovery_lease TO anon;
-GRANT ALL ON TABLE public.ai_billing_recovery_lease TO authenticated;
-GRANT ALL ON TABLE public.ai_billing_recovery_lease TO service_role;
 REVOKE ALL ON TABLE public.workspace_invitations FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.workspace_invitations TO service_role;
 REVOKE ALL ON TABLE public.workspace_invitation_tokens FROM PUBLIC, anon, authenticated, service_role;
@@ -10199,8 +9902,6 @@ GRANT ALL ON TABLE public.workspace_member_details_history TO service_role;
 REVOKE ALL ON TABLE public.legal_policy_versions FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.legal_policy_versions TO service_role;
 REVOKE ALL ON TABLE public.workspace_members FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.workspace_members TO anon;
-GRANT ALL ON TABLE public.workspace_members TO authenticated;
 GRANT ALL ON TABLE public.workspace_members TO service_role;
 REVOKE ALL ON TABLE public.workspace_seat_entitlement_mode FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.workspace_seat_entitlement_mode TO service_role;
@@ -10215,8 +9916,6 @@ REVOKE DELETE ON TABLE public.workspace_invitation_consents FROM service_role;
 REVOKE ALL ON TABLE public.verification_challenges FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.verification_challenges TO service_role;
 REVOKE ALL ON TABLE public.platform_branding FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.platform_branding TO anon;
-GRANT ALL ON TABLE public.platform_branding TO authenticated;
 GRANT ALL ON TABLE public.platform_branding TO service_role;
 REVOKE ALL ON TABLE public.verification_purpose_settings FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.verification_purpose_settings TO service_role;
@@ -10231,137 +9930,7 @@ REVOKE DELETE, UPDATE ON TABLE public.verification_delivery_attempts FROM servic
 REVOKE ALL ON TABLE public.verification_purpose_settings_audit FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.verification_purpose_settings_audit TO service_role;
 REVOKE INSERT, DELETE, UPDATE ON TABLE public.verification_purpose_settings_audit FROM service_role;
-REVOKE ALL ON TABLE public.billing_invoices FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_invoices TO anon;
-GRANT ALL ON TABLE public.billing_invoices TO authenticated;
-GRANT ALL ON TABLE public.billing_invoices TO service_role;
-REVOKE ALL ON TABLE public.billing_subscription_applications FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_subscription_applications TO anon;
-GRANT ALL ON TABLE public.billing_subscription_applications TO authenticated;
-GRANT ALL ON TABLE public.billing_subscription_applications TO service_role;
-REVOKE ALL ON TABLE public.billing_invoice_collections FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_invoice_collections TO anon;
-GRANT ALL ON TABLE public.billing_invoice_collections TO authenticated;
-GRANT ALL ON TABLE public.billing_invoice_collections TO service_role;
-REVOKE ALL ON TABLE public.billing_payment_intents FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_payment_intents TO anon;
-GRANT ALL ON TABLE public.billing_payment_intents TO authenticated;
-GRANT ALL ON TABLE public.billing_payment_intents TO service_role;
-REVOKE ALL ON TABLE public.billing_payments FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_payments TO anon;
-GRANT ALL ON TABLE public.billing_payments TO authenticated;
-GRANT ALL ON TABLE public.billing_payments TO service_role;
-REVOKE ALL ON TABLE public.billing_notification_jobs FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_notification_jobs TO anon;
-GRANT ALL ON TABLE public.billing_notification_jobs TO authenticated;
-GRANT ALL ON TABLE public.billing_notification_jobs TO service_role;
-REVOKE ALL ON TABLE public.billing_entitlement_cycles FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_entitlement_cycles TO anon;
-GRANT ALL ON TABLE public.billing_entitlement_cycles TO authenticated;
-GRANT ALL ON TABLE public.billing_entitlement_cycles TO service_role;
-REVOKE ALL ON TABLE public.billing_wallet_deposits FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_wallet_deposits TO anon;
-GRANT ALL ON TABLE public.billing_wallet_deposits TO authenticated;
-GRANT ALL ON TABLE public.billing_wallet_deposits TO service_role;
-REVOKE ALL ON TABLE public.billing_retention_signals FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_retention_signals TO anon;
-GRANT ALL ON TABLE public.billing_retention_signals TO authenticated;
-GRANT ALL ON TABLE public.billing_retention_signals TO service_role;
-REVOKE ALL ON TABLE public.billing_v2_policy FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_v2_policy TO anon;
-GRANT ALL ON TABLE public.billing_v2_policy TO authenticated;
-GRANT ALL ON TABLE public.billing_v2_policy TO service_role;
-REVOKE ALL ON TABLE public.billing_v2_workspace_policy FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_v2_workspace_policy TO anon;
-GRANT ALL ON TABLE public.billing_v2_workspace_policy TO authenticated;
-GRANT ALL ON TABLE public.billing_v2_workspace_policy TO service_role;
-REVOKE ALL ON TABLE public.billing_wallet_accounts FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_wallet_accounts TO anon;
-GRANT ALL ON TABLE public.billing_wallet_accounts TO authenticated;
-GRANT ALL ON TABLE public.billing_wallet_accounts TO service_role;
-REVOKE ALL ON TABLE public.billing_v2_audit FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_v2_audit TO anon;
-GRANT ALL ON TABLE public.billing_v2_audit TO authenticated;
-GRANT ALL ON TABLE public.billing_v2_audit TO service_role;
-REVOKE ALL ON TABLE public.billing_v2_rollout FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_v2_rollout TO anon;
-GRANT ALL ON TABLE public.billing_v2_rollout TO authenticated;
-GRANT ALL ON TABLE public.billing_v2_rollout TO service_role;
-REVOKE ALL ON TABLE public.billing_v2_jobs FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_v2_jobs TO anon;
-GRANT ALL ON TABLE public.billing_v2_jobs TO authenticated;
-GRANT ALL ON TABLE public.billing_v2_jobs TO service_role;
-REVOKE ALL ON TABLE public.billing_payment_allocations FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_payment_allocations TO anon;
-GRANT ALL ON TABLE public.billing_payment_allocations TO authenticated;
-GRANT ALL ON TABLE public.billing_payment_allocations TO service_role;
-REVOKE ALL ON TABLE public.billing_currencies FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_currencies TO anon;
-GRANT ALL ON TABLE public.billing_currencies TO authenticated;
-GRANT ALL ON TABLE public.billing_currencies TO service_role;
-REVOKE ALL ON TABLE public.billing_exchange_rates FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_exchange_rates TO anon;
-GRANT ALL ON TABLE public.billing_exchange_rates TO authenticated;
-GRANT ALL ON TABLE public.billing_exchange_rates TO service_role;
-REVOKE ALL ON TABLE public.billing_gateways FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_gateways TO anon;
-GRANT ALL ON TABLE public.billing_gateways TO authenticated;
-GRANT ALL ON TABLE public.billing_gateways TO service_role;
-REVOKE ALL ON TABLE public.widget_ai_nudge_session_state FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.widget_ai_nudge_session_state TO anon;
-GRANT ALL ON TABLE public.widget_ai_nudge_session_state TO authenticated;
-GRANT ALL ON TABLE public.widget_ai_nudge_session_state TO service_role;
-REVOKE ALL ON TABLE public.billing_subscription_periods FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_subscription_periods TO anon;
-GRANT ALL ON TABLE public.billing_subscription_periods TO authenticated;
-GRANT ALL ON TABLE public.billing_subscription_periods TO service_role;
-REVOKE ALL ON TABLE public.billing_period_allowance_grants FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_period_allowance_grants TO anon;
-GRANT ALL ON TABLE public.billing_period_allowance_grants TO authenticated;
-GRANT ALL ON TABLE public.billing_period_allowance_grants TO service_role;
-REVOKE ALL ON TABLE public.billing_invoice_lines FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_invoice_lines TO anon;
-GRANT ALL ON TABLE public.billing_invoice_lines TO authenticated;
-GRANT ALL ON TABLE public.billing_invoice_lines TO service_role;
-REVOKE ALL ON TABLE public.billing_wallet_ledger FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_wallet_ledger TO anon;
-GRANT ALL ON TABLE public.billing_wallet_ledger TO authenticated;
-GRANT ALL ON TABLE public.billing_wallet_ledger TO service_role;
-REVOKE ALL ON TABLE public.billing_invoice_applications FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_invoice_applications TO anon;
-GRANT ALL ON TABLE public.billing_invoice_applications TO authenticated;
-GRANT ALL ON TABLE public.billing_invoice_applications TO service_role;
-REVOKE ALL ON TABLE public.billing_tax_rates FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_tax_rates TO anon;
-GRANT ALL ON TABLE public.billing_tax_rates TO authenticated;
-GRANT ALL ON TABLE public.billing_tax_rates TO service_role;
-REVOKE ALL ON TABLE public.billing_coupons FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_coupons TO anon;
-GRANT ALL ON TABLE public.billing_coupons TO authenticated;
-GRANT ALL ON TABLE public.billing_coupons TO service_role;
-REVOKE ALL ON TABLE public.mobile_push_devices FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.mobile_push_devices TO anon;
-GRANT ALL ON TABLE public.mobile_push_devices TO authenticated;
-GRANT ALL ON TABLE public.mobile_push_devices TO service_role;
-REVOKE ALL ON TABLE public.billing_coupon_redemptions FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_coupon_redemptions TO anon;
-GRANT ALL ON TABLE public.billing_coupon_redemptions TO authenticated;
-GRANT ALL ON TABLE public.billing_coupon_redemptions TO service_role;
-REVOKE ALL ON TABLE public.billing_usage_items FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_usage_items TO anon;
-GRANT ALL ON TABLE public.billing_usage_items TO authenticated;
-GRANT ALL ON TABLE public.billing_usage_items TO service_role;
-REVOKE ALL ON TABLE public.operator_presence_fallback_state FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.operator_presence_fallback_state TO anon;
-GRANT ALL ON TABLE public.operator_presence_fallback_state TO authenticated;
-GRANT ALL ON TABLE public.operator_presence_fallback_state TO service_role;
-REVOKE ALL ON TABLE public.push_dispatch_log FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.push_dispatch_log TO anon;
-GRANT ALL ON TABLE public.push_dispatch_log TO authenticated;
-GRANT ALL ON TABLE public.push_dispatch_log TO service_role;
 REVOKE ALL ON TABLE public.user_notification_prefs FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.user_notification_prefs TO anon;
-GRANT ALL ON TABLE public.user_notification_prefs TO authenticated;
 GRANT ALL ON TABLE public.user_notification_prefs TO service_role;
 REVOKE ALL ON TABLE public.background_jobs FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.background_jobs TO service_role;
@@ -10379,50 +9948,16 @@ REVOKE ALL ON TABLE public.seo_sitemaps FROM PUBLIC, anon, authenticated, servic
 GRANT ALL ON TABLE public.seo_sitemaps TO service_role;
 REVOKE ALL ON TABLE public.seo_issue_pages FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.seo_issue_pages TO service_role;
-REVOKE ALL ON TABLE public.observability_ticker_lease FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.observability_ticker_lease TO anon;
-GRANT ALL ON TABLE public.observability_ticker_lease TO authenticated;
-GRANT ALL ON TABLE public.observability_ticker_lease TO service_role;
-REVOKE ALL ON TABLE public.widget_ai_nudges FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.widget_ai_nudges TO anon;
-GRANT ALL ON TABLE public.widget_ai_nudges TO authenticated;
-GRANT ALL ON TABLE public.widget_ai_nudges TO service_role;
-REVOKE ALL ON TABLE public.widget_ai_nudge_settings FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.widget_ai_nudge_settings TO anon;
-GRANT ALL ON TABLE public.widget_ai_nudge_settings TO authenticated;
-GRANT ALL ON TABLE public.widget_ai_nudge_settings TO service_role;
 REVOKE ALL ON TABLE public.seo_backlink_scans FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.seo_backlink_scans TO service_role;
 REVOKE ALL ON TABLE public.platform_ai_agent_settings FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.platform_ai_agent_settings TO anon;
-GRANT ALL ON TABLE public.platform_ai_agent_settings TO authenticated;
 GRANT ALL ON TABLE public.platform_ai_agent_settings TO service_role;
-REVOKE ALL ON TABLE public.billing_provider_credentials FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_provider_credentials TO anon;
-GRANT ALL ON TABLE public.billing_provider_credentials TO authenticated;
-GRANT ALL ON TABLE public.billing_provider_credentials TO service_role;
-REVOKE ALL ON TABLE public.platform_backlinks_provider_config FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.platform_backlinks_provider_config TO anon;
-GRANT ALL ON TABLE public.platform_backlinks_provider_config TO authenticated;
-GRANT ALL ON TABLE public.platform_backlinks_provider_config TO service_role;
-REVOKE ALL ON TABLE public.platform_keywords_provider_config FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.platform_keywords_provider_config TO anon;
-GRANT ALL ON TABLE public.platform_keywords_provider_config TO authenticated;
-GRANT ALL ON TABLE public.platform_keywords_provider_config TO service_role;
 REVOKE ALL ON TABLE public.seo_backlinks FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.seo_backlinks TO service_role;
 REVOKE ALL ON TABLE public.seo_keyword_research_runs FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.seo_keyword_research_runs TO service_role;
 REVOKE ALL ON TABLE public.seo_keyword_results FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.seo_keyword_results TO service_role;
-REVOKE ALL ON TABLE public.platform_rank_tracking_provider_config FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.platform_rank_tracking_provider_config TO anon;
-GRANT ALL ON TABLE public.platform_rank_tracking_provider_config TO authenticated;
-GRANT ALL ON TABLE public.platform_rank_tracking_provider_config TO service_role;
-REVOKE ALL ON TABLE public.platform_performance_provider_config FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.platform_performance_provider_config TO anon;
-GRANT ALL ON TABLE public.platform_performance_provider_config TO authenticated;
-GRANT ALL ON TABLE public.platform_performance_provider_config TO service_role;
 REVOKE ALL ON TABLE public.seo_rank_checks FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.seo_rank_checks TO service_role;
 REVOKE ALL ON TABLE public.seo_tracked_keywords FROM PUBLIC, anon, authenticated, service_role;
@@ -10448,16 +9983,12 @@ GRANT ALL ON TABLE public.seo_explorer_keyword_scans TO service_role;
 REVOKE ALL ON TABLE public.seo_explorer_keywords FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.seo_explorer_keywords TO service_role;
 REVOKE ALL ON TABLE public.visitor_sessions FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.visitor_sessions TO anon;
-GRANT ALL ON TABLE public.visitor_sessions TO authenticated;
 GRANT ALL ON TABLE public.visitor_sessions TO service_role;
 REVOKE ALL ON TABLE public.bot_log_imports FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.bot_log_imports TO service_role;
 REVOKE ALL ON TABLE public.web_analytics_funnels FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.web_analytics_funnels TO service_role;
 REVOKE ALL ON SEQUENCE public.bot_visits_id_seq FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON SEQUENCE public.bot_visits_id_seq TO anon;
-GRANT ALL ON SEQUENCE public.bot_visits_id_seq TO authenticated;
 GRANT ALL ON SEQUENCE public.bot_visits_id_seq TO service_role;
 REVOKE ALL ON TABLE public.bot_visits FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.bot_visits TO service_role;
@@ -10499,18 +10030,6 @@ REVOKE ALL ON TABLE public.channel_oauth_states FROM PUBLIC, anon, authenticated
 GRANT ALL ON TABLE public.channel_oauth_states TO service_role;
 REVOKE ALL ON TABLE public.email_messages FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.email_messages TO service_role;
-REVOKE ALL ON TABLE public.seo_crawl_summaries FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.seo_crawl_summaries TO anon;
-GRANT ALL ON TABLE public.seo_crawl_summaries TO authenticated;
-GRANT ALL ON TABLE public.seo_crawl_summaries TO service_role;
-REVOKE ALL ON TABLE public.seo_link_edges FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.seo_link_edges TO anon;
-GRANT ALL ON TABLE public.seo_link_edges TO authenticated;
-GRANT ALL ON TABLE public.seo_link_edges TO service_role;
-REVOKE ALL ON TABLE public.seo_backfill_state FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.seo_backfill_state TO anon;
-GRANT ALL ON TABLE public.seo_backfill_state TO authenticated;
-GRANT ALL ON TABLE public.seo_backfill_state TO service_role;
 REVOKE ALL ON TABLE public.workspace_health_snapshots_2026_09 FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.workspace_health_snapshots_2026_09 TO service_role;
 REVOKE ALL ON TABLE public.workspace_health_snapshots FROM PUBLIC, anon, authenticated, service_role;
@@ -10537,38 +10056,16 @@ REVOKE ALL ON TABLE public.backup_commands FROM PUBLIC, anon, authenticated, ser
 GRANT ALL ON TABLE public.backup_commands TO service_role;
 REVOKE ALL ON TABLE public.owner_write_leases FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.owner_write_leases TO service_role;
-REVOKE ALL ON TABLE public.billing_v2_worker_health FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.billing_v2_worker_health TO anon;
-GRANT ALL ON TABLE public.billing_v2_worker_health TO authenticated;
-GRANT ALL ON TABLE public.billing_v2_worker_health TO service_role;
-REVOKE ALL ON TABLE public.operator_presence_live FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.operator_presence_live TO anon;
-GRANT ALL ON TABLE public.operator_presence_live TO authenticated;
-GRANT ALL ON TABLE public.operator_presence_live TO service_role;
 REVOKE ALL ON TABLE public.notification_email_jobs FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.notification_email_jobs TO anon;
-GRANT ALL ON TABLE public.notification_email_jobs TO authenticated;
 GRANT ALL ON TABLE public.notification_email_jobs TO service_role;
 REVOKE ALL ON TABLE public.notification_email_settings FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.notification_email_settings TO anon;
-GRANT ALL ON TABLE public.notification_email_settings TO authenticated;
 GRANT ALL ON TABLE public.notification_email_settings TO service_role;
 REVOKE ALL ON TABLE public.commerce_deleted_entities FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.commerce_deleted_entities TO service_role;
 REVOKE ALL ON TABLE public.user_email_notification_prefs FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.user_email_notification_prefs TO anon;
-GRANT ALL ON TABLE public.user_email_notification_prefs TO authenticated;
 GRANT ALL ON TABLE public.user_email_notification_prefs TO service_role;
 REVOKE ALL ON TABLE public.commerce_customer_links FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON TABLE public.commerce_customer_links TO service_role;
-REVOKE ALL ON TABLE public.push_platform_settings FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.push_platform_settings TO anon;
-GRANT ALL ON TABLE public.push_platform_settings TO authenticated;
-GRANT ALL ON TABLE public.push_platform_settings TO service_role;
-REVOKE ALL ON TABLE public.mobile_app_settings FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON TABLE public.mobile_app_settings TO anon;
-GRANT ALL ON TABLE public.mobile_app_settings TO authenticated;
-GRANT ALL ON TABLE public.mobile_app_settings TO service_role;
 REVOKE ALL ON FUNCTION public.validate_email_log_status() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.validate_email_log_status() TO PUBLIC;
 GRANT ALL ON FUNCTION public.validate_email_log_status() TO anon;
@@ -10576,13 +10073,9 @@ GRANT ALL ON FUNCTION public.validate_email_log_status() TO authenticated;
 GRANT ALL ON FUNCTION public.validate_email_log_status() TO service_role;
 REVOKE ALL ON FUNCTION public.generate_short_id(prefix text) FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.generate_short_id(prefix text) TO PUBLIC;
-GRANT ALL ON FUNCTION public.generate_short_id(prefix text) TO anon;
-GRANT ALL ON FUNCTION public.generate_short_id(prefix text) TO authenticated;
 GRANT ALL ON FUNCTION public.generate_short_id(prefix text) TO service_role;
 REVOKE ALL ON FUNCTION public.update_workspace_provider_settings_updated_at() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.update_workspace_provider_settings_updated_at() TO PUBLIC;
-GRANT ALL ON FUNCTION public.update_workspace_provider_settings_updated_at() TO anon;
-GRANT ALL ON FUNCTION public.update_workspace_provider_settings_updated_at() TO authenticated;
 GRANT ALL ON FUNCTION public.update_workspace_provider_settings_updated_at() TO service_role;
 REVOKE ALL ON FUNCTION public.normalize_domain(_input text) FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.normalize_domain(_input text) TO PUBLIC;
@@ -10607,24 +10100,16 @@ REVOKE ALL ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated
 GRANT ALL ON FUNCTION public.handle_new_user() TO service_role;
 REVOKE ALL ON FUNCTION public.widget_platform_settings_touch() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.widget_platform_settings_touch() TO PUBLIC;
-GRANT ALL ON FUNCTION public.widget_platform_settings_touch() TO anon;
-GRANT ALL ON FUNCTION public.widget_platform_settings_touch() TO authenticated;
 GRANT ALL ON FUNCTION public.widget_platform_settings_touch() TO service_role;
 REVOKE ALL ON FUNCTION public.set_conversation_notes_updated_at() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.set_conversation_notes_updated_at() TO service_role;
 REVOKE ALL ON FUNCTION public.widget_prechat_settings_touch() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.widget_prechat_settings_touch() TO PUBLIC;
-GRANT ALL ON FUNCTION public.widget_prechat_settings_touch() TO anon;
-GRANT ALL ON FUNCTION public.widget_prechat_settings_touch() TO authenticated;
 GRANT ALL ON FUNCTION public.widget_prechat_settings_touch() TO service_role;
-REVOKE ALL ON FUNCTION public.check_module_access(_workspace_id uuid, _module_key text) FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.check_module_access(_workspace_id uuid, _module_key text) TO service_role;
 REVOKE ALL ON FUNCTION public.cleanup_expired_widget_identity() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.cleanup_expired_widget_identity() TO service_role;
 REVOKE ALL ON FUNCTION public.set_canned_responses_updated_at() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.set_canned_responses_updated_at() TO PUBLIC;
-GRANT ALL ON FUNCTION public.set_canned_responses_updated_at() TO anon;
-GRANT ALL ON FUNCTION public.set_canned_responses_updated_at() TO authenticated;
 GRANT ALL ON FUNCTION public.set_canned_responses_updated_at() TO service_role;
 REVOKE ALL ON FUNCTION public.ai_kb_set_updated_at() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.ai_kb_set_updated_at() TO PUBLIC;
@@ -10648,8 +10133,6 @@ GRANT ALL ON FUNCTION public.user_availability_prefs_set_updated_at() TO authent
 GRANT ALL ON FUNCTION public.user_availability_prefs_set_updated_at() TO service_role;
 REVOKE ALL ON FUNCTION public.set_call_queue_entries_updated_at() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.set_call_queue_entries_updated_at() TO PUBLIC;
-GRANT ALL ON FUNCTION public.set_call_queue_entries_updated_at() TO anon;
-GRANT ALL ON FUNCTION public.set_call_queue_entries_updated_at() TO authenticated;
 GRANT ALL ON FUNCTION public.set_call_queue_entries_updated_at() TO service_role;
 REVOKE ALL ON FUNCTION public.set_role_permissions_updated_at() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.set_role_permissions_updated_at() TO PUBLIC;
@@ -10658,8 +10141,6 @@ GRANT ALL ON FUNCTION public.set_role_permissions_updated_at() TO authenticated;
 GRANT ALL ON FUNCTION public.set_role_permissions_updated_at() TO service_role;
 REVOKE ALL ON FUNCTION public.update_updated_at_column() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.update_updated_at_column() TO PUBLIC;
-GRANT ALL ON FUNCTION public.update_updated_at_column() TO anon;
-GRANT ALL ON FUNCTION public.update_updated_at_column() TO authenticated;
 GRANT ALL ON FUNCTION public.update_updated_at_column() TO service_role;
 REVOKE ALL ON FUNCTION public.touch_updated_at_e10() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.touch_updated_at_e10() TO PUBLIC;
@@ -10675,8 +10156,6 @@ GRANT ALL ON FUNCTION public.set_operator_call_avail_updated_at() TO authenticat
 GRANT ALL ON FUNCTION public.set_operator_call_avail_updated_at() TO service_role;
 REVOKE ALL ON FUNCTION public.set_callback_requests_updated_at() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.set_callback_requests_updated_at() TO PUBLIC;
-GRANT ALL ON FUNCTION public.set_callback_requests_updated_at() TO anon;
-GRANT ALL ON FUNCTION public.set_callback_requests_updated_at() TO authenticated;
 GRANT ALL ON FUNCTION public.set_callback_requests_updated_at() TO service_role;
 REVOKE ALL ON FUNCTION public.alert_rules_touch() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.alert_rules_touch() TO PUBLIC;
@@ -10690,8 +10169,6 @@ GRANT ALL ON FUNCTION public.widget_platform_settings_validate_phase1() TO authe
 GRANT ALL ON FUNCTION public.widget_platform_settings_validate_phase1() TO service_role;
 REVOKE ALL ON FUNCTION public.set_workspace_departments_updated_at() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.set_workspace_departments_updated_at() TO PUBLIC;
-GRANT ALL ON FUNCTION public.set_workspace_departments_updated_at() TO anon;
-GRANT ALL ON FUNCTION public.set_workspace_departments_updated_at() TO authenticated;
 GRANT ALL ON FUNCTION public.set_workspace_departments_updated_at() TO service_role;
 REVOKE ALL ON FUNCTION public.set_call_invitations_updated_at() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.set_call_invitations_updated_at() TO PUBLIC;
@@ -10725,8 +10202,6 @@ GRANT ALL ON FUNCTION public.touch_enforcement_rules() TO authenticated;
 GRANT ALL ON FUNCTION public.touch_enforcement_rules() TO service_role;
 REVOKE ALL ON FUNCTION public.touch_call_sessions_updated_at() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.touch_call_sessions_updated_at() TO PUBLIC;
-GRANT ALL ON FUNCTION public.touch_call_sessions_updated_at() TO anon;
-GRANT ALL ON FUNCTION public.touch_call_sessions_updated_at() TO authenticated;
 GRANT ALL ON FUNCTION public.touch_call_sessions_updated_at() TO service_role;
 REVOKE ALL ON FUNCTION public.cc_touch_updated_at() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.cc_touch_updated_at() TO PUBLIC;
@@ -10776,15 +10251,11 @@ REVOKE ALL ON FUNCTION public.has_workspace_permission(_workspace_id uuid, _user
 GRANT ALL ON FUNCTION public.has_workspace_permission(_workspace_id uuid, _user_id uuid, _permission_key text) TO service_role;
 REVOKE ALL ON FUNCTION public.entitlement_fanout_touch() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.entitlement_fanout_touch() TO PUBLIC;
-GRANT ALL ON FUNCTION public.entitlement_fanout_touch() TO anon;
-GRANT ALL ON FUNCTION public.entitlement_fanout_touch() TO authenticated;
 GRANT ALL ON FUNCTION public.entitlement_fanout_touch() TO service_role;
 REVOKE ALL ON FUNCTION public.admin_list_profiles(_actor_user_id uuid, _limit integer, _offset integer, _search text, _sort text, _phone_status text) FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.admin_list_profiles(_actor_user_id uuid, _limit integer, _offset integer, _search text, _sort text, _phone_status text) TO service_role;
 REVOKE ALL ON FUNCTION public.touch_updated_at_generic() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.touch_updated_at_generic() TO PUBLIC;
-GRANT ALL ON FUNCTION public.touch_updated_at_generic() TO anon;
-GRANT ALL ON FUNCTION public.touch_updated_at_generic() TO authenticated;
 GRANT ALL ON FUNCTION public.touch_updated_at_generic() TO service_role;
 REVOKE ALL ON FUNCTION public.bump_usage_counter_for(_workspace_id uuid, _counter_name text, _amount integer, _at timestamp with time zone) FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.bump_usage_counter_for(_workspace_id uuid, _counter_name text, _amount integer, _at timestamp with time zone) TO service_role;
@@ -10792,18 +10263,12 @@ REVOKE ALL ON FUNCTION public.tg_ai_usage_logs_count_request() FROM PUBLIC, anon
 GRANT ALL ON FUNCTION public.tg_ai_usage_logs_count_request() TO service_role;
 REVOKE ALL ON FUNCTION public.legal_policy_versions_immutable() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.legal_policy_versions_immutable() TO PUBLIC;
-GRANT ALL ON FUNCTION public.legal_policy_versions_immutable() TO anon;
-GRANT ALL ON FUNCTION public.legal_policy_versions_immutable() TO authenticated;
 GRANT ALL ON FUNCTION public.legal_policy_versions_immutable() TO service_role;
 REVOKE ALL ON FUNCTION public.workspace_invitations_version_guard() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.workspace_invitations_version_guard() TO PUBLIC;
-GRANT ALL ON FUNCTION public.workspace_invitations_version_guard() TO anon;
-GRANT ALL ON FUNCTION public.workspace_invitations_version_guard() TO authenticated;
 GRANT ALL ON FUNCTION public.workspace_invitations_version_guard() TO service_role;
 REVOKE ALL ON FUNCTION public.workspace_invitations_legacy_status_sync() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.workspace_invitations_legacy_status_sync() TO PUBLIC;
-GRANT ALL ON FUNCTION public.workspace_invitations_legacy_status_sync() TO anon;
-GRANT ALL ON FUNCTION public.workspace_invitations_legacy_status_sync() TO authenticated;
 GRANT ALL ON FUNCTION public.workspace_invitations_legacy_status_sync() TO service_role;
 REVOKE ALL ON FUNCTION public.ai_billing_block_pricing_mutation() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.ai_billing_block_pricing_mutation() TO service_role;
@@ -10823,38 +10288,22 @@ REVOKE ALL ON FUNCTION public.admin_reset_identity_tables() FROM PUBLIC, anon, a
 GRANT ALL ON FUNCTION public.admin_reset_identity_tables() TO service_role;
 REVOKE ALL ON FUNCTION public.billing_touch_updated_at() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.billing_touch_updated_at() TO PUBLIC;
-GRANT ALL ON FUNCTION public.billing_touch_updated_at() TO anon;
-GRANT ALL ON FUNCTION public.billing_touch_updated_at() TO authenticated;
 GRANT ALL ON FUNCTION public.billing_touch_updated_at() TO service_role;
 REVOKE ALL ON FUNCTION public.commerce_products_search_text_trigger() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.commerce_products_search_text_trigger() TO PUBLIC;
-GRANT ALL ON FUNCTION public.commerce_products_search_text_trigger() TO anon;
-GRANT ALL ON FUNCTION public.commerce_products_search_text_trigger() TO authenticated;
 GRANT ALL ON FUNCTION public.commerce_products_search_text_trigger() TO service_role;
 REVOKE ALL ON FUNCTION public.billing_v2_block_legacy_allowance_grant() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.billing_v2_block_legacy_allowance_grant() TO PUBLIC;
-GRANT ALL ON FUNCTION public.billing_v2_block_legacy_allowance_grant() TO anon;
-GRANT ALL ON FUNCTION public.billing_v2_block_legacy_allowance_grant() TO authenticated;
 GRANT ALL ON FUNCTION public.billing_v2_block_legacy_allowance_grant() TO service_role;
 REVOKE ALL ON FUNCTION public.admin_reset_settings_tables() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.admin_reset_settings_tables() TO service_role;
-REVOKE ALL ON FUNCTION public.billing_purge_active() FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.billing_purge_active() TO anon;
-GRANT ALL ON FUNCTION public.billing_purge_active() TO authenticated;
-GRANT ALL ON FUNCTION public.billing_purge_active() TO service_role;
 REVOKE ALL ON FUNCTION public.partition_managed_tables() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.partition_managed_tables() TO service_role;
 REVOKE ALL ON FUNCTION public.billing_invoice_application_block_mutation() FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.billing_invoice_application_block_mutation() TO anon;
-GRANT ALL ON FUNCTION public.billing_invoice_application_block_mutation() TO authenticated;
 GRANT ALL ON FUNCTION public.billing_invoice_application_block_mutation() TO service_role;
 REVOKE ALL ON FUNCTION public.billing_invoice_freeze() FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.billing_invoice_freeze() TO anon;
-GRANT ALL ON FUNCTION public.billing_invoice_freeze() TO authenticated;
 GRANT ALL ON FUNCTION public.billing_invoice_freeze() TO service_role;
 REVOKE ALL ON FUNCTION public.billing_invoice_line_freeze() FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.billing_invoice_line_freeze() TO anon;
-GRANT ALL ON FUNCTION public.billing_invoice_line_freeze() TO authenticated;
 GRANT ALL ON FUNCTION public.billing_invoice_line_freeze() TO service_role;
 REVOKE ALL ON FUNCTION public.partition_inventory() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.partition_inventory() TO service_role;
@@ -10865,56 +10314,28 @@ GRANT ALL ON FUNCTION public.backup_touch_updated_at() TO service_role;
 REVOKE ALL ON FUNCTION public.backup_reject_credentials() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.backup_reject_credentials() TO service_role;
 REVOKE ALL ON FUNCTION public.billing_period_freeze() FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.billing_period_freeze() TO anon;
-GRANT ALL ON FUNCTION public.billing_period_freeze() TO authenticated;
 GRANT ALL ON FUNCTION public.billing_period_freeze() TO service_role;
 REVOKE ALL ON FUNCTION public.billing_v2_assert_single_scheduled_period() FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.billing_v2_assert_single_scheduled_period() TO anon;
-GRANT ALL ON FUNCTION public.billing_v2_assert_single_scheduled_period() TO authenticated;
 GRANT ALL ON FUNCTION public.billing_v2_assert_single_scheduled_period() TO service_role;
 REVOKE ALL ON FUNCTION public.billing_v2_add_interval(p_ts timestamp with time zone, p_interval text, p_count integer) FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.billing_v2_add_interval(p_ts timestamp with time zone, p_interval text, p_count integer) TO anon;
-GRANT ALL ON FUNCTION public.billing_v2_add_interval(p_ts timestamp with time zone, p_interval text, p_count integer) TO authenticated;
 GRANT ALL ON FUNCTION public.billing_v2_add_interval(p_ts timestamp with time zone, p_interval text, p_count integer) TO service_role;
 REVOKE ALL ON FUNCTION public.billing_allocation_block_mutation() FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.billing_allocation_block_mutation() TO anon;
-GRANT ALL ON FUNCTION public.billing_allocation_block_mutation() TO authenticated;
 GRANT ALL ON FUNCTION public.billing_allocation_block_mutation() TO service_role;
 REVOKE ALL ON FUNCTION public.billing_engine_version_freeze() FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.billing_engine_version_freeze() TO anon;
-GRANT ALL ON FUNCTION public.billing_engine_version_freeze() TO authenticated;
 GRANT ALL ON FUNCTION public.billing_engine_version_freeze() TO service_role;
 REVOKE ALL ON FUNCTION public.billing_entitlement_cycle_freeze() FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.billing_entitlement_cycle_freeze() TO anon;
-GRANT ALL ON FUNCTION public.billing_entitlement_cycle_freeze() TO authenticated;
 GRANT ALL ON FUNCTION public.billing_entitlement_cycle_freeze() TO service_role;
 REVOKE ALL ON FUNCTION public.billing_v2_block_direct_subscription_mutation() FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.billing_v2_block_direct_subscription_mutation() TO anon;
-GRANT ALL ON FUNCTION public.billing_v2_block_direct_subscription_mutation() TO authenticated;
 GRANT ALL ON FUNCTION public.billing_v2_block_direct_subscription_mutation() TO service_role;
 REVOKE ALL ON FUNCTION public.billing_v2_block_period_keyed_grant() FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.billing_v2_block_period_keyed_grant() TO anon;
-GRANT ALL ON FUNCTION public.billing_v2_block_period_keyed_grant() TO authenticated;
 GRANT ALL ON FUNCTION public.billing_v2_block_period_keyed_grant() TO service_role;
-REVOKE ALL ON FUNCTION public.billing_v2_document_number() FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.billing_v2_document_number() TO anon;
-GRANT ALL ON FUNCTION public.billing_v2_document_number() TO authenticated;
-GRANT ALL ON FUNCTION public.billing_v2_document_number() TO service_role;
-REVOKE ALL ON FUNCTION public.billing_v2_period_cycles_grant(p_period_id uuid) FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.billing_v2_period_cycles_grant(p_period_id uuid) TO anon;
-GRANT ALL ON FUNCTION public.billing_v2_period_cycles_grant(p_period_id uuid) TO authenticated;
-GRANT ALL ON FUNCTION public.billing_v2_period_cycles_grant(p_period_id uuid) TO service_role;
 REVOKE ALL ON FUNCTION public.billing_v2_period_monthly_allowance(p_period billing_subscription_periods) FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.billing_v2_period_monthly_allowance(p_period billing_subscription_periods) TO anon;
-GRANT ALL ON FUNCTION public.billing_v2_period_monthly_allowance(p_period billing_subscription_periods) TO authenticated;
 GRANT ALL ON FUNCTION public.billing_v2_period_monthly_allowance(p_period billing_subscription_periods) TO service_role;
 REVOKE ALL ON FUNCTION public.billing_v2_invoice_notification_sync() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.billing_v2_invoice_notification_sync() TO service_role;
 REVOKE ALL ON FUNCTION public.billing_v2_invoice_paid_recovery() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.billing_v2_invoice_paid_recovery() TO service_role;
 REVOKE ALL ON FUNCTION public.billing_wallet_ledger_block_mutation() FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.billing_wallet_ledger_block_mutation() TO anon;
-GRANT ALL ON FUNCTION public.billing_wallet_ledger_block_mutation() TO authenticated;
 GRANT ALL ON FUNCTION public.billing_wallet_ledger_block_mutation() TO service_role;
 REVOKE ALL ON FUNCTION public.admin_count_profiles(_actor_user_id uuid, _search text, _phone_status text) FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.admin_count_profiles(_actor_user_id uuid, _search text, _phone_status text) TO service_role;
@@ -10922,13 +10343,9 @@ REVOKE ALL ON FUNCTION public.accept_workspace_invitation(_token text) FROM PUBL
 GRANT ALL ON FUNCTION public.accept_workspace_invitation(_token text) TO service_role;
 REVOKE ALL ON FUNCTION public.tg_conversation_attachments_touch_message() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.tg_conversation_attachments_touch_message() TO PUBLIC;
-GRANT ALL ON FUNCTION public.tg_conversation_attachments_touch_message() TO anon;
-GRANT ALL ON FUNCTION public.tg_conversation_attachments_touch_message() TO authenticated;
 GRANT ALL ON FUNCTION public.tg_conversation_attachments_touch_message() TO service_role;
 REVOKE ALL ON FUNCTION public.tg_conversation_messages_touch_updated_at() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.tg_conversation_messages_touch_updated_at() TO PUBLIC;
-GRANT ALL ON FUNCTION public.tg_conversation_messages_touch_updated_at() TO anon;
-GRANT ALL ON FUNCTION public.tg_conversation_messages_touch_updated_at() TO authenticated;
 GRANT ALL ON FUNCTION public.tg_conversation_messages_touch_updated_at() TO service_role;
 REVOKE ALL ON FUNCTION public.activate_auto_actions() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.activate_auto_actions() TO service_role;
@@ -10972,10 +10389,6 @@ REVOKE ALL ON FUNCTION public.business_metrics_rollup_and_prune() FROM PUBLIC, a
 GRANT ALL ON FUNCTION public.business_metrics_rollup_and_prune() TO service_role;
 REVOKE ALL ON FUNCTION public.complete_kb_change_events(_claim_token uuid, _worker_id text, _ids uuid[]) FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.complete_kb_change_events(_claim_token uuid, _worker_id text, _ids uuid[]) TO service_role;
-REVOKE ALL ON FUNCTION public.check_channel_access(_workspace_id uuid, _channel_key text) FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.check_channel_access(_workspace_id uuid, _channel_key text) TO service_role;
-REVOKE ALL ON FUNCTION public.check_workspace_entitlement(_workspace_id uuid, _feature text) FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.check_workspace_entitlement(_workspace_id uuid, _feature text) TO service_role;
 REVOKE ALL ON FUNCTION public.claim_conversation(p_conversation_id uuid, p_workspace_id uuid, p_user_id uuid, p_force boolean) FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.claim_conversation(p_conversation_id uuid, p_workspace_id uuid, p_user_id uuid, p_force boolean) TO service_role;
 REVOKE ALL ON FUNCTION public.claim_kb_change_events(_worker_id text, _limit integer, _lease_seconds integer) FROM PUBLIC, anon, authenticated, service_role;
@@ -11056,8 +10469,6 @@ REVOKE ALL ON FUNCTION public.workspace_health_snapshot_compute() FROM PUBLIC, a
 GRANT ALL ON FUNCTION public.workspace_health_snapshot_compute() TO service_role;
 REVOKE ALL ON FUNCTION public.workspace_usage_counters_seed_storage() FROM PUBLIC, anon, authenticated, service_role;
 GRANT ALL ON FUNCTION public.workspace_usage_counters_seed_storage() TO service_role;
-REVOKE ALL ON FUNCTION public.deduct_ai_credits(_workspace_id uuid, _credits integer, _period text) FROM PUBLIC, anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.deduct_ai_credits(_workspace_id uuid, _credits integer, _period text) TO service_role;
 
 -- ── realtime publication ────────────────────────────────────
 DO $parity$ BEGIN

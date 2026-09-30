@@ -64,6 +64,11 @@ COPY channels /channels
 COPY public/call-widget ./public/call-widget
 COPY public/widget/vendor ./public/widget/vendor
 
+# The version of the Android app the website hands out (its APK ships with the
+# frontend image). Super Admin reads the Android version from this file
+# (server/services/mobileApp/androidRelease.ts); only the small JSON, not the APK.
+COPY public/downloads/Webyar-Android.json ./public/downloads/Webyar-Android.json
+
 # Build-time verification — fail fast if the image is missing the
 # standalone widget assets the API is expected to serve.
 RUN test -f /app/public/call-widget/l.js          || (echo "❌ public/call-widget/l.js missing"          && exit 1)
@@ -73,6 +78,7 @@ RUN test -f /app/public/call-widget/presentation-registry.js || (echo "❌ Call 
 RUN test -f /app/public/call-widget/presentation-default.js  || (echo "❌ Call Widget default presentation missing" && exit 1)
 RUN test -f /app/public/call-widget/presentation-default.css || (echo "❌ Call Widget default presentation CSS missing" && exit 1)
 RUN test -f /app/public/widget/vendor/livekit-client.umd.min.js || (echo "❌ livekit-client.umd.min.js missing" && exit 1)
+RUN test -f /app/public/downloads/Webyar-Android.json || (echo "❌ public/downloads/Webyar-Android.json missing" && exit 1)
 
 # Production runtime. Set AFTER `npm install` above (so the build-time install
 # is unchanged) but before the process starts: without it the session cookie

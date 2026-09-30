@@ -176,11 +176,9 @@ class CallSessionTest {
      * The screen asks for a call; it does not place one.
      *
      * It can ask more than once — a recomposition, the permission answer
-     * landing, the workspace arriving — and the version that created the
-     * invitation from inside a composition really did send two per call. The
-     * spare went on ringing the visitor's widget until it expired, which is
-     * how an operator came to be told a call had failed while the visitor's
-     * screen was still ringing.
+     * landing, the workspace arriving — and a second invitation would go on
+     * ringing the visitor's widget until it expired, so an operator could be
+     * told a call had failed while the visitor's screen was still ringing.
      */
     @Test
     fun `however many times it is asked, one call is one invitation`() = runTest(dispatcher) {
@@ -196,10 +194,9 @@ class CallSessionTest {
     }
 
     /**
-     * The 403 the transposed ids used to produce said `not_a_workspace_member`
-     * and the screen said "the call could not connect" — one sentence that
-     * sends an operator to check their signal. Whatever the server said
-     * reaches the phase, and the screen has a line for it.
+     * A 403 that says `not_a_workspace_member`, shown as "the call could not
+     * connect", sends an operator to check their signal. Whatever the server
+     * says reaches the phase, and the screen has a line for it.
      */
     @Test
     fun `an invitation the server refuses ends the call with what it said`() =
@@ -345,8 +342,8 @@ class CallSessionTest {
      * The one that matters most.
      *
      * A camera that will not start is a reason to carry on without video, not
-     * a reason to drop a call the visitor has already answered. Before this
-     * rule existed, one throw here took the whole call down.
+     * a reason to drop a call the visitor has already answered. Without this
+     * rule, one throw here would take the whole call down.
      */
     @Test
     fun `a refused camera degrades the call instead of ending it`() = runTest(dispatcher) {
@@ -485,9 +482,9 @@ class CallSessionTest {
 
     /**
      * The visitor answered and the room's token was on its way when the
-     * operator gave up. The call must stay ended: it used to be joined anyway,
-     * the phase going back from "call ended" to connected with the
-     * microphone live.
+     * operator gave up. The call must stay ended — not be joined anyway, the
+     * phase going back from "call ended" to connected with the microphone
+     * live.
      */
     @Test
     fun `hanging up while the call connects never joins the room afterwards`() = runTest(dispatcher) {
@@ -509,7 +506,7 @@ class CallSessionTest {
     /**
      * The red button becomes Done in the same place, so a hang-up is often
      * followed at once by the screen closing. The hang-up still reaches the
-     * server — it used to be cancelled with the screen.
+     * server rather than being cancelled with the screen.
      */
     @Test
     fun `closing the screen straight after hanging up still tells the server`() = runTest(dispatcher) {

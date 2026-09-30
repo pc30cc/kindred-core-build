@@ -60,8 +60,8 @@ class LoginScreenTest {
     }
 
     /**
-     * Under the maintenance notice the field waits: focused there, it put the
-     * keyboard over the notice and every key into a field nobody could see.
+     * Under the maintenance notice the field waits: focused there, it would put
+     * the keyboard over the notice and every key into a field nobody can see.
      * It takes focus once the notice goes.
      */
     @Test

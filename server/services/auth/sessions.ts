@@ -400,6 +400,11 @@ export async function renewMobileSessionIfDue(
     // throttle window, so a second node racing on the same session writes
     // zero rows instead of a duplicate touch. Combined with the guard above
     // this preserves "at most one renewal write per session per 24h".
+    //
+    // A session that has never been renewed (`last_renewed_at IS NULL`, e.g.
+    // one written before the column existed) must match too: `lt` alone never
+    // matches NULL, so such a session was "due" on every request and issued a
+    // zero-row UPDATE each time without ever recording the renewal.
     const staleBefore = new Date(now - MOBILE_SESSION_RENEW_THROTTLE_MS).toISOString();
     await sb
       .from('auth_sessions')
@@ -409,7 +414,7 @@ export async function renewMobileSessionIfDue(
       })
       .eq('id', session.sessionId)
       .is('revoked_at', null)
-      .lt('last_renewed_at', staleBefore);
+      .or(`last_renewed_at.is.null,last_renewed_at.lt."${staleBefore}"`);
   } catch (err) {
     console.warn('[auth] Mobile session renewal failed (non-fatal):', err);
   } finally {

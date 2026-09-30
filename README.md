@@ -184,7 +184,8 @@ Optional / common:
 
 - `PORT` (default `3001`)
 - `CORS_ORIGINS` (comma-separated list of frontend origins)
-- `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`
+- `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX` — accepted but currently have no
+  effect: rate limits are fixed per route in `server/middleware/security.ts`
 - Email: `RESEND_API_KEY`, `SENDGRID_API_KEY`, `SMTP_HOST`, `SMTP_PORT`,
   `SMTP_USER`, `SMTP_PASS`, `SMTP_TLS_REJECT_UNAUTHORIZED`
 - Widget asset resolution (split deploy):

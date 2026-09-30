@@ -342,6 +342,8 @@ export function loadConfig(): ServerConfig {
     supabaseAnonKey: required('SUPABASE_ANON_KEY'),
     supabaseServiceRoleKey: serviceRoleKey,
     corsOrigins: (process.env.CORS_ORIGINS || '*').split(',').map(s => s.trim()),
+    // Parsed for compatibility but read by nothing: every limiter in
+    // middleware/security.ts has its own fixed window and cap.
     rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10),
     rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
     initialAdminEmail: process.env.INITIAL_ADMIN_EMAIL?.trim().toLowerCase() || undefined,

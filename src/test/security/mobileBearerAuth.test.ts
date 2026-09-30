@@ -37,6 +37,19 @@ vi.mock('../../../server/supabase.js', () => ({
           filters.push((r) => (val === null ? r[col] == null : r[col] === val));
           return builder;
         },
+        // Minimal PostgREST `or` for the renewal compare-and-set:
+        // "col.is.null,col.lt.\"<iso>\"".
+        or(expr: string) {
+          const clauses = expr.split(',').map((c) => {
+            const [col, op, ...rest] = c.split('.');
+            const val = rest.join('.').replace(/^"|"$/g, '');
+            if (op === 'is' && val === 'null') return (r: any) => r[col] == null;
+            if (op === 'lt') return (r: any) => r[col] != null && String(r[col]) < val;
+            throw new Error(`unsupported or clause: ${c}`);
+          });
+          filters.push((r) => clauses.some((f) => f(r)));
+          return builder;
+        },
         async maybeSingle() {
           if (table !== 'auth_sessions') return { data: null, error: null };
           const matched = sessionRows.filter((r) => filters.every((f) => f(r)));
@@ -328,6 +341,25 @@ describe('mobile renewal concurrency — at most one write per 24h', () => {
     const first = await validateSessionToken(config, 'seq');
     await renewMobileSessionIfDue(config, first!);
     const second = await validateSessionToken(config, 'seq');
+    await renewMobileSessionIfDue(config, second!);
+    expect(updateStats.writes).toBe(1);
+  });
+
+  it('renews a never-renewed session (last_renewed_at NULL) once, then stops writing', async () => {
+    const row = seedSession({
+      token: 'never-renewed',
+      clientType: 'mobile',
+      expiresInMs: 10 * 24 * 60 * 60 * 1000,
+      absoluteInMs: MOBILE_SESSION_ABSOLUTE_MS,
+      lastRenewedAgoMs: MOBILE_SESSION_RENEW_THROTTLE_MS + 60_000,
+    });
+    row.last_renewed_at = null;
+    updateStats.writes = 0;
+    const first = await validateSessionToken(config, 'never-renewed');
+    await renewMobileSessionIfDue(config, first!);
+    expect(updateStats.writes).toBe(1);
+    expect(row.last_renewed_at).not.toBeNull();
+    const second = await validateSessionToken(config, 'never-renewed');
     await renewMobileSessionIfDue(config, second!);
     expect(updateStats.writes).toBe(1);
   });

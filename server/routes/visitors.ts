@@ -29,6 +29,7 @@ import { resolveVisitorGeo, getActiveGeoProvider } from '../services/geo/index.j
 import { enrichVisitorSessionGeo } from '../services/geo/index.js';
 import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visitorLimit.js';
 import { recordVisitorPageView } from '../services/webAnalytics/pageViews.js';
+import { isConversationId } from '../services/conversationIds.js';
 
 export const visitorRouter = Router();
 
@@ -659,6 +660,11 @@ visitorsAdminRouter.get('/presence-by-conversation', async (req: Request, res: R
   const conversationId = (req.query.conversation_id as string) || '';
   if (!workspaceId || !conversationId) {
     return res.status(400).json({ error: 'workspace_id and conversation_id required' });
+  }
+  // A malformed id is a bad request, not a server fault: without this check
+  // the uuid cast failed inside PostgREST and the route answered 500.
+  if (!isConversationId(conversationId)) {
+    return res.status(400).json({ error: 'Invalid conversation_id' });
   }
 
   const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);

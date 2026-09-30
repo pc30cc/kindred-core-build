@@ -15,6 +15,7 @@
 
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { coalesce } from '../lib/inflight.js';
 
 export async function isGlobalAdmin(
   config: ServerConfig,
@@ -23,10 +24,14 @@ export async function isGlobalAdmin(
   if (!userId) return false;
   try {
     const sb = getServiceClient(config);
-    const { data, error } = await sb.rpc('has_role', {
-      _user_id: userId,
-      _role: 'admin',
-    });
+    // Concurrent requests from the same user share one lookup (lib/inflight
+    // — not a cache: a role change applies to the next request).
+    const { data, error } = await coalesce(`global_admin:${userId}`, () =>
+      sb.rpc('has_role', {
+        _user_id: userId,
+        _role: 'admin',
+      }),
+    );
     if (error) return false;
     return !!data;
   } catch {

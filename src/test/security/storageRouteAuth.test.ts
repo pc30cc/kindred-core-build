@@ -37,12 +37,20 @@ const sbMock = {
     if (name === "has_role") return { data: state.isAdmin, error: null };
     return { data: null, error: null };
   },
-  from: () => {
+  from: (table: string) => {
+    const filters: Record<string, unknown> = {};
     const builder: Record<string, unknown> = {};
     Object.assign(builder, {
       select: () => builder,
-      eq: () => builder,
-      maybeSingle: async () => ({ data: { role: state.role }, error: null }),
+      eq: (col: string, val: unknown) => { filters[col] = val; return builder; },
+      maybeSingle: async () => {
+        // The membership row is the membership fact (is_workspace_member is
+        // "a workspace_members row exists"), granted only for workspace A.
+        if (table === "workspace_members" && !(state.isMember && filters.workspace_id === WS_A)) {
+          return { data: null, error: null };
+        }
+        return { data: { role: state.role }, error: null };
+      },
     });
     return builder;
   },

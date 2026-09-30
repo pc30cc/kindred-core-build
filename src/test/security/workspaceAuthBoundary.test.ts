@@ -111,12 +111,16 @@ describe('workspaceAuth.ts — authorizeWorkspaceAccess (tenant isolation)', () 
   it('rejects a real, authenticated user who is not a member of the target workspace (cross-tenant IDOR)', async () => {
     validateSessionToken.mockResolvedValue({ sessionId: 's1', userId: USER_ID, email: 'a@b.com' });
     isGlobalAdmin.mockResolvedValue(false);
-    rpc.mockResolvedValue({ data: false, error: null }); // is_workspace_member → false
+    // No workspace_members row — the one fact `is_workspace_member` checks.
+    from.mockReturnValue({
+      select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }),
+    });
     const { authorizeWorkspaceAccess } = await import('../../../server/lib/workspaceAuth');
     const { req, res } = mockReqRes('valid-token');
     const result = await authorizeWorkspaceAccess(req, res, WORKSPACE_ID);
     expect(result).toBeNull();
     expect(res.statusCode).toBe(403);
+    expect(from).toHaveBeenCalledWith('workspace_members');
   });
 
   it('allows a genuine member and returns their resolved role', async () => {
@@ -168,12 +172,15 @@ describe('workspaceAuth.ts — authorizeWorkspaceAccess (tenant isolation)', () 
     const result = await authorizeWorkspaceAccess(req, res, WORKSPACE_ID);
     expect(result).toEqual({ userId: USER_ID, isAdmin: true, role: null });
     expect(rpc).not.toHaveBeenCalled(); // never even queries membership
+    expect(from).not.toHaveBeenCalled();
   });
 
-  it('fails closed (500, not "not a member") when the membership RPC itself errors', async () => {
+  it('fails closed (500, not "not a member") when the membership read itself errors', async () => {
     validateSessionToken.mockResolvedValue({ sessionId: 's1', userId: USER_ID, email: 'a@b.com' });
     isGlobalAdmin.mockResolvedValue(false);
-    rpc.mockResolvedValue({ data: null, error: { message: 'db down' } });
+    from.mockReturnValue({
+      select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: { message: 'db down' } }) }) }) }),
+    });
     const { authorizeWorkspaceAccess } = await import('../../../server/lib/workspaceAuth');
     const { req, res } = mockReqRes('valid-token');
     const result = await authorizeWorkspaceAccess(req, res, WORKSPACE_ID);

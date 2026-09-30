@@ -8,9 +8,9 @@
  * codebase's root of trust for dashboard/application authentication —
  * Supabase/PostgreSQL remains only as database infrastructure.
  *
- * AUTHORIZATION (`authorizeWorkspaceAccess` below) is unchanged: workspace
- * membership and role are still verified server-side via the same
- * `is_workspace_member`/`workspace_members` checks, using service_role
+ * AUTHORIZATION (`authorizeWorkspaceAccess` below): workspace membership
+ * and role are verified server-side from the caller's `workspace_members`
+ * row (the same fact `is_workspace_member` checks), using service_role
  * (which bypasses RLS) — the anon key was never treated as an identity, and
  * still isn't.
  */
@@ -21,6 +21,7 @@ import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import * as sessions from '../services/auth/sessions.js';
 import { verifyOriginForMutation, validateSessionToken } from '../services/auth/sessions.js';
 import { readSessionToken } from './sessionTransport.js';
+import { coalesce } from './inflight.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -140,29 +141,30 @@ export async function authorizeWorkspaceAccess(
   if (await isGlobalAdmin(config, userId)) return { userId, isAdmin: true, role: null };
 
   const sb = getServiceClient(config);
-  const { data: isMember, error: memberError } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspaceId,
-    _user_id: userId,
-  });
+  // ONE read answers membership, suspension and role. `is_workspace_member`
+  // is defined as "a workspace_members row exists" — the very row read here —
+  // so the separate RPC this used to call first was a second round-trip for
+  // the same fact, on every workspace-scoped request.
+  //
+  // Concurrent requests for the same (workspace, user) share the read
+  // (lib/inflight — not a cache: a removal or suspension applies to the next
+  // request).
+  const { data: member, error: memberError } = await coalesce(`ws_member:${workspaceId}:${userId}`, () =>
+    sb
+      .from('workspace_members')
+      .select('role, suspended_at')
+      .eq('workspace_id', workspaceId)
+      .eq('user_id', userId)
+      .maybeSingle(),
+  );
   // A backend failure is NOT a negative membership answer: fail with 500 so we
   // never turn an outage into a silent (and misleading) authorization verdict.
   if (memberError) {
     res.status(500).json({ error: 'Authorization check failed' });
     return null;
   }
-  if (!isMember) {
+  if (!member) {
     res.status(403).json({ error: 'Not a workspace member' });
-    return null;
-  }
-
-  const { data: member, error: roleError } = await sb
-    .from('workspace_members')
-    .select('role, suspended_at')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', userId)
-    .maybeSingle();
-  if (roleError) {
-    res.status(500).json({ error: 'Authorization check failed' });
     return null;
   }
   // A suspended (banned) member keeps their membership row for audit/history

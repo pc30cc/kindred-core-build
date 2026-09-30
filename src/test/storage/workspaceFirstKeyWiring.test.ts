@@ -75,6 +75,11 @@ const initRouteSbMock = {
         if (table === 'conversations') return { data: initRouteState.convo, error: null };
         if (table === 'provider_configs') return { data: initRouteState.providerCfg, error: null };
         if (table === 'app_runtime_config') return { data: null, error: null };
+        // Membership is the workspace_members row (is_workspace_member's
+        // definition); its presence follows initRouteState.isMember.
+        if (table === 'workspace_members') {
+          return { data: initRouteState.isMember?.data ? { role: null, suspended_at: null } : null, error: null };
+        }
         return { data: null, error: null };
       },
       insert: (payload: Row) => ({

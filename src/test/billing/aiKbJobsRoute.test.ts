@@ -40,7 +40,12 @@ const sbMock = {
       eq: () => builder,
       order: () => builder,
       limit: () => builder,
-      maybeSingle: async () => ({ data: null, error: null }),
+      // Membership is the workspace_members row (is_workspace_member's
+      // definition); its presence follows state.isMember.
+      maybeSingle: async () =>
+        table === "workspace_members"
+          ? { data: state.isMember?.data ? { role: null, suspended_at: null } : null, error: state.isMember?.error ?? null }
+          : { data: null, error: null },
       single: async () => ({
         data: { id: "job-1", workspace_id: "ws-uuid" },
         error: null,

@@ -41,6 +41,10 @@ const sbMock = {
       maybeSingle: async () => {
         if (table === "conversation_attachments")
           return { data: state.attachmentRow, error: null };
+        // Membership is the workspace_members row (is_workspace_member's
+        // definition); its presence follows state.isMember.
+        if (table === "workspace_members")
+          return { data: state.isMember?.data ? { role: null, suspended_at: null } : null, error: state.isMember?.error ?? null };
         return { data: null, error: null };
       },
       update: (patch: any) => ({

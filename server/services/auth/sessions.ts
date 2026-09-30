@@ -28,6 +28,7 @@ import crypto from 'crypto';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { readSessionToken } from '../../lib/sessionTransport.js';
+import { coalesce } from '../../lib/inflight.js';
 
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 export const SESSION_COOKIE_NAME = 'gs_session';
@@ -313,13 +314,17 @@ export async function validateSessionToken(config: ServerConfig, token: string |
   const EXTENDED = 'id, user_id, email, expires_at, revoked_at, client_type, absolute_expires_at, last_renewed_at';
   const BASE = 'id, user_id, email, expires_at, revoked_at';
 
+  // Concurrent requests carrying the same token share one read (see
+  // lib/inflight.ts — not a cache: a revocation applies to the next request).
   const read = async (columns: string) =>
-    sb
-      .from('auth_sessions')
-      .select(columns)
-      .eq('token_hash', tokenHash)
-      .is('revoked_at', null)
-      .maybeSingle();
+    coalesce(`auth_session:${columns}:${tokenHash}`, () =>
+      sb
+        .from('auth_sessions')
+        .select(columns)
+        .eq('token_hash', tokenHash)
+        .is('revoked_at', null)
+        .maybeSingle(),
+    );
 
   let res = mobileColumnsAvailable === false ? await read(BASE) : await read(EXTENDED);
   if (res.error && isMissingColumnError(res.error as { message?: string; code?: string })) {

@@ -311,18 +311,7 @@ function ThreadList({
   );
 }
 
-// ─── Message body ───────────────────────────────────────────────────────
-
-function MessageBody({ message }: { message: EmailMessageView }) {
-  const sanitizedHtml = useMemo(
-    () => (message.htmlBody ? DOMPurify.sanitize(message.htmlBody, { ADD_ATTR: ['target'] }) : null),
-    [message.htmlBody],
-  );
-  if (sanitizedHtml) {
-    return <div className="prose prose-sm max-w-none dark:prose-invert" dir="auto" dangerouslySetInnerHTML={{ __html: sanitizedHtml }} />;
-  }
-  return <div className="whitespace-pre-wrap text-sm text-foreground" dir="auto">{message.textBody}</div>;
-}
+// ─── Message pieces ──────────────────────────────────────────────────────
 
 function DeliveryStatusBadge({ message }: { message: EmailMessageView }) {
   const { t } = useTranslation();
@@ -338,55 +327,6 @@ function DeliveryStatusBadge({ message }: { message: EmailMessageView }) {
     );
   }
   return <Badge variant="outline" className="gap-1 text-xs text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3 w-3" />{t('emailInbox.statusSent' as any)}</Badge>;
-}
-
-function MessageCard({ message, defaultOpen }: { message: EmailMessageView; defaultOpen: boolean }) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="rounded-lg border border-border bg-card">
-      <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-start gap-3 px-4 py-3 text-start">
-        <Avatar className="h-8 w-8 shrink-0">
-          <AvatarFallback className={cn('text-xs font-semibold', avatarColorOf(message.fromAddress))}>{initialsOf(message.fromAddress)}</AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <span dir="auto" className="truncate text-sm font-medium text-foreground">{parseAddress(message.fromAddress).name}</span>
-            <span dir="ltr" className="hidden truncate text-xs text-muted-foreground sm:inline">{parseAddress(message.fromAddress).email}</span>
-            <DeliveryStatusBadge message={message} />
-            <span className="ms-auto shrink-0 text-xs text-muted-foreground">{new Date(message.sentAt).toLocaleString()}</span>
-          </div>
-          {!open && <div dir="auto" className="mt-0.5 truncate text-xs text-muted-foreground">{decodeEntities(message.snippet || '')}</div>}
-          {open && (
-            <div className="mt-0.5 text-xs text-muted-foreground">
-              {formatAddresses(message.toAddresses)}
-              {message.ccAddresses.length > 0 && ` · Cc: ${formatAddresses(message.ccAddresses)}`}
-            </div>
-          )}
-        </div>
-      </button>
-      {open && (
-        <div className="border-t border-border px-4 py-3">
-          <MessageBody message={message} />
-          {message.attachments.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {message.attachments.map((att) => (
-                <a
-                  key={att.id}
-                  href={att.downloadPath ? `${API_BASE || ''}${att.downloadPath}` : (att.url || '#')}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-1.5 rounded-md border border-border bg-secondary/40 px-2.5 py-1.5 text-xs text-foreground hover:bg-secondary"
-                >
-                  <Paperclip className="h-3 w-3" />
-                  {att.filename}
-                </a>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
 }
 
 // ─── Reply composer (inline, bottom of thread) ─────────────────────────
@@ -495,6 +435,163 @@ function ReplyComposer({
   );
 }
 
+// ─── Thread reader ──────────────────────────────────────────────────────
+//
+// The same shape as the Windows app's reader: the thread as one white page
+// in an isolated frame (no scripts, email styles cannot leak into the app or
+// the app's into the email), the latest message's body first (its header is
+// drawn above the frame), then the earlier ones newest first, each a folded
+// card that opens on a click.
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+const PERSON_PATH = 'M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z';
+const TINTS = ['#e0565b', '#e0913a', '#2f9e6a', '#2f86d6', '#6a5ae0', '#c450b8'];
+
+function tintOf(raw: string): string {
+  const key = parseAddress(raw).email.toLowerCase();
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) | 0;
+  return TINTS[Math.abs(hash) % TINTS.length];
+}
+
+function fullDate(iso: string, locale: string): string {
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));
+}
+
+function attachmentHref(att: EmailMessageView['attachments'][number]): string {
+  const path = att.downloadPath || att.url || '';
+  if (!path) return '#';
+  if (/^https?:\/\//.test(path)) return path;
+  return `${API_BASE || window.location.origin}${path}`;
+}
+
+function bodyHtml(m: EmailMessageView, t: (k: string) => string): string {
+  const parts: string[] = ['<div class="b" dir="auto">'];
+  if (m.htmlBody && m.htmlBody.trim()) {
+    parts.push(DOMPurify.sanitize(m.htmlBody, { FORCE_BODY: true, ADD_ATTR: ['target'], FORBID_TAGS: ['form', 'input', 'button'] }));
+  } else {
+    parts.push('<pre>', escapeHtml(m.textBody || m.snippet || ''), '</pre>');
+  }
+  parts.push('</div>');
+  if (m.attachments.length) {
+    parts.push('<div class="files">');
+    for (const a of m.attachments) {
+      parts.push(`<a class="file" dir="auto" href="${escapeHtml(attachmentHref(a))}">📎 ${escapeHtml(a.filename || t('emailInbox.attach'))}</a>`);
+    }
+    parts.push('</div>');
+  }
+  if (m.deliveryError) parts.push(`<div class="err" dir="auto">${escapeHtml(m.deliveryError)}</div>`);
+  return parts.join('');
+}
+
+function readerDocument(messages: EmailMessageView[], dir: string, locale: string, t: (k: string) => string): string {
+  const css = [
+    'html,body{background:#ffffff}',
+    "body{margin:0;padding:14px 18px 20px;font-family:'Segoe UI Variable Text','Segoe UI',Vazirmatn,Tahoma,system-ui,sans-serif;font-size:14px;line-height:1.55;color:#1f2633}",
+    '.b{overflow-wrap:anywhere}.b img{max-width:100%;height:auto}.b table{max-width:100%}pre{white-space:pre-wrap;font-family:inherit;margin:0}',
+    'a{color:#2f6ae0}',
+    '.err{margin-top:12px;padding:8px 12px;border-radius:8px;background:#fdecec;color:#c62f35;font-size:12.5px}',
+    '.earlier{margin-top:26px;padding-top:14px;border-top:1px solid #e6e9ef}',
+    '.et{font-size:12px;font-weight:600;color:#6b7485;margin:0 2px 10px}',
+    'details{border:1px solid #e3e7ee;border-radius:12px;margin-bottom:10px;background:#f8f9fb;overflow:hidden}',
+    'details[open]{background:#ffffff}',
+    'summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;padding:10px 14px}',
+    'summary::-webkit-details-marker{display:none}',
+    'summary:hover{background:#eef2f8}',
+    '.av{flex:none;position:relative;width:30px;height:30px;border-radius:50%;background:#eef1f5;display:flex;align-items:center;justify-content:center;overflow:hidden}',
+    '.av i{position:absolute;inset:0;border-radius:50%;opacity:.24}',
+    '.av svg{position:relative;width:46%;height:46%;opacity:.85}',
+    '.who{flex:none;max-width:40%;font-weight:600;font-size:13px;color:#0f1729;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.sn{flex:1;min-width:0;font-size:12.5px;color:#6b7485;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    'details[open] .sn{visibility:hidden}',
+    '.dt{flex:none;font-size:12px;color:#98a2b3;white-space:nowrap}',
+    '.in{padding:4px 16px 16px;border-top:1px solid #eef0f4}',
+    '.meta{font-size:12px;color:#6b7485;margin:8px 0 12px;overflow-wrap:anywhere}',
+    '.files{margin-top:12px;display:flex;flex-wrap:wrap;gap:6px}',
+    '.file{font-size:12px;color:#3b4252;background:#f1f4f9;border-radius:8px;padding:4px 10px;text-decoration:none}',
+    '.file:hover{background:#e6ebf3}',
+  ].join('');
+  const out: string[] = [
+    `<!doctype html><html dir="${dir}"><head><meta charset="utf-8"><base target="_blank"><style>${css}</style></head><body>`,
+  ];
+  const latest = messages[messages.length - 1];
+  if (latest) out.push(bodyHtml(latest, t));
+  if (messages.length > 1) {
+    out.push(`<div class="earlier"><div class="et">${escapeHtml(t('emailInbox.earlierMessages').replace('{n}', String(messages.length - 1)))}</div>`);
+    for (let i = messages.length - 2; i >= 0; i--) {
+      const m = messages[i];
+      const from = parseAddress(m.fromAddress);
+      const tint = tintOf(m.fromAddress);
+      const snippet = decodeEntities(m.snippet || m.textBody || '').replace(/\s+/g, ' ').trim();
+      out.push(
+        '<details><summary>',
+        `<span class="av"><i style="background:${tint}"></i><svg viewBox="0 0 24 24"><path fill="${tint}" d="${PERSON_PATH}"/></svg></span>`,
+        `<span class="who" dir="auto">${escapeHtml(from.name)}</span>`,
+        `<span class="sn" dir="auto">${escapeHtml(snippet)}</span>`,
+        `<span class="dt">${escapeHtml(formatListDate(m.sentAt, locale))}</span>`,
+        '</summary><div class="in"><div class="meta">',
+        escapeHtml(`${t('emailInbox.from')}: ${m.fromAddress}`), '<br>',
+        escapeHtml(`${t('emailInbox.to')}: ${formatAddressList(m.toAddresses)}`),
+      );
+      if (m.ccAddresses.length) out.push('<br>', escapeHtml(`Cc: ${formatAddressList(m.ccAddresses)}`));
+      out.push('<br>', escapeHtml(fullDate(m.sentAt, locale)), '</div>', bodyHtml(m, t), '</div></details>');
+    }
+    out.push('</div>');
+  }
+  out.push('</body></html>');
+  return out.join('');
+}
+
+function formatAddressList(list: Array<{ email: string }>): string {
+  return list.map((a) => a.email).join(', ');
+}
+
+function LatestMessageHeader({ message }: { message: EmailMessageView }) {
+  const { t, locale } = useTranslation();
+  const from = parseAddress(message.fromAddress);
+  return (
+    <div className="flex items-start gap-3 border-b border-border px-4 py-3">
+      <Avatar className="h-9 w-9 shrink-0">
+        <AvatarFallback className={cn('text-xs font-semibold', avatarColorOf(message.fromAddress))}>{initialsOf(message.fromAddress)}</AvatarFallback>
+      </Avatar>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <span dir="auto" className="truncate text-sm font-semibold text-foreground">{from.name}</span>
+          <span dir="ltr" className="hidden truncate text-xs text-muted-foreground sm:inline">&lt;{from.email}&gt;</span>
+          <DeliveryStatusBadge message={message} />
+          <span className="ms-auto shrink-0 text-xs text-muted-foreground">{fullDate(message.sentAt, locale)}</span>
+        </div>
+        <div dir="auto" className="mt-0.5 truncate text-xs text-muted-foreground">
+          {t('emailInbox.to' as any)}: {formatAddresses(message.toAddresses)}
+          {message.ccAddresses.length > 0 && ` · Cc: ${formatAddresses(message.ccAddresses)}`}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ThreadReader({ messages }: { messages: EmailMessageView[] }) {
+  const { t, locale, dir } = useTranslation();
+  const doc = useMemo(
+    () => readerDocument(messages, dir || 'ltr', locale, (k) => t(k as any)),
+    [messages, dir, locale, t],
+  );
+  return (
+    <iframe
+      title="email"
+      srcDoc={doc}
+      // No scripts, no same-origin: the email can neither run code nor reach
+      // the app. Links and attachment chips open in a new tab.
+      sandbox="allow-popups allow-popups-to-escape-sandbox"
+      referrerPolicy="no-referrer"
+      className="h-full w-full flex-1 border-0 bg-white"
+    />
+  );
+}
+
 // ─── Thread view ────────────────────────────────────────────────────────
 
 function ThreadView({
@@ -547,15 +644,12 @@ function ThreadView({
           <Star className={cn('h-4 w-4', thread.isStarred && 'fill-amber-400 text-amber-400')} />
         </Button>
       </div>
-      <ScrollArea className="flex-1">
-        <div className="space-y-2 p-4">
-          {messages.map((message, i) => (
-            <MessageCard key={message.id} message={message} defaultOpen={i === messages.length - 1} />
-          ))}
-        </div>
-      </ScrollArea>
+      {messages.length > 0 && <LatestMessageHeader message={messages[messages.length - 1]} />}
+      <div className="flex min-h-0 flex-1">
+        <ThreadReader messages={messages} />
+      </div>
       {replyTo.length > 0 && (
-        <div className="p-4 pt-0">
+        <div className="border-t border-border p-4">
           <ReplyComposer workspaceId={workspaceId} scope={scope} live={live} threadId={threadId} defaultTo={replyTo} defaultSubject={thread.subject || ''} />
         </div>
       )}

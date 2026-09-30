@@ -69,7 +69,7 @@ import { useProfile } from '@/hooks/useProfile';
 import { Zap, UserRound } from 'lucide-react';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { MessageAttachmentView, humanSize } from '@/components/inbox/MessageAttachmentView';
-import { ChannelBadge, ChannelIdentityCard, resolveChannelKey } from '@/components/inbox/ChannelBadge';
+import { ChannelBadge, ChannelIdentityCard, resolveChannelKey, resolveClientPlatform } from '@/components/inbox/ChannelBadge';
 import { ContactDrawer } from '@/features/contacts/ContactDrawer';
 import { PresenceBadge, PresenceDot } from '@/components/inbox/PresenceIndicator';
 import { formatTime, formatLongDate, formatRelative, formatDateTime } from '@/lib/date';
@@ -150,6 +150,7 @@ interface ConversationMeta {
   ai_state?: string;
   ai_handoff_reason?: string;
   channel?: string;
+  client_platform?: string;
   [key: string]: unknown;
 }
 
@@ -1619,7 +1620,9 @@ export default function InboxPage() {
                           <span className="truncate">{name}</span>
                           {(() => {
                             const ch = resolveChannelKey(conv?.metadata, conv?.contacts?.metadata);
-                            return ch === 'widget' ? null : <ChannelBadge channel={ch} t={t} size="xs" className="shrink-0" />;
+                            if (ch === 'widget') return null;
+                            const app = resolveClientPlatform(conv?.metadata, conv?.contacts?.metadata);
+                            return <ChannelBadge channel={ch} t={t} clientPlatform={app} size="xs" className="shrink-0" />;
                           })()}
                         </span>
                         <span className={cn(
@@ -1940,7 +1943,9 @@ export default function InboxPage() {
                   <div className="text-[12px] text-muted-foreground flex items-center gap-1.5">
                     {(() => {
                       const ch = resolveChannelKey(selected?.metadata, selected?.contacts?.metadata);
-                      return ch === 'widget' ? null : <ChannelBadge channel={ch} t={t} size="xs" />;
+                      if (ch === 'widget') return null;
+                      const app = resolveClientPlatform(selected?.metadata, selected?.contacts?.metadata);
+                      return <ChannelBadge channel={ch} t={t} clientPlatform={app} size="xs" />;
                     })()}
                     {selected.contacts?.email && <span className="truncate">{selected.contacts.email}</span>}
                     {presence && presence.status !== 'unknown' && (
@@ -2298,6 +2303,19 @@ export default function InboxPage() {
                       <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
                         <PhoneOff className="w-3 h-3" />
                         <span>{text}</span>
+                      </div>
+                    </div>
+                  );
+                }
+                // A site user's rating of a platform-support conversation
+                // (docs/PLATFORM_SUPPORT.md). Internal: only the team sees it.
+                if (msg.sender_type === 'system' && meta.kind === 'support_rating') {
+                  const text = systemMessageText(meta as SystemMessageMeta, t) ?? msg.body;
+                  return (
+                    <div key={msg.id} className="flex justify-center my-1">
+                      <div className="inline-flex max-w-[85%] items-start gap-1.5 px-3 py-1 rounded-2xl bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
+                        <Star className="w-3 h-3 mt-0.5 shrink-0 text-warning" />
+                        <span className="whitespace-pre-wrap break-words">{text}</span>
                       </div>
                     </div>
                   );
@@ -3061,6 +3079,8 @@ export default function InboxPage() {
                   metadata={{
                     ...((selected?.contacts?.metadata as Record<string, unknown> | null | undefined) || {}),
                     ...((metaOf(selected).channel ? { channel: metaOf(selected).channel } : {}) as Record<string, unknown>),
+                    // The app this conversation was written from, over the contact's latest.
+                    ...(metaOf(selected).client_platform ? { client_platform: metaOf(selected).client_platform } : {}),
                   }}
                   t={t}
                   dir={dir === 'rtl' ? 'rtl' : 'ltr'}

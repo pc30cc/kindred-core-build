@@ -52,6 +52,7 @@ import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { MessageAttachmentView } from '@/components/inbox/MessageAttachmentView';
 import { contactDisplayName, type ContactDisplayT } from '@/lib/contact-display';
 import { formatTime, formatDate } from '@/lib/date';
+import { systemMessageText, type SystemMessageMeta } from '@/lib/systemMessageText';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
@@ -78,6 +79,7 @@ interface TimelineMessage {
   attachment?: TimelineAttachment | null;
   seen_at?: string | null;
   read_at?: string | null;
+  metadata?: SystemMessageMeta | null;
 }
 
 /** The fields of a conversation this screen actually reads. */
@@ -427,7 +429,8 @@ export default function MobileConversationPage() {
               return (
                 <div key={m.id} className="flex justify-center py-1">
                   <p className="max-w-[85%] rounded-full bg-card px-3 py-1 text-center text-[12px] text-muted-foreground shadow-sm">
-                    {m.body}
+                    {/* Stored in English; rebuilt from metadata to follow the app's language. */}
+                    {systemMessageText(m.metadata, displayT) ?? m.body}
                   </p>
                 </div>
               );

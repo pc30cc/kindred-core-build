@@ -8,7 +8,7 @@
  * /api/admin/platform-support (server/routes/adminPlatformSupport.ts); the
  * contract every client follows is docs/PLATFORM_SUPPORT.md.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Textarea } from '@/components/ui/textarea';
 import { AlertTriangle, Check, LifeBuoy, Loader2, Search, X } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { adminFetch } from '@/hooks/useAdmin';
@@ -32,8 +31,6 @@ interface SupportWorkspace {
 interface PlatformSupportSettings {
   enabled: boolean;
   workspaceId: string | null;
-  ticketsEnabled: boolean;
-  notifyEmails: string[];
   updatedAt: string | null;
 }
 
@@ -44,35 +41,12 @@ interface SettingsResponse {
 }
 
 const SETTINGS_KEY = ['admin', 'platform-support', 'settings'] as const;
-const MAX_EMAILS = 20;
-// The server's own rule (server/services/platformSupport/settings.ts). It
-// drops anything else without a word, so the admin is told here instead.
-const EMAIL = /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:"]+$/;
-
-/** One address per line (commas and semicolons too): trimmed, lower-cased, unique. */
-function parseEmails(text: string): { emails: string[]; invalid: string[] } {
-  const emails: string[] = [];
-  const invalid: string[] = [];
-  for (const line of text.split(/[\n,;]+/)) {
-    const value = line.trim();
-    if (!value) continue;
-    const email = value.toLowerCase();
-    if (email.length > 254 || !EMAIL.test(email)) {
-      if (!invalid.includes(value)) invalid.push(value);
-    } else if (!emails.includes(email)) {
-      emails.push(email);
-    }
-  }
-  return { emails, invalid };
-}
 
 export default function PlatformSupportCard() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [enabled, setEnabled] = useState(false);
   const [workspace, setWorkspace] = useState<SupportWorkspace | null>(null);
-  const [ticketsEnabled, setTicketsEnabled] = useState(true);
-  const [emailsText, setEmailsText] = useState('');
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [dirty, setDirty] = useState(false);
@@ -91,8 +65,6 @@ export default function PlatformSupportCard() {
     setEnabled(settings.enabled);
     // A workspace deleted since it was chosen: the id is still stored, the row is gone.
     setWorkspace(data.workspace ?? (settings.workspaceId ? { id: settings.workspaceId, name: null, slug: null } : null));
-    setTicketsEnabled(settings.ticketsEnabled);
-    setEmailsText(settings.notifyEmails.join('\n'));
     setDirty(false);
   }, [data]);
 
@@ -114,8 +86,6 @@ export default function PlatformSupportCard() {
     staleTime: 30_000,
   });
 
-  const parsed = useMemo(() => parseEmails(emailsText), [emailsText]);
-  const tooMany = parsed.emails.length > MAX_EMAILS;
   const workspaceMissing =
     !!data?.settings.workspaceId && !data.workspace && workspace?.id === data.settings.workspaceId;
   const suggestions = data?.suggestions ?? [];
@@ -136,12 +106,7 @@ export default function PlatformSupportCard() {
         '/api/admin/platform-support/settings',
         {
           method: 'PUT',
-          body: JSON.stringify({
-            enabled,
-            workspaceId: workspace?.id ?? null,
-            ticketsEnabled,
-            notifyEmails: parsed.emails,
-          }),
+          body: JSON.stringify({ enabled, workspaceId: workspace?.id ?? null }),
         },
       );
       qc.setQueryData<SettingsResponse>(SETTINGS_KEY, (prev) => ({
@@ -176,7 +141,7 @@ export default function PlatformSupportCard() {
             <LifeBuoy className="h-5 w-5 text-primary" />
             <CardTitle className="text-base">{t('admin.coreSettings.support.title')}</CardTitle>
           </div>
-          <Button size="sm" onClick={save} disabled={!dirty || saving || tooMany || parsed.invalid.length > 0}>
+          <Button size="sm" onClick={save} disabled={!dirty || saving}>
             {t('admin.brandingPage.common.save')}
           </Button>
         </div>
@@ -313,48 +278,6 @@ export default function PlatformSupportCard() {
                     })
                   )}
                 </div>
-              )}
-            </div>
-
-            <div className="flex items-start justify-between gap-4">
-              <div className="grid gap-1">
-                <Label htmlFor="platform-support-tickets">{t('admin.coreSettings.support.ticketsLabel')}</Label>
-                <p className="text-xs text-muted-foreground">
-                  {ticketsEnabled
-                    ? t('admin.coreSettings.support.ticketsOnHint')
-                    : t('admin.coreSettings.support.ticketsOffHint')}
-                </p>
-              </div>
-              <Switch
-                id="platform-support-tickets"
-                checked={ticketsEnabled}
-                onCheckedChange={(v) => { setTicketsEnabled(v); setDirty(true); }}
-              />
-            </div>
-
-            <div className="grid max-w-md gap-1.5">
-              <Label htmlFor="platform-support-emails">{t('admin.coreSettings.support.notifyLabel')}</Label>
-              <Textarea
-                id="platform-support-emails"
-                dir="ltr"
-                rows={4}
-                value={emailsText}
-                onChange={(e) => { setEmailsText(e.target.value); setDirty(true); }}
-                placeholder={t('admin.coreSettings.support.notifyPlaceholder')}
-                className="font-mono text-xs"
-              />
-              <p className="text-xs text-muted-foreground">
-                {t('admin.coreSettings.support.notifyHint', { max: MAX_EMAILS })}
-              </p>
-              {parsed.invalid.length > 0 && (
-                <p className="text-xs text-destructive">
-                  {t('admin.coreSettings.support.notifyInvalid', { emails: parsed.invalid.join(', ') })}
-                </p>
-              )}
-              {tooMany && (
-                <p className="text-xs text-destructive">
-                  {t('admin.coreSettings.support.notifyTooMany', { max: MAX_EMAILS })}
-                </p>
               )}
             </div>
           </div>

@@ -35,6 +35,7 @@ const KINDS = [
   { kind: 'routing_in_queue' },
   { kind: 'call_invitation', channel: 'video', operator_name: 'Ali', status: 'pending' },
   { kind: 'call_ended', ended_by: 'operator', duration_seconds: 72 },
+  { kind: 'support_rating', internal: true, score: 4, comment: 'great help' },
 ];
 
 describe('every system message kind has text, in every locale', () => {
@@ -61,7 +62,7 @@ describe('every system message kind has text, in every locale', () => {
     for (const meta of KINDS) {
       for (const [name, t] of Object.entries(T)) {
         expect(systemMessageText(meta, t), `${name} / ${meta.kind}`)
-          .not.toMatch(/\{(actor|to|name|op|duration|m)\}/);
+          .not.toMatch(/\{(actor|to|name|op|duration|m|score|rating|comment)\}/);
       }
     }
   });
@@ -116,6 +117,29 @@ describe('the sentences say the right thing', () => {
       { kind: 'call_ended', ended_by: 'operator', duration_seconds: 30, end_reason: 'failed' },
     ]) {
       expect(systemMessageText(meta, T.en), JSON.stringify(meta)).toBe('Call did not connect');
+    }
+  });
+
+  it('shows a site user\'s rating, with their comment when they left one', () => {
+    const rated = { kind: 'support_rating', internal: true, score: 4, comment: 'great help' };
+    expect(systemMessageText(rated, T.en)).toBe('Rated the conversation 4/5 — “great help”');
+    expect(systemMessageText(rated, T.fa)).toBe('به این گفتگو 4 از ۵ امتیاز داد — «great help»');
+    expect(systemMessageText(rated, T.tr)).toBe('Görüşmeye 5 üzerinden 4 puan verdi — “great help”');
+
+    for (const comment of [null, undefined, '', '   ']) {
+      expect(systemMessageText({ kind: 'support_rating', score: 5, comment }, T.en)).toBe('Rated the conversation 5/5');
+    }
+    expect(systemMessageText({ kind: 'support_rating', score: 2 }, T.fa)).toBe('به این گفتگو 2 از ۵ امتیاز داد');
+  });
+
+  it('takes the comment as typed, placeholders and all', () => {
+    expect(systemMessageText({ kind: 'support_rating', score: 3, comment: '{rating} costs $& {score}' }, T.en))
+      .toBe('Rated the conversation 3/5 — “{rating} costs $& {score}”');
+  });
+
+  it('falls back to the stored body when the score is not a rating', () => {
+    for (const score of [undefined, null, 0, 6, 2.5, Number.NaN]) {
+      expect(systemMessageText({ kind: 'support_rating', score }, T.en), String(score)).toBeNull();
     }
   });
 

@@ -5,7 +5,8 @@
  * Channel is stored by the canonical inbound pipeline on both
  * `conversations.metadata.channel` and `contacts.metadata.channel`.
  * `platform_support` is an operator of another workspace writing to the
- * platform's own team (docs/PLATFORM_SUPPORT.md): shown as "Site user".
+ * platform's own team (docs/PLATFORM_SUPPORT.md): shown as "Site user", with
+ * the app they wrote from when it is known ("Site user · Android").
  */
 import { MessageSquare, Send, Mail, Phone, MessageCircle, Instagram, AtSign, LifeBuoy } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -72,35 +73,72 @@ export function resolveChannelKey(...sources: Array<unknown>): ChannelKey {
   return 'widget';
 }
 
+export type ClientPlatform = 'android' | 'ios' | 'macos' | 'windows' | 'web';
+
+/** Product names, so never translated. */
+const CLIENT_PLATFORM_NAMES: Record<ClientPlatform, string> = {
+  android: 'Android',
+  ios: 'iOS',
+  macos: 'macOS',
+  windows: 'Windows',
+  web: 'Web',
+};
+
+/**
+ * The app a platform-support operator wrote from: `client_platform` on the
+ * first metadata blob that names a known one — pass the conversation's
+ * before the contact's, as for `resolveChannelKey`.
+ */
+export function resolveClientPlatform(...sources: Array<unknown>): ClientPlatform | null {
+  for (const src of sources) {
+    const meta = (src ?? {}) as Record<string, unknown>;
+    const raw = typeof meta.client_platform === 'string' ? meta.client_platform.trim().toLowerCase() : '';
+    if (Object.prototype.hasOwnProperty.call(CLIENT_PLATFORM_NAMES, raw)) return raw as ClientPlatform;
+  }
+  return null;
+}
+
 /** Channels whose name is a word, not a brand, and so is translated. */
 const LABEL_KEYS: Partial<Record<ChannelKey, string>> = {
   widget: 'contacts.sourceChat',
   platform_support: 'contacts.sourcePlatformSupport',
 };
 
-export function channelLabel(channel: ChannelKey, t?: (k: string) => string | undefined): string {
+/**
+ * The channel's name. For platform support, `clientPlatform` adds the app
+ * the operator wrote from ("Site user · Android"); other channels ignore it.
+ */
+export function channelLabel(
+  channel: ChannelKey,
+  t?: (k: string) => string | undefined,
+  clientPlatform?: ClientPlatform | null,
+): string {
   const key = LABEL_KEYS[channel];
-  if (key) {
-    const translated = t?.(key);
-    // The i18n lookup answers a missing key with the key itself.
-    if (translated && translated !== key) return translated;
-  }
-  return META[channel].label;
+  const translated = key ? t?.(key) : undefined;
+  // The i18n lookup answers a missing key with the key itself.
+  const label = translated && translated !== key ? translated : META[channel].label;
+  return channel === 'platform_support' && clientPlatform
+    ? `${label} · ${CLIENT_PLATFORM_NAMES[clientPlatform]}`
+    : label;
 }
 
 export function ChannelBadge({
   channel,
   t,
+  clientPlatform,
   size = 'sm',
   className,
 }: {
   channel: ChannelKey;
   t?: (k: string) => string | undefined;
+  /** Platform support only: the app the operator wrote from (`resolveClientPlatform`). */
+  clientPlatform?: ClientPlatform | null;
   size?: 'xs' | 'sm';
   className?: string;
 }) {
   const meta = META[channel];
   const Icon = meta.icon;
+  const label = channelLabel(channel, t, clientPlatform);
   return (
     <span
       className={cn(
@@ -109,10 +147,10 @@ export function ChannelBadge({
         meta.className,
         className,
       )}
-      title={channelLabel(channel, t)}
+      title={label}
     >
       <Icon className={size === 'xs' ? 'w-2.5 h-2.5' : 'w-3 h-3'} />
-      {channelLabel(channel, t)}
+      {label}
     </span>
   );
 }
@@ -127,8 +165,8 @@ type ChannelMeta = Record<string, unknown> | null | undefined;
 
 /**
  * Provider-side identity rows (Telegram username, id, language, premium).
- * For a platform-support contact: the workspace the operator wrote from —
- * their email is on the contact itself.
+ * For a platform-support contact: the workspace and the app the operator
+ * wrote from — their email is on the contact itself.
  */
 export function ChannelIdentityCard({
   metadata,
@@ -150,6 +188,8 @@ export function ChannelIdentityCard({
   if (channel === 'platform_support') {
     const workspaceName = typeof meta.platform_workspace_name === 'string' ? meta.platform_workspace_name.trim() : '';
     if (workspaceName) rows.push({ label: t('contacts.platformWorkspace') || 'Workspace', value: workspaceName, valueDir: 'auto' });
+    const clientPlatform = resolveClientPlatform(meta);
+    if (clientPlatform) rows.push({ label: t('contacts.platformClient') || 'App', value: CLIENT_PLATFORM_NAMES[clientPlatform] });
   }
   if (meta.channel_username) rows.push({ label: t('contacts.username') || 'Username', value: `@${meta.channel_username}` });
   if (meta.channel_user_id) rows.push({ label: t('contacts.channelUserId') || 'User ID', value: String(meta.channel_user_id) });

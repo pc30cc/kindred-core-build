@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/lib/toast';
-import { Save, Trash2, Eye, Code, Mail, Shield, Bell, CreditCard, Copy, Receipt, LifeBuoy } from 'lucide-react';
+import { Save, Trash2, Eye, Code, Mail, Shield, Bell, CreditCard, Copy, Receipt } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '@/i18n';
 
 async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -43,9 +43,6 @@ const CATEGORIES = [
   // `services/notificationEmail/producers.ts` renders through each of them.
   { key: 'notification', icon: Bell, slugs: ['operator_unread_digest', 'operator_conversation_transcript', 'operator_invoice_paid', 'operator_weekly_summary', 'operator_product_update', 'new_conversation', 'task_assigned', 'account_expiry', 'system_alert'] },
   { key: 'billing', icon: Receipt, slugs: ['invoice_issued', 'invoice_reminder', 'invoice_due', 'invoice_past_due', 'wallet_autopay_insufficient', 'payment_received', 'subscription_restored', 'subscription_free_fallback'] },
-  // Platform support tickets (docs/PLATFORM_SUPPORT.md): to the support team
-  // when an operator files one, and to the operator when the team replies.
-  { key: 'support', icon: LifeBuoy, slugs: ['platform_support_ticket_created', 'platform_support_ticket_reply'] },
 ] as const;
 
 // Every billing notification renders with the same server-provided context.
@@ -75,8 +72,6 @@ const SLUG_VARIABLES: Record<string, string[]> = {
   payment_received: BILLING_VARIABLES,
   subscription_restored: BILLING_VARIABLES,
   subscription_free_fallback: BILLING_VARIABLES,
-  platform_support_ticket_created: ['{brand}', '{year}', '{ticket_number}', '{action_url}', '{requester_email}', '{workspace_name}', '{requester_name}', '{subject}', '{message}'],
-  platform_support_ticket_reply: ['{brand}', '{year}', '{ticket_number}', '{action_url}', '{agent_name}', '{subject}', '{reply}'],
 };
 
 const LOCALES = [

@@ -90,6 +90,9 @@ const COPY = {
     colleague: 'Colleague',
     teamPrivacyBody: 'New message from a colleague',
     teamMessage: (name: string) => `${name} · colleague`,
+    support: 'Support',
+    supportPrivacyBody: 'New reply from support',
+    supportReply: (name: string) => `${name} · Support`,
     assignedTitle: 'Conversation assigned to you',
     assignedPrivacyBody: 'A conversation was assigned to you',
     assignedBy: (name: string) => `Assigned by ${name}`,
@@ -113,6 +116,9 @@ const COPY = {
     colleague: 'همکار',
     teamPrivacyBody: 'پیام جدید از همکار',
     teamMessage: (name: string) => `${name} · همکار`,
+    support: 'پشتیبانی',
+    supportPrivacyBody: 'پاسخ جدید از پشتیبانی',
+    supportReply: (name: string) => `${name} · پشتیبانی`,
     assignedTitle: 'گفتگو به شما سپرده شد',
     assignedPrivacyBody: 'گفتگویی به شما سپرده شد',
     assignedBy: (name: string) => `سپرده‌شده توسط ${name}`,
@@ -136,6 +142,9 @@ const COPY = {
     colleague: 'İş arkadaşı',
     teamPrivacyBody: 'Bir iş arkadaşından yeni mesaj',
     teamMessage: (name: string) => `${name} · iş arkadaşı`,
+    support: 'Destek',
+    supportPrivacyBody: 'Destekten yeni yanıt',
+    supportReply: (name: string) => `${name} · Destek`,
     assignedTitle: 'Görüşme size atandı',
     assignedPrivacyBody: 'Size bir görüşme atandı',
     assignedBy: (name: string) => `${name} tarafından atandı`,
@@ -476,6 +485,120 @@ export function renderTeamContent(
   const text = (input.text || '').trim();
   const fallback = input.hasAttachment ? copy.attachment : copy.newMessage;
   return mark({ title: name ? copy.teamMessage(name) : copy.colleague, body: truncate(text || fallback) });
+}
+
+export interface SupportReplyPushInput {
+  /** The operator who opened the support thread. */
+  userId: string;
+  /**
+   * A workspace that operator belongs to: the one the thread was opened
+   * from while they still belong to it. The app files the notification under
+   * it, and ignores one for a workspace it does not know.
+   */
+  workspaceId: string;
+  /** The support thread (its conversation id), which a tap opens. */
+  threadId: string;
+  messageId: string;
+  /** The support agent's name, when they have one. */
+  senderName?: string | null;
+  /** Only shown when the operator allows previews. */
+  text?: string | null;
+}
+
+/**
+ * The platform's support team answered an operator's support thread.
+ *
+ * Addressed to that one operator, so it goes where a colleague's message
+ * goes: past their scope, through quiet hours as a direct message does, and
+ * only with a preview they allow. `data` names the thread, not a
+ * conversation of theirs — the conversation lives in the support team's
+ * workspace, which the operator cannot open.
+ */
+export async function notifySupportReply(config: ServerConfig, input: SupportReplyPushInput): Promise<void> {
+  try {
+    if (!isPushConfigured() && !isApnsConfigured()) return;
+    const policy = await loadPushPlatformSettings(config);
+    if (!policy.push_enabled) return;
+    const eventType: PushEventType = 'support_reply';
+
+    const [recipient] = await resolveRecipients(config, {
+      workspaceId: input.workspaceId,
+      assignedTo: null,
+      eventType,
+      actorId: null,
+      mentionedUserIds: [input.userId],
+      userIds: [input.userId],
+      policy,
+    });
+    if (!recipient) return;
+    const devices = await listActiveDevices(config, [recipient.userId]);
+    if (!devices.length) return;
+
+    const sb = getServiceClient(config);
+    const dedupeKey = `${eventType}:${input.messageId}`;
+    const { error: claimError } = await sb.from('push_dispatch_log').insert({
+      workspace_id: input.workspaceId,
+      user_id: recipient.userId,
+      conversation_id: null,
+      message_id: input.messageId,
+      notification_type: eventType,
+      dedupe_key: dedupeKey,
+      status: 'attempted',
+    });
+    if (claimError) return; // duplicate (or logging outage) → stay silent
+
+    const { title, body } = renderSupportContent(
+      { senderName: input.senderName, text: input.text },
+      recipient.preview,
+      recipient.locale,
+    );
+    const thread = `support-${input.threadId}`;
+    const { accepted, failed } = await deliver(config, recipient, devices, {
+      title,
+      body,
+      data: {
+        type: eventType,
+        workspaceId: input.workspaceId,
+        threadId: input.threadId,
+        messageId: input.messageId,
+      },
+      collapseId: policy.collapse_enabled ? thread : undefined,
+      apns: apnsDeliveryFor(policy, eventType, { workspaceId: input.workspaceId, conversationId: thread }),
+      androidChannelId: policy.android_channel_id,
+    });
+
+    await finish(
+      config,
+      input.workspaceId,
+      recipient.userId,
+      dedupeKey,
+      devices.length,
+      accepted,
+      failed,
+      accepted > 0 ? 'sent' : 'failed',
+    );
+  } catch (err) {
+    // The reply is already saved and on its way over realtime.
+    console.error('[push] support dispatch error', { message: String((err as Error)?.message ?? err) });
+  }
+}
+
+/** A support reply's copy, in the operator's language; nothing leaves with previews off. */
+export function renderSupportContent(
+  input: { senderName?: string | null; text?: string | null },
+  preview: boolean,
+  locale = 'en',
+): { title: string; body: string } {
+  const lang = copyLocale(locale);
+  const copy = COPY[lang];
+  const mark = (result: { title: string; body: string }) => ({
+    title: directed(lang, result.title),
+    body: directed(lang, result.body),
+  });
+  if (!preview) return mark({ title: copy.support, body: copy.supportPrivacyBody });
+  const name = (input.senderName || '').trim();
+  const text = (input.text || '').trim();
+  return mark({ title: name ? copy.supportReply(name) : copy.support, body: truncate(text || copy.newMessage) });
 }
 
 /**

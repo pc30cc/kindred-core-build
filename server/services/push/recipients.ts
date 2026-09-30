@@ -37,7 +37,12 @@ export type PushEventType =
    * The AI stopped and handed a conversation to people: to whoever already
    * holds it, or — when nobody does — to the operators following everything.
    */
-  | 'handoff';
+  | 'handoff'
+  /**
+   * The platform's support team answered one of this operator's support
+   * threads. Addressed to that one operator, like a colleague's message.
+   */
+  | 'support_reply';
 
 export interface RecipientContext {
   workspaceId: string;
@@ -261,6 +266,7 @@ export async function resolveRecipients(
     // theirs whatever it is set to — only 'none' and "disable all", above,
     // silence it.
     if (ctx.eventType === 'team_message' && !isMentioned) continue;
+    if (ctx.eventType === 'support_reply' && !isMentioned) continue;
     if (ctx.eventType === 'internal_note') {
       if (!p.push_internal_notes && !isMentioned) continue;
       // A note is about the conversation, so it reaches whoever the

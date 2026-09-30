@@ -204,6 +204,8 @@ export function androidNotificationTag(data: Record<string, string>): string | u
       return data.threadId ? `email:${data.threadId}` : undefined;
     case 'callback_request':
       return data.callbackId ? `callback:${data.callbackId}` : undefined;
+    case 'support_reply':
+      return data.threadId ? `support:${data.threadId}` : undefined;
     case 'test':
       return 'push-test';
     default:

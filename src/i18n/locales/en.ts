@@ -2574,6 +2574,8 @@ const en = {
     connectGmail: 'Connect Gmail',
     connectYahoo: 'Connect Yahoo Mail',
     connectFailed: 'Could not start the Gmail connection — try again',
+    oauthConnected: '{provider} connected',
+    oauthFailed: 'Could not connect {provider}',
     searchPlaceholder: 'Search mail',
     unreadFilter: 'Unread',
     loadMore: 'Load more',

@@ -2559,6 +2559,8 @@ const fa: TranslationKeys = {
     connectGmail: 'اتصال به جیمیل',
     connectYahoo: 'اتصال به یاهو میل',
     connectFailed: 'اتصال به جیمیل شروع نشد — دوباره تلاش کنید',
+    oauthConnected: '{provider} متصل شد',
+    oauthFailed: 'اتصال {provider} انجام نشد',
     searchPlaceholder: 'جستجو در ایمیل‌ها',
     unreadFilter: 'خوانده‌نشده',
     loadMore: 'ایمیل‌های بیشتر',

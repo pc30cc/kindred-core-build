@@ -41,8 +41,9 @@ export const YAHOO_SMTP_HOST = 'smtp.mail.yahoo.com';
 export const YAHOO_SMTP_PORT = 465;
 
 // `mail-r`/`mail-w` are Yahoo Mail's documented read/write scopes; `openid`
-// is requested so the userinfo endpoint can resolve the connected address.
-export const YAHOO_OAUTH_SCOPES = 'openid mail-r mail-w';
+// + `email` are requested so the userinfo endpoint returns the connected
+// address (without `email` it answers with no `email` claim).
+export const YAHOO_OAUTH_SCOPES = 'openid email mail-r mail-w';
 
 export interface YahooOAuthConfig {
   clientId: string;
@@ -78,7 +79,7 @@ async function requestJson(
   try {
     const res = await fetchImpl(url, { ...init, signal: controller.signal });
     if (res.status === 401 || res.status === 403) {
-      let body: any = null;
+      let body: { error?: unknown; error_description?: unknown } | null = null;
       try { body = await res.json(); } catch { /* ignore */ }
       const reason = typeof body?.error === 'string' ? body.error : '';
       const description = typeof body?.error_description === 'string' ? body.error_description : '';
@@ -291,7 +292,7 @@ export async function pollYahooInbox(
         uidsToFetch = Array.isArray(found) ? found : [];
       } else {
         const maxMessages = opts.maxMessages ?? 25;
-        const exists = client.mailbox && typeof client.mailbox === 'object' ? (client.mailbox as any).exists ?? 0 : 0;
+        const exists = client.mailbox && typeof client.mailbox === 'object' ? (client.mailbox as { exists?: number }).exists ?? 0 : 0;
         const startSeq = Math.max(1, exists - maxMessages + 1);
         const found = exists > 0 ? await client.search({ seq: `${startSeq}:*` }, { uid: true }) : [];
         uidsToFetch = Array.isArray(found) ? found : [];
@@ -299,8 +300,9 @@ export async function pollYahooInbox(
 
       for (const uid of uidsToFetch) {
         const message = await client.fetchOne(String(uid), { source: true, uid: true }, { uid: true });
-        if (!message || !(message as any).source) continue;
-        const parsed = await simpleParser((message as any).source as Buffer);
+        const source = message ? (message as { source?: Buffer }).source : undefined;
+        if (!source) continue;
+        const parsed = await simpleParser(source);
         messages.push(toYahooParsedMessage(uid, parsed));
         if (lastUid === null || uid > lastUid) lastUid = uid;
       }
@@ -345,7 +347,7 @@ export async function sendViaYahooSmtp(accessToken: string, msg: YahooOutboundMe
     host: YAHOO_SMTP_HOST,
     port: YAHOO_SMTP_PORT,
     secure: true,
-    auth: { type: 'OAuth2', user: msg.fromEmail, accessToken } as any,
+    auth: { type: 'OAuth2', user: msg.fromEmail, accessToken },
   });
   try {
     const info = await transporter.sendMail({

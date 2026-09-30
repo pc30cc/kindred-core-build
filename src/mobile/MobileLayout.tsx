@@ -21,6 +21,7 @@ import { useActiveWorkspace, useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useConversations } from '@/hooks/useConversations';
 import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
 import { WorkspaceNotFound } from '@/features/workspace/WorkspaceNotFound';
+import { WorkspaceRedirect } from '@/features/workspace/WorkspaceRedirect';
 import { initNativePush, setPushNavigationHandler, syncBadge } from '@/lib/push/nativePush';
 import { isNativePlatform } from '@/lib/native';
 import { NavStack } from './ios/NavStack';
@@ -61,7 +62,8 @@ export function MobileLayout() {
     if (workspace?.id) void syncBadge(workspace.id);
   }, [workspace?.id, openConversations]);
 
-  if (notFound) return <WorkspaceNotFound />;
+  // `/app/<page>` matches `/:slug/<page>` — see AppLayout.
+  if (notFound) return slug === 'app' ? <WorkspaceRedirect /> : <WorkspaceNotFound />;
 
   const unread = (openConversations ?? []).reduce(
     (sum: number, c: { unread_count?: number | null }) => sum + (c.unread_count || 0),

@@ -1203,6 +1203,15 @@ function sendGmailError(res: Response, err: unknown) {
   res.status(500).json({ error: 'gmail_unexpected_error', detail: (err as Error)?.message });
 }
 
+// A provider that refuses the consent (user cancelled, redirect_uri or scope
+// not accepted by the app registration, …) comes back with `error` instead
+// of `code`/`state`. Keep its OAuth error code — the only clue to what is
+// wrong — instead of collapsing everything into `missing_params`.
+function oauthProviderDenial(query: Request['query'], provider: 'gmail' | 'yahoo'): string {
+  const raw = typeof query.error === 'string' ? query.error.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 64) : '';
+  return raw ? `${provider}_${raw}` : 'missing_params';
+}
+
 pluginsRouter.get('/gmail/connection', async (req, res) => {
   const workspaceId = String(req.query.workspace_id || '');
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
@@ -1241,7 +1250,9 @@ pluginsRouter.get('/gmail/oauth/callback', async (req, res) => {
   const appBaseUrl = await resolveAppBaseUrl(config);
 
   if (!code || !state) {
-    return res.redirect(`${appBaseUrl}/app/email?gmail=error&reason=missing_params`);
+    const reason = oauthProviderDenial(req.query, 'gmail');
+    console.error(`[gmail] oauth callback without code/state: ${reason}${typeof req.query.error_description === 'string' ? ` (${req.query.error_description.slice(0, 300)})` : ''}`);
+    return res.redirect(`${appBaseUrl}/app/email?gmail=error&reason=${encodeURIComponent(reason)}`);
   }
   try {
     const { workspaceId } = await handleGmailOAuthCallback(config, code, state);
@@ -1343,7 +1354,9 @@ pluginsRouter.get('/yahoo/oauth/callback', async (req, res) => {
   const appBaseUrl = await resolveAppBaseUrl(config);
 
   if (!code || !state) {
-    return res.redirect(`${appBaseUrl}/app/email?yahoo=error&reason=missing_params`);
+    const reason = oauthProviderDenial(req.query, 'yahoo');
+    console.error(`[yahoo] oauth callback without code/state: ${reason}${typeof req.query.error_description === 'string' ? ` (${req.query.error_description.slice(0, 300)})` : ''}`);
+    return res.redirect(`${appBaseUrl}/app/email?yahoo=error&reason=${encodeURIComponent(reason)}`);
   }
   try {
     const { workspaceId } = await handleYahooOAuthCallback(config, code, state);

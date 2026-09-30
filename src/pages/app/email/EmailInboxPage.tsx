@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import DOMPurify from 'dompurify';
 import { Mail, Star, Paperclip, Send, X, RefreshCw, Loader2, AlertCircle, CheckCircle2, Clock, Search } from 'lucide-react';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
@@ -736,6 +736,28 @@ export default function EmailInboxPage() {
   const onRows = useCallback((threads: EmailThreadSummary[]) => {
     setRows(new Map(threads.map((t) => [t.id, t])));
   }, []);
+
+  // OAuth callbacks come back as ?gmail=connected|error&reason=… — tell the
+  // user the outcome once, then drop the params from the URL.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const provider = searchParams.has('yahoo') ? 'yahoo' : searchParams.has('gmail') ? 'gmail' : null;
+    if (!provider) return;
+    const name = provider === 'yahoo' ? 'Yahoo Mail' : 'Gmail';
+    if (searchParams.get(provider) === 'connected') {
+      toast({ title: t('emailInbox.oauthConnected', { provider: name }) });
+    } else {
+      toast({
+        title: t('emailInbox.oauthFailed', { provider: name }),
+        description: searchParams.get('reason') || undefined,
+        variant: 'destructive',
+      });
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete(provider);
+    next.delete('reason');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, t]);
 
   const { data: gmailConnectionData, isLoading: gmailConnectionLoading, isSuccess: gmailConnectionKnown } = useGmailConnection(workspaceId);
   const { data: yahooConnectionData, isLoading: yahooConnectionLoading, isSuccess: yahooConnectionKnown } = useYahooConnection(workspaceId);

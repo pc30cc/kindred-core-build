@@ -1,4 +1,4 @@
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation, useParams } from 'react-router-dom';
 import { AppSidebar } from './AppSidebar';
 import { AppShellSkeleton } from './AppShellSkeleton';
 import { useAppShellReady } from '@/features/workspace/useAppShellReady';
@@ -10,6 +10,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { useI18n } from '@/i18n';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { WorkspaceNotFound } from '@/features/workspace/WorkspaceNotFound';
+import { WorkspaceRedirect } from '@/features/workspace/WorkspaceRedirect';
 import { useAuth } from '@/features/auth/AuthContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Locale } from '@/i18n/config';
@@ -267,6 +268,7 @@ export function AppLayout() {
   const { t, dir } = useI18n();
   const { user } = useAuth();
   const { workspace, notFound, isLoading } = useActiveWorkspace();
+  const { slug: routeSlug } = useParams<{ slug: string }>();
   // Boot gate: user + workspace + plan only. See useAppShellReady.
   const shellReady = useAppShellReady(workspace?.id, isLoading);
   const showVerificationBanner = user && !user.emailVerified;
@@ -307,6 +309,10 @@ export function AppLayout() {
   }, []);
 
   if (!isLoading && notFound) {
+    // `/app/<page>` (OAuth callbacks, payment returns) outranks `/app/*` as
+    // `/:slug/<page>` in React Router, landing here with slug "app" — send it
+    // to the user's workspace instead of a 404.
+    if (routeSlug === 'app') return <WorkspaceRedirect />;
     return <WorkspaceNotFound />;
   }
 

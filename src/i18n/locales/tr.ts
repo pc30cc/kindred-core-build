@@ -2563,6 +2563,8 @@ const tr: TranslationKeys = {
     connectGmail: "Gmail'i bağla",
     connectYahoo: "Yahoo Mail'i bağla",
     connectFailed: 'Gmail bağlantısı başlatılamadı — tekrar deneyin',
+    oauthConnected: '{provider} bağlandı',
+    oauthFailed: '{provider} bağlanamadı',
     searchPlaceholder: 'Postada ara',
     unreadFilter: 'Okunmamış',
     loadMore: 'Daha fazla yükle',

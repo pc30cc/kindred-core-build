@@ -107,6 +107,10 @@ object A11y {
     fun contactRow(id: String) = "contact.$id"
     fun colleagueRow(id: String) = "colleague.$id"
     fun emailFolder(name: String) = "email.folder.$name"
+    /** The ☰ button that opens a mailbox's folders, the menu itself, and one folder in it. */
+    const val EMAIL_FOLDERS = "email.folders"
+    const val EMAIL_DRAWER = "email.drawer"
+    fun emailMailFolder(id: String) = "email.box.$id"
     fun emailMailbox(provider: String) = "email.mailbox.$provider"
     fun emailStar(id: String) = "email.star.$id"
     const val EMAIL_COMPOSE = "email.compose"

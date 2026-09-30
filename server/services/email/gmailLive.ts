@@ -28,6 +28,7 @@ import {
   type GmailAdapter,
   type ParsedGmailMessage,
 } from '../../../channels/mail/gmail/client.js';
+import { SYSTEM_FOLDERS, isLabelFolder, type EmailFolder, type MailFolderSummary, type SystemFolder } from './folders.js';
 
 export class GmailLiveError extends Error {
   constructor(
@@ -77,7 +78,8 @@ export interface LiveMessageView {
   htmlBody: string | null;
   snippet: string | null;
   isRead: boolean;
-  deliveryStatus: 'sent';
+  /** `draft`: a message not sent yet (the Drafts folder shows it). */
+  deliveryStatus: 'sent' | 'draft';
   deliveryError: null;
   sentAt: string;
   attachments: LiveAttachmentView[];
@@ -218,26 +220,68 @@ function toIso(internalDate: string | null): string | null {
 /** Messages the inbox shows: not drafts (unsent work), not trashed or spam messages of an inbox thread. */
 const HIDDEN_LABELS = ['DRAFT', 'TRASH', 'SPAM'];
 
-function visibleMessages(raw: Record<string, unknown>): ParsedGmailMessage[] {
-  const rawMessages = (Array.isArray(raw.messages) ? raw.messages : []) as Record<string, unknown>[];
-  return rawMessages.map(parseGmailMessage).filter((m) => !m.labelIds.some((l) => HIDDEN_LABELS.includes(l)));
+/** The Gmail label each system folder lists; `all` is every thread outside Spam and Trash. */
+const FOLDER_LABEL: Record<SystemFolder, string | null> = {
+  inbox: 'INBOX',
+  starred: 'STARRED',
+  important: 'IMPORTANT',
+  sent: 'SENT',
+  drafts: 'DRAFT',
+  all: null,
+  spam: 'SPAM',
+  trash: 'TRASH',
+};
+
+function folderLabel(folder: EmailFolder): string | null {
+  return isLabelFolder(folder) ? folder.slice('label:'.length) : FOLDER_LABEL[folder];
 }
 
-function summarize(raw: Record<string, unknown>, fallbackSnippet: string | null): LiveThreadSummary | null {
-  const messages = visibleMessages(raw);
+/**
+ * Which of a thread's messages a folder shows, as Gmail shows them: Spam and
+ * Trash show the messages that are there; Drafts shows the thread with its
+ * draft; every other folder the thread without its drafts, spam or trash.
+ */
+function shownIn(folder: EmailFolder): (m: ParsedGmailMessage) => boolean {
+  switch (folder) {
+    case 'spam': return (m) => m.labelIds.includes('SPAM');
+    case 'trash': return (m) => m.labelIds.includes('TRASH');
+    case 'drafts': return (m) => !m.labelIds.includes('SPAM') && !m.labelIds.includes('TRASH');
+    default: return (m) => !m.labelIds.some((l) => HIDDEN_LABELS.includes(l));
+  }
+}
+
+function visibleMessages(raw: Record<string, unknown>, folder: EmailFolder = 'inbox'): ParsedGmailMessage[] {
+  const rawMessages = (Array.isArray(raw.messages) ? raw.messages : []) as Record<string, unknown>[];
+  return rawMessages.map(parseGmailMessage).filter(shownIn(folder));
+}
+
+/**
+ * Whom a row names. Most folders show who wrote to us: the latest message not
+ * sent from this mailbox, falling back to the first sender for threads we
+ * started. Sent and Drafts show whom the mail is to, as mail clients do there.
+ */
+function rowPeople(messages: ParsedGmailMessage[], folder: EmailFolder): string[] {
+  if (folder === 'sent' || folder === 'drafts') {
+    const own = folder === 'sent' ? 'SENT' : 'DRAFT';
+    const mine = [...messages].reverse().find((m) => m.labelIds.includes(own)) ?? messages[messages.length - 1];
+    return mine.toAddresses;
+  }
+  const lastInbound = [...messages].reverse().find((m) => !m.labelIds.includes('SENT'));
+  const sender = lastInbound?.fromAddress || messages[0].fromAddress;
+  return sender ? [sender] : [];
+}
+
+function summarize(raw: Record<string, unknown>, fallbackSnippet: string | null, folder: EmailFolder = 'inbox'): LiveThreadSummary | null {
+  const messages = visibleMessages(raw, folder);
   if (!messages.length) return null;
   const first = messages[0];
   const last = messages[messages.length - 1];
-  // Show who wrote to us: the latest message not sent from this mailbox,
-  // falling back to the first sender for threads we started.
-  const lastInbound = [...messages].reverse().find((m) => !m.labelIds.includes('SENT'));
-  const sender = lastInbound?.fromAddress || first.fromAddress;
   const labels = Array.from(new Set(messages.flatMap((m) => m.labelIds)));
   return {
     id: String(raw.id ?? first.threadId),
     provider: 'gmail',
     subject: first.subject,
-    participants: sender ? [{ email: sender }] : [],
+    participants: rowPeople(messages, folder).map((email) => ({ email })),
     lastMessageAt: toIso(last.internalDate),
     isRead: !labels.includes('UNREAD'),
     isStarred: labels.includes('STARRED'),
@@ -253,21 +297,29 @@ function summarize(raw: Record<string, unknown>, fallbackSnippet: string | null)
 export async function listGmailThreads(
   config: ServerConfig,
   integration: ChannelIntegration,
-  opts: { pageToken?: string | null; limit?: number; unreadOnly?: boolean; starredOnly?: boolean; search?: string },
+  opts: { pageToken?: string | null; limit?: number; unreadOnly?: boolean; starredOnly?: boolean; search?: string; folder?: EmailFolder },
 ): Promise<{ threads: LiveThreadSummary[]; nextPageToken: string | null; historyId: string | null }> {
-  const labelIds = ['INBOX'];
+  const folder = opts.folder ?? 'inbox';
+  const base = folderLabel(folder);
+  const labelIds = base ? [base] : [];
   if (opts.unreadOnly) labelIds.push('UNREAD');
-  if (opts.starredOnly) labelIds.push('STARRED');
+  if (opts.starredOnly && !labelIds.includes('STARRED')) labelIds.push('STARRED');
   const q = opts.search?.trim().slice(0, 200) || null;
   const limit = Math.min(Math.max(opts.limit ?? 25, 1), 50);
-  const key = `list:${integration.id}:${labelIds.join(',')}:${q ?? ''}:${opts.pageToken ?? ''}:${limit}`;
+  const key = `list:${integration.id}:${folder}:${labelIds.join(',')}:${q ?? ''}:${opts.pageToken ?? ''}:${limit}`;
 
   return singleFlight(key, () => withGmail(config, integration, async (ga, accessToken) => {
-    const page = await ga.listThreads(accessToken, { labelIds, q, pageToken: opts.pageToken, maxResults: limit });
+    const page = await ga.listThreads(accessToken, {
+      labelIds,
+      q,
+      pageToken: opts.pageToken,
+      maxResults: limit,
+      includeSpamTrash: folder === 'spam' || folder === 'trash',
+    });
     const threads = await mapWithConcurrency(page.threads, METADATA_CONCURRENCY, async (t) => {
       try {
         const raw = await ga.getThreadRaw(accessToken, t.id, 'metadata', LIST_METADATA_HEADERS);
-        return summarize(raw, t.snippet);
+        return summarize(raw, t.snippet, folder);
       } catch (err) {
         // Deleted between list and get: nothing to show. Anything else fails
         // the page rather than silently dropping rows.
@@ -296,6 +348,55 @@ export async function countGmailUnreadThreads(config: ServerConfig, integration:
     (await ga.getLabelCounts(accessToken, 'INBOX')).threadsUnread));
 }
 
+/** Labels counted for the folder menu at most; a mailbox with more lists the rest without a count. */
+const MAX_COUNTED_LABELS = 40;
+const LABEL_ID = /^[A-Za-z0-9_-]{1,100}$/;
+
+/**
+ * The mailbox's folder menu: the system folders, then the user's own labels
+ * by name, with Gmail's own counters (`users.labels.get`) — unread for Inbox,
+ * Spam and each label, the number of drafts for Drafts. No thread or message
+ * is read. A counter that cannot be read is left null rather than failing
+ * the menu.
+ */
+export async function listGmailFolders(config: ServerConfig, integration: ChannelIntegration): Promise<MailFolderSummary[]> {
+  return singleFlight(`folders:${integration.id}`, () => withGmail(config, integration, async (ga, accessToken) => {
+    const labels = (await ga.listLabels(accessToken))
+      .filter((l) => l.type === 'user' && LABEL_ID.test(l.id))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const counted = ['INBOX', 'SPAM', 'DRAFT', ...labels.slice(0, MAX_COUNTED_LABELS).map((l) => l.id)];
+    const counts = new Map<string, { threadsUnread: number | null; threadsTotal: number | null }>();
+    await mapWithConcurrency(counted, METADATA_CONCURRENCY, async (id) => {
+      try {
+        counts.set(id, await ga.getLabelCounts(accessToken, id));
+      } catch (err) {
+        // A token Gmail refused is retried once by withGmail; anything else
+        // only costs this folder its number.
+        if (isApiUnauthorized(err)) throw err;
+      }
+    });
+    const system = SYSTEM_FOLDERS.map((id): MailFolderSummary => {
+      const label = FOLDER_LABEL[id];
+      const count = label ? counts.get(label) : undefined;
+      return {
+        id,
+        kind: 'system',
+        name: null,
+        unread: id === 'inbox' || id === 'spam' ? count?.threadsUnread ?? null : null,
+        total: id === 'drafts' ? count?.threadsTotal ?? null : null,
+      };
+    });
+    const own = labels.map((l): MailFolderSummary => ({
+      id: `label:${l.id}`,
+      kind: 'label',
+      name: l.name,
+      unread: counts.get(l.id)?.threadsUnread ?? null,
+      total: null,
+    }));
+    return [...system, ...own];
+  }));
+}
+
 // Attachment ids: `<hash>-p<partId>~<messageId>`. The MIME part id is stable
 // for a message, unlike Gmail's attachmentId, which is reissued on every
 // read; the root part of a single-part message has partId "". The short hash
@@ -320,7 +421,7 @@ function messageView(workspaceId: string, m: ParsedGmailMessage): LiveMessageVie
   return {
     id: m.id,
     externalMessageId: m.messageIdHeader || `gmail-${m.id}`,
-    direction: m.labelIds.includes('SENT') ? 'outbound' : 'inbound',
+    direction: m.labelIds.includes('SENT') || m.labelIds.includes('DRAFT') ? 'outbound' : 'inbound',
     fromAddress: m.fromAddress || '',
     toAddresses: m.toAddresses.map((email) => ({ email })),
     ccAddresses: m.ccAddresses.map((email) => ({ email })),
@@ -329,7 +430,7 @@ function messageView(workspaceId: string, m: ParsedGmailMessage): LiveMessageVie
     htmlBody: m.htmlBody,
     snippet: m.snippet,
     isRead: !m.labelIds.includes('UNREAD'),
-    deliveryStatus: 'sent',
+    deliveryStatus: m.labelIds.includes('DRAFT') ? 'draft' : 'sent',
     deliveryError: null,
     sentAt: toIso(m.internalDate) || new Date(0).toISOString(),
     attachments: m.attachments.map((a) => {
@@ -355,13 +456,15 @@ export async function getGmailThread(
   workspaceId: string,
   integration: ChannelIntegration,
   threadId: string,
+  /** The folder it was opened from: Spam and Trash show the messages that are there, Drafts its draft. */
+  folder: EmailFolder = 'inbox',
 ): Promise<{ thread: LiveThreadSummary; messages: LiveMessageView[] }> {
   if (!GMAIL_ID.test(threadId)) throw new GmailLiveError('email_thread_not_found');
-  return singleFlight(`thread:${integration.id}:${threadId}`, () => withGmail(config, integration, async (ga, accessToken) => {
+  return singleFlight(`thread:${integration.id}:${folder}:${threadId}`, () => withGmail(config, integration, async (ga, accessToken) => {
     const raw = await ga.getThreadRaw(accessToken, threadId, 'full');
-    const thread = summarize(raw, null);
+    const thread = summarize(raw, null, folder);
     if (!thread) throw new GmailLiveError('email_thread_not_found');
-    return { thread, messages: visibleMessages(raw).map((m) => messageView(workspaceId, m)) };
+    return { thread, messages: visibleMessages(raw, folder).map((m) => messageView(workspaceId, m)) };
   }));
 }
 

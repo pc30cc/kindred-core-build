@@ -58,8 +58,11 @@ sealed interface Screen : NavKey {
 
 @Serializable data object EmailKey : Screen { override val tab get() = AppTab.INBOX }
 
-/** A mail thread, in [mailbox] (`gmail`, `yahoo`) — null for the workspace's default one. */
-@Serializable data class EmailThreadKey(val threadId: String, val mailbox: String? = null) : Screen {
+/**
+ * A mail thread, in [mailbox] (`gmail`, `yahoo`) — null for the workspace's
+ * default one — as [folder] shows it (`spam`, `drafts`, …; null is the inbox).
+ */
+@Serializable data class EmailThreadKey(val threadId: String, val mailbox: String? = null, val folder: String? = null) : Screen {
     override val tab get() = AppTab.INBOX
 }
 

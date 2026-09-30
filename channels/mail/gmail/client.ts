@@ -795,10 +795,11 @@ export function createGmailAdapter(config: GmailOAuthConfig, options: GmailAdapt
 
   async function listThreads(
     accessToken: string,
-    opts: { pageToken?: string | null; q?: string | null; labelIds?: string[]; maxResults?: number } = {},
+    opts: { pageToken?: string | null; q?: string | null; labelIds?: string[]; maxResults?: number; includeSpamTrash?: boolean } = {},
   ): Promise<{ threads: Array<{ id: string; snippet: string | null; historyId: string | null }>; nextPageToken: string | null }> {
     const params = new URLSearchParams({ maxResults: String(Math.min(Math.max(opts.maxResults ?? 25, 1), 100)) });
     for (const label of opts.labelIds ?? ['INBOX']) params.append('labelIds', label);
+    if (opts.includeSpamTrash) params.set('includeSpamTrash', 'true');
     if (opts.q) params.set('q', opts.q);
     if (opts.pageToken) params.set('pageToken', opts.pageToken);
     const json = (await requestJson(`${GMAIL_API_BASE}/threads?${params.toString()}`, {
@@ -838,6 +839,21 @@ export function createGmailAdapter(config: GmailOAuthConfig, options: GmailAdapt
     }, fetchImpl, timeoutMs)) as Record<string, unknown>;
     const count = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
     return { threadsUnread: count(json.threadsUnread), threadsTotal: count(json.threadsTotal) };
+  }
+
+  /**
+   * `users.labels.list`: the mailbox's labels — ids, names and kind, no
+   * counts (those are `getLabelCounts`), no mail. Labels the user hid from
+   * Gmail's own label list are left out.
+   */
+  async function listLabels(accessToken: string): Promise<Array<{ id: string; name: string; type: 'system' | 'user' }>> {
+    const json = (await requestJson(`${GMAIL_API_BASE}/labels`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }, fetchImpl, timeoutMs)) as Record<string, unknown>;
+    const labels = (Array.isArray(json.labels) ? json.labels : []) as Record<string, unknown>[];
+    return labels
+      .filter((l) => typeof l.id === 'string' && typeof l.name === 'string' && l.labelListVisibility !== 'labelHide')
+      .map((l) => ({ id: l.id as string, name: l.name as string, type: l.type === 'user' ? 'user' as const : 'system' as const }));
   }
 
   async function modifyThread(accessToken: string, threadId: string, addLabelIds: string[], removeLabelIds: string[]): Promise<void> {
@@ -904,6 +920,7 @@ export function createGmailAdapter(config: GmailOAuthConfig, options: GmailAdapt
     listThreads,
     getThreadRaw,
     getLabelCounts,
+    listLabels,
     modifyThread,
     listChangedThreadIds,
     exchangeCodeForTokens,

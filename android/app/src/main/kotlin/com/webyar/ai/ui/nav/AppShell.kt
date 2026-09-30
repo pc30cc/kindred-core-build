@@ -398,7 +398,7 @@ fun AppShell(
                 appState = appState,
                 email = email,
                 language = language,
-                onOpenThread = { navigator.open(EmailThreadKey(it, email.provider.value)) },
+                onOpenThread = { navigator.open(EmailThreadKey(it, email.provider.value, email.mailFolder.value)) },
                 onCompose = { navigator.open(EmailComposeKey(mailbox = email.provider.value)) },
                 onBack = { navigator.back() },
             )
@@ -407,6 +407,7 @@ fun AppShell(
             EmailThreadRoute(
                 threadId = key.threadId,
                 mailbox = key.mailbox,
+                folder = key.folder,
                 appState = appState,
                 api = api,
                 email = email,

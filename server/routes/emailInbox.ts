@@ -29,9 +29,11 @@ import {
   isLiveInbox,
   sendLiveGmail,
   listMailboxes,
+  listFolders,
   type EmailProvider,
   type StagedAttachment,
 } from '../services/email/inbox.js';
+import { parseFolder, type EmailFolder } from '../services/email/folders.js';
 
 export const emailInboxRouter = Router();
 
@@ -51,6 +53,7 @@ function sendEmailInboxError(res: Response, err: unknown) {
       err.code === 'email_attachment_not_found' ? 404 :
       err.code === 'email_rate_limited' ? 429 :
       err.code === 'email_missing_recipient' ? 400 :
+      err.code === 'unsupported_folder' ? 400 :
       500;
     return res.status(status).json({ error: err.code, message: err.message });
   }
@@ -70,6 +73,18 @@ function mailboxOf(req: Request, res: Response): EmailProvider | undefined | nul
   if (value === 'gmail' || value === 'yahoo') return value;
   res.status(400).json({ error: 'invalid_provider' });
   return null;
+}
+
+/**
+ * `?folder=` on the thread list and a thread (./services/email/folders.ts):
+ * `inbox` (the default), `starred`, `important`, `sent`, `drafts`, `all`,
+ * `spam`, `trash`, or `label:<id>`. `null` means the value was invalid and a
+ * 400 has been sent.
+ */
+function folderOf(req: Request, res: Response): EmailFolder | undefined | null {
+  const folder = parseFolder(req.query.folder);
+  if (folder === null) res.status(400).json({ error: 'invalid_folder' });
+  return folder;
 }
 
 /**
@@ -93,10 +108,32 @@ emailInboxRouter.get('/:workspaceId/mailboxes', async (req, res) => {
   }
 });
 
+/**
+ * GET /:workspaceId/folders — one mailbox's folder menu (`?provider=`, else
+ * the first connected): `{ folders: [{ id, kind, name, unread, total }] }`,
+ * the system folders first, then the mailbox's labels. Counts only.
+ */
+emailInboxRouter.get('/:workspaceId/folders', async (req, res) => {
+  const { workspaceId } = req.params;
+  const provider = mailboxOf(req, res);
+  if (provider === null) return;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ folders: await listFolders(serverConfigOf(req), workspaceId, provider) });
+  } catch (err) {
+    sendEmailInboxError(res, err);
+  }
+});
+
 emailInboxRouter.get('/:workspaceId/threads', async (req, res) => {
   const { workspaceId } = req.params;
   const provider = mailboxOf(req, res);
   if (provider === null) return;
+  const folder = folderOf(req, res);
+  if (folder === null) return;
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
   if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
@@ -108,6 +145,7 @@ emailInboxRouter.get('/:workspaceId/threads', async (req, res) => {
       unreadOnly: req.query.unread === 'true',
       starredOnly: req.query.starred === 'true',
       search: typeof req.query.q === 'string' ? req.query.q : undefined,
+      folder,
     }, provider);
     res.json(result);
   } catch (err) {
@@ -119,11 +157,13 @@ emailInboxRouter.get('/:workspaceId/threads/:threadId', async (req, res) => {
   const { workspaceId, threadId } = req.params;
   const provider = mailboxOf(req, res);
   if (provider === null) return;
+  const folder = folderOf(req, res);
+  if (folder === null) return;
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
   if (!(await enforceModule(req, res, workspaceId, 'email_inbox'))) return;
   try {
-    const result = await getThread(serverConfigOf(req), workspaceId, threadId, provider);
+    const result = await getThread(serverConfigOf(req), workspaceId, threadId, provider, folder);
     res.json(result);
   } catch (err) {
     sendEmailInboxError(res, err);

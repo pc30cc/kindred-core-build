@@ -41,7 +41,9 @@ import {
   listGmailChanges,
   sendGmail,
   countGmailUnreadThreads,
+  listGmailFolders,
 } from './gmailLive.js';
+import { TABLE_FOLDERS, type EmailFolder, type MailFolderSummary, type SystemFolder } from './folders.js';
 
 /** A mailbox provider the inbox can serve; `?provider=` on every `/api/email-inbox` route. */
 export type EmailProvider = 'gmail' | 'yahoo';
@@ -140,7 +142,8 @@ export interface EmailMessageView {
   htmlBody: string | null;
   snippet: string | null;
   isRead: boolean;
-  deliveryStatus: 'queued' | 'sent' | 'failed';
+  /** `draft` only for a live (Gmail) draft, read from the Drafts folder. */
+  deliveryStatus: 'queued' | 'sent' | 'failed' | 'draft';
   deliveryError: string | null;
   sentAt: string;
   attachments: EmailAttachmentView[];
@@ -195,10 +198,13 @@ async function liveGmail(config: ServerConfig, workspaceId: string, provider?: E
   return integration.provider === 'gmail' ? integration : null;
 }
 
+/** Outbound messages read to find a table-backed mailbox's Sent threads. */
+const SENT_THREAD_SCAN = 500;
+
 export async function listThreads(
   config: ServerConfig,
   workspaceId: string,
-  opts: { limit?: number; before?: string | null; pageToken?: string | null; unreadOnly?: boolean; starredOnly?: boolean; search?: string } = {},
+  opts: { limit?: number; before?: string | null; pageToken?: string | null; unreadOnly?: boolean; starredOnly?: boolean; search?: string; folder?: EmailFolder } = {},
   provider?: EmailProvider,
 ): Promise<{ threads: EmailThreadSummary[]; nextBefore: string | null; nextPageToken?: string | null; historyId?: string | null; syncing: boolean }> {
   let integration: ChannelIntegration;
@@ -225,8 +231,27 @@ export async function listThreads(
       rethrowLive(err);
     }
   }
+  const folder = opts.folder ?? 'inbox';
+  if (!TABLE_FOLDERS.includes(folder as SystemFolder)) throw new EmailInboxError('unsupported_folder');
   const sb = getServiceClient(config);
   const limit = Math.min(Math.max(opts.limit ?? 30, 1), 100);
+
+  // Sent: the threads this mailbox has written in. A thread row does not say
+  // so itself, its outbound messages do (the newest few hundred are enough
+  // for a list that pages by date).
+  let sentThreadIds: string[] | null = null;
+  if (folder === 'sent') {
+    const { data: outbound, error: outboundError } = await sb
+      .from('email_messages')
+      .select('thread_id')
+      .eq('workspace_id', workspaceId)
+      .eq('direction', 'outbound')
+      .order('sent_at', { ascending: false })
+      .limit(SENT_THREAD_SCAN);
+    if (outboundError) throw new EmailInboxError('email_provider_error', outboundError.message);
+    sentThreadIds = Array.from(new Set(((outbound ?? []) as Array<{ thread_id: string }>).map((m) => m.thread_id)));
+    if (!sentThreadIds.length) return { threads: [], nextBefore: null, syncing: false };
+  }
 
   let query = sb
     .from('email_threads')
@@ -239,8 +264,9 @@ export async function listThreads(
   // count in listMailboxes does), never rows of another mailbox.
   if (provider) query = query.eq('integration_id', integration.id);
   if (opts.before) query = query.lt('last_message_at', opts.before);
+  if (sentThreadIds) query = query.in('id', sentThreadIds);
   if (opts.unreadOnly) query = query.eq('is_read', false);
-  if (opts.starredOnly) query = query.eq('is_starred', true);
+  if (opts.starredOnly || folder === 'starred') query = query.eq('is_starred', true);
   if (opts.search?.trim()) query = query.ilike('subject', `%${opts.search.trim().slice(0, 200)}%`);
 
   const { data, error } = await query;
@@ -341,11 +367,13 @@ export async function getThread(
   workspaceId: string,
   threadId: string,
   provider?: EmailProvider,
+  /** The folder it was opened from (Gmail): Spam, Trash and Drafts show their own messages. */
+  folder?: EmailFolder,
 ): Promise<{ thread: EmailThreadSummary; messages: EmailMessageView[] }> {
   const gmail = await liveGmail(config, workspaceId, provider);
   if (gmail) {
     try {
-      return await getGmailThread(config, workspaceId, gmail, threadId);
+      return await getGmailThread(config, workspaceId, gmail, threadId, folder);
     } catch (err) {
       rethrowLive(err);
     }
@@ -525,6 +553,25 @@ export async function listMailboxes(config: ServerConfig, workspaceId: string, o
     return { provider, address: integration.external_account_id, status: 'connected', unread };
   }));
   return mailboxes.filter((m): m is MailboxSummary => !!m);
+}
+
+/**
+ * The folder menu of one mailbox (see ./folders.ts): Gmail's system folders
+ * and labels with Gmail's own counters, or a table-backed mailbox's Inbox,
+ * Starred and Sent. Counts only; `email_not_connected` when the mailbox is
+ * not connected.
+ */
+export async function listFolders(config: ServerConfig, workspaceId: string, provider?: EmailProvider): Promise<MailFolderSummary[]> {
+  const integration = await resolveConnectedIntegration(config, workspaceId, provider);
+  if (integration.provider === 'gmail') {
+    try {
+      return await listGmailFolders(config, integration);
+    } catch (err) {
+      rethrowLive(err);
+    }
+  }
+  const unread = await countTableUnreadThreads(config, workspaceId, integration).catch(() => null);
+  return TABLE_FOLDERS.map((id) => ({ id, kind: 'system' as const, name: null, unread: id === 'inbox' ? unread : null, total: null }));
 }
 
 export interface InlineAttachment {

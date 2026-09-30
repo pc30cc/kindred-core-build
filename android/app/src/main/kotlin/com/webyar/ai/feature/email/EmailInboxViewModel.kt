@@ -3,6 +3,7 @@ package com.webyar.ai.feature.email
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.webyar.ai.core.model.EmailFolder
+import com.webyar.ai.core.model.EmailMailFolder
 import com.webyar.ai.core.model.EmailMailbox
 import com.webyar.ai.core.model.EmailThreadResponse
 import com.webyar.ai.core.model.EmailThreadSummary
@@ -96,9 +97,17 @@ class EmailInboxViewModel(
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
 
-    /** Everything, what is unread, or what is starred — the server's own filters. */
+    /** Everything, what is unread, or what is starred — the server's own filters, inside [mailFolder]. */
     private val _folder = MutableStateFlow(EmailFolder.INBOX)
     val folder: StateFlow<EmailFolder> = _folder.asStateFlow()
+
+    /** The folder on screen (`inbox`, `sent`, `spam`, `label:…`). */
+    private val _mailFolder = MutableStateFlow(EmailMailFolder.INBOX)
+    val mailFolder: StateFlow<String> = _mailFolder.asStateFlow()
+
+    /** The folder menu of the mailbox on screen, with its counts. */
+    private val _folders = MutableStateFlow<List<EmailMailFolder>>(emptyList())
+    val folders: StateFlow<List<EmailMailFolder>> = _folders.asStateFlow()
 
     /** A further page is on its way. */
     private val _loadingMore = MutableStateFlow(false)
@@ -115,6 +124,8 @@ class EmailInboxViewModel(
     private var cursor: String? = null
     private var generation = 0
     private var mailboxJob: Job? = null
+    private var foldersJob: Job? = null
+    private var countsJob: Job? = null
     private var signalJob: Job? = null
     /** Mailboxes named by the signals waiting out the debounce; null in the set is "any". */
     private val pendingProviders = mutableSetOf<String?>()
@@ -170,10 +181,14 @@ class EmailInboxViewModel(
         }
         _provider.value = provider ?: if (sameWorkspace) _provider.value else _mailboxes.value.firstOrNull()?.provider
         publishAddress()
+        // Another mailbox opens on its inbox, with its own menu.
+        _mailFolder.value = EmailMailFolder.INBOX
+        _folders.value = emptyList()
         loaded = emptyList()
         nextBefore = null
         cursor = null
         load()
+        refreshFolders()
     }
 
     /** Shows another of the workspace's mailboxes. */
@@ -188,6 +203,33 @@ class EmailInboxViewModel(
         load()
     }
 
+    /** Shows another folder of the mailbox — from the menu — with everything in it. */
+    fun selectMailFolder(id: String) {
+        if (_mailFolder.value == id) return
+        _mailFolder.value = id
+        _folder.value = EmailFolder.INBOX
+        loaded = emptyList()
+        nextBefore = null
+        load()
+    }
+
+    /**
+     * The menu of the mailbox on screen, read again: when it opens, on a
+     * refresh, and after a change signal. A folder no longer there (a label
+     * deleted in Gmail) sends the list back to the inbox.
+     */
+    fun refreshFolders() {
+        val workspace = workspaceId ?: return
+        val provider = _provider.value
+        foldersJob?.cancel()
+        foldersJob = viewModelScope.launch {
+            val list = runCatching { api.emailFolders(workspace, provider) }.getOrNull() ?: return@launch
+            if (workspace != workspaceId || provider != _provider.value) return@launch
+            _folders.value = list
+            if (list.none { it.id == _mailFolder.value }) selectMailFolder(EmailMailFolder.INBOX)
+        }
+    }
+
     val hasMore: Boolean get() = nextBefore != null
 
     /** The next page, when the list has been scrolled to its end. */
@@ -199,7 +241,7 @@ class EmailInboxViewModel(
         val provider = _provider.value
         _loadingMore.value = true
         viewModelScope.launch {
-            runCatching { api.emailThreadsPage(workspace, _folder.value, search = null, before = before, mailbox = provider) }
+            runCatching { api.emailThreadsPage(workspace, _folder.value, search = null, before = before, mailbox = provider, mailFolder = _mailFolder.value) }
                 .onSuccess { page ->
                     if (mine != generation) return@onSuccess
                     val seen = loaded.mapTo(HashSet()) { it.id }
@@ -255,6 +297,7 @@ class EmailInboxViewModel(
         if (flips) adjustUnread(if (read) -1 else 1)
         viewModelScope.launch {
             runCatching { api.setEmailThreadRead(workspace, threadId, read, provider) }
+                .onSuccess { if (flips) recountOutsideInbox() }
                 .onFailure {
                     if (workspace == workspaceId && row != null) {
                         update(threadId) { it.copy(isRead = before) }
@@ -283,6 +326,7 @@ class EmailInboxViewModel(
         if (workspaceId == null) return
         _refreshing.value = true
         refreshMailboxes()
+        refreshFolders()
         load(showSkeleton = false)
     }
 
@@ -303,15 +347,21 @@ class EmailInboxViewModel(
             if (workspaceId == workspace) {
                 val shown = _provider.value
                 when {
-                    // Null was the server's default, which is the first of these.
-                    shown == null -> _provider.value = list.firstOrNull()?.provider
+                    // Null was the server's default, which is the first of these;
+                    // its menu is read again under its own name.
+                    shown == null -> {
+                        _provider.value = list.firstOrNull()?.provider
+                        refreshFolders()
+                    }
                     // The one on screen was disconnected: the next one, from the top.
                     list.isNotEmpty() && list.none { it.provider == shown } -> {
                         _provider.value = list.first().provider
+                        _mailFolder.value = EmailMailFolder.INBOX
                         loaded = emptyList()
                         nextBefore = null
                         cursor = null
                         load()
+                        refreshFolders()
                     }
                 }
             }
@@ -331,6 +381,7 @@ class EmailInboxViewModel(
             delay(SIGNAL_DEBOUNCE_MS)
             val providers = synchronized(pendingProviders) { pendingProviders.toSet().also { pendingProviders.clear() } }
             refreshMailboxes()
+            refreshFolders()
             val shown = _provider.value
             // The list is asked only about its own workspace's mailbox: a
             // workspace just switched to has not loaded one yet.
@@ -369,9 +420,10 @@ class EmailInboxViewModel(
         if (showSkeleton) _state.value = EmailInboxState.Loading
         val mine = ++generation
         val folder = _folder.value
+        val box = _mailFolder.value
         val provider = _provider.value
         viewModelScope.launch {
-            runCatching { api.emailThreadsPage(workspace, folder, search = null, before = null, mailbox = provider) }
+            runCatching { api.emailThreadsPage(workspace, folder, search = null, before = null, mailbox = provider, mailFolder = box) }
                 .onSuccess { page ->
                     // A folder switched meanwhile has its own load on the way.
                     if (mine != generation) return@onSuccess
@@ -387,7 +439,7 @@ class EmailInboxViewModel(
                     }
                     loaded = page.threads + tail
                     if (tail.isEmpty()) nextBefore = page.nextBefore
-                    if (folder == EmailFolder.INBOX || cursor == null) cursor = page.historyId ?: cursor
+                    if ((folder == EmailFolder.INBOX && box == EmailMailFolder.INBOX) || cursor == null) cursor = page.historyId ?: cursor
                     _notConnected.value = false
                     publish()
                 }
@@ -425,7 +477,10 @@ class EmailInboxViewModel(
     fun markReadLocally(threadId: String) {
         val row = loaded.firstOrNull { it.id == threadId }
         loaded = loaded.map { if (it.id == threadId) it.copy(isRead = true) else it }
-        if (row != null && row.isRead != true) adjustUnread(-1)
+        if (row != null && row.isRead != true) {
+            adjustUnread(-1)
+            recountOutsideInbox()
+        }
         publish()
     }
 
@@ -434,14 +489,15 @@ class EmailInboxViewModel(
     // MARK: - Threads already read
 
     /** The thread as last read, if its content has not changed since. */
-    fun cachedThread(threadId: String, provider: String?, version: String?): EmailThreadResponse? {
+    fun cachedThread(threadId: String, provider: String?, version: String?, folder: String? = null): EmailThreadResponse? {
         version ?: return null
-        val entry = synchronized(bodies) { bodies[bodyKey(provider, threadId)] } ?: return null
+        val entry = synchronized(bodies) { bodies[bodyKey(provider, threadId, folder)] } ?: return null
         return entry.second.takeIf { entry.first == version }
     }
 
-    fun rememberThread(provider: String?, response: EmailThreadResponse) {
-        synchronized(bodies) { bodies[bodyKey(provider, response.thread.id)] = response.thread.version to response }
+    /** Kept per folder too: Spam or Drafts shows a thread with other messages than the inbox does. */
+    fun rememberThread(provider: String?, response: EmailThreadResponse, folder: String? = null) {
+        synchronized(bodies) { bodies[bodyKey(provider, response.thread.id, folder)] = response.thread.version to response }
     }
 
     /**
@@ -470,16 +526,42 @@ class EmailInboxViewModel(
         if (threadIds == null) bodies.clear() else bodies.keys.removeAll { key -> threadIds.any { key.endsWith("|$it") } }
     }
 
-    private fun bodyKey(provider: String?, threadId: String) = "${provider ?: _provider.value ?: "-"}|$threadId"
+    private fun bodyKey(provider: String?, threadId: String, folder: String?) =
+        "${provider ?: _provider.value ?: "-"}|${folder ?: EmailMailFolder.INBOX}|$threadId"
 
     // MARK: -
 
+    /**
+     * A row read or unread here moves the count of the folder on screen, and
+     * — only when that folder is the inbox — the mailbox's own count, which
+     * is its inbox's. Elsewhere (a label, All mail) the same thread may or
+     * may not be in the inbox: [recountOutsideInbox] asks.
+     */
     private fun adjustUnread(delta: Int) {
+        val box = _mailFolder.value
+        _folders.value = _folders.value.map { folder ->
+            if (folder.id == box && folder.unread != null) folder.copy(unread = (folder.unread + delta).coerceAtLeast(0)) else folder
+        }
+        if (box != EmailMailFolder.INBOX) return
         val shown = _provider.value ?: _mailboxes.value.firstOrNull()?.provider ?: return
         _mailboxes.value = _mailboxes.value.map { box ->
             if (box.provider == shown && box.unread != null) box.copy(unread = (box.unread + delta).coerceAtLeast(0)) else box
         }
         _unread.value = _mailboxes.value.sumOf { it.unread ?: 0 }
+    }
+
+    /**
+     * Outside the inbox a read or unread thread may have moved the inbox's
+     * count too: the counts are read again once the server has had the change.
+     */
+    private fun recountOutsideInbox() {
+        if (_mailFolder.value == EmailMailFolder.INBOX) return
+        countsJob?.cancel()
+        countsJob = viewModelScope.launch {
+            delay(RECOUNT_DELAY_MS)
+            refreshMailboxes()
+            refreshFolders()
+        }
     }
 
     private fun publishAddress() {
@@ -509,6 +591,8 @@ class EmailInboxViewModel(
     private companion object {
         /** The web's wait (`useEmailInbox.ts`): Gmail's push and ours arrive a moment apart. */
         const val SIGNAL_DEBOUNCE_MS = 1_500L
+        /** Long enough for the thread screen's own read receipt to have landed. */
+        const val RECOUNT_DELAY_MS = 2_000L
         const val BODY_CACHE_SIZE = 40
     }
 }

@@ -82,31 +82,37 @@ object EmailReader {
         language: Language,
         snippet: String? = null,
     ): String {
-        val dir = if (language == Language.FA) "rtl" else "ltr"
+        val rtl = language == Language.FA
         val out = StringBuilder(4096 + messages.sumOf { (it.htmlBody?.length ?: 0) + (it.textBody?.length ?: 0) })
-        out.append("<!doctype html><html dir=\"").append(dir).append("\"><head><meta charset=\"utf-8\">")
-            .append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
-            .append("<style>").append(CSS).append("</style></head><body>")
+        // No initial scale: a mail that is still wider than the phone after
+        // [FIT] opens zoomed out to its whole width (the WebView loads in
+        // overview mode), instead of running off the edge.
+        out.append("<!doctype html><html dir=\"").append(if (rtl) "rtl" else "ltr").append("\"><head><meta charset=\"utf-8\">")
+            .append("<meta name=\"viewport\" content=\"width=device-width\">")
+            .append("<style>").append(CSS).append(if (rtl) SIDE_RTL else SIDE_LTR).append(FIT).append("</style></head><body>")
 
-        out.append("<h1 dir=\"auto\">")
+        // The page's own lines stand on the page's side, whatever language
+        // they are in: an English subject in a Persian reader is still
+        // right-aligned, with its words in their own order.
+        out.append("<h1 class=\"w-s\">")
             .append(escape(subject?.takeIf { it.isNotBlank() } ?: Str.emailNoSubject(language)))
             .append("</h1>")
         if (messages.size > 1) {
-            out.append("<div class=\"cnt\">").append(escape(StrEmail.messagesCount(language, messages.size))).append("</div>")
+            out.append("<div class=\"w-cnt\">").append(escape(StrEmail.messagesCount(language, messages.size))).append("</div>")
         }
 
         val latest = messages.lastOrNull()
         if (latest == null) {
-            out.append("<div class=\"b\" dir=\"auto\"><pre>")
+            out.append("<div class=\"w-b\" dir=\"auto\"><pre class=\"w-t\">")
                 .append(escape(EmailBody.plainText(snippet.orEmpty())))
                 .append("</pre></div>")
         } else {
             header(out, latest, mailbox, language)
-            body(out, latest, language)
+            body(out, latest, language, scope = scopeOf(messages.size - 1))
         }
 
         if (messages.size > 1) {
-            out.append("<div class=\"earlier\"><div class=\"et\">")
+            out.append("<div class=\"w-earlier\"><div class=\"w-et\">")
                 .append(escape(StrEmail.earlierMessages(language, messages.size - 1)))
                 .append("</div>")
             for (i in messages.size - 2 downTo 0) {
@@ -114,12 +120,13 @@ object EmailReader {
                 val from = MailName.parse(m.fromAddress)
                 // A mail still unread is opened for the operator, as the
                 // trail did before this page existed.
-                out.append(if (m.isRead == false) "<details open><summary>" else "<details><summary>")
+                out.append(if (m.isRead == false) "<details class=\"w-card\" open><summary>" else "<details class=\"w-card\"><summary>")
                     .append(avatar(from, 30))
-                    .append("<span class=\"who\" dir=\"auto\">").append(escape(who(from, mailbox, language))).append("</span>")
-                    .append("<span class=\"sn\" dir=\"auto\">").append(escape(snippetOf(m))).append("</span>")
-                    .append("<span class=\"dt\">").append(escape(Format.listTimestamp(m.sentAt, language))).append("</span>")
-                    .append("</summary><div class=\"in\"><div class=\"meta\" dir=\"auto\">")
+                    .append("<span class=\"w-who\">").append(escape(who(from, mailbox, language))).append("</span>")
+                if (m.deliveryStatus == "draft") out.append("<span class=\"w-draft\">").append(escape(StrEmail.draft(language))).append("</span>")
+                out.append("<span class=\"w-sn\">").append(escape(snippetOf(m))).append("</span>")
+                    .append("<span class=\"w-dt\">").append(escape(Format.listTimestamp(m.sentAt, language))).append("</span>")
+                    .append("</summary><div class=\"w-in\"><div class=\"w-meta\">")
                     .append(escape("${StrEmail.from(language)}: ${m.fromAddress.orEmpty()}"))
                     .append("<br>")
                     .append(escape("${StrEmail.to(language)}: ${joinEmails(m.toAddresses)}"))
@@ -130,7 +137,7 @@ object EmailReader {
                     out.append("<br>").append(escape("${StrEmail.date(language)}: ${fullDate(m, language)}"))
                 }
                 out.append("</div>")
-                body(out, m, language)
+                body(out, m, language, scope = scopeOf(i))
                 out.append("</div></details>")
             }
             out.append("</div>")
@@ -141,12 +148,13 @@ object EmailReader {
 
     private fun header(out: StringBuilder, m: EmailMessageView, mailbox: String?, language: Language) {
         val from = MailName.parse(m.fromAddress)
-        out.append("<div class=\"hd\">").append(avatar(from, 40)).append("<div class=\"hw\"><div class=\"hl\">")
-            .append("<span class=\"hn\" dir=\"auto\">").append(escape(who(from, mailbox, language))).append("</span>")
-            .append("<span class=\"hdt\">").append(escape(fullDate(m, language))).append("</span></div>")
+        out.append("<div class=\"w-hd\">").append(avatar(from, 40)).append("<div class=\"w-hw\"><div class=\"w-hl\">")
+            .append("<span class=\"w-hn\">").append(escape(who(from, mailbox, language))).append("</span>")
+        if (m.deliveryStatus == "draft") out.append("<span class=\"w-draft\">").append(escape(StrEmail.draft(language))).append("</span>")
+        out.append("<span class=\"w-hdt\">").append(escape(fullDate(m, language))).append("</span></div>")
         // The address beside a name, never twice: a bare address is its own name.
         if (from.name != null) {
-            out.append("<div class=\"ha\" dir=\"ltr\">").append(escape(from.email)).append("</div>")
+            out.append("<div class=\"w-ha\" dir=\"ltr\">").append(escape(from.email)).append("</div>")
         }
         val to = m.toAddresses.orEmpty().map { recipient(it, mailbox, language) }
         val cc = m.ccAddresses.orEmpty().map { recipient(it, mailbox, language) }
@@ -155,44 +163,47 @@ object EmailReader {
                 if (to.isNotEmpty()) add("${StrEmail.to(language)}: ${to.joinToString(", ")}")
                 if (cc.isNotEmpty()) add("${StrEmail.cc(language)}: ${cc.joinToString(", ")}")
             }
-            out.append("<div class=\"hr\" dir=\"auto\">").append(escape(parts.joinToString(" · "))).append("</div>")
+            out.append("<div class=\"w-hr\">").append(escape(parts.joinToString(" · "))).append("</div>")
         }
         out.append("</div></div>")
     }
 
-    private fun body(out: StringBuilder, m: EmailMessageView, language: Language) {
-        out.append("<div class=\"b\" dir=\"auto\">")
+    /** The class that confines message [index]'s own stylesheet ([MailCss]). */
+    private fun scopeOf(index: Int) = "m$index"
+
+    private fun body(out: StringBuilder, m: EmailMessageView, language: Language, scope: String) {
+        out.append("<div class=\"w-b ").append(scope).append("\" dir=\"auto\">")
         val html = m.htmlBody?.takeIf { it.isNotBlank() }
         if (html != null) {
-            out.append(sanitize(html, m.attachments.orEmpty()))
+            out.append(sanitize(html, m.attachments.orEmpty(), scope))
         } else {
             val text = m.textBody?.takeIf { it.isNotBlank() } ?: EmailBody.plainText(m.snippet.orEmpty())
             val (fresh, quoted) = EmailBody.splitQuoted(text)
-            out.append("<pre>").append(escape(fresh)).append("</pre>")
+            out.append("<pre class=\"w-t\">").append(escape(fresh)).append("</pre>")
             if (quoted != null) {
                 // Plain-text mail carries its trail as "> " lines; folded, as
                 // every mail client folds it.
-                out.append("<details class=\"q\"><summary>")
+                out.append("<details class=\"w-q\"><summary>")
                     .append(escape(StrEmail.showQuoted(language)))
-                    .append("</summary><pre>").append(escape(quoted)).append("</pre></details>")
+                    .append("</summary><pre class=\"w-t\">").append(escape(quoted)).append("</pre></details>")
             }
         }
         out.append("</div>")
         // Inline pictures are part of the body, not files to open.
         val files = m.attachments.orEmpty().filter { !isInline(it, html) }
         if (files.isNotEmpty()) {
-            out.append("<div class=\"files\">")
+            out.append("<div class=\"w-files\">")
             for (f in files) {
-                out.append("<a class=\"file\" dir=\"auto\" href=\"").append(escape(attachmentLink(f.id))).append("\">📎 ")
+                out.append("<a class=\"w-file\" dir=\"auto\" href=\"").append(escape(attachmentLink(f.id))).append("\">📎 ")
                     .append(escape(f.filename?.takeIf { it.isNotBlank() } ?: Str.file(language)))
-                f.sizeBytes?.let { out.append("<span class=\"fs\">").append(escape(Format.fileSize(it, language))).append("</span>") }
+                f.sizeBytes?.let { out.append("<span class=\"w-fs\">").append(escape(Format.fileSize(it, language))).append("</span>") }
                 out.append("</a>")
             }
             out.append("</div>")
         }
         if (m.deliveryStatus == "failed" || !m.deliveryError.isNullOrBlank()) {
             val reason = m.deliveryError?.takeIf { it.isNotBlank() }
-            out.append("<div class=\"err\" dir=\"auto\">")
+            out.append("<div class=\"w-err\" dir=\"auto\">")
                 .append(escape(listOfNotNull(StrEmail.notDelivered(language), reason).joinToString(" — ")))
                 .append("</div>")
         }
@@ -239,36 +250,53 @@ object EmailReader {
      */
     private fun avatar(from: MailName, px: Int): String {
         val hue = (from.email.lowercase().hashCode().toLong() and 0xFFFFFFFFL) % 360L
-        return "<span class=\"av\" style=\"width:${px}px;height:${px}px;background:hsl($hue,55%,88%)\">" +
+        return "<span class=\"w-av\" style=\"width:${px}px;height:${px}px;background:hsl($hue,55%,88%)\">" +
             "<svg viewBox=\"0 0 24 24\"><path fill=\"hsl($hue,55%,32%)\" d=\"$PERSON\"/></svg></span>"
     }
 
     // MARK: - The mail's own HTML
 
     private val DROP_WITH_CONTENT = Regex(
-        "<(script|iframe|frameset|frame|object|applet|noembed|textarea|select|template)\\b[^>]*>.*?</\\1\\s*>",
+        "<(script|iframe|frameset|frame|object|applet|noembed|textarea|select|template|title)\\b[^>]*>.*?</\\1\\s*>",
         setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
     )
     private val DROP_TAG = Regex(
-        "</?(script|iframe|frameset|frame|object|applet|embed|meta|base|link|form|input|button|textarea|select|option|html|head|body|title)\\b[^>]*>",
+        "</?(script|iframe|frameset|frame|object|applet|embed|meta|base|link|form|input|button|textarea|select|option|html|head|body|title|xmp|plaintext)\\b[^>]*>",
         RegexOption.IGNORE_CASE,
     )
     private val DOCTYPE = Regex("<!doctype[^>]*>", RegexOption.IGNORE_CASE)
     private val EVENT_ATTRIBUTE = Regex("\\s+on[a-z]+\\s*=\\s*(\"[^\"]*\"|'[^']*'|[^\\s>]+)", RegexOption.IGNORE_CASE)
     private val SCRIPT_URL = Regex("(href|src|action|formaction|xlink:href)\\s*=\\s*([\"']?)\\s*(javascript|vbscript|data:text/html)[^\"'\\s>]*\\2", RegexOption.IGNORE_CASE)
     private val CID_SRC = Regex("(src\\s*=\\s*)([\"']?)cid:([^\"'\\s>]+)\\2", RegexOption.IGNORE_CASE)
+    private val STYLE_BLOCK = Regex("(<style\\b[^>]*>)(.*?)(</style\\s*>)", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+    private val STYLE_OPEN = Regex("<style\\b", RegexOption.IGNORE_CASE)
     private val WHITESPACE = Regex("\\s+")
 
     /**
-     * The mail's HTML with everything that is not drawing taken out.
+     * The mail's HTML with everything that is not drawing taken out, and its
+     * stylesheet held inside the mail's own box ([scope], see [MailCss]).
      *
      * JavaScript is off in the WebView, so this is the second fence, not the
      * first: it keeps a mail from bringing a form, a frame onto some other
      * page, or a `<meta refresh>` that would navigate on its own. Styles and
      * pictures stay — they are what makes a mail look like itself.
+     *
+     * A mail cut off mid-way does not take the rest of the page with it: an
+     * unclosed `<style>` would read everything after it as CSS, and an unclosed
+     * comment would hide it, so the first is cut and the second closed.
      */
-    internal fun sanitize(html: String, attachments: List<EmailAttachmentView>): String {
+    internal fun sanitize(html: String, attachments: List<EmailAttachmentView>, scope: String = "m0"): String {
         var out = DROP_WITH_CONTENT.replace(html, "")
+        // A style element's text ends at its first `</style`, for the WebView
+        // as for this; scoping only rearranges what is inside, so it can
+        // never make one either.
+        out = STYLE_BLOCK.replace(out) { match -> "<style>" + MailCss.scope(match.groupValues[2], scope) + "</style>" }
+        // Every closed one was just rewritten; a `<style` with no end after
+        // it can only be the last, and the mail is cut there.
+        STYLE_OPEN.findAll(out).lastOrNull()
+            ?.takeIf { out.indexOf("</style>", it.range.first, ignoreCase = true) < 0 }
+            ?.let { open -> out = out.substring(0, open.range.first) }
+        if (out.lastIndexOf("<!--") > out.lastIndexOf("-->")) out += "-->"
         out = DOCTYPE.replace(out, "")
         out = DROP_TAG.replace(out, "")
         out = EVENT_ATTRIBUTE.replace(out, "")
@@ -305,49 +333,86 @@ object EmailReader {
 
     /**
      * The Windows reader's stylesheet (`EmailPage.xaml.cs`), with a phone's
-     * adjustments: the app's own Persian face first, a header that scrolls
-     * with the mail instead of standing above it, and wide newsletters held
-     * to the screen's width rather than pushed off its edge.
+     * adjustments: the app's own Persian face first, and a header that
+     * scrolls with the mail instead of standing above it.
+     *
+     * Every class is the reader's own (`w-…`) and no rule names a bare
+     * element, so a mail's markup never picks up the reader's look — a
+     * mail's `<div class="meta">` stays the mail's. The header is drawn above
+     * the mail (`z-index`) on white, so nothing a mail positions can cover
+     * who sent it.
      */
     private val CSS = listOf(
         "html,body{background:#ffffff}",
-        "body{margin:0;padding:14px 16px 24px;font-family:Vazirmatn,'Noto Naskh Arabic','Noto Sans Arabic',Roboto,'Segoe UI',Tahoma,sans-serif;font-size:15px;line-height:1.6;color:#1f2633;-webkit-text-size-adjust:100%}",
-        "h1{font-size:19px;line-height:1.4;font-weight:700;color:#0f1729;margin:2px 0 4px;overflow-wrap:anywhere}",
-        ".cnt{font-size:12px;color:#6b7485;margin-bottom:4px}",
-        ".hd{display:flex;align-items:flex-start;gap:12px;margin:12px 0 14px;padding-bottom:12px;border-bottom:1px solid #eef0f4}",
-        ".hw{flex:1;min-width:0}",
-        ".hl{display:flex;align-items:baseline;gap:8px}",
-        ".hn{flex:1;min-width:0;font-weight:600;font-size:14.5px;color:#0f1729;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
-        ".hdt{flex:none;font-size:12px;color:#98a2b3;white-space:nowrap}",
-        ".ha{font-size:12.5px;color:#6b7485;overflow-wrap:anywhere;text-align:start}",
-        ".hr{font-size:12.5px;color:#6b7485;margin-top:2px;overflow-wrap:anywhere}",
-        ".b{overflow-wrap:anywhere;overflow-x:auto}",
-        ".b img{max-width:100%!important;height:auto!important}",
-        ".b table{max-width:100%!important}",
-        ".b td,.b th{overflow-wrap:anywhere}",
-        "pre{white-space:pre-wrap;font-family:inherit;margin:0}",
+        "body{margin:0;padding:14px 16px 24px;font-family:Vazirmatn,'Noto Naskh Arabic','Noto Sans Arabic',Roboto,'Segoe UI',Tahoma,sans-serif;font-size:15px;line-height:1.6;color:#1f2633;-webkit-text-size-adjust:100%;overflow-wrap:break-word}",
         "a{color:#2f6ae0}",
-        ".q{margin-top:10px;border:0;background:none}",
-        ".q>summary{display:inline-block;padding:2px 10px;border-radius:8px;background:#f1f4f9;color:#3b4252;font-size:12.5px}",
-        ".q[open]>summary{margin-bottom:8px}",
-        ".q pre{color:#6b7485;border-inline-start:3px solid #e3e7ee;padding-inline-start:10px}",
-        ".err{margin-top:12px;padding:8px 12px;border-radius:8px;background:#fdecec;color:#c62f35;font-size:12.5px}",
-        ".earlier{margin-top:26px;padding-top:14px;border-top:1px solid #e6e9ef}",
-        ".et{font-size:12px;font-weight:600;color:#6b7485;margin:0 2px 10px}",
-        "details{border:1px solid #e3e7ee;border-radius:12px;margin-bottom:10px;background:#f8f9fb;overflow:hidden}",
-        "details[open]{background:#ffffff}",
-        "summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;padding:10px 14px}",
-        "summary::-webkit-details-marker{display:none}",
-        ".av{flex:none;border-radius:50%;display:flex;align-items:center;justify-content:center;overflow:hidden}",
-        ".av svg{width:55%;height:55%}",
-        ".who{flex:none;max-width:40%;font-weight:600;font-size:13px;color:#0f1729;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
-        ".sn{flex:1;min-width:0;font-size:12.5px;color:#6b7485;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
-        "details[open]>summary .sn{visibility:hidden}",
-        ".dt{flex:none;font-size:12px;color:#98a2b3;white-space:nowrap}",
-        ".in{padding:4px 14px 14px;border-top:1px solid #eef0f4}",
-        ".meta{font-size:12px;color:#6b7485;margin:8px 0 12px;overflow-wrap:anywhere}",
-        ".files{margin-top:14px;display:flex;flex-wrap:wrap;gap:6px}",
-        ".file{font-size:12.5px;color:#3b4252;background:#f1f4f9;border-radius:8px;padding:6px 10px;text-decoration:none;max-width:100%;overflow-wrap:anywhere}",
-        ".fs{color:#98a2b3;margin-inline-start:6px}",
+        ".w-s{font-size:19px;line-height:1.4;font-weight:700;color:#0f1729;margin:2px 0 4px;overflow-wrap:anywhere}",
+        ".w-s,.w-cnt,.w-hd{position:relative;z-index:1;background:#ffffff}",
+        ".w-cnt{font-size:12px;color:#6b7485;margin-bottom:4px}",
+        ".w-hd{display:flex;align-items:flex-start;gap:12px;margin:12px 0 14px;padding-bottom:12px;border-bottom:1px solid #eef0f4}",
+        ".w-hw{flex:1;min-width:0}",
+        ".w-hl{display:flex;align-items:baseline;gap:8px}",
+        ".w-hn{flex:1;min-width:0;font-weight:600;font-size:14.5px;color:#0f1729;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+        ".w-hdt{flex:none;font-size:12px;color:#98a2b3;white-space:nowrap}",
+        ".w-draft{flex:none;font-size:12.5px;font-weight:600;color:#c62f35;white-space:nowrap}",
+        ".w-ha{font-size:12.5px;color:#6b7485;overflow-wrap:anywhere}",
+        ".w-hr{font-size:12.5px;color:#6b7485;margin-top:2px;overflow-wrap:anywhere}",
+        ".w-t{white-space:pre-wrap;font-family:inherit;font-size:inherit;margin:0;unicode-bidi:plaintext;text-align:start}",
+        ".w-q{margin-top:10px}",
+        ".w-q>summary{display:inline-block;list-style:none;cursor:pointer;padding:2px 10px;border-radius:8px;background:#f1f4f9;color:#3b4252;font-size:12.5px}",
+        ".w-q>summary::-webkit-details-marker{display:none}",
+        ".w-q[open]>summary{margin-bottom:8px}",
+        ".w-q .w-t{color:#6b7485;border-inline-start:3px solid #e3e7ee;padding-inline-start:10px}",
+        ".w-err{margin-top:12px;padding:8px 12px;border-radius:8px;background:#fdecec;color:#c62f35;font-size:12.5px}",
+        ".w-earlier{margin-top:26px;padding-top:14px;border-top:1px solid #e6e9ef}",
+        ".w-et{font-size:12px;font-weight:600;color:#6b7485;margin:0 2px 10px}",
+        ".w-card{border:1px solid #e3e7ee;border-radius:12px;margin-bottom:10px;background:#f8f9fb;overflow:hidden}",
+        ".w-card[open]{background:#ffffff}",
+        ".w-card>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;padding:10px 14px}",
+        ".w-card>summary::-webkit-details-marker{display:none}",
+        ".w-av{flex:none;border-radius:50%;display:flex;align-items:center;justify-content:center;overflow:hidden}",
+        ".w-av svg{width:55%;height:55%}",
+        ".w-who{flex:none;max-width:40%;font-weight:600;font-size:13px;color:#0f1729;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+        ".w-sn{flex:1;min-width:0;font-size:12.5px;color:#6b7485;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+        ".w-card[open]>summary .w-sn{visibility:hidden}",
+        ".w-dt{flex:none;font-size:12px;color:#98a2b3;white-space:nowrap}",
+        ".w-in{padding:4px 14px 14px;border-top:1px solid #eef0f4}",
+        ".w-meta{font-size:12px;color:#6b7485;margin:8px 0 12px;overflow-wrap:anywhere}",
+        ".w-files{margin-top:14px;display:flex;flex-wrap:wrap;gap:6px}",
+        ".w-file{font-size:12.5px;color:#3b4252;background:#f1f4f9;border-radius:8px;padding:6px 10px;text-decoration:none;max-width:100%;overflow-wrap:anywhere}",
+        ".w-fs{color:#98a2b3;margin-inline-start:6px}",
+    ).joinToString("")
+
+    /**
+     * The page's own lines — subject, sender, recipients, the folded mails'
+     * names and first words — on the page's side: each keeps its own word order (`plaintext`) but not
+     * its own alignment, so an English subject in the Persian reader lines up
+     * on the right with everything around it.
+     */
+    private const val SIDE_RTL = ".w-s,.w-cnt,.w-hn,.w-ha,.w-hr,.w-who,.w-sn,.w-meta,.w-et{unicode-bidi:plaintext;text-align:right}"
+    private const val SIDE_LTR = ".w-s,.w-cnt,.w-hn,.w-ha,.w-hr,.w-who,.w-sn,.w-meta,.w-et{unicode-bidi:plaintext;text-align:left}"
+
+    /**
+     * A mail held to the phone's width.
+     *
+     * Mail is laid out for a 600-pixel desktop column: fixed-width tables and
+     * pictures, `min-width` on the wrapper, cells that must not wrap. On a
+     * phone each of those pushes the text past the edge. Nothing here may be
+     * wider than the column it is in, nothing insists on a minimum width,
+     * pictures scale with their width, and a long word or link breaks rather
+     * than overflowing.
+     *
+     * `:not(#w):not(#w)` lifts these above anything a mail's own stylesheet
+     * says, including its `!important` class rules. The box itself is a
+     * containing block (`transform`) so a mail's fixed-position element stays
+     * inside the mail instead of floating over the reader.
+     */
+    private val FIT = listOf(
+        ".w-b{position:relative;z-index:0;transform:translateZ(0);overflow-wrap:anywhere}",
+        ".w-b:not(#w):not(#w),.w-b:not(#w):not(#w) *{max-width:100%!important;min-width:0!important;box-sizing:border-box!important}",
+        ".w-b:not(#w):not(#w) img{height:auto!important}",
+        ".w-b:not(#w):not(#w) table{table-layout:auto!important}",
+        ".w-b:not(#w):not(#w) [nowrap],.w-b:not(#w):not(#w) [style*=nowrap i]{white-space:normal!important}",
+        ".w-b:not(#w):not(#w) pre,.w-b:not(#w):not(#w) [style*=\"white-space:pre\" i]{white-space:pre-wrap!important}",
     ).joinToString("")
 }

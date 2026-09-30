@@ -47,7 +47,7 @@ export interface EmailMessageView {
   htmlBody: string | null;
   snippet: string | null;
   isRead: boolean;
-  deliveryStatus: 'queued' | 'sent' | 'failed';
+  deliveryStatus: 'queued' | 'sent' | 'failed' | 'draft';
   deliveryError: string | null;
   sentAt: string;
   attachments: EmailAttachmentView[];

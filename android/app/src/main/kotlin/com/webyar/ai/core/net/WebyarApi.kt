@@ -46,6 +46,7 @@ import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import com.webyar.ai.core.model.EmailFolder
+import com.webyar.ai.core.model.EmailMailFolder
 import com.webyar.ai.core.model.EmailThreadsResponse
 import com.webyar.ai.core.model.EmailDraft
 import com.webyar.ai.core.model.EmailChanges
@@ -389,7 +390,9 @@ interface WebyarApi {
     // `mailbox` is the provider (`gmail`, `yahoo`) a call is about when a
     // workspace has more than one mailbox connected; null is the server's
     // default one, which is all an app that knows of one mailbox ever asks.
-    suspend fun emailThread(workspaceId: String, threadId: String, mailbox: String? = null): EmailThreadResponse
+    // `mailFolder` is the folder (`inbox`, `sent`, `spam`, `label:…`) a
+    // thread was opened from or a list is of; null is the inbox.
+    suspend fun emailThread(workspaceId: String, threadId: String, mailbox: String? = null, mailFolder: String? = null): EmailThreadResponse
     suspend fun setEmailThreadRead(workspaceId: String, threadId: String, isRead: Boolean, mailbox: String? = null)
     suspend fun setEmailThreadStarred(workspaceId: String, threadId: String, starred: Boolean, mailbox: String? = null)
     suspend fun sendEmail(
@@ -412,6 +415,7 @@ interface WebyarApi {
         search: String?,
         before: String?,
         mailbox: String? = null,
+        mailFolder: String? = null,
     ): EmailThreadsResponse =
         if (before != null) EmailThreadsResponse() else EmailThreadsResponse(emailThreads(workspaceId, search))
 
@@ -444,6 +448,12 @@ interface WebyarApi {
             ?.takeIf { it.connected == true }
             ?.let { listOf(EmailMailbox(provider = "gmail", address = it.emailAddress, status = it.status)) }
             .orEmpty()
+
+    /**
+     * A mailbox's folder menu, with its counts. Defaulted to the inbox alone
+     * — what a server from before `/folders`, or a fake, has.
+     */
+    suspend fun emailFolders(workspaceId: String, mailbox: String? = null): List<EmailMailFolder> = EmailMailFolder.FALLBACK
 
     /** Ids of what changed since [since]; a reset when nothing can be said from there. */
     suspend fun emailChanges(workspaceId: String, since: String, mailbox: String? = null): EmailChanges =

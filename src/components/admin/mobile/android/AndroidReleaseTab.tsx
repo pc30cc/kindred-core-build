@@ -14,7 +14,7 @@ import { useTranslation, type TranslationKey } from '@/i18n';
 import {
   SettingsSection, FieldGrid, TextField, TextAreaField, SelectField, CodeBlock,
 } from '@/components/admin/settings/SettingsFields';
-import type { MobileAppSettings } from '@/hooks/useMobileApp';
+import type { MobileAppSettings, ShippedAndroidRelease } from '@/hooks/useMobileApp';
 
 const LOCALES = ['en', 'fa', 'tr'] as const;
 const VERSION = /^\d+(\.\d+){0,3}([-+][0-9A-Za-z.]+)?$/;
@@ -27,9 +27,12 @@ function toInt(value: string, fallback: number): number {
 export function AndroidReleaseTab({
   draft,
   set,
+  shipped = null,
 }: {
   draft: MobileAppSettings;
   set: (patch: Partial<MobileAppSettings>) => void;
+  /** The APK the website hands out; its version is the version, and is not typed. */
+  shipped?: ShippedAndroidRelease | null;
 }) {
   const { t } = useTranslation();
   const notes = draft.android_release_notes ?? {};
@@ -48,18 +51,20 @@ export function AndroidReleaseTab({
         <FieldGrid>
           <TextField
             label={t('admin.mobileApp.android.release.versionName')}
-            hint={t('admin.mobileApp.android.release.versionNameHint')}
-            value={draft.android_version_name}
+            hint={t(shipped ? 'admin.mobileApp.android.release.versionShippedHint' : 'admin.mobileApp.android.release.versionNameHint')}
+            value={shipped ? shipped.versionName : draft.android_version_name}
             dir="ltr"
-            invalid={!VERSION.test(draft.android_version_name)}
+            disabled={Boolean(shipped)}
+            invalid={!shipped && !VERSION.test(draft.android_version_name)}
             onChange={(android_version_name) => set({ android_version_name })}
           />
           <TextField
             label={t('admin.mobileApp.android.release.versionCode')}
-            hint={t('admin.mobileApp.android.release.versionCodeHint')}
-            value={String(draft.android_version_code)}
+            hint={t(shipped ? 'admin.mobileApp.android.release.versionShippedHint' : 'admin.mobileApp.android.release.versionCodeHint')}
+            value={String(shipped ? shipped.versionCode : draft.android_version_code)}
             type="number"
             dir="ltr"
+            disabled={Boolean(shipped)}
             onChange={(value) => set({ android_version_code: Math.max(1, toInt(value, 1)) })}
           />
           <TextField

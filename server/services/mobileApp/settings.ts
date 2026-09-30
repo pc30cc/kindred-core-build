@@ -17,6 +17,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { readShippedAndroidRelease, withShippedVersion } from './androidRelease.js';
 
 /** The languages the Android app is written in. */
 export const ANDROID_LANGUAGES = ['fa', 'en', 'tr'] as const;
@@ -354,6 +355,8 @@ export async function loadMobileAppSettings(config: ServerConfig): Promise<Mobil
       .limit(1)
       .maybeSingle();
     if (!error && data) value = normalize(data as Record<string, unknown>);
+    // The Android version is the one the website hands out, not a number typed.
+    value = withShippedVersion(value, readShippedAndroidRelease());
   } catch {
     // A deployment that has not applied migration 195 yet still boots.
   }

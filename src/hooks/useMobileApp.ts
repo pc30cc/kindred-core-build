@@ -202,7 +202,20 @@ export interface MobileAppPayload {
       entitlementsFile: boolean;
     };
     provisioned: boolean;
+    /**
+     * The APK the website hands out (public/downloads/Webyar-Android.json);
+     * when present, the Android version is this one and is not typed.
+     */
+    androidRelease?: ShippedAndroidRelease | null;
   };
+}
+
+export interface ShippedAndroidRelease {
+  versionName: string;
+  versionCode: number;
+  sha256: string;
+  sizeBytes: number;
+  releasedAt: string | null;
 }
 
 export interface GeneratedConfig {

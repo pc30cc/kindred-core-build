@@ -8,8 +8,9 @@
  * Android is always the number of the app people download
  * (src/test/android/apkRelease.test.ts keeps the two files in step).
  */
-import { readFileSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export interface ShippedAndroidRelease {
   versionName: string;
@@ -38,7 +39,20 @@ export function parseShippedRelease(raw: unknown): ShippedAndroidRelease | null 
   return { versionName, versionCode, sha256, sizeBytes, releasedAt };
 }
 
-export const SHIPPED_RELEASE_FILE = resolve(process.cwd(), 'public', 'downloads', 'Webyar-Android.json');
+// Where the sidecar sits, first match wins: beside the repository's server/
+// in development, in /app/public inside the server image (Dockerfile.server
+// copies it there), then under the working directory. Same order as the
+// Call Widget assets in server/index.ts.
+const SERVER_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+export const SHIPPED_RELEASE_FILES = [
+  resolve(SERVER_DIR, '..', 'public', 'downloads', 'Webyar-Android.json'),
+  resolve(SERVER_DIR, 'public', 'downloads', 'Webyar-Android.json'),
+  resolve(process.cwd(), 'public', 'downloads', 'Webyar-Android.json'),
+];
+
+function shippedReleaseFile(): string {
+  return SHIPPED_RELEASE_FILES.find((path) => existsSync(path)) ?? SHIPPED_RELEASE_FILES[0];
+}
 
 let cache: { path: string; mtimeMs: number; value: ShippedAndroidRelease | null } | null = null;
 
@@ -47,7 +61,7 @@ let cache: { path: string; mtimeMs: number; value: ShippedAndroidRelease | null 
  * deployment carries no sidecar (a self-host without the download, say):
  * the version stays what Super Admin typed.
  */
-export function readShippedAndroidRelease(path: string = SHIPPED_RELEASE_FILE): ShippedAndroidRelease | null {
+export function readShippedAndroidRelease(path: string = shippedReleaseFile()): ShippedAndroidRelease | null {
   try {
     const { mtimeMs } = statSync(path);
     if (cache && cache.path === path && cache.mtimeMs === mtimeMs) return cache.value;

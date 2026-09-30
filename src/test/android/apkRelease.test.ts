@@ -2,7 +2,12 @@ import { createHash } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseShippedRelease, withShippedVersion } from '../../../server/services/mobileApp/androidRelease';
+import {
+  parseShippedRelease,
+  readShippedAndroidRelease,
+  SHIPPED_RELEASE_FILES,
+  withShippedVersion,
+} from '../../../server/services/mobileApp/androidRelease';
 
 /**
  * The website's Android download and the file that names its version travel
@@ -38,5 +43,20 @@ describe('the shipped version', () => {
     expect(parseShippedRelease({ versionName: 'one', versionCode: 2, sha256: 'a'.repeat(64), sizeBytes: 10 })).toBeNull();
     expect(parseShippedRelease({ versionName: '1.1', versionCode: 2, sha256: 'nothex', sizeBytes: 10 })).toBeNull();
     expect(parseShippedRelease(null)).toBeNull();
+  });
+});
+
+describe('the server finds the sidecar', () => {
+  it('beside its own source in the repository', () => {
+    expect(SHIPPED_RELEASE_FILES[0]).toBe(resolve(dir, 'Webyar-Android.json'));
+    expect(readShippedAndroidRelease()?.versionName).toBe(
+      JSON.parse(readFileSync(resolve(dir, 'Webyar-Android.json'), 'utf8')).versionName,
+    );
+  });
+
+  it('in its Docker image, where the version is read in production', () => {
+    const dockerfile = readFileSync(resolve(__dirname, '../../../Dockerfile.server'), 'utf8');
+    expect(dockerfile).toContain('COPY public/downloads/Webyar-Android.json ./public/downloads/Webyar-Android.json');
+    expect(dockerfile).toContain('test -f /app/public/downloads/Webyar-Android.json');
   });
 });

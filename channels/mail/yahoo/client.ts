@@ -41,8 +41,9 @@ export const YAHOO_SMTP_HOST = 'smtp.mail.yahoo.com';
 export const YAHOO_SMTP_PORT = 465;
 
 // `mail-r`/`mail-w` are Yahoo Mail's documented read/write scopes; `openid`
-// is requested so the userinfo endpoint can resolve the connected address.
-export const YAHOO_OAUTH_SCOPES = 'openid mail-r mail-w';
+// + `email` are requested so the userinfo endpoint returns the connected
+// address (without `email` it answers with no `email` claim).
+export const YAHOO_OAUTH_SCOPES = 'openid email mail-r mail-w';
 
 export interface YahooOAuthConfig {
   clientId: string;

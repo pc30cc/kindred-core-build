@@ -649,11 +649,53 @@ object StrAndroid {
         }
     }
 
-    /** Above the composer once the operator has chosen to start a new conversation. */
-    fun supportNewConversationHint(l: Language): String = when (l) {
-        Language.EN -> "Your message starts a new conversation."
-        Language.FA -> "پیام شما گفتگوی جدیدی شروع می‌کند."
-        Language.TR -> "Mesajınız yeni bir görüşme başlatır."
+    /** The screen of conversations that ended, and the chat's button to it. */
+    fun supportClosedTitle(l: Language): String = when (l) {
+        Language.EN -> "Closed conversations"
+        Language.FA -> "گفتگوهای بسته‌شده"
+        Language.TR -> "Kapanan görüşmeler"
+    }
+
+    /** The chat bar's button to the closed conversations, in a word. */
+    fun supportClosedAction(l: Language): String = when (l) {
+        Language.EN -> "Closed"
+        Language.FA -> "بسته‌شده‌ها"
+        Language.TR -> "Kapananlar"
+    }
+
+    fun supportClosedEmpty(l: Language): String = when (l) {
+        Language.EN -> "No closed conversations yet"
+        Language.FA -> "هنوز گفتگوی بسته‌شده‌ای ندارید"
+        Language.TR -> "Henüz kapanan görüşme yok"
+    }
+
+    /** How a conversation ended, in a word: a closed conversation's row. */
+    fun supportStatusWord(l: Language, status: String): String = if (status == "closed") {
+        when (l) {
+            Language.EN -> "Closed"
+            Language.FA -> "بسته شد"
+            Language.TR -> "Kapatıldı"
+        }
+    } else {
+        when (l) {
+            Language.EN -> "Resolved"
+            Language.FA -> "حل شد"
+            Language.TR -> "Çözüldü"
+        }
+    }
+
+    /** A closed conversation's row, while it waits for its stars. */
+    fun supportRateAction(l: Language): String = when (l) {
+        Language.EN -> "Rate"
+        Language.FA -> "امتیاز دهید"
+        Language.TR -> "Değerlendir"
+    }
+
+    /** A closed conversation with nothing to name it by. */
+    fun supportConversationUntitled(l: Language): String = when (l) {
+        Language.EN -> "Conversation with support"
+        Language.FA -> "گفتگو با پشتیبانی"
+        Language.TR -> "Destekle görüşme"
     }
 
     /** Under an ended conversation, in place of the composer. */

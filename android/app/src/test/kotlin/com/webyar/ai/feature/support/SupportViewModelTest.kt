@@ -49,9 +49,8 @@ class SupportViewModelTest {
         return chat
     }
 
-    /** Opened on the sample's resolved conversation, and a new one started: the composer is open. */
-    private fun TestScope.writing(api: WebyarApi = StubSupportApi()): SupportChatViewModel =
-        opened(api).also { it.startNewConversation() }
+    /** Opened on the sample, whose one conversation has ended: a fresh page, ready to write. */
+    private fun TestScope.writing(api: WebyarApi = StubSupportApi()): SupportChatViewModel = opened(api)
 
     private val SupportChatViewModel.loaded: SupportChatState.Loaded
         get() = state.value as SupportChatState.Loaded
@@ -105,7 +104,7 @@ class SupportViewModelTest {
     // MARK: - The history
 
     @Test
-    fun `the history is one chat, each ended conversation closed and offered for rating`() = runTest(dispatcher) {
+    fun `arriving with nothing open, the chat is a fresh page and the ended conversation is closed`() = runTest(dispatcher) {
         val chat = opened()
 
         val loaded = chat.loaded
@@ -113,10 +112,15 @@ class SupportViewModelTest {
         assertTrue(resolved.ended)
         assertTrue(resolved.canRate)
         assertNull(loaded.activeConversationId)
-        // Nothing open, one ended: no composer — the end, and "start a new conversation".
-        assertEquals(SupportComposer.Ended, loaded.composer)
+        // Nothing open: the page is as fresh as the first — the ended one is
+        // behind the bar's "closed" button, not in the chat.
+        assertEquals(SupportComposer.Fresh, loaded.composer)
+        assertNull(loaded.shown)
+        assertTrue(loaded.isEmpty)
+        assertEquals(listOf(resolved.id), loaded.closed.map { it.id })
 
-        val rows = supportTimeline(loaded.conversations, loaded.items, loaded.pending)
+        // Read back on its own, it is closed by its line and offered for rating.
+        val rows = supportTimeline(listOf(resolved), loaded.items.filter { it.conversationId == resolved.id }, emptyList())
         assertEquals(
             listOf(
                 SupportRow.Bubble::class,
@@ -144,7 +148,7 @@ class SupportViewModelTest {
     fun `a message is pending at once and becomes the server's item`() = runTest(dispatcher) {
         val api = StubSupportApi()
         val chat = writing(api)
-        assertEquals(SupportComposer.New, chat.loaded.composer)
+        assertEquals(SupportComposer.Fresh, chat.loaded.composer)
 
         chat.setDraft("  سلام، ایمیل‌ها وصل نمی‌شود  ")
         chat.send()
@@ -163,15 +167,18 @@ class SupportViewModelTest {
         assertEquals(2, sent.conversations.size)
         assertEquals(sent.conversations.last().id, sent.activeConversationId)
         assertEquals(SupportComposer.Active, sent.composer)
-        assertFalse(sent.startingNew)
+        assertEquals(sent.activeConversationId, sent.shown?.id)
         val mine = sent.items.single { it.clientMessageId == id }
         assertEquals(sent.activeConversationId, mine.conversationId)
         // The team joined the new conversation and answered once.
         val theirs = sent.items.filter { it.conversationId == mine.conversationId && it.fromTeam }
         assertEquals(listOf(true, false), theirs.map { it.isJoin })
 
-        val rows = supportTimeline(sent.conversations, sent.items, sent.pending)
-        assertTrue(rows.any { it is SupportRow.NewConversation })
+        // The chat shows that conversation alone; the ended one stays closed.
+        assertTrue(sent.shownItems.all { it.conversationId == sent.activeConversationId })
+        // The operator's message, the team joining, its answer.
+        assertEquals(listOf(false, true, false), sent.shownItems.map { it.isJoin })
+        assertEquals(1, sent.closed.size)
 
         // The next one is written to the conversation now open, by name.
         chat.setDraft("و یک سؤال دیگر")
@@ -356,37 +363,71 @@ class SupportViewModelTest {
 
     // MARK: - The end of a conversation
 
-    /** The bug this guards: after a close, words typed into the old conversation went somewhere else. */
+    /**
+     * The bug this guards: after a close, words typed into the old
+     * conversation went somewhere else. Now a conversation that ends on
+     * screen takes nothing more, and a new one is the operator's choice.
+     */
     @Test
-    fun `an ended conversation takes nothing more until the operator starts a new one`() = runTest(dispatcher) {
+    fun `a conversation that ends on screen takes nothing more until the operator starts a new one`() = runTest(dispatcher) {
         val api = StubSupportApi()
-        val chat = opened(api)
+        val chat = writing(api)
+        chat.setDraft("سلام")
+        chat.send()
+        testScheduler.advanceUntilIdle()
+        val open = chat.loaded.activeConversationId!!
+        api.real.endSupportConversation(open)
+        chat.loadHistory()
+        testScheduler.advanceUntilIdle()
         assertEquals(SupportComposer.Ended, chat.loaded.composer)
+        val sentBefore = api.sent.size
 
         chat.setDraft("ادامهٔ همان گفتگو")
         chat.send()
         chat.sendFile("x".toByteArray(), "a.txt", "text/plain")
         testScheduler.advanceUntilIdle()
-        assertTrue(api.sent.isEmpty())
+        assertEquals(sentBefore, api.sent.size)
         assertTrue(api.uploads.isEmpty())
         assertTrue(chat.loaded.pending.isEmpty())
         // Kept for the new conversation.
         assertEquals("ادامهٔ همان گفتگو", chat.draft.value)
 
         chat.startNewConversation()
-        assertEquals(SupportComposer.New, chat.loaded.composer)
-        // Read again meanwhile: still starting a new one.
+        assertEquals(SupportComposer.Fresh, chat.loaded.composer)
+        assertTrue(chat.loaded.isEmpty)
+        // Read again meanwhile: still a fresh page.
         chat.loadHistory()
         testScheduler.advanceUntilIdle()
-        assertEquals(SupportComposer.New, chat.loaded.composer)
+        assertEquals(SupportComposer.Fresh, chat.loaded.composer)
 
         chat.send()
         testScheduler.advanceUntilIdle()
-        assertEquals(listOf<String?>(null), api.targets)
+        assertEquals(null, api.targets.last())
         val loaded = chat.loaded
         assertEquals(SupportComposer.Active, loaded.composer)
         assertEquals(loaded.conversations.last().id, loaded.activeConversationId)
-        assertTrue(loaded.conversations.first().ended)
+        assertEquals(2, loaded.closed.size)
+    }
+
+    /** Whenever the chat is opened: the open conversation if there is one, a fresh page if not. */
+    @Test
+    fun `opened again, the chat shows the open conversation, or a fresh page once it has ended`() = runTest(dispatcher) {
+        val api = StubSupportApi()
+        val first = writing(api)
+        first.setDraft("سلام")
+        first.send()
+        testScheduler.advanceUntilIdle()
+        val open = first.loaded.activeConversationId!!
+
+        val again = opened(api)
+        assertEquals(SupportComposer.Active, again.loaded.composer)
+        assertEquals(open, again.loaded.shown?.id)
+
+        api.real.endSupportConversation(open)
+        val later = opened(api)
+        assertEquals(SupportComposer.Fresh, later.loaded.composer)
+        assertNull(later.loaded.shown)
+        assertEquals(listOf(open, "sc-1"), later.loaded.closed.map { it.id })
     }
 
     @Test
@@ -405,7 +446,9 @@ class SupportViewModelTest {
         val loaded = chat.loaded
         assertNull(loaded.activeConversationId)
         assertEquals(SupportComposer.Ended, loaded.composer)
-        assertEquals(SupportConversation.STATUS_CLOSED, loaded.lastConversation?.status)
+        // Its end stays on screen, with its rating, until a new one is started.
+        assertEquals(open, loaded.shown?.id)
+        assertEquals(SupportConversation.STATUS_CLOSED, loaded.shown?.status)
     }
 
     /** Closed while the message was on its way: refused, not moved — and not lost either. */
@@ -436,11 +479,55 @@ class SupportViewModelTest {
 
         // Started again, it goes to a conversation of its own.
         chat.startNewConversation()
+        assertEquals(SupportComposer.Fresh, chat.loaded.composer)
         chat.send()
         testScheduler.advanceUntilIdle()
         assertEquals(null, api.targets.last())
         assertEquals(3, chat.loaded.conversations.size)
         assertEquals(SupportComposer.Active, chat.loaded.composer)
+    }
+
+    // MARK: - Closed conversations
+
+    @Test
+    fun `the closed list is every ended conversation, the newest first, each known by its first words`() = runTest(dispatcher) {
+        val api = StubSupportApi()
+        val chat = writing(api)
+        chat.setDraft("ایمیل‌ها وصل نمی‌شود\nجزئیات بیشتر")
+        chat.send()
+        testScheduler.advanceUntilIdle()
+        val second = chat.loaded.activeConversationId!!
+        api.real.endSupportConversation(second, SupportConversation.STATUS_CLOSED)
+
+        val archive = SupportArchiveViewModel(api) { Language.FA }
+        archive.open()
+        testScheduler.advanceUntilIdle()
+
+        val loaded = archive.state.value as SupportArchiveState.Loaded
+        assertEquals(listOf(second, "sc-1"), loaded.closed.map { it.id })
+        assertEquals("ایمیل‌ها وصل نمی‌شود", loaded.preview(second))
+        assertEquals("سلام، مبلغ فاکتور این ماه دو بار از کارتم کم شده است.", loaded.preview("sc-1"))
+        assertEquals(3, loaded.itemsOf(second).size)
+    }
+
+    @Test
+    fun `a closed conversation is rated from its own screen, once`() = runTest(dispatcher) {
+        val api = StubSupportApi()
+        val archive = SupportArchiveViewModel(api) { Language.FA }
+        archive.open()
+        testScheduler.advanceUntilIdle()
+
+        archive.rate("sc-1", 4, "  خوب  ")
+        archive.rate("sc-1", 4, null)
+        assertEquals(setOf("sc-1"), archive.rating.value)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(listOf("sc-1"), api.ratings)
+        val rated = (archive.state.value as SupportArchiveState.Loaded).conversation("sc-1")!!
+        assertEquals(4, rated.rating?.score)
+        assertEquals("خوب", rated.rating?.comment)
+        assertFalse(rated.canRate)
+        assertTrue(archive.rating.value.isEmpty())
     }
 
     @Test

@@ -5,7 +5,7 @@
  * token in the apps. camelCase JSON both ways, so every client reads the
  * same shape.
  *
- *   GET  /status                      { enabled, available, online, teamName, unread, hours, nextOpenAt }
+ *   GET  /status                      { enabled, available, online, teamName, teamAvatar, unread, hours, nextOpenAt }
  *   GET  /history                     { conversations, items, activeConversationId }
  *   POST /messages                    { body, clientMessageId, conversationId?, workspaceId? } → { conversation, item }
  *   POST /attachments                 { fileName, mimeType, data, clientMessageId, conversationId?, workspaceId? } → { conversation, item }

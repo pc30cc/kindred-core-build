@@ -557,6 +557,26 @@ fun AppShell(
                 api = api,
                 language = language,
                 onBack = { navigator.back() },
+                onOpenClosed = { navigator.open(SupportClosedKey) },
+            )
+        }
+        entry<SupportClosedKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = SettingsKey) + tabOf(AppTab.SETTINGS)) {
+            SupportClosedRoute(
+                api = api,
+                language = language,
+                onBack = { navigator.back() },
+                onOpen = { navigator.open(SupportClosedConversationKey(it)) },
+            )
+        }
+        entry<SupportClosedConversationKey>(
+            metadata = ListDetailSceneStrategy.detailPane(sceneKey = SettingsKey) + tabOf(AppTab.SETTINGS),
+        ) { key ->
+            SupportClosedConversationRoute(
+                appState = appState,
+                api = api,
+                language = language,
+                conversationId = key.conversationId,
+                onBack = { navigator.back() },
             )
         }
     }

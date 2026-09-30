@@ -38,6 +38,7 @@ vi.mock('../push/index.js', () => ({ notifyInboundMessage: vi.fn(), notifySuppor
 vi.mock('../storage/urlResolver.js', () => ({
   createStorageUrlResolver: () => ({
     user: async (id: string, key: string | null) => (key ? `https://cdn.example/${id}.png` : null),
+    workspace: async (id: string, key: string | null) => (key ? `https://cdn.example/workspace/${id}/${key}` : null),
   }),
 }));
 vi.mock('../storage/index.js', () => ({
@@ -145,10 +146,18 @@ describe('status', () => {
       available: true,
       online: true,
       teamName: 'Webyar Support',
+      teamAvatar: null,
       unread: 0,
       hours: null,
       nextOpenAt: null,
     });
+    // With a logo in the workspace's branding, the app shows it as the team's face.
+    db.table('workspace_branding').push({ workspace_id: 'ws-support', logo_url: null, logo_storage_key: 'workspace/ws-support/branding/logo.png' });
+    expect((await supportStatus(config, userId)).teamAvatar).toBe(
+      'https://cdn.example/workspace/ws-support/workspace/ws-support/branding/logo.png',
+    );
+    db.table('workspace_branding')[0].logo_url = 'https://brand.example/logo.svg';
+    expect((await supportStatus(config, userId)).teamAvatar).toBe('https://brand.example/logo.svg');
     expect((await supportStatus(config, 'agent-1')).available).toBe(true);
   });
 

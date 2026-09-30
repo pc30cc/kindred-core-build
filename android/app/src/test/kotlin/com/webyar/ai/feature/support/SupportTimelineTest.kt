@@ -119,26 +119,21 @@ class SupportTimelineTest {
         assertEquals(waiting, (rows.last() as SupportRow.Bubble).pending)
     }
 
-    /** Started after the end: the new conversation has its own line, under the ended one, never inside it. */
+    /** Sent after the end: the new conversation has its own line, under the ended one, never inside it. */
     @Test
-    fun `a new conversation starts under the ended ones, with its own line`() {
-        val ended = listOf(first)
+    fun `a message to a new conversation sits under its own line`() {
         val endedItems = items.filter { it.conversationId == "c-1" }
+        val next = PendingSupportItem("cm-8", "سلام دوباره", tuesday)
 
-        val chosen = supportTimeline(ended, endedItems, emptyList(), zone, startingNew = true)
-        assertTrue(chosen.last() is SupportRow.NewConversation)
-        assertNull((chosen.last() as SupportRow.NewConversation).startedAt)
-        assertTrue(chosen.dropLast(1).last() is SupportRow.Rating)
+        val rows = supportTimeline(listOf(first), endedItems, listOf(next), zone)
 
-        val first = PendingSupportItem("cm-8", "سلام دوباره", tuesday)
-        val rows = supportTimeline(ended, endedItems, listOf(first), zone, startingNew = true)
+        assertTrue(rows[rows.size - 3] is SupportRow.Rating)
         val line = rows[rows.size - 2] as SupportRow.NewConversation
         assertEquals(tuesday, line.startedAt)
         val bubble = rows.last() as SupportRow.Bubble
-        assertEquals(first, bubble.pending)
+        assertEquals(next, bubble.pending)
         // The line carries the date: no day header under it.
         assertNull(bubble.dayHeader)
-        assertEquals(1, rows.count { it is SupportRow.NewConversation })
     }
 
     @Test
@@ -149,7 +144,7 @@ class SupportTimelineTest {
         assertEquals("c-cm-9", rows.last().key)
 
         val firstEver = PendingSupportItem("cm-10", "سلام", tuesday)
-        val alone = supportTimeline(emptyList(), emptyList(), listOf(firstEver), zone, startingNew = true)
+        val alone = supportTimeline(emptyList(), emptyList(), listOf(firstEver), zone)
         assertEquals(listOf("c-cm-10"), alone.map { it.key })
     }
 

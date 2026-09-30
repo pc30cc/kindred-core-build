@@ -317,7 +317,7 @@ export async function publishTeamEvent(
  * `/api/platform-support`.
  */
 export interface SupportEventPayload {
-  kind: 'support_message' | 'support_read';
+  kind: 'support_message' | 'support_update' | 'support_read';
   thread_id: string;
   message_id?: string;
 }

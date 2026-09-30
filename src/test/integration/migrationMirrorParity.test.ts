@@ -379,6 +379,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/242_platform_support.sql',
     hosted: 'supabase/migrations/20260930140000_platform_support.sql',
   },
+  {
+    label: '243 — platform support: chat only (no tickets), ratings, Android show switch',
+    selfHost: 'database/migrations/243_platform_support_chat.sql',
+    hosted: 'supabase/migrations/20260930170000_platform_support_chat.sql',
+  },
 
   // intentionally asymmetric, not a drift bug.
 

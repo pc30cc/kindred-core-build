@@ -30,6 +30,7 @@ import { publishOperatorEvent, publishConversationEvent, buildMessageEnvelope } 
 import { dispatchOutboundIfChannelConversation } from './channels/outbound.js';
 import { maybeQueueTelegramOfflineScreen } from './channels/telegram/offlineDelivery.js';
 import { notifyAssignment, notifyHandoff } from './push/index.js';
+import { onSupportConversationChanged } from './platformSupport/changes.js';
 
 export type AssignmentMode = 'auto' | 'round_robin' | 'manual';
 
@@ -341,6 +342,8 @@ async function insertRoutingSystemMessage(
         seen_at: (msgRow as { seen_at?: string | null }).seen_at ?? null,
       }),
     );
+    // A platform-support conversation: the operator's chat shows the join.
+    void onSupportConversationChanged(config, { workspaceId, conversationId });
   } catch { /* best-effort — never break routing */ }
 }
 

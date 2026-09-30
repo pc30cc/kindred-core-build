@@ -4,21 +4,25 @@
  */
 
 export const MAX_BODY_LENGTH = 4000;
-export const MAX_SUBJECT_LENGTH = 200;
+export const MAX_RATING_COMMENT_LENGTH = 1000;
+/** A file the operator attaches: 2 MB, decoded. */
+export const MAX_FILE_BYTES = 2 * 1024 * 1024;
+
+/** What an operator may attach — the chat widget's own list. */
+export const ALLOWED_FILE_TYPES: ReadonlyMap<string, string> = new Map([
+  ['image/png', 'png'],
+  ['image/jpeg', 'jpg'],
+  ['image/webp', 'webp'],
+  ['image/gif', 'gif'],
+  ['application/pdf', 'pdf'],
+  ['text/plain', 'txt'],
+]);
 
 /** Collapses what a composer adds around a message; null when nothing is left. */
 export function normalizeBody(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   const text = raw.replace(/\r\n?/g, '\n').split('\u0000').join('').trim();
   if (!text || text.length > MAX_BODY_LENGTH) return null;
-  return text;
-}
-
-/** One line, trimmed; null when empty or too long. */
-export function normalizeSubject(raw: unknown): string | null {
-  if (typeof raw !== 'string') return null;
-  const text = raw.replace(/[\r\n\t]+/g, ' ').split('\u0000').join('').replace(/\s{2,}/g, ' ').trim();
-  if (!text || text.length > MAX_SUBJECT_LENGTH) return null;
   return text;
 }
 
@@ -36,21 +40,55 @@ export function subjectFromBody(body: string): string {
   return trimmed.length > 80 ? `${trimmed.slice(0, 79)}…` : trimmed;
 }
 
+/** 1–5 stars; anything else is not a rating. */
+export function normalizeScore(raw: unknown): number | null {
+  return typeof raw === 'number' && Number.isInteger(raw) && raw >= 1 && raw <= 5 ? raw : null;
+}
+
+/** An optional comment: trimmed, null when empty; undefined when too long. */
+export function normalizeRatingComment(raw: unknown): string | null | undefined {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== 'string') return undefined;
+  const text = raw.replace(/\r\n?/g, '\n').split('\u0000').join('').trim();
+  if (!text) return null;
+  return text.length > MAX_RATING_COMMENT_LENGTH ? undefined : text;
+}
+
 /**
- * What a person typed, made safe for an email template.
- *
- * Templates are interpolated as HTML (server/services/email/index.ts) with
- * `String.replace`, so markup is escaped and `$` — which `replace` would
- * read as a back-reference — is doubled.
+ * The app a request came from, from `X-Client-Platform`. The apps send it;
+ * a browser does not, and is the web console.
  */
-export function templateValue(raw: string | null | undefined): string {
-  return String(raw ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-    .replace(/\$/g, '$$$$');
+export type ClientPlatform = 'android' | 'ios' | 'macos' | 'windows' | 'web';
+
+export function clientPlatformOf(raw: unknown): ClientPlatform {
+  const value = String(Array.isArray(raw) ? raw[0] : raw ?? '').trim().toLowerCase();
+  return value === 'android' || value === 'ios' || value === 'macos' || value === 'windows' ? value : 'web';
+}
+
+/**
+ * A file name as the team will see it: no path, no control characters, at
+ * most 120 characters, and the extension its type says it has.
+ */
+export function supportFileName(raw: unknown, mimeType: string): string {
+  const ext = ALLOWED_FILE_TYPES.get(mimeType) ?? 'bin';
+  const base = String(raw ?? '')
+    .split(/[\\/]/)
+    .pop()!
+    .split('')
+    .filter((ch) => ch.charCodeAt(0) >= 32 && ch !== '"')
+    .join('')
+    .trim()
+    .replace(/\.[A-Za-z0-9]{1,8}$/, '');
+  const stem = (base || 'file').slice(0, 110);
+  return `${stem}.${ext}`;
+}
+
+/** What the transcript calls a file, from its type. */
+export function attachmentKind(mimeType: string): 'image' | 'audio' | 'video' | 'file' {
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('audio/')) return 'audio';
+  if (mimeType.startsWith('video/')) return 'video';
+  return 'file';
 }
 
 /**

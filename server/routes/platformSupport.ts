@@ -1,37 +1,37 @@
 /**
- * /api/platform-support — an operator's side of platform support.
+ * Platform support — the operator's side (docs/PLATFORM_SUPPORT.md).
  *
- * Any signed-in user (cookie on the web, Bearer in the apps). Nothing here is
- * scoped to a workspace the caller belongs to: every thread is read through
- * `platform_support_threads` by the caller's own user id. See
- * server/services/platformSupport/service.ts for the model, and
- * docs/PLATFORM_SUPPORT.md for the contract the apps follow.
+ * Any signed-in operator, from any client: the cookie on the web, a bearer
+ * token in the apps. camelCase JSON both ways, so every client reads the
+ * same shape.
  *
- *   GET  /status                     { enabled, available, online, ticketsEnabled, teamName }
- *   GET  /threads                    { threads: SupportThread[] }
- *   GET  /threads/:id                { thread, messages: SupportMessage[] }
- *   POST /chat                       { body, clientMessageId?, workspaceId? } → { thread, message }
- *   POST /tickets                    { subject, body, clientMessageId?, workspaceId? } → { thread, message }
- *   POST /threads/:id/messages       { body, clientMessageId? } → { thread, message }
- *   POST /threads/:id/read           → { ok: true }
+ *   GET  /status                      { enabled, available, online, teamName, unread, hours, nextOpenAt }
+ *   GET  /history                     { conversations, items, activeConversationId }
+ *   POST /messages                    { body, clientMessageId, workspaceId? } → { conversation, item }
+ *   POST /attachments                 { fileName, mimeType, data, clientMessageId, workspaceId? } → { conversation, item }
+ *   GET  /attachments/:id             the file's bytes
+ *   POST /conversations/:id/rating    { score, comment? } → { conversation }
+ *   POST /read                        → { ok: true }
  *
  * Errors are `{ error: <code> }`: support_disabled, support_not_configured,
- * tickets_disabled, invalid_body, invalid_subject, thread_not_found,
- * thread_closed, rate_limited.
+ * conversation_not_found, attachment_not_found, already_rated, not_ratable,
+ * invalid_body, invalid_rating, invalid_file, file_type_not_allowed,
+ * file_too_large, rate_limited.
  */
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { requireUser, serverConfigOf } from '../lib/workspaceAuth.js';
 import {
-  createTicket,
-  listThreads,
-  markThreadRead,
-  replyInThread,
-  sendChatMessage,
+  attachmentFile,
+  markRead,
+  rateConversation,
+  sendAttachment,
+  sendMessage,
   SupportError,
+  supportHistory,
   supportStatus,
-  threadMessages,
 } from '../services/platformSupport/service.js';
+import { clientPlatformOf } from '../services/platformSupport/text.js';
 
 export const platformSupportRouter = Router();
 
@@ -47,6 +47,12 @@ function localeOf(req: Request): string {
   return (q || header || 'en').toLowerCase().split(/[-_,;]/)[0] || 'en';
 }
 
+/** The body as an object, whatever was posted. */
+function bodyOf(req: Request): Record<string, unknown> {
+  const body: unknown = req.body;
+  return body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
+}
+
 platformSupportRouter.get('/status', async (req, res) => {
   const userId = await requireUser(req, res);
   if (!userId) return;
@@ -57,36 +63,27 @@ platformSupportRouter.get('/status', async (req, res) => {
   }
 });
 
-platformSupportRouter.get('/threads', async (req, res) => {
+platformSupportRouter.get('/history', async (req, res) => {
   const userId = await requireUser(req, res);
   if (!userId) return;
   try {
-    return res.json({ threads: await listThreads(serverConfigOf(req), userId) });
+    return res.json(await supportHistory(serverConfigOf(req), userId));
   } catch (err) {
     return fail(res, err);
   }
 });
 
-platformSupportRouter.get('/threads/:id', async (req, res) => {
+platformSupportRouter.post('/messages', async (req, res) => {
   const userId = await requireUser(req, res);
   if (!userId) return;
   try {
-    return res.json(await threadMessages(serverConfigOf(req), userId, String(req.params.id)));
-  } catch (err) {
-    return fail(res, err);
-  }
-});
-
-platformSupportRouter.post('/chat', async (req, res) => {
-  const userId = await requireUser(req, res);
-  if (!userId) return;
-  try {
-    const body = req.body ?? {};
+    const body = bodyOf(req);
     return res.json(
-      await sendChatMessage(serverConfigOf(req), userId, {
+      await sendMessage(serverConfigOf(req), userId, {
         body: body.body,
         clientMessageId: body.clientMessageId,
         sourceWorkspaceId: body.workspaceId,
+        client: clientPlatformOf(req.headers['x-client-platform']),
       }),
     );
   } catch (err) {
@@ -94,17 +91,19 @@ platformSupportRouter.post('/chat', async (req, res) => {
   }
 });
 
-platformSupportRouter.post('/tickets', async (req, res) => {
+platformSupportRouter.post('/attachments', async (req, res) => {
   const userId = await requireUser(req, res);
   if (!userId) return;
   try {
-    const body = req.body ?? {};
+    const body = bodyOf(req);
     return res.json(
-      await createTicket(serverConfigOf(req), userId, {
-        subject: body.subject,
-        body: body.body,
+      await sendAttachment(serverConfigOf(req), userId, {
+        fileName: body.fileName,
+        mimeType: body.mimeType,
+        data: body.data,
         clientMessageId: body.clientMessageId,
         sourceWorkspaceId: body.workspaceId,
+        client: clientPlatformOf(req.headers['x-client-platform']),
       }),
     );
   } catch (err) {
@@ -112,15 +111,31 @@ platformSupportRouter.post('/tickets', async (req, res) => {
   }
 });
 
-platformSupportRouter.post('/threads/:id/messages', async (req, res) => {
+platformSupportRouter.get('/attachments/:id', async (req, res) => {
   const userId = await requireUser(req, res);
   if (!userId) return;
   try {
-    const body = req.body ?? {};
+    const file = await attachmentFile(serverConfigOf(req), userId, String(req.params.id));
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader('Content-Length', String(file.bytes.length));
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', `inline; filename="${file.fileName.replace(/"/g, '')}"`);
+    return res.end(file.bytes);
+  } catch (err) {
+    return fail(res, err);
+  }
+});
+
+platformSupportRouter.post('/conversations/:id/rating', async (req, res) => {
+  const userId = await requireUser(req, res);
+  if (!userId) return;
+  try {
+    const body = bodyOf(req);
     return res.json(
-      await replyInThread(serverConfigOf(req), userId, String(req.params.id), {
-        body: body.body,
-        clientMessageId: body.clientMessageId,
+      await rateConversation(serverConfigOf(req), userId, String(req.params.id), {
+        score: body.score,
+        comment: body.comment,
       }),
     );
   } catch (err) {
@@ -128,11 +143,11 @@ platformSupportRouter.post('/threads/:id/messages', async (req, res) => {
   }
 });
 
-platformSupportRouter.post('/threads/:id/read', async (req, res) => {
+platformSupportRouter.post('/read', async (req, res) => {
   const userId = await requireUser(req, res);
   if (!userId) return;
   try {
-    await markThreadRead(serverConfigOf(req), userId, String(req.params.id));
+    await markRead(serverConfigOf(req), userId);
     return res.json({ ok: true });
   } catch (err) {
     return fail(res, err);

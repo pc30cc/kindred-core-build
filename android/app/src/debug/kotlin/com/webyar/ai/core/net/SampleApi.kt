@@ -1,6 +1,7 @@
 package com.webyar.ai.core.net
 
 import com.webyar.ai.core.model.AnalyticsDay
+import com.webyar.ai.core.model.MobileAppConfig
 import com.webyar.ai.core.model.AnalyticsEvent
 import com.webyar.ai.core.model.AnalyticsEvents
 import com.webyar.ai.core.model.AnalyticsOverview
@@ -208,6 +209,10 @@ class SampleApi : WebyarApi {
         InboxCounts(open = 4, pending = 1, resolved = 2, all = 7, needsHuman = 2, automated = 1)
 
     override suspend fun contacts(workspaceId: String): List<Contact> = CONTACTS
+
+    /** Every section on, and a support link so About → Support has somewhere to go. */
+    override suspend fun mobileAppConfig(): MobileAppConfig =
+        MobileAppConfig.DEFAULT.copy(supportUrl = "https://webyar.ai/help")
 
     /**
      * Everything on, so no screen is hidden behind a plan while it is being

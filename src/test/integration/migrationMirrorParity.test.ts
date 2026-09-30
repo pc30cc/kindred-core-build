@@ -369,6 +369,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/237_mobile_app_android_language_maintenance.sql',
     hosted: 'supabase/migrations/20260929120000_mobile_app_android_language_maintenance.sql',
   },
+  {
+    label: '238 — platform_settings: public self-signup on/off switch',
+    selfHost: 'database/migrations/238_signup_enabled.sql',
+    hosted: 'supabase/migrations/20260930120000_signup_enabled.sql',
+  },
 
   // intentionally asymmetric, not a drift bug.
 

@@ -638,6 +638,8 @@ const platformSettingsSchema = z.object({
   // Signup verification policy — see server/services/auth/signupPolicy.ts.
   signup_verification_method: z.enum(['link', 'otp']).optional(),
   signup_verification_gate: z.enum(['before', 'after']).optional(),
+  // Public self-signup on/off — see server/services/auth/signupPolicy.ts.
+  signup_enabled: z.boolean().optional(),
   // Default plan for NEW signups — see server/services/billing/signupPlan.ts.
   signup_default_plan_mode: z.enum(['free', 'trial']).optional(),
 });

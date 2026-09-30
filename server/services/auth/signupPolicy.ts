@@ -1,10 +1,12 @@
 /**
  * SIGNUP VERIFICATION POLICY — one platform-wide source of truth.
  *
- * Two orthogonal operator choices, stored on `platform_settings`
- * (database/migrations/152_signup_verification_policy.sql) and edited in
- * Super Admin → Branding → Settings:
+ * Operator choices, stored on `platform_settings`
+ * (database/migrations/152_signup_verification_policy.sql,
+ * 238_signup_enabled.sql) and edited in Super Admin → Core settings → Signup:
  *
+ *   enabled: boolean         — whether public self-signup is open at all.
+ *                              Invitations (accept-new) are not affected.
  *   method: 'link' | 'otp'   — how the verification is delivered.
  *   gate:   'before' | 'after' — whether a workspace exists before the
  *                                email is verified.
@@ -21,12 +23,26 @@ export type SignupVerificationMethod = 'link' | 'otp';
 export type SignupVerificationGate = 'before' | 'after';
 
 export interface SignupVerificationPolicy {
+  enabled: boolean;
   method: SignupVerificationMethod;
   gate: SignupVerificationGate;
 }
 
-/** Historical behaviour: emailed link, no workspace until verified. */
-export const DEFAULT_SIGNUP_POLICY: SignupVerificationPolicy = { method: 'link', gate: 'before' };
+/** Historical behaviour: signup open, emailed link, no workspace until verified. */
+export const DEFAULT_SIGNUP_POLICY: SignupVerificationPolicy = { enabled: true, method: 'link', gate: 'before' };
+
+/**
+ * What a settings read FAILURE resolves to: the strict verification policy
+ * and signup CLOSED — an operator who turned signup off must never see it
+ * silently reopen because the database blipped.
+ */
+const FAIL_CLOSED_SIGNUP_POLICY: SignupVerificationPolicy = { ...DEFAULT_SIGNUP_POLICY, enabled: false };
+
+interface SignupPolicyRow {
+  signup_enabled?: boolean | null;
+  signup_verification_method?: string | null;
+  signup_verification_gate?: string | null;
+}
 
 const CACHE_TTL_MS = 30_000;
 let cached: { value: SignupVerificationPolicy; at: number } | null = null;
@@ -43,14 +59,22 @@ export async function getSignupVerificationPolicy(config: ServerConfig): Promise
     const sb = getServiceClient(config);
     const { data, error } = await sb
       .from('platform_settings')
-      .select('signup_verification_method, signup_verification_gate')
+      // `*` rather than a column list: an API build deployed ahead of
+      // migration 238 must not fail the whole read (and so close signup)
+      // just because `signup_enabled` does not exist yet.
+      .select('*')
+      .order('created_at', { ascending: true })
       .limit(1)
       .maybeSingle();
     if (error) throw new Error(error.message);
 
-    const rawMethod = (data as any)?.signup_verification_method;
-    const rawGate = (data as any)?.signup_verification_gate;
+    const row = data as SignupPolicyRow | null;
+    const rawMethod = row?.signup_verification_method;
+    const rawGate = row?.signup_verification_gate;
     const value: SignupVerificationPolicy = {
+      // Only an explicit `false` closes signup; a missing column/row keeps
+      // the historical open behaviour.
+      enabled: row?.signup_enabled !== false,
       method: rawMethod === 'otp' ? 'otp' : 'link',
       gate: rawGate === 'after' ? 'after' : 'before',
     };
@@ -60,6 +84,6 @@ export async function getSignupVerificationPolicy(config: ServerConfig): Promise
     // Never let a settings read failure change auth behaviour silently in
     // the permissive direction: fall back to the strict historical policy.
     console.error('[signup-policy] Falling back to default policy:', err);
-    return DEFAULT_SIGNUP_POLICY;
+    return FAIL_CLOSED_SIGNUP_POLICY;
   }
 }

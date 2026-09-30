@@ -414,6 +414,8 @@ const tr: TranslationKeys = {
     lastNamePlaceholder: 'Soyad',
     continue: 'Devam',
     signupFailed: 'Kayıt başarısız',
+    signupDisabledTitle: 'Kayıtlar kapalı',
+    signupDisabledDesc: 'Yeni hesap kaydı şu anda devre dışı. Zaten bir hesabınız varsa lütfen giriş yapın.',
     accountExists: 'Hesap zaten mevcut',
     accountExistsHint: 'Giriş yapın veya şifrenizi hatırlamıyorsanız Şifremi Unuttum seçeneğini kullanın.',
     signupSuccess: 'Kayıt başarılı!',
@@ -5974,6 +5976,13 @@ const tr: TranslationKeys = {
       subtitle: 'Platform genelindeki davranış ayarları tek yerde.',
       tabSignup: 'Kayıt ayarları',
       signupNotSupported: 'Mevcut sunucu sürümü bu ayarı henüz desteklemiyor; yeni sürüm yayınlandığında kaydedilecek.',
+      signupAccess: {
+        title: 'Yeni kullanıcı kaydı',
+        hint: 'Kayıt sayfasından herkesin yeni hesap oluşturup oluşturamayacağını belirler.',
+        label: 'Yeni kayıtlara izin ver',
+        onHint: 'Açık: herkes kayıt sayfasından kaydolabilir.',
+        offHint: 'Kapalı: kayıt sayfası devre dışı. Mevcut kullanıcılar giriş yapabilir ve davet edilen ekip üyeleri yine katılabilir.',
+      },
       signupPlan: {
         title: 'Yeni kayıtlar için varsayılan plan',
         hint: 'Yalnızca yeni kayıtlara uygulanır; mevcut çalışma alanları değişmez.',

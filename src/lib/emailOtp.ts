@@ -12,12 +12,17 @@ export type SignupVerificationMethod = 'link' | 'otp';
 export type SignupVerificationGate = 'before' | 'after';
 
 export interface SignupVerificationPolicy {
+  /** Public self-signup open? Super Admin → Core settings → Signup. */
+  enabled: boolean;
   method: SignupVerificationMethod;
   gate: SignupVerificationGate;
 }
 
-/** Historical behaviour — also the fallback whenever the read fails. */
-export const DEFAULT_SIGNUP_POLICY: SignupVerificationPolicy = { method: 'link', gate: 'before' };
+/**
+ * Historical behaviour — also the fallback whenever the read fails. `enabled`
+ * only drives what the UI shows; the server refuses a closed signup itself.
+ */
+export const DEFAULT_SIGNUP_POLICY: SignupVerificationPolicy = { enabled: true, method: 'link', gate: 'before' };
 
 export async function fetchSignupPolicy(): Promise<SignupVerificationPolicy> {
   try {
@@ -25,6 +30,7 @@ export async function fetchSignupPolicy(): Promise<SignupVerificationPolicy> {
     if (!res.ok) return DEFAULT_SIGNUP_POLICY;
     const json = await res.json();
     return {
+      enabled: json?.enabled !== false,
       method: json?.method === 'otp' ? 'otp' : 'link',
       gate: json?.gate === 'after' ? 'after' : 'before',
     };

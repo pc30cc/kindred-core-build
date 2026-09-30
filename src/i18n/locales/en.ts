@@ -412,6 +412,8 @@ const en = {
     lastNamePlaceholder: 'Last name',
     continue: 'Continue',
     signupFailed: 'Registration failed',
+    signupDisabledTitle: 'Registration is closed',
+    signupDisabledDesc: 'New account registration is currently disabled. If you already have an account, please sign in.',
     accountExists: 'Account already exists',
     accountExistsHint: 'Sign in, or use Forgot Password if you don\'t remember your password.',
     signupSuccess: 'Registration successful!',
@@ -5988,6 +5990,13 @@ const en = {
       subtitle: 'Platform-wide behaviour switches in one place.',
       tabSignup: 'Signup settings',
       signupNotSupported: 'The current API build does not support this setting yet; it will save once the new server version is deployed.',
+      signupAccess: {
+        title: 'New user registration',
+        hint: 'Controls whether anyone can create a new account from the signup page.',
+        label: 'Allow new signups',
+        onHint: 'Open: anyone can register from the signup page.',
+        offHint: 'Closed: the signup page is disabled. Existing users can still sign in, and invited team members can still join.',
+      },
       signupPlan: {
         title: 'Default plan for new signups',
         hint: 'Applies to new signups only; existing workspaces are untouched.',

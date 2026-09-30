@@ -13,6 +13,7 @@ import { Eye, EyeOff, Loader2, ArrowRight, Mail, Lock, Check } from 'lucide-reac
 import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
 import { cn } from '@/lib/utils';
+import { useSignupEnabled } from '@/hooks/useSignupEnabled';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -52,6 +53,7 @@ export default function LoginPage() {
   }, [user, authLoading, navigate, destination]);
 
   const [email, setEmail] = useState('');
+  const signupEnabled = useSignupEnabled();
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -88,8 +90,8 @@ export default function LoginPage() {
       }
       toast.success(t('auth.welcomeBack'));
       navigate(destination);
-    } catch (err: any) {
-      toast.error(t('auth.loginFailed'), { description: err?.message });
+    } catch (err: unknown) {
+      toast.error(t('auth.loginFailed'), { description: err instanceof Error ? err.message : undefined });
     } finally {
       setLoading(false);
     }
@@ -266,12 +268,14 @@ export default function LoginPage() {
             </form>
 
             <div className="pt-2 text-center space-y-2">
-              <p className="text-sm text-muted-foreground">
-                {t('auth.noAccount')}{' '}
-                <Link to="/auth/signup" className="text-primary hover:underline font-semibold">
-                  {t('auth.signup')}
-                </Link>
-              </p>
+              {signupEnabled !== false && (
+                <p className="text-sm text-muted-foreground">
+                  {t('auth.noAccount')}{' '}
+                  <Link to="/auth/signup" className="text-primary hover:underline font-semibold">
+                    {t('auth.signup')}
+                  </Link>
+                </p>
+              )}
               <Link to={forgotHref} className="inline-block text-sm text-primary hover:underline font-medium">
                 {t('auth.forgotPassword')}
               </Link>

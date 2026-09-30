@@ -12,7 +12,9 @@ package com.webyar.ai.feature.email
  * the way web mail clients have always embedded mail.
  *
  * `@media` and `@supports` blocks are kept and scoped in turn — they are how a
- * newsletter reflows for a phone. `@font-face`, `@keyframes` and `@page` are
+ * newsletter reflows for a phone. A desktop column's width in a rule
+ * (`width:600px`) becomes the phone's (`width:100%`) and `min-width` goes, as
+ * the reader does for the same widths written on the elements themselves. `@font-face`, `@keyframes` and `@page` are
  * kept as they are: they name no elements. `@import` is dropped (it would
  * fetch a stylesheet from anywhere and apply it unscoped), and so is any other
  * at-rule this does not know.
@@ -38,6 +40,18 @@ internal object MailCss {
 
     /** A leading `body` with anything stuck to it (`body.x`, `body[yahoo]`). */
     private val BODY = Regex("^body(?=$|[\\s>+~.#\\[:])[^\\s>+~]*", RegexOption.IGNORE_CASE)
+
+    private val FIXED_WIDTH = Regex("(^|[;\\s])(min-width|width)\\s*:\\s*(\\d+(?:\\.\\d+)?)px(\\s*!\\s*important)?", RegexOption.IGNORE_CASE)
+
+    /** A rule's declarations with a desktop column's width let go of. */
+    private fun fluid(declarations: String): String = FIXED_WIDTH.replace(declarations) { d ->
+        val separator = d.groupValues[1]
+        when {
+            d.groupValues[2].equals("min-width", ignoreCase = true) -> separator
+            d.groupValues[3].toDouble() >= EmailReader.WIDE_PX -> "${separator}width:100%${d.groupValues[4]}"
+            else -> d.value
+        }
+    }
 
     /** [css] with every rule applying inside `.[scope]` only. */
     fun scope(css: String, scope: String): String {
@@ -76,7 +90,7 @@ internal object MailCss {
                     else -> Unit
                 }
             } else if (prelude.isNotEmpty()) {
-                out.append(selectors(prelude, scope)).append('{').append(css, stop + 1, close).append('}')
+                out.append(selectors(prelude, scope)).append('{').append(fluid(css.substring(stop + 1, close))).append('}')
             }
             i = close + 1
         }

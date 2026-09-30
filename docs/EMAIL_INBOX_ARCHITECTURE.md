@@ -174,9 +174,13 @@ the names are the same for every mailbox (`server/services/email/folders.ts`).
 - The reader (`feature/email/EmailReader.kt`) is one white page in a
   WebView with JavaScript off. Each mail's own `<style>` is scoped to its
   box (`MailCss`: `html`/`body` become the box, `@media` kept, `@import`
-  dropped), and the page is held to the phone's width (no element wider than
-  its column, no `min-width`, pictures scale, long words break); a mail still
-  wider opens zoomed out to fit (overview mode, no fixed initial scale).
+  dropped), and the mail reflows to the phone: its desktop widths are let go
+  of where they are written (a table 300px or wider becomes 100%, cells lose
+  fixed widths, boxes of 100px or more take the width they are given,
+  `min-width` goes; pictures keep theirs), nothing is wider than its column,
+  and long words break. Anything still wider scrolls sideways inside the
+  mail's own box — never off the page, where in a right-to-left page it could
+  not be reached.
 - The ☰ in the mail list opens the folder menu (`GET folders`, re-read each
   time it opens) with the mailboxes on top when there are two; the list,
   paging and a thread opened from it carry `folder=`.

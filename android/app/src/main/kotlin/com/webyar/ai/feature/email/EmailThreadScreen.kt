@@ -148,12 +148,7 @@ internal fun EmailReaderView(
                     domStorageEnabled = false
                     setGeolocationEnabled(false)
                     mediaPlaybackRequiresUserGesture = true
-                    // The page's own viewport (the phone's width) is used,
-                    // and a mail that is wider still after the reader's fit
-                    // rules opens zoomed out to show all of it, rather than
-                    // with its right side off the screen. Pinch to read closer.
-                    useWideViewPort = true
-                    loadWithOverviewMode = true
+                    // Pinch to read a newsletter's small print closer.
                     builtInZoomControls = true
                     displayZoomControls = false
                     cacheMode = WebSettings.LOAD_DEFAULT

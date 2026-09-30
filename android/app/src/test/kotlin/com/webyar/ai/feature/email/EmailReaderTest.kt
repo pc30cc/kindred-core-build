@@ -167,9 +167,12 @@ class EmailReaderTest {
 
         val scoped = MailCss.scope(css, "m3")
 
-        assertTrue(scoped.contains(".m3,.m3{ margin:0 !important; min-width:600px }"))
+        // The page rule reaches the box, without its desktop minimum width.
+        assertTrue(scoped.contains(".m3,.m3{ margin:0 !important;"))
+        assertFalse(scoped.contains("min-width:600px"))
         assertTrue(scoped.contains(".m3{ --brand:#f00 }"))
-        assertTrue(scoped.contains(".m3 .x,.m3 table.main > td{"))
+        // A desktop column's width becomes the phone's.
+        assertTrue(scoped.contains(".m3 .x,.m3 table.main > td{ width:100% }"))
         assertTrue(scoped.contains(".m3 h1{"))
         assertTrue(scoped.contains(".m3 *{"))
         assertTrue(scoped.contains("@media only screen and (max-width:600px){.m3 .wrap{"))
@@ -200,8 +203,8 @@ class EmailReaderTest {
         assertTrue(page.contains("<div class=\"w-b m0\" dir=\"auto\"><style>.m0 p{color:#000}</style>"))
         // Nothing may be wider than the phone, above whatever a mail says.
         assertTrue(page.contains(".w-b:not(#w):not(#w) *{max-width:100%!important;min-width:0!important"))
-        // No fixed initial scale: a mail wider still opens zoomed out to fit.
-        assertTrue(page.contains("<meta name=\"viewport\" content=\"width=device-width\">"))
+        // What is wider still scrolls inside its own box, never off the page.
+        assertTrue(page.contains(".w-b{position:relative;z-index:0;transform:translateZ(0);overflow-wrap:anywhere;overflow-x:auto"))
         // The reader styles no bare element, so a mail's own markup keeps its look.
         val readerCss = page.substringAfter("<style>").substringBefore("</style>")
         assertFalse(Regex("(^|})\\s*(h1|pre|details|summary)\\b").containsMatchIn(readerCss))
@@ -226,5 +229,27 @@ class EmailReaderTest {
 
         val unclosedComment = EmailReader.sanitize("<p>Kept</p><!-- a comment with no end", emptyList())
         assertTrue(unclosedComment.endsWith("-->"))
+    }
+
+    @Test
+    fun `a desktop mail's fixed widths let go, so it reflows to the phone`() {
+        val html = "<table width=\"600\" style=\"width:600px;min-width:600px\"><tr>" +
+            "<td width=\"268\" style=\"width:268px;padding:12px\"><div style=\"width:256px;height:110px\">box</div>" +
+            "<img src=\"https://x.example/a.png\" width=\"600\" style=\"width:600px\"><span style=\"width:24px\">i</span></td>" +
+            "</tr></table><table width=\"120\"><tr><td>button</td></tr></table>"
+
+        val clean = EmailReader.sanitize(html, emptyList())
+
+        // The wrapper is the phone's column, without a minimum.
+        assertTrue(clean.contains("<table width=\"100%\" style=\"width:100%;\">"))
+        // A cell's width is the table's to decide; a box takes the width it is given.
+        assertFalse(clean.contains("width=\"268\""))
+        assertTrue(clean.contains("style=\"width:auto;padding:12px\""))
+        assertTrue(clean.contains("<div style=\"width:auto;height:110px\">"))
+        // Pictures, and small fixed things, keep their sizes.
+        assertTrue(clean.contains("width=\"600\" style=\"width:600px\">"))
+        assertTrue(clean.contains("<span style=\"width:24px\">"))
+        // A small table (a button) is left to its content.
+        assertFalse(clean.contains("width=\"120\""))
     }
 }

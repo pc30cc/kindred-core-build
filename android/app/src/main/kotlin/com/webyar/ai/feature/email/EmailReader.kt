@@ -84,11 +84,8 @@ object EmailReader {
     ): String {
         val rtl = language == Language.FA
         val out = StringBuilder(4096 + messages.sumOf { (it.htmlBody?.length ?: 0) + (it.textBody?.length ?: 0) })
-        // No initial scale: a mail that is still wider than the phone after
-        // [FIT] opens zoomed out to its whole width (the WebView loads in
-        // overview mode), instead of running off the edge.
         out.append("<!doctype html><html dir=\"").append(if (rtl) "rtl" else "ltr").append("\"><head><meta charset=\"utf-8\">")
-            .append("<meta name=\"viewport\" content=\"width=device-width\">")
+            .append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
             .append("<style>").append(CSS).append(if (rtl) SIDE_RTL else SIDE_LTR).append(FIT).append("</style></head><body>")
 
         // The page's own lines stand on the page's side, whatever language
@@ -270,6 +267,11 @@ object EmailReader {
     private val CID_SRC = Regex("(src\\s*=\\s*)([\"']?)cid:([^\"'\\s>]+)\\2", RegexOption.IGNORE_CASE)
     private val STYLE_BLOCK = Regex("(<style\\b[^>]*>)(.*?)(</style\\s*>)", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
     private val STYLE_OPEN = Regex("<style\\b", RegexOption.IGNORE_CASE)
+    /** A start tag with its attributes (quoted values may hold `>`). */
+    private val START_TAG = Regex("<([a-zA-Z][a-zA-Z0-9]*)(\\s(?:[^<>\"']|\"[^\"]*\"|'[^']*')*)?>")
+    private val WIDTH_ATTRIBUTE = Regex("(\\s)width\\s*=\\s*([\"']?)\\s*(\\d+(?:\\.\\d+)?)\\s*(?:px)?\\s*\\2(?=[\\s/]|$)", RegexOption.IGNORE_CASE)
+    private val STYLE_ATTRIBUTE = Regex("(\\sstyle\\s*=\\s*)(\"[^\"]*\"|'[^']*')", RegexOption.IGNORE_CASE)
+    private val FIXED_WIDTH = Regex("(^|;)\\s*(min-width|width)\\s*:\\s*(\\d+(?:\\.\\d+)?)px\\s*(!\\s*important)?\\s*(?=;|$)", RegexOption.IGNORE_CASE)
     private val WHITESPACE = Regex("\\s+")
 
     /**
@@ -297,6 +299,7 @@ object EmailReader {
             ?.takeIf { out.indexOf("</style>", it.range.first, ignoreCase = true) < 0 }
             ?.let { open -> out = out.substring(0, open.range.first) }
         if (out.lastIndexOf("<!--") > out.lastIndexOf("-->")) out += "-->"
+        out = fluid(out)
         out = DOCTYPE.replace(out, "")
         out = DROP_TAG.replace(out, "")
         out = EVENT_ATTRIBUTE.replace(out, "")
@@ -313,6 +316,60 @@ object EmailReader {
         }
         return out
     }
+
+    /** Elements whose fixed width is a desktop column's, not something drawn at a size (pictures keep theirs). */
+    private val FLUID = setOf(
+        "table", "tbody", "thead", "tfoot", "tr", "td", "th", "col", "colgroup", "div", "p", "span", "center", "a",
+        "font", "section", "article", "header", "footer", "main", "nav", "aside", "blockquote", "ul", "ol", "li",
+        "dl", "dt", "dd", "h1", "h2", "h3", "h4", "h5", "h6", "figure", "address", "pre",
+    )
+    private val CELLS = setOf("td", "th", "col", "colgroup")
+
+    /**
+     * A mail's desktop widths let go of, so it reflows to the phone.
+     *
+     * A 600-pixel mail is fixed widths all the way down: the wrapper table,
+     * each column's cell, the boxes inside them. `max-width` cannot undo them
+     * — a table is never narrower than its fixed-width contents — so they are
+     * rewritten where they stand: a wide table becomes the column's full
+     * width, a cell's width is left to the table, and a box of a hundred
+     * pixels or more takes the width it is given. `min-width` goes. Pictures,
+     * and the small fixed things (spacers, icons), keep their sizes.
+     */
+    private fun fluid(html: String): String = START_TAG.replace(html) { tag ->
+        val name = tag.groupValues[1].lowercase()
+        val attributes = tag.groupValues[2]
+        if (name !in FLUID || attributes.isEmpty()) return@replace tag.value
+        var rewritten = WIDTH_ATTRIBUTE.replace(attributes) { width ->
+            val px = width.groupValues[3].toDouble()
+            when {
+                name == "table" && px >= WIDE_PX -> "${width.groupValues[1]}width=\"100%\""
+                name == "table" || name in CELLS || px >= BOX_PX -> width.groupValues[1]
+                else -> width.value
+            }
+        }
+        rewritten = STYLE_ATTRIBUTE.replace(rewritten) { style ->
+            val quoted = style.groupValues[2]
+            val quote = quoted.first()
+            val declarations = FIXED_WIDTH.replace(quoted.substring(1, quoted.length - 1)) { d ->
+                val separator = d.groupValues[1]
+                val px = d.groupValues[3].toDouble()
+                when {
+                    d.groupValues[2].equals("min-width", ignoreCase = true) -> separator
+                    name == "table" && px >= WIDE_PX -> "${separator}width:100%"
+                    name == "table" || name in CELLS || px >= BOX_PX -> "${separator}width:auto"
+                    else -> d.value
+                }
+            }
+            "${style.groupValues[1]}$quote$declarations$quote"
+        }
+        "<${tag.groupValues[1]}$rewritten>"
+    }
+
+    /** A table this wide is a page column: it becomes the phone's. */
+    internal const val WIDE_PX = 300.0
+    /** A box this wide has a desktop width; narrower is a spacer or an icon. */
+    private const val BOX_PX = 100.0
 
     internal fun escape(text: String): String {
         val sb = StringBuilder(text.length + 16)
@@ -406,9 +463,14 @@ object EmailReader {
      * says, including its `!important` class rules. The box itself is a
      * containing block (`transform`) so a mail's fixed-position element stays
      * inside the mail instead of floating over the reader.
+     *
+     * What is still wider after all that ([fluid] does the heavy lifting)
+     * scrolls sideways inside the mail's own box. It cannot be left to the
+     * page: in a right-to-left page, whatever sticks out on the right is
+     * beyond the start of the page and can never be scrolled to.
      */
     private val FIT = listOf(
-        ".w-b{position:relative;z-index:0;transform:translateZ(0);overflow-wrap:anywhere}",
+        ".w-b{position:relative;z-index:0;transform:translateZ(0);overflow-wrap:anywhere;overflow-x:auto;overflow-y:hidden}",
         ".w-b:not(#w):not(#w),.w-b:not(#w):not(#w) *{max-width:100%!important;min-width:0!important;box-sizing:border-box!important}",
         ".w-b:not(#w):not(#w) img{height:auto!important}",
         ".w-b:not(#w):not(#w) table{table-layout:auto!important}",

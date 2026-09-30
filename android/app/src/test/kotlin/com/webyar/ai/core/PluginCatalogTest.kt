@@ -11,11 +11,11 @@ import org.junit.Test
  * The channel switcher reads `/api/plugins/catalog`, and that endpoint
  * answers in camelCase while most of this API is snake_case.
  *
- * The fields were annotated to match the rest — `supports_inbox`,
- * `plan_allowed` — so they decoded to null on every item, `isUsableInbox` was
- * false for every channel, and the switcher stayed empty on a workspace with
- * Telegram installed and allowed. Nothing threw. The list was simply always
- * empty, which is why this is pinned against the server's real bytes.
+ * Fields annotated to match the rest — `supports_inbox`, `plan_allowed` —
+ * decode to null on every item, `isUsableInbox` is false for every channel,
+ * and the switcher stays empty on a workspace with Telegram installed and
+ * allowed. Nothing throws. The list is simply always empty, which is why
+ * this is pinned against the server's real bytes.
  */
 class PluginCatalogTest {
 

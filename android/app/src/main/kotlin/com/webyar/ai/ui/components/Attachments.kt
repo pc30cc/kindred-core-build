@@ -175,14 +175,13 @@ private fun ImageAttachment(
                         // proportions in between.
                         //
                         // The ratio is stated rather than left to the
-                        // painter. Measured on device, a 480x320 photo came
-                        // out 420x154 and then 420x84 after a scroll: the
-                        // same picture, two heights, because a painter's
-                        // intrinsic size is not a layout constraint and the
-                        // row collapsed towards its minimum whenever it was
-                        // re-measured. `aspectRatio` derives the height from
-                        // the width it is given, which is a number the
-                        // layout can actually use.
+                        // painter: a painter's intrinsic size is not a
+                        // layout constraint, so the row would collapse
+                        // towards its minimum whenever it is re-measured —
+                        // the same picture at different heights after a
+                        // scroll. `aspectRatio` derives the height from the
+                        // width it is given, which is a number the layout
+                        // can actually use.
                         .widthIn(max = IMAGE_MAX_WIDTH)
                         .heightIn(max = IMAGE_MAX_HEIGHT)
                         .aspectRatio(photo.width.toFloat() / photo.height.toFloat())
@@ -268,10 +267,10 @@ internal fun decodeBounded(bytes: ByteArray, edge: Int, atLeast: Boolean = false
  * `BitmapFactory` ignores the tag, and a phone camera leans on it: Samsung's,
  * among others, saves a portrait shot as landscape pixels with "turn a
  * quarter" written beside them. Browsers, iOS and the console all honour the
- * tag, so without this the photo an operator had just sent from their own
- * gallery lay on its side in their own transcript while the visitor saw it
- * upright. The platform reader has taken a stream since API 24, this app's
- * floor, and a JPEG's tag sits in its header.
+ * tag, so without this the photo an operator has just sent from their own
+ * gallery would lie on its side in their own transcript while the visitor
+ * sees it upright. The platform reader has taken a stream since API 24,
+ * this app's floor, and a JPEG's tag sits in its header.
  */
 private fun exifOrientation(bytes: ByteArray): Int = runCatching {
     ExifInterface(ByteArrayInputStream(bytes))
@@ -348,7 +347,7 @@ private fun ImageViewer(photo: ImageBitmap, language: Language, onClose: () -> U
         // Where the enlarged picture has been dragged to. Without it a zoom
         // could only ever show the middle of the photo — the corner of a
         // screenshot or the total at the foot of a receipt, the reason to
-        // zoom at all, stayed off screen.
+        // zoom at all, would stay off screen.
         var pan by remember { mutableStateOf(Offset.Zero) }
         Box(
             Modifier
@@ -440,7 +439,7 @@ private fun VoiceNote(
     // The file arrived and opening it has finished without a player: the
     // file is fine, this phone has no codec for it. NOT merely "a file and
     // no player yet" — that is also every note in the moment it is being
-    // opened, and it flashed the verdict under each one that scrolled in.
+    // opened, and would flash the verdict under each one that scrolls in.
     val undecodable = player == null && slot.isSettledFor(file)
 
     // Pinned around the row rather than inside it: the direction has to be
@@ -551,8 +550,8 @@ private fun OpenableFile(
         // Disk first; otherwise streamed straight to disk — a video is never
         // held whole in memory on its way to the app that plays it. Not
         // `runCatching`: it swallows cancellation too, so an operator who
-        // scrolled away mid-download came back to "could not be opened"
-        // about a file nothing had gone wrong with.
+        // scrolls away mid-download would come back to "could not be
+        // opened" about a file nothing has gone wrong with.
         val file = runCatchingUnlessCancelled { source.file(attachment) }.getOrNull()
         // The other app reads it after this returns, and says nothing when
         // it is done: the file is kept out of eviction for a while instead.

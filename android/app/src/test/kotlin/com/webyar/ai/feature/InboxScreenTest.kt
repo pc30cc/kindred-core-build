@@ -60,8 +60,8 @@ class InboxScreenTest {
     }
 
     /**
-     * The bug this pins: a message that is only a photo has no body, and the
-     * preview line used to come out blank. The list endpoint ships
+     * A message that is only a photo has no body, and a preview line built
+     * from the body alone comes out blank. The list endpoint ships
      * `attachment_kind` so the sentence can be rebuilt instead.
      */
     @Test

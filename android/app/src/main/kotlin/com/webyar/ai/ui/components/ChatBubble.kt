@@ -11,9 +11,8 @@ import com.webyar.ai.ui.design.Radius
  * Every corner is large except on the sender's side, where they tighten:
  * the foot of every bubble, and the top of every bubble but the first of a
  * run. A run from one sender reads as one block with a spine down its outer
- * edge, and the small foot points at whoever wrote it — the job the beak
- * used to do, without a tail on every bubble turning the column into a
- * sawtooth.
+ * edge, and the small foot points at whoever wrote it — a beak's job, done
+ * without a tail on every bubble turning the column into a sawtooth.
  *
  * Start and end, not left and right: [MessageBubble] lays its row out left
  * to right in every language (the operator on the right, the visitor on the

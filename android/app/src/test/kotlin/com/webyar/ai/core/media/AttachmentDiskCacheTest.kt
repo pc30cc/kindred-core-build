@@ -186,7 +186,7 @@ class AttachmentDiskCacheTest {
     /**
      * The same, the way the real download says it: `downloadAttachment`
      * wraps every I/O failure, a failed write to the file included, in
-     * `ApiError.Transport` — and a check for a bare IOException never saw one.
+     * `ApiError.Transport` — and a check for a bare IOException never sees one.
      */
     @Test
     fun `a full disk reported through the API's own error still makes room`() = runBlocking {

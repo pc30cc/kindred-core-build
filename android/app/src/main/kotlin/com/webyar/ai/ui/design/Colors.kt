@@ -147,8 +147,7 @@ internal val WebyarLightExtras = WebyarColors(
     bubbleOutgoing = Color(0xFFDCE6FF),
     onBubbleOutgoing = Color(0xFF001945),
     // Not the page background: an incoming bubble painted the same shade as
-    // the transcript behind it is invisible, which is exactly what happened on
-    // iOS before `bubbleIncoming` stopped being `.secondarySystemBackground`.
+    // the transcript behind it is invisible.
     bubbleIncoming = Color(0xFFEBEEF3),
     onBubbleIncoming = Color(0xFF1A1C1E),
     labelTertiary = Color(0xFF8A8E97),

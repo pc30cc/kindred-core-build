@@ -9,17 +9,17 @@ import org.junit.Test
 /**
  * Which id is which.
  *
- * `inviteToCall` takes two `String`s that are both UUIDs, and for a while the
- * one call site passed them the other way round. Nothing caught it: zod on the
- * server accepts either as a uuid, so the request was well-formed and simply
- * described a workspace that was really a conversation. The server answered
- * `403 not_a_workspace_member`, the app turned that into "the call could not
- * be connected", and every call an operator placed — audio and video alike —
- * failed with a message that pointed at the network.
+ * `inviteToCall` takes two `String`s that are both UUIDs, and passing them the
+ * other way round is caught by nothing else: zod on the server accepts either
+ * as a uuid, so the request is well-formed and simply describes a workspace
+ * that is really a conversation. The server answers
+ * `403 not_a_workspace_member`, the app turns that into "the call could not be
+ * connected", and every call an operator places — audio and video alike —
+ * fails with a message that points at the network.
  *
- * The order is workspace-first now, matching every other method on
- * `WebyarApi`, and the call site names its arguments. This pins the meaning so
- * a future reorder has to break a test rather than a call.
+ * The order is workspace-first, matching every other method on `WebyarApi`,
+ * and the call site names its arguments. This pins the meaning so a future
+ * reorder has to break a test rather than a call.
  */
 class CallInviteTest {
 

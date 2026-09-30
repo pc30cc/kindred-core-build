@@ -515,9 +515,9 @@ fun ChatRoute(
         sayNowVoice = voice.takeIf { aiManaged && plan.value?.moduleEnabled("ai_assistant") == true },
         onSayNowVoiceChange = chatModel::setSayNowVoice,
         onAttachPhoto = {
-            // Images only. `ImageAndVideo` offered a kind the server's
+            // Images only. `ImageAndVideo` would offer a kind the server's
             // allowlist does not carry (`GLOBAL_ALLOWED_MIMES`), so every
-            // video the operator picked was a wait followed by a 415.
+            // video the operator picked would be a wait followed by a 415.
             val opened = photoPicker.launchPicker(
                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
             )
@@ -560,7 +560,7 @@ fun ChatRoute(
             recorded?.let { clip ->
                 recorded = null
                 // Read off the main thread: five minutes of a note is a few
-                // megabytes, and reading it here held the whole screen.
+                // megabytes, and reading it here would hold the whole screen.
                 routeScope.launch {
                     val bytes = withContext(Dispatchers.IO) {
                         runCatching { clip.file.readBytes() }.getOrNull().also { clip.file.delete() }
@@ -774,7 +774,7 @@ fun ContactDetailRoute(
     // Read again as that list lands, and the list asked for here as well:
     // a detail restored after the process was away is on screen before
     // anything has loaded the book — on a phone the list is not composed
-    // under it — and a row read once, then, stayed empty for good.
+    // under it — and a row read only once, then, would stay empty for good.
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
     LaunchedEffect(workspace?.id) {
         workspace?.let { contacts.bind(it.id) }
@@ -1466,12 +1466,12 @@ fun EmailComposeRoute(
     LaunchedEffect(workspace?.id) {
         val ws = workspace ?: return@LaunchedEffect
         // A reply is prefilled once, and the workspace's own address is what
-        // it leaves out of To and Cc. Read before the mailbox was known — a
+        // it leaves out of To and Cc. Read before the mailbox is known — a
         // thread opened from a notification, the mailbox's list never shown,
-        // or Reply all tapped the moment the thread opened — Reply all put
-        // the workspace's own address back in Cc. So the model is bound here
-        // too, and a reply waits a moment for the address; one that never
-        // comes (a request that fails) is prefilled without it, as before.
+        // or Reply all tapped the moment the thread opens — Reply all would
+        // put the workspace's own address back in Cc. So the model is bound
+        // here too, and a reply waits a moment for the address; one that
+        // never comes (a request that fails) is prefilled without it.
         val provider = mailbox ?: email.provider.value
         email.bind(ws.id, provider)
         val own = if (sourceThreadId != null && (mode == EmailReplyMode.REPLY || mode == EmailReplyMode.REPLY_ALL)) {
@@ -1668,7 +1668,7 @@ fun CallRoute(
     // Asks the session to call; it does not do the calling. The request
     // belongs to something that outlives a recomposition, and this effect is
     // not that: it is keyed on `permissionsAsked`, which its own body sets,
-    // so its first run was always cancelled mid-flight. `start` is
+    // so its first run is always cancelled mid-flight. `start` is
     // idempotent, so however often this runs again, one call is one
     // invitation.
     LaunchedEffect(workspace?.id, permissionsAsked) {
@@ -1834,10 +1834,10 @@ fun SettingsRoute(
 ) {
     val settings: SettingsViewModel = viewModel(factory = viewModelFactory { SettingsViewModel(api) })
     // Asked again each time the page is shown. The model lives as long as the
-    // session, and it used to ask once: a first request that failed left
-    // "offline" in place of the switches until the app was killed, and the
-    // online/offline line never moved while the schedule turned it over. Not
-    // while its own first ask is still on the way.
+    // session, so asking once would let a first request that failed leave
+    // "offline" in place of the switches until the app is killed, and the
+    // online/offline line would never move while the schedule turns it over.
+    // Not while its own first ask is still on the way.
     LifecycleResumeEffect(settings) {
         if (settings.availability.value !is AvailabilityState.Loading) settings.load()
         onPauseOrDispose { }
@@ -1937,7 +1937,7 @@ inline fun <reified T : ViewModel> viewModelFactory(crossinline create: () -> T)
 /**
  * Opens a picker; false when the phone has nothing that answers one — the
  * documents app switched off, some kiosk and TV builds. `launch` throws
- * then, from inside a tap, and that ended the app.
+ * then, from inside a tap, and uncaught that ends the app.
  */
 internal fun <I> ActivityResultLauncher<I>.launchPicker(input: I): Boolean =
     try {
@@ -1976,9 +1976,10 @@ fun ProfileRoute(
     val form by model.profile.collectAsStateWithLifecycle()
     val context = LocalContext.current
     // Settings' header and a colleague's thread keep their own copy of the
-    // photo, which nothing else refreshes: a new one changed here showed the
-    // old one there until the app was restarted. Once the form has read the
-    // account, its photo IS the server's, after every upload and removal.
+    // photo, which nothing else refreshes: without this a new one changed
+    // here would show the old one there until the app restarts. Once the form
+    // has read the account, its photo IS the server's, after every upload and
+    // removal.
     LaunchedEffect(form.loaded, form.avatarUrl) {
         if (form.loaded) onAvatarChanged(form.avatarUrl)
     }
@@ -2203,8 +2204,8 @@ internal sealed interface PickedFile {
  *
  * The size and the type are checked here too, against the same numbers the
  * server enforces. Sending a 40 MB video and letting the upload come back 400
- * costs the operator the wait and tells them nothing they can act on; iOS has
- * refused both before the upload since it shipped (`Composer.swift`).
+ * costs the operator the wait and tells them nothing they can act on; iOS
+ * refuses both before the upload too (`Composer.swift`).
  */
 internal suspend fun readPickedFileOffMain(
     context: android.content.Context,
@@ -2239,11 +2240,11 @@ internal fun readPickedFile(
 /**
  * The name the operator knows the file by.
  *
- * `Uri.lastPathSegment` is not it and never was: a document from the
- * Storage Access Framework answers `primary:Download/report.pdf` and a photo
- * from the system picker answers `1000000034`, so the attachment arrived in
- * the thread called "1000000034" with no extension on it. `DISPLAY_NAME` is
- * the column every `OpenableColumns` provider is required to answer.
+ * `Uri.lastPathSegment` is not it: a document from the Storage Access
+ * Framework answers `primary:Download/report.pdf` and a photo from the
+ * system picker answers `1000000034`, so an attachment named from it arrives
+ * in the thread called "1000000034" with no extension on it. `DISPLAY_NAME`
+ * is the column every `OpenableColumns` provider is required to answer.
  */
 private fun displayName(
     resolver: android.content.ContentResolver,

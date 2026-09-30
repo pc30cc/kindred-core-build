@@ -27,12 +27,11 @@ import com.webyar.ai.ui.design.WebyarTheme
 /**
  * One fact: what it is, then what it says.
  *
- * Stacked rather than side by side, which is where this started and where iOS
- * still is. A label beside its value splits a phone's width in two, and the
- * values on this screen are the ones least able to give any of it up: the test
- * fixture's address is 54 characters, and laid out beside «ایمیل» it wrapped
- * mid-token and then ellipsised what was left, so the one piece of information
- * the row existed to carry was the piece you could not read.
+ * Stacked rather than side by side, as iOS has it. A label beside its value
+ * splits a phone's width in two, and the values on this screen are the ones
+ * least able to give any of it up: a 54-character address laid out beside
+ * «ایمیل» wraps mid-token and then ellipsises what is left, so the one piece
+ * of information the row exists to carry is the piece you cannot read.
  *
  * Stacking gives the value the whole width, which is enough for any address
  * this app will meet, and costs a line of height on the short ones — a trade

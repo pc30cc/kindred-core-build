@@ -23,7 +23,7 @@ import coil3.request.crossfade
  * A picture from the network, with a skeleton while it comes and a caller's
  * fallback if it never does.
  *
- * The iOS original is 236 lines because it had to build its own cache,
+ * The iOS counterpart is 236 lines because it builds its own cache,
  * in-flight de-duplication and cancellation. Coil has all three, so this is
  * mostly a statement of what the three states should look like.
  *

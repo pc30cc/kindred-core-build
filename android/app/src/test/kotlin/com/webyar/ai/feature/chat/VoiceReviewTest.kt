@@ -23,9 +23,9 @@ import org.robolectric.annotation.Config
 /**
  * A voice note is heard before it is sent.
  *
- * Stopping a recording used to send it in the same tap. Now the recording
- * waits in the composer — delete, listen, send — and nothing reaches the
- * visitor until Send.
+ * Stopping a recording does not send it in the same tap: the recording waits
+ * in the composer — delete, listen, send — and nothing reaches the visitor
+ * until Send.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])

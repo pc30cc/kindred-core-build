@@ -140,7 +140,7 @@ class AccountViewModelTest {
         account.saveProfile { done = true }
         testScheduler.advanceUntilIdle()
 
-        // The parts are what travels now; the route composes `full_name`.
+        // The parts are what travels; the route composes `full_name`.
         assertEquals("رضا", api.lastSavedFirst)
         assertEquals("نوری", api.lastSavedLast)
         assertEquals("رضا نوری", account.profile.value.name)

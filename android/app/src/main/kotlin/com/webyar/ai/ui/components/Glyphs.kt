@@ -54,10 +54,10 @@ object Glyph {
     /**
      * A lightning bolt, for saved replies.
      *
-     * The control used to borrow `Icons.Filled.Face`, which is a face — next
-     * to an emoji button that is also a face, on a row where one inserts a
-     * smiley and the other opens a list of canned answers. A bolt is what the
-     * web console uses and what "quick reply" looks like everywhere else.
+     * Not `Icons.Filled.Face`, which is a face — next to an emoji button that
+     * is also a face, on a row where one inserts a smiley and the other opens
+     * a list of canned answers. A bolt is what the web console uses and what
+     * "quick reply" looks like everywhere else.
      */
     val Bolt: ImageVector by lazy {
         vector(

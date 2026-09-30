@@ -146,9 +146,9 @@ fun MessageBubble(
             if (status != null) {
                 // The interface's direction back, as inside the bubble: the
                 // status is a sentence in the operator's language. Laid out
-                // in the row's left-to-right, a Persian «ارسال نشد. …» put
+                // in the row's left-to-right, a Persian «ارسال نشد. …» puts
                 // its closing full stop at the front and «در حال ارسال…» its
-                // ellipsis, and the Retry/Delete menu opened left-aligned.
+                // ellipsis, and the Retry/Delete menu opens left-aligned.
                 CompositionLocalProvider(LocalLayoutDirection provides textDirection) {
                 Box {
                     Text(

@@ -14,11 +14,10 @@ import kotlin.coroutines.cancellation.CancellationException
 /**
  * The difference between "this failed" and "nobody is waiting for it any more".
  *
- * These look alike from inside a `catch` and mean opposite things, and the one
- * time the app got them confused it cost a working feature: a cancelled
- * invitation request was reported as a failed call, and the call screen said
- * "the call could not connect" about a call that went on to ring, be answered
- * and connect.
+ * These look alike from inside a `catch` and mean opposite things. Confusing
+ * them reports a cancelled invitation request as a failed call, and the call
+ * screen then says "the call could not connect" about a call that goes on to
+ * ring, be answered and connect.
  */
 class CancellationTest {
 

@@ -109,6 +109,10 @@ class EmailInboxViewModel(
     private val _folders = MutableStateFlow<List<EmailMailFolder>>(emptyList())
     val folders: StateFlow<List<EmailMailFolder>> = _folders.asStateFlow()
 
+    /** The list is being read again in the background — a new mail, a change elsewhere. */
+    private val _syncing = MutableStateFlow(false)
+    val syncing: StateFlow<Boolean> = _syncing.asStateFlow()
+
     /** A further page is on its way. */
     private val _loadingMore = MutableStateFlow(false)
     val loadingMore: StateFlow<Boolean> = _loadingMore.asStateFlow()
@@ -223,8 +227,14 @@ class EmailInboxViewModel(
         val provider = _provider.value
         foldersJob?.cancel()
         foldersJob = viewModelScope.launch {
-            val list = runCatching { api.emailFolders(workspace, provider) }.getOrNull() ?: return@launch
+            val list = runCatching { api.emailFolders(workspace, provider) }.getOrNull()
             if (workspace != workspaceId || provider != _provider.value) return@launch
+            // Not read just now: the menu still has the inbox, rather than
+            // a loader that never ends.
+            if (list == null) {
+                if (_folders.value.isEmpty()) _folders.value = EmailMailFolder.FALLBACK
+                return@launch
+            }
             _folders.value = list
             if (list.none { it.id == _mailFolder.value }) selectMailFolder(EmailMailFolder.INBOX)
         }
@@ -312,12 +322,12 @@ class EmailInboxViewModel(
 
     private fun update(threadId: String, change: (EmailThreadSummary) -> EmailThreadSummary) {
         loaded = loaded.map { if (it.id == threadId) change(it) else it }
-        publish()
+        republish()
     }
 
     fun setQuery(value: String) {
         _query.value = value
-        publish()
+        republish()
     }
 
     fun refresh() {
@@ -422,6 +432,7 @@ class EmailInboxViewModel(
         val folder = _folder.value
         val box = _mailFolder.value
         val provider = _provider.value
+        _syncing.value = true
         viewModelScope.launch {
             runCatching { api.emailThreadsPage(workspace, folder, search = null, before = null, mailbox = provider, mailFolder = box) }
                 .onSuccess { page ->
@@ -464,6 +475,7 @@ class EmailInboxViewModel(
             // A newer load lowers the spinner itself, when it lands.
             if (mine != generation) return@launch
             _refreshing.value = false
+            _syncing.value = false
         }
     }
 
@@ -481,7 +493,7 @@ class EmailInboxViewModel(
             adjustUnread(-1)
             recountOutsideInbox()
         }
-        publish()
+        republish()
     }
 
     fun thread(id: String): EmailThreadSummary? = loaded.firstOrNull { it.id == id }
@@ -567,6 +579,16 @@ class EmailInboxViewModel(
     private fun publishAddress() {
         val list = _mailboxes.value
         _mailbox.value = (list.firstOrNull { it.provider == _provider.value } ?: list.firstOrNull())?.address
+    }
+
+    /**
+     * The list on screen drawn again after a change made here — a search, a
+     * star, a row read. Only a list already shown: while the mailbox is still
+     * being read, redrawing would put "no mail" where the loader is, and the
+     * mail would then appear all at once.
+     */
+    private fun republish() {
+        if (_state.value is EmailInboxState.Loaded) publish()
     }
 
     private fun publish() {

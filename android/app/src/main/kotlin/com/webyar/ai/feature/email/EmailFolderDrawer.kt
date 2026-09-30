@@ -1,6 +1,8 @@
 package com.webyar.ai.feature.email
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -37,6 +39,7 @@ import com.webyar.ai.i18n.StrEmail
 import com.webyar.ai.ui.A11y
 import com.webyar.ai.ui.components.Glyph
 import com.webyar.ai.ui.components.LatinText
+import com.webyar.ai.ui.components.LoadingIndicator
 import com.webyar.ai.ui.components.bidiContent
 import com.webyar.ai.ui.components.rowTextAlign
 import com.webyar.ai.ui.design.Space
@@ -62,6 +65,8 @@ fun EmailFolderDrawer(
     mailboxes: List<EmailMailbox> = emptyList(),
     selectedMailbox: String? = null,
     onSelectMailbox: (String) -> Unit = {},
+    /** The menu is still on its way from the mailbox. */
+    loading: Boolean = false,
 ) {
     val shown = mailboxes.firstOrNull { it.provider == selectedMailbox } ?: mailboxes.firstOrNull()
     val system = folders.filterNot { it.isLabel }
@@ -92,6 +97,16 @@ fun EmailFolderDrawer(
                     )
                 }
                 item { HorizontalDivider(Modifier.padding(horizontal = Space.lg, vertical = Space.sm)) }
+            }
+            if (loading) {
+                item(key = "loading") {
+                    Box(
+                        Modifier.fillMaxWidth().padding(vertical = Space.xl).testTag(A11y.EMAIL_FOLDERS_LOADING),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        LoadingIndicator(size = 36.dp)
+                    }
+                }
             }
             items(system, key = { it.id }) { folder ->
                 FolderItem(

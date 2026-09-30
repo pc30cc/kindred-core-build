@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -39,7 +41,6 @@ import com.webyar.ai.ui.components.EmptyState
 import com.webyar.ai.ui.components.ErrorState
 import com.webyar.ai.ui.components.SearchField
 import com.webyar.ai.ui.components.SearchState
-import com.webyar.ai.ui.components.SkeletonList
 import com.webyar.ai.ui.components.bidiContent
 import com.webyar.ai.ui.design.Size
 import com.webyar.ai.ui.design.Space
@@ -128,6 +129,8 @@ fun EmailInboxScreen(
     folderUnread: Int? = null,
     /** The mailbox's labels by id (`Label_12` → «Clients»), for the pills on a row. */
     labelNames: Map<String, String> = emptyMap(),
+    /** The list is being read again in the background (a new mail, a change elsewhere). */
+    syncing: Boolean = false,
 ) {
     val shown = mailboxes.firstOrNull { it.provider == selectedMailbox } ?: mailboxes.firstOrNull()
     Column(modifier.fillMaxSize()) {
@@ -198,6 +201,17 @@ fun EmailInboxScreen(
             }
         }
 
+        // A quiet re-read — new mail arrived, something changed on another
+        // device — shows as a thin bar, so the list is seen to be working
+        // without being taken away.
+        AnimatedVisibility(
+            visible = syncing && !refreshing && state is EmailInboxState.Loaded,
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp).testTag(A11y.EMAIL_SYNCING))
+        }
+
         val pullState = rememberPullToRefreshState()
         PullToRefreshBox(
             isRefreshing = refreshing,
@@ -207,9 +221,9 @@ fun EmailInboxScreen(
             modifier = Modifier.weight(1f),
         ) {
             when (state) {
-                is EmailInboxState.Loading -> SkeletonList(
+                is EmailInboxState.Loading -> MailLoading(
+                    StrEmail.loadingMail(language),
                     Modifier.fillMaxSize().padding(contentPadding),
-                    rows = 8,
                 )
 
                 is EmailInboxState.Failed -> ErrorState(
@@ -458,6 +472,28 @@ private fun EmailThreadRow(
                 }
             }
         }
+    }
+}
+
+/**
+ * Mail on its way: the app's loader and a line saying what it is waiting
+ * for. A mailbox is read live from Gmail and can take a few seconds; blank
+ * rows that fill in later read as "nothing here", so the wait says so.
+ */
+@Composable
+internal fun MailLoading(text: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier.testTag(A11y.EMAIL_LOADING),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        LoadingIndicator(size = 56.dp)
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = Space.md),
+        )
     }
 }
 

@@ -102,6 +102,27 @@ object StrEmail {
         Language.TR -> "Bu klasör boş"
     }
 
+    /** Under the loader while a mailbox's list is on its way. */
+    fun loadingMail(l: Language): String = when (l) {
+        Language.EN -> "Loading mail…"
+        Language.FA -> "در حال دریافت ایمیل‌ها…"
+        Language.TR -> "E-postalar yükleniyor…"
+    }
+
+    /** Under the loader while a mail opens. */
+    fun openingMail(l: Language): String = when (l) {
+        Language.EN -> "Opening the email…"
+        Language.FA -> "در حال باز کردن ایمیل…"
+        Language.TR -> "E-posta açılıyor…"
+    }
+
+    /** While a file of a mail downloads to be opened. */
+    fun downloadingFile(l: Language): String = when (l) {
+        Language.EN -> "Downloading the file…"
+        Language.FA -> "در حال دریافت فایل…"
+        Language.TR -> "Dosya indiriliyor…"
+    }
+
     /** A message not sent yet, in the Drafts folder. */
     fun draft(l: Language): String = when (l) {
         Language.EN -> "Draft"

@@ -1,9 +1,11 @@
 package com.webyar.ai.feature.email
 
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -226,6 +228,80 @@ class EmailTest {
         }
         compose.onNodeWithTag(A11y.EMAIL_EMPTY).assertIsDisplayed()
         compose.onNodeWithText(Str.emailEmptyTitle(Language.FA)).assertIsDisplayed()
+    }
+
+    // MARK: - Loading
+
+    /** Opening the mailbox says it is on its way, rather than showing nothing and then everything. */
+    @Test
+    fun `while the mailbox is read the screen says so`() {
+        compose.setContent { EmailInboxScreen(EmailInboxState.Loading, Language.FA, {}) }
+        compose.onNodeWithTag(A11y.EMAIL_LOADING).assertIsDisplayed()
+        compose.onNodeWithText(StrEmail.loadingMail(Language.FA)).assertIsDisplayed()
+    }
+
+    /** A background re-read keeps the list on screen and shows only a thin bar above it. */
+    @Test
+    fun `a re-read in the background keeps the list and shows a bar`() = runTest {
+        val threads = SampleApi().emailThreads("ws-1")
+        compose.setContent { EmailInboxScreen(EmailInboxState.Loaded(threads), Language.FA, {}, syncing = true) }
+        compose.onNodeWithTag(A11y.EMAIL_SYNCING).assertIsDisplayed()
+        compose.onNodeWithTag(A11y.EMAIL_LIST).assertIsDisplayed()
+        compose.onAllNodesWithTag(A11y.EMAIL_LOADING).assertCountEquals(0)
+    }
+
+    @Test
+    fun `the list's re-read is over once it lands`() = runTest(dispatcher) {
+        val email = inbox()
+        email.bind("ws-1")
+        assertTrue(email.syncing.value)
+        testScheduler.advanceUntilIdle()
+        assertFalse(email.syncing.value)
+        assertTrue(email.state.value is EmailInboxState.Loaded)
+    }
+
+    /**
+     * The screen's search box says "" as it opens. That used to replace the
+     * loader with an empty list — "no mail" — until the mail arrived.
+     */
+    @Test
+    fun `an empty search while the mailbox is read keeps the loader`() = runTest(dispatcher) {
+        val email = inbox()
+        email.bind("ws-1")
+        email.setQuery("")
+        email.setStarredLocally("t-1", true)
+        email.markReadLocally("t-1")
+        assertTrue(email.state.value is EmailInboxState.Loading)
+        testScheduler.advanceUntilIdle()
+        assertTrue(ids(email.state.value).isNotEmpty())
+    }
+
+    @Test
+    fun `the folder menu shows a loader until its folders arrive`() {
+        compose.setContent { EmailFolderDrawer(Language.FA, emptyList(), selected = "inbox", onSelect = {}, loading = true) }
+        compose.onNodeWithTag(A11y.EMAIL_FOLDERS_LOADING).assertIsDisplayed()
+    }
+
+    /** A menu that could not be read still has the inbox in it, not a loader that never ends. */
+    @Test
+    fun `folders that cannot be read fall back to the inbox`() = runTest(dispatcher) {
+        val api = object : com.webyar.ai.core.net.WebyarApi by SampleApi() {
+            override suspend fun emailFolders(workspaceId: String, mailbox: String?): List<com.webyar.ai.core.model.EmailMailFolder> =
+                throw java.io.IOException("offline")
+        }
+        val email = EmailInboxViewModel(api) { Language.FA }
+        email.bind("ws-1")
+        testScheduler.advanceUntilIdle()
+        assertEquals(com.webyar.ai.core.model.EmailMailFolder.FALLBACK, email.folders.value)
+    }
+
+    @Test
+    fun `opening a thread says it is opening`() {
+        compose.setContent {
+            EmailThreadScreen(EmailThreadState.Loading, thread = null, language = Language.FA)
+        }
+        compose.onNodeWithTag(A11y.EMAIL_LOADING).assertIsDisplayed()
+        compose.onNodeWithText(StrEmail.openingMail(Language.FA)).assertIsDisplayed()
     }
 
     @Test

@@ -13,7 +13,7 @@ import {
   claimBillingWebhookEvent,
   finalizeBillingWebhookEvent,
 } from '../services/billing/index.js';
-import { createClient } from '@supabase/supabase-js';
+import { serviceClientFor } from '../lib/serviceClient.js';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
@@ -252,7 +252,7 @@ billingRouter.get('/providers', async (req, res) => {
 billingRouter.get('/plans', async (req, res) => {
   const { url, key } = getConfig(req);
   const locale = (req.query.locale as string) || 'en';
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { data, error } = await supabase
     .from('billing_plans')
     .select('*')
@@ -279,7 +279,7 @@ billingRouter.get('/status/:workspaceId', async (req, res) => {
   const { workspaceId } = req.params;
   if (!(await authorizeWorkspace(req, res, workspaceId))) return;
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
 
   // Lazy-flip stale trials to "expired" so downstream UI/queries see correct status.
   try { await supabase.rpc('expire_stale_trials'); } catch { /* non-fatal */ }
@@ -372,7 +372,7 @@ billingRouter.post('/invoice-preview', async (req, res) => {
       return res.status(400).json({ error: 'CURRENCY_NOT_SUPPORTED' });
     }
 
-    const supabase = createClient(url, key);
+    const supabase = serviceClientFor(url, key);
     const { data: plan } = await supabase
       .from('billing_plans')
       .select('id, name, prices, sort_order')
@@ -554,7 +554,7 @@ billingRouter.post('/checkout', async (req, res) => {
     }
     const currency = iranProvider ? 'IRR' : (input.currency || 'USD').trim().toUpperCase();
 
-    const supabase = createClient(url, key);
+    const supabase = serviceClientFor(url, key);
     const { data: plan } = await supabase
       .from('billing_plans')
       .select('id, prices')
@@ -1143,7 +1143,7 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
     if (typeof v === 'string') headers[k] = v;
   }
 
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
 
   // Candidate configs: each workspace-scoped config, plus the platform default.
   // Verification is attempted against each; only the config whose secret
@@ -1298,7 +1298,7 @@ billingRouter.post('/subscription/cancel', async (req, res) => {
   if (!(await authorizeWorkspace(req, res, workspaceId, { manage: true }))) return;
   const { url, key } = getConfig(req);
 
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { data: sub } = await supabase
     .from('workspace_subscriptions')
     .select('*')
@@ -1336,7 +1336,7 @@ billingRouter.post('/subscription/resume', async (req, res) => {
   if (!(await authorizeWorkspace(req, res, workspaceId, { manage: true }))) return;
   const { url, key } = getConfig(req);
 
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { data: sub } = await supabase
     .from('workspace_subscriptions')
     .select('*')
@@ -1386,7 +1386,7 @@ billingRouter.post('/portal', async (req, res) => {
   if (!(await authorizeWorkspace(req, res, workspaceId, { manage: true }))) return;
   const { url, key } = getConfig(req);
 
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { data: sub } = await supabase
     .from('workspace_subscriptions')
     .select('*')
@@ -1454,7 +1454,7 @@ billingRouter.get('/entitlement', async (req, res) => {
 billingRouter.get('/events/:workspaceId', async (req, res) => {
   if (!(await authorizeWorkspace(req, res, req.params.workspaceId, { manage: true }))) return;
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { data, error } = await supabase
     .from('billing_events')
     .select('*')
@@ -1468,7 +1468,7 @@ billingRouter.get('/events/:workspaceId', async (req, res) => {
 // ─── Admin: GET /api/billing/admin/overview — platform billing overview ──
 billingRouter.get('/admin/overview', requireSuperAdmin, async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
 
   const [subs, payments, events, plans] = await Promise.all([
     supabase.from('workspace_subscriptions').select('*', { count: 'exact' }),
@@ -1528,7 +1528,7 @@ interface FinanceSubscriptionRow {
 
 billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
 
   const months = Math.min(Math.max(parseInt(String(req.query.months ?? '6'), 10) || 6, 1), 24);
   const since = new Date();
@@ -1650,7 +1650,7 @@ billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) =
 
 billingRouter.post('/admin/plans', requireSuperAdmin, async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const plan = req.body;
 
   if (plan.id) {
@@ -1699,7 +1699,7 @@ billingRouter.post('/admin/grant', requireSuperAdmin, async (req, res) => {
     throw guard;
   }
 
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { data, error } = await supabase.from('workspace_subscriptions').upsert({
     workspace_id: workspaceId,
     plan_id: planId,

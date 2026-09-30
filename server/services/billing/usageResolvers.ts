@@ -27,7 +27,7 @@
  * ============================================================
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { serviceClientFor } from '../../lib/serviceClient.js';
 import type { Request } from 'express';
 import type { ServerConfig } from '../../config.js';
 import { countJobsThisMonthDetailed } from '../ai-kb/limits.js';
@@ -73,7 +73,7 @@ export function currentMonthPeriod(now: Date = new Date()): string {
 }
 
 function makeClient(config: ServerConfig) {
-  return createClient(config.supabaseUrl, config.supabaseServiceRoleKey);
+  return serviceClientFor(config.supabaseUrl, config.supabaseServiceRoleKey);
 }
 
 // ─── Counter-backed resolver factory ────────────────────────

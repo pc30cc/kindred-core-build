@@ -10,7 +10,7 @@
 // allowance exactly once, bound to that period.
 // ============================================================
 
-import { createClient } from '@supabase/supabase-js';
+import { serviceClientFor } from '../../lib/serviceClient.js';
 import type { ServerConfig } from '../../config.js';
 
 type Interval = 'monthly' | 'yearly';
@@ -25,7 +25,7 @@ export async function adminGrantPlanV2(
   config: ServerConfig,
   input: { workspaceId: string; planId: string; expiresAt?: string | null; interval?: Interval },
 ) {
-  const sb = createClient(config.supabaseUrl, config.supabaseServiceRoleKey);
+  const sb = serviceClientFor(config.supabaseUrl, config.supabaseServiceRoleKey);
 
   const { data: plan, error: planError } = await sb
     .from('billing_plans')

@@ -4,7 +4,8 @@
 // ============================================
 
 import { Request, Response, NextFunction } from 'express';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { type SupabaseClient } from '@supabase/supabase-js';
+import { serviceClientFor } from '../lib/serviceClient.js';
 import type { ServerConfig } from '../config.js';
 import {
   parseEntitlementResponse,
@@ -119,26 +120,7 @@ function gateWorkspaceIdOrRespond(req: Request, res: Response, missingMessage: s
   return r.workspaceId;
 }
 
-/**
- * One service client per (url, key), reused.
- *
- * createClient() builds a fresh auth client and realtime client every time,
- * and these helpers run on gated requests — the module and channel checks
- * are not cached at all — so a busy API built and discarded a client per
- * request, each for a single RPC. The options match getServiceClient(): a
- * server-side client never holds a user session.
- */
-const serviceClients = new Map<string, SupabaseClient>();
-function serviceClientFor(supabaseUrl: string, serviceRoleKey: string): SupabaseClient {
-  const id = `${supabaseUrl}\u0000${serviceRoleKey}`;
-  let client = serviceClients.get(id);
-  if (!client) {
-    client = createClient(supabaseUrl, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } });
-    serviceClients.set(id, client);
-  }
-  return client;
-}
-
+// One service client per (url, key), reused: lib/serviceClient.
 function getSupabaseClient(req: Request) {
   const config = (req as GatedRequest).serverConfig;
   if (!config?.supabaseUrl || !config?.supabaseServiceRoleKey) return null;

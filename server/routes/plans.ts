@@ -4,7 +4,8 @@
  */
 
 import { Router, type Request } from 'express';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { type SupabaseClient } from '@supabase/supabase-js';
+import { serviceClientFor } from '../lib/serviceClient.js';
 import type { ServerConfig } from '../config.js';
 import {
   getWorkspacePlanInfoDetailed,
@@ -96,7 +97,7 @@ const PUBLIC_PLAN_COLUMNS =
 // GET /api/plans — list active plans
 plansRouter.get('/', async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { data, error } = await supabase
     .from('billing_plans')
     .select(PUBLIC_PLAN_COLUMNS)
@@ -148,7 +149,7 @@ plansRouter.get('/workspace/:workspaceId/effective', async (req, res) => {
   const { url, key } = getConfig(req);
   const { workspaceId } = req.params;
   if (!(await authorizeWorkspaceAccess(req, res, workspaceId))) return;
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   try {
     // A self-host install without the billing subsystem enforces nothing
     // (featureGating's documented unlimited mode), so it is shown everything.
@@ -224,7 +225,7 @@ plansRouter.get('/workspace/:workspaceId', async (req, res) => {
     if (!resolved.ok) return res.status(503).json(resolved);
     const info = resolved.value;
 
-    const supabase = createClient(url, key);
+    const supabase = serviceClientFor(url, key);
     const currentPeriod = new Date().toISOString().slice(0, 7);
     const { data: usage } = await supabase
       .from('workspace_usage_counters')
@@ -283,7 +284,7 @@ plansRouter.get('/workspace/:workspaceId/channels', async (req, res) => {
 plansRouter.get('/workspace/:workspaceId/usage', async (req, res) => {
   const { url, key } = getConfig(req);
   if (!(await authorizeWorkspaceAccess(req, res, req.params.workspaceId))) return;
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { data, error } = await supabase
     .from('workspace_usage_counters')
     .select('*')
@@ -300,7 +301,7 @@ plansRouter.get('/workspace/:workspaceId/usage', async (req, res) => {
 
 plansRouter.get('/admin/all', async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { data, error } = await supabase.from('billing_plans').select('*').order('sort_order');
   if (error) return res.status(500).json({ error: 'Request failed' });
   res.json({ plans: data || [] });
@@ -308,7 +309,7 @@ plansRouter.get('/admin/all', async (req, res) => {
 
 plansRouter.post('/admin', async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { name, slug, description, prices, entitlements, limits, is_free, is_active, sort_order, trial_days, default_currency, provider_price_ids, localized } = req.body;
   if (!name || !slug) return res.status(400).json({ error: 'name and slug are required' });
 
@@ -340,7 +341,7 @@ plansRouter.post('/admin', async (req, res) => {
 
 plansRouter.put('/admin/:planId', async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const updates = { ...req.body, updated_at: new Date().toISOString() };
   delete updates.id; delete updates.created_at;
 
@@ -382,7 +383,7 @@ plansRouter.put('/admin/:planId', async (req, res) => {
 
 plansRouter.delete('/admin/:planId', async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { data: previousPlan } = await supabase
     .from('billing_plans')
     .select('is_active, entitlements, limits')
@@ -418,7 +419,7 @@ plansRouter.post('/admin/assign', async (req, res) => {
   const { workspaceId, planId, status, expiresAt } = req.body;
   if (!workspaceId || !planId) return res.status(400).json({ error: 'Missing workspaceId or planId' });
 
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
 
   // Get old plan for change log
   const { data: oldSub } = await supabase
@@ -478,7 +479,7 @@ plansRouter.post('/admin/revoke', async (req, res) => {
   const { workspaceId } = req.body;
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
 
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
 
   // Log revocation
   const { data: oldSub } = await supabase
@@ -508,7 +509,7 @@ plansRouter.post('/admin/revoke', async (req, res) => {
 
 plansRouter.get('/admin/subscriptions', async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { data, error } = await supabase
     .from('workspace_subscriptions')
     .select('*')
@@ -538,7 +539,7 @@ plansRouter.get('/admin/subscriptions', async (req, res) => {
 
 plansRouter.get('/admin/overrides/:workspaceId', async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { workspaceId } = req.params;
 
   const [{ data: modules }, { data: channels }, { data: limits }] = await Promise.all([
@@ -552,7 +553,7 @@ plansRouter.get('/admin/overrides/:workspaceId', async (req, res) => {
 
 plansRouter.post('/admin/overrides/module', async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { workspaceId, moduleKey, enabled, adminNotes } = req.body;
 
   const { data, error } = await supabase
@@ -577,7 +578,7 @@ plansRouter.post('/admin/overrides/module', async (req, res) => {
 
 plansRouter.post('/admin/overrides/channel', async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { workspaceId, channelKey, enabled, adminNotes } = req.body;
 
   const { data, error } = await supabase
@@ -602,7 +603,7 @@ plansRouter.post('/admin/overrides/channel', async (req, res) => {
 
 plansRouter.delete('/admin/overrides/module/:id', async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   // Read first: removing a NEGATIVE `ai_assistant` override can re-enable AI,
   // which requires a workspace-scoped catch-up, not a blind cache clear.
   const { data: existing } = await supabase
@@ -626,7 +627,7 @@ plansRouter.delete('/admin/overrides/module/:id', async (req, res) => {
 
 plansRouter.delete('/admin/overrides/channel/:id', async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { data: existing } = await supabase
     .from('workspace_channel_overrides')
     .select('workspace_id, channel_key')
@@ -650,7 +651,7 @@ plansRouter.delete('/admin/overrides/channel/:id', async (req, res) => {
 // ─── Limit overrides (usage-backed numeric limits) ────────────────────
 plansRouter.post('/admin/overrides/limit', async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { workspaceId, limitKey, limitValue, adminNotes } = req.body || {};
 
   if (!workspaceId || !limitKey || typeof limitValue !== 'number' || !Number.isFinite(limitValue) || !Number.isInteger(limitValue)) {
@@ -689,7 +690,7 @@ plansRouter.post('/admin/overrides/limit', async (req, res) => {
 
 plansRouter.delete('/admin/overrides/limit/:id', async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { data: existing } = await supabase
     .from('workspace_limit_overrides')
     .select('workspace_id, limit_key')
@@ -716,7 +717,7 @@ plansRouter.delete('/admin/overrides/limit/:id', async (req, res) => {
 
 plansRouter.get('/admin/usage/:workspaceId', async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { data, error } = await supabase
     .from('workspace_usage_counters')
     .select('*')
@@ -729,7 +730,7 @@ plansRouter.get('/admin/usage/:workspaceId', async (req, res) => {
 
 plansRouter.post('/admin/usage/adjust', async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { workspaceId, counter, value, period } = req.body;
   const currentPeriod = period || new Date().toISOString().slice(0, 7);
 
@@ -753,7 +754,7 @@ plansRouter.post('/admin/usage/adjust', async (req, res) => {
 
 plansRouter.get('/admin/changes/:workspaceId', async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { data, error } = await supabase
     .from('plan_change_log')
     .select('*, old_plan:billing_plans!plan_change_log_old_plan_id_fkey(name, slug), new_plan:billing_plans!plan_change_log_new_plan_id_fkey(name, slug)')
@@ -778,7 +779,7 @@ plansRouter.post('/admin/validate', (req, res) => {
 // ─────────────────────────────────────────────────────────────
 plansRouter.get('/admin/diagnostics', async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
+  const supabase = serviceClientFor(url, key);
   const { data, error } = await supabase
     .from('billing_plans')
     .select('id, slug, entitlements, limits')

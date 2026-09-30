@@ -5,7 +5,8 @@
 // ============================================
 
 import type { ServerConfig } from '../../config.js';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { type SupabaseClient } from '@supabase/supabase-js';
+import { serviceClientFor } from '../../lib/serviceClient.js';
 import { sendViaResend } from './providers/resend.js';
 import { sendViaSendGrid } from './providers/sendgrid.js';
 import { sendViaSMTP } from './providers/smtp.js';
@@ -277,7 +278,7 @@ export async function sendPlatformEmail(
   config: ServerConfig,
   request: PlatformEmailRequest,
 ): Promise<SendResult> {
-  const supabase = createClient(config.supabaseUrl, config.supabaseServiceRoleKey);
+  const supabase = serviceClientFor(config.supabaseUrl, config.supabaseServiceRoleKey);
 
   const providerConfig = await resolveProviderConfig(supabase);
   const providerName = providerConfig?.provider_name || 'stub';
@@ -312,7 +313,7 @@ export async function sendEmail(
   config: ServerConfig,
   request: EmailRequest
 ): Promise<SendResult> {
-  const supabase = createClient(config.supabaseUrl, config.supabaseServiceRoleKey);
+  const supabase = serviceClientFor(config.supabaseUrl, config.supabaseServiceRoleKey);
 
   const { workspaceId, to, templateSlug, templateData, locale } = request;
 

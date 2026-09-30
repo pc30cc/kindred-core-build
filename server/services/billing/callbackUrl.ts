@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { serviceClientFor } from '../../lib/serviceClient.js';
 import type { ServerConfig } from '../../config.js';
 import { allowedOrigins } from '../platformOrigins.js';
 
@@ -82,7 +82,7 @@ export async function resolvePublicApiOrigin(
   supabaseUrl: string,
   supabaseServiceRoleKey: string,
 ): Promise<string> {
-  const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
+  const supabase = serviceClientFor(supabaseUrl, supabaseServiceRoleKey);
   const { data } = await supabase
     .from('platform_domains')
     .select('app_base_url, api_base_url')

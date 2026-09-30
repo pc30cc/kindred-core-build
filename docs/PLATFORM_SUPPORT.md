@@ -23,10 +23,11 @@ own inbox, with the tools it already has.
     and `platform_workspace_name`.
   - The inbox labels these conversations **"Site user"** (fa «کاربر سایت», tr
     «Site kullanıcısı»).
-- **The operator is not a member of the support workspace.** Everything they
-  read or write goes through `platform_support_threads`, keyed on their own
-  user id. A member of the support workspace is never offered support; that
-  is their own inbox.
+- **Any operator may use it, the support team's own members included.**
+  Super Admin can try it from their own account. Everything the operator reads
+  or writes goes through `platform_support_threads`, keyed on their own user
+  id, never through the support workspace's membership. A team member who
+  writes to support gets no push about their own message.
 
 ## Delivery
 
@@ -94,7 +95,7 @@ type Message = {
 | Code | Status |
 | --- | --- |
 | `support_disabled`, `support_not_configured`, `thread_not_found` | 404 |
-| `support_member`, `thread_closed` | 409 |
+| `thread_closed` | 409 |
 | `tickets_disabled` | 403 |
 | `invalid_body`, `invalid_subject` | 400 |
 | `rate_limited` | 429 |

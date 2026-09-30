@@ -134,12 +134,15 @@ interface Context {
   supportWorkspaceId: string;
 }
 
-/** Support is on, answered by a workspace, and the caller is not on that team. */
-async function requireContext(config: ServerConfig, sb: ServiceClient, userId: string): Promise<Context> {
+/**
+ * Support is on and answered by a workspace. Every operator may use it, the
+ * support team's own members included: Super Admin tries it from their own
+ * account, and a colleague on the team can still ask it for help.
+ */
+async function requireContext(config: ServerConfig): Promise<Context> {
   const settings = await loadPlatformSupportSettings(config);
   if (!settings.enabled) throw new SupportError(404, 'support_disabled');
   if (!settings.workspaceId) throw new SupportError(404, 'support_not_configured');
-  if (await isMember(sb, settings.workspaceId, userId)) throw new SupportError(409, 'support_member');
   return { settings, supportWorkspaceId: settings.workspaceId };
 }
 
@@ -151,12 +154,7 @@ export async function supportStatus(
   const settings = await loadPlatformSupportSettings(config);
   const off: SupportStatus = { enabled: false, available: false, online: false, ticketsEnabled: false, teamName: null };
   if (!settings.enabled || !settings.workspaceId) return off;
-  const sb = getServiceClient(config);
-  const [member, teamName] = await Promise.all([
-    isMember(sb, settings.workspaceId, userId),
-    workspaceName(sb, settings.workspaceId),
-  ]);
-  if (member) return { ...off, enabled: true, teamName };
+  const teamName = await workspaceName(getServiceClient(config), settings.workspaceId);
   let online = false;
   try {
     // The website widget's own rule — business hours, and whether anybody
@@ -635,6 +633,8 @@ async function postRequesterMessage(
       text: input.body,
       senderName: input.requester.name,
       channel: SUPPORT_CHANNEL,
+      // A team member writing to support is not told about their own message.
+      actorId: input.requester.userId,
     });
     // The operator's other devices.
     void memberWorkspaceIds(sb, input.requester.userId).then((workspaces) =>
@@ -666,7 +666,7 @@ export async function sendChatMessage(
 ): Promise<{ thread: SupportThreadView; message: SupportMessageView }> {
   const sb = getServiceClient(config);
   const { body, clientMessageId, sourceWorkspaceId } = readWrite(input);
-  const ctx = await requireContext(config, sb, userId);
+  const ctx = await requireContext(config);
   if (!messageLimiter.take(userId)) throw new SupportError(429, 'rate_limited');
   const requester = await loadRequester(config, sb, userId, sourceWorkspaceId);
   const contactId = await ensureRequesterContact(sb, ctx.supportWorkspaceId, requester);
@@ -709,7 +709,7 @@ export async function createTicket(
   const { body, clientMessageId, sourceWorkspaceId } = readWrite(input);
   const subject = normalizeSubject(input.subject);
   if (!subject) throw new SupportError(400, 'invalid_subject');
-  const ctx = await requireContext(config, sb, userId);
+  const ctx = await requireContext(config);
   if (!ctx.settings.ticketsEnabled) throw new SupportError(403, 'tickets_disabled');
   if (!ticketLimiter.take(userId)) throw new SupportError(429, 'rate_limited');
   const requester = await loadRequester(config, sb, userId, sourceWorkspaceId);

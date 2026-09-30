@@ -16,8 +16,8 @@
  *   POST /threads/:id/read           → { ok: true }
  *
  * Errors are `{ error: <code> }`: support_disabled, support_not_configured,
- * support_member, tickets_disabled, invalid_body, invalid_subject,
- * thread_not_found, thread_closed, rate_limited.
+ * tickets_disabled, invalid_body, invalid_subject, thread_not_found,
+ * thread_closed, rate_limited.
  */
 import { Router } from 'express';
 import type { Request, Response } from 'express';

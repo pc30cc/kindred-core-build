@@ -143,7 +143,6 @@ object A11y {
     fun messageStatus(id: String) = "message.status.$id"
     const val SETTINGS_LIST = "settings.list"
     const val SETTINGS_VERSION = "settings.version"
-    const val SETTINGS_SITE = "settings.site"
     /** Settings › Online support: the one row, which opens the chat. */
     const val SETTINGS_SUPPORT_CHAT = "settings.support.chat"
     /** The support chat: its transcript, its composer, and what sits around them. */

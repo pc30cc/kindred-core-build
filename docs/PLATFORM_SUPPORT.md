@@ -220,9 +220,8 @@ hides the section in the Android app without a new build.
 - **Android:** Settings → Online support, one row. It opens the chat.
   - The section appears when `enabled && available` and `showSupport`.
   - Offline, a banner says "leave a message" and lists the hours.
-  - Settings ends with the version in small type, the platform's website
-    (`canonicalBaseUrl` from `/api/platform/origins`) and «WEBYAR AI»; there
-    is no About section.
+  - Settings ends just under its last row with «WEBYAR AI» and the version
+    under it in small type; there is no About section.
   - The bar shows the support workspace's logo (`teamAvatar`; a headset
     while it has none) and its presence.
   - On arrival, the chat shows the open conversation, or, with none open, a

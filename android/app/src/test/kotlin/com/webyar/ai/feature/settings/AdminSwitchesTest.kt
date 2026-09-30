@@ -46,8 +46,6 @@ class AdminSwitchesTest {
         showNotifications: Boolean = true,
         showSecurity: Boolean = true,
         onClearCache: (() -> Unit)? = {},
-        siteUrl: String? = null,
-        onOpenSite: (String) -> Unit = {},
     ) = compose.setContent {
         SettingsScreen(
             language = en,
@@ -72,8 +70,6 @@ class AdminSwitchesTest {
             onClearCache = onClearCache,
             showNotifications = showNotifications,
             showSecurity = showSecurity,
-            siteUrl = siteUrl,
-            onOpenSite = onOpenSite,
         )
     }
 
@@ -111,31 +107,19 @@ class AdminSwitchesTest {
         compose.onNodeWithText(Str.notifications(en)).assertDoesNotExist()
     }
 
-    /**
-     * No About section: under the last row, the version in small type, the
-     * platform's website, and the name last of all.
-     */
+    /** No About section: just under the last row, the name and the version under it. */
     @Test
-    fun `the foot of Settings is the version, the website and the name`() {
-        var opened: String? = null
-        settings(siteUrl = "https://webyar.ai", onOpenSite = { opened = it })
+    fun `the foot of Settings is the name, then the version`() {
+        settings()
         compose.onNodeWithText(Str.about(en)).assertDoesNotExist()
-        compose.onNodeWithTag(A11y.SETTINGS_LIST).performScrollToNode(hasTestTag(A11y.BRAND_FOOTER))
-        compose.onNodeWithTag(A11y.SETTINGS_VERSION).assertIsDisplayed()
-        compose.onNodeWithText("${Str.version(en)} 1.0 (1)").assertIsDisplayed()
-        compose.onNodeWithText("webyar.ai").assertIsDisplayed()
-        compose.onNodeWithTag(A11y.SETTINGS_SITE).performClick()
-        assertEquals("https://webyar.ai", opened)
+        compose.onNodeWithTag(A11y.SETTINGS_LIST).performScrollToNode(hasTestTag(A11y.SETTINGS_VERSION))
         compose.onNodeWithTag(A11y.BRAND_FOOTER).assertIsDisplayed()
-    }
-
-    /** With no website known, the version and the name stand alone. */
-    @Test
-    fun `no website leaves only the version and the name`() {
-        settings(siteUrl = null)
-        compose.onNodeWithTag(A11y.SETTINGS_SITE).assertDoesNotExist()
-        compose.onNodeWithTag(A11y.SETTINGS_LIST).performScrollToNode(hasTestTag(A11y.BRAND_FOOTER))
-        compose.onNodeWithTag(A11y.SETTINGS_VERSION).assertIsDisplayed()
+        compose.onNodeWithText("${Str.version(en)} 1.0 (1)").assertIsDisplayed()
+        val name = compose.onNodeWithTag(A11y.BRAND_FOOTER).fetchSemanticsNode().boundsInRoot
+        val version = compose.onNodeWithTag(A11y.SETTINGS_VERSION).fetchSemanticsNode().boundsInRoot
+        assertTrue("the version sits under the name", version.top >= name.bottom)
+        // No website any more.
+        compose.onNodeWithText("webyar.ai").assertDoesNotExist()
     }
 
     // MARK: - Profile

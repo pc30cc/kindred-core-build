@@ -12,8 +12,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.webyar.ai.core.storage.GeneratedConfig
-import com.webyar.ai.core.storage.PlatformOrigin
 import com.webyar.ai.feature.chat.ChatScreen
 import com.webyar.ai.feature.contacts.ContactDetailScreen
 import com.webyar.ai.feature.contacts.ContactsScreen
@@ -39,7 +37,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TopAppBar
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import com.webyar.ai.feature.settings.AccountViewModel
 import com.webyar.ai.feature.settings.ProfileScreen
 import com.webyar.ai.feature.settings.SecurityScreen
@@ -1884,12 +1881,6 @@ fun SettingsRoute(
         if (config.showStorage) storage = graph?.storageUsage()
     }
 
-    // The platform's website, at the foot of the list.
-    var siteUrl by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(graph) {
-        siteUrl = graph?.let { PlatformOrigin(it.secureStore).siteUrl() } ?: GeneratedConfig.SITE_URL
-    }
-    val uriHandler = LocalUriHandler.current
 
     SettingsScreen(
         language = language,
@@ -1925,9 +1916,7 @@ fun SettingsRoute(
         onSetDynamicColor = appState::setDynamicColor,
         showNotifications = config.showNotificationSettings,
         showSecurity = config.showSecurity,
-        siteUrl = siteUrl,
         // A phone with no browser has nothing to open it with; the tap does nothing.
-        onOpenSite = { url -> runCatching { uriHandler.openUri(url) } },
         support = supportSummary,
         onOpenSupportChat = onOpenSupportChat,
         storage = storage,

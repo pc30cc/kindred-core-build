@@ -22,7 +22,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.ExitToApp
@@ -44,7 +43,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -128,9 +126,6 @@ fun SettingsScreen(
     showNotifications: Boolean = true,
     /** …and the Security row. With both gone, so is their section. */
     showSecurity: Boolean = true,
-    /** The platform's website, at the foot of the list; null leaves it out. */
-    siteUrl: String? = null,
-    onOpenSite: (String) -> Unit = {},
     /** Online support: null (or nothing to offer) leaves the section out. */
     support: SupportSummary? = null,
     onOpenSupportChat: () -> Unit = {},
@@ -358,7 +353,7 @@ fun SettingsScreen(
             }
         }
 
-        item(key = "footer") { SettingsFooter(appVersion, siteUrl, language, onOpenSite) }
+        item(key = "footer") { SettingsFooter(appVersion, language) }
     }
 
     if (confirmingClear && onClearCache != null) {
@@ -401,38 +396,25 @@ fun SettingsScreen(
 }
 
 /**
- * The foot of Settings, under its last row: the version in small type, the
- * platform's website, and — last of all — the name, as the loading screen
- * signs itself.
+ * The foot of Settings, just under its last row: the name, as the loading
+ * screen signs itself, and the version under it in small type.
  */
 @Composable
-private fun SettingsFooter(appVersion: String, siteUrl: String?, language: Language, onOpenSite: (String) -> Unit) {
+private fun SettingsFooter(appVersion: String, language: Language) {
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(top = Space.xl, bottom = Space.lg),
+            .padding(top = Space.lg, bottom = Space.md),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(Space.xs),
+        verticalArrangement = Arrangement.spacedBy(Space.xxs),
     ) {
+        BrandFooter()
         Text(
             "${Str.version(language)} $appVersion",
             style = MaterialTheme.typography.labelSmall,
             color = WebyarTheme.colors.labelTertiary,
             modifier = Modifier.testTag(A11y.SETTINGS_VERSION),
         )
-        siteUrl?.let { url ->
-            Text(
-                url.removePrefix("https://").removePrefix("www.").trimEnd('/'),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(Radius.sm))
-                    .clickable(role = Role.Button) { onOpenSite(url) }
-                    .padding(horizontal = Space.sm, vertical = Space.xxs)
-                    .testTag(A11y.SETTINGS_SITE),
-            )
-        }
-        BrandFooter(Modifier.padding(top = Space.md))
     }
 }
 

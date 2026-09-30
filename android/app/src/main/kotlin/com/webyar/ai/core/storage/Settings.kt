@@ -64,7 +64,6 @@ class SessionCache(private val store: SecureStore) {
  */
 class PlatformOrigin(private val store: SecureStore) {
     private val originKey = stringPreferencesKey("platform.apiOrigin")
-    private val siteKey = stringPreferencesKey("platform.siteURL")
 
     /** The origin to use right now. Only https is ever adopted. */
     suspend fun current(): String =
@@ -79,12 +78,6 @@ class PlatformOrigin(private val store: SecureStore) {
 
     suspend fun forget() = store.remove(originKey)
 
-    /** The platform's website, at the foot of Settings (Super Admin → Branding → Domains). */
-    suspend fun siteUrl(): String = store.read(siteKey)?.takeIf { it.startsWith("https://") } ?: GeneratedConfig.SITE_URL
-
-    suspend fun rememberSite(url: String?) {
-        if (url != null && url.startsWith("https://")) store.write(siteKey, url)
-    }
 }
 
 /**
@@ -97,7 +90,4 @@ class PlatformOrigin(private val store: SecureStore) {
  */
 object GeneratedConfig {
     const val API_BASE_URL = "https://api.webyar.ai"
-
-    /** The website until the platform has said where its own is. */
-    const val SITE_URL = "https://webyar.ai"
 }

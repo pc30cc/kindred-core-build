@@ -7,8 +7,9 @@
 > `windows-native/Directory.Build.props` only numbers everyday builds. The **Windows app (native)**
 > workflow tests, builds and publishes the Velopack feed plus
 > `Webyar-Setup.exe` to `pc30cc/webyar-desktop-releases`, using the
-> `DESKTOP_RELEASES_TOKEN` secret. Installed apps pick it up by themselves.
-> Finally copy `Webyar-Setup.exe` to the downloads host (section 5).
+> `DESKTOP_RELEASES_TOKEN` secret. Within 5 minutes the downloads host mirrors
+> it onto `https://app.webyar.ai/downloads/` (installer and update feed;
+> section 5), and installed apps pick it up from there by themselves.
 
 این راهنما می‌گوید نسخه‌ی جدید اپ ویندوز چطور منتشر می‌شود و اپ‌های نصب‌شده چطور خودشان را آپدیت می‌کنند.
 
@@ -16,9 +17,10 @@
 
 ## ۱. آپدیت خودکار چطور کار می‌کند
 
-- **فید آپدیت:** مخزن عمومی
+- **فید آپدیت روی سایت است:** `https://app.webyar.ai/downloads/windows`. اپ‌های ۲.۶.۱ به بعد آپدیت را از همین‌جا می‌گیرند، حتی وقتی در سوپر ادمین آدرس گیت‌هاب نوشته شده باشد (محتوا یکی است). فقط کانال `beta` هنوز مستقیم از گیت‌هاب می‌خواند.
+- **انبار ساخت:** CI هر نسخه را در مخزن عمومی
   [`pc30cc/webyar-desktop-releases`](https://github.com/pc30cc/webyar-desktop-releases)
-  است. هر نسخه یک GitHub Release است با تگ `v<نسخه>` (نسخه‌ها تا ۲.۵.۰ با تگ `native-v<نسخه>`). CI این تگ را خودش می‌سازد.
+  می‌گذارد و سرور سایت هر ۵ دقیقه نسخه‌های جدید را از آن‌جا روی سایت کپی می‌کند (بخش ۵). هر نسخه یک GitHub Release است با تگ `v<نسخه>` (نسخه‌ها تا ۲.۵.۰ با تگ `native-v<نسخه>`). CI این تگ را خودش می‌سازد.
   اپ‌های نصب‌شده شماره‌ی نسخه را از همین تگ می‌خوانند. اپ‌های تا ۲.۵.۰ فقط تگی را می‌فهمند که خودِ نسخه باشد (با یک `v` در ابتدا).
 - **تنظیمات در سوپر ادمین:** بخش «Windows app» در سوپر ادمین (جدول `desktop_app_settings`) این‌ها را تعیین می‌کند:
   - آدرس فید (`update_feed_url`)
@@ -51,9 +53,11 @@
      `DESKTOP_RELEASES_TOKEN is not set` متوقف می‌شود.
 2. **مخزن `webyar-desktop-releases` حداقل یک commit داشته باشد** (مثلاً یک `README.md`).
    در مخزن خالی GitHub نمی‌تواند تگ بسازد، پس ریلیز به‌صورت **draft** می‌ماند. اپ‌های نصب‌شده draft را نمی‌بینند.
-3. در سوپر ادمین آپدیت خودکار روشن باشد و آدرس فید یکی از این دو باشد:
+3. در سوپر ادمین آپدیت خودکار روشن باشد و آدرس فید یکی از این‌ها باشد:
+   `https://app.webyar.ai/downloads/windows` (پیشنهادی، از ۲.۶.۱)،
    `https://github.com/pc30cc/webyar-desktop-releases` یا
    `https://github.com/pc30cc/webyar-desktop-releases/releases/latest/download`.
+   اپ‌های قدیمی‌تر از ۲.۶.۱ آدرس سایت را نمی‌شناسند؛ تا وقتی همه آپدیت نشده‌اند آدرس گیت‌هاب را نگه دارید.
 
 ## ۳. مراحل انتشار هر نسخه
 
@@ -75,7 +79,7 @@
 4. **بررسی کنید.** در
    <https://github.com/pc30cc/webyar-desktop-releases/releases>
    ریلیز «Webyar 2.4.2» باید `Webyar-Setup.exe`، `releases.win.json` و فایل‌های `.nupkg` را داشته باشد.
-5. **صفحه‌ی دانلود سایت را به‌روز کنید** (بخش ۵).
+5. **کار دیگری لازم نیست:** حداکثر ۵ دقیقه بعد نسخه روی سایت است (بخش ۵).
 
 ## ۴. اگر مشکلی پیش آمد
 
@@ -89,19 +93,22 @@
 | jobها در چند ثانیه fail شدند و runner نگرفتند | مشکل GitHub است؛ یک بار «Re-run» بزنید. |
 | اپ آپدیت نمی‌شود | ۱) نسخه‌ی منتشرشده از نسخه‌ی نصب‌شده بزرگ‌تر باشد؛ ۲) در سوپر ادمین آپدیت خودکار روشن و فید درست باشد؛ ۳) اپ با `Webyar-Setup.exe` نصب شده باشد، نه کپی دستی یا portable. |
 
-## ۵. صفحه‌ی دانلود سایت (`app.webyar.ai/downloads`)
+## ۵. انتشار روی سایت (`app.webyar.ai/downloads`)
 
-لینک‌های `https://app.webyar.ai/downloads/Webyar-Setup.exe` (آخرین نسخه) و
-`…/Webyar-Setup-<نسخه>.exe` از سرور production (`analyticsme.site`) سرو می‌شوند. جزئیات راه‌اندازی در
-`deploy/windows-downloads/README.md` است. بعد از هر انتشار، روی سرور:
+همه‌چیز از سرور production (`analyticsme.site`) سرو می‌شود و **خودکار** است:
+
+- `https://app.webyar.ai/downloads/Webyar-Setup.exe` (آخرین نسخه) و `…/Webyar-Setup-<نسخه>.exe`
+- فید آپدیت اپ‌ها: `https://app.webyar.ai/downloads/windows/releases.win.json` و فایل‌های `.nupkg`
+
+اسکریپت `/data/webyar-downloads/sync-windows.sh` با تایمر systemd به نام `webyar-windows-sync` هر ۵ دقیقه
+ریلیزهای جدید `webyar-desktop-releases` را روی سایت کپی می‌کند. برای اجرای فوری روی سرور:
 
 ```sh
-v=2.4.2
-cd /data/webyar-downloads/files
-curl -fL -o "Webyar-Setup-$v.exe" \
-  "https://github.com/pc30cc/webyar-desktop-releases/releases/download/v$v/Webyar-Setup.exe"
-ln -sf "Webyar-Setup-$v.exe" Webyar-Setup.exe
+systemctl start webyar-windows-sync
+journalctl -u webyar-windows-sync -n 20
 ```
+
+جزئیات راه‌اندازی در `deploy/windows-downloads/README.md` است.
 
 ## ۶. نصب اولیه روی یک کامپیوتر
 

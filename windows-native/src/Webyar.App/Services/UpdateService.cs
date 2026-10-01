@@ -79,7 +79,7 @@ public sealed partial class UpdateService : ObservableObject
     private bool _required;
 
     /// <summary>Where releases are published when Super Admin names no feed.</summary>
-    public const string DefaultFeed = "https://github.com/pc30cc/webyar-desktop-releases";
+    public const string DefaultFeed = UpdateFeeds.SiteFeed;
 
     /// <summary>
     /// Extra https feed folders this build trusts, fixed at build time:
@@ -99,8 +99,10 @@ public sealed partial class UpdateService : ObservableObject
     internal static IUpdateSource? SourceFor(string feed, bool prerelease)
     {
         // https://github.com/<owner>/<repo>, or any page under it such as …/releases/latest/download.
-        if (UpdateFeeds.TrustedGithubRepo(feed) is { } repo) return new GithubSource(repo, null, prerelease);
-        if (UpdateFeeds.IsTrustedWebFeed(feed, ExtraFeeds)) return new SimpleWebSource(feed);
+        // The official GitHub feed is read from the site's mirror of it: the apps update from
+        // app.webyar.ai, not GitHub. Beta builds (pre-releases) are not mirrored, so they still come from GitHub.
+        if (UpdateFeeds.TrustedGithubRepo(feed) is { } repo) return prerelease ? new GithubSource(repo, null, true) : new SimpleWebSource(UpdateFeeds.SiteFeed);
+        if (UpdateFeeds.IsTrustedWebFeed(feed, ExtraFeeds.Concat(UpdateFeeds.BuiltInWebFeeds))) return new SimpleWebSource(feed);
         return null;
     }
 

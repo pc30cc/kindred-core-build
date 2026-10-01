@@ -50,4 +50,13 @@ public class UpdateFeedsTests
         Assert.False(UpdateFeeds.IsTrusted("https://updates.example.com/win/%2e%2e/other", extras));
         Assert.False(UpdateFeeds.IsTrusted("http://updates.example.com/win", extras));
     }
+
+    [Fact]
+    public void The_site_mirror_is_trusted_without_build_time_extras()
+    {
+        Assert.True(UpdateFeeds.IsTrusted("https://app.webyar.ai/downloads/windows", NoExtras));
+        Assert.True(UpdateFeeds.IsTrusted("https://app.webyar.ai/downloads/windows/", NoExtras));
+        Assert.False(UpdateFeeds.IsTrusted("https://app.webyar.ai/downloads/other", NoExtras));
+        Assert.False(UpdateFeeds.IsTrusted("http://app.webyar.ai/downloads/windows", NoExtras));
+    }
 }

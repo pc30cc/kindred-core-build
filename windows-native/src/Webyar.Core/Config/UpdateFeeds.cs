@@ -17,6 +17,16 @@ public static class UpdateFeeds
     /// </summary>
     public static readonly IReadOnlyList<string> GithubRepos = ["pc30cc/webyar-desktop-releases"];
 
+    /// <summary>
+    /// The site's copy of the official feed: every release is mirrored from the GitHub
+    /// repository onto https://app.webyar.ai/downloads/windows/ (deploy/windows-downloads/
+    /// sync-windows.sh), and the apps update from there, not from GitHub.
+    /// </summary>
+    public const string SiteFeed = "https://app.webyar.ai/downloads/windows";
+
+    /// <summary>Web folders every build trusts, besides any added at build time.</summary>
+    public static readonly IReadOnlyList<string> BuiltInWebFeeds = [SiteFeed];
+
     /// <summary>The GitHub repository a trusted feed names, as https://github.com/owner/repo; null for any other URL.</summary>
     public static string? TrustedGithubRepo(string? feed)
     {
@@ -51,7 +61,7 @@ public static class UpdateFeeds
 
     /// <summary>Whether a feed may be used at all: a trusted GitHub repository or a trusted web folder.</summary>
     public static bool IsTrusted(string? feed, IEnumerable<string> webPrefixes) =>
-        TrustedGithubRepo(feed) is not null || IsTrustedWebFeed(feed, webPrefixes);
+        TrustedGithubRepo(feed) is not null || IsTrustedWebFeed(feed, webPrefixes.Concat(BuiltInWebFeeds));
 
     private static string WithSlash(string path) => path.EndsWith('/') ? path : path + "/";
 

@@ -1,4 +1,4 @@
-# App downloads (Windows installer, Mac DMG; the Android APK ships with the site)
+# App downloads (Windows installer and update feed, Mac DMG; the Android APK ships with the site)
 
 `https://app.webyar.ai/downloads/Webyar-Setup.exe` (latest) and
 `https://app.webyar.ai/downloads/Webyar-Setup-<version>.exe` are served from the
@@ -15,7 +15,8 @@ behind Cloudflare):
   `/etc/nginx/conf.d/default.conf` and the files directory at `/data` (read-only).
 - Routing: `traefik-webyar-downloads.yaml` from this folder lives at
   `/data/coolify/proxy/dynamic/webyar-downloads.yaml`. It matches only
-  `/downloads/Webyar-Setup*.exe` and `/downloads/Webyar-Mac*.dmg`; everything
+  `/downloads/Webyar-Setup*.exe`, `/downloads/Webyar-Mac*.dmg` and the update
+  feed under `/downloads/windows/`; everything
   else under `/downloads/` (the plugins, the Android APK) reaches the frontend.
 
 Recreate the container:
@@ -26,9 +27,25 @@ Recreate the container:
       -v /data/webyar-downloads/nginx.conf:/etc/nginx/conf.d/default.conf:ro \
       nginx:alpine
 
-Publish a new version: copy `Webyar-Setup.exe` from `windows-native/releases/`
-to `/data/webyar-downloads/files/Webyar-Setup-<version>.exe`, then
-`ln -sf Webyar-Setup-<version>.exe /data/webyar-downloads/files/Webyar-Setup.exe`.
+Publishing is automatic. CI builds each release and uploads it to
+`github.com/pc30cc/webyar-desktop-releases` (it has no way into this host);
+`sync-windows.sh` from this folder, run every 5 minutes by the systemd timer
+`webyar-windows-sync`, copies every new release here:
+
+- `Webyar-Setup-<version>.exe`, and moves the `Webyar-Setup.exe` symlink to it;
+- the Velopack update feed into `files/windows/` — the `.nupkg` packages first,
+  then `releases.win.json` and `RELEASES`, so the index never names a missing
+  file. The installed apps (2.6.1 and later) update from
+  `https://app.webyar.ai/downloads/windows`; the newest 12 packages are kept.
+
+Install or reinstall the mirror on the host:
+
+    cp sync-windows.sh /data/webyar-downloads/ && chmod +x /data/webyar-downloads/sync-windows.sh
+    cp webyar-windows-sync.service webyar-windows-sync.timer /etc/systemd/system/
+    systemctl daemon-reload && systemctl enable --now webyar-windows-sync.timer
+
+Run it now instead of waiting: `systemctl start webyar-windows-sync`; its
+output is in `journalctl -u webyar-windows-sync`.
 
 ## The Android app
 

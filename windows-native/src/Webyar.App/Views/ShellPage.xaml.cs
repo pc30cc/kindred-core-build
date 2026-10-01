@@ -546,7 +546,8 @@ public sealed partial class ShellPage : Page
         if (ContentFrame.Content is InboxPage && Nav.SelectedItem is NavigationViewItem { Tag: string t } && (t == "inbox" || t.StartsWith("inbox/", StringComparison.Ordinal) || t.StartsWith("channel/", StringComparison.Ordinal))) return;
         object want = ContentFrame.Content switch
         {
-            SettingsPage => Nav.SettingsItem,
+            // Online support opens from Settings, and stays under it.
+            SettingsPage or SupportPage => Nav.SettingsItem,
             ContactsPage => ContactsItem,
             VisitorsPage => VisitorsItem,
             AnalyticsPage => AnalyticsItem,

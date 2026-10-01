@@ -1,11 +1,14 @@
 using System.ComponentModel;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using Webyar.App.Helpers;
 using Webyar.App.Services;
 using Webyar.App.ViewModels;
 using Webyar.Core.Api;
 using Webyar.Core.Localization;
+using Webyar.Core.Support;
 
 namespace Webyar.App.Views;
 
@@ -41,6 +44,7 @@ public sealed partial class SettingsPage : Page
         Host.MeChanged += OnMeChanged;
         Host.Updates.PropertyChanged += OnUpdateChanged;
         ShowUpdate();
+        StartSupport();
         _ready = true;
     }
 
@@ -50,6 +54,7 @@ public sealed partial class SettingsPage : Page
         Host.Updates.PropertyChanged -= OnUpdateChanged;
         Host.PlatformChanged -= ShowStorage;
         Host.MeChanged -= OnMeChanged;
+        StopSupport();
     }
 
     /// <summary>The account arrived (or could not be read): its photo replaces the skeleton.</summary>
@@ -119,7 +124,80 @@ public sealed partial class SettingsPage : Page
         ClearCacheLabel.Text = s["clearCache"];
         ClearCacheHint.Text = s["clearCacheAllHint"];
         ClearCacheButton.Content = s["clearCache"];
+
+        SupportHeader.Text = s["supportSection"];
+        SupportLabel.Text = s["supportChat"];
+        AutomationProperties.SetName(SupportCard, s["supportChat"]);
     }
+
+    // ── Online support ──
+
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _supportTimer;
+    private CancellationTokenSource? _supportRead;
+
+    /// <summary>
+    /// The row shows at once from the last known status, then reads it again —
+    /// now, every minute while Settings is open ("online" is a clock as much as
+    /// an event), and on the team's realtime news.
+    /// </summary>
+    private void StartSupport()
+    {
+        ShowSupport(SupportPage.KnownStatus);
+        _ = ReadSupportAsync();
+        _supportTimer = DispatcherQueue.CreateTimer();
+        _supportTimer.Interval = TimeSpan.FromMinutes(1);
+        _supportTimer.Tick += (_, _) => _ = ReadSupportAsync();
+        _supportTimer.Start();
+        Host.InboxChanged += OnSupportNews;
+    }
+
+    private void StopSupport()
+    {
+        _supportTimer?.Stop();
+        _supportTimer = null;
+        _supportRead?.Cancel();
+        Host.InboxChanged -= OnSupportNews;
+    }
+
+    private void OnSupportNews(Core.Realtime.InboxEvent e)
+    {
+        if (e.Kind is { } kind && SupportRules.LiveKinds.Contains(kind)) _ = ReadSupportAsync();
+    }
+
+    private async Task ReadSupportAsync()
+    {
+        _supportRead?.Cancel();
+        var cts = _supportRead = new CancellationTokenSource();
+        try
+        {
+            var status = await Host.Api.SupportStatusAsync(cts.Token);
+            if (cts.IsCancellationRequested) return;
+            SupportPage.KnownStatus = status;
+            ShowSupport(status);
+        }
+        catch (Exception e) when (e is ApiException or OperationCanceledException)
+        {
+            // Kept as last shown; a support that cannot be reached stays out of the way.
+        }
+    }
+
+    /// <summary>Settings → Online support, when the server offers it: presence and the unread count.</summary>
+    private void ShowSupport(SupportStatus? status)
+    {
+        var shown = status is { Shown: true };
+        SupportHeader.Visibility = SupportCard.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
+        if (status is null || !shown) return;
+        var s = Host.Strings;
+        SupportPresence.Text = SupportRules.Presence(status.Online, s);
+        SupportPresence.Foreground = Palette.Resource(status.Online ? "SuccessBrush" : "Text2Brush");
+        SupportDot.Fill = Palette.Resource(status.Online ? "SuccessBrush" : "Text3Brush");
+        var unread = status.Unread > 0;
+        SupportUnread.Visibility = unread ? Visibility.Visible : Visibility.Collapsed;
+        SupportUnreadText.Text = Digits.Localize((status.Unread > 99 ? "99+" : status.Unread.ToString(System.Globalization.CultureInfo.InvariantCulture)), s.Language);
+        AutomationProperties.SetHelpText(SupportCard, unread ? s.Get("supportUnread", "n", status.Unread) : SupportPresence.Text);
+    }
+
+    private void OnOpenSupport(object sender, RoutedEventArgs e) => Frame.Navigate(typeof(SupportPage));
 
     private void OnLanguageChanged(object sender, SelectionChangedEventArgs e)
     {

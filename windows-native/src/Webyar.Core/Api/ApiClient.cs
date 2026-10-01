@@ -27,6 +27,8 @@ public sealed class ApiClient : IDisposable
         _http.Timeout = Timeout.InfiniteTimeSpan; // per request, below
         _http.DefaultRequestHeaders.UserAgent.ParseAdd($"Mozilla/5.0 (Windows NT 10.0; Win64; x64) WebyarWindows/{appVersion ?? "0"}");
         _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        // Which app wrote a message, as the other apps say it: the support team sees "Windows".
+        _http.DefaultRequestHeaders.Add("X-Client-Platform", "windows");
     }
 
     public Uri Origin
